@@ -16,5 +16,7 @@ Cargo.lock
 
 # Added by cargo
 
+/.idea
+/dist
 /target
 /Cargo.lock
