@@ -1,0 +1,40 @@
+[package]
+name = "trackreg"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
+description = "Object track registration library"
+homepage = "https://github.com/insight-platform/TrackReg"
+repository = "https://github.com/insight-platform/TrackReg"
+readme = "README.md"
+keywords = ["machine-learning", "tracking"]
+categories = ["algorithms", "data-structures", "computer-vision", "science"]
+license="Apache-2.0"
+rust-version = "1.66"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+itertools = "0.10"
+anyhow = "1.0"
+thiserror = "1.0"
+geo = "0.24"
+rayon = "1.7"
+env_logger = "0.10"
+
+[dependencies.pyo3]
+version = "0.18"
+features = ["extension-module"]
+
+[build-dependencies]
+pyo3-build-config = "0.18"
+
+[profile.release]
+opt-level = 3
+
+[profile.bench]
+opt-level = 3
+
+[package.metadata.maturin]
+python-source = "python"
