@@ -1,3 +1,3 @@
-# TrackReg
+# SavantPrimitives
 
-Rust Track Registration Library With Python API
+Savant Library with new generation primitives re-implemented in Rust
