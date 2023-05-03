@@ -1,5 +1,5 @@
 [package]
-name = "trackreg"
+name = "savant_primitives"
 version = "0.1.0"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
@@ -22,6 +22,8 @@ thiserror = "1.0"
 geo = "0.24"
 rayon = "1.7"
 env_logger = "0.10"
+rkyv = { version = "0.7", features = ["validation"] }
+
 
 [dependencies.pyo3]
 version = "0.18"
