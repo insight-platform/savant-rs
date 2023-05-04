@@ -171,4 +171,30 @@ mod tests {
         let area_err = rkyv::from_bytes::<PolygonalArea>(vec![1, 2, 3].as_slice());
         assert!(area_err.is_err());
     }
+
+    #[test]
+    fn contains_after_archive() {
+        pyo3::prepare_freethreaded_python();
+
+        let area = PolygonalArea::new(vec![
+            Point::new(-1.0, 1.0),
+            Point::new(1.0, 1.0),
+            Point::new(1.0, -1.0),
+            Point::new(-1.0, -1.0),
+        ]);
+        let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
+        let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
+        let p1 = Point::new(0.0, 0.0);
+        assert!(area.clone().contains(&p1));
+
+        assert_eq!(
+            area.clone().contains_many_points(vec![p1.clone()]),
+            vec![true]
+        );
+
+        assert_eq!(
+            PolygonalArea::contains_many_points_polys(vec![p1], vec![area]),
+            vec![vec![true]]
+        )
+    }
 }
