@@ -326,5 +326,15 @@ mod tests {
                 ]
             )
         );
+
+        let seg9 = LineSegment::new(Point::new(0.0, 1.0), Point::new(1.0, 0.0));
+        let res = area.intersects(&seg9);
+        assert_eq!(
+            res,
+            Intersection::new(
+                IntersectionKind::Inside,
+                vec![(0, Some(upper.into())), (1, None),]
+            )
+        );
     }
 }
