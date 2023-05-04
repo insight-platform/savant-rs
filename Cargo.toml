@@ -23,11 +23,11 @@ geo = "0.24"
 rayon = "1.7"
 env_logger = "0.10"
 rkyv = { version = "0.7", features = ["validation"] }
-
+numpy = "0.18"
+pyo3-log = "0.8"
 
 [dependencies.pyo3]
 version = "0.18"
-features = ["extension-module"]
 
 [build-dependencies]
 pyo3-build-config = "0.18"
@@ -40,3 +40,7 @@ opt-level = 3
 
 [package.metadata.maturin]
 python-source = "python"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]

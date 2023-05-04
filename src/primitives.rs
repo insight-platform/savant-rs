@@ -1,5 +1,6 @@
 use geo::{Contains, LineString};
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 
 #[pyclass]
@@ -59,20 +60,38 @@ impl PolygonalArea {
 
     pub fn contains(&mut self, p: &Point) -> bool {
         self.gen_poly();
+        self.contains_int(p)
+    }
+
+    pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
+        Python::with_gil(|py| {
+            self.gen_poly();
+            py.allow_threads(|| points.iter().map(|p| self.contains_int(p)).collect())
+        })
+    }
+
+    #[staticmethod]
+    pub fn contains_many_points_polys(points: Vec<Point>, polys: Vec<Self>) -> Vec<Vec<bool>> {
+        let pts = &points;
+        polys
+            .into_par_iter()
+            .map(|mut p| {
+                p.gen_poly();
+                pts.iter().map(|pt| p.contains_int(pt)).collect()
+            })
+            .collect()
+    }
+}
+
+impl PolygonalArea {
+    fn contains_int(&self, p: &Point) -> bool {
         self.polygon
             .as_ref()
             .unwrap()
             .contains(&geo::Point::from((p.x, p.y)))
     }
 
-    pub fn contains_many(&mut self, points: Vec<Point>) -> Vec<bool> {
-        self.gen_poly();
-        points.iter().map(|p| self.contains(p)).collect()
-    }
-}
-
-impl PolygonalArea {
-    fn gen_polygon(vertices: &Vec<Point>) -> geo::Polygon {
+    fn gen_polygon(vertices: &[Point]) -> geo::Polygon {
         geo::Polygon::new(
             LineString::from(
                 vertices
@@ -99,24 +118,38 @@ mod tests {
 
     #[test]
     fn contains() {
+        pyo3::prepare_freethreaded_python();
+
         let p1 = Point::new(0.0, 0.0);
         let p2 = Point::new(0.99, 0.0);
         let p3 = Point::new(1.0, 0.0);
-        let mut area = PolygonalArea::new(vec![
+        let mut area1 = PolygonalArea::new(vec![
             Point::new(-1.0, 1.0),
             Point::new(1.0, 1.0),
             Point::new(1.0, -1.0),
             Point::new(-1.0, -1.0),
         ]);
 
-        assert!(area.contains(&p1));
-        assert!(area.contains(&p2));
-        assert!(!area.contains(&p3));
+        let area2 = PolygonalArea::new(vec![
+            Point::new(-2.0, 1.0),
+            Point::new(0.0, 1.0),
+            Point::new(0.0, -1.0),
+            Point::new(-2.0, -1.0),
+        ]);
+
+        assert!(area1.contains(&p1));
+        assert!(area1.contains(&p2));
+        assert!(!area1.contains(&p3));
 
         assert_eq!(
-            area.contains_many(vec![p1, p2, p3]),
+            area1.contains_many_points(vec![p1.clone(), p2.clone(), p3.clone()]),
             vec![true, true, false]
         );
+
+        assert_eq!(
+            PolygonalArea::contains_many_points_polys(vec![p1, p2, p3], vec![area1, area2]),
+            vec![vec![true, true, false], vec![false, false, false]]
+        )
     }
 
     #[test]
