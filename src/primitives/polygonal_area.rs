@@ -318,7 +318,12 @@ mod tests {
             res,
             Intersection::new(
                 IntersectionKind::Inside,
-                vec![(0, Some(upper.into())), (1, None)]
+                vec![
+                    (0, Some(upper.into())),
+                    (1, None),
+                    (2, Some(lower.into())),
+                    (3, None)
+                ]
             )
         );
     }
