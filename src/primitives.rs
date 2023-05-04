@@ -1,9 +1,9 @@
-pub mod line_segment;
 pub mod point;
 pub mod polygonal_area;
+pub mod segment;
 
-pub use line_segment::Intersection;
-pub use line_segment::IntersectionKind;
-pub use line_segment::Segment;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
+pub use segment::Intersection;
+pub use segment::IntersectionKind;
+pub use segment::Segment;

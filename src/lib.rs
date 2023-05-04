@@ -4,7 +4,7 @@ use primitives::{Intersection, IntersectionKind, Point, PolygonalArea, Segment};
 use pyo3::prelude::*;
 
 #[pymodule]
-fn savant_primitives(_py: Python, m: &PyModule) -> PyResult<()> {
+fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
     // let _ = env_logger::try_init();
     m.add_class::<Point>()?;
