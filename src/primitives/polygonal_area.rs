@@ -1,14 +1,18 @@
 use crate::primitives::point::Point;
-use geo::{Contains, LineString};
+use crate::primitives::{Intersection, IntersectionKind, LineSegment};
+use geo::{Contains, Intersects, Line, LineString};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use std::sync::Arc;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
+#[derive(Archive, Deserialize, Serialize, Debug, Default, Clone)]
 #[archive(check_bytes)]
 pub struct PolygonalArea {
-    pub vertices: Vec<Point>,
+    pub vertices: Arc<Vec<Point>>,
+    pub tags: Arc<Option<Vec<Option<String>>>>,
     #[with(Skip)]
     polygon: Option<geo::Polygon>,
 }
@@ -27,30 +31,57 @@ impl PolygonalArea {
     }
 
     #[new]
-    pub fn new(vertices: Vec<Point>) -> Self {
+    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
+        if let Some(t) = &tags {
+            assert_eq!(vertices.len() - 1, t.len());
+        }
+
         let polygon = Some(Self::gen_polygon(&vertices));
-        Self { polygon, vertices }
+        Self {
+            polygon,
+            tags: Arc::new(tags),
+            vertices: Arc::new(vertices),
+        }
+    }
+
+    pub fn get_tag(&self, edge: usize) -> PyResult<Option<String>> {
+        let tags = self.tags.as_ref().as_ref();
+        match tags {
+            None => Ok(None),
+            Some(tags) => {
+                if tags.len() <= edge {
+                    Err(PyValueError::new_err(format!("Index {edge} out of range!")))
+                } else {
+                    Ok(tags.get(edge).unwrap().clone())
+                }
+            }
+        }
+    }
+
+    pub fn intersects(&mut self, seg: &LineSegment) -> Intersection {
+        self.build_polygon();
+        self.intersects_int(seg)
     }
 
     pub fn contains(&mut self, p: &Point) -> bool {
-        self.gen_poly();
+        self.build_polygon();
         self.contains_int(p)
     }
 
-    pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
+    pub fn contains_many_points_py(&mut self, points: Vec<Point>) -> Vec<bool> {
         Python::with_gil(|py| {
-            self.gen_poly();
+            self.build_polygon();
             py.allow_threads(|| points.iter().map(|p| self.contains_int(p)).collect())
         })
     }
 
     #[staticmethod]
-    pub fn contains_many_points_polys(points: Vec<Point>, polys: Vec<Self>) -> Vec<Vec<bool>> {
+    pub fn contains_many_points_polys_py(points: Vec<Point>, polys: Vec<Self>) -> Vec<Vec<bool>> {
         let pts = &points;
         polys
             .into_par_iter()
             .map(|mut p| {
-                p.gen_poly();
+                p.build_polygon();
                 pts.iter().map(|pt| p.contains_int(pt)).collect()
             })
             .collect()
@@ -58,7 +89,36 @@ impl PolygonalArea {
 }
 
 impl PolygonalArea {
-    fn contains_int(&self, p: &Point) -> bool {
+    pub fn intersects_int(&mut self, seg: &LineSegment) -> Intersection {
+        let seg = Line::from([(seg.begin.x, seg.begin.y), (seg.end.x, seg.end.y)]);
+        let poly = self.polygon.as_ref().unwrap();
+
+        let intersections = poly
+            .exterior()
+            .lines()
+            .enumerate()
+            .flat_map(|(indx, l)| if l.intersects(&seg) { Some(indx) } else { None })
+            .collect::<Vec<_>>();
+
+        let contains_start = poly.contains(&seg.start);
+        let contains_end = poly.contains(&seg.end);
+
+        Intersection::new(
+            match (contains_start, contains_end, intersections.is_empty()) {
+                (false, false, false) => IntersectionKind::Cross,
+                (false, false, true) => IntersectionKind::Outside,
+                (true, true, _) => IntersectionKind::Inside,
+                (true, false, _) => IntersectionKind::Leave,
+                (false, true, _) => IntersectionKind::Enter,
+            },
+            intersections
+                .iter()
+                .map(|i| (*i, self.get_tag(*i).unwrap()))
+                .collect(),
+        )
+    }
+
+    pub fn contains_int(&self, p: &Point) -> bool {
         self.polygon
             .as_ref()
             .unwrap()
@@ -77,7 +137,7 @@ impl PolygonalArea {
         )
     }
 
-    fn gen_poly(&mut self) {
+    pub fn build_polygon(&mut self) {
         let p = self
             .polygon
             .take()
@@ -93,12 +153,15 @@ mod tests {
 
     fn get_area1(xc: f64, yc: f64, l: f64) -> PolygonalArea {
         let l2 = l / 2.0;
-        PolygonalArea::new(vec![
-            Point::new(xc - l2, yc + l2),
-            Point::new(xc + l2, yc + l2),
-            Point::new(xc + l2, yc - l2),
-            Point::new(xc - l2, yc - l2),
-        ])
+        PolygonalArea::new(
+            vec![
+                Point::new(xc - l2, yc + l2),
+                Point::new(xc + l2, yc + l2),
+                Point::new(xc + l2, yc - l2),
+                Point::new(xc - l2, yc - l2),
+            ],
+            None,
+        )
     }
 
     #[test]
@@ -117,12 +180,12 @@ mod tests {
         assert!(!area1.contains(&p3));
 
         assert_eq!(
-            area1.contains_many_points(vec![p1.clone(), p2.clone(), p3.clone()]),
+            area1.contains_many_points_py(vec![p1.clone(), p2.clone(), p3.clone()]),
             vec![true, true, false]
         );
 
         assert_eq!(
-            PolygonalArea::contains_many_points_polys(vec![p1, p2, p3], vec![area1, area2]),
+            PolygonalArea::contains_many_points_polys_py(vec![p1, p2, p3], vec![area1, area2]),
             vec![vec![true, true, false], vec![false, false, false]]
         )
     }
@@ -146,12 +209,15 @@ mod tests {
     fn contains_after_archive() {
         pyo3::prepare_freethreaded_python();
 
-        let area = PolygonalArea::new(vec![
-            Point::new(-1.0, 1.0),
-            Point::new(1.0, 1.0),
-            Point::new(1.0, -1.0),
-            Point::new(-1.0, -1.0),
-        ]);
+        let area = PolygonalArea::new(
+            vec![
+                Point::new(-1.0, 1.0),
+                Point::new(1.0, 1.0),
+                Point::new(1.0, -1.0),
+                Point::new(-1.0, -1.0),
+            ],
+            None,
+        );
 
         let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
         let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
@@ -159,12 +225,12 @@ mod tests {
         assert!(area.clone().contains(&p1));
 
         assert_eq!(
-            area.clone().contains_many_points(vec![p1.clone()]),
+            area.clone().contains_many_points_py(vec![p1.clone()]),
             vec![true]
         );
 
         assert_eq!(
-            PolygonalArea::contains_many_points_polys(vec![p1], vec![area]),
+            PolygonalArea::contains_many_points_polys_py(vec![p1], vec![area]),
             vec![vec![true]]
         )
     }
