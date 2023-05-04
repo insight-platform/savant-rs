@@ -5,13 +5,13 @@ use rkyv::{Archive, Deserialize, Serialize};
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub struct LineSegment {
+pub struct Segment {
     pub begin: Point,
     pub end: Point,
 }
 
 #[pymethods]
-impl LineSegment {
+impl Segment {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
