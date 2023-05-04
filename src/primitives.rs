@@ -116,6 +116,16 @@ impl PolygonalArea {
 mod tests {
     use crate::primitives::{Point, PolygonalArea};
 
+    fn get_area1(xc: f64, yc: f64, l: f64) -> PolygonalArea {
+        let l2 = l / 2.0;
+        PolygonalArea::new(vec![
+            Point::new(xc - l2, yc + l2),
+            Point::new(xc + l2, yc + l2),
+            Point::new(xc + l2, yc - l2),
+            Point::new(xc - l2, yc - l2),
+        ])
+    }
+
     #[test]
     fn contains() {
         pyo3::prepare_freethreaded_python();
@@ -123,19 +133,9 @@ mod tests {
         let p1 = Point::new(0.0, 0.0);
         let p2 = Point::new(0.99, 0.0);
         let p3 = Point::new(1.0, 0.0);
-        let mut area1 = PolygonalArea::new(vec![
-            Point::new(-1.0, 1.0),
-            Point::new(1.0, 1.0),
-            Point::new(1.0, -1.0),
-            Point::new(-1.0, -1.0),
-        ]);
 
-        let area2 = PolygonalArea::new(vec![
-            Point::new(-2.0, 1.0),
-            Point::new(0.0, 1.0),
-            Point::new(0.0, -1.0),
-            Point::new(-2.0, -1.0),
-        ]);
+        let mut area1 = get_area1(0.0, 0.0, 2.0);
+        let area2 = get_area1(-1.0, 0.0, 2.0);
 
         assert!(area1.contains(&p1));
         assert!(area1.contains(&p2));
@@ -154,12 +154,7 @@ mod tests {
 
     #[test]
     fn archive() {
-        let area = PolygonalArea::new(vec![
-            Point::new(-1.0, 1.0),
-            Point::new(1.0, 1.0),
-            Point::new(1.0, -1.0),
-            Point::new(-1.0, -1.0),
-        ]);
+        let area = get_area1(0.0, 0.0, 2.0);
         let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
         let area2 = rkyv::from_bytes::<PolygonalArea>(&bytes[..]);
         assert!(area2.is_ok());
@@ -182,6 +177,7 @@ mod tests {
             Point::new(1.0, -1.0),
             Point::new(-1.0, -1.0),
         ]);
+
         let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
         let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
         let p1 = Point::new(0.0, 0.0);
