@@ -22,7 +22,7 @@ thiserror = "1.0"
 geo = "0.24"
 rayon = "1.7"
 env_logger = "0.10"
-rkyv = { version = "0.7", features = ["validation"] }
+rkyv = { version = "0.7", features = ["validation", "archive_le"] }
 numpy = "0.18"
 pyo3-log = "0.8"
 
