@@ -1,7 +1,7 @@
 pub mod primitives;
-pub mod tests_py_access;
+pub mod tests_pyo3_access;
 
-use crate::tests_py_access::{
+use crate::tests_pyo3_access::{
     CopyWrapper, Internal, InternalNoClone, ProxyWrapper, TakeWrapper, Wrapper,
 };
 use primitives::{Intersection, IntersectionKind, Point, PolygonalArea, Segment};
