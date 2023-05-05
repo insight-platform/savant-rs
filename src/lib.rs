@@ -1,6 +1,9 @@
 pub mod primitives;
+pub mod tests_py_access;
 
-use crate::primitives::tests_py_access::{CopyWrapper, Internal, TakeWrapper, Wrapper};
+use crate::tests_py_access::{
+    CopyWrapper, Internal, InternalNoClone, ProxyWrapper, TakeWrapper, Wrapper,
+};
 use primitives::{Intersection, IntersectionKind, Point, PolygonalArea, Segment};
 use pyo3::prelude::*;
 
@@ -14,8 +17,10 @@ fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Intersection>()?;
     m.add_class::<PolygonalArea>()?;
     m.add_class::<Internal>()?;
+    m.add_class::<InternalNoClone>()?;
     m.add_class::<Wrapper>()?;
     m.add_class::<CopyWrapper>()?;
     m.add_class::<TakeWrapper>()?;
+    m.add_class::<ProxyWrapper>()?;
     Ok(())
 }

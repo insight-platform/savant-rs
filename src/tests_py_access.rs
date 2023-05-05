@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 #[pyclass]
 pub struct Internal {
     pub v: i64,
-    pub x: [u8; 128]
+    pub x: [u8; 128],
 }
 
 #[pymethods]
@@ -20,8 +20,26 @@ impl Internal {
 
 #[derive(Debug)]
 #[pyclass]
+pub struct InternalNoClone {
+    pub v: i64,
+    pub x: [u8; 128],
+}
+
+#[pymethods]
+impl InternalNoClone {
+    pub fn inc(&mut self) {
+        self.v += 1;
+    }
+
+    pub fn val(&self) -> i64 {
+        self.v
+    }
+}
+
+#[derive(Debug)]
+#[pyclass]
 pub struct Wrapper {
-    pub v: Py<Internal>,
+    pub v: Py<InternalNoClone>,
 }
 
 #[pymethods]
@@ -29,11 +47,11 @@ impl Wrapper {
     #[new]
     pub fn new(v: i64) -> Self {
         Python::with_gil(|py| Self {
-            v: Py::new(py, Internal { v, x: [0;128] }).unwrap(),
+            v: Py::new(py, InternalNoClone { v, x: [0; 128] }).unwrap(),
         })
     }
 
-    pub fn get(&self) -> Py<Internal> {
+    pub fn get(&self) -> Py<InternalNoClone> {
         Python::with_gil(|py| self.v.clone_ref(py))
     }
 
@@ -56,7 +74,7 @@ impl CopyWrapper {
     #[new]
     pub fn new(v: i64) -> Self {
         Self {
-            v: Internal { v, x: [0; 128] }
+            v: Internal { v, x: [0; 128] },
         }
     }
 
@@ -80,7 +98,7 @@ impl TakeWrapper {
     #[new]
     pub fn new(v: i64) -> Self {
         Self {
-            v: Some(Internal { v, x: [0; 128] })
+            v: Some(Internal { v, x: [0; 128] }),
         }
     }
 
@@ -90,5 +108,29 @@ impl TakeWrapper {
 
     pub fn set(&mut self, v: Internal) {
         self.v = Some(v);
+    }
+}
+
+#[derive(Debug)]
+#[pyclass]
+pub struct ProxyWrapper {
+    pub v: Internal,
+}
+
+#[pymethods]
+impl ProxyWrapper {
+    #[new]
+    pub fn new(v: i64) -> Self {
+        Self {
+            v: Internal { v, x: [0; 128] },
+        }
+    }
+
+    pub fn get(&mut self) -> Internal {
+        self.v.clone()
+    }
+
+    pub fn inc(&mut self) {
+        self.v.v += 1;
     }
 }
