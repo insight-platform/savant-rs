@@ -26,4 +26,8 @@ impl ProxyObject {
     pub fn new(object: Arc<Mutex<Object>>) -> Self {
         Self { object }
     }
+
+    pub fn id(&self) -> i64 {
+        self.object.lock().unwrap().id
+    }
 }
