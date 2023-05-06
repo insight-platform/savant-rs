@@ -244,7 +244,7 @@ impl VideoFrame {
                     Some(label) => o.label == *label,
                     None => true,
                 };
-                model_name_match && label_match ^ negated
+                (model_name_match && label_match) ^ negated
             })
             .map(|o| ProxyObject::new(o.clone()))
             .collect()
@@ -322,7 +322,7 @@ mod tests {
                         .attributes(HashMap::default())
                         .confidence(None)
                         .model_name("test".to_string())
-                        .label("test".to_string())
+                        .label("test2".to_string())
                         .build()
                         .unwrap(),
                     ObjectBuilder::default()
@@ -331,7 +331,7 @@ mod tests {
                         .parent(None)
                         .attributes(HashMap::default())
                         .confidence(None)
-                        .model_name("test".to_string())
+                        .model_name("test2".to_string())
                         .label("test".to_string())
                         .build()
                         .unwrap(),
@@ -341,8 +341,8 @@ mod tests {
                         .parent(None)
                         .attributes(HashMap::default())
                         .confidence(None)
-                        .model_name("test".to_string())
-                        .label("test".to_string())
+                        .model_name("test2".to_string())
+                        .label("test2".to_string())
                         .build()
                         .unwrap(),
                 ]
@@ -358,6 +358,47 @@ mod tests {
     fn test_access_objects_by_id() {
         let t = gen_frame();
         let objects = t.access_objects_by_id(vec![0, 1]);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id(), 0);
+        assert_eq!(objects[1].id(), 1);
+    }
+
+    #[test]
+    fn test_access_objects() {
+        let t = gen_frame();
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 3);
+
+        let t = gen_frame();
+        let objects = t.access_objects(true, None, None);
+        assert!(objects.is_empty());
+
+        let t = gen_frame();
+        let objects = t.access_objects(false, Some("abc".to_string()), None);
+        assert!(objects.is_empty());
+
+        let t = gen_frame();
+        let objects = t.access_objects(true, Some("abc".to_string()), None);
+        assert_eq!(objects.len(), 3);
+
+        let t = gen_frame();
+        let objects = t.access_objects(false, Some("test2".to_string()), None);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id(), 1);
+        assert_eq!(objects[1].id(), 2);
+
+        let t = gen_frame();
+        let objects = t.access_objects(true, Some("test2".to_string()), None);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id(), 0);
+
+        let t = gen_frame();
+        let objects = t.access_objects(false, Some("test2".to_string()), Some("test2".to_string()));
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id(), 2);
+
+        let t = gen_frame();
+        let objects = t.access_objects(true, Some("test2".to_string()), Some("test2".to_string()));
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].id(), 0);
         assert_eq!(objects[1].id(), 1);
