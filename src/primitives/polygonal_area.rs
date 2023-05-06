@@ -8,7 +8,7 @@ use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::sync::Arc;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, Default, Clone)]
+#[derive(Archive, Deserialize, Serialize, Debug, Default, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct PolygonalArea {
     pub vertices: Arc<Vec<Point>>,

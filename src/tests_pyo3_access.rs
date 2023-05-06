@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -15,6 +16,25 @@ impl Internal {
 
     pub fn val(&self) -> i64 {
         self.v
+    }
+}
+
+#[derive(Debug, Clone)]
+#[pyclass]
+pub struct InternalMtx {
+    pub v: Arc<Mutex<(i64, [u8; 128])>>,
+}
+
+#[pymethods]
+impl InternalMtx {
+    pub fn inc(&mut self) {
+        let mut l = self.v.lock().unwrap();
+        l.0 += 1;
+    }
+
+    pub fn val(&self) -> i64 {
+        let l = self.v.lock().unwrap();
+        l.0
     }
 }
 
@@ -66,7 +86,7 @@ impl Wrapper {
 #[derive(Debug)]
 #[pyclass]
 pub struct CopyWrapper {
-    pub v: Internal,
+    pub v: InternalMtx,
 }
 
 #[pymethods]
@@ -74,16 +94,14 @@ impl CopyWrapper {
     #[new]
     pub fn new(v: i64) -> Self {
         Self {
-            v: Internal { v, x: [0; 128] },
+            v: InternalMtx {
+                v: Arc::new(Mutex::new((v, [0; 128]))),
+            },
         }
     }
 
-    pub fn get(&self) -> Internal {
+    pub fn get(&self) -> InternalMtx {
         self.v.clone()
-    }
-
-    pub fn set(&mut self, v: Internal) {
-        self.v = v;
     }
 }
 

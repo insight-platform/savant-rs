@@ -6,10 +6,10 @@ w = savant_rs.CopyWrapper(1)
 
 t = timer()
 
-for i in range(1_000_000):
+
+for _ in range(1_000_000):
     i = w.get()
     i.inc()
-    w.set(i)
 
 print(timer() - t)
 print(w.get().val())

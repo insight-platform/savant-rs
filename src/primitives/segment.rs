@@ -6,7 +6,9 @@ use rkyv::{Archive, Deserialize, Serialize};
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub struct Segment {
+    #[pyo3(get, set)]
     pub begin: Point,
+    #[pyo3(get, set)]
     pub end: Point,
 }
 

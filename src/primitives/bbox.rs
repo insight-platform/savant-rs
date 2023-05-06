@@ -4,15 +4,21 @@ use rkyv::{Archive, Deserialize, Serialize};
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub struct Point {
+pub struct BBox {
     #[pyo3(get, set)]
-    pub x: f64,
+    pub xc: f64,
     #[pyo3(get, set)]
-    pub y: f64,
+    pub yc: f64,
+    #[pyo3(get, set)]
+    pub width: f64,
+    #[pyo3(get, set)]
+    pub height: f64,
+    #[pyo3(get, set)]
+    pub angle: Option<f64>,
 }
 
 #[pymethods]
-impl Point {
+impl BBox {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -25,7 +31,13 @@ impl Point {
     }
 
     #[new]
-    pub fn new(x: f64, y: f64) -> Self {
-        Self { x, y }
+    pub fn new(xc: f64, yc: f64, width: f64, height: f64, angle: Option<f64>) -> Self {
+        Self {
+            xc,
+            yc,
+            width,
+            height,
+            angle,
+        }
     }
 }

@@ -1,7 +1,20 @@
+pub mod attribute;
+pub mod bbox;
+pub mod frame;
+pub mod object;
 pub mod point;
 pub mod polygonal_area;
 pub mod segment;
 
+pub use attribute::Attribute;
+pub use attribute::AttributeBuilder;
+pub use attribute::Value;
+pub use bbox::BBox;
+pub use frame::VideoFrame;
+pub use frame::VideoFrameBuilder;
+pub use object::proxy::ProxyObject;
+pub use object::Object;
+pub use object::ObjectBuilder;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
 pub use segment::Intersection;
