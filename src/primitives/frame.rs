@@ -1,5 +1,7 @@
+pub mod registry;
+
 use crate::primitives::{Object, ProxyObject, Value};
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -232,30 +234,38 @@ impl VideoFrame {
         model_name: Option<String>,
         label: Option<String>,
     ) -> Vec<ProxyObject> {
-        self.resident_objects
-            .iter()
-            .filter(|o| {
-                let o = o.lock().unwrap();
-                let model_name_match = match &model_name {
-                    Some(model_name) => o.model_name == *model_name,
-                    None => true,
-                };
-                let label_match = match &label {
-                    Some(label) => o.label == *label,
-                    None => true,
-                };
-                (model_name_match && label_match) ^ negated
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.resident_objects
+                    .iter()
+                    .filter(|o| {
+                        let o = o.lock().unwrap();
+                        let model_name_match = match &model_name {
+                            Some(model_name) => o.model_name == *model_name,
+                            None => true,
+                        };
+                        let label_match = match &label {
+                            Some(label) => o.label == *label,
+                            None => true,
+                        };
+                        (model_name_match && label_match) ^ negated
+                    })
+                    .map(|o| ProxyObject::new(o.clone()))
+                    .collect()
             })
-            .map(|o| ProxyObject::new(o.clone()))
-            .collect()
+        })
     }
 
     pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<ProxyObject> {
-        self.resident_objects
-            .iter()
-            .filter(|o| ids.contains(&o.lock().unwrap().id))
-            .map(|o| ProxyObject::new(o.clone()))
-            .collect()
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.resident_objects
+                    .iter()
+                    .filter(|o| ids.contains(&o.lock().unwrap().id))
+                    .map(|o| ProxyObject::new(o.clone()))
+                    .collect()
+            })
+        })
     }
 
     pub fn add_object(&mut self, object: Object) {
@@ -356,6 +366,7 @@ mod tests {
 
     #[test]
     fn test_access_objects_by_id() {
+        pyo3::prepare_freethreaded_python();
         let t = gen_frame();
         let objects = t.access_objects_by_id(vec![0, 1]);
         assert_eq!(objects.len(), 2);
@@ -365,6 +376,8 @@ mod tests {
 
     #[test]
     fn test_access_objects() {
+        pyo3::prepare_freethreaded_python();
+
         let t = gen_frame();
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 3);

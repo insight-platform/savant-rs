@@ -1,7 +1,7 @@
 pub mod proxy;
 
 use crate::primitives::{Attribute, BBox};
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -93,10 +93,14 @@ impl Object {
     }
 
     pub fn attributes(&self) -> Vec<(String, String)> {
-        self.attributes
-            .iter()
-            .map(|((element_name, name), _)| (element_name.clone(), name.clone()))
-            .collect()
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.attributes
+                    .iter()
+                    .map(|((element_name, name), _)| (element_name.clone(), name.clone()))
+                    .collect()
+            })
+        })
     }
 
     pub fn get_attribute(&self, element_name: String, name: String) -> Option<Attribute> {
@@ -125,11 +129,16 @@ impl Object {
         element_name: Option<String>,
         names: Vec<String>,
     ) {
-        self.attributes.retain(|(en, label), _| match element_name {
-            Some(ref element_name) => {
-                ((names.is_empty() || names.contains(label)) && element_name == en) ^ !negated
-            }
-            None => names.contains(label) ^ !negated,
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.attributes.retain(|(en, label), _| match element_name {
+                    Some(ref element_name) => {
+                        ((names.is_empty() || names.contains(label)) && element_name == en)
+                            ^ !negated
+                    }
+                    None => names.contains(label) ^ !negated,
+                })
+            })
         });
     }
 }
@@ -140,6 +149,7 @@ mod tests {
 
     #[test]
     fn test_delete_attributes() {
+        pyo3::prepare_freethreaded_python();
         let o = ObjectBuilder::default()
             .id(1)
             .model_name("model".to_string())
