@@ -1,4 +1,5 @@
 pub mod primitives;
+pub mod test;
 pub mod tests_pyo3_access;
 
 use crate::tests_pyo3_access::{
@@ -26,6 +27,7 @@ fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ParentObject>()?;
     m.add_class::<VideoFrame>()?;
     m.add_class::<EndOfStream>()?;
+    m.add_class::<Frame>()?;
 
     m.add_class::<Internal>()?;
     m.add_class::<InternalNoClone>()?;

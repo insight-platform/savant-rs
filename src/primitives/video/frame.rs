@@ -44,7 +44,7 @@ pub enum VideoFrameContent {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct PyVideoFrameContent {
-    data: VideoFrameContent,
+    pub(crate) data: VideoFrameContent,
 }
 
 #[pymethods]
@@ -161,6 +161,22 @@ impl VideoFrame {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    pub(crate) fn prepare_before_save(&mut self) {
+        self.offline_objects = self
+            .resident_objects
+            .iter()
+            .map(|o| o.lock().unwrap().clone())
+            .collect();
+    }
+
+    pub(crate) fn prepare_after_load(&mut self) {
+        self.resident_objects = self
+            .offline_objects
+            .iter()
+            .map(|o| Arc::new(Mutex::new(o.clone())))
+            .collect();
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -332,65 +348,7 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::video::frame::PyVideoFrameContent;
-    use crate::primitives::{BBox, ObjectBuilder, VideoFrame, VideoFrameBuilder};
-    use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-
-    fn gen_frame() -> VideoFrame {
-        VideoFrameBuilder::default()
-            .source_id("test".to_string())
-            .pts(0)
-            .framerate("test".to_string())
-            .width(0)
-            .height(0)
-            .content(PyVideoFrameContent::none().data)
-            .dts(None)
-            .duration(None)
-            .codec(None)
-            .keyframe(None)
-            .attributes(Default::default())
-            .offline_objects(Default::default())
-            .resident_objects(
-                vec![
-                    ObjectBuilder::default()
-                        .id(0)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test".to_string())
-                        .label("test2".to_string())
-                        .build()
-                        .unwrap(),
-                    ObjectBuilder::default()
-                        .id(1)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test2".to_string())
-                        .label("test".to_string())
-                        .build()
-                        .unwrap(),
-                    ObjectBuilder::default()
-                        .id(2)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test2".to_string())
-                        .label("test2".to_string())
-                        .build()
-                        .unwrap(),
-                ]
-                .into_iter()
-                .map(|o| Arc::new(Mutex::new(o)))
-                .collect(),
-            )
-            .build()
-            .unwrap()
-    }
+    use crate::test::utils::gen_frame;
 
     #[test]
     fn test_access_objects_by_id() {
