@@ -75,7 +75,7 @@ impl Saver {
                             .as_ref(),
                     );
                     s.prepare_before_save();
-                    buf.extend_from_slice(rkyv::to_bytes::<_, 1024>(&s).unwrap().as_ref());
+                    buf.extend_from_slice(rkyv::to_bytes::<_, 1024>(&*s).unwrap().as_ref());
                 }
             }
             tx.send(buf).unwrap();

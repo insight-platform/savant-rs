@@ -386,7 +386,7 @@ mod tests {
         let seg1 = Segment::new(Point::new(-2.0, 0.5), Point::new(3.0, 0.5));
         let seg2 = Segment::new(Point::new(-0.5, 2.0), Point::new(-0.5, -2.0));
         let intersections = PolygonalArea::segments_intersections(
-            vec![area1.clone(), area2.clone()],
+            vec![area1, area2],
             vec![seg1, seg2],
         );
         assert_eq!(

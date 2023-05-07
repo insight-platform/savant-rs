@@ -7,7 +7,7 @@ use pyo3::{pyclass, pymethods, Py, PyAny};
 #[derive(Debug, Clone)]
 pub enum NativeFrame {
     EndOfStream(EndOfStream),
-    VideoFrame(VideoFrame),
+    VideoFrame(Box<VideoFrame>),
 }
 
 #[repr(u32)]
@@ -20,7 +20,7 @@ impl From<&[u8]> for NativeFrameTypeConsts {
     fn from(value: &[u8]) -> Self {
         assert_eq!(value.len(), 4);
         let v = {
-            ((value[0] as u32) << 0)
+            (value[0] as u32)
                 + ((value[1] as u32) << 8)
                 + ((value[2] as u32) << 16)
                 + ((value[3] as u32) << 24)
@@ -56,7 +56,7 @@ impl Frame {
     #[staticmethod]
     pub fn video_frame(frame: VideoFrame) -> Self {
         Self {
-            frame_type: NativeFrame::VideoFrame(frame),
+            frame_type: NativeFrame::VideoFrame(Box::new(frame)),
         }
     }
 
@@ -68,17 +68,11 @@ impl Frame {
     }
 
     pub fn is_end_of_stream(&self) -> bool {
-        match self.frame_type {
-            NativeFrame::EndOfStream(_) => true,
-            _ => false,
-        }
+        matches!(self.frame_type, NativeFrame::EndOfStream(_))
     }
 
     pub fn is_video_frame(&self) -> bool {
-        match self.frame_type {
-            NativeFrame::VideoFrame(_) => true,
-            _ => false,
-        }
+        matches!(self.frame_type, NativeFrame::VideoFrame(_))
     }
 
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
@@ -90,7 +84,7 @@ impl Frame {
 
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.frame_type {
-            NativeFrame::VideoFrame(frame) => Some(frame.clone()),
+            NativeFrame::VideoFrame(frame) => Some(*frame.clone()),
             _ => None,
         }
     }

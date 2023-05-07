@@ -166,10 +166,7 @@ impl Value {
     }
 
     pub fn is_none(&self) -> bool {
-        match &self.v {
-            ValueVariant::None => true,
-            _ => false,
-        }
+        matches!(&self.v, ValueVariant::None)
     }
 
     pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
