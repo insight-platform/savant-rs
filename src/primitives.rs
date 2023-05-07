@@ -1,5 +1,6 @@
 pub mod attribute;
 pub mod bbox;
+pub mod eos;
 pub mod point;
 pub mod polygonal_area;
 pub mod registry;
@@ -10,6 +11,7 @@ pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
 pub use bbox::BBox;
+pub use eos::EndOfStream;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
 pub use segment::Intersection;
