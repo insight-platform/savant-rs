@@ -1,5 +1,7 @@
-use crate::primitives::db::NativeFrameTypeConsts;
-use crate::primitives::Frame;
+use crate::primitives::db::{
+    NativeFrameMarkerType, NativeFrameTypeConsts, NATIVE_FRAME_MARKER_LEN,
+};
+use crate::primitives::{Frame, VideoFrame};
 use pyo3::exceptions::PyTypeError;
 use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::sync::mpsc::Receiver;
@@ -46,18 +48,34 @@ impl Loader {
         }
     }
 
+    #[staticmethod]
+    pub fn default() -> Self {
+        Self {
+            pool: rayon::ThreadPoolBuilder::new()
+                .num_threads(num_cpus::get())
+                .build()
+                .unwrap(),
+        }
+    }
+
     pub fn load(&self, mut bytes: Vec<u8>) -> LoadResult {
         let (tx, rx) = std::sync::mpsc::channel();
-        let t = NativeFrameTypeConsts::from(&bytes[0..4]);
-        bytes.drain(0..4);
+        let final_length = bytes.len().saturating_sub(NATIVE_FRAME_MARKER_LEN);
+        let t = NativeFrameTypeConsts::from(
+            <&NativeFrameMarkerType>::try_from(&bytes[final_length..]).unwrap(),
+        );
+        bytes.truncate(final_length);
         self.pool.spawn(move || {
             let f = match t {
                 NativeFrameTypeConsts::EndOfStream => {
                     Frame::end_of_stream(rkyv::from_bytes(&bytes[..]).unwrap())
                 }
                 NativeFrameTypeConsts::VideoFrame => {
-                    Frame::video_frame(rkyv::from_bytes(&bytes[..]).unwrap())
+                    let mut f: VideoFrame = rkyv::from_bytes(&bytes[..]).unwrap();
+                    f.prepare_after_load();
+                    Frame::video_frame(f)
                 }
+                NativeFrameTypeConsts::Unknown => Frame::unknown(),
             };
             tx.send(f).unwrap();
         });

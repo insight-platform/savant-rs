@@ -1,7 +1,7 @@
 use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::sync::{Arc, Mutex};
 
-use crate::primitives::db::{NativeFrame, NativeFrameTypeConsts};
+use crate::primitives::db::{NativeFrame, NativeFrameMarkerType, NativeFrameTypeConsts};
 use crate::primitives::Frame;
 use pyo3::exceptions::PyTypeError;
 use std::sync::mpsc::Receiver;
@@ -55,31 +55,40 @@ impl Saver {
         }
     }
 
+    #[staticmethod]
+    pub fn default() -> Self {
+        Self {
+            pool: rayon::ThreadPoolBuilder::new()
+                .num_threads(num_cpus::get())
+                .build()
+                .unwrap(),
+        }
+    }
+
     pub fn save(&self, frame: Frame) -> SaveResult {
         let (tx, rx) = std::sync::mpsc::channel();
         self.pool.spawn(move || {
-            let mut buf = Vec::new();
-            match frame.frame_type {
+            let mut buf = Vec::with_capacity(512);
+            match frame.frame {
                 NativeFrame::EndOfStream(s) => {
-                    buf.extend_from_slice(
-                        (NativeFrameTypeConsts::EndOfStream as u32)
-                            .to_le_bytes()
-                            .as_ref(),
-                    );
                     buf.extend_from_slice(rkyv::to_bytes::<_, 256>(&s).unwrap().as_ref());
+                    let t: NativeFrameMarkerType = NativeFrameTypeConsts::EndOfStream.into();
+                    buf.extend_from_slice(t.as_ref());
                 }
                 NativeFrame::VideoFrame(mut s) => {
-                    buf.extend_from_slice(
-                        (NativeFrameTypeConsts::VideoFrame as u32)
-                            .to_le_bytes()
-                            .as_ref(),
-                    );
                     s.prepare_before_save();
                     buf.extend_from_slice(rkyv::to_bytes::<_, 1024>(&*s).unwrap().as_ref());
+                    let t: NativeFrameMarkerType = NativeFrameTypeConsts::VideoFrame.into();
+                    buf.extend_from_slice(t.as_ref());
+                }
+                _ => {
+                    let t: NativeFrameMarkerType = NativeFrameTypeConsts::Unknown.into();
+                    buf.extend_from_slice(t.as_ref());
                 }
             }
             tx.send(buf).unwrap();
         });
+
         SaveResult::new(rx)
     }
 }

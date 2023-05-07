@@ -26,6 +26,7 @@ rkyv = { version = "0.7", features = ["validation", "archive_le"] }
 numpy = "0.18"
 pyo3-log = "0.8"
 derive_builder = "0.12"
+num_cpus = "1.15"
 
 [dependencies.pyo3]
 version = "0.18"
