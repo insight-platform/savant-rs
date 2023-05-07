@@ -12,7 +12,7 @@ pub struct ParentObject {
     #[pyo3(get, set)]
     pub id: i64,
     #[pyo3(get, set)]
-    pub model_name: String,
+    pub creator: String,
     #[pyo3(get, set)]
     pub label: String,
 }
@@ -31,12 +31,8 @@ impl ParentObject {
     }
 
     #[new]
-    pub fn new(id: i64, model_name: String, label: String) -> Self {
-        Self {
-            id,
-            model_name,
-            label,
-        }
+    pub fn new(id: i64, creator: String, label: String) -> Self {
+        Self { id, creator, label }
     }
 }
 
@@ -46,7 +42,7 @@ impl ParentObject {
 pub struct Object {
     pub id: i64,
     #[pyo3(get)]
-    pub model_name: String,
+    pub creator: String,
     #[pyo3(get)]
     pub label: String,
     #[pyo3(get)]
@@ -74,7 +70,7 @@ impl Object {
     #[new]
     pub fn new(
         id: i64,
-        model_name: String,
+        creator: String,
         label: String,
         bbox: BBox,
         attributes: HashMap<(String, String), Attribute>,
@@ -83,7 +79,7 @@ impl Object {
     ) -> Self {
         Self {
             id,
-            model_name,
+            creator,
             label,
             bbox,
             confidence,
@@ -97,23 +93,23 @@ impl Object {
             py.allow_threads(|| {
                 self.attributes
                     .iter()
-                    .map(|((element_name, name), _)| (element_name.clone(), name.clone()))
+                    .map(|((creator, name), _)| (creator.clone(), name.clone()))
                     .collect()
             })
         })
     }
 
-    pub fn get_attribute(&self, element_name: String, name: String) -> Option<Attribute> {
-        self.attributes.get(&(element_name, name)).cloned()
+    pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        self.attributes.get(&(creator, name)).cloned()
     }
 
-    pub fn delete_attribute(&mut self, element_name: String, name: String) -> Option<Attribute> {
-        self.attributes.remove(&(element_name, name))
+    pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
+        self.attributes.remove(&(creator, name))
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.attributes.insert(
-            (attribute.element_name.clone(), attribute.name.clone()),
+            (attribute.creator.clone(), attribute.name.clone()),
             attribute,
         )
     }
@@ -122,19 +118,18 @@ impl Object {
         self.attributes.clear();
     }
 
-    #[pyo3(signature = (negated=false, element_name=None, names=vec![]))]
+    #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
     pub fn delete_attributes(
         &mut self,
         negated: bool,
-        element_name: Option<String>,
+        creator: Option<String>,
         names: Vec<String>,
     ) {
         Python::with_gil(|py| {
             py.allow_threads(|| {
-                self.attributes.retain(|(en, label), _| match element_name {
-                    Some(ref element_name) => {
-                        ((names.is_empty() || names.contains(label)) && element_name == en)
-                            ^ !negated
+                self.attributes.retain(|(en, label), _| match creator {
+                    Some(ref creator) => {
+                        ((names.is_empty() || names.contains(label)) && creator == en) ^ !negated
                     }
                     None => names.contains(label) ^ !negated,
                 })
@@ -152,36 +147,39 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let o = ObjectBuilder::default()
             .id(1)
-            .model_name("model".to_string())
+            .creator("model".to_string())
             .label("label".to_string())
             .bbox(BBox::new(0.0, 0.0, 1.0, 1.0, None))
             .confidence(Some(0.5))
             .attributes(
                 vec![
                     AttributeBuilder::default()
-                        .element_name("element_name".to_string())
+                        .creator("creator".to_string())
                         .name("name".to_string())
-                        .value(Value::new_string("value".to_string()))
+                        .value(Value::string("value".to_string()))
                         .confidence(None)
+                        .hint(None)
                         .build()
                         .unwrap(),
                     AttributeBuilder::default()
-                        .element_name("element_name".to_string())
+                        .creator("creator".to_string())
                         .name("name2".to_string())
-                        .value(Value::new_string("value2".to_string()))
+                        .value(Value::string("value2".to_string()))
                         .confidence(None)
+                        .hint(None)
                         .build()
                         .unwrap(),
                     AttributeBuilder::default()
-                        .element_name("element_name2".to_string())
+                        .creator("creator2".to_string())
                         .name("name".to_string())
-                        .value(Value::new_string("value".to_string()))
+                        .value(Value::string("value".to_string()))
                         .confidence(None)
+                        .hint(None)
                         .build()
                         .unwrap(),
                 ]
                 .into_iter()
-                .map(|a| ((a.element_name.clone(), a.name.clone()), a))
+                .map(|a| ((a.creator.clone(), a.name.clone()), a))
                 .collect(),
             )
             .parent(None)
@@ -197,11 +195,11 @@ mod tests {
         assert!(t.attributes.is_empty());
 
         let mut t = o.clone();
-        t.delete_attributes(false, Some("element_name".to_string()), vec![]);
+        t.delete_attributes(false, Some("creator".to_string()), vec![]);
         assert_eq!(t.attributes.len(), 1);
 
         let mut t = o.clone();
-        t.delete_attributes(true, Some("element_name".to_string()), vec![]);
+        t.delete_attributes(true, Some("creator".to_string()), vec![]);
         assert_eq!(t.attributes.len(), 2);
 
         let mut t = o.clone();
@@ -223,18 +221,19 @@ mod tests {
         let mut t = o.clone();
         t.delete_attributes(
             false,
-            Some("element_name".to_string()),
+            Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
         assert_eq!(t.attributes.len(), 1);
 
         assert_eq!(
-            &t.attributes[&("element_name2".to_string(), "name".to_string())],
+            &t.attributes[&("creator2".to_string(), "name".to_string())],
             &AttributeBuilder::default()
-                .element_name("element_name2".to_string())
+                .creator("creator2".to_string())
                 .name("name".to_string())
-                .value(Value::new_string("value".to_string()))
+                .value(Value::string("value".to_string()))
                 .confidence(None)
+                .hint(None)
                 .build()
                 .unwrap()
         );
@@ -242,7 +241,7 @@ mod tests {
         let mut t = o.clone();
         t.delete_attributes(
             true,
-            Some("element_name".to_string()),
+            Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
         assert_eq!(t.attributes.len(), 2);

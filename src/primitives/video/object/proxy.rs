@@ -1,5 +1,4 @@
-use crate::primitives::object::ParentObject;
-use crate::primitives::{Attribute, BBox, Object};
+use crate::primitives::{Attribute, BBox, Object, ParentObject};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use std::sync::{Arc, Mutex};
 
@@ -26,8 +25,8 @@ impl ProxyObject {
         self.object.lock().unwrap().id
     }
 
-    pub fn model_name(&self) -> String {
-        self.object.lock().unwrap().model_name.clone()
+    pub fn creator(&self) -> String {
+        self.object.lock().unwrap().creator.clone()
     }
 
     pub fn label(&self) -> String {
@@ -53,9 +52,9 @@ impl ProxyObject {
         object.id = id;
     }
 
-    pub fn set_model_name(&mut self, model_name: String) {
+    pub fn set_creator(&mut self, creator: String) {
         let mut object = self.object.lock().unwrap();
-        object.model_name = model_name;
+        object.creator = creator;
     }
 
     pub fn set_label(&mut self, label: String) {
@@ -82,14 +81,14 @@ impl ProxyObject {
         object.attributes()
     }
 
-    pub fn get_attribute(&self, element_name: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
         let object = self.object.lock().unwrap();
-        object.get_attribute(element_name, name)
+        object.get_attribute(creator, name)
     }
 
-    pub fn delete_attribute(&mut self, element_name: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
         let mut object = self.object.lock().unwrap();
-        object.delete_attribute(element_name, name)
+        object.delete_attribute(creator, name)
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
@@ -102,15 +101,15 @@ impl ProxyObject {
         object.clear_attributes();
     }
 
-    #[pyo3(signature = (negated=false, element_name=None, names=vec![]))]
+    #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
     pub fn delete_attributes(
         &mut self,
         negated: bool,
-        element_name: Option<String>,
+        creator: Option<String>,
         names: Vec<String>,
     ) {
         let mut object = self.object.lock().unwrap();
-        object.delete_attributes(negated, element_name, names);
+        object.delete_attributes(negated, creator, names);
     }
 }
 

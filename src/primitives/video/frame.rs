@@ -1,6 +1,4 @@
-pub mod registry;
-
-use crate::primitives::{Object, ProxyObject, Value};
+use crate::primitives::{Attribute, Object, ProxyObject};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -146,7 +144,7 @@ pub struct VideoFrame {
     #[pyo3(get, set)]
     pub keyframe: Option<bool>,
     pub content: VideoFrameContent,
-    pub tags: HashMap<String, Value>,
+    pub attributes: HashMap<(String, String), Attribute>,
     pub offline_objects: Vec<Object>,
     #[with(Skip)]
     pub resident_objects: Vec<Arc<Mutex<Object>>>,
@@ -174,7 +172,7 @@ impl VideoFrame {
         framerate: String,
         width: i64,
         height: i64,
-        tags: HashMap<String, Value>,
+        attributes: HashMap<(String, String), Attribute>,
         objects: Vec<Object>,
         dts: Option<i64>,
         duration: Option<i64>,
@@ -191,7 +189,7 @@ impl VideoFrame {
             duration,
             codec,
             keyframe,
-            tags,
+            attributes,
             offline_objects: Vec::default(),
             resident_objects: objects
                 .into_iter()
@@ -201,27 +199,57 @@ impl VideoFrame {
         }
     }
 
-    pub fn tags(&self) -> Vec<String> {
-        self.tags.keys().cloned().collect()
+    pub fn find_attributes(
+        &self,
+        creator: Option<String>,
+        name: Option<String>,
+        hint: Option<String>,
+    ) -> Vec<(String, String)> {
+        self.attributes
+            .iter()
+            .filter(|((_, _), a)| {
+                if let Some(creator) = &creator {
+                    if a.creator != *creator {
+                        return false;
+                    }
+                }
+
+                if let Some(name) = &name {
+                    if a.name != *name {
+                        return false;
+                    }
+                }
+
+                if a.hint != hint {
+                    return false;
+                }
+
+                true
+            })
+            .map(|((c, n), _)| (c.clone(), n.clone()))
+            .collect()
     }
 
-    pub fn get_tag(&self, key: String) -> Option<Value> {
-        self.tags.get(&key).cloned()
+    pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        self.attributes.get(&(creator, name)).cloned()
     }
 
-    pub fn delete_tag(&mut self, key: String) -> Option<Value> {
-        self.tags.remove(&key)
+    pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
+        self.attributes.remove(&(creator, name))
     }
 
-    pub fn set_tag(&mut self, key: String, value: Value) -> Option<Value> {
-        self.tags.insert(key, value)
+    pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
+        self.attributes.insert(
+            (attribute.creator.clone(), attribute.name.clone()),
+            attribute,
+        )
     }
 
-    pub fn clear_tags(&mut self) {
-        self.tags.clear();
+    pub fn clear_attributes(&mut self) {
+        self.attributes.clear();
     }
 
-    pub fn object(&self, id: i64) -> Option<ProxyObject> {
+    pub fn get_object(&self, id: i64) -> Option<ProxyObject> {
         self.resident_objects
             .iter()
             .find(|o| o.lock().unwrap().id == id)
@@ -231,7 +259,7 @@ impl VideoFrame {
     pub fn access_objects(
         &self,
         negated: bool,
-        model_name: Option<String>,
+        creator: Option<String>,
         label: Option<String>,
     ) -> Vec<ProxyObject> {
         Python::with_gil(|py| {
@@ -240,15 +268,15 @@ impl VideoFrame {
                     .iter()
                     .filter(|o| {
                         let o = o.lock().unwrap();
-                        let model_name_match = match &model_name {
-                            Some(model_name) => o.model_name == *model_name,
+                        let creator_match = match &creator {
+                            Some(creator) => o.creator == *creator,
                             None => true,
                         };
                         let label_match = match &label {
                             Some(label) => o.label == *label,
                             None => true,
                         };
-                        (model_name_match && label_match) ^ negated
+                        (creator_match && label_match) ^ negated
                     })
                     .map(|o| ProxyObject::new(o.clone()))
                     .collect()
@@ -280,20 +308,20 @@ impl VideoFrame {
     pub fn delete_objects(
         &mut self,
         negated: bool,
-        model_name: Option<String>,
+        creator: Option<String>,
         label: Option<String>,
     ) {
         self.resident_objects.retain(|o| {
             let o = o.lock().unwrap();
-            let model_name_match = match &model_name {
-                Some(model_name) => o.model_name == *model_name,
+            let creator_match = match &creator {
+                Some(creator) => o.creator == *creator,
                 None => true,
             };
             let label_match = match &label {
                 Some(label) => o.label == *label,
                 None => true,
             };
-            !(model_name_match && label_match ^ negated)
+            !(creator_match && label_match ^ negated)
         });
     }
 
@@ -304,7 +332,7 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::frame::PyVideoFrameContent;
+    use crate::primitives::video::frame::PyVideoFrameContent;
     use crate::primitives::{BBox, ObjectBuilder, VideoFrame, VideoFrameBuilder};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -321,7 +349,7 @@ mod tests {
             .duration(None)
             .codec(None)
             .keyframe(None)
-            .tags(Default::default())
+            .attributes(Default::default())
             .offline_objects(Default::default())
             .resident_objects(
                 vec![
@@ -331,7 +359,7 @@ mod tests {
                         .parent(None)
                         .attributes(HashMap::default())
                         .confidence(None)
-                        .model_name("test".to_string())
+                        .creator("test".to_string())
                         .label("test2".to_string())
                         .build()
                         .unwrap(),
@@ -341,7 +369,7 @@ mod tests {
                         .parent(None)
                         .attributes(HashMap::default())
                         .confidence(None)
-                        .model_name("test2".to_string())
+                        .creator("test2".to_string())
                         .label("test".to_string())
                         .build()
                         .unwrap(),
@@ -351,7 +379,7 @@ mod tests {
                         .parent(None)
                         .attributes(HashMap::default())
                         .confidence(None)
-                        .model_name("test2".to_string())
+                        .creator("test2".to_string())
                         .label("test2".to_string())
                         .build()
                         .unwrap(),
