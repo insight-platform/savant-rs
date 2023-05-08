@@ -339,7 +339,7 @@ impl VideoFrame {
                 Some(label) => o.label == *label,
                 None => true,
             };
-            !(creator_match && label_match ^ negated)
+            !((creator_match && label_match) ^ negated)
         });
     }
 
@@ -455,5 +455,55 @@ mod tests {
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
+    }
+
+    #[test]
+    fn test_delete_objects_by_ids() {
+        pyo3::prepare_freethreaded_python();
+        let mut t = gen_frame();
+        t.delete_objects_by_ids(vec![0, 1]);
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id(), 2);
+    }
+
+    #[test]
+    fn test_delete_objects() {
+        pyo3::prepare_freethreaded_python();
+        let mut t = gen_frame();
+        t.delete_objects(false, None, None);
+        let objects = t.access_objects(false, None, None);
+        assert!(objects.is_empty());
+
+        let mut t = gen_frame();
+        t.delete_objects(true, None, None);
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 3);
+
+        let mut t = gen_frame();
+        t.delete_objects(false, Some("test2".to_string()), None);
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id(), 0);
+
+        let mut t = gen_frame();
+        t.delete_objects(true, Some("test2".to_string()), None);
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id(), 1);
+        assert_eq!(objects[1].id(), 2);
+
+        let mut t = gen_frame();
+        t.delete_objects(false, Some("test2".to_string()), Some("test2".to_string()));
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id(), 0);
+        assert_eq!(objects[1].id(), 1);
+
+        let mut t = gen_frame();
+        t.delete_objects(true, Some("test2".to_string()), Some("test2".to_string()));
+        let objects = t.access_objects(false, None, None);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id(), 2);
     }
 }
