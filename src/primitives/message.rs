@@ -1,5 +1,7 @@
+pub mod eos;
 pub mod loader;
 pub mod saver;
+pub mod video;
 
 use crate::primitives::{EndOfStream, VideoFrame};
 use pyo3::{pyclass, pymethods, Py, PyAny};
@@ -110,8 +112,8 @@ impl Frame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::db::loader::Loader;
-    use crate::primitives::db::{
+    use crate::primitives::message::loader::Loader;
+    use crate::primitives::message::{
         NativeFrameMarkerType, NativeFrameTypeConsts, NATIVE_FRAME_MARKER_LEN,
     };
     use crate::primitives::{EndOfStream, Frame, Saver};
@@ -156,7 +158,6 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let saver = Saver::new(1);
         let loader = Loader::new(1);
-
         let frame = Frame::unknown();
         let res = saver.save(frame).recv().unwrap();
         assert_eq!(

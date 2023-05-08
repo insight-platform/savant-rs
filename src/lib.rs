@@ -28,6 +28,7 @@ fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrame>()?;
     m.add_class::<EndOfStream>()?;
     m.add_class::<Frame>()?;
+    m.add_class::<PyVideoFrameContent>()?;
 
     m.add_class::<Internal>()?;
     m.add_class::<InternalNoClone>()?;

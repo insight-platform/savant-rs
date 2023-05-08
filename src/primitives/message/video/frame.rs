@@ -236,8 +236,10 @@ impl VideoFrame {
                     }
                 }
 
-                if a.hint != hint {
-                    return false;
+                if let Some(hint) = &hint {
+                    if a.hint.as_ref() != Some(hint) {
+                        return false;
+                    }
                 }
 
                 true
@@ -401,5 +403,38 @@ mod tests {
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].id(), 0);
         assert_eq!(objects[1].id(), 1);
+    }
+
+    #[test]
+    fn test_objects_by_id() {
+        pyo3::prepare_freethreaded_python();
+        let t = gen_frame();
+        let objects = t.access_objects_by_id(vec![0, 1]);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id(), 0);
+        assert_eq!(objects[1].id(), 1);
+    }
+
+    #[test]
+    fn test_get_attribute() {
+        pyo3::prepare_freethreaded_python();
+        let t = gen_frame();
+        let attribute = t.get_attribute("system".to_string(), "test".to_string());
+        assert!(attribute.is_some());
+        assert_eq!(
+            attribute.unwrap().value.as_string().unwrap(),
+            "1".to_string()
+        );
+    }
+
+    #[test]
+    fn test_find_attributes() {
+        pyo3::prepare_freethreaded_python();
+        let t = gen_frame();
+        let mut attributes = t.find_attributes(Some("system".to_string()), None, None);
+        attributes.sort();
+        assert_eq!(attributes.len(), 2);
+        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+        assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
     }
 }

@@ -1,11 +1,11 @@
 pub mod utils {
-    use crate::primitives::video::frame::PyVideoFrameContent;
+    use crate::primitives::{AttributeBuilder, PyVideoFrameContent, Value};
     use crate::primitives::{BBox, ObjectBuilder, VideoFrame, VideoFrameBuilder};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
     pub fn gen_frame() -> VideoFrame {
-        VideoFrameBuilder::default()
+        let mut f = VideoFrameBuilder::default()
             .source_id("test".to_string())
             .pts(0)
             .framerate("test".to_string())
@@ -16,7 +16,7 @@ pub mod utils {
             .duration(None)
             .codec(None)
             .keyframe(None)
-            .attributes(Default::default())
+            .attributes(HashMap::default())
             .offline_objects(Default::default())
             .resident_objects(
                 vec![
@@ -56,6 +56,42 @@ pub mod utils {
                 .collect(),
             )
             .build()
-            .unwrap()
+            .unwrap();
+
+        f.set_attribute(
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test".into())
+                .hint(None)
+                .hint(Some("test".into()))
+                .value(Value::string("1".into()))
+                .confidence(None)
+                .build()
+                .unwrap(),
+        );
+
+        f.set_attribute(
+            AttributeBuilder::default()
+                .creator("system2".into())
+                .name("test2".into())
+                .hint(None)
+                .value(Value::string("2".into()))
+                .confidence(None)
+                .build()
+                .unwrap(),
+        );
+
+        f.set_attribute(
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test2".into())
+                .hint(Some("test".into()))
+                .value(Value::string("3".into()))
+                .confidence(None)
+                .build()
+                .unwrap(),
+        );
+
+        f
     }
 }

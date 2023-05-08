@@ -1,7 +1,7 @@
 use pyo3::{pyclass, pymethods, PyResult, Python};
 use std::sync::{Arc, Mutex};
 
-use crate::primitives::db::{NativeFrame, NativeFrameMarkerType, NativeFrameTypeConsts};
+use crate::primitives::message::{NativeFrame, NativeFrameMarkerType, NativeFrameTypeConsts};
 use crate::primitives::Frame;
 use pyo3::exceptions::PyTypeError;
 use std::sync::mpsc::Receiver;
@@ -68,25 +68,38 @@ impl Saver {
     pub fn save(&self, frame: Frame) -> SaveResult {
         let (tx, rx) = std::sync::mpsc::channel();
         self.pool.spawn(move || {
-            let mut buf = Vec::with_capacity(512);
-            match frame.frame {
+            let buf = match frame.frame {
                 NativeFrame::EndOfStream(s) => {
-                    buf.extend_from_slice(rkyv::to_bytes::<_, 256>(&s).unwrap().as_ref());
+                    let mut buf = Vec::with_capacity(32);
+                    buf.extend_from_slice(
+                        rkyv::to_bytes::<_, 32>(&s)
+                            .expect("Failed to serialize EndOfStream")
+                            .as_ref(),
+                    );
                     let t: NativeFrameMarkerType = NativeFrameTypeConsts::EndOfStream.into();
                     buf.extend_from_slice(t.as_ref());
+                    buf
                 }
                 NativeFrame::VideoFrame(mut s) => {
+                    let mut buf = Vec::with_capacity(760);
                     s.prepare_before_save();
-                    buf.extend_from_slice(rkyv::to_bytes::<_, 1024>(&*s).unwrap().as_ref());
+                    buf.extend_from_slice(
+                        rkyv::to_bytes::<_, 756>(&*s)
+                            .expect("Failed to serialize VideoFrame")
+                            .as_ref(),
+                    );
                     let t: NativeFrameMarkerType = NativeFrameTypeConsts::VideoFrame.into();
                     buf.extend_from_slice(t.as_ref());
+                    buf
                 }
                 _ => {
+                    let mut buf = Vec::with_capacity(4);
                     let t: NativeFrameMarkerType = NativeFrameTypeConsts::Unknown.into();
                     buf.extend_from_slice(t.as_ref());
+                    buf
                 }
-            }
-            tx.send(buf).unwrap();
+            };
+            let _ = tx.send(buf);
         });
 
         SaveResult::new(rx)

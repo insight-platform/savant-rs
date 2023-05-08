@@ -2,7 +2,7 @@
 
 extern crate test;
 
-use savant_rs::primitives::db::loader::Loader;
+use savant_rs::primitives::message::loader::Loader;
 use savant_rs::primitives::{Frame, Saver};
 use savant_rs::test::utils::gen_frame;
 use test::Bencher;
