@@ -436,5 +436,24 @@ mod tests {
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
+
+        let attributes =
+            t.find_attributes(Some("system".to_string()), Some("test".to_string()), None);
+        assert_eq!(attributes.len(), 1);
+        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+
+        let attributes = t.find_attributes(
+            Some("system".to_string()),
+            Some("test".to_string()),
+            Some("test".to_string()),
+        );
+        assert_eq!(attributes.len(), 1);
+        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+
+        let mut attributes = t.find_attributes(None, None, Some("test".to_string()));
+        attributes.sort();
+        assert_eq!(attributes.len(), 2);
+        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+        assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
     }
 }
