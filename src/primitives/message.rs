@@ -115,7 +115,6 @@ impl Message {
 mod tests {
     use crate::primitives::message::loader::load_message;
     use crate::primitives::message::saver::save_message;
-    use crate::primitives::message::video::frame::proxy::ProxyVideoFrame;
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
     };
@@ -139,7 +138,7 @@ mod tests {
     #[test]
     fn test_save_video_frame() {
         pyo3::prepare_freethreaded_python();
-        let frame = Message::video_frame(ProxyVideoFrame::new(gen_frame()));
+        let frame = Message::video_frame(gen_frame());
         let res = save_message(frame);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),

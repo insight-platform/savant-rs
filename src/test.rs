@@ -1,17 +1,19 @@
 pub mod utils {
+    use crate::primitives::message::video::frame::VideoFrameBuilder;
+    use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, PyVideoFrameContent, Value};
-    use crate::primitives::{BBox, ObjectBuilder, VideoFrame, VideoFrameBuilder};
+    use crate::primitives::{BBox, ProxyVideoFrame};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    pub fn gen_frame() -> VideoFrame {
+    pub fn gen_frame() -> ProxyVideoFrame {
         let mut f = VideoFrameBuilder::default()
             .source_id("test".to_string())
             .pts(0)
             .framerate("test".to_string())
             .width(0)
             .height(0)
-            .content(PyVideoFrameContent::none().data)
+            .content(PyVideoFrameContent::none().inner)
             .dts(None)
             .transformations(Vec::default())
             .duration(None)
@@ -19,9 +21,9 @@ pub mod utils {
             .keyframe(None)
             .attributes(HashMap::default())
             .offline_objects(Default::default())
-            .resident_objects(
-                vec![
-                    ObjectBuilder::default()
+            .resident_objects(vec![
+                Arc::new(Mutex::new(
+                    InnerObjectBuilder::default()
                         .id(0)
                         .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                         .parent(None)
@@ -31,7 +33,9 @@ pub mod utils {
                         .label("test2".to_string())
                         .build()
                         .unwrap(),
-                    ObjectBuilder::default()
+                )),
+                Arc::new(Mutex::new(
+                    InnerObjectBuilder::default()
                         .id(1)
                         .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                         .parent(None)
@@ -41,7 +45,9 @@ pub mod utils {
                         .label("test".to_string())
                         .build()
                         .unwrap(),
-                    ObjectBuilder::default()
+                )),
+                Arc::new(Mutex::new(
+                    InnerObjectBuilder::default()
                         .id(2)
                         .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                         .parent(None)
@@ -51,11 +57,8 @@ pub mod utils {
                         .label("test2".to_string())
                         .build()
                         .unwrap(),
-                ]
-                .into_iter()
-                .map(|o| Arc::new(Mutex::new(o)))
-                .collect(),
-            )
+                )),
+            ])
             .build()
             .unwrap();
 
@@ -93,6 +96,6 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f
+        ProxyVideoFrame::new(f)
     }
 }

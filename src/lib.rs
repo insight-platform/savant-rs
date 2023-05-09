@@ -24,7 +24,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
     m.add_class::<Value>()?;
     m.add_class::<Object>()?;
-    m.add_class::<ProxyObject>()?;
     m.add_class::<ParentObject>()?;
     m.add_class::<ProxyVideoFrame>()?;
     m.add_class::<EndOfStream>()?;

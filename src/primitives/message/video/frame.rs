@@ -1,6 +1,7 @@
 pub mod proxy;
 
-use crate::primitives::{Attribute, Object, ProxyObject};
+use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::{Attribute, Object};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -46,109 +47,12 @@ pub enum VideoFrameContent {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct PyVideoFrameContent {
-    pub(crate) data: VideoFrameContent,
+    pub(crate) inner: VideoFrameContent,
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
-pub enum FrameTransformation {
-    InitialSize(u64, u64),
-    Scale(u64, u64),
-    Padding(u64, u64, u64, u64),
-    None,
-}
-
-#[pyclass]
-#[derive(Debug, Clone)]
-pub struct PyFrameTransformation {
-    pub(crate) data: FrameTransformation,
-}
-
-impl PyFrameTransformation {
-    pub fn new(t: FrameTransformation) -> Self {
-        Self { data: t }
-    }
-}
-
-#[pymethods]
-impl PyFrameTransformation {
-    #[staticmethod]
-    pub fn initial_size(width: i64, height: i64) -> Self {
-        assert!(width > 0 && height > 0);
-        Self {
-            data: FrameTransformation::InitialSize(
-                u64::try_from(width).unwrap(),
-                u64::try_from(height).unwrap(),
-            ),
-        }
-    }
-
-    #[staticmethod]
-    pub fn scale(width: i64, height: i64) -> Self {
-        assert!(width > 0 && height > 0);
-        Self {
-            data: FrameTransformation::Scale(
-                u64::try_from(width).unwrap(),
-                u64::try_from(height).unwrap(),
-            ),
-        }
-    }
-
-    #[staticmethod]
-    pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
-        assert!(left > 0 && top > 0 && right > 0 && bottom > 0);
-        Self {
-            data: FrameTransformation::Padding(
-                u64::try_from(left).unwrap(),
-                u64::try_from(top).unwrap(),
-                u64::try_from(right).unwrap(),
-                u64::try_from(bottom).unwrap(),
-            ),
-        }
-    }
-
-    #[staticmethod]
-    pub fn none() -> Self {
-        Self {
-            data: FrameTransformation::None,
-        }
-    }
-
-    pub fn is_initial_size(&self) -> bool {
-        matches!(self.data, FrameTransformation::InitialSize(_, _))
-    }
-
-    pub fn is_scale(&self) -> bool {
-        matches!(self.data, FrameTransformation::Scale(_, _))
-    }
-
-    pub fn is_padding(&self) -> bool {
-        matches!(self.data, FrameTransformation::Padding(_, _, _, _))
-    }
-
-    pub fn is_none(&self) -> bool {
-        matches!(self.data, FrameTransformation::None)
-    }
-
-    pub fn get_initial_size(&self) -> Option<(u64, u64)> {
-        match &self.data {
-            FrameTransformation::InitialSize(w, h) => Some((*w, *h)),
-            _ => None,
-        }
-    }
-
-    pub fn get_scale(&self) -> Option<(u64, u64)> {
-        match &self.data {
-            FrameTransformation::Scale(w, h) => Some((*w, *h)),
-            _ => None,
-        }
-    }
-
-    pub fn get_padding(&self) -> Option<(u64, u64, u64, u64)> {
-        match &self.data {
-            FrameTransformation::Padding(l, t, r, b) => Some((*l, *t, *r, *b)),
-            _ => None,
-        }
+impl PyVideoFrameContent {
+    pub fn new(inner: VideoFrameContent) -> Self {
+        Self { inner }
     }
 }
 
@@ -168,38 +72,38 @@ impl PyVideoFrameContent {
     #[staticmethod]
     pub fn external(method: String, location: Option<String>) -> Self {
         Self {
-            data: VideoFrameContent::External(ExternalFrame::new(method, location)),
+            inner: VideoFrameContent::External(ExternalFrame::new(method, location)),
         }
     }
 
     #[staticmethod]
     pub fn internal(data: Vec<u8>) -> Self {
         Self {
-            data: VideoFrameContent::Internal(data),
+            inner: VideoFrameContent::Internal(data),
         }
     }
 
     #[staticmethod]
     pub fn none() -> Self {
         Self {
-            data: VideoFrameContent::None,
+            inner: VideoFrameContent::None,
         }
     }
 
     pub fn is_external(&self) -> bool {
-        matches!(self.data, VideoFrameContent::External(_))
+        matches!(self.inner, VideoFrameContent::External(_))
     }
 
     pub fn is_internal(&self) -> bool {
-        matches!(self.data, VideoFrameContent::Internal(_))
+        matches!(self.inner, VideoFrameContent::Internal(_))
     }
 
     pub fn is_none(&self) -> bool {
-        matches!(self.data, VideoFrameContent::None)
+        matches!(self.inner, VideoFrameContent::None)
     }
 
     pub fn get_data(&self) -> PyResult<Vec<u8>> {
-        match &self.data {
+        match &self.inner {
             VideoFrameContent::Internal(data) => Ok(data.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
@@ -208,7 +112,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_method(&self) -> PyResult<String> {
-        match &self.data {
+        match &self.inner {
             VideoFrameContent::External(data) => Ok(data.method.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -217,7 +121,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_location(&self) -> PyResult<Option<String>> {
-        match &self.data {
+        match &self.inner {
             VideoFrameContent::External(data) => Ok(data.location.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -226,24 +130,127 @@ impl PyVideoFrameContent {
     }
 }
 
+#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[archive(check_bytes)]
+pub enum FrameTransformation {
+    InitialSize(u64, u64),
+    Scale(u64, u64),
+    Padding(u64, u64, u64, u64),
+    None,
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct PyFrameTransformation {
+    pub(crate) inner: FrameTransformation,
+}
+
+impl PyFrameTransformation {
+    pub fn new(inner: FrameTransformation) -> Self {
+        Self { inner }
+    }
+}
+
+#[pymethods]
+impl PyFrameTransformation {
+    #[staticmethod]
+    pub fn initial_size(width: i64, height: i64) -> Self {
+        assert!(width > 0 && height > 0);
+        Self {
+            inner: FrameTransformation::InitialSize(
+                u64::try_from(width).unwrap(),
+                u64::try_from(height).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn scale(width: i64, height: i64) -> Self {
+        assert!(width > 0 && height > 0);
+        Self {
+            inner: FrameTransformation::Scale(
+                u64::try_from(width).unwrap(),
+                u64::try_from(height).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
+        assert!(left > 0 && top > 0 && right > 0 && bottom > 0);
+        Self {
+            inner: FrameTransformation::Padding(
+                u64::try_from(left).unwrap(),
+                u64::try_from(top).unwrap(),
+                u64::try_from(right).unwrap(),
+                u64::try_from(bottom).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn none() -> Self {
+        Self {
+            inner: FrameTransformation::None,
+        }
+    }
+
+    pub fn is_initial_size(&self) -> bool {
+        matches!(self.inner, FrameTransformation::InitialSize(_, _))
+    }
+
+    pub fn is_scale(&self) -> bool {
+        matches!(self.inner, FrameTransformation::Scale(_, _))
+    }
+
+    pub fn is_padding(&self) -> bool {
+        matches!(self.inner, FrameTransformation::Padding(_, _, _, _))
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self.inner, FrameTransformation::None)
+    }
+
+    pub fn get_initial_size(&self) -> Option<(u64, u64)> {
+        match &self.inner {
+            FrameTransformation::InitialSize(w, h) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    pub fn get_scale(&self) -> Option<(u64, u64)> {
+        match &self.inner {
+            FrameTransformation::Scale(w, h) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    pub fn get_padding(&self) -> Option<(u64, u64, u64, u64)> {
+        match &self.inner {
+            FrameTransformation::Padding(l, t, r, b) => Some((*l, *t, *r, *b)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub struct VideoFrame {
-    pub source_id: String,
-    pub pts: i64,
-    pub framerate: String,
-    pub width: i64,
-    pub height: i64,
-    pub dts: Option<i64>,
-    pub duration: Option<i64>,
-    pub codec: Option<String>,
-    pub transformations: Vec<FrameTransformation>,
-    pub keyframe: Option<bool>,
-    pub content: VideoFrameContent,
-    pub attributes: HashMap<(String, String), Attribute>,
-    pub offline_objects: Vec<Object>,
+pub(crate) struct VideoFrame {
+    pub(crate) source_id: String,
+    pub(crate) framerate: String,
+    pub(crate) width: i64,
+    pub(crate) height: i64,
+    pub(crate) codec: Option<String>,
+    pub(crate) keyframe: Option<bool>,
+    pub(crate) pts: i64,
+    pub(crate) dts: Option<i64>,
+    pub(crate) duration: Option<i64>,
+    pub(crate) content: VideoFrameContent,
+    pub(crate) transformations: Vec<FrameTransformation>,
+    pub(crate) attributes: HashMap<(String, String), Attribute>,
+    pub(crate) offline_objects: Vec<InnerObject>,
     #[with(Skip)]
-    pub resident_objects: Vec<Arc<Mutex<Object>>>,
+    pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
 }
 
 impl VideoFrame {
@@ -263,54 +270,58 @@ impl VideoFrame {
             .collect();
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        source_id: String,
-        content: PyVideoFrameContent,
-        pts: i64,
-        framerate: String,
-        width: i64,
-        height: i64,
-        attributes: HashMap<(String, String), Attribute>,
-        objects: Vec<Object>,
-        dts: Option<i64>,
-        duration: Option<i64>,
-        codec: Option<String>,
-        keyframe: Option<bool>,
-    ) -> Self {
-        Self {
-            source_id,
-            pts,
-            framerate,
-            width,
-            height,
-            dts,
-            duration,
-            codec,
-            keyframe,
-            attributes,
-            transformations: Vec::default(),
-            offline_objects: Vec::default(),
-            resident_objects: objects
-                .into_iter()
-                .map(|o| Arc::new(Mutex::new(o)))
-                .collect(),
-            content: content.data,
-        }
-    }
+    // #[allow(clippy::too_many_arguments)]
+    // pub fn new(
+    //     source_id: String,
+    //     content: PyVideoFrameContent,
+    //     pts: i64,
+    //     framerate: String,
+    //     width: i64,
+    //     height: i64,
+    //     attributes: HashMap<(String, String), Attribute>,
+    //     objects: Vec<InnerObject>,
+    //     dts: Option<i64>,
+    //     duration: Option<i64>,
+    //     codec: Option<String>,
+    //     keyframe: Option<bool>,
+    // ) -> Self {
+    //     Self {
+    //         source_id,
+    //         pts,
+    //         framerate,
+    //         width,
+    //         height,
+    //         dts,
+    //         duration,
+    //         codec,
+    //         keyframe,
+    //         attributes,
+    //         transformations: Vec::default(),
+    //         offline_objects: Vec::default(),
+    //         resident_objects: objects
+    //             .into_iter()
+    //             .map(|o| Arc::new(Mutex::new(o)))
+    //             .collect(),
+    //         content: content.inner,
+    //     }
+    // }
 
+    // proxy
     pub fn clear_transformations(&mut self) {
         self.transformations.clear();
     }
 
+    // proxy
     pub fn get_transformations(&self) -> Vec<FrameTransformation> {
         self.transformations.iter().map(|t| t.clone()).collect()
     }
 
+    // proxy
     pub fn add_transformation(&mut self, transformation: FrameTransformation) {
         self.transformations.push(transformation);
     }
 
+    // proxy
     pub fn find_attributes(
         &self,
         creator: Option<String>,
@@ -344,14 +355,17 @@ impl VideoFrame {
             .collect()
     }
 
+    // proxy
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
         self.attributes.get(&(creator, name)).cloned()
     }
 
+    // proxy
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
         self.attributes.remove(&(creator, name))
     }
 
+    // proxy
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.attributes.insert(
             (attribute.creator.clone(), attribute.name.clone()),
@@ -359,23 +373,26 @@ impl VideoFrame {
         )
     }
 
+    // proxy
     pub fn clear_attributes(&mut self) {
         self.attributes.clear();
     }
 
-    pub fn get_object(&self, id: i64) -> Option<ProxyObject> {
+    // proxy
+    pub fn get_object(&self, id: i64) -> Option<Object> {
         self.resident_objects
             .iter()
             .find(|o| o.lock().unwrap().id == id)
-            .map(|o| ProxyObject::new(o.clone()))
+            .map(|o| Object::from_arc_object(o.clone()))
     }
 
+    // proxy
     pub fn access_objects(
         &self,
         negated: bool,
         creator: Option<String>,
         label: Option<String>,
-    ) -> Vec<ProxyObject> {
+    ) -> Vec<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
                 self.resident_objects
@@ -392,33 +409,37 @@ impl VideoFrame {
                         };
                         (creator_match && label_match) ^ negated
                     })
-                    .map(|o| ProxyObject::new(o.clone()))
+                    .map(|o| Object::from_arc_object(o.clone()))
                     .collect()
             })
         })
     }
 
-    pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<ProxyObject> {
+    // proxy
+    pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
                 self.resident_objects
                     .iter()
                     .filter(|o| ids.contains(&o.lock().unwrap().id))
-                    .map(|o| ProxyObject::new(o.clone()))
+                    .map(|o| Object::from_arc_object(o.clone()))
                     .collect()
             })
         })
     }
 
-    pub fn add_object(&mut self, object: Object) {
-        self.resident_objects.push(Arc::new(Mutex::new(object)));
+    // proxy
+    pub fn add_object(&mut self, object: Arc<Mutex<InnerObject>>) {
+        self.resident_objects.push(object);
     }
 
+    // proxy
     pub fn delete_objects_by_ids(&mut self, ids: Vec<i64>) {
         self.resident_objects
             .retain(|o| !ids.contains(&o.lock().unwrap().id));
     }
 
+    // proxy
     pub fn delete_objects(
         &mut self,
         negated: bool,

@@ -1,8 +1,9 @@
 use crate::primitives::message::video::frame::proxy::ProxyVideoFrame;
+use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
 };
-use crate::primitives::{EndOfStream, Message, VideoFrame};
+use crate::primitives::{EndOfStream, Message};
 use pyo3::{pyfunction, Python};
 
 #[pyfunction]
