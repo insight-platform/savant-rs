@@ -3,9 +3,11 @@ pub mod utils {
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, PyVideoFrameContent, Value};
     use crate::primitives::{BBox, VideoFrame};
+    use pyo3::pyfunction;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
+    #[pyfunction]
     pub fn gen_frame() -> VideoFrame {
         let mut f = VideoFrame::from_inner(
             InnerVideoFrameBuilder::default()

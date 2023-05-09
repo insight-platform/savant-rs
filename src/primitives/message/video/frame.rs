@@ -285,6 +285,17 @@ impl VideoFrame {
 
 #[pymethods]
 impl VideoFrame {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self.inner.lock().unwrap())
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(

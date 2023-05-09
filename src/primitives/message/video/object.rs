@@ -72,7 +72,7 @@ impl Object {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{self:?}")
+        format!("{:#?}", self.inner.lock().unwrap())
     }
 
     fn __str__(&self) -> String {

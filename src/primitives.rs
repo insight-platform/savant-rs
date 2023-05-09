@@ -19,6 +19,28 @@ pub use message::video::object::ParentObject;
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
+use pyo3::prelude::PyModule;
+use pyo3::{pymodule, PyResult, Python};
 pub use segment::Intersection;
 pub use segment::IntersectionKind;
 pub use segment::Segment;
+
+#[pymodule]
+pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<Point>()?;
+    m.add_class::<Segment>()?;
+    m.add_class::<IntersectionKind>()?;
+    m.add_class::<Intersection>()?;
+    m.add_class::<PolygonalArea>()?;
+    m.add_class::<BBox>()?;
+    m.add_class::<Attribute>()?;
+    m.add_class::<Value>()?;
+    m.add_class::<Object>()?;
+    m.add_class::<ParentObject>()?;
+    m.add_class::<VideoFrame>()?;
+    m.add_class::<EndOfStream>()?;
+    m.add_class::<Message>()?;
+    m.add_class::<PyVideoFrameContent>()?;
+
+    Ok(())
+}
