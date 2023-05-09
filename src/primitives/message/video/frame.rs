@@ -1,5 +1,3 @@
-pub mod proxy;
-
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::{Attribute, Object};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
@@ -235,7 +233,7 @@ impl PyFrameTransformation {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub(crate) struct VideoFrame {
+pub(crate) struct InnerVideoFrame {
     pub(crate) source_id: String,
     pub(crate) framerate: String,
     pub(crate) width: i64,
@@ -253,7 +251,7 @@ pub(crate) struct VideoFrame {
     pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
 }
 
-impl VideoFrame {
+impl InnerVideoFrame {
     pub(crate) fn prepare_before_save(&mut self) {
         self.offline_objects = self
             .resident_objects
@@ -269,56 +267,198 @@ impl VideoFrame {
             .map(|o| Arc::new(Mutex::new(o.clone())))
             .collect();
     }
+}
 
-    // #[allow(clippy::too_many_arguments)]
-    // pub fn new(
-    //     source_id: String,
-    //     content: PyVideoFrameContent,
-    //     pts: i64,
-    //     framerate: String,
-    //     width: i64,
-    //     height: i64,
-    //     attributes: HashMap<(String, String), Attribute>,
-    //     objects: Vec<InnerObject>,
-    //     dts: Option<i64>,
-    //     duration: Option<i64>,
-    //     codec: Option<String>,
-    //     keyframe: Option<bool>,
-    // ) -> Self {
-    //     Self {
-    //         source_id,
-    //         pts,
-    //         framerate,
-    //         width,
-    //         height,
-    //         dts,
-    //         duration,
-    //         codec,
-    //         keyframe,
-    //         attributes,
-    //         transformations: Vec::default(),
-    //         offline_objects: Vec::default(),
-    //         resident_objects: objects
-    //             .into_iter()
-    //             .map(|o| Arc::new(Mutex::new(o)))
-    //             .collect(),
-    //         content: content.inner,
-    //     }
-    // }
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct VideoFrame {
+    pub(crate) inner: Arc<Mutex<Box<InnerVideoFrame>>>,
+}
 
-    // proxy
+impl VideoFrame {
+    pub(crate) fn from_inner(object: InnerVideoFrame) -> Self {
+        VideoFrame {
+            inner: Arc::new(Mutex::new(Box::new(object))),
+        }
+    }
+}
+
+#[pymethods]
+impl VideoFrame {
+    #[allow(clippy::too_many_arguments)]
+    #[new]
+    #[pyo3(
+        signature = (source_id, framerate, width, height, content, codec=None, keyframe=None, pts=0, dts=None, duration=None)
+    )]
+    pub fn new(
+        source_id: String,
+        framerate: String,
+        width: i64,
+        height: i64,
+        content: PyVideoFrameContent,
+        codec: Option<String>,
+        keyframe: Option<bool>,
+        pts: i64,
+        dts: Option<i64>,
+        duration: Option<i64>,
+    ) -> Self {
+        VideoFrame::from_inner(InnerVideoFrame {
+            source_id,
+            pts,
+            framerate,
+            width,
+            height,
+            dts,
+            duration,
+            codec,
+            keyframe,
+            transformations: vec![],
+            content: content.inner,
+            attributes: HashMap::default(),
+            offline_objects: vec![],
+            resident_objects: vec![],
+        })
+    }
+
+    #[getter]
+    pub fn get_source_id(&self) -> String {
+        self.inner.lock().unwrap().source_id.clone()
+    }
+
+    #[setter]
+    pub fn set_source_id(&mut self, source_id: String) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.source_id = source_id;
+    }
+
+    #[getter]
+    pub fn get_pts(&self) -> i64 {
+        self.inner.lock().unwrap().pts
+    }
+
+    #[setter]
+    pub fn set_pts(&mut self, pts: i64) {
+        assert!(pts >= 0, "pts must be greater than or equal to 0");
+        let mut frame = self.inner.lock().unwrap();
+        frame.pts = pts;
+    }
+
+    #[getter]
+    pub fn get_framerate(&self) -> String {
+        self.inner.lock().unwrap().framerate.clone()
+    }
+
+    #[setter]
+    pub fn set_framerate(&mut self, framerate: String) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.framerate = framerate;
+    }
+
+    #[getter]
+    pub fn get_width(&self) -> i64 {
+        self.inner.lock().unwrap().width
+    }
+
+    #[setter]
+    pub fn set_width(&mut self, width: i64) {
+        assert!(width > 0, "width must be greater than 0");
+        let mut frame = self.inner.lock().unwrap();
+        frame.width = width;
+    }
+
+    #[getter]
+    pub fn get_height(&self) -> i64 {
+        self.inner.lock().unwrap().height
+    }
+
+    #[setter]
+    pub fn set_height(&mut self, height: i64) {
+        assert!(height > 0, "height must be greater than 0");
+        let mut frame = self.inner.lock().unwrap();
+        frame.height = height;
+    }
+
+    #[getter]
+    pub fn get_dts(&self) -> Option<i64> {
+        let frame = self.inner.lock().unwrap();
+        frame.dts
+    }
+
+    #[setter]
+    pub fn set_dts(&mut self, dts: Option<i64>) {
+        assert!(
+            dts.is_none() || dts.unwrap() >= 0,
+            "dts must be greater than or equal to 0"
+        );
+        let mut frame = self.inner.lock().unwrap();
+        frame.dts = dts;
+    }
+
+    #[getter]
+    pub fn get_duration(&self) -> Option<i64> {
+        let frame = self.inner.lock().unwrap();
+        frame.duration
+    }
+
+    #[setter]
+    pub fn set_duration(&mut self, duration: Option<i64>) {
+        assert!(
+            duration.is_none() || duration.unwrap() >= 0,
+            "duration must be greater than or equal to 0"
+        );
+        let mut frame = self.inner.lock().unwrap();
+        frame.duration = duration;
+    }
+
+    #[getter]
+    pub fn get_codec(&self) -> Option<String> {
+        let frame = self.inner.lock().unwrap();
+        frame.codec.clone()
+    }
+
+    #[setter]
+    pub fn set_codec(&mut self, codec: Option<String>) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.codec = codec;
+    }
+
     pub fn clear_transformations(&mut self) {
-        self.transformations.clear();
+        let mut frame = self.inner.lock().unwrap();
+        frame.transformations.clear();
     }
 
-    // proxy
-    pub fn get_transformations(&self) -> Vec<FrameTransformation> {
-        self.transformations.iter().map(|t| t.clone()).collect()
+    pub fn add_transformation(&mut self, transformation: PyFrameTransformation) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.transformations.push(transformation.inner);
     }
 
-    // proxy
-    pub fn add_transformation(&mut self, transformation: FrameTransformation) {
-        self.transformations.push(transformation);
+    pub fn get_transformations(&self) -> Vec<PyFrameTransformation> {
+        let frame = self.inner.lock().unwrap();
+        frame
+            .transformations
+            .iter()
+            .map(|t| PyFrameTransformation::new(t.clone()))
+            .collect()
+    }
+
+    pub fn get_keyframe(&self) -> Option<bool> {
+        let frame = self.inner.lock().unwrap();
+        frame.keyframe
+    }
+
+    pub fn set_keyframe(&mut self, keyframe: Option<bool>) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.keyframe = keyframe;
+    }
+
+    pub fn get_content(&self) -> PyVideoFrameContent {
+        let frame = self.inner.lock().unwrap();
+        PyVideoFrameContent::new(frame.content.clone())
+    }
+
+    pub fn set_content(&mut self, content: PyVideoFrameContent) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.content = content.inner;
     }
 
     // proxy
@@ -328,46 +468,55 @@ impl VideoFrame {
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.attributes
-            .iter()
-            .filter(|((_, _), a)| {
-                if let Some(creator) = &creator {
-                    if a.creator != *creator {
-                        return false;
-                    }
-                }
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let frame = self.inner.lock().unwrap();
+                frame
+                    .attributes
+                    .iter()
+                    .filter(|((_, _), a)| {
+                        if let Some(creator) = &creator {
+                            if a.creator != *creator {
+                                return false;
+                            }
+                        }
 
-                if let Some(name) = &name {
-                    if a.name != *name {
-                        return false;
-                    }
-                }
+                        if let Some(name) = &name {
+                            if a.name != *name {
+                                return false;
+                            }
+                        }
 
-                if let Some(hint) = &hint {
-                    if a.hint.as_ref() != Some(hint) {
-                        return false;
-                    }
-                }
+                        if let Some(hint) = &hint {
+                            if a.hint.as_ref() != Some(hint) {
+                                return false;
+                            }
+                        }
 
-                true
+                        true
+                    })
+                    .map(|((c, n), _)| (c.clone(), n.clone()))
+                    .collect()
             })
-            .map(|((c, n), _)| (c.clone(), n.clone()))
-            .collect()
+        })
     }
 
     // proxy
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        self.attributes.get(&(creator, name)).cloned()
+        let frame = self.inner.lock().unwrap();
+        frame.attributes.get(&(creator, name)).cloned()
     }
 
     // proxy
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        self.attributes.remove(&(creator, name))
+        let mut frame = self.inner.lock().unwrap();
+        frame.attributes.remove(&(creator, name))
     }
 
     // proxy
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.attributes.insert(
+        let mut frame = self.inner.lock().unwrap();
+        frame.attributes.insert(
             (attribute.creator.clone(), attribute.name.clone()),
             attribute,
         )
@@ -375,15 +524,22 @@ impl VideoFrame {
 
     // proxy
     pub fn clear_attributes(&mut self) {
-        self.attributes.clear();
+        let mut frame = self.inner.lock().unwrap();
+        frame.attributes.clear();
     }
 
     // proxy
     pub fn get_object(&self, id: i64) -> Option<Object> {
-        self.resident_objects
-            .iter()
-            .find(|o| o.lock().unwrap().id == id)
-            .map(|o| Object::from_arc_object(o.clone()))
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let frame = self.inner.lock().unwrap();
+                frame
+                    .resident_objects
+                    .iter()
+                    .find(|o| o.lock().unwrap().id == id)
+                    .map(|o| Object::from_arc_object(o.clone()))
+            })
+        })
     }
 
     // proxy
@@ -395,7 +551,9 @@ impl VideoFrame {
     ) -> Vec<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
-                self.resident_objects
+                let frame = self.inner.lock().unwrap();
+                frame
+                    .resident_objects
                     .iter()
                     .filter(|o| {
                         let o = o.lock().unwrap();
@@ -419,7 +577,9 @@ impl VideoFrame {
     pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
-                self.resident_objects
+                let frame = self.inner.lock().unwrap();
+                frame
+                    .resident_objects
                     .iter()
                     .filter(|o| ids.contains(&o.lock().unwrap().id))
                     .map(|o| Object::from_arc_object(o.clone()))
@@ -429,14 +589,21 @@ impl VideoFrame {
     }
 
     // proxy
-    pub fn add_object(&mut self, object: Arc<Mutex<InnerObject>>) {
-        self.resident_objects.push(object);
+    pub fn add_object(&mut self, object: Object) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.resident_objects.push(object.inner);
     }
 
     // proxy
     pub fn delete_objects_by_ids(&mut self, ids: Vec<i64>) {
-        self.resident_objects
-            .retain(|o| !ids.contains(&o.lock().unwrap().id));
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let mut frame = self.inner.lock().unwrap();
+                frame
+                    .resident_objects
+                    .retain(|o| !ids.contains(&o.lock().unwrap().id));
+            })
+        })
     }
 
     // proxy
@@ -446,22 +613,28 @@ impl VideoFrame {
         creator: Option<String>,
         label: Option<String>,
     ) {
-        self.resident_objects.retain(|o| {
-            let o = o.lock().unwrap();
-            let creator_match = match &creator {
-                Some(creator) => o.creator == *creator,
-                None => true,
-            };
-            let label_match = match &label {
-                Some(label) => o.label == *label,
-                None => true,
-            };
-            !((creator_match && label_match) ^ negated)
-        });
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let mut frame = self.inner.lock().unwrap();
+                frame.resident_objects.retain(|o| {
+                    let o = o.lock().unwrap();
+                    let creator_match = match &creator {
+                        Some(creator) => o.creator == *creator,
+                        None => true,
+                    };
+                    let label_match = match &label {
+                        Some(label) => o.label == *label,
+                        None => true,
+                    };
+                    !((creator_match && label_match) ^ negated)
+                });
+            })
+        })
     }
 
     pub fn clear_objects(&mut self) {
-        self.resident_objects.clear();
+        let mut frame = self.inner.lock().unwrap();
+        frame.resident_objects.clear();
     }
 }
 

@@ -1,66 +1,68 @@
 pub mod utils {
-    use crate::primitives::message::video::frame::VideoFrameBuilder;
+    use crate::primitives::message::video::frame::InnerVideoFrameBuilder;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, PyVideoFrameContent, Value};
-    use crate::primitives::{BBox, ProxyVideoFrame};
+    use crate::primitives::{BBox, VideoFrame};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
-    pub fn gen_frame() -> ProxyVideoFrame {
-        let mut f = VideoFrameBuilder::default()
-            .source_id("test".to_string())
-            .pts(0)
-            .framerate("test".to_string())
-            .width(0)
-            .height(0)
-            .content(PyVideoFrameContent::none().inner)
-            .dts(None)
-            .transformations(Vec::default())
-            .duration(None)
-            .codec(None)
-            .keyframe(None)
-            .attributes(HashMap::default())
-            .offline_objects(Default::default())
-            .resident_objects(vec![
-                Arc::new(Mutex::new(
-                    InnerObjectBuilder::default()
-                        .id(0)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test".to_string())
-                        .label("test2".to_string())
-                        .build()
-                        .unwrap(),
-                )),
-                Arc::new(Mutex::new(
-                    InnerObjectBuilder::default()
-                        .id(1)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test2".to_string())
-                        .label("test".to_string())
-                        .build()
-                        .unwrap(),
-                )),
-                Arc::new(Mutex::new(
-                    InnerObjectBuilder::default()
-                        .id(2)
-                        .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
-                        .parent(None)
-                        .attributes(HashMap::default())
-                        .confidence(None)
-                        .creator("test2".to_string())
-                        .label("test2".to_string())
-                        .build()
-                        .unwrap(),
-                )),
-            ])
-            .build()
-            .unwrap();
+    pub fn gen_frame() -> VideoFrame {
+        let mut f = VideoFrame::from_inner(
+            InnerVideoFrameBuilder::default()
+                .source_id("test".to_string())
+                .pts(0)
+                .framerate("test".to_string())
+                .width(0)
+                .height(0)
+                .content(PyVideoFrameContent::none().inner)
+                .dts(None)
+                .transformations(Vec::default())
+                .duration(None)
+                .codec(None)
+                .keyframe(None)
+                .attributes(HashMap::default())
+                .offline_objects(Default::default())
+                .resident_objects(vec![
+                    Arc::new(Mutex::new(
+                        InnerObjectBuilder::default()
+                            .id(0)
+                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .parent(None)
+                            .attributes(HashMap::default())
+                            .confidence(None)
+                            .creator("test".to_string())
+                            .label("test2".to_string())
+                            .build()
+                            .unwrap(),
+                    )),
+                    Arc::new(Mutex::new(
+                        InnerObjectBuilder::default()
+                            .id(1)
+                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .parent(None)
+                            .attributes(HashMap::default())
+                            .confidence(None)
+                            .creator("test2".to_string())
+                            .label("test".to_string())
+                            .build()
+                            .unwrap(),
+                    )),
+                    Arc::new(Mutex::new(
+                        InnerObjectBuilder::default()
+                            .id(2)
+                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .parent(None)
+                            .attributes(HashMap::default())
+                            .confidence(None)
+                            .creator("test2".to_string())
+                            .label("test2".to_string())
+                            .build()
+                            .unwrap(),
+                    )),
+                ])
+                .build()
+                .unwrap(),
+        );
 
         f.set_attribute(
             AttributeBuilder::default()
@@ -96,6 +98,6 @@ pub mod utils {
                 .unwrap(),
         );
 
-        ProxyVideoFrame::new(f)
+        f
     }
 }

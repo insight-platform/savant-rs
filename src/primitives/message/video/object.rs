@@ -50,19 +50,19 @@ pub(crate) struct InnerObject {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Object {
-    pub(crate) object: Arc<Mutex<InnerObject>>,
+    pub(crate) inner: Arc<Mutex<InnerObject>>,
 }
 
 impl Object {
     #[cfg(test)]
     pub(crate) fn from_object(object: InnerObject) -> Self {
         Self {
-            object: Arc::new(Mutex::new(object)),
+            inner: Arc::new(Mutex::new(object)),
         }
     }
 
     pub(crate) fn from_arc_object(object: Arc<Mutex<InnerObject>>) -> Self {
-        Self { object }
+        Self { inner: object }
     }
 }
 
@@ -99,69 +99,69 @@ impl Object {
             parent,
         };
         Self {
-            object: Arc::new(Mutex::new(object)),
+            inner: Arc::new(Mutex::new(object)),
         }
     }
 
     pub fn id(&self) -> i64 {
-        self.object.lock().unwrap().id
+        self.inner.lock().unwrap().id
     }
 
     pub fn creator(&self) -> String {
-        self.object.lock().unwrap().creator.clone()
+        self.inner.lock().unwrap().creator.clone()
     }
 
     pub fn label(&self) -> String {
-        self.object.lock().unwrap().label.clone()
+        self.inner.lock().unwrap().label.clone()
     }
 
     pub fn bbox(&self) -> crate::primitives::BBox {
-        self.object.lock().unwrap().bbox.clone()
+        self.inner.lock().unwrap().bbox.clone()
     }
 
     pub fn confidence(&self) -> Option<f64> {
-        let object = self.object.lock().unwrap();
+        let object = self.inner.lock().unwrap();
         object.confidence
     }
 
     pub fn parent(&self) -> Option<ParentObject> {
-        let object = self.object.lock().unwrap();
+        let object = self.inner.lock().unwrap();
         object.parent.clone()
     }
 
     pub fn set_id(&mut self, id: i64) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.id = id;
     }
 
     pub fn set_creator(&mut self, creator: String) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.creator = creator;
     }
 
     pub fn set_label(&mut self, label: String) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.label = label;
     }
 
     pub fn set_bbox(&mut self, bbox: BBox) {
-        self.object.lock().unwrap().bbox = bbox;
+        self.inner.lock().unwrap().bbox = bbox;
     }
 
     pub fn set_confidence(&mut self, confidence: Option<f64>) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.confidence = confidence;
     }
 
     pub fn set_parent(&mut self, parent: Option<ParentObject>) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.parent = parent;
     }
 
     pub fn attributes(&self) -> Vec<(String, String)> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
-                let object = self.object.lock().unwrap();
+                let object = self.inner.lock().unwrap();
                 object
                     .attributes
                     .iter()
@@ -172,17 +172,17 @@ impl Object {
     }
 
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        let object = self.object.lock().unwrap();
+        let object = self.inner.lock().unwrap();
         object.attributes.get(&(creator, name)).cloned()
     }
 
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.attributes.remove(&(creator, name))
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.attributes.insert(
             (attribute.creator.clone(), attribute.name.clone()),
             attribute,
@@ -190,7 +190,7 @@ impl Object {
     }
 
     pub fn clear_attributes(&mut self) {
-        let mut object = self.object.lock().unwrap();
+        let mut object = self.inner.lock().unwrap();
         object.attributes.clear();
     }
 
@@ -203,7 +203,7 @@ impl Object {
     ) {
         Python::with_gil(|py| {
             py.allow_threads(|| {
-                let mut object = self.object.lock().unwrap();
+                let mut object = self.inner.lock().unwrap();
                 object.attributes.retain(|(c, label), _| match creator {
                     Some(ref creator) => {
                         ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
@@ -271,35 +271,35 @@ mod tests {
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec![]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 3);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec![]);
-        assert!(t.object.lock().unwrap().attributes.is_empty());
+        assert!(t.inner.lock().unwrap().attributes.is_empty());
 
         let mut t = get_object();
         t.delete_attributes(false, Some("creator".to_string()), vec![]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, Some("creator".to_string()), vec![]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string()]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string()]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 0);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 0);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 3);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(
@@ -307,10 +307,10 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
 
         assert_eq!(
-            &t.object.lock().unwrap().attributes[&("creator2".to_string(), "name".to_string())],
+            &t.inner.lock().unwrap().attributes[&("creator2".to_string(), "name".to_string())],
             &AttributeBuilder::default()
                 .creator("creator2".to_string())
                 .name("name".to_string())
@@ -327,6 +327,6 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.object.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
     }
 }

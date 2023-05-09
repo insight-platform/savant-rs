@@ -4,13 +4,13 @@ pub mod saver;
 pub mod video;
 
 use crate::primitives::EndOfStream;
-use crate::primitives::ProxyVideoFrame;
+use crate::primitives::VideoFrame;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 
 #[derive(Debug, Clone)]
 pub enum NativeMessage {
     EndOfStream(EndOfStream),
-    VideoFrame(ProxyVideoFrame),
+    VideoFrame(VideoFrame),
     Unknown,
 }
 
@@ -71,7 +71,7 @@ impl Message {
     }
 
     #[staticmethod]
-    pub fn video_frame(frame: ProxyVideoFrame) -> Self {
+    pub fn video_frame(frame: VideoFrame) -> Self {
         Self {
             frame: NativeMessage::VideoFrame(frame),
         }
@@ -103,7 +103,7 @@ impl Message {
         }
     }
 
-    pub fn as_video_frame(&self) -> Option<ProxyVideoFrame> {
+    pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.frame {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
