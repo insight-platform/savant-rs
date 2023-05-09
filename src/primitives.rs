@@ -12,6 +12,7 @@ pub use bbox::BBox;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
+pub use message::video::frame::proxy::ProxyVideoFrame;
 pub use message::video::frame::PyVideoFrameContent;
 pub use message::video::frame::VideoFrame;
 pub use message::video::frame::VideoFrameBuilder;

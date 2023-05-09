@@ -1,3 +1,5 @@
+pub mod proxy;
+
 use crate::primitives::{Attribute, Object, ProxyObject};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -45,6 +47,109 @@ pub enum VideoFrameContent {
 #[derive(Debug, Clone)]
 pub struct PyVideoFrameContent {
     pub(crate) data: VideoFrameContent,
+}
+
+#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[archive(check_bytes)]
+pub enum FrameTransformation {
+    InitialSize(u64, u64),
+    Scale(u64, u64),
+    Padding(u64, u64, u64, u64),
+    None,
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct PyFrameTransformation {
+    pub(crate) data: FrameTransformation,
+}
+
+impl PyFrameTransformation {
+    pub fn new(t: FrameTransformation) -> Self {
+        Self { data: t }
+    }
+}
+
+#[pymethods]
+impl PyFrameTransformation {
+    #[staticmethod]
+    pub fn initial_size(width: i64, height: i64) -> Self {
+        assert!(width > 0 && height > 0);
+        Self {
+            data: FrameTransformation::InitialSize(
+                u64::try_from(width).unwrap(),
+                u64::try_from(height).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn scale(width: i64, height: i64) -> Self {
+        assert!(width > 0 && height > 0);
+        Self {
+            data: FrameTransformation::Scale(
+                u64::try_from(width).unwrap(),
+                u64::try_from(height).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
+        assert!(left > 0 && top > 0 && right > 0 && bottom > 0);
+        Self {
+            data: FrameTransformation::Padding(
+                u64::try_from(left).unwrap(),
+                u64::try_from(top).unwrap(),
+                u64::try_from(right).unwrap(),
+                u64::try_from(bottom).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
+    pub fn none() -> Self {
+        Self {
+            data: FrameTransformation::None,
+        }
+    }
+
+    pub fn is_initial_size(&self) -> bool {
+        matches!(self.data, FrameTransformation::InitialSize(_, _))
+    }
+
+    pub fn is_scale(&self) -> bool {
+        matches!(self.data, FrameTransformation::Scale(_, _))
+    }
+
+    pub fn is_padding(&self) -> bool {
+        matches!(self.data, FrameTransformation::Padding(_, _, _, _))
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self.data, FrameTransformation::None)
+    }
+
+    pub fn get_initial_size(&self) -> Option<(u64, u64)> {
+        match &self.data {
+            FrameTransformation::InitialSize(w, h) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    pub fn get_scale(&self) -> Option<(u64, u64)> {
+        match &self.data {
+            FrameTransformation::Scale(w, h) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    pub fn get_padding(&self) -> Option<(u64, u64, u64, u64)> {
+        match &self.data {
+            FrameTransformation::Padding(l, t, r, b) => Some((*l, *t, *r, *b)),
+            _ => None,
+        }
+    }
 }
 
 #[pymethods]
@@ -121,27 +226,18 @@ impl PyVideoFrameContent {
     }
 }
 
-#[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct VideoFrame {
-    #[pyo3(get, set)]
     pub source_id: String,
-    #[pyo3(get, set)]
     pub pts: i64,
-    #[pyo3(get, set)]
     pub framerate: String,
-    #[pyo3(get, set)]
     pub width: i64,
-    #[pyo3(get, set)]
     pub height: i64,
-    #[pyo3(get, set)]
     pub dts: Option<i64>,
-    #[pyo3(get, set)]
     pub duration: Option<i64>,
-    #[pyo3(get, set)]
     pub codec: Option<String>,
-    #[pyo3(get, set)]
+    pub transformations: Vec<FrameTransformation>,
     pub keyframe: Option<bool>,
     pub content: VideoFrameContent,
     pub attributes: HashMap<(String, String), Attribute>,
@@ -150,19 +246,7 @@ pub struct VideoFrame {
     pub resident_objects: Vec<Arc<Mutex<Object>>>,
 }
 
-#[pymethods]
 impl VideoFrame {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-
-    fn __repr__(&self) -> String {
-        format!("{self:?}")
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-
     pub(crate) fn prepare_before_save(&mut self) {
         self.offline_objects = self
             .resident_objects
@@ -180,7 +264,6 @@ impl VideoFrame {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[new]
     pub fn new(
         source_id: String,
         content: PyVideoFrameContent,
@@ -206,6 +289,7 @@ impl VideoFrame {
             codec,
             keyframe,
             attributes,
+            transformations: Vec::default(),
             offline_objects: Vec::default(),
             resident_objects: objects
                 .into_iter()
@@ -213,6 +297,18 @@ impl VideoFrame {
                 .collect(),
             content: content.data,
         }
+    }
+
+    pub fn clear_transformations(&mut self) {
+        self.transformations.clear();
+    }
+
+    pub fn get_transformations(&self) -> Vec<FrameTransformation> {
+        self.transformations.iter().map(|t| t.clone()).collect()
+    }
+
+    pub fn add_transformation(&mut self, transformation: FrameTransformation) {
+        self.transformations.push(transformation);
     }
 
     pub fn find_attributes(

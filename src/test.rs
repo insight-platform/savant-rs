@@ -13,6 +13,7 @@ pub mod utils {
             .height(0)
             .content(PyVideoFrameContent::none().data)
             .dts(None)
+            .transformations(Vec::default())
             .duration(None)
             .codec(None)
             .keyframe(None)

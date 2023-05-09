@@ -1,3 +1,4 @@
+use crate::primitives::message::video::frame::proxy::ProxyVideoFrame;
 use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
 };
@@ -29,7 +30,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
                     match f {
                         Ok(mut f) => {
                             f.prepare_after_load();
-                            Message::video_frame(f)
+                            Message::video_frame(ProxyVideoFrame::new(f))
                         }
                         Err(_) => Message::unknown(),
                     }

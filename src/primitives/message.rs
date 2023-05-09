@@ -3,13 +3,14 @@ pub mod loader;
 pub mod saver;
 pub mod video;
 
-use crate::primitives::{EndOfStream, VideoFrame};
+use crate::primitives::EndOfStream;
+use crate::primitives::ProxyVideoFrame;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 
 #[derive(Debug, Clone)]
 pub enum NativeMessage {
     EndOfStream(EndOfStream),
-    VideoFrame(Box<VideoFrame>),
+    VideoFrame(ProxyVideoFrame),
     Unknown,
 }
 
@@ -70,9 +71,9 @@ impl Message {
     }
 
     #[staticmethod]
-    pub fn video_frame(frame: VideoFrame) -> Self {
+    pub fn video_frame(frame: ProxyVideoFrame) -> Self {
         Self {
-            frame: NativeMessage::VideoFrame(Box::new(frame)),
+            frame: NativeMessage::VideoFrame(frame),
         }
     }
 
@@ -102,9 +103,9 @@ impl Message {
         }
     }
 
-    pub fn as_video_frame(&self) -> Option<VideoFrame> {
+    pub fn as_video_frame(&self) -> Option<ProxyVideoFrame> {
         match &self.frame {
-            NativeMessage::VideoFrame(frame) => Some(*frame.clone()),
+            NativeMessage::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
         }
     }
@@ -114,6 +115,7 @@ impl Message {
 mod tests {
     use crate::primitives::message::loader::load_message;
     use crate::primitives::message::saver::save_message;
+    use crate::primitives::message::video::frame::proxy::ProxyVideoFrame;
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
     };
@@ -137,7 +139,7 @@ mod tests {
     #[test]
     fn test_save_video_frame() {
         pyo3::prepare_freethreaded_python();
-        let frame = Message::video_frame(gen_frame());
+        let frame = Message::video_frame(ProxyVideoFrame::new(gen_frame()));
         let res = save_message(frame);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
