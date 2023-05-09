@@ -512,19 +512,16 @@ impl VideoFrame {
         })
     }
 
-    // proxy
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
         let frame = self.inner.lock().unwrap();
         frame.attributes.get(&(creator, name)).cloned()
     }
 
-    // proxy
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
         let mut frame = self.inner.lock().unwrap();
         frame.attributes.remove(&(creator, name))
     }
 
-    // proxy
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
         let mut frame = self.inner.lock().unwrap();
         frame.attributes.insert(
@@ -533,13 +530,11 @@ impl VideoFrame {
         )
     }
 
-    // proxy
     pub fn clear_attributes(&mut self) {
         let mut frame = self.inner.lock().unwrap();
         frame.attributes.clear();
     }
 
-    // proxy
     pub fn get_object(&self, id: i64) -> Option<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
@@ -553,7 +548,6 @@ impl VideoFrame {
         })
     }
 
-    // proxy
     pub fn access_objects(
         &self,
         negated: bool,
@@ -584,7 +578,6 @@ impl VideoFrame {
         })
     }
 
-    // proxy
     pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<Object> {
         Python::with_gil(|py| {
             py.allow_threads(|| {
@@ -599,13 +592,11 @@ impl VideoFrame {
         })
     }
 
-    // proxy
     pub fn add_object(&mut self, object: Object) {
         let mut frame = self.inner.lock().unwrap();
         frame.resident_objects.push(object.inner);
     }
 
-    // proxy
     pub fn delete_objects_by_ids(&mut self, ids: Vec<i64>) {
         Python::with_gil(|py| {
             py.allow_threads(|| {
@@ -617,7 +608,6 @@ impl VideoFrame {
         })
     }
 
-    // proxy
     pub fn delete_objects(
         &mut self,
         negated: bool,
@@ -646,6 +636,25 @@ impl VideoFrame {
     pub fn clear_objects(&mut self) {
         let mut frame = self.inner.lock().unwrap();
         frame.resident_objects.clear();
+    }
+
+    pub fn snapshot(&mut self) {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let mut frame = self.inner.lock().unwrap();
+                frame.prepare_before_save();
+            })
+        })
+    }
+
+    pub fn restore(&mut self) {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let mut frame = self.inner.lock().unwrap();
+                frame.resident_objects.clear();
+                frame.prepare_after_load();
+            })
+        })
     }
 }
 
@@ -806,5 +815,16 @@ mod tests {
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].id(), 2);
+    }
+
+    #[test]
+    fn test_snapshotting() {
+        let mut t = gen_frame();
+        t.snapshot();
+        let mut o = t.access_objects_by_id(vec![0]).pop().unwrap();
+        o.set_id(12);
+        assert!(matches!(t.access_objects_by_id(vec![0]).pop(), None));
+        t.restore();
+        t.access_objects_by_id(vec![0]).pop().unwrap();
     }
 }
