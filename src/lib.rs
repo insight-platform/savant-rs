@@ -1,6 +1,7 @@
 pub mod primitives;
 pub mod test;
 pub mod tests_pyo3_access;
+pub mod utils;
 
 use crate::tests_pyo3_access::{
     CopyWrapper, Internal, InternalMtx, InternalNoClone, ProxyWrapper, TakeWrapper, Wrapper,
@@ -8,12 +9,12 @@ use crate::tests_pyo3_access::{
 
 use primitives::*;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use pyo3::wrap_pymodule;
 
 #[pymodule]
-fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
+fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
-    // let _ = env_logger::try_init();
-
     m.add_class::<Point>()?;
     m.add_class::<Segment>()?;
     m.add_class::<IntersectionKind>()?;
@@ -27,7 +28,7 @@ fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ParentObject>()?;
     m.add_class::<VideoFrame>()?;
     m.add_class::<EndOfStream>()?;
-    m.add_class::<Frame>()?;
+    m.add_class::<Message>()?;
     m.add_class::<PyVideoFrameContent>()?;
 
     m.add_class::<Internal>()?;
@@ -37,5 +38,11 @@ fn savant_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<CopyWrapper>()?;
     m.add_class::<TakeWrapper>()?;
     m.add_class::<ProxyWrapper>()?;
+
+    m.add_wrapped(wrap_pymodule!(utils::utils))?;
+    let sys = PyModule::import(py, "sys")?;
+    let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
+    sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
+
     Ok(())
 }
