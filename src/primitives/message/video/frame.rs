@@ -538,7 +538,7 @@ impl VideoFrame {
                     .resident_objects
                     .iter()
                     .find(|o| o.lock().unwrap().id == id)
-                    .map(|o| Object::from_arc_object(o.clone()))
+                    .map(|o| Object::from_arc_inner_object(o.clone()))
             })
         })
     }
@@ -567,7 +567,7 @@ impl VideoFrame {
                         };
                         (creator_match && label_match) ^ negated
                     })
-                    .map(|o| Object::from_arc_object(o.clone()))
+                    .map(|o| Object::from_arc_inner_object(o.clone()))
                     .collect()
             })
         })
@@ -581,7 +581,7 @@ impl VideoFrame {
                     .resident_objects
                     .iter()
                     .filter(|o| ids.contains(&o.lock().unwrap().id))
-                    .map(|o| Object::from_arc_object(o.clone()))
+                    .map(|o| Object::from_arc_inner_object(o.clone()))
                     .collect()
             })
         })
@@ -651,10 +651,25 @@ impl VideoFrame {
             })
         })
     }
+
+    pub fn get_modified_objects(&self) -> Vec<Object> {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                let frame = self.inner.lock().unwrap();
+                frame
+                    .resident_objects
+                    .iter()
+                    .filter(|o| !o.lock().unwrap().modifications.is_empty())
+                    .map(|o| Object::from_arc_inner_object(o.clone()))
+                    .collect()
+            })
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::Modification;
     use crate::test::utils::gen_frame;
 
     #[test]
@@ -821,5 +836,23 @@ mod tests {
         assert!(matches!(t.access_objects_by_id(vec![0]).pop(), None));
         t.restore();
         t.access_objects_by_id(vec![0]).pop().unwrap();
+    }
+
+    #[test]
+    fn test_modified_objects() {
+        let t = gen_frame();
+        let mut o = t.access_objects_by_id(vec![0]).pop().unwrap();
+        o.set_id(12);
+        let mut modified = t.get_modified_objects();
+        assert_eq!(modified.len(), 1);
+        let modified = modified.pop().unwrap();
+        assert_eq!(modified.get_id(), 12);
+
+        let mods = modified.take_modifications();
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods, vec![Modification::Id]);
+
+        let modified = t.get_modified_objects();
+        assert!(modified.is_empty());
     }
 }

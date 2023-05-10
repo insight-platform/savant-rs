@@ -28,6 +28,8 @@ pub mod utils {
                     Arc::new(Mutex::new(
                         InnerObjectBuilder::default()
                             .id(0)
+                            .track_id(None)
+                            .modifications(Vec::default())
                             .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())
@@ -40,6 +42,8 @@ pub mod utils {
                     Arc::new(Mutex::new(
                         InnerObjectBuilder::default()
                             .id(1)
+                            .track_id(None)
+                            .modifications(Vec::default())
                             .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())
@@ -52,6 +56,8 @@ pub mod utils {
                     Arc::new(Mutex::new(
                         InnerObjectBuilder::default()
                             .id(2)
+                            .track_id(None)
+                            .modifications(Vec::default())
                             .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())

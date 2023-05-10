@@ -14,6 +14,7 @@ pub use message::loader::load_message;
 pub use message::saver::save_message;
 pub use message::video::frame::PyVideoFrameContent;
 pub use message::video::frame::VideoFrame;
+pub use message::video::object::Modification;
 pub use message::video::object::Object;
 pub use message::video::object::ParentObject;
 pub use message::Message;
@@ -41,6 +42,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<EndOfStream>()?;
     m.add_class::<Message>()?;
     m.add_class::<PyVideoFrameContent>()?;
+    m.add_class::<Modification>()?;
 
     Ok(())
 }
