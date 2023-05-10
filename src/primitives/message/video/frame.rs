@@ -1,3 +1,4 @@
+use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::{Attribute, Object};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
@@ -88,14 +89,17 @@ impl PyVideoFrameContent {
         }
     }
 
+    #[getter]
     pub fn is_external(&self) -> bool {
         matches!(self.inner, VideoFrameContent::External(_))
     }
 
+    #[getter]
     pub fn is_internal(&self) -> bool {
         matches!(self.inner, VideoFrameContent::Internal(_))
     }
 
+    #[getter]
     pub fn is_none(&self) -> bool {
         matches!(self.inner, VideoFrameContent::None)
     }
@@ -193,18 +197,22 @@ impl PyFrameTransformation {
         }
     }
 
+    #[getter]
     pub fn is_initial_size(&self) -> bool {
         matches!(self.inner, FrameTransformation::InitialSize(_, _))
     }
 
+    #[getter]
     pub fn is_scale(&self) -> bool {
         matches!(self.inner, FrameTransformation::Scale(_, _))
     }
 
+    #[getter]
     pub fn is_padding(&self) -> bool {
         matches!(self.inner, FrameTransformation::Padding(_, _, _, _))
     }
 
+    #[getter]
     pub fn is_none(&self) -> bool {
         matches!(self.inner, FrameTransformation::None)
     }
@@ -251,6 +259,16 @@ pub(crate) struct InnerVideoFrame {
     pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
 }
 
+impl InnerAttributes for Box<InnerVideoFrame> {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+        &self.attributes
+    }
+
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+        &mut self.attributes
+    }
+}
+
 impl InnerVideoFrame {
     pub(crate) fn prepare_before_save(&mut self) {
         self.offline_objects = self
@@ -273,6 +291,12 @@ impl InnerVideoFrame {
 #[derive(Debug, Clone)]
 pub struct VideoFrame {
     pub(crate) inner: Arc<Mutex<Box<InnerVideoFrame>>>,
+}
+
+impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
+    fn get_inner(&self) -> Arc<Mutex<Box<InnerVideoFrame>>> {
+        self.inner.clone()
+    }
 }
 
 impl VideoFrame {
@@ -452,87 +476,58 @@ impl VideoFrame {
             .collect()
     }
 
+    #[getter]
     pub fn get_keyframe(&self) -> Option<bool> {
         let frame = self.inner.lock().unwrap();
         frame.keyframe
     }
 
+    #[setter]
     pub fn set_keyframe(&mut self, keyframe: Option<bool>) {
         let mut frame = self.inner.lock().unwrap();
         frame.keyframe = keyframe;
     }
 
+    #[getter]
     pub fn get_content(&self) -> PyVideoFrameContent {
         let frame = self.inner.lock().unwrap();
         PyVideoFrameContent::new(frame.content.clone())
     }
 
+    #[setter]
     pub fn set_content(&mut self, content: PyVideoFrameContent) {
         let mut frame = self.inner.lock().unwrap();
         frame.content = content.inner;
     }
 
-    // proxy
+    #[getter]
+    pub fn attributes(&self) -> Vec<(String, String)> {
+        self.inner_attributes()
+    }
+
     pub fn find_attributes(
         &self,
         creator: Option<String>,
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let frame = self.inner.lock().unwrap();
-                frame
-                    .attributes
-                    .iter()
-                    .filter(|((_, _), a)| {
-                        if let Some(creator) = &creator {
-                            if a.creator != *creator {
-                                return false;
-                            }
-                        }
-
-                        if let Some(name) = &name {
-                            if a.name != *name {
-                                return false;
-                            }
-                        }
-
-                        if let Some(hint) = &hint {
-                            if a.hint.as_ref() != Some(hint) {
-                                return false;
-                            }
-                        }
-
-                        true
-                    })
-                    .map(|((c, n), _)| (c.clone(), n.clone()))
-                    .collect()
-            })
-        })
+        self.inner_find_attributes(creator, name, hint)
     }
 
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        let frame = self.inner.lock().unwrap();
-        frame.attributes.get(&(creator, name)).cloned()
+        self.inner_get_attribute(creator, name)
     }
 
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        let mut frame = self.inner.lock().unwrap();
-        frame.attributes.remove(&(creator, name))
+        self.inner_delete_attribute(creator, name)
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let mut frame = self.inner.lock().unwrap();
-        frame.attributes.insert(
-            (attribute.creator.clone(), attribute.name.clone()),
-            attribute,
-        )
+        self.inner_set_attribute(attribute)
     }
 
     pub fn clear_attributes(&mut self) {
-        let mut frame = self.inner.lock().unwrap();
-        frame.attributes.clear();
+        self.inner_clear_attributes()
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -668,8 +663,8 @@ mod tests {
         let t = gen_frame();
         let objects = t.access_objects_by_id(vec![0, 1]);
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 0);
-        assert_eq!(objects[1].id(), 1);
+        assert_eq!(objects[0].get_id(), 0);
+        assert_eq!(objects[1].get_id(), 1);
     }
 
     #[test]
@@ -695,24 +690,24 @@ mod tests {
         let t = gen_frame();
         let objects = t.access_objects(false, Some("test2".to_string()), None);
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 1);
-        assert_eq!(objects[1].id(), 2);
+        assert_eq!(objects[0].get_id(), 1);
+        assert_eq!(objects[1].get_id(), 2);
 
         let t = gen_frame();
         let objects = t.access_objects(true, Some("test2".to_string()), None);
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id(), 0);
+        assert_eq!(objects[0].get_id(), 0);
 
         let t = gen_frame();
         let objects = t.access_objects(false, Some("test2".to_string()), Some("test2".to_string()));
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id(), 2);
+        assert_eq!(objects[0].get_id(), 2);
 
         let t = gen_frame();
         let objects = t.access_objects(true, Some("test2".to_string()), Some("test2".to_string()));
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 0);
-        assert_eq!(objects[1].id(), 1);
+        assert_eq!(objects[0].get_id(), 0);
+        assert_eq!(objects[1].get_id(), 1);
     }
 
     #[test]
@@ -721,8 +716,8 @@ mod tests {
         let t = gen_frame();
         let objects = t.access_objects_by_id(vec![0, 1]);
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 0);
-        assert_eq!(objects[1].id(), 1);
+        assert_eq!(objects[0].get_id(), 0);
+        assert_eq!(objects[1].get_id(), 1);
     }
 
     #[test]
@@ -774,7 +769,7 @@ mod tests {
         t.delete_objects_by_ids(vec![0, 1]);
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id(), 2);
+        assert_eq!(objects[0].get_id(), 2);
     }
 
     #[test]
@@ -794,27 +789,27 @@ mod tests {
         t.delete_objects(false, Some("test2".to_string()), None);
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id(), 0);
+        assert_eq!(objects[0].get_id(), 0);
 
         let mut t = gen_frame();
         t.delete_objects(true, Some("test2".to_string()), None);
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 1);
-        assert_eq!(objects[1].id(), 2);
+        assert_eq!(objects[0].get_id(), 1);
+        assert_eq!(objects[1].get_id(), 2);
 
         let mut t = gen_frame();
         t.delete_objects(false, Some("test2".to_string()), Some("test2".to_string()));
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id(), 0);
-        assert_eq!(objects[1].id(), 1);
+        assert_eq!(objects[0].get_id(), 0);
+        assert_eq!(objects[1].get_id(), 1);
 
         let mut t = gen_frame();
         t.delete_objects(true, Some("test2".to_string()), Some("test2".to_string()));
         let objects = t.access_objects(false, None, None);
         assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id(), 2);
+        assert_eq!(objects[0].get_id(), 2);
     }
 
     #[test]

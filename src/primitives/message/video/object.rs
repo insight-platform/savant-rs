@@ -1,5 +1,6 @@
+use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::{Attribute, BBox};
-use pyo3::{pyclass, pymethods, Py, PyAny, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -47,10 +48,26 @@ pub(crate) struct InnerObject {
     pub parent: Option<ParentObject>,
 }
 
+impl InnerAttributes for InnerObject {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+        &self.attributes
+    }
+
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+        &mut self.attributes
+    }
+}
+
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Object {
     pub(crate) inner: Arc<Mutex<InnerObject>>,
+}
+
+impl Attributive<InnerObject> for Object {
+    fn get_inner(&self) -> Arc<Mutex<InnerObject>> {
+        self.inner.clone()
+    }
 }
 
 impl Object {
@@ -103,95 +120,92 @@ impl Object {
         }
     }
 
-    pub fn id(&self) -> i64 {
+    #[getter]
+    pub fn get_id(&self) -> i64 {
         self.inner.lock().unwrap().id
     }
 
-    pub fn creator(&self) -> String {
+    #[getter]
+    pub fn get_creator(&self) -> String {
         self.inner.lock().unwrap().creator.clone()
     }
 
-    pub fn label(&self) -> String {
+    #[getter]
+    pub fn get_label(&self) -> String {
         self.inner.lock().unwrap().label.clone()
     }
 
-    pub fn bbox(&self) -> crate::primitives::BBox {
+    #[getter]
+    pub fn get_bbox(&self) -> crate::primitives::BBox {
         self.inner.lock().unwrap().bbox.clone()
     }
 
-    pub fn confidence(&self) -> Option<f64> {
+    #[getter]
+    pub fn get_confidence(&self) -> Option<f64> {
         let object = self.inner.lock().unwrap();
         object.confidence
     }
 
-    pub fn parent(&self) -> Option<ParentObject> {
+    #[getter]
+    pub fn get_parent(&self) -> Option<ParentObject> {
         let object = self.inner.lock().unwrap();
         object.parent.clone()
     }
 
+    #[setter]
     pub fn set_id(&mut self, id: i64) {
         let mut object = self.inner.lock().unwrap();
         object.id = id;
     }
 
+    #[setter]
     pub fn set_creator(&mut self, creator: String) {
         let mut object = self.inner.lock().unwrap();
         object.creator = creator;
     }
 
+    #[setter]
     pub fn set_label(&mut self, label: String) {
         let mut object = self.inner.lock().unwrap();
         object.label = label;
     }
 
+    #[setter]
     pub fn set_bbox(&mut self, bbox: BBox) {
         self.inner.lock().unwrap().bbox = bbox;
     }
 
+    #[setter]
     pub fn set_confidence(&mut self, confidence: Option<f64>) {
         let mut object = self.inner.lock().unwrap();
         object.confidence = confidence;
     }
 
+    #[setter]
     pub fn set_parent(&mut self, parent: Option<ParentObject>) {
         let mut object = self.inner.lock().unwrap();
         object.parent = parent;
     }
 
+    #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let object = self.inner.lock().unwrap();
-                object
-                    .attributes
-                    .iter()
-                    .map(|((creator, name), _)| (creator.clone(), name.clone()))
-                    .collect()
-            })
-        })
+        self.inner_attributes()
     }
 
     pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        let object = self.inner.lock().unwrap();
-        object.attributes.get(&(creator, name)).cloned()
+        self.inner_get_attribute(creator, name)
     }
 
     pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        let mut object = self.inner.lock().unwrap();
-        object.attributes.remove(&(creator, name))
+        self.inner_get_attribute(creator, name)
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let mut object = self.inner.lock().unwrap();
-        object.attributes.insert(
-            (attribute.creator.clone(), attribute.name.clone()),
-            attribute,
-        )
+        self.inner_set_attribute(attribute)
     }
 
     pub fn clear_attributes(&mut self) {
-        let mut object = self.inner.lock().unwrap();
-        object.attributes.clear();
+        self.inner_clear_attributes()
     }
 
     #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
@@ -201,17 +215,16 @@ impl Object {
         creator: Option<String>,
         names: Vec<String>,
     ) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let mut object = self.inner.lock().unwrap();
-                object.attributes.retain(|(c, label), _| match creator {
-                    Some(ref creator) => {
-                        ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
-                    }
-                    None => names.contains(label) ^ !negated,
-                });
-            })
-        });
+        self.inner_delete_attributes(negated, creator, names)
+    }
+
+    pub fn find_attributes(
+        &self,
+        creator: Option<String>,
+        name: Option<String>,
+        hint: Option<String>,
+    ) -> Vec<(String, String)> {
+        self.inner_find_attributes(creator, name, hint)
     }
 }
 
