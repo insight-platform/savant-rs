@@ -12,6 +12,7 @@ pub use bbox::BBox;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
+pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::PyVideoFrameContent;
 pub use message::video::frame::VideoFrame;
 pub use message::video::object::Modification;
@@ -39,10 +40,10 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Object>()?;
     m.add_class::<ParentObject>()?;
     m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;
     m.add_class::<Message>()?;
     m.add_class::<PyVideoFrameContent>()?;
     m.add_class::<Modification>()?;
-
     Ok(())
 }

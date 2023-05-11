@@ -81,4 +81,14 @@ impl Intersection {
     pub fn new(kind: IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
         Self { kind, edges }
     }
+
+    #[getter]
+    pub fn get_kind(&self) -> IntersectionKind {
+        self.kind.clone()
+    }
+
+    #[getter]
+    pub fn get_edges(&self) -> Vec<(usize, Option<String>)> {
+        self.edges.clone()
+    }
 }

@@ -241,20 +241,20 @@ impl PyFrameTransformation {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub(crate) struct InnerVideoFrame {
-    pub(crate) source_id: String,
-    pub(crate) framerate: String,
-    pub(crate) width: i64,
-    pub(crate) height: i64,
-    pub(crate) codec: Option<String>,
-    pub(crate) keyframe: Option<bool>,
-    pub(crate) pts: i64,
-    pub(crate) dts: Option<i64>,
-    pub(crate) duration: Option<i64>,
-    pub(crate) content: VideoFrameContent,
-    pub(crate) transformations: Vec<FrameTransformation>,
-    pub(crate) attributes: HashMap<(String, String), Attribute>,
-    pub(crate) offline_objects: Vec<InnerObject>,
+pub struct InnerVideoFrame {
+    pub source_id: String,
+    pub framerate: String,
+    pub width: i64,
+    pub height: i64,
+    pub codec: Option<String>,
+    pub keyframe: Option<bool>,
+    pub pts: i64,
+    pub dts: Option<i64>,
+    pub duration: Option<i64>,
+    pub content: VideoFrameContent,
+    pub transformations: Vec<FrameTransformation>,
+    pub attributes: HashMap<(String, String), Attribute>,
+    pub offline_objects: Vec<InnerObject>,
     #[with(Skip)]
     pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
 }
@@ -742,7 +742,7 @@ mod tests {
         let attribute = t.get_attribute("system".to_string(), "test".to_string());
         assert!(attribute.is_some());
         assert_eq!(
-            attribute.unwrap().value.as_string().unwrap(),
+            attribute.unwrap().values[0].as_string().unwrap(),
             "1".to_string()
         );
     }

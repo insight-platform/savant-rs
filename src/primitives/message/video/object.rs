@@ -51,7 +51,7 @@ pub enum Modification {
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub(crate) struct InnerObject {
+pub struct InnerObject {
     pub id: i64,
     pub creator: String,
     pub label: String,
@@ -112,6 +112,7 @@ impl Object {
         self.__repr__()
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[new]
     pub fn new(
         id: i64,
@@ -287,7 +288,7 @@ impl Object {
 
     pub fn take_modifications(&self) -> Vec<Modification> {
         let mut object = self.inner.lock().unwrap();
-        std::mem::replace(&mut object.modifications, Vec::default())
+        std::mem::take(&mut object.modifications)
     }
 }
 
@@ -311,24 +312,21 @@ mod tests {
                         AttributeBuilder::default()
                             .creator("creator".to_string())
                             .name("name".to_string())
-                            .value(Value::string("value".to_string()))
-                            .confidence(None)
+                            .values(vec![Value::string("value".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
                             .creator("creator".to_string())
                             .name("name2".to_string())
-                            .value(Value::string("value2".to_string()))
-                            .confidence(None)
+                            .values(vec![Value::string("value2".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
                             .creator("creator2".to_string())
                             .name("name".to_string())
-                            .value(Value::string("value".to_string()))
-                            .confidence(None)
+                            .values(vec![Value::string("value".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
@@ -392,8 +390,7 @@ mod tests {
             &AttributeBuilder::default()
                 .creator("creator2".to_string())
                 .name("name".to_string())
-                .value(Value::string("value".to_string()))
-                .confidence(None)
+                .values(vec![Value::string("value".to_string(), None)])
                 .hint(None)
                 .build()
                 .unwrap()

@@ -1,4 +1,4 @@
-use crate::primitives::{BBox, Point, PolygonalArea};
+use crate::primitives::{BBox, Intersection, Point, PolygonalArea};
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ pub enum ValueVariant {
     PointVector(Vec<Point>),
     Polygon(PolygonalArea),
     PolygonVector(Vec<PolygonalArea>),
-    KeyPoints(Vec<(Point, HashMap<String, String>)>),
+    Intersection(Intersection),
     #[default]
     None,
 }
@@ -31,6 +31,8 @@ pub enum ValueVariant {
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
 pub struct Value {
+    #[pyo3(get, set)]
+    pub confidence: Option<f64>,
     v: ValueVariant,
 }
 
@@ -48,121 +50,138 @@ impl Value {
     }
 
     #[staticmethod]
+    pub fn intersection(i: Intersection, confidence: Option<f64>) -> Self {
+        Self {
+            confidence,
+            v: ValueVariant::Intersection(i),
+        }
+    }
+
+    #[staticmethod]
     pub fn none() -> Self {
         Self {
+            confidence: None,
             v: ValueVariant::None,
         }
     }
 
     #[staticmethod]
-    pub fn bytes(dims: Vec<i64>, blob: Vec<u8>) -> Self {
+    pub fn bytes(params: Vec<i64>, blob: Vec<u8>, confidence: Option<f64>) -> Self {
         Self {
-            v: ValueVariant::Bytes((dims, blob)),
+            confidence,
+            v: ValueVariant::Bytes((params, blob)),
         }
     }
 
     #[staticmethod]
-    pub fn string(s: String) -> Self {
+    pub fn string(s: String, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::String(s),
         }
     }
 
     #[staticmethod]
-    pub fn strings(s: Vec<String>) -> Self {
+    pub fn strings(s: Vec<String>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::StringVector(s),
         }
     }
 
     #[staticmethod]
-    pub fn integer(i: i64) -> Self {
+    pub fn integer(i: i64, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::Integer(i),
         }
     }
 
     #[staticmethod]
-    pub fn integers(i: Vec<i64>) -> Self {
+    pub fn integers(i: Vec<i64>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::IntegerVector(i),
         }
     }
 
     #[staticmethod]
-    pub fn float(f: f64) -> Self {
+    pub fn float(f: f64, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::Float(f),
         }
     }
 
     #[staticmethod]
-    pub fn floats(f: Vec<f64>) -> Self {
+    pub fn floats(f: Vec<f64>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::FloatVector(f),
         }
     }
 
     #[staticmethod]
-    pub fn boolean(b: bool) -> Self {
+    pub fn boolean(b: bool, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::Boolean(b),
         }
     }
 
     #[staticmethod]
-    pub fn booleans(b: Vec<bool>) -> Self {
+    pub fn booleans(b: Vec<bool>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::BooleanVector(b),
         }
     }
 
     #[staticmethod]
-    pub fn bbox(bbox: BBox) -> Self {
+    pub fn bbox(bbox: BBox, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::BBox(bbox),
         }
     }
 
     #[staticmethod]
-    pub fn bboxes(bboxes: Vec<BBox>) -> Self {
+    pub fn bboxes(bboxes: Vec<BBox>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::BBoxVector(bboxes),
         }
     }
 
     #[staticmethod]
-    pub fn point(point: Point) -> Self {
+    pub fn point(point: Point, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::Point(point),
         }
     }
 
     #[staticmethod]
-    pub fn points(points: Vec<Point>) -> Self {
+    pub fn points(points: Vec<Point>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::PointVector(points),
         }
     }
 
     #[staticmethod]
-    pub fn polygon(polygon: PolygonalArea) -> Self {
+    pub fn polygon(polygon: PolygonalArea, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::Polygon(polygon),
         }
     }
 
     #[staticmethod]
-    pub fn polygons(polygons: Vec<PolygonalArea>) -> Self {
+    pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f64>) -> Self {
         Self {
+            confidence,
             v: ValueVariant::PolygonVector(polygons),
-        }
-    }
-
-    #[staticmethod]
-    pub fn keypoints(keypoints: Vec<(Point, HashMap<String, String>)>) -> Self {
-        Self {
-            v: ValueVariant::KeyPoints(keypoints),
         }
     }
 
@@ -173,6 +192,13 @@ impl Value {
     pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
         match &self.v {
             ValueVariant::Bytes(b) => Some(b.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn as_intersection(&self) -> Option<Intersection> {
+        match &self.v {
+            ValueVariant::Intersection(i) => Some(i.clone()),
             _ => None,
         }
     }
@@ -274,13 +300,6 @@ impl Value {
             _ => None,
         }
     }
-
-    pub fn as_keypoints(&self) -> Option<Vec<(Point, HashMap<String, String>)>> {
-        match &self.v {
-            ValueVariant::KeyPoints(keypoints) => Some(keypoints.clone()),
-            _ => None,
-        }
-    }
 }
 
 #[pyclass]
@@ -294,9 +313,7 @@ pub struct Attribute {
     #[pyo3(get)]
     pub name: String,
     #[pyo3(get)]
-    pub value: Value,
-    #[pyo3(get)]
-    pub confidence: Option<f64>,
+    pub values: Vec<Value>,
     #[pyo3(get)]
     pub hint: Option<String>,
 }
@@ -315,18 +332,11 @@ impl Attribute {
     }
 
     #[new]
-    pub fn new(
-        creator: String,
-        name: String,
-        value: Value,
-        confidence: Option<f64>,
-        hint: Option<String>,
-    ) -> Self {
+    pub fn new(creator: String, name: String, values: Vec<Value>, hint: Option<String>) -> Self {
         Self {
             creator,
             name,
-            value,
-            confidence,
+            values,
             hint,
         }
     }
@@ -385,6 +395,7 @@ pub trait Attributive<T: InnerAttributes + Send> {
         res
     }
 
+    #[allow(clippy::let_unit_value)]
     fn inner_clear_attributes(&mut self) {
         let inner = self.get_inner();
         let res = inner.lock().unwrap().get_attributes_ref_mut().clear();

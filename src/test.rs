@@ -78,8 +78,7 @@ pub mod utils {
                 .name("test".into())
                 .hint(None)
                 .hint(Some("test".into()))
-                .value(Value::string("1".into()))
-                .confidence(None)
+                .values(vec![Value::string("1".into(), None)])
                 .build()
                 .unwrap(),
         );
@@ -89,8 +88,7 @@ pub mod utils {
                 .creator("system2".into())
                 .name("test2".into())
                 .hint(None)
-                .value(Value::string("2".into()))
-                .confidence(None)
+                .values(vec![Value::string("2".into(), None)])
                 .build()
                 .unwrap(),
         );
@@ -100,8 +98,7 @@ pub mod utils {
                 .creator("system".into())
                 .name("test2".into())
                 .hint(Some("test".into()))
-                .value(Value::string("3".into()))
-                .confidence(None)
+                .values(vec![Value::string("3".into(), None)])
                 .build()
                 .unwrap(),
         );

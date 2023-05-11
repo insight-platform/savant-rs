@@ -3,14 +3,15 @@ pub mod loader;
 pub mod saver;
 pub mod video;
 
-use crate::primitives::EndOfStream;
 use crate::primitives::VideoFrame;
+use crate::primitives::{EndOfStream, VideoFrameBatch};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 
 #[derive(Debug, Clone)]
 pub enum NativeMessage {
     EndOfStream(EndOfStream),
     VideoFrame(VideoFrame),
+    VideoFrameBatch(VideoFrameBatch),
     Unknown,
 }
 
@@ -18,6 +19,7 @@ pub enum NativeMessage {
 enum NativeMessageTypeConsts {
     EndOfStream,
     VideoFrame,
+    VideoFrameBatch,
     Unknown,
 }
 
@@ -29,6 +31,7 @@ impl From<NativeMessageTypeConsts> for NativeMessageMarkerType {
         match value {
             NativeMessageTypeConsts::EndOfStream => [0, 0, 0, 0],
             NativeMessageTypeConsts::VideoFrame => [1, 0, 0, 0],
+            NativeMessageTypeConsts::VideoFrameBatch => [2, 0, 0, 0],
             NativeMessageTypeConsts::Unknown => [255, 255, 255, 255],
         }
     }
@@ -39,6 +42,7 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
         match value {
             [0, 0, 0, 0] => NativeMessageTypeConsts::EndOfStream,
             [1, 0, 0, 0] => NativeMessageTypeConsts::VideoFrame,
+            [2, 0, 0, 0] => NativeMessageTypeConsts::VideoFrameBatch,
             _ => NativeMessageTypeConsts::Unknown,
         }
     }
@@ -78,6 +82,13 @@ impl Message {
     }
 
     #[staticmethod]
+    pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
+        Self {
+            frame: NativeMessage::VideoFrameBatch(batch),
+        }
+    }
+
+    #[staticmethod]
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
             frame: NativeMessage::EndOfStream(eos),
@@ -96,6 +107,10 @@ impl Message {
         matches!(self.frame, NativeMessage::VideoFrame(_))
     }
 
+    pub fn is_video_frame_batch(&self) -> bool {
+        matches!(self.frame, NativeMessage::VideoFrameBatch(_))
+    }
+
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
         match &self.frame {
             NativeMessage::EndOfStream(eos) => Some(eos.clone()),
@@ -109,6 +124,13 @@ impl Message {
             _ => None,
         }
     }
+
+    pub fn as_video_frame_batch(&self) -> Option<VideoFrameBatch> {
+        match &self.frame {
+            NativeMessage::VideoFrameBatch(batch) => Some(batch.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -118,46 +140,82 @@ mod tests {
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
     };
-    use crate::primitives::{EndOfStream, Message};
+    use crate::primitives::{EndOfStream, Message, VideoFrameBatch};
     use crate::test::utils::gen_frame;
 
     #[test]
     fn test_save_load_eos() {
         pyo3::prepare_freethreaded_python();
         let eos = EndOfStream::new("test".to_string());
-        let frame = Message::end_of_stream(eos);
-        let res = save_message(frame);
+        let m = Message::end_of_stream(eos);
+        let res = save_message(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::EndOfStream).as_ref()
         );
-        let frame = load_message(res);
-        assert!(frame.is_end_of_stream());
+        let m = load_message(res);
+        assert!(m.is_end_of_stream());
     }
 
     #[test]
-    fn test_save_video_frame() {
+    fn test_save_load_video_frame() {
         pyo3::prepare_freethreaded_python();
-        let frame = Message::video_frame(gen_frame());
-        let res = save_message(frame);
+        let m = Message::video_frame(gen_frame());
+        let res = save_message(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrame).as_ref()
         );
-        let frame = load_message(res);
-        assert!(frame.is_video_frame());
+        let m = load_message(res);
+        assert!(m.is_video_frame());
     }
 
     #[test]
-    fn test_save_unknown() {
+    fn test_save_load_unknown() {
         pyo3::prepare_freethreaded_python();
-        let frame = Message::unknown();
-        let res = save_message(frame);
+        let m = Message::unknown();
+        let res = save_message(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::Unknown).as_ref()
         );
-        let frame = load_message(res);
-        assert!(frame.is_unknown());
+        let m = load_message(res);
+        assert!(m.is_unknown());
+    }
+
+    #[test]
+    fn test_save_load_batch() {
+        pyo3::prepare_freethreaded_python();
+        let mut batch = VideoFrameBatch::new();
+        batch.add(1, gen_frame());
+        batch.add(2, gen_frame());
+        batch.add(3, gen_frame());
+        let m = Message::video_frame_batch(batch);
+        let res = save_message(m);
+        assert_eq!(
+            res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
+            NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrameBatch).as_ref()
+        );
+        let m = load_message(res);
+        assert!(m.is_video_frame_batch());
+
+        let b = m.as_video_frame_batch().unwrap();
+        assert!(b.get(1).is_some());
+        assert!(b.get(2).is_some());
+        assert!(b.get(3).is_some());
+        let f = b.get(1).unwrap();
+        let mut attrs = f.attributes();
+        attrs.sort();
+
+        assert_eq!(
+            attrs,
+            vec![
+                ("system".into(), "test".into()),
+                ("system".into(), "test2".into()),
+                ("system2".into(), "test2".into()),
+            ]
+        );
+
+        let _ = f.access_objects_by_id(vec![0]).pop().unwrap();
     }
 }

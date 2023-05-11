@@ -31,6 +31,18 @@ pub fn save_message(frame: Message) -> Vec<u8> {
                 buf.extend_from_slice(t.as_ref());
                 buf
             }
+            NativeMessage::VideoFrameBatch(mut b) => {
+                let mut buf = Vec::with_capacity(760 * b.frames.len());
+                b.prepare_before_save();
+                buf.extend_from_slice(
+                    rkyv::to_bytes::<_, 756>(&b)
+                        .expect("Failed to serialize VideoFrame")
+                        .as_ref(),
+                );
+                let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrameBatch.into();
+                buf.extend_from_slice(t.as_ref());
+                buf
+            }
             _ => {
                 let mut buf = Vec::with_capacity(4);
                 let t: NativeMessageMarkerType = NativeMessageTypeConsts::Unknown.into();
