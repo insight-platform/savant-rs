@@ -114,9 +114,18 @@ pub mod utils {
                     Value::bytes([0; 256].into(), None),
                     Value::integers([0, 1, 2, 3, 4, 5].into(), None),
                     Value::string("incoming".to_string(), Some(0.56)),
+                    Value::strings(vec!["abc".into(), "cde".into()], None),
                     Value::string("outgoing".to_string(), Some(0.64)),
                     Value::none(),
                     Value::bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None), None),
+                    Value::bboxes(
+                        vec![
+                            BBox::new(0.0, 0.0, 0.0, 0.0, None),
+                            BBox::new(0.0, 0.0, 0.0, 0.0, None),
+                        ],
+                        None,
+                    ),
+                    Value::float(0.0, None),
                     Value::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
                     Value::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
                     Value::intersection(
