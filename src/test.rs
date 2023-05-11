@@ -1,7 +1,9 @@
 pub mod utils {
     use crate::primitives::message::video::frame::InnerVideoFrameBuilder;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, PyVideoFrameContent, Value};
+    use crate::primitives::{
+        AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, Value,
+    };
     use crate::primitives::{BBox, VideoFrame};
     use pyo3::pyfunction;
     use std::collections::HashMap;
@@ -99,6 +101,31 @@ pub mod utils {
                 .name("test2".into())
                 .hint(Some("test".into()))
                 .values(vec![Value::string("3".into(), None)])
+                .build()
+                .unwrap(),
+        );
+
+        f.set_attribute(
+            AttributeBuilder::default()
+                .creator("test".to_string())
+                .name("test".to_string())
+                .hint(Some("hint".to_string()))
+                .values(vec![
+                    Value::string("incoming".to_string(), Some(0.56)),
+                    Value::string("outgoing".to_string(), Some(0.64)),
+                    Value::none(),
+                    Value::bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None), None),
+                    Value::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
+                    Value::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
+                    Value::intersection(
+                        Intersection::new(
+                            IntersectionKind::Enter,
+                            vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],
+                        ),
+                        None,
+                    ),
+                    Value::bytes(vec![8, 8, 8, 3], [0; 192].into(), None),
+                ])
                 .build()
                 .unwrap(),
         );
