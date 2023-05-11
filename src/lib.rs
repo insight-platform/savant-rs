@@ -1,5 +1,6 @@
 pub mod primitives;
 pub mod test;
+mod test_rkyv_tuple;
 pub mod tests_pyo3_access;
 pub mod utils;
 
