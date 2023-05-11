@@ -12,10 +12,11 @@ pub enum NativeMessage {
     EndOfStream(EndOfStream),
     VideoFrame(VideoFrame),
     VideoFrameBatch(VideoFrameBatch),
-    Unknown,
+    Unknown(String),
 }
 
 #[repr(u32)]
+#[derive(Debug)]
 enum NativeMessageTypeConsts {
     EndOfStream,
     VideoFrame,
@@ -68,9 +69,9 @@ impl Message {
     }
 
     #[staticmethod]
-    pub fn unknown() -> Self {
+    pub fn unknown(s: String) -> Self {
         Self {
-            frame: NativeMessage::Unknown,
+            frame: NativeMessage::Unknown(s),
         }
     }
 
@@ -96,7 +97,7 @@ impl Message {
     }
 
     pub fn is_unknown(&self) -> bool {
-        matches!(self.frame, NativeMessage::Unknown)
+        matches!(self.frame, NativeMessage::Unknown(_))
     }
 
     pub fn is_end_of_stream(&self) -> bool {
@@ -109,6 +110,13 @@ impl Message {
 
     pub fn is_video_frame_batch(&self) -> bool {
         matches!(self.frame, NativeMessage::VideoFrameBatch(_))
+    }
+
+    pub fn as_unknown(&self) -> Option<String> {
+        match &self.frame {
+            NativeMessage::Unknown(s) => Some(s.clone()),
+            _ => None,
+        }
     }
 
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
@@ -173,7 +181,7 @@ mod tests {
     #[test]
     fn test_save_load_unknown() {
         pyo3::prepare_freethreaded_python();
-        let m = Message::unknown();
+        let m = Message::unknown("x".to_string());
         let res = save_message(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
@@ -213,6 +221,7 @@ mod tests {
                 ("system".into(), "test".into()),
                 ("system".into(), "test2".into()),
                 ("system2".into(), "test2".into()),
+                ("test".into(), "test".into()),
             ]
         );
 

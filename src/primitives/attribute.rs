@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
 pub enum ValueVariant {
-    Bytes((Vec<i64>, Vec<u8>)),
+    Bytes(Vec<u8>),
     String(String),
     StringVector(Vec<String>),
     Integer(i64),
@@ -66,10 +66,10 @@ impl Value {
     }
 
     #[staticmethod]
-    pub fn bytes(params: Vec<i64>, blob: Vec<u8>, confidence: Option<f64>) -> Self {
+    pub fn bytes(blob: Vec<u8>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: ValueVariant::Bytes((params, blob)),
+            v: ValueVariant::Bytes(blob),
         }
     }
 
@@ -189,7 +189,7 @@ impl Value {
         matches!(&self.v, ValueVariant::None)
     }
 
-    pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
+    pub fn as_bytes(&self) -> Option<Vec<u8>> {
         match &self.v {
             ValueVariant::Bytes(b) => Some(b.clone()),
             _ => None,

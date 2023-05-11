@@ -14,7 +14,8 @@ fn bench_video_frame_sync(b: &mut Bencher) {
     let frame = Message::video_frame(gen_frame());
     b.iter(|| {
         let res = save_message(frame.clone());
-        let _ = load_message(res);
+        let m = load_message(res);
+        assert!(m.is_video_frame());
     });
 }
 
@@ -25,7 +26,8 @@ fn bench_eos_sync(b: &mut Bencher) {
     let frame = Message::end_of_stream(eos);
     b.iter(|| {
         let res = save_message(frame.clone());
-        let _ = load_message(res);
+        let m = load_message(res);
+        assert!(m.is_end_of_stream());
     });
 }
 
@@ -40,6 +42,7 @@ fn bench_batch_sync(b: &mut Bencher) {
     let m = Message::video_frame_batch(batch);
     b.iter(|| {
         let res = save_message(m.clone());
-        let _ = load_message(res);
+        let m = load_message(res);
+        assert!(m.is_video_frame_batch());
     });
 }

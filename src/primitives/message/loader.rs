@@ -10,7 +10,11 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
     Python::with_gil(|py| {
         py.allow_threads(|| {
             if bytes.len() < NATIVE_MESSAGE_MARKER_LEN {
-                return Message::unknown();
+                return Message::unknown(format!(
+                    "Message is too short: {} < {}",
+                    bytes.len(),
+                    NATIVE_MESSAGE_MARKER_LEN
+                ));
             }
             let final_length = bytes.len().saturating_sub(NATIVE_MESSAGE_MARKER_LEN);
             let t = NativeMessageTypeConsts::from(
@@ -22,7 +26,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
                     let eos: Result<EndOfStream, _> = rkyv::from_bytes(&bytes[..]);
                     match eos {
                         Ok(eos) => Message::end_of_stream(eos),
-                        Err(_) => Message::unknown(),
+                        Err(e) => Message::unknown(format!("{:?}", e)),
                     }
                 }
                 NativeMessageTypeConsts::VideoFrame => {
@@ -32,7 +36,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
                             f.prepare_after_load();
                             Message::video_frame(VideoFrame::from_inner(f))
                         }
-                        Err(_) => Message::unknown(),
+                        Err(e) => Message::unknown(format!("{:?}", e)),
                     }
                 }
                 NativeMessageTypeConsts::VideoFrameBatch => {
@@ -42,10 +46,12 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
                             b.prepare_after_load();
                             Message::video_frame_batch(b)
                         }
-                        Err(_) => Message::unknown(),
+                        Err(e) => Message::unknown(format!("{:?}", e)),
                     }
                 }
-                NativeMessageTypeConsts::Unknown => Message::unknown(),
+                NativeMessageTypeConsts::Unknown => {
+                    Message::unknown(format!("Unknown message type: {:?}", t))
+                }
             }
         })
     })

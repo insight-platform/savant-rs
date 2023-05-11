@@ -111,6 +111,8 @@ pub mod utils {
                 .name("test".to_string())
                 .hint(Some("hint".to_string()))
                 .values(vec![
+                    Value::bytes([0; 256].into(), None),
+                    Value::integers([0, 1, 2, 3, 4, 5].into(), None),
                     Value::string("incoming".to_string(), Some(0.56)),
                     Value::string("outgoing".to_string(), Some(0.64)),
                     Value::none(),
@@ -124,7 +126,6 @@ pub mod utils {
                         ),
                         None,
                     ),
-                    Value::bytes(vec![8, 8, 8, 3], [0; 192].into(), None),
                 ])
                 .build()
                 .unwrap(),
