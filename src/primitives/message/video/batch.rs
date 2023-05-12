@@ -1,6 +1,6 @@
 use crate::primitives::message::video::frame::InnerVideoFrame;
 use crate::primitives::VideoFrame;
-use pyo3::{pyclass, pymethods};
+use pyo3::{pyclass, pymethods, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -29,6 +29,14 @@ impl VideoFrameBatch {
             self.offline_frames.insert(*id, frame.as_ref().clone());
         }
     }
+
+    pub fn snapshot(&mut self) {
+        self.prepare_before_save();
+    }
+
+    pub fn restore(&mut self) {
+        self.prepare_after_load();
+    }
 }
 
 #[pymethods]
@@ -48,5 +56,15 @@ impl VideoFrameBatch {
 
     pub fn del(&mut self, id: i64) -> Option<VideoFrame> {
         self.frames.remove(&id)
+    }
+
+    #[pyo3(name = "snapshot")]
+    pub fn snapshot_py(&mut self) {
+        Python::with_gil(|py| py.allow_threads(|| self.snapshot()))
+    }
+
+    #[pyo3(name = "restore")]
+    pub fn restore_py(&mut self) {
+        Python::with_gil(|py| py.allow_threads(|| self.restore()))
     }
 }
