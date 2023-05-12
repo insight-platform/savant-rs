@@ -19,7 +19,7 @@ l = [crosses_13, crosses_02, leaves_vertex, crosses_vertices, crosses_whole_edge
 t = timer()
 
 res = None
-for _ in range(10_000_000):
+for _ in range(100_000):
     res = area.crossed_by_segments(l)
 
 print("Spent", timer() - t)
