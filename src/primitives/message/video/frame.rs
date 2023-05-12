@@ -197,6 +197,17 @@ impl PyFrameTransformation {
 
 #[pymethods]
 impl PyFrameTransformation {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
     #[staticmethod]
     pub fn initial_size(width: i64, height: i64) -> Self {
         assert!(width > 0 && height > 0);
@@ -221,7 +232,7 @@ impl PyFrameTransformation {
 
     #[staticmethod]
     pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
-        assert!(left > 0 && top > 0 && right > 0 && bottom > 0);
+        assert!(left >= 0 && top >= 0 && right >= 0 && bottom >= 0);
         Self {
             inner: FrameTransformation::Padding(
                 u64::try_from(left).unwrap(),
@@ -259,21 +270,24 @@ impl PyFrameTransformation {
         matches!(self.inner, FrameTransformation::None)
     }
 
-    pub fn get_initial_size(&self) -> Option<(u64, u64)> {
+    #[getter]
+    pub fn as_initial_size(&self) -> Option<(u64, u64)> {
         match &self.inner {
             FrameTransformation::InitialSize(w, h) => Some((*w, *h)),
             _ => None,
         }
     }
 
-    pub fn get_scale(&self) -> Option<(u64, u64)> {
+    #[getter]
+    pub fn as_scale(&self) -> Option<(u64, u64)> {
         match &self.inner {
             FrameTransformation::Scale(w, h) => Some((*w, *h)),
             _ => None,
         }
     }
 
-    pub fn get_padding(&self) -> Option<(u64, u64, u64, u64)> {
+    #[getter]
+    pub fn as_padding(&self) -> Option<(u64, u64, u64, u64)> {
         match &self.inner {
             FrameTransformation::Padding(l, t, r, b) => Some((*l, *t, *r, *b)),
             _ => None,
@@ -542,6 +556,7 @@ impl VideoFrame {
         frame.transformations.push(transformation.inner);
     }
 
+    #[getter]
     pub fn get_transformations(&self) -> Vec<PyFrameTransformation> {
         let frame = self.inner.lock().unwrap();
         frame

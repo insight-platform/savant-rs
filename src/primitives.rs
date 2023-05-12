@@ -6,6 +6,7 @@ pub mod polygonal_area;
 pub mod segment;
 pub mod to_json_value;
 
+use crate::primitives::message::video::frame::PyFrameTransformation;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
@@ -45,6 +46,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<EndOfStream>()?;
     m.add_class::<Message>()?;
     m.add_class::<PyVideoFrameContent>()?;
+    m.add_class::<PyFrameTransformation>()?;
     m.add_class::<Modification>()?;
     Ok(())
 }
