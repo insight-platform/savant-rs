@@ -1,6 +1,6 @@
 from pprint import pprint
 
-from savant_rs.primitives import PolygonalArea, Point, Segment
+from savant_rs.primitives import PolygonalArea, Point, Segment, IntersectionKind
 from timeit import default_timer as timer
 
 area = PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])
@@ -19,8 +19,16 @@ l = [crosses_13, crosses_02, leaves_vertex, crosses_vertices, crosses_whole_edge
 t = timer()
 
 res = None
-for _ in range(100_000):
+for _ in range(10_000):
     res = area.crossed_by_segments(l)
 
 print("Spent", timer() - t)
 pprint(list(zip(l, res)))
+
+r = res[1]
+print(r.kind == IntersectionKind.Cross)
+print(r.edges == [(0, "up"), (2, "down")])
+
+r = res[0]
+print(r.kind == IntersectionKind.Cross)
+print(r.edges == [(1, None), (3, None)])
