@@ -1,4 +1,4 @@
-# SavantPrimitives
+# Savant Primitives And Optimized Algorithms
 
 Savant Library with new generation primitives re-implemented in Rust.
 
