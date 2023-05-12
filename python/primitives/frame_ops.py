@@ -81,7 +81,7 @@ print(frame.find_attributes(hint="x"))
 print(frame.find_attributes(creator="some", hint="x"))
 
 print(frame.get_attribute(creator="other", name="attr"))
-deleted = frame.delete_attribute(creator="some", name="attr")
+# deleted = frame.delete_attribute(creator="some", name="attr")
 # print(deleted)
 
 frame.add_object(Object(
@@ -121,6 +121,6 @@ print(timer() - t)
 print(frame_message.is_video_frame)
 frame = frame_message.as_video_frame
 
-#print(frame)
+print(frame)
 
 
