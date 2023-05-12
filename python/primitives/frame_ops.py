@@ -81,8 +81,8 @@ print(frame.find_attributes(hint="x"))
 print(frame.find_attributes(creator="some", hint="x"))
 
 print(frame.get_attribute(creator="other", name="attr"))
-# deleted = frame.delete_attribute(creator="some", name="attr")
-# print(deleted)
+deleted = frame.delete_attribute(creator="some", name="attr")
+print(deleted)
 
 frame.add_object(Object(
     id=1,
