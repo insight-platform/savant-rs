@@ -74,7 +74,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute(
+        f.set_attribute_py(
             AttributeBuilder::default()
                 .creator("system".into())
                 .name("test".into())
@@ -85,7 +85,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute(
+        f.set_attribute_py(
             AttributeBuilder::default()
                 .creator("system2".into())
                 .name("test2".into())
@@ -95,7 +95,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute(
+        f.set_attribute_py(
             AttributeBuilder::default()
                 .creator("system".into())
                 .name("test2".into())
@@ -105,7 +105,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute(
+        f.set_attribute_py(
             AttributeBuilder::default()
                 .creator("test".to_string())
                 .name("test".to_string())

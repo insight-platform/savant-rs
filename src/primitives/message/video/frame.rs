@@ -592,32 +592,52 @@ impl VideoFrame {
 
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
-        self.inner_attributes()
+        Python::with_gil(move |py| py.allow_threads(move || self.get_attributes()))
     }
 
-    pub fn find_attributes(
+    #[pyo3(name = "find_attributes")]
+    pub fn find_attributes_py(
         &self,
         creator: Option<String>,
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.inner_find_attributes(creator, name, hint)
+        Python::with_gil(move |py| {
+            py.allow_threads(move || self.find_attributes(creator, name, hint))
+        })
     }
 
-    pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        self.inner_get_attribute(creator, name)
+    #[pyo3(name = "get_attribute")]
+    pub fn get_attribute_py(&self, creator: String, name: String) -> Option<Attribute> {
+        self.get_attribute(creator, name)
     }
 
-    pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        self.inner_delete_attribute(creator, name)
+    #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
+    #[pyo3(name = "delete_attributes")]
+    pub fn delete_attributes_py(
+        &mut self,
+        negated: bool,
+        creator: Option<String>,
+        names: Vec<String>,
+    ) {
+        Python::with_gil(move |py| {
+            py.allow_threads(move || self.delete_attributes(negated, creator, names))
+        })
     }
 
-    pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.inner_set_attribute(attribute)
+    #[pyo3(name = "delete_attribute")]
+    pub fn delete_attribute_py(&mut self, creator: String, name: String) -> Option<Attribute> {
+        self.delete_attribute(creator, name)
     }
 
-    pub fn clear_attributes(&mut self) {
-        self.inner_clear_attributes()
+    #[pyo3(name = "set_attribute")]
+    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
+        self.set_attribute(attribute)
+    }
+
+    #[pyo3(name = "clear_attributes")]
+    pub fn clear_attributes_py(&mut self) {
+        self.clear_attributes()
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -759,6 +779,7 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::attribute::Attributive;
     use crate::primitives::Modification;
     use crate::test::utils::gen_frame;
 
@@ -841,18 +862,18 @@ mod tests {
     fn test_find_attributes() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let mut attributes = t.find_attributes(Some("system".to_string()), None, None);
+        let mut attributes = t.find_attributes_py(Some("system".to_string()), None, None);
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
 
         let attributes =
-            t.find_attributes(Some("system".to_string()), Some("test".to_string()), None);
+            t.find_attributes_py(Some("system".to_string()), Some("test".to_string()), None);
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let attributes = t.find_attributes(
+        let attributes = t.find_attributes_py(
             Some("system".to_string()),
             Some("test".to_string()),
             Some("test".to_string()),
@@ -860,7 +881,7 @@ mod tests {
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let mut attributes = t.find_attributes(None, None, Some("test".to_string()));
+        let mut attributes = t.find_attributes_py(None, None, Some("test".to_string()));
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));

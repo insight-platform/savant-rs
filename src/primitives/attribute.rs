@@ -1,6 +1,6 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{BBox, Intersection, Point, PolygonalArea};
-use pyo3::{pyclass, pymethods, Py, PyAny, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -430,117 +430,100 @@ pub trait InnerAttributes {
 pub trait Attributive<T: InnerAttributes + Send> {
     fn get_inner(&self) -> Arc<Mutex<T>>;
 
-    fn inner_attributes(&self) -> Vec<(String, String)> {
-        let inner = self.get_inner();
-        Python::with_gil(move |py| {
-            py.allow_threads(move || {
-                inner
-                    .lock()
-                    .unwrap()
-                    .get_attributes_ref()
-                    .iter()
-                    .map(|((creator, name), _)| (creator.clone(), name.clone()))
-                    .collect()
-            })
-        })
+    fn get_attributes(&self) -> Vec<(String, String)> {
+        self.get_inner()
+            .lock()
+            .unwrap()
+            .get_attributes_ref()
+            .iter()
+            .map(|((creator, name), _)| (creator.clone(), name.clone()))
+            .collect()
     }
 
-    fn inner_get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        let inner = self.get_inner();
-        let res = inner
+    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        self.get_inner()
             .lock()
             .unwrap()
             .get_attributes_ref()
             .get(&(creator, name))
-            .cloned();
-        res
+            .cloned()
     }
 
-    fn inner_delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        let inner = self.get_inner();
-        let res = inner
+    fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
+        self.get_inner()
             .lock()
             .unwrap()
             .get_attributes_ref_mut()
-            .remove(&(creator, name));
-        res
+            .remove(&(creator, name))
     }
 
-    fn inner_set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let inner = self.get_inner();
-        let res = inner.lock().unwrap().get_attributes_ref_mut().insert(
-            (attribute.creator.clone(), attribute.name.clone()),
-            attribute,
-        );
-        res
+    fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
+        self.get_inner()
+            .lock()
+            .unwrap()
+            .get_attributes_ref_mut()
+            .insert(
+                (attribute.creator.clone(), attribute.name.clone()),
+                attribute,
+            )
     }
 
     #[allow(clippy::let_unit_value)]
-    fn inner_clear_attributes(&mut self) {
-        let inner = self.get_inner();
-        let res = inner.lock().unwrap().get_attributes_ref_mut().clear();
-        res
+    fn clear_attributes(&mut self) {
+        self.get_inner()
+            .lock()
+            .unwrap()
+            .get_attributes_ref_mut()
+            .clear()
     }
 
-    fn inner_delete_attributes(
-        &mut self,
-        negated: bool,
-        creator: Option<String>,
-        names: Vec<String>,
-    ) {
-        let inner = self.get_inner();
-        Python::with_gil(move |py| {
-            py.allow_threads(move || {
-                inner.lock().unwrap().get_attributes_ref_mut().retain(
-                    |(c, label), _| match creator {
-                        Some(ref creator) => {
-                            ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
-                        }
-                        None => names.contains(label) ^ !negated,
-                    },
-                );
-            })
-        });
+    fn delete_attributes(&mut self, negated: bool, creator: Option<String>, names: Vec<String>) {
+        // let inner = self.get_inner();
+        self.get_inner()
+            .lock()
+            .unwrap()
+            .get_attributes_ref_mut()
+            .retain(|(c, label), _| match creator {
+                Some(ref creator) => {
+                    ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
+                }
+                None => names.contains(label) ^ !negated,
+            });
     }
 
-    fn inner_find_attributes(
+    fn find_attributes(
         &self,
         creator: Option<String>,
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        let inner = self.get_inner();
-        Python::with_gil(move |py| {
-            py.allow_threads(move || {
-                inner
-                    .lock()
-                    .unwrap()
-                    .get_attributes_ref()
-                    .iter()
-                    .filter(|((_, _), a)| {
-                        if let Some(creator) = &creator {
-                            if a.creator != *creator {
-                                return false;
-                            }
-                        }
+        self.get_inner()
+            .lock()
+            .unwrap()
+            .get_attributes_ref()
+            .iter()
+            .filter(|((_, _), a)| {
+                if let Some(creator) = &creator {
+                    if a.creator != *creator {
+                        return false;
+                    }
+                }
 
-                        if let Some(name) = &name {
-                            if a.name != *name {
-                                return false;
-                            }
-                        }
+                if let Some(name) = &name {
+                    if a.name != *name {
+                        return false;
+                    }
+                }
 
-                        if let Some(hint) = &hint {
-                            if a.hint.as_ref() != Some(hint) {
-                                return false;
-                            }
-                        }
+                if let Some(hint) = &hint {
+                    if a.hint.as_ref() != Some(hint) {
+                        return false;
+                    }
+                }
 
-                        true
-                    })
-                    .map(|((c, n), _)| (c.clone(), n.clone()))
-                    .collect()
+                true
             })
-        })
+            .map(|((c, n), _)| (c.clone(), n.clone()))
+            .collect()
     }
 }

@@ -1,7 +1,7 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, BBox};
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -268,15 +268,17 @@ impl Object {
 
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
-        self.inner_attributes()
+        Python::with_gil(move |py| py.allow_threads(move || self.get_attributes()))
     }
 
-    pub fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        self.inner_get_attribute(creator, name)
+    #[pyo3(name = "get_attribute")]
+    pub fn get_attribute_py(&self, creator: String, name: String) -> Option<Attribute> {
+        self.get_attribute(creator, name)
     }
 
-    pub fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        match self.inner_get_attribute(creator, name) {
+    #[pyo3(name = "delete_attribute")]
+    pub fn delete_attribute_py(&mut self, creator: String, name: String) -> Option<Attribute> {
+        match self.delete_attribute(creator, name) {
             Some(attribute) => {
                 let mut object = self.inner.lock().unwrap();
                 object.modifications.push(Modification::Attributes);
@@ -286,43 +288,51 @@ impl Object {
         }
     }
 
-    pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
+    #[pyo3(name = "set_attribute")]
+    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
         {
             let mut object = self.inner.lock().unwrap();
             object.modifications.push(Modification::Attributes);
         }
-        self.inner_set_attribute(attribute)
+        self.set_attribute(attribute)
     }
 
-    pub fn clear_attributes(&mut self) {
+    #[pyo3(name = "clear_attributes")]
+    pub fn clear_attributes_py(&mut self) {
         {
             let mut object = self.inner.lock().unwrap();
             object.modifications.push(Modification::Attributes);
         }
-        self.inner_clear_attributes()
+        self.clear_attributes()
     }
 
     #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
-    pub fn delete_attributes(
+    #[pyo3(name = "delete_attributes")]
+    pub fn delete_attributes_py(
         &mut self,
         negated: bool,
         creator: Option<String>,
         names: Vec<String>,
     ) {
-        {
-            let mut object = self.inner.lock().unwrap();
-            object.modifications.push(Modification::Attributes);
-        }
-        self.inner_delete_attributes(negated, creator, names)
+        Python::with_gil(move |py| {
+            py.allow_threads(move || {
+                {
+                    let mut object = self.inner.lock().unwrap();
+                    object.modifications.push(Modification::Attributes);
+                }
+                self.delete_attributes(negated, creator, names)
+            })
+        })
     }
 
-    pub fn find_attributes(
+    #[pyo3(name = "find_attributes")]
+    pub fn find_attributes_py(
         &self,
         creator: Option<String>,
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.inner_find_attributes(creator, name, hint)
+        Python::with_gil(move |py| py.allow_threads(|| self.find_attributes(creator, name, hint)))
     }
 
     pub fn take_modifications(&self) -> Vec<Modification> {
@@ -333,6 +343,7 @@ impl Object {
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, BBox, Modification, Object, Value};
 
@@ -452,7 +463,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![]);
 
         t.set_bbox(BBox::new(0.0, 0.0, 1.0, 1.0, None));
-        t.clear_attributes();
+        t.clear_attributes_py();
         assert_eq!(
             t.take_modifications(),
             vec![Modification::BoundingBox, Modification::Attributes]
