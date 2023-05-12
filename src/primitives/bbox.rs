@@ -1,3 +1,4 @@
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -15,6 +16,18 @@ pub struct BBox {
     pub height: f64,
     #[pyo3(get, set)]
     pub angle: Option<f64>,
+}
+
+impl ToSerdeJsonValue for BBox {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "xc": self.xc,
+            "yc": self.yc,
+            "width": self.width,
+            "height": self.height,
+            "angle": self.angle,
+        })
+    }
 }
 
 #[pymethods]

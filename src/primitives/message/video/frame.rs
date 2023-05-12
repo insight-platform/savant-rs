@@ -1,8 +1,10 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Object};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -14,6 +16,15 @@ pub struct ExternalFrame {
     pub method: String,
     #[pyo3(get, set)]
     pub location: Option<String>,
+}
+
+impl ToSerdeJsonValue for ExternalFrame {
+    fn to_serde_json_value(&self) -> Value {
+        serde_json::json!({
+            "method": self.method,
+            "location": self.location,
+        })
+    }
 }
 
 #[pymethods]
@@ -41,6 +52,18 @@ pub enum VideoFrameContent {
     External(ExternalFrame),
     Internal(Vec<u8>),
     None,
+}
+
+impl ToSerdeJsonValue for VideoFrameContent {
+    fn to_serde_json_value(&self) -> Value {
+        match self {
+            VideoFrameContent::External(data) => {
+                serde_json::json!({"external": data.to_serde_json_value()})
+            }
+            VideoFrameContent::Internal(data) => serde_json::json!({ "internal": data }),
+            VideoFrameContent::None => Value::Null,
+        }
+    }
 }
 
 #[pyclass]
@@ -139,6 +162,23 @@ pub enum FrameTransformation {
     Scale(u64, u64),
     Padding(u64, u64, u64, u64),
     None,
+}
+
+impl ToSerdeJsonValue for FrameTransformation {
+    fn to_serde_json_value(&self) -> Value {
+        match self {
+            FrameTransformation::InitialSize(width, height) => {
+                serde_json::json!({"initial_size": [width, height]})
+            }
+            FrameTransformation::Scale(width, height) => {
+                serde_json::json!({"scale": [width, height]})
+            }
+            FrameTransformation::Padding(left, top, right, bottom) => {
+                serde_json::json!({"padding": [left, top, right, bottom]})
+            }
+            FrameTransformation::None => serde_json::json!(null),
+        }
+    }
 }
 
 #[pyclass]
@@ -259,6 +299,28 @@ pub struct InnerVideoFrame {
     pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
 }
 
+impl ToSerdeJsonValue for InnerVideoFrame {
+    fn to_serde_json_value(&self) -> Value {
+        serde_json::json!(
+            {
+                "source_id": self.source_id,
+                "framerate": self.framerate,
+                "width": self.width,
+                "height": self.height,
+                "codec": self.codec,
+                "keyframe": self.keyframe,
+                "pts": self.pts,
+                "dts": self.dts,
+                "duration": self.duration,
+                "content": self.content.to_serde_json_value(),
+                "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
+                "attributes": self.attributes.iter().map(|(_, v)| v.to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": self.resident_objects.iter().map(|o| o.lock().unwrap().to_serde_json_value()).collect::<Vec<_>>(),
+            }
+        )
+    }
+}
+
 impl InnerAttributes for Box<InnerVideoFrame> {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
@@ -304,6 +366,12 @@ impl VideoFrame {
         VideoFrame {
             inner: Arc::new(Mutex::new(Box::new(object))),
         }
+    }
+}
+
+impl ToSerdeJsonValue for VideoFrame {
+    fn to_serde_json_value(&self) -> Value {
+        self.inner.lock().unwrap().to_serde_json_value()
     }
 }
 
@@ -358,6 +426,11 @@ impl VideoFrame {
     #[getter]
     pub fn get_source_id(&self) -> String {
         self.inner.lock().unwrap().source_id.clone()
+    }
+
+    #[getter]
+    pub fn get_json(&self) -> String {
+        serde_json::to_string(&self.to_serde_json_value()).unwrap()
     }
 
     #[setter]

@@ -1,5 +1,7 @@
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use serde_json::Value;
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -9,6 +11,15 @@ pub struct Point {
     pub x: f64,
     #[pyo3(get, set)]
     pub y: f64,
+}
+
+impl ToSerdeJsonValue for Point {
+    fn to_serde_json_value(&self) -> Value {
+        serde_json::json!({
+            "x": self.x,
+            "y": self.y,
+        })
+    }
 }
 
 #[pymethods]

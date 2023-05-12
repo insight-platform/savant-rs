@@ -1,10 +1,12 @@
 use crate::primitives::point::Point;
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
 use geo::{Contains, Intersects, Line, LineString};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 
 #[pyclass]
@@ -15,6 +17,19 @@ pub struct PolygonalArea {
     pub tags: Arc<Option<Vec<Option<String>>>>,
     #[with(Skip)]
     polygon: Option<geo::Polygon>,
+}
+
+impl ToSerdeJsonValue for PolygonalArea {
+    fn to_serde_json_value(&self) -> Value {
+        let mut vertices = Vec::new();
+        for v in self.vertices.iter() {
+            vertices.push(v.to_serde_json_value());
+        }
+        serde_json::json!({
+            "vertices": vertices,
+            "tags": self.tags.as_ref().as_ref().unwrap_or(&Vec::new()),
+        })
+    }
 }
 
 #[pymethods]
@@ -385,10 +400,8 @@ mod tests {
 
         let seg1 = Segment::new(Point::new(-2.0, 0.5), Point::new(3.0, 0.5));
         let seg2 = Segment::new(Point::new(-0.5, 2.0), Point::new(-0.5, -2.0));
-        let intersections = PolygonalArea::segments_intersections(
-            vec![area1, area2],
-            vec![seg1, seg2],
-        );
+        let intersections =
+            PolygonalArea::segments_intersections(vec![area1, area2], vec![seg1, seg2]);
         assert_eq!(
             intersections,
             vec![

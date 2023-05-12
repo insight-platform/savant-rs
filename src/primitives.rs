@@ -4,6 +4,7 @@ pub mod message;
 pub mod point;
 pub mod polygonal_area;
 pub mod segment;
+pub mod to_json_value;
 
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;

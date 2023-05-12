@@ -1,3 +1,4 @@
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{BBox, Intersection, Point, PolygonalArea};
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{Archive, Deserialize, Serialize};
@@ -27,6 +28,65 @@ pub enum ValueVariant {
     None,
 }
 
+impl ToSerdeJsonValue for ValueVariant {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        match self {
+            ValueVariant::Bytes(dims, blob) => serde_json::json!({
+                "dims": dims,
+                "blob": blob,
+            }),
+            ValueVariant::String(s) => serde_json::json!({
+                "string": s,
+            }),
+            ValueVariant::StringVector(v) => serde_json::json!({
+                "string_vector": v,
+            }),
+            ValueVariant::Integer(i) => serde_json::json!({
+                "integer": i,
+            }),
+            ValueVariant::IntegerVector(v) => serde_json::json!({
+                "integer_vector": v,
+            }),
+            ValueVariant::Float(f) => serde_json::json!({
+                "float": f,
+            }),
+            ValueVariant::FloatVector(v) => serde_json::json!({
+                "float_vector": v,
+            }),
+            ValueVariant::Boolean(b) => serde_json::json!({
+                "boolean": b,
+            }),
+            ValueVariant::BooleanVector(v) => serde_json::json!({
+                "boolean_vector": v,
+            }),
+            ValueVariant::BBox(b) => serde_json::json!({
+                "bbox": b.to_serde_json_value(),
+            }),
+            ValueVariant::BBoxVector(v) => serde_json::json!({
+                "bbox_vector": v.into_iter().map(|b| b.to_serde_json_value()).collect::<Vec<_>>(),
+            }),
+            ValueVariant::Point(p) => serde_json::json!({
+                "point": p.to_serde_json_value(),
+            }),
+            ValueVariant::PointVector(v) => serde_json::json!({
+                "point_vector": v.into_iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
+            }),
+            ValueVariant::Polygon(p) => serde_json::json!({
+                "polygon": p.to_serde_json_value(),
+            }),
+            ValueVariant::PolygonVector(v) => serde_json::json!({
+                "polygon_vector": v.into_iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
+            }),
+            ValueVariant::Intersection(i) => serde_json::json!({
+                "intersection": i.to_serde_json_value(),
+            }),
+            ValueVariant::None => serde_json::json!({
+                "none": null,
+            }),
+        }
+    }
+}
+
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
@@ -34,6 +94,15 @@ pub struct Value {
     #[pyo3(get, set)]
     pub confidence: Option<f64>,
     v: ValueVariant,
+}
+
+impl ToSerdeJsonValue for Value {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "confidence": self.confidence,
+            "value": self.v.to_serde_json_value(),
+        })
+    }
 }
 
 #[pymethods]
@@ -316,6 +385,17 @@ pub struct Attribute {
     pub values: Vec<Value>,
     #[pyo3(get)]
     pub hint: Option<String>,
+}
+
+impl ToSerdeJsonValue for Attribute {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "creator": self.creator,
+            "name": self.name,
+            "values": self.values.iter().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
+            "hint": self.hint,
+        })
+    }
 }
 
 #[pymethods]

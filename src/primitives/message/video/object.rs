@@ -1,4 +1,5 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, BBox};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -15,6 +16,16 @@ pub struct ParentObject {
     pub creator: String,
     #[pyo3(get, set)]
     pub label: String,
+}
+
+impl ToSerdeJsonValue for ParentObject {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "creator": self.creator,
+            "label": self.label,
+        })
+    }
 }
 
 #[pymethods]
@@ -49,6 +60,12 @@ pub enum Modification {
     TrackId,
 }
 
+impl ToSerdeJsonValue for Modification {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!(format!("{:?}", self))
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct InnerObject {
@@ -62,6 +79,22 @@ pub struct InnerObject {
     pub track_id: Option<i64>,
     #[with(Skip)]
     pub modifications: Vec<Modification>,
+}
+
+impl ToSerdeJsonValue for InnerObject {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "creator": self.creator,
+            "label": self.label,
+            "bbox": self.bbox.to_serde_json_value(),
+            "attributes": self.attributes.iter().map(|(_, v)| v.to_serde_json_value()).collect::<Vec<_>>(),
+            "confidence": self.confidence,
+            "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
+            "track_id": self.track_id,
+            "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
+        })
+    }
 }
 
 impl InnerAttributes for InnerObject {
@@ -78,6 +111,12 @@ impl InnerAttributes for InnerObject {
 #[derive(Debug, Clone)]
 pub struct Object {
     pub(crate) inner: Arc<Mutex<InnerObject>>,
+}
+
+impl ToSerdeJsonValue for Object {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        self.inner.lock().unwrap().to_serde_json_value()
+    }
 }
 
 impl Attributive<InnerObject> for Object {
