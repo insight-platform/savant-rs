@@ -82,7 +82,7 @@ print(frame.find_attributes(creator="some", hint="x"))
 
 print(frame.get_attribute(creator="other", name="attr"))
 deleted = frame.delete_attribute(creator="some", name="attr")
-print(deleted)
+# print(deleted)
 
 frame.add_object(Object(
     id=1,
@@ -108,11 +108,19 @@ o.set_attribute(Attribute(creator="some", name="attr", values=[
 ]))
 
 message = Message.video_frame(frame)
-bytes = save_message(message)
-frame_message = load_message(bytes)
-print(frame_message.is_video_frame)
 
+t = timer()
+
+frame_message = None
+for _ in range(1_000):
+    bytes = save_message(message)
+    frame_message = load_message(bytes)
+
+print(timer() - t)
+
+print(frame_message.is_video_frame)
 frame = frame_message.as_video_frame
-print(frame)
+
+#print(frame)
 
 
