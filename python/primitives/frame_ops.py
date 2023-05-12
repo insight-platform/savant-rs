@@ -1,5 +1,5 @@
-from savant_rs.utils import gen_frame
-from savant_rs.primitives import ParentObject, Object, PolygonalArea, Point, BBox, Value, Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
+from savant_rs.utils import gen_frame, save_message, load_message
+from savant_rs.primitives import Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
 import json
 from timeit import default_timer as timer
 
@@ -107,6 +107,12 @@ o.set_attribute(Attribute(creator="some", name="attr", values=[
     Value.integers([1, 2, 3], confidence=0.5),
 ]))
 
+message = Message.video_frame(frame)
+bytes = save_message(message)
+frame_message = load_message(bytes)
+print(frame_message.is_video_frame)
+
+frame = frame_message.as_video_frame
 print(frame)
 
 

@@ -96,22 +96,27 @@ impl Message {
         }
     }
 
+    #[getter]
     pub fn is_unknown(&self) -> bool {
         matches!(self.frame, NativeMessage::Unknown(_))
     }
 
+    #[getter]
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.frame, NativeMessage::EndOfStream(_))
     }
 
+    #[getter]
     pub fn is_video_frame(&self) -> bool {
         matches!(self.frame, NativeMessage::VideoFrame(_))
     }
 
+    #[getter]
     pub fn is_video_frame_batch(&self) -> bool {
         matches!(self.frame, NativeMessage::VideoFrameBatch(_))
     }
 
+    #[getter]
     pub fn as_unknown(&self) -> Option<String> {
         match &self.frame {
             NativeMessage::Unknown(s) => Some(s.clone()),
@@ -119,6 +124,7 @@ impl Message {
         }
     }
 
+    #[getter]
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
         match &self.frame {
             NativeMessage::EndOfStream(eos) => Some(eos.clone()),
@@ -126,6 +132,7 @@ impl Message {
         }
     }
 
+    #[getter]
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.frame {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
@@ -133,6 +140,7 @@ impl Message {
         }
     }
 
+    #[getter]
     pub fn as_video_frame_batch(&self) -> Option<VideoFrameBatch> {
         match &self.frame {
             NativeMessage::VideoFrameBatch(batch) => Some(batch.clone()),
