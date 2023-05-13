@@ -28,6 +28,7 @@ numpy = "0.18"
 pyo3-log = "0.8"
 derive_builder = "0.12"
 num_cpus = "1.15"
+hashbrown = "0.13"
 
 [dependencies.pyo3]
 version = "0.18"

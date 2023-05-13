@@ -1,4 +1,6 @@
 pub mod fps_meter;
+pub mod symbol_mapper;
+
 use pyo3::prelude::*;
 
 use crate::primitives::message::loader::load_message_py;
