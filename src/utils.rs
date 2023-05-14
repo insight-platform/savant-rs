@@ -9,9 +9,9 @@ use crate::test::utils::gen_frame;
 use crate::utils::symbol_mapper::RegistrationPolicy;
 use crate::utils::symbol_mapper::SymbolMapper;
 use crate::utils::symbol_mapper::{
-    build_model_object_key, clear_symbol_maps, get_model_id, get_model_name, get_object_id,
-    get_object_ids, get_object_label, get_object_labels, is_model_registered, is_object_registered,
-    parse_compound_key, register_model_objects, validate_base_key,
+    build_model_object_key, clear_symbol_maps, dump_registry, get_model_id, get_model_name,
+    get_object_id, get_object_ids, get_object_label, get_object_labels, is_model_registered,
+    is_object_registered, parse_compound_key, register_model_objects, validate_base_key,
 };
 
 pub use fps_meter::FpsMeter;
@@ -24,6 +24,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(build_model_object_key, m)?)?;
     m.add_function(wrap_pyfunction!(clear_symbol_maps, m)?)?;
+    m.add_function(wrap_pyfunction!(dump_registry, m)?)?;
     m.add_function(wrap_pyfunction!(get_model_id, m)?)?;
     m.add_function(wrap_pyfunction!(get_model_name, m)?)?;
     m.add_function(wrap_pyfunction!(get_object_id, m)?)?;

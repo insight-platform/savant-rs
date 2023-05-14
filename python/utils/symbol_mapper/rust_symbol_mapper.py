@@ -1,3 +1,5 @@
+from pprint import pprint
+
 from savant_rs.utils import RegistrationPolicy, \
     build_model_object_key, \
     is_model_registered, \
@@ -5,6 +7,7 @@ from savant_rs.utils import RegistrationPolicy, \
     parse_compound_key, \
     validate_base_key, \
     clear_symbol_maps, \
+    dump_registry, \
     get_model_id, \
     get_object_id, \
     get_object_ids, \
@@ -55,10 +58,10 @@ for _ in range(10_000):
 
 print(f"Time to get: {res}")
 
-ids = get_object_ids(model_name="model1", object_labels=["object_1_model1", "object_2_model1"])
-assert ids == [('object_1_model1', 1), ('object_2_model1', 2)]
+ids = get_object_ids(model_name="model1", object_labels=["object_1_model1", "object_2_model1", "object_X_model1"])
+assert ids == [('object_1_model1', 1), ('object_2_model1', 2), ('object_X_model1', 1000)]
 
-labels = get_object_labels(model_id=0, object_ids=[1, 2])
-assert labels == [(1, 'object_1_model1'), (2, 'object_2_model1')]
+labels = get_object_labels(model_id=0, object_ids=[1, 2, 100000])
+assert labels == [(1, 'object_1_model1'), (2, 'object_2_model1'), (100000, None)]
 
-
+pprint(dump_registry())

@@ -188,6 +188,16 @@ pub fn is_object_registered(model_name: String, object_label: String) -> bool {
     })
 }
 
+#[pyfunction]
+pub fn dump_registry() -> Vec<String> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.dump_registry()
+        })
+    })
+}
+
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct SymbolMapper {
@@ -214,6 +224,18 @@ impl SymbolMapper {
         self.reverse_registry.clear();
         self.model_object_next_ids.clear();
         self.model_next_id = 0;
+    }
+
+    pub fn dump_registry(&self) -> Vec<String> {
+        self.registry
+            .iter()
+            .map(|(key, (model_id, object_id))| {
+                format!(
+                    "Key={}, ModelId={}, ObjectId={:?}",
+                    key, model_id, object_id
+                )
+            })
+            .collect()
     }
 
     pub fn build_model_object_key(model_name: &String, object_label: &String) -> String {
