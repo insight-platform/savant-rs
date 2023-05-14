@@ -48,6 +48,17 @@ label = get_object_label(1, 0)
 assert label == "object_0_model2"
 
 res = 0
+for _ in range(1000_000):
+    random_model = choice(models)
+    random_object = f"object_{choice(range(1000))}_{random_model}"
+    t = timer()
+    m = get_model_id(model_name=random_model)
+    m, o = get_object_id(model_name=random_model, object_label=random_object)
+    res += timer() - t
+
+print(f"Time to get individually: {res}")
+
+res = 0
 for _ in range(10000):
     random_model = choice(models)
     random_objects = [f"object_{choice(range(1000))}_{random_model}" for _ in range(100)]
@@ -55,7 +66,7 @@ for _ in range(10000):
     get_object_ids(model_name=random_model, object_labels=random_objects)
     res += timer() - t
 
-print(f"Time to get: {res}")
+print(f"Time to get in bulk: {res}")
 
 ids = get_object_ids(model_name="model1", object_labels=["object_1_model1", "object_2_model1", "object_X_model1"])
 assert ids == [('object_1_model1', 1), ('object_2_model1', 2), ('object_X_model1', 1000)]
