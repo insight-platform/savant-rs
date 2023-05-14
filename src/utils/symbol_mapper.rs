@@ -12,6 +12,13 @@ lazy_static! {
     static ref SYMBOL_MAPPER: Mutex<SymbolMapper> = Mutex::new(SymbolMapper::default());
 }
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub enum RegistrationPolicy {
+    Override,
+    ErrorIfNonUnique,
+}
+
 #[derive(Error, Debug)]
 pub enum Errors {
     #[error("The key `{0}` is expected to be a new one, but it already exists.")]
@@ -22,33 +29,163 @@ pub enum Errors {
     FullyQualifiedObjectNameParseError(String),
     #[error("The key `{0}` is expected to be a base name of the form `some-thing_name` without `.` symbols.")]
     BaseNameParseError(String),
+    #[error("For model `{0}({1})` the `{2}({3})` object already exists and policy is set to `ErrorIfNonUnique`.")]
+    DuplicateId(String, i64, String, i64),
 }
 
 #[pyfunction]
 pub fn get_model_id(model_name: String) -> PyResult<i64> {
-    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-    mapper
-        .get_model_id(&model_name)
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper
+                .get_model_id(&model_name)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    })
 }
 
 #[pyfunction]
 pub fn get_object_id(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
-    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-    mapper
-        .get_object_id(&model_name, &object_label)
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper
+                .get_object_id(&model_name, &object_label)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    })
 }
 
 #[pyfunction]
 pub fn register_model_objects(
     model_name: String,
     elements: StdHashMap<i64, String>,
+    policy: RegistrationPolicy,
 ) -> PyResult<i64> {
-    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-    mapper
-        .register_model_objects(&model_name, &elements)
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper
+                .register_model_objects(&model_name, &elements, &policy)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    })
+}
+
+#[pyfunction]
+pub fn get_model_name(model_id: i64) -> Option<String> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.get_model_name(model_id)
+        })
+    })
+}
+
+#[pyfunction]
+pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.get_object_label(model_id, object_id)
+        })
+    })
+}
+
+#[pyfunction]
+pub fn get_object_labels(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            object_ids
+                .iter()
+                .flat_map(|object_id| {
+                    mapper
+                        .get_object_label(model_id, *object_id)
+                        .map(|label| (*object_id, Some(label)))
+                        .or_else(|| Some((*object_id, None)))
+                })
+                .collect()
+        })
+    })
+}
+
+#[pyfunction]
+pub fn get_object_ids(
+    model_name: String,
+    object_labels: Vec<String>,
+) -> Vec<(String, Option<i64>)> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+            object_labels
+                .iter()
+                .flat_map(|object_label| {
+                    mapper
+                        .get_object_id(&model_name, object_label)
+                        .ok()
+                        .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
+                        .or_else(|| Some((object_label.clone(), None)))
+                })
+                .collect()
+        })
+    })
+}
+
+#[pyfunction]
+pub fn clear_symbol_maps() {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.clear();
+        })
+    })
+}
+
+#[pyfunction]
+pub fn build_model_object_key(model_name: String, object_label: String) -> String {
+    Python::with_gil(|py| {
+        py.allow_threads(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
+    })
+}
+
+#[pyfunction]
+pub fn parse_compound_key(key: String) -> PyResult<(String, String)> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            SymbolMapper::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    })
+}
+
+#[pyfunction]
+pub fn validate_base_key(key: String) -> PyResult<String> {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    })
+}
+
+#[pyfunction]
+pub fn is_model_registered(model_name: String) -> bool {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.is_model_registered(&model_name)
+        })
+    })
+}
+
+#[pyfunction]
+pub fn is_object_registered(model_name: String, object_label: String) -> bool {
+    Python::with_gil(|py| {
+        py.allow_threads(|| {
+            let mapper = SYMBOL_MAPPER.lock().unwrap();
+            mapper.is_object_registered(&model_name, &object_label)
+        })
+    })
 }
 
 #[pyclass]
@@ -72,7 +209,14 @@ impl Default for SymbolMapper {
 }
 
 impl SymbolMapper {
-    pub fn model_object_key(model_name: &String, object_label: &String) -> String {
+    pub fn clear(&mut self) {
+        self.registry.clear();
+        self.reverse_registry.clear();
+        self.model_object_next_ids.clear();
+        self.model_next_id = 0;
+    }
+
+    pub fn build_model_object_key(model_name: &String, object_label: &String) -> String {
         format!("{}{}{}", model_name, REGISTRY_KEY_SEPARATOR, object_label)
     }
 
@@ -91,8 +235,13 @@ impl SymbolMapper {
         }
     }
 
-    pub fn is_model_object_key_registered(&self, key: &String) -> bool {
-        self.registry.contains_key(key)
+    pub fn is_model_registered(&self, model: &String) -> bool {
+        self.registry.contains_key(model)
+    }
+
+    pub fn is_object_registered(&self, model: &String, label: &String) -> bool {
+        let key = Self::build_model_object_key(model, label);
+        self.registry.contains_key(&key)
     }
 
     pub fn parse_compound_key(key: &String) -> anyhow::Result<(String, String)> {
@@ -140,7 +289,7 @@ impl SymbolMapper {
     ) -> anyhow::Result<(i64, i64)> {
         let model_id = self.get_model_id(model_name)?;
         Self::validate_base_key(object_label)?;
-        let full_key = Self::model_object_key(model_name, &object_label);
+        let full_key = Self::build_model_object_key(model_name, &object_label);
 
         match self.registry.get(&full_key) {
             Some((model_id, Some(object_id))) => Ok((*model_id, *object_id)),
@@ -155,7 +304,7 @@ impl SymbolMapper {
                 self.registry
                     .insert(full_key.clone(), (model_id, Some(object_id)));
                 self.reverse_registry
-                    .insert((model_id, Some(object_id)), full_key);
+                    .insert((model_id, Some(object_id)), object_label.clone());
                 self.model_object_next_ids
                     .insert(model_name.clone(), object_id);
                 Ok((model_id, object_id))
@@ -167,6 +316,7 @@ impl SymbolMapper {
         &mut self,
         model_name: &String,
         objects: &StdHashMap<i64, String>,
+        policy: &RegistrationPolicy,
     ) -> anyhow::Result<i64> {
         let model_id = self.get_model_id(model_name)?;
         let mut last_object_id = self
@@ -177,23 +327,38 @@ impl SymbolMapper {
 
         for (label_id, object_label) in objects {
             Self::validate_base_key(object_label)?;
-            let key = Self::model_object_key(model_name, &object_label);
-            if self.is_model_object_key_registered(&key) {
-                return Err(Errors::DuplicateName(object_label.clone()).into());
+            let key = Self::build_model_object_key(model_name, &object_label);
+            if matches!(policy, RegistrationPolicy::ErrorIfNonUnique) {
+                if self.is_object_registered(model_name, &object_label) {
+                    return Err(Errors::DuplicateName(object_label.clone()).into());
+                }
+
+                if self
+                    .reverse_registry
+                    .contains_key(&(model_id, Some(*label_id)))
+                {
+                    return Err(Errors::DuplicateId(
+                        model_name.clone(),
+                        model_id,
+                        object_label.clone(),
+                        *label_id,
+                    )
+                    .into());
+                }
             }
 
             self.registry
                 .insert(key.clone(), (model_id, Some(*label_id)));
             self.reverse_registry
-                .insert((model_id, Some(*label_id)), key);
+                .insert((model_id, Some(*label_id)), object_label.clone());
 
             if *label_id > last_object_id {
                 last_object_id = *label_id;
             }
         }
 
-        let v = self.model_object_next_ids.get_mut(model_name).unwrap();
-        *v += 1;
+        self.model_object_next_ids
+            .insert(model_name.clone(), last_object_id);
 
         Ok(model_id)
     }
@@ -214,7 +379,7 @@ impl SymbolMapper {
 
     #[staticmethod]
     pub fn model_object_key_py(model_name: String, object_label: String) -> String {
-        Self::model_object_key(&model_name, &object_label)
+        Self::build_model_object_key(&model_name, &object_label)
     }
 
     #[staticmethod]
@@ -226,9 +391,10 @@ impl SymbolMapper {
         &mut self,
         model_name: String,
         elements: StdHashMap<i64, String>,
+        policy: RegistrationPolicy,
     ) -> PyResult<i64> {
         Python::with_gil(|py| {
-            py.allow_threads(|| self.register_model_objects(&model_name, &elements))
+            py.allow_threads(|| self.register_model_objects(&model_name, &elements, &policy))
         })
         .map_err(|e| PyValueError::new_err(e.to_string()))
     }
@@ -237,7 +403,7 @@ impl SymbolMapper {
         self.reverse_registry.get(&(id, None)).cloned()
     }
 
-    pub fn get_object_name(&self, model_id: i64, object_id: i64) -> Option<String> {
+    pub fn get_object_label(&self, model_id: i64, object_id: i64) -> Option<String> {
         self.reverse_registry
             .get(&(model_id, Some(object_id)))
             .cloned()
@@ -248,8 +414,12 @@ impl SymbolMapper {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn is_model_object_key_registered_py(&self, key: String) -> bool {
-        self.is_model_object_key_registered(&key)
+    pub fn is_model_object_key_registered_py(
+        &self,
+        model_name: String,
+        object_label: String,
+    ) -> bool {
+        self.is_object_registered(&model_name, &object_label)
     }
 
     #[pyo3(name = "get_object_id")]
@@ -266,88 +436,246 @@ impl SymbolMapper {
 #[cfg(test)]
 mod tests {
     use super::SymbolMapper;
+    use crate::test::utils::s;
+    use crate::utils::symbol_mapper::{
+        clear_symbol_maps, get_model_id, get_model_name, get_object_id, get_object_label,
+        register_model_objects, RegistrationPolicy,
+    };
+    use serial_test::serial;
 
     #[test]
     fn test_validate_base_key() {
-        assert!(matches!(
-            SymbolMapper::validate_base_key(&"".to_string()),
-            Err(_)
-        ));
+        assert!(matches!(SymbolMapper::validate_base_key(&s("")), Err(_)));
 
         assert!(matches!(
-            SymbolMapper::validate_base_key(&"model".to_string()),
+            SymbolMapper::validate_base_key(&s("model")),
             Ok(_)
         ));
 
         assert!(matches!(
-            SymbolMapper::validate_base_key(&"mo.del".to_string()),
+            SymbolMapper::validate_base_key(&s("mo.del")),
             Err(_)
         ));
 
         assert!(matches!(
-            SymbolMapper::validate_base_key(&".model".to_string()),
+            SymbolMapper::validate_base_key(&s(".model")),
             Err(_)
         ));
 
         assert!(matches!(
-            SymbolMapper::validate_base_key(&"model.".to_string()),
+            SymbolMapper::validate_base_key(&s("model.")),
             Err(_)
         ));
     }
 
     #[test]
     fn test_validate_object_key() {
+        assert!(matches!(SymbolMapper::parse_compound_key(&s("")), Err(_)));
+
         assert!(matches!(
-            SymbolMapper::parse_compound_key(&"".to_string()),
+            SymbolMapper::parse_compound_key(&s("model")),
             Err(_)
         ));
 
+        assert!(matches!(SymbolMapper::parse_compound_key(&s(".m")), Err(_)));
+
+        assert!(matches!(SymbolMapper::parse_compound_key(&s(".")), Err(_)));
+
+        assert!(matches!(SymbolMapper::parse_compound_key(&s("a.")), Err(_)));
+
         assert!(matches!(
-            SymbolMapper::parse_compound_key(&"model".to_string()),
+            SymbolMapper::parse_compound_key(&s("a.b.c")),
             Err(_)
         ));
 
-        assert!(matches!(
-            SymbolMapper::parse_compound_key(&".m".to_string()),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            SymbolMapper::parse_compound_key(&".".to_string()),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            SymbolMapper::parse_compound_key(&"a.".to_string()),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            SymbolMapper::parse_compound_key(&"a.b.c".to_string()),
-            Err(_)
-        ));
-
-        assert!(matches!(
-            SymbolMapper::parse_compound_key(&"a.b".to_string()),
-            Ok(_)
-        ));
+        assert!(matches!(SymbolMapper::parse_compound_key(&s("a.b")), Ok(_)));
 
         let (model_name, object_name) =
             SymbolMapper::parse_compound_key(&"a.b".to_string()).unwrap();
-        assert_eq!(model_name, "a".to_string());
-        assert_eq!(object_name, "b".to_string());
+        assert_eq!(model_name, s("a"));
+        assert_eq!(object_name, s("b"));
     }
 
     #[test]
+    #[serial]
+    fn register_incorrect_names() -> anyhow::Result<()> {
+        clear_symbol_maps();
+
+        assert!(matches!(
+            register_model_objects(
+                s("model."),
+                [].into_iter().collect(),
+                RegistrationPolicy::ErrorIfNonUnique,
+            ),
+            Err(_)
+        ));
+
+        assert!(matches!(
+            register_model_objects(
+                s("model"),
+                [(1, s("obj.ect"))].into_iter().collect(),
+                RegistrationPolicy::ErrorIfNonUnique,
+            ),
+            Err(_)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_register_duplicate_objects_error_non_unique() -> anyhow::Result<()> {
+        clear_symbol_maps();
+
+        assert!(matches!(
+            register_model_objects(
+                s("model"),
+                [(1, s("object")), (2, s("object"))].into_iter().collect(),
+                RegistrationPolicy::ErrorIfNonUnique,
+            ),
+            Err(_)
+        ));
+
+        clear_symbol_maps();
+
+        register_model_objects(
+            s("model"),
+            [(1, s("object"))].into_iter().collect(),
+            RegistrationPolicy::ErrorIfNonUnique,
+        )?;
+
+        assert!(matches!(
+            register_model_objects(
+                s("model"),
+                [(1, s("object2"))].into_iter().collect(),
+                RegistrationPolicy::ErrorIfNonUnique,
+            ),
+            Err(_)
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_register_duplicate_objects_override() -> anyhow::Result<()> {
+        clear_symbol_maps();
+
+        register_model_objects(
+            s("model"),
+            [(1, s("object"))].into_iter().collect(),
+            RegistrationPolicy::Override,
+        )?;
+
+        assert!(matches!(
+            register_model_objects(
+                s("model"),
+                [(2, s("object"))].into_iter().collect(),
+                RegistrationPolicy::Override,
+            ),
+            Ok(0)
+        ));
+
+        assert!(matches!(get_object_id(s("model"), s("object")), Ok((0, 2))));
+
+        let label = get_object_label(0, 2).unwrap();
+        assert_eq!(label, s("object"));
+
+        clear_symbol_maps();
+
+        register_model_objects(
+            s("model"),
+            [(1, s("object"))].into_iter().collect(),
+            RegistrationPolicy::Override,
+        )?;
+
+        assert!(matches!(
+            register_model_objects(
+                s("model"),
+                [(1, s("object2"))].into_iter().collect(),
+                RegistrationPolicy::Override,
+            ),
+            Ok(0)
+        ));
+
+        let label = get_object_label(0, 1).unwrap();
+        assert_eq!(label, s("object2"));
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_model_id() {
+        clear_symbol_maps();
+        let model_id = get_model_id(s("model")).unwrap();
+        assert_eq!(model_id, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_model_name() {
+        clear_symbol_maps();
+        let model_id = get_model_id(s("model")).unwrap();
+        assert_eq!(model_id, 0);
+
+        let model_name = get_model_name(model_id).unwrap();
+        assert_eq!(model_name, s("model"));
+
+        let nonexistent_model_name = get_model_name(1);
+        assert!(matches!(nonexistent_model_name, None));
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_object_label() {
+        clear_symbol_maps();
+        let (model_id, object_id) = get_object_id(s("model"), s("object")).unwrap();
+        assert_eq!(model_id, 0);
+        assert_eq!(object_id, 0);
+
+        let object_label = get_object_label(model_id, object_id).unwrap();
+        assert_eq!(object_label, s("object"));
+
+        let nonexistent_object_label = get_object_label(0, 1);
+        assert!(matches!(nonexistent_object_label, None));
+    }
+
+    #[test]
+    #[serial]
     fn get_model_object_ids() {
-        // let (model_id, object_id) =
-        //     super::get_object_id("model".to_string(), "object".to_string()).unwrap();
-        // assert_eq!(model_id, 0);
-        // assert_eq!(object_id, 0);
-        //
-        // let (model_id, object_id) =
-        //     super::get_object_id("model".to_string(), "object1".to_string());
-        // assert_eq!(model_id, 0);
-        // assert_eq!(object_id, 1);
+        clear_symbol_maps();
+        let (model_id, object_id) = get_object_id(s("model"), s("object0")).unwrap();
+        assert_eq!(model_id, 0);
+        assert_eq!(object_id, 0);
+
+        let (model_id, object_id) = get_object_id(s("model"), s("object1")).unwrap();
+        assert_eq!(model_id, 0);
+        assert_eq!(object_id, 1);
+
+        let (model_id, object_id) = get_object_id(s("model2"), s("object0")).unwrap();
+        assert_eq!(model_id, 1);
+        assert_eq!(object_id, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn register_and_get_model_object_ids() -> anyhow::Result<()> {
+        clear_symbol_maps();
+        register_model_objects(
+            s("model"),
+            [(2, s("object0"))].into_iter().collect(),
+            RegistrationPolicy::Override,
+        )?;
+
+        let (model_id, object_id) = get_object_id(s("model"), s("object0")).unwrap();
+        assert_eq!(model_id, 0);
+        assert_eq!(object_id, 2);
+
+        let (model_id, object_id) = get_object_id(s("model"), s("object1")).unwrap();
+        assert_eq!(model_id, 0);
+        assert_eq!(object_id, 3);
+
+        Ok(())
     }
 }

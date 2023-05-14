@@ -142,4 +142,9 @@ pub mod utils {
 
         f
     }
+
+    #[inline(always)]
+    pub fn s(a: &str) -> String {
+        a.to_string()
+    }
 }
