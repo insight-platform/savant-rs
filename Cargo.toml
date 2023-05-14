@@ -29,6 +29,7 @@ pyo3-log = "0.8"
 derive_builder = "0.12"
 num_cpus = "1.15"
 hashbrown = "0.13"
+lazy_static = "1.4"
 
 [dependencies.pyo3]
 version = "0.18"
