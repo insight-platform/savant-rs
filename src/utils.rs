@@ -1,3 +1,4 @@
+pub mod bounding_box;
 pub mod fps_meter;
 pub mod symbol_mapper;
 
