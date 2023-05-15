@@ -73,31 +73,41 @@ impl PolygonalArea {
         }
     }
 
-    pub fn crossed_by_segment(&mut self, seg: &Segment) -> Intersection {
-        self.build_polygon();
-        self.crossed_by_segment_int(seg)
-    }
-
-    pub fn crossed_by_segments(&mut self, segs: Vec<Segment>) -> Vec<Intersection> {
+    #[pyo3(name = "crossed_by_segment")]
+    pub fn crossed_by_segment_py(&mut self, seg: &Segment) -> Intersection {
         Python::with_gil(|py| {
-            self.build_polygon();
             py.allow_threads(|| {
-                segs.iter()
-                    .map(|s| self.crossed_by_segment_int(s))
-                    .collect()
+                self.build_polygon();
+                self.crossed_by_segment(seg)
             })
         })
     }
 
-    pub fn contains(&mut self, p: &Point) -> bool {
-        self.build_polygon();
-        self.contains_int(p)
+    pub fn crossed_by_segments(&mut self, segs: Vec<Segment>) -> Vec<Intersection> {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.build_polygon();
+                segs.iter().map(|s| self.crossed_by_segment(s)).collect()
+            })
+        })
+    }
+
+    #[pyo3(name = "contains")]
+    pub fn contains_py(&mut self, p: &Point) -> bool {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.build_polygon();
+                self.contains(p)
+            })
+        })
     }
 
     pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
         Python::with_gil(|py| {
-            self.build_polygon();
-            py.allow_threads(|| points.iter().map(|p| self.contains_int(p)).collect())
+            py.allow_threads(|| {
+                self.build_polygon();
+                points.iter().map(|p| self.contains(p)).collect()
+            })
         })
     }
 
@@ -108,7 +118,7 @@ impl PolygonalArea {
             .into_par_iter()
             .map(|mut p| {
                 p.build_polygon();
-                pts.iter().map(|pt| p.contains_int(pt)).collect()
+                pts.iter().map(|pt| p.contains(pt)).collect()
             })
             .collect()
     }
@@ -125,7 +135,7 @@ impl PolygonalArea {
                 p.build_polygon();
                 segments
                     .iter()
-                    .map(|seg| p.crossed_by_segment(seg))
+                    .map(|seg| p.crossed_by_segment_py(seg))
                     .collect()
             })
             .collect()
@@ -133,7 +143,7 @@ impl PolygonalArea {
 }
 
 impl PolygonalArea {
-    pub fn crossed_by_segment_int(&mut self, seg: &Segment) -> Intersection {
+    pub fn crossed_by_segment(&mut self, seg: &Segment) -> Intersection {
         let seg = Line::from([(seg.begin.x, seg.begin.y), (seg.end.x, seg.end.y)]);
         let poly = self.polygon.as_ref().unwrap();
 
@@ -162,7 +172,7 @@ impl PolygonalArea {
         )
     }
 
-    pub fn contains_int(&self, p: &Point) -> bool {
+    pub fn contains(&self, p: &Point) -> bool {
         self.polygon
             .as_ref()
             .unwrap()
@@ -223,9 +233,9 @@ mod tests {
         let mut area1 = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
         let area2 = PolygonalArea::new(get_square_area(-1.0, 0.0, 2.0), None);
 
-        assert!(area1.contains(&p1));
-        assert!(area1.contains(&p2));
-        assert!(!area1.contains(&p3));
+        assert!(area1.contains_py(&p1));
+        assert!(area1.contains_py(&p2));
+        assert!(!area1.contains_py(&p3));
 
         assert_eq!(
             area1.contains_many_points(vec![p1.clone(), p2.clone(), p3.clone()]),
@@ -269,7 +279,7 @@ mod tests {
         let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
         let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
         let p1 = Point::new(0.0, 0.0);
-        assert!(area.clone().contains(&p1));
+        assert!(area.clone().contains_py(&p1));
 
         assert_eq!(
             area.clone().contains_many_points(vec![p1.clone()]),
@@ -292,36 +302,36 @@ mod tests {
         );
 
         let seg1 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, 0.0));
-        let res = area.crossed_by_segment(&seg1);
+        let res = area.crossed_by_segment_py(&seg1);
         assert_eq!(
             res,
             Intersection::new(IntersectionKind::Enter, vec![(0, Some(UPPER.into()))])
         );
 
         let seg2 = Segment::new(Point::new(0.0, 0.0), Point::new(0.0, -2.0));
-        let res = area.crossed_by_segment(&seg2);
+        let res = area.crossed_by_segment_py(&seg2);
         assert_eq!(
             res,
             Intersection::new(IntersectionKind::Leave, vec![(2, Some(LOWER.into()))])
         );
 
         let seg3 = Segment::new(Point::new(0.0, 0.0), Point::new(0.0, -0.5));
-        let res = area.crossed_by_segment(&seg3);
+        let res = area.crossed_by_segment_py(&seg3);
         assert_eq!(res, Intersection::new(IntersectionKind::Inside, vec![]));
 
         let seg4 = Segment::new(Point::new(-1.0, 2.0), Point::new(1.0, 2.0));
-        let res = area.crossed_by_segment(&seg4);
+        let res = area.crossed_by_segment_py(&seg4);
         assert_eq!(res, Intersection::new(IntersectionKind::Outside, vec![]));
 
         let seg5 = Segment::new(Point::new(-2.0, 0.0), Point::new(2.0, 0.0));
-        let res = area.crossed_by_segment(&seg5);
+        let res = area.crossed_by_segment_py(&seg5);
         assert_eq!(
             res,
             Intersection::new(IntersectionKind::Cross, vec![(1, None), (3, None)])
         );
 
         let seg6 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, -2.0));
-        let res = area.crossed_by_segment(&seg6);
+        let res = area.crossed_by_segment_py(&seg6);
         assert_eq!(
             res,
             Intersection::new(
@@ -331,7 +341,7 @@ mod tests {
         );
 
         let seg7 = Segment::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg7);
+        let res = area.crossed_by_segment_py(&seg7);
         assert_eq!(
             res,
             Intersection::new(
@@ -341,7 +351,7 @@ mod tests {
         );
 
         let seg8 = Segment::new(Point::new(2.0, 2.0), Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg8);
+        let res = area.crossed_by_segment_py(&seg8);
         assert_eq!(
             res,
             Intersection::new(
@@ -351,7 +361,7 @@ mod tests {
         );
 
         let seg9 = Segment::new(Point::new(-1.0, -1.0), Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg9);
+        let res = area.crossed_by_segment_py(&seg9);
         assert_eq!(
             res,
             Intersection::new(
@@ -366,7 +376,7 @@ mod tests {
         );
 
         let seg9 = Segment::new(Point::new(0.0, 1.0), Point::new(1.0, 0.0));
-        let res = area.crossed_by_segment(&seg9);
+        let res = area.crossed_by_segment_py(&seg9);
         assert_eq!(
             res,
             Intersection::new(
