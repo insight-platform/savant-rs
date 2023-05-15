@@ -11,6 +11,7 @@ pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
 pub use bbox::BBox;
+pub use bbox::RBBox;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
@@ -36,6 +37,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<IntersectionKind>()?;
     m.add_class::<Intersection>()?;
     m.add_class::<PolygonalArea>()?;
+    m.add_class::<RBBox>()?;
     m.add_class::<BBox>()?;
     m.add_class::<Attribute>()?;
     m.add_class::<Value>()?;

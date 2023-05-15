@@ -1,5 +1,5 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{BBox, Intersection, Point, PolygonalArea};
+use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -17,8 +17,8 @@ pub enum ValueVariant {
     FloatVector(Vec<f64>),
     Boolean(bool),
     BooleanVector(Vec<bool>),
-    BBox(BBox),
-    BBoxVector(Vec<BBox>),
+    BBox(RBBox),
+    BBoxVector(Vec<RBBox>),
     Point(Point),
     PointVector(Vec<Point>),
     Polygon(PolygonalArea),
@@ -207,7 +207,7 @@ impl Value {
     }
 
     #[staticmethod]
-    pub fn bbox(bbox: BBox, confidence: Option<f64>) -> Self {
+    pub fn bbox(bbox: RBBox, confidence: Option<f64>) -> Self {
         Self {
             confidence,
             v: ValueVariant::BBox(bbox),
@@ -215,7 +215,7 @@ impl Value {
     }
 
     #[staticmethod]
-    pub fn bboxes(bboxes: Vec<BBox>, confidence: Option<f64>) -> Self {
+    pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
             v: ValueVariant::BBoxVector(bboxes),
@@ -328,14 +328,14 @@ impl Value {
         }
     }
 
-    pub fn as_bbox(&self) -> Option<BBox> {
+    pub fn as_bbox(&self) -> Option<RBBox> {
         match &self.v {
             ValueVariant::BBox(bbox) => Some(bbox.clone()),
             _ => None,
         }
     }
 
-    pub fn as_bboxes(&self) -> Option<Vec<BBox>> {
+    pub fn as_bboxes(&self) -> Option<Vec<RBBox>> {
         match &self.v {
             ValueVariant::BBoxVector(bbox) => Some(bbox.clone()),
             _ => None,

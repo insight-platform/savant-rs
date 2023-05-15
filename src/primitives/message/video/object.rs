@@ -1,6 +1,6 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, BBox};
+use crate::primitives::{Attribute, RBBox};
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -72,7 +72,7 @@ pub struct InnerObject {
     pub id: i64,
     pub creator: String,
     pub label: String,
-    pub bbox: BBox,
+    pub bbox: RBBox,
     pub attributes: HashMap<(String, String), Attribute>,
     pub confidence: Option<f64>,
     pub parent: Option<ParentObject>,
@@ -157,7 +157,7 @@ impl Object {
         id: i64,
         creator: String,
         label: String,
-        bbox: BBox,
+        bbox: RBBox,
         attributes: HashMap<(String, String), Attribute>,
         confidence: Option<f64>,
         parent: Option<ParentObject>,
@@ -201,7 +201,7 @@ impl Object {
     }
 
     #[getter]
-    pub fn get_bbox(&self) -> crate::primitives::BBox {
+    pub fn get_bbox(&self) -> crate::primitives::RBBox {
         self.inner.lock().unwrap().bbox.clone()
     }
 
@@ -246,7 +246,7 @@ impl Object {
     }
 
     #[setter]
-    pub fn set_bbox(&mut self, bbox: BBox) {
+    pub fn set_bbox(&mut self, bbox: RBBox) {
         let mut object = self.inner.lock().unwrap();
         object.bbox = bbox;
         object.modifications.push(Modification::BoundingBox);
@@ -345,7 +345,7 @@ impl Object {
 mod tests {
     use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, BBox, Modification, Object, Value};
+    use crate::primitives::{AttributeBuilder, Modification, Object, RBBox, Value};
 
     fn get_object() -> Object {
         Object::from_inner_object(
@@ -355,7 +355,7 @@ mod tests {
                 .modifications(vec![])
                 .creator("model".to_string())
                 .label("label".to_string())
-                .bbox(BBox::new(0.0, 0.0, 1.0, 1.0, None))
+                .bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
                 .confidence(Some(0.5))
                 .attributes(
                     vec![
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![Modification::Label]);
         assert_eq!(t.take_modifications(), vec![]);
 
-        t.set_bbox(BBox::new(0.0, 0.0, 1.0, 1.0, None));
+        t.set_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
         t.clear_attributes_py();
         assert_eq!(
             t.take_modifications(),

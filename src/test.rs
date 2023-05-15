@@ -4,7 +4,7 @@ pub mod utils {
     use crate::primitives::{
         AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, Value,
     };
-    use crate::primitives::{BBox, VideoFrame};
+    use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -32,7 +32,7 @@ pub mod utils {
                             .id(0)
                             .track_id(None)
                             .modifications(Vec::default())
-                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())
                             .confidence(None)
@@ -46,7 +46,7 @@ pub mod utils {
                             .id(1)
                             .track_id(None)
                             .modifications(Vec::default())
-                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())
                             .confidence(None)
@@ -60,7 +60,7 @@ pub mod utils {
                             .id(2)
                             .track_id(None)
                             .modifications(Vec::default())
-                            .bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None))
+                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                             .parent(None)
                             .attributes(HashMap::default())
                             .confidence(None)
@@ -117,11 +117,11 @@ pub mod utils {
                     Value::strings(vec!["abc".into(), "cde".into()], None),
                     Value::string("outgoing".to_string(), Some(0.64)),
                     Value::none(),
-                    Value::bbox(BBox::new(0.0, 0.0, 0.0, 0.0, None), None),
+                    Value::bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None), None),
                     Value::bboxes(
                         vec![
-                            BBox::new(0.0, 0.0, 0.0, 0.0, None),
-                            BBox::new(0.0, 0.0, 0.0, 0.0, None),
+                            RBBox::new(0.0, 0.0, 0.0, 0.0, None),
+                            RBBox::new(0.0, 0.0, 0.0, 0.0, None),
                         ],
                         None,
                     ),

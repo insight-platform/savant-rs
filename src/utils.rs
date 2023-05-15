@@ -17,6 +17,12 @@ use crate::utils::symbol_mapper::{
 
 pub use fps_meter::FpsMeter;
 
+#[pyfunction]
+#[inline]
+pub fn round_2_digits(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_message_py, m)?)?;
