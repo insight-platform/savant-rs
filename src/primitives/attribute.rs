@@ -63,19 +63,19 @@ impl ToSerdeJsonValue for ValueVariant {
                 "bbox": b.to_serde_json_value(),
             }),
             ValueVariant::BBoxVector(v) => serde_json::json!({
-                "bbox_vector": v.into_iter().map(|b| b.to_serde_json_value()).collect::<Vec<_>>(),
+                "bbox_vector": v.iter().map(|b| b.to_serde_json_value()).collect::<Vec<_>>(),
             }),
             ValueVariant::Point(p) => serde_json::json!({
                 "point": p.to_serde_json_value(),
             }),
             ValueVariant::PointVector(v) => serde_json::json!({
-                "point_vector": v.into_iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
+                "point_vector": v.iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
             }),
             ValueVariant::Polygon(p) => serde_json::json!({
                 "polygon": p.to_serde_json_value(),
             }),
             ValueVariant::PolygonVector(v) => serde_json::json!({
-                "polygon_vector": v.into_iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
+                "polygon_vector": v.iter().map(|p| p.to_serde_json_value()).collect::<Vec<_>>(),
             }),
             ValueVariant::Intersection(i) => serde_json::json!({
                 "intersection": i.to_serde_json_value(),

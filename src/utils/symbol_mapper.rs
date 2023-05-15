@@ -104,7 +104,7 @@ pub fn get_object_labels(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Optio
                     mapper
                         .get_object_label(model_id, *object_id)
                         .map(|label| (*object_id, Some(label)))
-                        .or_else(|| Some((*object_id, None)))
+                        .or(Some((*object_id, None)))
                 })
                 .collect()
         })
@@ -282,7 +282,7 @@ impl SymbolMapper {
 
         match (model_name, object_name) {
             (Some(m), Some(o)) => {
-                if m.len() > 0 && o.len() > 0 {
+                if !m.is_empty() && !o.is_empty() {
                     Ok((m.to_string(), o.to_string()))
                 } else {
                     Err(Errors::FullyQualifiedObjectNameParseError(key.clone()).into())
@@ -311,7 +311,7 @@ impl SymbolMapper {
     ) -> anyhow::Result<(i64, i64)> {
         let model_id = self.get_model_id(model_name)?;
         Self::validate_base_key(object_label)?;
-        let full_key = Self::build_model_object_key(model_name, &object_label);
+        let full_key = Self::build_model_object_key(model_name, object_label);
 
         match self.registry.get(&full_key) {
             Some((model_id, Some(object_id))) => Ok((*model_id, *object_id)),
@@ -349,9 +349,9 @@ impl SymbolMapper {
 
         for (label_id, object_label) in objects {
             Self::validate_base_key(object_label)?;
-            let key = Self::build_model_object_key(model_name, &object_label);
+            let key = Self::build_model_object_key(model_name, object_label);
             if matches!(policy, RegistrationPolicy::ErrorIfNonUnique) {
-                if self.is_object_registered(model_name, &object_label) {
+                if self.is_object_registered(model_name, object_label) {
                     return Err(Errors::DuplicateName(object_label.clone()).into());
                 }
 

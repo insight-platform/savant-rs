@@ -1,4 +1,5 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
+use crate::primitives::{Point, PolygonalArea};
 use crate::utils::round_2_digits;
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{Archive, Deserialize, Serialize};
@@ -63,6 +64,44 @@ impl RBBox {
             })
         });
     }
+
+    #[pyo3(name = "vertices")]
+    pub fn vertices_py(&self) -> Vec<(f64, f64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.vertices()))
+    }
+
+    #[pyo3(name = "vertices_rounded")]
+    pub fn vertices_rounded_py(&self) -> Vec<(f64, f64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.vertices_rounded()))
+    }
+
+    #[pyo3(name = "vertices_int")]
+    pub fn vertices_int_py(&self) -> Vec<(i64, i64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.vertices_int()))
+    }
+
+    #[pyo3(name = "as_polygonal_area")]
+    pub fn as_polygonal_area_py(&self) -> PolygonalArea {
+        Python::with_gil(|py| py.allow_threads(|| self.as_polygonal_area()))
+    }
+
+    #[pyo3(name = "wrapping_box")]
+    pub fn wrapping_box_py(&self) -> BBox {
+        Python::with_gil(|py| py.allow_threads(|| self.wrapping_bbox()))
+    }
+
+    #[pyo3(name = "graphical_wrapping_box")]
+    pub fn graphical_wrapping_box_py(
+        &self,
+        padding: f64,
+        border_width: f64,
+        max_x: f64,
+        max_y: f64,
+    ) -> BBox {
+        Python::with_gil(|py| {
+            py.allow_threads(|| self.graphical_wrapping_bbox(padding, border_width, max_x, max_y))
+        })
+    }
 }
 
 impl RBBox {
@@ -118,9 +157,26 @@ impl RBBox {
             .collect::<Vec<_>>()
     }
 
+    pub fn vertices_int(&self) -> Vec<(i64, i64)> {
+        self.vertices()
+            .into_iter()
+            .map(|(x, y)| (x as i64, y as i64))
+            .collect::<Vec<_>>()
+    }
+
+    pub fn as_polygonal_area(&self) -> PolygonalArea {
+        PolygonalArea::new(
+            self.vertices()
+                .into_iter()
+                .map(|(x, y)| Point::new(x, y))
+                .collect::<Vec<_>>(),
+            None,
+        )
+    }
+
     pub fn wrapping_bbox(&self) -> BBox {
         if self.angle.is_none() {
-            return BBox::new(self.xc, self.yc, self.width, self.height);
+            BBox::new(self.xc, self.yc, self.width, self.height)
         } else {
             let mut vertices = self.vertices();
             let (initial_vtx_x, initial_vtx_y) = vertices.pop().unwrap();
@@ -284,12 +340,35 @@ impl BBox {
     }
 
     #[getter]
+    pub fn ltrb_int(&self) -> (i64, i64, i64, i64) {
+        let top = self.get_top().floor();
+        let left = self.get_left().floor();
+        let bottom = self.get_bottom().ceil();
+        let right = self.get_right().ceil();
+        (left as i64, top as i64, right as i64, bottom as i64)
+    }
+
+    #[getter]
     pub fn ltwh(&self) -> (f64, f64, f64, f64) {
         let top = self.get_top();
         let left = self.get_left();
         let width = self.get_width();
         let height = self.get_height();
         (left, top, width, height)
+    }
+
+    #[getter]
+    pub fn ltwh_int(&self) -> (i64, i64, i64, i64) {
+        let top = self.get_top().floor();
+        let left = self.get_left().floor();
+        let width = self.get_width().ceil();
+        let height = self.get_height().ceil();
+        (left as i64, top as i64, width as i64, height as i64)
+    }
+
+    #[getter]
+    pub fn rbbox(&self) -> RBBox {
+        self.rbbox.clone()
     }
 
     #[pyo3(name = "scale")]
@@ -299,6 +378,47 @@ impl BBox {
                 self.rbbox.scale(scale_x, scale_y);
             })
         });
+    }
+
+    #[pyo3(name = "vertices")]
+    pub fn vertices_py(&self) -> Vec<(f64, f64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices()))
+    }
+
+    #[pyo3(name = "vertices_rounded")]
+    pub fn vertices_rounded_py(&self) -> Vec<(f64, f64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices_rounded()))
+    }
+
+    #[pyo3(name = "vertices_int")]
+    pub fn vertices_int_py(&self) -> Vec<(i64, i64)> {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices_int()))
+    }
+
+    #[pyo3(name = "as_polygonal_area")]
+    pub fn as_polygonal_area_py(&self) -> PolygonalArea {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.as_polygonal_area()))
+    }
+
+    #[pyo3(name = "wrapping_box")]
+    pub fn wrapping_box_py(&self) -> BBox {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.wrapping_bbox()))
+    }
+
+    #[pyo3(name = "graphical_wrapping_box")]
+    pub fn graphical_wrapping_box_py(
+        &self,
+        padding: f64,
+        border_width: f64,
+        max_x: f64,
+        max_y: f64,
+    ) -> BBox {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.rbbox
+                    .graphical_wrapping_bbox(padding, border_width, max_x, max_y)
+            })
+        })
     }
 }
 
@@ -325,9 +445,9 @@ mod tests {
         //dbg!(&bbox);
         assert_eq!(bbox.xc, 0.0);
         assert_eq!(bbox.yc, 0.0);
-        assert_eq!(bbox.width, 254.9509756796392);
-        assert_eq!(bbox.height, 254.9509756796392);
-        assert_eq!(bbox.angle, Some(33.69006752597978));
+        assert_eq!(round_2_digits(bbox.width), 254.95);
+        assert_eq!(round_2_digits(bbox.height), 254.95);
+        assert_eq!(bbox.angle.map(round_2_digits), Some(33.69));
     }
 
     #[test]

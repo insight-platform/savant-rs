@@ -88,7 +88,7 @@ impl ToSerdeJsonValue for InnerObject {
             "creator": self.creator,
             "label": self.label,
             "bbox": self.bbox.to_serde_json_value(),
-            "attributes": self.attributes.iter().map(|(_, v)| v.to_serde_json_value()).collect::<Vec<_>>(),
+            "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
             "track_id": self.track_id,

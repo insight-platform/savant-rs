@@ -109,7 +109,7 @@ impl FpsMeter {
 
         (
             i64::try_from(delta_frames).unwrap(),
-            i64::try_from(delta_time as i64).unwrap(),
+            i64::try_from(delta_time).unwrap(),
         )
     }
 

@@ -331,7 +331,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
                 "duration": self.duration,
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
-                "attributes": self.attributes.iter().map(|(_, v)| v.to_serde_json_value()).collect::<Vec<_>>(),
+                "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
                 "objects": self.resident_objects.iter().map(|o| o.lock().unwrap().to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
