@@ -65,16 +65,19 @@ impl RBBox {
         });
     }
 
+    #[getter]
     #[pyo3(name = "vertices")]
     pub fn vertices_py(&self) -> Vec<(f64, f64)> {
         Python::with_gil(|py| py.allow_threads(|| self.vertices()))
     }
 
+    #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn vertices_rounded_py(&self) -> Vec<(f64, f64)> {
         Python::with_gil(|py| py.allow_threads(|| self.vertices_rounded()))
     }
 
+    #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn vertices_int_py(&self) -> Vec<(i64, i64)> {
         Python::with_gil(|py| py.allow_threads(|| self.vertices_int()))
@@ -85,13 +88,14 @@ impl RBBox {
         Python::with_gil(|py| py.allow_threads(|| self.as_polygonal_area()))
     }
 
+    #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn wrapping_box_py(&self) -> BBox {
         Python::with_gil(|py| py.allow_threads(|| self.wrapping_bbox()))
     }
 
-    #[pyo3(name = "graphical_wrapping_box")]
-    pub fn graphical_wrapping_box_py(
+    #[pyo3(name = "as_graphical_wrapping_box")]
+    pub fn as_graphical_wrapping_box_py(
         &self,
         padding: f64,
         border_width: f64,
@@ -331,82 +335,26 @@ impl BBox {
     }
 
     #[getter]
-    pub fn ltrb(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let bottom = self.get_bottom();
-        let right = self.get_right();
-        (left, top, right, bottom)
-    }
-
-    #[getter]
-    pub fn ltrb_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let bottom = self.get_bottom().ceil();
-        let right = self.get_right().ceil();
-        (left as i64, top as i64, right as i64, bottom as i64)
-    }
-
-    #[getter]
-    pub fn ltwh(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let width = self.get_width();
-        let height = self.get_height();
-        (left, top, width, height)
-    }
-
-    #[getter]
-    pub fn ltwh_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let width = self.get_width().ceil();
-        let height = self.get_height().ceil();
-        (left as i64, top as i64, width as i64, height as i64)
-    }
-
-    #[getter]
-    pub fn rbbox(&self) -> RBBox {
-        self.rbbox.clone()
-    }
-
-    #[pyo3(name = "scale")]
-    pub fn scale_py(&mut self, scale_x: f64, scale_y: f64) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                self.rbbox.scale(scale_x, scale_y);
-            })
-        });
-    }
-
-    #[pyo3(name = "vertices")]
-    pub fn vertices_py(&self) -> Vec<(f64, f64)> {
+    pub fn vertices(&self) -> Vec<(f64, f64)> {
         Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices()))
     }
 
-    #[pyo3(name = "vertices_rounded")]
-    pub fn vertices_rounded_py(&self) -> Vec<(f64, f64)> {
+    #[getter]
+    pub fn vertices_rounded(&self) -> Vec<(f64, f64)> {
         Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices_rounded()))
     }
 
-    #[pyo3(name = "vertices_int")]
-    pub fn vertices_int_py(&self) -> Vec<(i64, i64)> {
+    #[getter]
+    pub fn vertices_int(&self) -> Vec<(i64, i64)> {
         Python::with_gil(|py| py.allow_threads(|| self.rbbox.vertices_int()))
     }
 
-    #[pyo3(name = "as_polygonal_area")]
-    pub fn as_polygonal_area_py(&self) -> PolygonalArea {
-        Python::with_gil(|py| py.allow_threads(|| self.rbbox.as_polygonal_area()))
-    }
-
-    #[pyo3(name = "wrapping_box")]
-    pub fn wrapping_box_py(&self) -> BBox {
+    #[getter]
+    pub fn wrapping_box(&self) -> BBox {
         Python::with_gil(|py| py.allow_threads(|| self.rbbox.wrapping_bbox()))
     }
 
-    #[pyo3(name = "graphical_wrapping_box")]
-    pub fn graphical_wrapping_box_py(
+    pub fn as_graphical_wrapping_box(
         &self,
         padding: f64,
         border_width: f64,
@@ -419,6 +367,54 @@ impl BBox {
                     .graphical_wrapping_bbox(padding, border_width, max_x, max_y)
             })
         })
+    }
+
+    pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
+        let top = self.get_top();
+        let left = self.get_left();
+        let bottom = self.get_bottom();
+        let right = self.get_right();
+        (left, top, right, bottom)
+    }
+
+    pub fn as_ltrb_int(&self) -> (i64, i64, i64, i64) {
+        let top = self.get_top().floor();
+        let left = self.get_left().floor();
+        let bottom = self.get_bottom().ceil();
+        let right = self.get_right().ceil();
+        (left as i64, top as i64, right as i64, bottom as i64)
+    }
+
+    pub fn as_ltwh(&self) -> (f64, f64, f64, f64) {
+        let top = self.get_top();
+        let left = self.get_left();
+        let width = self.get_width();
+        let height = self.get_height();
+        (left, top, width, height)
+    }
+
+    pub fn as_ltwh_int(&self) -> (i64, i64, i64, i64) {
+        let top = self.get_top().floor();
+        let left = self.get_left().floor();
+        let width = self.get_width().ceil();
+        let height = self.get_height().ceil();
+        (left as i64, top as i64, width as i64, height as i64)
+    }
+
+    pub fn as_rbbox(&self) -> RBBox {
+        self.rbbox.clone()
+    }
+
+    pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
+        Python::with_gil(|py| {
+            py.allow_threads(|| {
+                self.rbbox.scale(scale_x, scale_y);
+            })
+        });
+    }
+
+    pub fn as_polygonal_area(&self) -> PolygonalArea {
+        Python::with_gil(|py| py.allow_threads(|| self.rbbox.as_polygonal_area()))
     }
 }
 
