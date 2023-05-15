@@ -26,9 +26,9 @@ print("Spent", timer() - t)
 pprint(list(zip(l, res)))
 
 r = res[1]
-print(r.kind == IntersectionKind.Cross)
-print(r.edges == [(0, "up"), (2, "down")])
+assert (r.kind == IntersectionKind.Cross)
+assert (r.edges == [(0, "up"), (2, "down")])
 
 r = res[0]
-print(r.kind == IntersectionKind.Cross)
-print(r.edges == [(1, None), (3, None)])
+assert (r.kind == IntersectionKind.Cross)
+assert (r.edges == [(1, None), (3, None)])
