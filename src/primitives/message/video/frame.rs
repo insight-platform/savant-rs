@@ -1,7 +1,7 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Object};
+use crate::primitives::{Attribute, Message, Object};
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -319,6 +319,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!(
             {
+                "type": "VideoFrame",
                 "source_id": self.source_id,
                 "framerate": self.framerate,
                 "width": self.width,
@@ -437,6 +438,10 @@ impl VideoFrame {
             offline_objects: vec![],
             resident_objects: vec![],
         })
+    }
+
+    pub fn to_message(&self) -> Message {
+        Message::video_frame(self.clone())
     }
 
     #[getter]
