@@ -1,7 +1,9 @@
 """Thread-safe singleton metaclass."""
+import threading
 from random import random
 from threading import Lock
 from typing import Any, Dict, List, Tuple, Optional
+from numba import jit
 
 
 class SingletonMeta(type):
@@ -159,6 +161,29 @@ if __name__ == '__main__':
     registry = ModelObjectRegistry()
     models = ["model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"]
 
+
+    @jit(nopython=True, nogil=True)
+    def plus_one() -> int:
+        return 1
+
+
+    cntr = 0
+    exit_flag = False
+
+
+    def threaded_count():
+        global cntr, exit_flag
+        while not exit_flag:
+            cntr += plus_one()
+
+    t = timer()
+    cnt = 0
+    while cnt < 1000_000:
+        cnt += plus_one()
+
+    mil_count = timer() - t
+    print(f"Time to count to million: {mil_count}")
+
     res = 0
     for m in models:
         d = dict([(id, f"object_{id}_{m}") for id in range(1000)])
@@ -168,13 +193,24 @@ if __name__ == '__main__':
 
     print(f"Time to register: {res}")
 
-    res = 0
-    for _ in range(1000_000):
-        random_model = choice(models)
-        random_object = f"object_{choice(range(1000))}_{random_model}"
-        t = timer()
-        m = registry.get_model_uid(random_model)
-        m, o = registry.get_model_object_ids(model_name=random_model, object_label=random_object)
-        res += timer() - t
+    def simple_count():
+        res = 0
+        total_time = timer()
+        for _ in range(1000_000):
+            random_model = choice(models)
+            random_object = f"object_{choice(range(1000))}_{random_model}"
+            t = timer()
+            m = registry.get_model_uid(random_model)
+            m, o = registry.get_model_object_ids(model_name=random_model, object_label=random_object)
+            res += timer() - t
+        return res, timer() - total_time
 
-    print(f"Time to get: {res}")
+
+    cntr = 0
+    exit_flag = False
+    t = threading.Thread(target=threaded_count)
+    t.start()
+    res, total_time = simple_count()
+    exit_flag = True
+    t.join()
+    print(f"Time to get in individually ({total_time}): {res}, cnt: {cntr}, time spent in counter {cntr / 1_000_000 * mil_count}")
