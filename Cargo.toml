@@ -1,6 +1,6 @@
 [package]
 name = "savant_rs"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant rust optimization library"
@@ -24,7 +24,7 @@ geo = "0.24"
 rayon = "1.7"
 env_logger = "0.10"
 rkyv = { version = "0.7", features = ["validation", "archive_le"] }
-numpy = "0.18"
+numpy = {version = "0.18", features = ["nalgebra"]}
 pyo3-log = "0.8"
 derive_builder = "0.12"
 num_cpus = "1.15"

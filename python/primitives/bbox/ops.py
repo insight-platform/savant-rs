@@ -1,4 +1,5 @@
 from savant_rs.primitives import BBox, RBBox
+from savant_rs.utils import *
 
 box = BBox(50, 50, 50, 50)
 print("Original bbox:", box)
@@ -73,4 +74,18 @@ print("Wrapping box:", box)
 box = box.as_graphical_wrapping_box(padding=5, border_width=2, max_x=100, max_y=500)
 print("Graphical wrapping box:", box)
 
+print(BBox.ltwh(0, 0, 100, 100))
+print(BBox.ltrb(0, 0, 100, 100))
 
+arr = bboxes_to_ndarray_float([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom)
+print(arr)
+
+boxes = ndarray_float_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
+print(boxes)
+
+
+arr = bboxes_to_ndarray_int([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom)
+print(arr)
+
+boxes = ndarray_int_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
+print(boxes)

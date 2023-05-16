@@ -1,4 +1,4 @@
-pub mod bounding_box;
+pub mod bbox;
 pub mod fps_meter;
 pub mod symbol_mapper;
 
@@ -15,6 +15,7 @@ use crate::utils::symbol_mapper::{
     is_object_registered, parse_compound_key, register_model_objects, validate_base_key,
 };
 
+pub use bbox::*;
 pub use fps_meter::FpsMeter;
 
 #[pyfunction]
@@ -25,10 +26,26 @@ pub fn round_2_digits(v: f64) -> f64 {
 
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    // ser deser
     m.add_function(wrap_pyfunction!(save_message_py, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_py, m)?)?;
-    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    // utility
+    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
+    // bbox batch ops
+    m.add_function(wrap_pyfunction!(bboxes_to_ndarray_float, m)?)?;
+    m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_float, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_float_to_bboxes, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_float_to_bboxes, m)?)?;
+
+    // bbox batch ops
+    m.add_function(wrap_pyfunction!(bboxes_to_ndarray_int, m)?)?;
+    m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_int, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_int_to_bboxes, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_int_to_bboxes, m)?)?;
+
+    // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key, m)?)?;
     m.add_function(wrap_pyfunction!(clear_symbol_maps, m)?)?;
     m.add_function(wrap_pyfunction!(dump_registry, m)?)?;
@@ -47,6 +64,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FpsMeter>()?;
     m.add_class::<SymbolMapper>()?;
     m.add_class::<RegistrationPolicy>()?;
+    m.add_class::<BBoxFormat>()?;
 
     Ok(())
 }

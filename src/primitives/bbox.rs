@@ -264,6 +264,29 @@ impl BBox {
         }
     }
 
+    #[staticmethod]
+    pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
+        let width = right - left;
+        let height = bottom - top;
+
+        let xc = (left + right) / 2.0;
+        let yc = (top + bottom) / 2.0;
+
+        Self {
+            rbbox: RBBox::new(xc, yc, width, height, None),
+        }
+    }
+
+    #[staticmethod]
+    pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
+        let xc = left + width / 2.0;
+        let yc = top + height / 2.0;
+
+        Self {
+            rbbox: RBBox::new(xc, yc, width, height, None),
+        }
+    }
+
     #[getter]
     pub fn get_xc(&self) -> f64 {
         self.rbbox.xc
@@ -399,6 +422,22 @@ impl BBox {
         let width = self.get_width().ceil();
         let height = self.get_height().ceil();
         (left as i64, top as i64, width as i64, height as i64)
+    }
+
+    pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc, yc, width, height)
+    }
+
+    pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc as i64, yc as i64, width as i64, height as i64)
     }
 
     pub fn as_rbbox(&self) -> RBBox {
