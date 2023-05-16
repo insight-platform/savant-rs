@@ -45,15 +45,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     // numpy utils
     m.add_function(wrap_pyfunction!(ndarray_to_matrix_py, m)?)?;
     m.add_function(wrap_pyfunction!(matrix_to_ndarray_py, m)?)?;
-    // m.add_function(wrap_pyfunction!(ndarray_float32_to_matrix, m)?)?;
-    // m.add_function(wrap_pyfunction!(ndarray_float64_to_matrix, m)?)?;
-    // m.add_function(wrap_pyfunction!(ndarray_int32_to_matrix, m)?)?;
-    // m.add_function(wrap_pyfunction!(ndarray_int64_to_matrix, m)?)?;
-    //
-    // m.add_function(wrap_pyfunction!(matrix_float32_to_ndarray, m)?)?;
-    // m.add_function(wrap_pyfunction!(matrix_float64_to_ndarray, m)?)?;
-    // m.add_function(wrap_pyfunction!(matrix_int32_to_ndarray, m)?)?;
-    // m.add_function(wrap_pyfunction!(matrix_int64_to_ndarray, m)?)?;
 
     // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key, m)?)?;

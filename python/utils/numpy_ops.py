@@ -2,35 +2,32 @@ import numpy as np
 from savant_rs.utils import *
 from timeit import default_timer as timer
 
+num = 10_000
+
 t = timer()
-v = np.zeros((1024, 1), dtype='float')
+v = np.zeros((128, 4), dtype='float')
 m = None
-for _ in range(100_000):
+for _ in range(num):
     m = ndarray_to_matrix(v)
 
-print("NP64>NALGEBRA 100K Time:", timer() - t)
+print(f"NP64>NALGEBRA {num} Time:", timer() - t)
 
 t = timer()
-for _ in range(100_000):
+for _ in range(num):
     v = matrix_to_ndarray(m)
 
-print("NALGEBRA>NP64 100K Time:", timer() - t)
+print(f"NALGEBRA>NP64 {num} Time:", timer() - t)
 
 
 t = timer()
-v = np.zeros((1024, 1), dtype='float32')
+v = np.zeros((128, 4), dtype='float32')
 m = None
-for _ in range(100_000):
+for _ in range(num):
     m = ndarray_to_matrix(v)
-print("NP32>NALGEBRA 100K Time:", timer() - t)
+print(f"NP32>NALGEBRA {num} Time:", timer() - t)
 
 t = timer()
-for _ in range(100_000):
+for _ in range(num):
     v = matrix_to_ndarray(m)
 
-print("NALGEBRA>NP32 100K Time:", timer() - t)
-
-
-v = np.zeros((4, 8), dtype='float')
-m = ndarray_to_matrix(v)
-print(m)
+print("NALGEBRA>NP32 {num} Time:", timer() - t)
