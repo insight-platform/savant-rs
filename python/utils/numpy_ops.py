@@ -3,9 +3,10 @@ from savant_rs.utils import *
 from timeit import default_timer as timer
 
 num = 10_000
+dims = (1024, 1)
 
 t = timer()
-v = np.zeros((128, 4), dtype='float')
+v = np.zeros(dims, dtype='float')
 m = None
 for _ in range(num):
     m = ndarray_to_matrix(v)
@@ -20,7 +21,7 @@ print(f"NALGEBRA>NP64 {num} Time:", timer() - t)
 
 
 t = timer()
-v = np.zeros((128, 4), dtype='float32')
+v = np.zeros(dims, dtype='float32')
 m = None
 for _ in range(num):
     m = ndarray_to_matrix(v)
@@ -30,4 +31,4 @@ t = timer()
 for _ in range(num):
     v = matrix_to_ndarray(m)
 
-print("NALGEBRA>NP32 {num} Time:", timer() - t)
+print(f"NALGEBRA>NP32 {num} Time:", timer() - t)

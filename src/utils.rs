@@ -66,8 +66,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SymbolMapper>()?;
     m.add_class::<RegistrationPolicy>()?;
     m.add_class::<BBoxFormat>()?;
-    m.add_class::<Float64Matrix>()?;
-    m.add_class::<Int64Matrix>()?;
+    m.add_class::<Matrix>()?;
 
     Ok(())
 }
