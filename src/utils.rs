@@ -1,5 +1,7 @@
 pub mod bbox;
+pub mod conversions;
 pub mod fps_meter;
+pub mod numpy_utils;
 pub mod symbol_mapper;
 
 use pyo3::prelude::*;
@@ -17,6 +19,7 @@ use crate::utils::symbol_mapper::{
 
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
+pub use numpy_utils::*;
 
 #[pyfunction]
 #[inline]
@@ -34,16 +37,23 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
     // bbox batch ops
-    m.add_function(wrap_pyfunction!(bboxes_to_ndarray_float, m)?)?;
-    m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_float, m)?)?;
-    m.add_function(wrap_pyfunction!(ndarray_float_to_bboxes, m)?)?;
-    m.add_function(wrap_pyfunction!(ndarray_float_to_bboxes, m)?)?;
+    m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_py, m)?)?;
+    m.add_function(wrap_pyfunction!(bboxes_to_ndarray_py, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_to_bboxes_py, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_to_rotated_bboxes_py, m)?)?;
 
-    // bbox batch ops
-    m.add_function(wrap_pyfunction!(bboxes_to_ndarray_int, m)?)?;
-    m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_int, m)?)?;
-    m.add_function(wrap_pyfunction!(ndarray_int_to_bboxes, m)?)?;
-    m.add_function(wrap_pyfunction!(ndarray_int_to_bboxes, m)?)?;
+    // numpy utils
+    m.add_function(wrap_pyfunction!(ndarray_to_matrix_py, m)?)?;
+    m.add_function(wrap_pyfunction!(matrix_to_ndarray_py, m)?)?;
+    // m.add_function(wrap_pyfunction!(ndarray_float32_to_matrix, m)?)?;
+    // m.add_function(wrap_pyfunction!(ndarray_float64_to_matrix, m)?)?;
+    // m.add_function(wrap_pyfunction!(ndarray_int32_to_matrix, m)?)?;
+    // m.add_function(wrap_pyfunction!(ndarray_int64_to_matrix, m)?)?;
+    //
+    // m.add_function(wrap_pyfunction!(matrix_float32_to_ndarray, m)?)?;
+    // m.add_function(wrap_pyfunction!(matrix_float64_to_ndarray, m)?)?;
+    // m.add_function(wrap_pyfunction!(matrix_int32_to_ndarray, m)?)?;
+    // m.add_function(wrap_pyfunction!(matrix_int64_to_ndarray, m)?)?;
 
     // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key, m)?)?;
@@ -65,6 +75,8 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SymbolMapper>()?;
     m.add_class::<RegistrationPolicy>()?;
     m.add_class::<BBoxFormat>()?;
+    m.add_class::<Float64Matrix>()?;
+    m.add_class::<Int64Matrix>()?;
 
     Ok(())
 }

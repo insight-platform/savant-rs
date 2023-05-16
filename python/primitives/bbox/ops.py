@@ -77,15 +77,14 @@ print("Graphical wrapping box:", box)
 print(BBox.ltwh(0, 0, 100, 100))
 print(BBox.ltrb(0, 0, 100, 100))
 
-arr = bboxes_to_ndarray_float([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom)
-print(arr)
+arr = bboxes_to_ndarray([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom, 'float64')
+print("BBoxes to f64", arr)
 
-boxes = ndarray_float_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
+boxes = ndarray_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
 print(boxes)
 
+arr = bboxes_to_ndarray([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom, 'float32')
+print("BBoxes to f32", arr)
 
-arr = bboxes_to_ndarray_int([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom)
-print(arr)
-
-boxes = ndarray_int_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
+boxes = ndarray_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
 print(boxes)

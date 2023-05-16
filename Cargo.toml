@@ -30,6 +30,8 @@ derive_builder = "0.12"
 num_cpus = "1.15"
 hashbrown = "0.13"
 lazy_static = "1.4"
+nalgebra = "0.32"
+num-traits = "0.2"
 
 [dependencies.pyo3]
 version = "0.18"
