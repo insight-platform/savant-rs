@@ -5,7 +5,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 macro_rules! pretty_print {
     ($arr:expr) => {{
@@ -63,66 +63,66 @@ pub enum MatrixVariant {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Matrix {
-    inner: Arc<Mutex<MatrixVariant>>,
+    inner: Arc<MatrixVariant>,
 }
 
 impl Matrix {
     pub fn from_fp64(m: DMatrix<f64>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Float64(m))),
+            inner: Arc::new(MatrixVariant::Float64(m)),
         }
     }
     pub fn from_fp32(m: DMatrix<f32>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Float32(m))),
+            inner: Arc::new(MatrixVariant::Float32(m)),
         }
     }
 
     pub fn from_i64(m: DMatrix<i64>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Int64(m))),
+            inner: Arc::new(MatrixVariant::Int64(m)),
         }
     }
 
     pub fn from_i32(m: DMatrix<i32>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Int32(m))),
+            inner: Arc::new(MatrixVariant::Int32(m)),
         }
     }
 
     pub fn from_i16(m: DMatrix<i16>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Int16(m))),
+            inner: Arc::new(MatrixVariant::Int16(m)),
         }
     }
 
     pub fn from_i8(m: DMatrix<i8>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::Int8(m))),
+            inner: Arc::new(MatrixVariant::Int8(m)),
         }
     }
 
     pub fn from_u64(m: DMatrix<u64>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt64(m))),
+            inner: Arc::new(MatrixVariant::UnsignedInt64(m)),
         }
     }
 
     pub fn from_u32(m: DMatrix<u32>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt32(m))),
+            inner: Arc::new(MatrixVariant::UnsignedInt32(m)),
         }
     }
 
     pub fn from_u16(m: DMatrix<u16>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt16(m))),
+            inner: Arc::new(MatrixVariant::UnsignedInt16(m)),
         }
     }
 
     pub fn from_u8(m: DMatrix<u8>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt8(m))),
+            inner: Arc::new(MatrixVariant::UnsignedInt8(m)),
         }
     }
 }
@@ -133,8 +133,7 @@ impl Matrix {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        let m = self.inner.lock().unwrap();
-        match m.deref() {
+        match self.inner.deref() {
             MatrixVariant::Float64(m) => {
                 pretty_print!(m)
             }
@@ -264,7 +263,7 @@ pub fn ndarray_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
 #[pyo3(name = "matrix_to_ndarray")]
 pub fn matrix_to_ndarray_py(m: &PyAny) -> PyResult<PyObject> {
     if let Ok(m) = m.extract::<Matrix>() {
-        let m = match m.inner.lock().unwrap().deref() {
+        let m = match m.inner.deref() {
             MatrixVariant::Float64(m) => matrix_to_ndarray(m),
             MatrixVariant::Float32(m) => matrix_to_ndarray(m),
             MatrixVariant::Int64(m) => matrix_to_ndarray(m),
