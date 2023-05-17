@@ -9,8 +9,8 @@ pub fn save_message_py(frame: Message) -> Vec<u8> {
     Python::with_gil(|py| py.allow_threads(|| save_message(frame)))
 }
 
-pub fn save_message(frame: Message) -> Vec<u8> {
-    match frame.frame {
+pub fn save_message(m: Message) -> Vec<u8> {
+    match m.payload {
         NativeMessage::EndOfStream(s) => {
             let mut buf = Vec::with_capacity(32);
             buf.extend_from_slice(

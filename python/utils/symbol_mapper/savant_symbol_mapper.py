@@ -178,7 +178,7 @@ if __name__ == '__main__':
 
     t = timer()
     cnt = 0
-    while cnt < 1000_000:
+    while cnt < 10_000_000:
         cnt += plus_one()
 
     mil_count = timer() - t
@@ -196,7 +196,7 @@ if __name__ == '__main__':
     def simple_count():
         res = 0
         total_time = timer()
-        for _ in range(1000_000):
+        for _ in range(10_000_000):
             random_model = choice(models)
             random_object = f"object_{choice(range(1000))}_{random_model}"
             t = timer()
@@ -213,4 +213,4 @@ if __name__ == '__main__':
     res, total_time = simple_count()
     exit_flag = True
     t.join()
-    print(f"Time to get in individually ({total_time}): {res}, cnt: {cntr}, time spent in counter {cntr / 1_000_000 * mil_count}")
+    print(f"Time to get in individually ({total_time}): {res}, cnt: {cntr}, time spent in counter {cntr / 10_000_000 * mil_count}")

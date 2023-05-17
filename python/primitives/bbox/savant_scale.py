@@ -52,15 +52,15 @@ from timeit import default_timer as timer
 bbox = [0, 0, 100, 100, 0]
 
 t = timer()
-for _ in range(100):
+for _ in range(10000):
     res = scale_rbbox(np.array([bbox]), 2, 3)
 
 print(f"Time to scale (python): {timer() - t}")
 
-bbox = BBox(0, 0, 100, 100, None)
+bbox = BBox(0, 0, 100, 100)
 
 t = timer()
-for _ in range(100):
+for _ in range(10000):
     res = bbox.scale(2, 3)
 
 print(f"Time to scale (rust): {timer() - t}")

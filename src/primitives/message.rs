@@ -52,7 +52,7 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Message {
-    frame: NativeMessage,
+    payload: NativeMessage,
 }
 
 #[pymethods]
@@ -71,54 +71,54 @@ impl Message {
     #[staticmethod]
     pub fn unknown(s: String) -> Self {
         Self {
-            frame: NativeMessage::Unknown(s),
+            payload: NativeMessage::Unknown(s),
         }
     }
 
     #[staticmethod]
     pub fn video_frame(frame: VideoFrame) -> Self {
         Self {
-            frame: NativeMessage::VideoFrame(frame),
+            payload: NativeMessage::VideoFrame(frame),
         }
     }
 
     #[staticmethod]
     pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
         Self {
-            frame: NativeMessage::VideoFrameBatch(batch),
+            payload: NativeMessage::VideoFrameBatch(batch),
         }
     }
 
     #[staticmethod]
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
-            frame: NativeMessage::EndOfStream(eos),
+            payload: NativeMessage::EndOfStream(eos),
         }
     }
 
     #[getter]
     pub fn is_unknown(&self) -> bool {
-        matches!(self.frame, NativeMessage::Unknown(_))
+        matches!(self.payload, NativeMessage::Unknown(_))
     }
 
     #[getter]
     pub fn is_end_of_stream(&self) -> bool {
-        matches!(self.frame, NativeMessage::EndOfStream(_))
+        matches!(self.payload, NativeMessage::EndOfStream(_))
     }
 
     #[getter]
     pub fn is_video_frame(&self) -> bool {
-        matches!(self.frame, NativeMessage::VideoFrame(_))
+        matches!(self.payload, NativeMessage::VideoFrame(_))
     }
 
     #[getter]
     pub fn is_video_frame_batch(&self) -> bool {
-        matches!(self.frame, NativeMessage::VideoFrameBatch(_))
+        matches!(self.payload, NativeMessage::VideoFrameBatch(_))
     }
 
     #[getter]
     pub fn as_unknown(&self) -> Option<String> {
-        match &self.frame {
+        match &self.payload {
             NativeMessage::Unknown(s) => Some(s.clone()),
             _ => None,
         }
@@ -126,7 +126,7 @@ impl Message {
 
     #[getter]
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
-        match &self.frame {
+        match &self.payload {
             NativeMessage::EndOfStream(eos) => Some(eos.clone()),
             _ => None,
         }
@@ -134,7 +134,7 @@ impl Message {
 
     #[getter]
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
-        match &self.frame {
+        match &self.payload {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
         }
@@ -142,7 +142,7 @@ impl Message {
 
     #[getter]
     pub fn as_video_frame_batch(&self) -> Option<VideoFrameBatch> {
-        match &self.frame {
+        match &self.payload {
             NativeMessage::VideoFrameBatch(batch) => Some(batch.clone()),
             _ => None,
         }
