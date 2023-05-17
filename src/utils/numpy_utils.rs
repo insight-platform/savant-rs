@@ -139,22 +139,22 @@ pub fn ndarray_to_matrix<T: ElementType>(arr: PyReadonlyArrayDyn<T>) -> PyResult
 #[pyo3(name = "ndarray_to_matrix")]
 pub fn ndarray_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
-        let m = ndarray_to_matrix(arr.readonly()).map(|m| Matrix::from_fp32(m))?;
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_fp32)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<f64, IxDyn>>() {
-        let m = ndarray_to_matrix(arr.readonly()).map(|m| Matrix::from_fp64(m))?;
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_fp64)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i32, IxDyn>>() {
-        let m = ndarray_to_matrix(arr.readonly()).map(|m| Matrix::from_i32(m))?;
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_i32)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i64, IxDyn>>() {
-        let m = ndarray_to_matrix(arr.readonly()).map(|m| Matrix::from_i64(m))?;
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_i64)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
