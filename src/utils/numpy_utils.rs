@@ -37,8 +37,14 @@ pub trait ElementType: numpy::Element + Scalar + Copy + Clone + Debug {}
 
 impl ElementType for f32 {}
 impl ElementType for f64 {}
+impl ElementType for i8 {}
+impl ElementType for i16 {}
 impl ElementType for i32 {}
 impl ElementType for i64 {}
+impl ElementType for u8 {}
+impl ElementType for u16 {}
+impl ElementType for u32 {}
+impl ElementType for u64 {}
 
 #[derive(Debug, Clone)]
 pub enum MatrixVariant {
@@ -46,6 +52,12 @@ pub enum MatrixVariant {
     Float32(DMatrix<f32>),
     Int64(DMatrix<i64>),
     Int32(DMatrix<i32>),
+    Int16(DMatrix<i16>),
+    Int8(DMatrix<i8>),
+    UnsignedInt64(DMatrix<u64>),
+    UnsignedInt32(DMatrix<u32>),
+    UnsignedInt16(DMatrix<u16>),
+    UnsignedInt8(DMatrix<u8>),
 }
 
 #[pyclass]
@@ -77,6 +89,42 @@ impl Matrix {
             inner: Arc::new(Mutex::new(MatrixVariant::Int32(m))),
         }
     }
+
+    pub fn from_i16(m: DMatrix<i16>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::Int16(m))),
+        }
+    }
+
+    pub fn from_i8(m: DMatrix<i8>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::Int8(m))),
+        }
+    }
+
+    pub fn from_u64(m: DMatrix<u64>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt64(m))),
+        }
+    }
+
+    pub fn from_u32(m: DMatrix<u32>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt32(m))),
+        }
+    }
+
+    pub fn from_u16(m: DMatrix<u16>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt16(m))),
+        }
+    }
+
+    pub fn from_u8(m: DMatrix<u8>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(MatrixVariant::UnsignedInt8(m))),
+        }
+    }
 }
 
 #[pymethods]
@@ -97,6 +145,25 @@ impl Matrix {
                 pretty_print!(m)
             }
             MatrixVariant::Int32(m) => {
+                pretty_print!(m)
+            }
+
+            MatrixVariant::Int16(m) => {
+                pretty_print!(m)
+            }
+            MatrixVariant::Int8(m) => {
+                pretty_print!(m)
+            }
+            MatrixVariant::UnsignedInt64(m) => {
+                pretty_print!(m)
+            }
+            MatrixVariant::UnsignedInt32(m) => {
+                pretty_print!(m)
+            }
+            MatrixVariant::UnsignedInt16(m) => {
+                pretty_print!(m)
+            }
+            MatrixVariant::UnsignedInt8(m) => {
                 pretty_print!(m)
             }
         }
@@ -148,6 +215,16 @@ pub fn ndarray_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
+    if let Ok(arr) = arr.downcast::<PyArray<i8, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_i8)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
+    if let Ok(arr) = arr.downcast::<PyArray<i16, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_i16)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
     if let Ok(arr) = arr.downcast::<PyArray<i32, IxDyn>>() {
         let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_i32)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
@@ -158,8 +235,28 @@ pub fn ndarray_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
         return Python::with_gil(|py| Ok(m.into_py(py)));
     }
 
+    if let Ok(arr) = arr.downcast::<PyArray<u8, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_u8)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
+    if let Ok(arr) = arr.downcast::<PyArray<u16, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_u16)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
+    if let Ok(arr) = arr.downcast::<PyArray<u32, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_u32)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
+    if let Ok(arr) = arr.downcast::<PyArray<u64, IxDyn>>() {
+        let m = ndarray_to_matrix(arr.readonly()).map(Matrix::from_u64)?;
+        return Python::with_gil(|py| Ok(m.into_py(py)));
+    }
+
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "Expected ndarray of type f32, f64, i32 or i64",
+        "Expected ndarray of type f32/64, i8/16/32/64, or u8/16/32/64",
     ))
 }
 
@@ -172,6 +269,12 @@ pub fn matrix_to_ndarray_py(m: &PyAny) -> PyResult<PyObject> {
             MatrixVariant::Float32(m) => matrix_to_ndarray(m),
             MatrixVariant::Int64(m) => matrix_to_ndarray(m),
             MatrixVariant::Int32(m) => matrix_to_ndarray(m),
+            MatrixVariant::Int16(m) => matrix_to_ndarray(m),
+            MatrixVariant::Int8(m) => matrix_to_ndarray(m),
+            MatrixVariant::UnsignedInt64(m) => matrix_to_ndarray(m),
+            MatrixVariant::UnsignedInt32(m) => matrix_to_ndarray(m),
+            MatrixVariant::UnsignedInt16(m) => matrix_to_ndarray(m),
+            MatrixVariant::UnsignedInt8(m) => matrix_to_ndarray(m),
         };
         return Ok(m);
     }
