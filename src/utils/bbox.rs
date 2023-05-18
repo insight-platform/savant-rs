@@ -1,5 +1,5 @@
 use crate::primitives::{BBox, RBBox};
-use crate::utils::numpy_utils::{ConvF64, ElementType, RConvF64};
+use crate::utils::np::{ConvF64, ElementType, RConvF64};
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;

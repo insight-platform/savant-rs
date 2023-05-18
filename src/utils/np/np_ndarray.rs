@@ -1,4 +1,4 @@
-use crate::utils::numpy_utils::ElementType;
+use crate::utils::np::ElementType;
 use ndarray::{ArrayBase, IxDyn, OwnedRepr};
 use numpy::{PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;

@@ -1,4 +1,4 @@
-use crate::utils::numpy_utils::ElementType;
+use crate::utils::np::ElementType;
 use nalgebra::DMatrix;
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};

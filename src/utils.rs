@@ -1,7 +1,7 @@
 pub mod bbox;
 pub mod conversions;
 pub mod fps_meter;
-pub mod numpy_utils;
+pub mod np;
 pub mod symbol_mapper;
 
 use pyo3::prelude::*;
@@ -9,8 +9,8 @@ use pyo3::prelude::*;
 use crate::primitives::message::loader::load_message_py;
 use crate::primitives::message::saver::save_message_py;
 use crate::test::utils::gen_frame;
-use crate::utils::numpy_utils::np_nalgebra;
-use crate::utils::numpy_utils::np_ndarray;
+use crate::utils::np::np_nalgebra;
+use crate::utils::np::np_ndarray;
 use crate::utils::symbol_mapper::RegistrationPolicy;
 use crate::utils::symbol_mapper::SymbolMapper;
 use crate::utils::symbol_mapper::{
