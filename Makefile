@@ -1,4 +1,8 @@
-dev: clean tests build install
+dev: clean clippy tests build install
+
+clippy:
+	@echo "Running clippy..."
+	cargo clippy
 
 build:
 	@echo "Building..."
