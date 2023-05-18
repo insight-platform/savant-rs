@@ -1,5 +1,7 @@
 pub mod utils {
-    use crate::primitives::message::video::frame::InnerVideoFrameBuilder;
+    use crate::primitives::message::video::frame::{
+        InnerVideoFrameBuilder, VideoTranscodingMethod,
+    };
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{
         AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, Value,
@@ -22,6 +24,7 @@ pub mod utils {
                 .dts(None)
                 .transformations(Vec::default())
                 .duration(None)
+                .transcoding_method(VideoTranscodingMethod::Copy)
                 .codec(None)
                 .keyframe(None)
                 .attributes(HashMap::default())

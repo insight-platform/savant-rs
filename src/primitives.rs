@@ -18,6 +18,7 @@ pub use message::saver::save_message;
 pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::PyVideoFrameContent;
 pub use message::video::frame::VideoFrame;
+pub use message::video::frame::VideoTranscodingMethod;
 pub use message::video::object::Modification;
 pub use message::video::object::Object;
 pub use message::video::object::ParentObject;
@@ -47,6 +48,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;
     m.add_class::<Message>()?;
+    m.add_class::<VideoTranscodingMethod>()?;
     m.add_class::<PyVideoFrameContent>()?;
     m.add_class::<PyFrameTransformation>()?;
     m.add_class::<Modification>()?;

@@ -157,13 +157,27 @@ impl PyVideoFrameContent {
     }
 }
 
+#[pyclass]
+#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[archive(check_bytes)]
+pub enum VideoTranscodingMethod {
+    Copy,
+    Encoded,
+}
+
+impl ToSerdeJsonValue for VideoTranscodingMethod {
+    fn to_serde_json_value(&self) -> Value {
+        serde_json::json!(format!("{:?}", self))
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub enum FrameTransformation {
     InitialSize(u64, u64),
     Scale(u64, u64),
     Padding(u64, u64, u64, u64),
-    None,
+    ResultingSize(u64, u64),
 }
 
 impl ToSerdeJsonValue for FrameTransformation {
@@ -178,7 +192,9 @@ impl ToSerdeJsonValue for FrameTransformation {
             FrameTransformation::Padding(left, top, right, bottom) => {
                 serde_json::json!({"padding": [left, top, right, bottom]})
             }
-            FrameTransformation::None => serde_json::json!(null),
+            FrameTransformation::ResultingSize(width, height) => {
+                serde_json::json!({"resulting_size": [width, height]})
+            }
         }
     }
 }
@@ -220,6 +236,17 @@ impl PyFrameTransformation {
     }
 
     #[staticmethod]
+    pub fn resulting_size(width: i64, height: i64) -> Self {
+        assert!(width > 0 && height > 0);
+        Self {
+            inner: FrameTransformation::ResultingSize(
+                u64::try_from(width).unwrap(),
+                u64::try_from(height).unwrap(),
+            ),
+        }
+    }
+
+    #[staticmethod]
     pub fn scale(width: i64, height: i64) -> Self {
         assert!(width > 0 && height > 0);
         Self {
@@ -243,13 +270,6 @@ impl PyFrameTransformation {
         }
     }
 
-    #[staticmethod]
-    pub fn none() -> Self {
-        Self {
-            inner: FrameTransformation::None,
-        }
-    }
-
     #[getter]
     pub fn is_initial_size(&self) -> bool {
         matches!(self.inner, FrameTransformation::InitialSize(_, _))
@@ -266,14 +286,22 @@ impl PyFrameTransformation {
     }
 
     #[getter]
-    pub fn is_none(&self) -> bool {
-        matches!(self.inner, FrameTransformation::None)
+    pub fn is_resulting_size(&self) -> bool {
+        matches!(self.inner, FrameTransformation::ResultingSize(_, _))
     }
 
     #[getter]
     pub fn as_initial_size(&self) -> Option<(u64, u64)> {
         match &self.inner {
             FrameTransformation::InitialSize(w, h) => Some((*w, *h)),
+            _ => None,
+        }
+    }
+
+    #[getter]
+    pub fn as_resulting_size(&self) -> Option<(u64, u64)> {
+        match &self.inner {
+            FrameTransformation::ResultingSize(w, h) => Some((*w, *h)),
             _ => None,
         }
     }
@@ -302,6 +330,7 @@ pub struct InnerVideoFrame {
     pub framerate: String,
     pub width: i64,
     pub height: i64,
+    pub transcoding_method: VideoTranscodingMethod,
     pub codec: Option<String>,
     pub keyframe: Option<bool>,
     pub pts: i64,
@@ -324,6 +353,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
                 "framerate": self.framerate,
                 "width": self.width,
                 "height": self.height,
+                "transcoding_method": self.transcoding_method.to_serde_json_value(),
                 "codec": self.codec,
                 "keyframe": self.keyframe,
                 "pts": self.pts,
@@ -408,7 +438,7 @@ impl VideoFrame {
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
-        signature = (source_id, framerate, width, height, content, codec=None, keyframe=None, pts=0, dts=None, duration=None)
+        signature = (source_id, framerate, width, height, content, transcoding_method=VideoTranscodingMethod::Copy, codec=None, keyframe=None, pts=0, dts=None, duration=None)
     )]
     pub fn new(
         source_id: String,
@@ -416,6 +446,7 @@ impl VideoFrame {
         width: i64,
         height: i64,
         content: PyVideoFrameContent,
+        transcoding_method: VideoTranscodingMethod,
         codec: Option<String>,
         keyframe: Option<bool>,
         pts: i64,
@@ -430,6 +461,7 @@ impl VideoFrame {
             height,
             dts,
             duration,
+            transcoding_method,
             codec,
             keyframe,
             transformations: vec![],
@@ -537,6 +569,18 @@ impl VideoFrame {
         );
         let mut frame = self.inner.lock().unwrap();
         frame.duration = duration;
+    }
+
+    #[getter]
+    pub fn get_transcoding_method(&self) -> VideoTranscodingMethod {
+        let frame = self.inner.lock().unwrap();
+        frame.transcoding_method.clone()
+    }
+
+    #[setter]
+    pub fn set_transcoding_method(&mut self, transcoding_method: VideoTranscodingMethod) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.transcoding_method = transcoding_method;
     }
 
     #[getter]

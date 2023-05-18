@@ -262,3 +262,14 @@ pub fn matrix_to_np_py(m: &PyAny) -> PyResult<PyObject> {
         "Expected ndarray of type f32/64, i8/16/32/64, or u8/16/32/64",
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_cast() {
+        let m = nalgebra::DMatrix::<i8>::from_row_slice(2, 2, &[1, 2, 3, 4]);
+        let _n = m.clone().cast::<f64>();
+        let _n = m.clone().cast::<f32>();
+        let _n = m.cast::<i64>();
+    }
+}
