@@ -1,4 +1,4 @@
-use crate::utils::{ConvF64, RConvF64};
+use crate::utils::numpy_utils::{ConvF64, RConvF64};
 
 impl ConvF64 for f32 {
     fn conv_f64(self) -> f64 {

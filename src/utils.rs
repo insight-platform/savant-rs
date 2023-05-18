@@ -9,6 +9,8 @@ use pyo3::prelude::*;
 use crate::primitives::message::loader::load_message_py;
 use crate::primitives::message::saver::save_message_py;
 use crate::test::utils::gen_frame;
+use crate::utils::numpy_utils::np_nalgebra;
+use crate::utils::numpy_utils::np_ndarray;
 use crate::utils::symbol_mapper::RegistrationPolicy;
 use crate::utils::symbol_mapper::SymbolMapper;
 use crate::utils::symbol_mapper::{
@@ -19,7 +21,8 @@ use crate::utils::symbol_mapper::{
 
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
-pub use numpy_utils::*;
+pub use np_nalgebra::*;
+pub use np_ndarray::*;
 
 #[pyfunction]
 #[inline]
@@ -43,8 +46,10 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ndarray_to_rotated_bboxes_py, m)?)?;
 
     // numpy utils
-    m.add_function(wrap_pyfunction!(ndarray_to_matrix_py, m)?)?;
-    m.add_function(wrap_pyfunction!(matrix_to_ndarray_py, m)?)?;
+    m.add_function(wrap_pyfunction!(np_to_matrix_py, m)?)?;
+    m.add_function(wrap_pyfunction!(matrix_to_np_py, m)?)?;
+    m.add_function(wrap_pyfunction!(np_to_ndarray_py, m)?)?;
+    m.add_function(wrap_pyfunction!(ndarray_to_np_py, m)?)?;
 
     // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key, m)?)?;
@@ -66,7 +71,8 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SymbolMapper>()?;
     m.add_class::<RegistrationPolicy>()?;
     m.add_class::<BBoxFormat>()?;
-    m.add_class::<Matrix>()?;
+    m.add_class::<NalgebraDMatrix>()?;
+    m.add_class::<NDarray>()?;
 
     Ok(())
 }
