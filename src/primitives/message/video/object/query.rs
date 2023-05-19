@@ -1,11 +1,12 @@
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::{ParentObject, RBBox};
+use serde::{Deserialize, Serialize};
 
 pub trait ExecutableQuery<T> {
     fn execute(&self, o: T) -> bool;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FloatQ {
     EQ(f64),
     NE(f64),
@@ -40,7 +41,7 @@ impl ExecutableQuery<f64> for FloatQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IntQ {
     EQ(i64),
     NE(i64),
@@ -75,7 +76,7 @@ impl ExecutableQuery<i64> for IntQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StringQ {
     EQ(String),
     NE(String),
@@ -108,7 +109,7 @@ impl ExecutableQuery<&String> for StringQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OptFloatQ {
     Defined,
     NotDefined,
@@ -141,7 +142,7 @@ impl ExecutableQuery<Option<f64>> for OptFloatQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OptIntQ {
     Defined,
     NotDefined,
@@ -174,7 +175,7 @@ impl ExecutableQuery<Option<i64>> for OptIntQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OptStringQ {
     Defined,
     NotDefined,
@@ -207,7 +208,7 @@ impl ExecutableQuery<&Option<String>> for OptStringQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BoxQ {
     Width(FloatQ),
     Height(FloatQ),
@@ -238,7 +239,7 @@ impl ExecutableQuery<&RBBox> for BoxQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PropertiesQ {
     Id(IntQ),
     Creator(StringQ),
@@ -283,7 +284,7 @@ impl ExecutableQuery<&Option<ParentObject>> for PropertiesQ {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Q {
     Object(PropertiesQ),
     ParentObject(PropertiesQ),
@@ -325,11 +326,11 @@ mod tests {
 
         let f = gen_frame();
         let objs = f.access_objects(false, None, None);
-        dbg!(&objs);
-        let res = objs
+        let _res = objs
             .iter()
             .map(|o| expr.execute(&o.inner.lock().unwrap()))
             .collect::<Vec<_>>();
-        dbg!(&res);
+        let json = serde_json::to_string(&expr).unwrap();
+        let _q: Q = serde_json::from_str(&json).unwrap();
     }
 }
