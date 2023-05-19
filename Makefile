@@ -19,3 +19,7 @@ clean:
 tests:
 	@echo "Running tests..."
 	cargo test --no-default-features  -- --nocapture
+
+bench:
+	@echo "Running benchmarks..."
+	cargo bench --no-default-features -- --nocapture

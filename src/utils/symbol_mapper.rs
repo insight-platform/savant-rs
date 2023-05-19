@@ -34,7 +34,8 @@ pub enum Errors {
 }
 
 #[pyfunction]
-pub fn get_model_id(model_name: String) -> PyResult<i64> {
+#[pyo3(name = "get_model_id")]
+pub fn get_model_id_py(model_name: String) -> PyResult<i64> {
     Python::with_gil(|py| {
         py.allow_threads(|| {
             let mut mapper = SYMBOL_MAPPER.lock().unwrap();
@@ -45,8 +46,14 @@ pub fn get_model_id(model_name: String) -> PyResult<i64> {
     })
 }
 
+pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
+    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+    mapper.get_model_id(model_name)
+}
+
 #[pyfunction]
-pub fn get_object_id(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
+#[pyo3(name = "get_object_id")]
+pub fn get_object_id_py(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
     Python::with_gil(|py| {
         py.allow_threads(|| {
             let mut mapper = SYMBOL_MAPPER.lock().unwrap();
@@ -55,6 +62,11 @@ pub fn get_object_id(model_name: String, object_label: String) -> PyResult<(i64,
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     })
+}
+
+pub fn get_object_id(model_name: &String, object_label: &String) -> anyhow::Result<(i64, i64)> {
+    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+    mapper.get_object_id(model_name, object_label)
 }
 
 #[pyfunction]
@@ -460,7 +472,7 @@ mod tests {
     use super::SymbolMapper;
     use crate::test::utils::s;
     use crate::utils::symbol_mapper::{
-        clear_symbol_maps, get_model_id, get_model_name, get_object_id, get_object_label,
+        clear_symbol_maps, get_model_id_py, get_model_name, get_object_id_py, get_object_label,
         register_model_objects, RegistrationPolicy,
     };
     use serial_test::serial;
@@ -598,7 +610,10 @@ mod tests {
             Ok(0)
         ));
 
-        assert!(matches!(get_object_id(s("model"), s("object")), Ok((0, 2))));
+        assert!(matches!(
+            get_object_id_py(s("model"), s("object")),
+            Ok((0, 2))
+        ));
 
         let label = get_object_label(0, 2).unwrap();
         assert_eq!(label, s("object"));
@@ -630,7 +645,7 @@ mod tests {
     #[serial]
     fn test_get_model_id() {
         clear_symbol_maps();
-        let model_id = get_model_id(s("model")).unwrap();
+        let model_id = get_model_id_py(s("model")).unwrap();
         assert_eq!(model_id, 0);
     }
 
@@ -638,7 +653,7 @@ mod tests {
     #[serial]
     fn test_get_model_name() {
         clear_symbol_maps();
-        let model_id = get_model_id(s("model")).unwrap();
+        let model_id = get_model_id_py(s("model")).unwrap();
         assert_eq!(model_id, 0);
 
         let model_name = get_model_name(model_id).unwrap();
@@ -652,7 +667,7 @@ mod tests {
     #[serial]
     fn test_get_object_label() {
         clear_symbol_maps();
-        let (model_id, object_id) = get_object_id(s("model"), s("object")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model"), s("object")).unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 0);
 
@@ -667,15 +682,15 @@ mod tests {
     #[serial]
     fn get_model_object_ids() {
         clear_symbol_maps();
-        let (model_id, object_id) = get_object_id(s("model"), s("object0")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model"), s("object0")).unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 0);
 
-        let (model_id, object_id) = get_object_id(s("model"), s("object1")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model"), s("object1")).unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 1);
 
-        let (model_id, object_id) = get_object_id(s("model2"), s("object0")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model2"), s("object0")).unwrap();
         assert_eq!(model_id, 1);
         assert_eq!(object_id, 0);
     }
@@ -690,11 +705,11 @@ mod tests {
             RegistrationPolicy::Override,
         )?;
 
-        let (model_id, object_id) = get_object_id(s("model"), s("object0")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model"), s("object0")).unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 2);
 
-        let (model_id, object_id) = get_object_id(s("model"), s("object1")).unwrap();
+        let (model_id, object_id) = get_object_id_py(s("model"), s("object1")).unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 3);
 

@@ -1,10 +1,13 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox};
+use crate::utils::symbol_mapper::get_object_id;
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+pub mod query;
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -73,12 +76,41 @@ pub struct InnerObject {
     pub creator: String,
     pub label: String,
     pub bbox: RBBox,
+    #[builder(default)]
     pub attributes: HashMap<(String, String), Attribute>,
+    #[builder(default)]
     pub confidence: Option<f64>,
+    #[builder(default)]
     pub parent: Option<ParentObject>,
+    #[builder(default)]
     pub track_id: Option<i64>,
     #[with(Skip)]
+    #[builder(default)]
     pub modifications: Vec<Modification>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub creator_id: Option<i64>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub label_id: Option<i64>,
+}
+
+impl Default for InnerObject {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            creator: "".to_string(),
+            label: "".to_string(),
+            bbox: RBBox::default(),
+            attributes: HashMap::new(),
+            confidence: None,
+            parent: None,
+            track_id: None,
+            modifications: Vec::new(),
+            creator_id: None,
+            label_id: None,
+        }
+    }
 }
 
 impl ToSerdeJsonValue for InnerObject {
@@ -163,6 +195,9 @@ impl Object {
         parent: Option<ParentObject>,
         track_id: Option<i64>,
     ) -> Self {
+        let (creator_id, label_id) =
+            get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
+
         let object = InnerObject {
             id,
             creator,
@@ -173,6 +208,8 @@ impl Object {
             parent,
             track_id,
             modifications: Vec::default(),
+            creator_id,
+            label_id,
         };
         Self {
             inner: Arc::new(Mutex::new(object)),

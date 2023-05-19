@@ -20,6 +20,18 @@ pub struct RBBox {
     pub angle: Option<f64>,
 }
 
+impl Default for RBBox {
+    fn default() -> Self {
+        Self {
+            xc: 0.0,
+            yc: 0.0,
+            width: 0.0,
+            height: 0.0,
+            angle: None,
+        }
+    }
+}
+
 impl ToSerdeJsonValue for RBBox {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
