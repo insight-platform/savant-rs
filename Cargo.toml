@@ -17,6 +17,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 serde_json = "1.0"
+serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 itertools = "0.10"
 anyhow = "1.0"

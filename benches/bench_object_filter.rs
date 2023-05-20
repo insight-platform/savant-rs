@@ -5,7 +5,6 @@ extern crate test;
 use savant_rs::primitives::message::video::object::query::*;
 use savant_rs::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
 use savant_rs::primitives::RBBox;
-use savant_rs::{and, or};
 use test::Bencher;
 
 fn get_objects() -> Vec<InnerObject> {
@@ -49,7 +48,7 @@ fn bench_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_empty_filtering(b: &mut Bencher) {
-    let expr = Query::Pass;
+    let expr = Query::Idle;
     let objs = get_objects();
     b.iter(|| {
         let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
