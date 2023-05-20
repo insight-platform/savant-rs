@@ -1,328 +1,432 @@
 use crate::primitives::message::video::object::InnerObject;
-use crate::primitives::{ParentObject, RBBox};
 use serde::{Deserialize, Serialize};
 
 pub trait ExecutableQuery<T> {
     fn execute(&self, o: T) -> bool;
 }
 
+pub trait EqOps<T: Clone, R> {
+    fn eq(v: T) -> R;
+    fn ne(v: T) -> R;
+    fn one_of(v: &[T]) -> R;
+}
+
+pub fn eq<T: Clone, F>(v: T) -> F
+where
+    F: EqOps<T, F>,
+{
+    F::eq(v)
+}
+
+pub fn ne<T: Clone, F>(v: T) -> F
+where
+    F: EqOps<T, F>,
+{
+    F::ne(v)
+}
+
+pub fn one_of<T: Clone, F>(v: &[T]) -> F
+where
+    F: EqOps<T, F>,
+{
+    F::one_of(v)
+}
+
+pub trait NumberOps<T, R> {
+    fn gt(v: T) -> R;
+    fn ge(v: T) -> R;
+    fn lt(v: T) -> R;
+    fn le(v: T) -> R;
+    fn between(a: T, b: T) -> R;
+}
+
+pub fn gt<T, F>(v: T) -> F
+where
+    F: NumberOps<T, F>,
+{
+    F::gt(v)
+}
+
+pub fn ge<T, F>(v: T) -> F
+where
+    F: NumberOps<T, F>,
+{
+    F::ge(v)
+}
+
+pub fn lt<T, F>(v: T) -> F
+where
+    F: NumberOps<T, F>,
+{
+    F::lt(v)
+}
+
+pub fn le<T, F>(v: T) -> F
+where
+    F: NumberOps<T, F>,
+{
+    F::le(v)
+}
+
+pub fn between<T, F>(a: T, b: T) -> F
+where
+    F: NumberOps<T, F>,
+{
+    F::between(a, b)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FloatQ {
+#[serde(rename = "float")]
+pub enum Float {
+    #[serde(rename = "eq")]
     EQ(f64),
+    #[serde(rename = "ne")]
     NE(f64),
+    #[serde(rename = "lt")]
     LT(f64),
+    #[serde(rename = "le")]
     LE(f64),
+    #[serde(rename = "gt")]
     GT(f64),
+    #[serde(rename = "ge")]
     GE(f64),
+    #[serde(rename = "between")]
     Between(f64, f64),
+    #[serde(rename = "one_of")]
     OneOf(Vec<f64>),
-    And(Vec<FloatQ>),
-    Or(Vec<FloatQ>),
-    Not(Box<FloatQ>),
-    Pass,
 }
 
-impl ExecutableQuery<f64> for FloatQ {
-    fn execute(&self, o: f64) -> bool {
+impl NumberOps<f64, Float> for Float {
+    fn gt(v: f64) -> Float {
+        Float::GT(v)
+    }
+
+    fn ge(v: f64) -> Float {
+        Float::GE(v)
+    }
+
+    fn lt(v: f64) -> Float {
+        Float::LT(v)
+    }
+
+    fn le(v: f64) -> Float {
+        Float::LE(v)
+    }
+
+    fn between(a: f64, b: f64) -> Float {
+        Float::Between(a, b)
+    }
+}
+
+impl EqOps<f64, Float> for Float {
+    fn eq(v: f64) -> Float {
+        Float::EQ(v)
+    }
+
+    fn ne(v: f64) -> Float {
+        Float::NE(v)
+    }
+
+    fn one_of(v: &[f64]) -> Float {
+        Float::OneOf(v.to_vec())
+    }
+}
+
+impl ExecutableQuery<&f64> for Float {
+    fn execute(&self, o: &f64) -> bool {
         match self {
-            FloatQ::EQ(x) => *x == o,
-            FloatQ::NE(x) => *x != o,
-            FloatQ::LT(x) => *x < o,
-            FloatQ::LE(x) => *x <= o,
-            FloatQ::GT(x) => *x > o,
-            FloatQ::GE(x) => *x >= o,
-            FloatQ::Between(a, b) => *a <= o && o <= *b,
-            FloatQ::OneOf(v) => v.contains(&o),
-            FloatQ::And(v) => v.iter().all(|x| x.execute(o)),
-            FloatQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            FloatQ::Not(x) => !x.execute(o),
-            FloatQ::Pass => true,
+            Float::EQ(x) => x == o,
+            Float::NE(x) => x != o,
+            Float::LT(x) => x < o,
+            Float::LE(x) => x <= o,
+            Float::GT(x) => x > o,
+            Float::GE(x) => x >= o,
+            Float::Between(a, b) => a <= o && o <= b,
+            Float::OneOf(v) => v.contains(o),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum IntQ {
+#[serde(rename = "int")]
+pub enum Int {
+    #[serde(rename = "eq")]
     EQ(i64),
+    #[serde(rename = "ne")]
     NE(i64),
+    #[serde(rename = "lt")]
     LT(i64),
+    #[serde(rename = "le")]
     LE(i64),
+    #[serde(rename = "gt")]
     GT(i64),
+    #[serde(rename = "ge")]
     GE(i64),
+    #[serde(rename = "between")]
     Between(i64, i64),
+    #[serde(rename = "one_of")]
     OneOf(Vec<i64>),
-    And(Vec<IntQ>),
-    Or(Vec<IntQ>),
-    Not(Box<IntQ>),
-    Pass,
 }
 
-impl ExecutableQuery<i64> for IntQ {
-    fn execute(&self, o: i64) -> bool {
+impl NumberOps<i64, Int> for Int {
+    fn gt(v: i64) -> Int {
+        Int::GT(v)
+    }
+
+    fn ge(v: i64) -> Int {
+        Int::GE(v)
+    }
+
+    fn lt(v: i64) -> Int {
+        Int::LT(v)
+    }
+
+    fn le(v: i64) -> Int {
+        Int::LE(v)
+    }
+
+    fn between(a: i64, b: i64) -> Int {
+        Int::Between(a, b)
+    }
+}
+
+impl EqOps<i64, Int> for Int {
+    fn eq(v: i64) -> Int {
+        Int::EQ(v)
+    }
+
+    fn ne(v: i64) -> Int {
+        Int::NE(v)
+    }
+
+    fn one_of(v: &[i64]) -> Int {
+        Int::OneOf(v.to_vec())
+    }
+}
+
+impl ExecutableQuery<&i64> for Int {
+    fn execute(&self, o: &i64) -> bool {
         match self {
-            IntQ::EQ(x) => *x == o,
-            IntQ::NE(x) => *x != o,
-            IntQ::LT(x) => *x < o,
-            IntQ::LE(x) => *x <= o,
-            IntQ::GT(x) => *x > o,
-            IntQ::GE(x) => *x >= o,
-            IntQ::Between(a, b) => *a <= o && o <= *b,
-            IntQ::OneOf(v) => v.contains(&o),
-            IntQ::And(v) => v.iter().all(|x| x.execute(o)),
-            IntQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            IntQ::Not(x) => !x.execute(o),
-            IntQ::Pass => true,
+            Int::EQ(x) => x == o,
+            Int::NE(x) => x != o,
+            Int::LT(x) => x < o,
+            Int::LE(x) => x <= o,
+            Int::GT(x) => x > o,
+            Int::GE(x) => x >= o,
+            Int::Between(a, b) => a <= o && o <= b,
+            Int::OneOf(v) => v.contains(o),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum StringQ {
+#[serde(rename = "str")]
+pub enum Str {
+    #[serde(rename = "eq")]
     EQ(String),
+    #[serde(rename = "ne")]
     NE(String),
+    #[serde(rename = "contains")]
     Contains(String),
+    #[serde(rename = "not_contains")]
     NotContains(String),
+    #[serde(rename = "starts_with")]
     StartsWith(String),
+    #[serde(rename = "ends_with")]
     EndsWith(String),
+    #[serde(rename = "one_of")]
     OneOf(Vec<String>),
-    And(Vec<StringQ>),
-    Or(Vec<StringQ>),
-    Not(Box<StringQ>),
-    Pass,
 }
 
-impl ExecutableQuery<&String> for StringQ {
+impl ExecutableQuery<&String> for Str {
     fn execute(&self, o: &String) -> bool {
         match self {
-            StringQ::EQ(x) => x == o,
-            StringQ::NE(x) => x != o,
-            StringQ::Contains(x) => o.contains(x),
-            StringQ::NotContains(x) => !o.contains(x),
-            StringQ::StartsWith(x) => o.starts_with(x),
-            StringQ::EndsWith(x) => o.ends_with(x),
-            StringQ::OneOf(v) => v.contains(o),
-            StringQ::And(v) => v.iter().all(|x| x.execute(o)),
-            StringQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            StringQ::Not(x) => !x.execute(o),
-            StringQ::Pass => true,
+            Str::EQ(x) => x == o,
+            Str::NE(x) => x != o,
+            Str::Contains(x) => o.contains(x),
+            Str::NotContains(x) => !o.contains(x),
+            Str::StartsWith(x) => o.starts_with(x),
+            Str::EndsWith(x) => o.ends_with(x),
+            Str::OneOf(v) => v.contains(o),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OptFloatQ {
-    Defined,
-    NotDefined,
-    IfDefinedThen(FloatQ),
-    DefinedAnd(FloatQ),
-    And(Vec<OptFloatQ>),
-    Or(Vec<OptFloatQ>),
-    Not(Box<OptFloatQ>),
-    Pass,
-}
+impl EqOps<&str, Str> for Str {
+    fn eq(v: &str) -> Str {
+        Str::EQ(v.to_string())
+    }
 
-impl ExecutableQuery<Option<f64>> for OptFloatQ {
-    fn execute(&self, o: Option<f64>) -> bool {
-        match self {
-            OptFloatQ::Defined => o.is_some(),
-            OptFloatQ::NotDefined => o.is_none(),
-            OptFloatQ::IfDefinedThen(x) => match o {
-                Some(o) => x.execute(o),
-                None => true,
-            },
-            OptFloatQ::DefinedAnd(x) => match o {
-                Some(o) => x.execute(o),
-                None => false,
-            },
-            OptFloatQ::And(v) => v.iter().all(|x| x.execute(o)),
-            OptFloatQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            OptFloatQ::Not(x) => !x.execute(o),
-            OptFloatQ::Pass => true,
-        }
+    fn ne(v: &str) -> Str {
+        Str::NE(v.to_string())
+    }
+
+    fn one_of(v: &[&str]) -> Str {
+        Str::OneOf(v.iter().map(|x| x.to_string()).collect())
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OptIntQ {
-    Defined,
-    NotDefined,
-    IfDefinedThen(IntQ),
-    DefinedAnd(IntQ),
-    And(Vec<OptIntQ>),
-    Or(Vec<OptIntQ>),
-    Not(Box<OptIntQ>),
-    Pass,
-}
+impl EqOps<String, Str> for Str {
+    fn eq(v: String) -> Str {
+        Str::EQ(v)
+    }
 
-impl ExecutableQuery<Option<i64>> for OptIntQ {
-    fn execute(&self, o: Option<i64>) -> bool {
-        match self {
-            OptIntQ::Defined => o.is_some(),
-            OptIntQ::NotDefined => o.is_none(),
-            OptIntQ::IfDefinedThen(x) => match o {
-                Some(o) => x.execute(o),
-                None => true,
-            },
-            OptIntQ::DefinedAnd(x) => match o {
-                Some(o) => x.execute(o),
-                None => false,
-            },
-            OptIntQ::And(v) => v.iter().all(|x| x.execute(o)),
-            OptIntQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            OptIntQ::Not(x) => !x.execute(o),
-            OptIntQ::Pass => true,
-        }
+    fn ne(v: String) -> Str {
+        Str::NE(v)
+    }
+
+    fn one_of(v: &[String]) -> Str {
+        Str::OneOf(v.to_vec())
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OptStringQ {
-    Defined,
-    NotDefined,
-    IfDefinedThen(StringQ),
-    DefinedAnd(StringQ),
-    And(Vec<OptStringQ>),
-    Or(Vec<OptStringQ>),
-    Not(Box<OptStringQ>),
-    Pass,
+pub fn contains<T>(v: T) -> Str
+where
+    T: Into<String>,
+{
+    Str::Contains(v.into())
 }
 
-impl ExecutableQuery<&Option<String>> for OptStringQ {
-    fn execute(&self, o: &Option<String>) -> bool {
-        match self {
-            OptStringQ::Defined => o.is_some(),
-            OptStringQ::NotDefined => o.is_none(),
-            OptStringQ::IfDefinedThen(x) => match o {
-                Some(o) => x.execute(o),
-                None => true,
-            },
-            OptStringQ::DefinedAnd(x) => match o {
-                Some(o) => x.execute(o),
-                None => false,
-            },
-            OptStringQ::And(v) => v.iter().all(|x| x.execute(o)),
-            OptStringQ::Or(v) => v.iter().any(|x| x.execute(o)),
-            OptStringQ::Not(x) => !x.execute(o),
-            OptStringQ::Pass => true,
-        }
-    }
+pub fn not_contains<T>(v: T) -> Str
+where
+    T: Into<String>,
+{
+    Str::NotContains(v.into())
+}
+
+pub fn starts_with<T>(v: T) -> Str
+where
+    T: Into<String>,
+{
+    Str::StartsWith(v.into())
+}
+
+pub fn ends_with<T>(v: T) -> Str
+where
+    T: Into<String>,
+{
+    Str::EndsWith(v.into())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BoxQ {
-    Width(FloatQ),
-    Height(FloatQ),
-    XC(FloatQ),
-    YC(FloatQ),
-    Area(FloatQ),
-    Angle(OptFloatQ),
-    And(Vec<BoxQ>),
-    Or(Vec<BoxQ>),
-    Not(Box<BoxQ>),
+#[serde(rename = "query")]
+pub enum Query {
+    #[serde(rename = "object.id")]
+    Id(Int),
+    #[serde(rename = "creator")]
+    Creator(Str),
+    #[serde(rename = "label")]
+    Label(Str),
+    #[serde(rename = "confidence")]
+    Confidence(Float),
+    #[serde(rename = "track_id")]
+    TrackId(Int),
+    // parent
+    #[serde(rename = "parent.id")]
+    ParentId(Int),
+    #[serde(rename = "parent.creator")]
+    ParentCreator(Str),
+    #[serde(rename = "parent.label")]
+    ParentLabel(Str),
+    // bbox
+    #[serde(rename = "bbox.xc")]
+    BoxXCenter(Float),
+    #[serde(rename = "bbox.yc")]
+    BoxYCenter(Float),
+    #[serde(rename = "bbox.width")]
+    BoxWidth(Float),
+    #[serde(rename = "bbox.height")]
+    BoxHeight(Float),
+    #[serde(rename = "bbox.area")]
+    BoxArea(Float),
+    #[serde(rename = "bbox.angle")]
+    BoxAngle(Float),
+    #[serde(rename = "and")]
+    And(Vec<Query>),
+    #[serde(rename = "or")]
+    Or(Vec<Query>),
+    #[serde(rename = "not")]
+    Not(Box<Query>),
+    #[serde(rename = "pass")]
     Pass,
 }
 
-impl ExecutableQuery<&RBBox> for BoxQ {
-    fn execute(&self, o: &RBBox) -> bool {
-        match self {
-            BoxQ::Width(x) => x.execute(o.width),
-            BoxQ::Height(x) => x.execute(o.height),
-            BoxQ::XC(x) => x.execute(o.xc),
-            BoxQ::YC(x) => x.execute(o.yc),
-            BoxQ::Area(x) => x.execute(o.width * o.height),
-            BoxQ::Angle(x) => x.execute(o.angle),
-            BoxQ::And(v) => v.iter().all(|q| q.execute(o)),
-            BoxQ::Or(v) => v.iter().any(|q| q.execute(o)),
-            BoxQ::Not(q) => !q.execute(o),
-            BoxQ::Pass => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PropertiesQ {
-    Id(IntQ),
-    Creator(StringQ),
-    Label(StringQ),
-    Confidence(OptFloatQ),
-    Box(BoxQ),
-    TrackId(OptIntQ),
-    And(Vec<PropertiesQ>),
-    Or(Vec<PropertiesQ>),
-    Not(Box<PropertiesQ>),
-    Pass,
-}
-
-impl ExecutableQuery<&InnerObject> for PropertiesQ {
+impl ExecutableQuery<&InnerObject> for Query {
     fn execute(&self, o: &InnerObject) -> bool {
         match self {
-            PropertiesQ::Id(x) => x.execute(o.id),
-            PropertiesQ::Creator(x) => x.execute(&o.creator),
-            PropertiesQ::Label(x) => x.execute(&o.label),
-            PropertiesQ::Confidence(x) => x.execute(o.confidence),
-            PropertiesQ::Box(x) => x.execute(&o.bbox),
-            PropertiesQ::TrackId(x) => x.execute(o.track_id),
-            PropertiesQ::And(v) => v.iter().all(|q| q.execute(o)),
-            PropertiesQ::Or(v) => v.iter().any(|q| q.execute(o)),
-            PropertiesQ::Not(q) => !q.execute(o),
-            PropertiesQ::Pass => true,
+            // self
+            Query::Id(x) => x.execute(&o.id),
+            Query::Creator(x) => x.execute(&o.creator),
+            Query::Label(x) => x.execute(&o.label),
+            Query::Confidence(x) => o.confidence.is_some() && x.execute(&o.confidence.unwrap()),
+            Query::TrackId(x) => o.track_id.is_some() && x.execute(&o.track_id.unwrap()),
+            // parent
+            Query::ParentId(x) => {
+                o.parent.is_some() && x.execute(&o.parent.as_ref().map(|x| x.id).unwrap())
+            }
+            Query::ParentCreator(x) => {
+                o.parent.is_some() && x.execute(&o.parent.as_ref().map(|x| &x.creator).unwrap())
+            }
+            Query::ParentLabel(x) => {
+                o.parent.is_some() && x.execute(&o.parent.as_ref().map(|x| &x.label).unwrap())
+            }
+            // boxes
+            Query::BoxWidth(x) => x.execute(&o.bbox.width),
+            Query::BoxHeight(x) => x.execute(&o.bbox.height),
+            Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
+            Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
+            Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
+            Query::BoxAngle(x) => o.bbox.angle.is_some() && x.execute(&o.bbox.angle.unwrap()),
+            Query::And(v) => v.iter().all(|x| x.execute(o)),
+            Query::Or(v) => v.iter().any(|x| x.execute(o)),
+            Query::Not(x) => !x.execute(o),
+            Query::Pass => true,
         }
     }
 }
 
-impl ExecutableQuery<&Option<ParentObject>> for PropertiesQ {
-    fn execute(&self, o: &Option<ParentObject>) -> bool {
-        match o {
-            Some(o) => match self {
-                PropertiesQ::Id(x) => x.execute(o.id),
-                PropertiesQ::Creator(x) => x.execute(&o.creator),
-                PropertiesQ::Label(x) => x.execute(&o.label),
-                _ => panic!("Not implemented"),
-            },
-            None => false,
-        }
-    }
+#[macro_export]
+macro_rules! not {
+    ($arg:expr) => {{
+        Query::Not(Box::new($arg))
+    }};
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Q {
-    Object(PropertiesQ),
-    ParentObject(PropertiesQ),
-    And(Vec<Q>),
-    Or(Vec<Q>),
-    Not(Box<Q>),
-    Pass,
+#[macro_export]
+macro_rules! or {
+    ($($args:expr),* $(,)?) => {{
+        let mut v: Vec<Query> = Vec::new();
+        $(
+            v.push($args);
+        )*
+        Query::Or(v)
+    }}
 }
 
-impl ExecutableQuery<&InnerObject> for Q {
-    fn execute(&self, o: &InnerObject) -> bool {
-        match self {
-            Q::Object(p) => p.execute(o),
-            Q::ParentObject(p) => p.execute(&o.parent),
-            Q::And(v) => v.iter().all(|x| x.execute(o)),
-            Q::Or(v) => v.iter().any(|x| x.execute(o)),
-            Q::Not(x) => !x.execute(o),
-            Q::Pass => true,
-        }
-    }
+#[macro_export]
+macro_rules! and {
+    ($($args:expr),* $(,)?) => {{
+        let mut v: Vec<Query> = Vec::new();
+        $(
+            v.push($args);
+        )*
+        Query::And(v)
+    }}
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ExecutableQuery, FloatQ, OptFloatQ, PropertiesQ, StringQ, Q};
+    use super::{ExecutableQuery, Query, Query::*};
+    use crate::primitives::message::video::object::query::{eq, gt, one_of};
     use crate::test::utils::gen_frame;
 
     #[test]
     fn query() {
-        let expr = Q::And(vec![
-            Q::Object(PropertiesQ::Creator(StringQ::Or(vec![
-                StringQ::EQ("test2".to_string()),
-                StringQ::EQ("test".to_string()),
-            ]))),
-            Q::Object(PropertiesQ::Confidence(OptFloatQ::DefinedAnd(FloatQ::GE(
-                0.5,
-            )))),
-        ]);
+        let expr = and![
+            Id(eq(1)),
+            Creator(one_of(&["test", "test2"])),
+            Confidence(gt(0.5))
+        ];
 
         let f = gen_frame();
         let objs = f.access_objects(false, None, None);
@@ -331,6 +435,7 @@ mod tests {
             .map(|o| expr.execute(&o.inner.lock().unwrap()))
             .collect::<Vec<_>>();
         let json = serde_json::to_string(&expr).unwrap();
-        let _q: Q = serde_json::from_str(&json).unwrap();
+        print!("{}", &json);
+        let _q: super::Query = serde_json::from_str(&json).unwrap();
     }
 }

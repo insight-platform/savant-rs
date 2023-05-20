@@ -2,11 +2,10 @@
 
 extern crate test;
 
-use savant_rs::primitives::message::video::object::query::{
-    ExecutableQuery, FloatQ, OptFloatQ, PropertiesQ, StringQ, Q,
-};
+use savant_rs::primitives::message::video::object::query::*;
 use savant_rs::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
 use savant_rs::primitives::RBBox;
+use savant_rs::{and, or};
 use test::Bencher;
 
 fn get_objects() -> Vec<InnerObject> {
@@ -28,23 +27,19 @@ fn get_objects() -> Vec<InnerObject> {
 
 #[bench]
 fn bench_filtering(b: &mut Bencher) {
-    let expr = Q::And(vec![
-        Q::Object(PropertiesQ::Or(vec![
-            PropertiesQ::Creator(StringQ::Or(vec![
-                StringQ::EndsWith("2".to_string()),
-                StringQ::EndsWith("4".to_string()),
-            ])),
-            PropertiesQ::Label(StringQ::Or(vec![
-                StringQ::EndsWith("2".to_string()),
-                StringQ::EndsWith("4".to_string()),
-                StringQ::EndsWith("6".to_string()),
-            ])),
-        ])),
-        Q::Object(PropertiesQ::And(vec![
-            PropertiesQ::Confidence(OptFloatQ::DefinedAnd(FloatQ::GE(0.5))),
-            PropertiesQ::Confidence(OptFloatQ::DefinedAnd(FloatQ::LE(0.8))),
-        ])),
-    ]);
+    use Query::*;
+
+    let expr = and![
+        or![
+            Creator(one_of(&["created_by_2", "created_by_4"])),
+            or![
+                Label(ends_with("2")),
+                Label(ends_with("4")),
+                Label(ends_with("6")),
+            ]
+        ],
+        or![Confidence(ge(0.6)), Confidence(le(0.4)),]
+    ];
 
     let objs = get_objects();
     b.iter(|| {
@@ -54,7 +49,7 @@ fn bench_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_empty_filtering(b: &mut Bencher) {
-    let expr = Q::Pass;
+    let expr = Query::Pass;
     let objs = get_objects();
     b.iter(|| {
         let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
@@ -63,10 +58,11 @@ fn bench_empty_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_simple_filtering(b: &mut Bencher) {
-    let expr = Q::Object(PropertiesQ::Creator(StringQ::Or(vec![
-        StringQ::EQ("created_by_20".to_string()),
-        StringQ::EndsWith("created_by_10".to_string()),
-    ])));
+    use Query::*;
+    let expr = or![
+        Creator(eq("created_by_20")),
+        Creator(ends_with("created_by_10")),
+    ];
 
     let objs = get_objects();
     b.iter(|| {
