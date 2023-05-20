@@ -152,6 +152,14 @@ pub enum Query {
     BoxArea(FloatExpression),
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
+    // Attributes
+    #[serde(rename = "attributes.with_creator")]
+    AttributesWithCreator(StringExpression),
+    #[serde(rename = "attributes.with_label")]
+    AttributesWithLabel(StringExpression),
+    #[serde(rename = "attributes.with_hint")]
+    AttributesWithHint(StringExpression),
+    // combinators
     #[serde(rename = "and")]
     And(Vec<Query>),
     #[serde(rename = "or")]
@@ -169,28 +177,42 @@ impl ExecutableQuery<&InnerObject> for Query {
             Query::Id(x) => x.execute(&o.id),
             Query::Creator(x) => x.execute(&o.creator),
             Query::Label(x) => x.execute(&o.label),
-            Query::Confidence(x) => o.confidence.is_some() && x.execute(&o.confidence.unwrap()),
-            Query::TrackId(x) => o.track_id.is_some() && x.execute(&o.track_id.unwrap()),
+            Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
+            Query::TrackId(x) => o.track_id.map(|t| x.execute(&t)).unwrap_or(false),
             // parent
-            Query::ParentId(x) => {
-                o.parent.is_some() && x.execute(o.parent.as_ref().map(|x| &x.id).unwrap())
-            }
-            Query::ParentCreator(x) => {
-                o.parent.is_some() && x.execute(o.parent.as_ref().map(|x| &x.creator).unwrap())
-            }
-            Query::ParentLabel(x) => {
-                o.parent.is_some() && x.execute(o.parent.as_ref().map(|x| &x.label).unwrap())
-            }
+            Query::ParentId(x) => o.parent.as_ref().map(|p| x.execute(&p.id)).unwrap_or(false),
+            Query::ParentCreator(x) => o
+                .parent
+                .as_ref()
+                .map(|p| x.execute(&p.creator))
+                .unwrap_or(false),
+            Query::ParentLabel(x) => o
+                .parent
+                .as_ref()
+                .map(|p| x.execute(&p.label))
+                .unwrap_or(false),
             // boxes
             Query::BoxWidth(x) => x.execute(&o.bbox.width),
             Query::BoxHeight(x) => x.execute(&o.bbox.height),
             Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
             Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
             Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
-            Query::BoxAngle(x) => o.bbox.angle.is_some() && x.execute(&o.bbox.angle.unwrap()),
+            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
             Query::Not(x) => !x.execute(o),
+            Query::AttributesWithCreator(x) => o
+                .attributes
+                .keys()
+                .any(|(creator, _label)| x.execute(creator)),
+            Query::AttributesWithLabel(x) => o
+                .attributes
+                .keys()
+                .any(|(_creator, label)| x.execute(label)),
+            Query::AttributesWithHint(x) => o
+                .attributes
+                .values()
+                .any(|a| a.hint.as_ref().map(|h| x.execute(&h)).unwrap_or(false)),
             Query::Idle => true,
         }
     }
