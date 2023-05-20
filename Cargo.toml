@@ -16,6 +16,7 @@ rust-version = "1.66"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
+jmespath = { version = "0.3", features = ["sync"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }

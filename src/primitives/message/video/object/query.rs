@@ -3,8 +3,12 @@ pub mod macros;
 pub mod py;
 
 use crate::primitives::message::video::object::InnerObject;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use crate::primitives::to_json_value::ToSerdeJsonValue;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
@@ -159,6 +163,8 @@ pub enum Query {
     AttributesWithLabel(StringExpression),
     #[serde(rename = "attributes.with_hint")]
     AttributesWithHint(StringExpression),
+    #[serde(rename = "attributes.with_value_match")]
+    AttributesJqNotEmpty(String),
     // combinators
     #[serde(rename = "and")]
     And(Vec<Query>),
@@ -168,6 +174,21 @@ pub enum Query {
     Not(Box<Query>),
     #[serde(rename = "pass")]
     Idle,
+}
+
+lazy_static! {
+    static ref COMPILED_JMP_FILTER: Mutex<HashMap<String, Arc<jmespath::Expression<'static>>>> =
+        Mutex::new(HashMap::new());
+}
+
+fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression>> {
+    let mut compiled_jmp_filter = COMPILED_JMP_FILTER.lock().unwrap();
+    if let Some(c) = compiled_jmp_filter.get(query) {
+        return Ok(c.clone());
+    }
+    let c = Arc::new(jmespath::compile(query)?);
+    compiled_jmp_filter.insert(query.to_string(), c.clone());
+    Ok(c)
 }
 
 impl ExecutableQuery<&InnerObject> for Query {
@@ -213,6 +234,13 @@ impl ExecutableQuery<&InnerObject> for Query {
                 .attributes
                 .values()
                 .any(|a| a.hint.as_ref().map(|h| x.execute(&h)).unwrap_or(false)),
+            Query::AttributesJqNotEmpty(x) => o.attributes.values().any(|a| {
+                let p = get_compiled_jmp_filter(x).unwrap();
+                let json = serde_json::to_string(&a.to_serde_json_value()).unwrap();
+                let jmp_var = jmespath::Variable::from_json(&json).unwrap();
+                let res = p.search(jmp_var).unwrap();
+                !res.is_null()
+            }),
             Query::Idle => true,
         }
     }
@@ -259,5 +287,21 @@ mod tests {
         let _objs = f.access_objects(&expr);
         let json = serde_json::to_string(&expr).unwrap();
         let _q: super::Query = serde_json::from_str(&json).unwrap();
+    }
+
+    #[test]
+    fn jmespath() {
+        use jmespath;
+
+        let expr = jmespath::compile("foo.bar").unwrap();
+
+        // Parse some JSON data into a JMESPath variable
+        let json_str = r#"{"foo": {"bar": true}}"#;
+        let data = jmespath::Variable::from_json(json_str).unwrap();
+
+        // Search the data with the compiled expression
+        let result = expr.search(data).unwrap();
+        dbg!(&result);
+        assert!(!result.is_null());
     }
 }
