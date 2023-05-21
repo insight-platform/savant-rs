@@ -3,12 +3,13 @@ use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
 };
 use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch};
-use pyo3::{pyfunction, Python};
+use crate::utils::python::no_gil;
+use pyo3::pyfunction;
 
 #[pyfunction]
 #[pyo3(name = "load_message")]
 pub fn load_message_py(bytes: Vec<u8>) -> Message {
-    Python::with_gil(|py| py.allow_threads(|| load_message(bytes)))
+    no_gil(|| load_message(bytes))
 }
 
 pub fn load_message(mut bytes: Vec<u8>) -> Message {

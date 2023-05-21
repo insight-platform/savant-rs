@@ -1,6 +1,7 @@
 use crate::primitives::point::Point;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
+use crate::utils::python::no_gil;
 use geo::{Contains, Intersects, Line, LineString};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -75,52 +76,46 @@ impl PolygonalArea {
 
     #[pyo3(name = "crossed_by_segment")]
     pub fn crossed_by_segment_py(&mut self, seg: &Segment) -> Intersection {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                self.build_polygon();
-                self.crossed_by_segment(seg)
-            })
+        no_gil(|| {
+            self.build_polygon();
+            self.crossed_by_segment(seg)
         })
     }
 
     pub fn crossed_by_segments(&mut self, segs: Vec<Segment>) -> Vec<Intersection> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                self.build_polygon();
-                segs.iter().map(|s| self.crossed_by_segment(s)).collect()
-            })
+        no_gil(|| {
+            self.build_polygon();
+            segs.iter().map(|s| self.crossed_by_segment(s)).collect()
         })
     }
 
     #[pyo3(name = "contains")]
     pub fn contains_py(&mut self, p: &Point) -> bool {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                self.build_polygon();
-                self.contains(p)
-            })
+        no_gil(|| {
+            self.build_polygon();
+            self.contains(p)
         })
     }
 
     pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                self.build_polygon();
-                points.iter().map(|p| self.contains(p)).collect()
-            })
+        no_gil(|| {
+            self.build_polygon();
+            points.iter().map(|p| self.contains(p)).collect()
         })
     }
 
     #[staticmethod]
     pub fn points_positions(polys: Vec<Self>, points: Vec<Point>) -> Vec<Vec<bool>> {
-        let pts = &points;
-        polys
-            .into_par_iter()
-            .map(|mut p| {
-                p.build_polygon();
-                pts.iter().map(|pt| p.contains(pt)).collect()
-            })
-            .collect()
+        no_gil(|| {
+            let pts = &points;
+            polys
+                .into_par_iter()
+                .map(|mut p| {
+                    p.build_polygon();
+                    pts.iter().map(|pt| p.contains(pt)).collect()
+                })
+                .collect()
+        })
     }
 
     #[staticmethod]
@@ -128,17 +123,19 @@ impl PolygonalArea {
         polys: Vec<Self>,
         segments: Vec<Segment>,
     ) -> Vec<Vec<Intersection>> {
-        let segments = &segments;
-        polys
-            .into_par_iter()
-            .map(|mut p| {
-                p.build_polygon();
-                segments
-                    .iter()
-                    .map(|seg| p.crossed_by_segment_py(seg))
-                    .collect()
-            })
-            .collect()
+        no_gil(|| {
+            let segments = &segments;
+            polys
+                .into_par_iter()
+                .map(|mut p| {
+                    p.build_polygon();
+                    segments
+                        .iter()
+                        .map(|seg| p.crossed_by_segment_py(seg))
+                        .collect()
+                })
+                .collect()
+        })
     }
 }
 

@@ -1,12 +1,13 @@
-use pyo3::{pyfunction, Python};
+use pyo3::pyfunction;
 
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
+use crate::utils::python::no_gil;
 
 #[pyfunction]
 #[pyo3(name = "save_message")]
 pub fn save_message_py(frame: Message) -> Vec<u8> {
-    Python::with_gil(|py| py.allow_threads(|| save_message(frame)))
+    no_gil(|| save_message(frame))
 }
 
 pub fn save_message(m: Message) -> Vec<u8> {

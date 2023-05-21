@@ -3,7 +3,7 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
-use pyo3::{pyclass, pymethods, Py, PyAny, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -306,7 +306,7 @@ impl Object {
 
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
-        Python::with_gil(move |py| py.allow_threads(move || self.get_attributes()))
+        no_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "get_attribute")]
