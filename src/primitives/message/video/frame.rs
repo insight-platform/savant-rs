@@ -500,8 +500,19 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_json(&self) -> String {
-        serde_json::to_string(&self.to_serde_json_value()).unwrap()
+    #[pyo3(name = "json")]
+    pub fn json_py(&self) -> String {
+        Python::with_gil(|py| {
+            py.allow_threads(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
+        })
+    }
+
+    #[getter]
+    #[pyo3(name = "json_pretty")]
+    fn json_pretty_py(&self) -> String {
+        Python::with_gil(|py| {
+            py.allow_threads(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
+        })
     }
 
     #[setter]

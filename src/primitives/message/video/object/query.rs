@@ -5,7 +5,6 @@ pub mod py;
 use crate::primitives::message::video::object::InnerObject;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::primitives::to_json_value::ToSerdeJsonValue;
@@ -167,6 +166,8 @@ pub enum Query {
     // Attributes
     #[serde(rename = "attributes.jmes_query")]
     AttributesJMESQuery(String),
+    #[serde(rename = "attributes.empty")]
+    AttributesEmpty,
     // combinators
     #[serde(rename = "and")]
     And(Vec<Query>),
@@ -178,9 +179,13 @@ pub enum Query {
     Idle,
 }
 
+const MAX_JMES_CACHE_SIZE: usize = 1024;
+
 lazy_static! {
-    static ref COMPILED_JMP_FILTER: Mutex<HashMap<String, Arc<jmespath::Expression<'static>>>> =
-        Mutex::new(HashMap::new());
+    static ref COMPILED_JMP_FILTER: Mutex<lru::LruCache<String, Arc<jmespath::Expression<'static>>>> =
+        Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(MAX_JMES_CACHE_SIZE).unwrap()
+        ));
 }
 
 fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression>> {
@@ -189,7 +194,7 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
         return Ok(c.clone());
     }
     let c = Arc::new(jmespath::compile(query)?);
-    compiled_jmp_filter.insert(query.to_string(), c.clone());
+    compiled_jmp_filter.put(query.to_string(), c.clone());
     Ok(c)
 }
 
@@ -228,6 +233,7 @@ impl ExecutableQuery<&InnerObject> for Query {
             Query::TrackIdDefined => o.track_id.is_some(),
             Query::ParentDefined => o.parent.is_some(),
             Query::BoxAngleDefined => o.bbox.angle.is_some(),
+            Query::AttributesEmpty => o.attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = serde_json::to_string(&serde_json::json!(o
@@ -271,10 +277,108 @@ impl Query {
 
 #[cfg(test)]
 mod tests {
-    use super::{Query, Query::*};
-    use crate::primitives::message::video::object::query::functions::{eq, gt, one_of};
+    use super::Query::*;
+    use super::*;
     use crate::query_and;
     use crate::test::utils::gen_frame;
+
+    #[test]
+    fn test_int() {
+        use IntExpression as IE;
+        let eq_q: IE = eq(1);
+        assert!(eq_q.execute(&1));
+
+        let ne_q: IE = ne(1);
+        assert!(ne_q.execute(&2));
+
+        let gt_q: IE = gt(1);
+        assert!(gt_q.execute(&0));
+
+        let lt_q: IE = lt(1);
+        assert!(lt_q.execute(&2));
+
+        let ge_q: IE = ge(1);
+        assert!(ge_q.execute(&1));
+        assert!(ge_q.execute(&0));
+
+        let le_q: IE = le(1);
+        assert!(le_q.execute(&1));
+        assert!(le_q.execute(&2));
+
+        let between_q: IE = between(1, 5);
+        assert!(between_q.execute(&2));
+        assert!(between_q.execute(&1));
+        assert!(between_q.execute(&5));
+        assert!(!between_q.execute(&6));
+
+        let one_of_q: IE = one_of(&[1, 2, 3]);
+        assert!(one_of_q.execute(&2));
+        assert!(!one_of_q.execute(&4));
+    }
+
+    #[test]
+    fn test_float() {
+        use FloatExpression as FE;
+        let eq_q: FE = eq(1.0);
+        assert!(eq_q.execute(&1.0));
+
+        let ne_q: FE = ne(1.0);
+        assert!(ne_q.execute(&2.0));
+
+        let gt_q: FE = gt(1.0);
+        assert!(gt_q.execute(&0.0));
+
+        let lt_q: FE = lt(1.0);
+        assert!(lt_q.execute(&2.0));
+
+        let ge_q: FE = ge(1.0);
+        assert!(ge_q.execute(&1.0));
+        assert!(ge_q.execute(&0.0));
+
+        let le_q: FE = le(1.0);
+        assert!(le_q.execute(&1.0));
+        assert!(le_q.execute(&2.0));
+
+        let between_q: FE = between(1.0, 5.0);
+        assert!(between_q.execute(&2.0));
+        assert!(between_q.execute(&1.0));
+        assert!(between_q.execute(&5.0));
+        assert!(!between_q.execute(&6.0));
+
+        let one_of_q: FE = one_of(&[1.0, 2.0, 3.0]);
+        assert!(one_of_q.execute(&2.0));
+        assert!(!one_of_q.execute(&4.0));
+    }
+
+    #[test]
+    fn test_string() {
+        use StringExpression as SE;
+        let eq_q: SE = eq("test");
+        assert!(eq_q.execute(&"test".to_string()));
+
+        let ne_q: SE = ne("test");
+        assert!(ne_q.execute(&"test2".to_string()));
+
+        let contains_q: SE = contains("test");
+        assert!(contains_q.execute(&"testimony".to_string()));
+        assert!(contains_q.execute(&"supertest".to_string()));
+
+        let not_contains_q: SE = not_contains("test");
+        assert!(not_contains_q.execute(&"apple".to_string()));
+
+        let starts_with_q: SE = starts_with("test");
+        assert!(starts_with_q.execute(&"testing".to_string()));
+        assert!(!starts_with_q.execute(&"tes".to_string()));
+
+        let ends_with_q: SE = ends_with("test");
+        assert!(ends_with_q.execute(&"gettest".to_string()));
+        assert!(!ends_with_q.execute(&"supertes".to_string()));
+
+        let one_of_q: SE = one_of(&["test", "me", "now"]);
+        assert!(one_of_q.execute(&"me".to_string()));
+        assert!(one_of_q.execute(&"now".to_string()));
+        assert!(!one_of_q.execute(&"random".to_string()));
+    }
 
     #[test]
     fn query() {
@@ -288,21 +392,5 @@ mod tests {
         let _objs = f.access_objects(&expr);
         let json = serde_json::to_string(&expr).unwrap();
         let _q: super::Query = serde_json::from_str(&json).unwrap();
-    }
-
-    #[test]
-    fn jmespath() {
-        use jmespath;
-
-        let expr = jmespath::compile("foo.bar").unwrap();
-
-        // Parse some JSON data into a JMESPath variable
-        let json_str = r#"{"foo": {"bar": true}}"#;
-        let data = jmespath::Variable::from_json(json_str).unwrap();
-
-        // Search the data with the compiled expression
-        let result = expr.search(data).unwrap();
-        dbg!(&result);
-        assert!(!result.is_null());
     }
 }

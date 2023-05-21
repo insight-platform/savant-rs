@@ -459,6 +459,13 @@ impl QueryWrapper {
         }
     }
 
+    #[staticmethod]
+    fn attributes_empty() -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::AttributesEmpty),
+        }
+    }
+
     #[getter]
     fn json(&self) -> String {
         self.inner.to_json()
