@@ -4,7 +4,8 @@ use crate::primitives::message::video::object::query::{ExecutableQuery, Query};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Message, Object};
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult, Python};
+use crate::utils::python::no_gil;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -432,6 +433,68 @@ impl VideoFrame {
             })
             .collect()
     }
+
+    pub fn get_json(&self) -> String {
+        serde_json::to_string(&self.to_serde_json_value()).unwrap()
+    }
+
+    pub fn get_json_pretty(&self) -> String {
+        serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
+    }
+
+    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<Object> {
+        let frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .iter()
+            .filter(|o| ids.contains(&o.lock().unwrap().id))
+            .map(|o| Object::from_arc_inner_object(o.clone()))
+            .collect()
+    }
+
+    pub fn delete_objects_by_ids(&mut self, ids: &[i64]) {
+        let mut frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .retain(|o| !ids.contains(&o.lock().unwrap().id));
+    }
+
+    pub fn delete_objects(&mut self, q: &Query) {
+        let mut frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .retain(|o| q.execute(o.lock().unwrap().deref()));
+    }
+
+    pub fn get_object(&self, id: i64) -> Option<Object> {
+        let frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .iter()
+            .find(|o| o.lock().unwrap().id == id)
+            .map(|o| Object::from_arc_inner_object(o.clone()))
+    }
+
+    pub fn make_snapshot(&mut self) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.prepare_before_save();
+    }
+
+    pub fn restore_from_snapshot(&mut self) {
+        let mut frame = self.inner.lock().unwrap();
+        frame.resident_objects.clear();
+        frame.prepare_after_load();
+    }
+
+    pub fn get_modified_objects(&self) -> Vec<Object> {
+        let frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .iter()
+            .filter(|o| !o.lock().unwrap().modifications.is_empty())
+            .map(|o| Object::from_arc_inner_object(o.clone()))
+            .collect()
+    }
 }
 
 impl ToSerdeJsonValue for VideoFrame {
@@ -502,17 +565,13 @@ impl VideoFrame {
     #[getter]
     #[pyo3(name = "json")]
     pub fn json_py(&self) -> String {
-        Python::with_gil(|py| {
-            py.allow_threads(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
-        })
+        no_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
     fn json_pretty_py(&self) -> String {
-        Python::with_gil(|py| {
-            py.allow_threads(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
-        })
+        no_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
     }
 
     #[setter]
@@ -670,7 +729,7 @@ impl VideoFrame {
 
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
-        Python::with_gil(move |py| py.allow_threads(move || self.get_attributes()))
+        no_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "find_attributes")]
@@ -680,9 +739,7 @@ impl VideoFrame {
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        Python::with_gil(move |py| {
-            py.allow_threads(move || self.find_attributes(creator, name, hint))
-        })
+        no_gil(|| self.find_attributes(creator, name, hint))
     }
 
     #[pyo3(name = "get_attribute")]
@@ -698,9 +755,7 @@ impl VideoFrame {
         creator: Option<String>,
         names: Vec<String>,
     ) {
-        Python::with_gil(move |py| {
-            py.allow_threads(move || self.delete_attributes(negated, creator, names))
-        })
+        no_gil(|| self.delete_attributes(negated, creator, names))
     }
 
     #[pyo3(name = "delete_attribute")]
@@ -718,36 +773,19 @@ impl VideoFrame {
         self.clear_attributes()
     }
 
-    pub fn get_object(&self, id: i64) -> Option<Object> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let frame = self.inner.lock().unwrap();
-                frame
-                    .resident_objects
-                    .iter()
-                    .find(|o| o.lock().unwrap().id == id)
-                    .map(|o| Object::from_arc_inner_object(o.clone()))
-            })
-        })
+    #[pyo3(name = "get_object")]
+    pub fn get_object_py(&self, id: i64) -> Option<Object> {
+        no_gil(|| self.get_object(id))
     }
 
     #[pyo3(name = "access_objects")]
     pub fn access_objects_py(&self, q: QueryWrapper) -> Vec<Object> {
-        Python::with_gil(|py| py.allow_threads(|| self.access_objects(q.inner.deref())))
+        no_gil(|| self.access_objects(q.inner.deref()))
     }
 
-    pub fn access_objects_by_id(&self, ids: Vec<i64>) -> Vec<Object> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let frame = self.inner.lock().unwrap();
-                frame
-                    .resident_objects
-                    .iter()
-                    .filter(|o| ids.contains(&o.lock().unwrap().id))
-                    .map(|o| Object::from_arc_inner_object(o.clone()))
-                    .collect()
-            })
-        })
+    #[pyo3(name = "access_objects_by_id")]
+    pub fn access_objects_by_id_py(&self, ids: Vec<i64>) -> Vec<Object> {
+        no_gil(|| self.access_objects_by_id(&ids))
     }
 
     pub fn add_object(&mut self, object: Object) {
@@ -755,40 +793,14 @@ impl VideoFrame {
         frame.resident_objects.push(object.inner);
     }
 
-    pub fn delete_objects_by_ids(&mut self, ids: Vec<i64>) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let mut frame = self.inner.lock().unwrap();
-                frame
-                    .resident_objects
-                    .retain(|o| !ids.contains(&o.lock().unwrap().id));
-            })
-        })
+    #[pyo3(name = "delete_objects_by_ids")]
+    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) {
+        no_gil(|| self.delete_objects_by_ids(&ids))
     }
 
-    pub fn delete_objects(
-        &mut self,
-        negated: bool,
-        creator: Option<String>,
-        label: Option<String>,
-    ) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let mut frame = self.inner.lock().unwrap();
-                frame.resident_objects.retain(|o| {
-                    let o = o.lock().unwrap();
-                    let creator_match = match &creator {
-                        Some(creator) => o.creator == *creator,
-                        None => true,
-                    };
-                    let label_match = match &label {
-                        Some(label) => o.label == *label,
-                        None => true,
-                    };
-                    !((creator_match && label_match) ^ negated)
-                });
-            })
-        })
+    #[pyo3(name = "delete_objects")]
+    pub fn delete_objects_py(&mut self, query: QueryWrapper) {
+        no_gil(|| self.delete_objects(&query.inner))
     }
 
     pub fn clear_objects(&mut self) {
@@ -796,37 +808,19 @@ impl VideoFrame {
         frame.resident_objects.clear();
     }
 
-    pub fn snapshot(&mut self) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let mut frame = self.inner.lock().unwrap();
-                frame.prepare_before_save();
-            })
-        })
+    #[pyo3(name = "make_snapshot")]
+    pub fn make_snapshot_py(&mut self) {
+        no_gil(|| self.make_snapshot())
     }
 
-    pub fn restore(&mut self) {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let mut frame = self.inner.lock().unwrap();
-                frame.resident_objects.clear();
-                frame.prepare_after_load();
-            })
-        })
+    #[pyo3(name = "restore_from_snapshot")]
+    pub fn restore_from_snapshot_py(&mut self) {
+        no_gil(|| self.restore_from_snapshot())
     }
 
-    pub fn get_modified_objects(&self) -> Vec<Object> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| {
-                let frame = self.inner.lock().unwrap();
-                frame
-                    .resident_objects
-                    .iter()
-                    .filter(|o| !o.lock().unwrap().modifications.is_empty())
-                    .map(|o| Object::from_arc_inner_object(o.clone()))
-                    .collect()
-            })
-        })
+    #[pyo3(name = "get_modified_objects")]
+    pub fn get_modified_objects_py(&self) -> Vec<Object> {
+        no_gil(|| self.get_modified_objects())
     }
 }
 
@@ -840,7 +834,7 @@ mod tests {
     fn test_access_objects_by_id() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let objects = t.access_objects_by_id(vec![0, 1]);
+        let objects = t.access_objects_by_id_py(vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -895,7 +889,7 @@ mod tests {
     fn test_objects_by_id() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let objects = t.access_objects_by_id(vec![0, 1]);
+        let objects = t.access_objects_by_id_py(vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -996,18 +990,18 @@ mod tests {
     #[test]
     fn test_snapshotting() {
         let mut t = gen_frame();
-        t.snapshot();
-        let mut o = t.access_objects_by_id(vec![0]).pop().unwrap();
+        t.make_snapshot_py();
+        let mut o = t.access_objects_by_id_py(vec![0]).pop().unwrap();
         o.set_id(12);
-        assert!(matches!(t.access_objects_by_id(vec![0]).pop(), None));
-        t.restore();
-        t.access_objects_by_id(vec![0]).pop().unwrap();
+        assert!(matches!(t.access_objects_by_id_py(vec![0]).pop(), None));
+        t.restore_from_snapshot_py();
+        t.access_objects_by_id_py(vec![0]).pop().unwrap();
     }
 
     #[test]
     fn test_modified_objects() {
         let t = gen_frame();
-        let mut o = t.access_objects_by_id(vec![0]).pop().unwrap();
+        let mut o = t.access_objects_by_id_py(vec![0]).pop().unwrap();
         o.set_id(12);
         let mut modified = t.get_modified_objects();
         assert_eq!(modified.len(), 1);

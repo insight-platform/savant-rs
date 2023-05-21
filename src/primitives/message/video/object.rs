@@ -1,6 +1,7 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox};
+use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use pyo3::{pyclass, pymethods, Py, PyAny, Python};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -351,14 +352,12 @@ impl Object {
         creator: Option<String>,
         names: Vec<String>,
     ) {
-        Python::with_gil(move |py| {
-            py.allow_threads(move || {
-                {
-                    let mut object = self.inner.lock().unwrap();
-                    object.modifications.push(Modification::Attributes);
-                }
-                self.delete_attributes(negated, creator, names)
-            })
+        no_gil(move || {
+            {
+                let mut object = self.inner.lock().unwrap();
+                object.modifications.push(Modification::Attributes);
+            }
+            self.delete_attributes(negated, creator, names)
         })
     }
 
@@ -369,7 +368,7 @@ impl Object {
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        Python::with_gil(move |py| py.allow_threads(|| self.find_attributes(creator, name, hint)))
+        no_gil(|| self.find_attributes(creator, name, hint))
     }
 
     pub fn take_modifications(&self) -> Vec<Modification> {

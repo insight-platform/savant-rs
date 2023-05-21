@@ -1,6 +1,7 @@
 use crate::primitives::message::video::frame::InnerVideoFrame;
 use crate::primitives::VideoFrame;
-use pyo3::{pyclass, pymethods, Python};
+use crate::utils::python::no_gil;
+use pyo3::{pyclass, pymethods};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -60,11 +61,11 @@ impl VideoFrameBatch {
 
     #[pyo3(name = "snapshot")]
     pub fn snapshot_py(&mut self) {
-        Python::with_gil(|py| py.allow_threads(|| self.snapshot()))
+        no_gil(|| self.snapshot())
     }
 
     #[pyo3(name = "restore")]
     pub fn restore_py(&mut self) {
-        Python::with_gil(|py| py.allow_threads(|| self.restore()))
+        no_gil(|| self.restore())
     }
 }
