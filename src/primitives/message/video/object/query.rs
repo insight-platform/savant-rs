@@ -134,8 +134,12 @@ pub enum Query {
     Label(StringExpression),
     #[serde(rename = "confidence")]
     Confidence(FloatExpression),
+    #[serde(rename = "confidence.defined")]
+    ConfidenceDefined,
     #[serde(rename = "track_id")]
     TrackId(IntExpression),
+    #[serde(rename = "track_id.defined")]
+    TrackIdDefined,
     // parent
     #[serde(rename = "parent.id")]
     ParentId(IntExpression),
@@ -143,6 +147,8 @@ pub enum Query {
     ParentCreator(StringExpression),
     #[serde(rename = "parent.label")]
     ParentLabel(StringExpression),
+    #[serde(rename = "parent.defined")]
+    ParentDefined,
     // bbox
     #[serde(rename = "bbox.xc")]
     BoxXCenter(FloatExpression),
@@ -156,15 +162,11 @@ pub enum Query {
     BoxArea(FloatExpression),
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
+    #[serde(rename = "bbox.angle.defined")]
+    BoxAngleDefined,
     // Attributes
-    #[serde(rename = "attributes.with_creator")]
-    AttributesWithCreator(StringExpression),
-    #[serde(rename = "attributes.with_label")]
-    AttributesWithLabel(StringExpression),
-    #[serde(rename = "attributes.with_hint")]
-    AttributesWithHint(StringExpression),
-    #[serde(rename = "attributes.with_value_match")]
-    AttributesJqNotEmpty(String),
+    #[serde(rename = "attributes.jmes_query")]
+    AttributesJMESQuery(String),
     // combinators
     #[serde(rename = "and")]
     And(Vec<Query>),
@@ -222,25 +224,24 @@ impl ExecutableQuery<&InnerObject> for Query {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
             Query::Not(x) => !x.execute(o),
-            Query::AttributesWithCreator(x) => o
-                .attributes
-                .keys()
-                .any(|(creator, _label)| x.execute(creator)),
-            Query::AttributesWithLabel(x) => o
-                .attributes
-                .keys()
-                .any(|(_creator, label)| x.execute(label)),
-            Query::AttributesWithHint(x) => o
-                .attributes
-                .values()
-                .any(|a| a.hint.as_ref().map(|h| x.execute(&h)).unwrap_or(false)),
-            Query::AttributesJqNotEmpty(x) => o.attributes.values().any(|a| {
-                let p = get_compiled_jmp_filter(x).unwrap();
-                let json = serde_json::to_string(&a.to_serde_json_value()).unwrap();
+            Query::ConfidenceDefined => o.confidence.is_some(),
+            Query::TrackIdDefined => o.track_id.is_some(),
+            Query::ParentDefined => o.parent.is_some(),
+            Query::BoxAngleDefined => o.bbox.angle.is_some(),
+            Query::AttributesJMESQuery(x) => {
+                let filter = get_compiled_jmp_filter(x).unwrap();
+                let json = serde_json::to_string(&serde_json::json!(o
+                    .attributes
+                    .values()
+                    .map(|v| v.to_serde_json_value())
+                    .collect::<Vec<_>>()))
+                .unwrap();
                 let jmp_var = jmespath::Variable::from_json(&json).unwrap();
-                let res = p.search(jmp_var).unwrap();
-                !res.is_null()
-            }),
+                let res = filter.search(jmp_var).unwrap();
+                !(res.is_null()
+                    || (res.is_array() && res.as_array().unwrap().is_empty())
+                    || (res.is_boolean() && !res.as_boolean().unwrap()))
+            }
             Query::Idle => true,
         }
     }

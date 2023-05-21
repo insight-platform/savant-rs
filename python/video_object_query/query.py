@@ -16,10 +16,16 @@ fgt = FE.gt
 q = and_(
     Q.creator(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
-    or_(
-        Q.parent_id(IE.one_of(0, 1, 2)),
-        Q.parent_id(gt(10))
+    and_(
+        or_(
+            not_(Q.parent_defined()),
+            or_(
+                Q.parent_id(IE.one_of(0, 1, 2)),
+                Q.parent_id(gt(10))
+            )
+        )
     ),
+    Q.attributes_jmes_query("[?(name=='test' && creator=='test')]"),
     Q.confidence(FE.gt(0.5)),
     Q.box_height(FE.gt(100)),
 )

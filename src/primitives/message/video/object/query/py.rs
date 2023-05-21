@@ -424,6 +424,41 @@ impl QueryWrapper {
         }
     }
 
+    #[staticmethod]
+    fn attributes_jmes_query(e: String) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::AttributesJMESQuery(e)),
+        }
+    }
+
+    #[staticmethod]
+    fn parent_defined() -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::ParentDefined),
+        }
+    }
+
+    #[staticmethod]
+    fn confidence_defined() -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::ConfidenceDefined),
+        }
+    }
+
+    #[staticmethod]
+    fn track_id_defined() -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackIdDefined),
+        }
+    }
+
+    #[staticmethod]
+    fn box_angle_defined() -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::BoxAngleDefined),
+        }
+    }
+
     #[getter]
     fn json(&self) -> String {
         self.inner.to_json()
