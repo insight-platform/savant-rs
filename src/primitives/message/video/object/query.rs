@@ -480,6 +480,12 @@ mod tests {
         let expr = BoxAngle(gt(20.0));
         assert!(expr.execute(&inner));
 
+        let expr = TrackIdDefined;
+        assert!(!expr.execute(&gen_object()));
+
+        inner.track_id = Some(1);
+        assert!(expr.execute(&inner));
+
         inner.attributes = vec![AttributeBuilder::default()
             .name(s("age-min-max-avg"))
             .creator(s("classifier"))

@@ -320,7 +320,7 @@ impl QueryWrapper {
     }
 
     #[staticmethod]
-    fn object_id(e: IntExpressionWrapper) -> QueryWrapper {
+    fn id(e: IntExpressionWrapper) -> QueryWrapper {
         QueryWrapper {
             inner: Arc::new(Query::Id(e.inner)),
         }
