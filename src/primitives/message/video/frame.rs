@@ -827,6 +827,7 @@ impl VideoFrame {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attributive;
+    use crate::primitives::message::video::object::query::Query;
     use crate::primitives::Modification;
     use crate::test::utils::gen_frame;
 
@@ -937,55 +938,24 @@ mod tests {
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
     }
 
-    // #[test]
-    // fn test_delete_objects_by_ids() {
-    //     pyo3::prepare_freethreaded_python();
-    //     let mut t = gen_frame();
-    //     t.delete_objects_by_ids(vec![0, 1]);
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 1);
-    //     assert_eq!(objects[0].get_id(), 2);
-    // }
+    #[test]
+    fn test_delete_objects_by_ids() {
+        pyo3::prepare_freethreaded_python();
+        let mut t = gen_frame();
+        t.delete_objects_by_ids(&[0, 1]);
+        let objects = t.access_objects(&Query::Idle);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].get_id(), 2);
+    }
 
-    // #[test]
-    // fn test_delete_objects() {
-    //     pyo3::prepare_freethreaded_python();
-    //     let mut t = gen_frame();
-    //     t.delete_objects(false, None, None);
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert!(objects.is_empty());
-    //
-    //     let mut t = gen_frame();
-    //     t.delete_objects(true, None, None);
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 3);
-    //
-    //     let mut t = gen_frame();
-    //     t.delete_objects(false, Some("test2".to_string()), None);
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 1);
-    //     assert_eq!(objects[0].get_id(), 0);
-    //
-    //     let mut t = gen_frame();
-    //     t.delete_objects(true, Some("test2".to_string()), None);
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 2);
-    //     assert_eq!(objects[0].get_id(), 1);
-    //     assert_eq!(objects[1].get_id(), 2);
-    //
-    //     let mut t = gen_frame();
-    //     t.delete_objects(false, Some("test2".to_string()), Some("test2".to_string()));
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 2);
-    //     assert_eq!(objects[0].get_id(), 0);
-    //     assert_eq!(objects[1].get_id(), 1);
-    //
-    //     let mut t = gen_frame();
-    //     t.delete_objects(true, Some("test2".to_string()), Some("test2".to_string()));
-    //     let objects = t.access_objects_py(false, None, None);
-    //     assert_eq!(objects.len(), 1);
-    //     assert_eq!(objects[0].get_id(), 2);
-    // }
+    #[test]
+    fn test_delete_all_objects() {
+        pyo3::prepare_freethreaded_python();
+        let mut t = gen_frame();
+        t.delete_objects(&Query::Idle);
+        let objects = t.access_objects(&Query::Idle);
+        assert!(objects.is_empty());
+    }
 
     #[test]
     fn test_snapshotting() {
