@@ -842,51 +842,6 @@ mod tests {
     }
 
     #[test]
-    fn test_access_objects() {
-        pyo3::prepare_freethreaded_python();
-
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(false, None, None);
-        // assert_eq!(objects.len(), 3);
-        //
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(true, None, None);
-        // assert!(objects.is_empty());
-        //
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(false, Some("abc".to_string()), None);
-        // assert!(objects.is_empty());
-        //
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(true, Some("abc".to_string()), None);
-        // assert_eq!(objects.len(), 3);
-        //
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(false, Some("test2".to_string()), None);
-        // assert_eq!(objects.len(), 2);
-        // assert_eq!(objects[0].get_id(), 1);
-        // assert_eq!(objects[1].get_id(), 2);
-
-        // let t = gen_frame();
-        // let objects = t.access_objects_py(true, Some("test2".to_string()), None);
-        // assert_eq!(objects.len(), 1);
-        // assert_eq!(objects[0].get_id(), 0);
-        //
-        // let t = gen_frame();
-        // let objects =
-        //     t.access_objects_py(false, Some("test2".to_string()), Some("test2".to_string()));
-        // assert_eq!(objects.len(), 1);
-        // assert_eq!(objects[0].get_id(), 2);
-        //
-        // let t = gen_frame();
-        // let objects =
-        //     t.access_objects_py(true, Some("test2".to_string()), Some("test2".to_string()));
-        // assert_eq!(objects.len(), 2);
-        // assert_eq!(objects[0].get_id(), 0);
-        // assert_eq!(objects[1].get_id(), 1);
-    }
-
-    #[test]
     fn test_objects_by_id() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
