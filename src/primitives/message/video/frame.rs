@@ -463,7 +463,7 @@ impl VideoFrame {
         let mut frame = self.inner.lock().unwrap();
         frame
             .resident_objects
-            .retain(|o| q.execute(o.lock().unwrap().deref()));
+            .retain(|o| !q.execute(o.lock().unwrap().deref()));
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -744,7 +744,7 @@ impl VideoFrame {
 
     #[pyo3(name = "get_attribute")]
     pub fn get_attribute_py(&self, creator: String, name: String) -> Option<Attribute> {
-        self.get_attribute(creator, name)
+        no_gil(|| self.get_attribute(creator, name))
     }
 
     #[pyo3(signature = (negated=false, creator=None, names=vec![]))]

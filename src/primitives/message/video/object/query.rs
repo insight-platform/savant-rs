@@ -43,10 +43,10 @@ impl ExecutableQuery<&f64> for FloatExpression {
         match self {
             FloatExpression::EQ(x) => x == o,
             FloatExpression::NE(x) => x != o,
-            FloatExpression::LT(x) => x < o,
-            FloatExpression::LE(x) => x <= o,
-            FloatExpression::GT(x) => x > o,
-            FloatExpression::GE(x) => x >= o,
+            FloatExpression::LT(x) => x > o,
+            FloatExpression::LE(x) => x >= o,
+            FloatExpression::GT(x) => x < o,
+            FloatExpression::GE(x) => x <= o,
             FloatExpression::Between(a, b) => a <= o && o <= b,
             FloatExpression::OneOf(v) => v.contains(o),
         }
@@ -79,10 +79,10 @@ impl ExecutableQuery<&i64> for IntExpression {
         match self {
             IntExpression::EQ(x) => x == o,
             IntExpression::NE(x) => x != o,
-            IntExpression::LT(x) => x < o,
-            IntExpression::LE(x) => x <= o,
-            IntExpression::GT(x) => x > o,
-            IntExpression::GE(x) => x >= o,
+            IntExpression::LT(x) => x > o,
+            IntExpression::LE(x) => x >= o,
+            IntExpression::GT(x) => x < o,
+            IntExpression::GE(x) => x <= o,
             IntExpression::Between(a, b) => a <= o && o <= b,
             IntExpression::OneOf(v) => v.contains(o),
         }
@@ -201,13 +201,21 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
 impl ExecutableQuery<&InnerObject> for Query {
     fn execute(&self, o: &InnerObject) -> bool {
         match self {
+            Query::And(v) => v.iter().all(|x| x.execute(o)),
+            Query::Or(v) => v.iter().any(|x| x.execute(o)),
+            Query::Not(x) => !x.execute(o),
+
             // self
             Query::Id(x) => x.execute(&o.id),
             Query::Creator(x) => x.execute(&o.creator),
             Query::Label(x) => x.execute(&o.label),
             Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
             Query::TrackId(x) => o.track_id.map(|t| x.execute(&t)).unwrap_or(false),
+            Query::ConfidenceDefined => o.confidence.is_some(),
+            Query::TrackIdDefined => o.track_id.is_some(),
+
             // parent
+            Query::ParentDefined => o.parent.is_some(),
             Query::ParentId(x) => o.parent.as_ref().map(|p| x.execute(&p.id)).unwrap_or(false),
             Query::ParentCreator(x) => o
                 .parent
@@ -219,20 +227,17 @@ impl ExecutableQuery<&InnerObject> for Query {
                 .as_ref()
                 .map(|p| x.execute(&p.label))
                 .unwrap_or(false),
-            // boxes
+
+            // box
             Query::BoxWidth(x) => x.execute(&o.bbox.width),
             Query::BoxHeight(x) => x.execute(&o.bbox.height),
             Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
             Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
             Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
-            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
-            Query::And(v) => v.iter().all(|x| x.execute(o)),
-            Query::Or(v) => v.iter().any(|x| x.execute(o)),
-            Query::Not(x) => !x.execute(o),
-            Query::ConfidenceDefined => o.confidence.is_some(),
-            Query::TrackIdDefined => o.track_id.is_some(),
-            Query::ParentDefined => o.parent.is_some(),
             Query::BoxAngleDefined => o.bbox.angle.is_some(),
+            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
+
+            // attributes
             Query::AttributesEmpty => o.attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
@@ -279,8 +284,9 @@ impl Query {
 mod tests {
     use super::Query::*;
     use super::*;
+    use crate::primitives::{AttributeBuilder, ParentObject, RBBox, Value};
     use crate::query_and;
-    use crate::test::utils::gen_frame;
+    use crate::test::utils::{gen_frame, s};
 
     #[test]
     fn test_int() {
@@ -292,18 +298,18 @@ mod tests {
         assert!(ne_q.execute(&2));
 
         let gt_q: IE = gt(1);
-        assert!(gt_q.execute(&0));
+        assert!(gt_q.execute(&2));
 
         let lt_q: IE = lt(1);
-        assert!(lt_q.execute(&2));
+        assert!(lt_q.execute(&0));
 
         let ge_q: IE = ge(1);
         assert!(ge_q.execute(&1));
-        assert!(ge_q.execute(&0));
+        assert!(ge_q.execute(&2));
 
         let le_q: IE = le(1);
         assert!(le_q.execute(&1));
-        assert!(le_q.execute(&2));
+        assert!(le_q.execute(&0));
 
         let between_q: IE = between(1, 5);
         assert!(between_q.execute(&2));
@@ -326,18 +332,18 @@ mod tests {
         assert!(ne_q.execute(&2.0));
 
         let gt_q: FE = gt(1.0);
-        assert!(gt_q.execute(&0.0));
+        assert!(gt_q.execute(&2.0));
 
         let lt_q: FE = lt(1.0);
-        assert!(lt_q.execute(&2.0));
+        assert!(lt_q.execute(&0.0));
 
         let ge_q: FE = ge(1.0);
         assert!(ge_q.execute(&1.0));
-        assert!(ge_q.execute(&0.0));
+        assert!(ge_q.execute(&2.0));
 
         let le_q: FE = le(1.0);
         assert!(le_q.execute(&1.0));
-        assert!(le_q.execute(&2.0));
+        assert!(le_q.execute(&0.0));
 
         let between_q: FE = between(1.0, 5.0);
         assert!(between_q.execute(&2.0));
@@ -392,5 +398,128 @@ mod tests {
         let _objs = f.access_objects(&expr);
         let json = serde_json::to_string(&expr).unwrap();
         let _q: super::Query = serde_json::from_str(&json).unwrap();
+    }
+
+    fn gen_object() -> InnerObject {
+        InnerObject {
+            id: 1,
+            creator: s("peoplenet"),
+            label: s("face"),
+            confidence: Some(0.5),
+            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_query() {
+        let expr = Id(eq(1));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = Creator(eq("peoplenet"));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = Label(starts_with("face"));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = Confidence(gt(0.4));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = ConfidenceDefined;
+        assert!(expr.execute(&gen_object()));
+
+        let expr = ParentDefined;
+        assert!(!expr.execute(&gen_object()));
+
+        let expr = AttributesEmpty;
+        assert!(expr.execute(&gen_object()));
+
+        let mut inner = gen_object();
+        inner.parent = Some(ParentObject {
+            id: 13,
+            creator: s("peoplenet"),
+            label: s("person"),
+        });
+
+        assert!(expr.execute(&inner));
+
+        let expr = ParentId(eq(13));
+        assert!(expr.execute(&inner));
+
+        let expr = ParentCreator(eq("peoplenet"));
+        assert!(expr.execute(&inner));
+
+        let expr = ParentLabel(eq("person"));
+        assert!(expr.execute(&inner));
+
+        let expr = BoxXCenter(gt(0.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxYCenter(gt(1.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxWidth(gt(5.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxHeight(gt(10.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxArea(gt(150.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxArea(lt(250.0));
+        assert!(expr.execute(&gen_object()));
+
+        let expr = BoxAngleDefined;
+        assert!(!expr.execute(&gen_object()));
+
+        let mut inner = gen_object();
+        inner.bbox = RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0));
+        assert!(expr.execute(&inner));
+
+        let expr = BoxAngle(gt(20.0));
+        assert!(expr.execute(&inner));
+
+        inner.attributes = vec![AttributeBuilder::default()
+            .name(s("age-min-max-avg"))
+            .creator(s("classifier"))
+            .hint(Some(s("morphological-classifier")))
+            .values(vec![
+                Value::float(10.0, Some(0.7)),
+                Value::float(20.0, Some(0.8)),
+                Value::float(15.0, None),
+            ])
+            .build()
+            .unwrap()]
+        .into_iter()
+        .map(|a| ((a.creator.clone(), a.name.clone()), a))
+        .collect();
+
+        // print!(
+        //     "{}",
+        //     serde_json::to_string_pretty(&inner.to_serde_json_value()).unwrap()
+        // );
+
+        let expr = AttributesJMESQuery(s(
+            "[? (hint == 'morphological-classifier') && (creator == 'classifier')]",
+        ));
+        assert!(expr.execute(&inner));
+
+        let expr = AttributesJMESQuery(s(
+            "[? (hint != 'morphological-classifier') && (creator == 'classifier')]",
+        ));
+        assert!(!expr.execute(&inner));
+    }
+
+    #[test]
+    fn test_logical_functions() {
+        let expr = and![Id(eq(1)), Creator(eq("peoplenet")), Confidence(gt(0.4))];
+        assert!(expr.execute(&gen_object()));
+
+        let expr = or![Id(eq(10)), Creator(eq("peoplenet")),];
+        assert!(expr.execute(&gen_object()));
+
+        let expr = not!(Id(eq(2)));
+        assert!(expr.execute(&gen_object()));
     }
 }
