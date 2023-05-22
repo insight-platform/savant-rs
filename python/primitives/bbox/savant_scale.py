@@ -49,18 +49,19 @@ def scale_rbbox(
 
 from timeit import default_timer as timer
 
-bbox = [0, 0, 100, 100, 0]
+bboxes = [[0, 0, 100, 100, 0] for _ in range(10)]
 
 t = timer()
-for _ in range(10000):
-    res = scale_rbbox(np.array([bbox]), 2, 3)
+for _ in range(1000):
+    res = scale_rbbox(np.array(bboxes), 2, 3)
 
 print(f"Time to scale (python): {timer() - t}")
 
-bbox = BBox(0, 0, 100, 100)
+bboxes = [BBox(0, 0, 100, 100) for _ in range(10)]
 
 t = timer()
-for _ in range(10000):
-    res = bbox.scale(2, 3)
+for _ in range(1000):
+    for b in bboxes:
+        res = b.scale(2, 3)
 
 print(f"Time to scale (rust): {timer() - t}")
