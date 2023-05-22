@@ -116,7 +116,7 @@ for _ in range(1_000):
     bytes = save_message(message)
     frame_message = load_message(bytes)
 
-print(timer() - t)
+print("1K ser/des for frame took:", timer() - t)
 
 print(frame_message.is_video_frame)
 frame = frame_message.as_video_frame
