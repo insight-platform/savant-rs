@@ -9,6 +9,12 @@ assert area.is_self_intersecting() == False
 bad_area = PolygonalArea([Point(-1, -1), Point(1, 1), Point(1, -1), Point(-1, 1)], ["up", None, "down", None])
 assert bad_area.is_self_intersecting() == True
 
+bad_area2 = PolygonalArea([Point(-1, -1), Point(1, 1), Point(1, 1), Point(-1, 1)], ["up", None, "down", None])
+assert bad_area2.is_self_intersecting() == True
+
+good_area2 = PolygonalArea([Point(-1, -1), Point(1, 1), Point(-1, 1)], ["up", None, "down"])
+assert good_area2.is_self_intersecting() == False
+
 crosses_13 = Segment(Point(-2, 0), Point(2, 0))
 crosses_02 = Segment(Point(0, -2), Point(0, 2))
 leaves_vertex = Segment(Point(0, 0), Point(2, 2))
