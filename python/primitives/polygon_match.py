@@ -4,6 +4,10 @@ from savant_rs.primitives import PolygonalArea, Point, Segment, IntersectionKind
 from timeit import default_timer as timer
 
 area = PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])
+assert area.is_self_intersecting() == False
+
+bad_area = PolygonalArea([Point(-1, -1), Point(1, 1), Point(1, -1), Point(-1, 1)], ["up", None, "down", None])
+assert bad_area.is_self_intersecting() == True
 
 crosses_13 = Segment(Point(-2, 0), Point(2, 0))
 crosses_02 = Segment(Point(0, -2), Point(0, 2))

@@ -204,7 +204,6 @@ impl ExecutableQuery<&InnerObject> for Query {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
             Query::Not(x) => !x.execute(o),
-
             // self
             Query::Id(x) => x.execute(&o.id),
             Query::Creator(x) => x.execute(&o.creator),

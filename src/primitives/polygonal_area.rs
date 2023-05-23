@@ -2,6 +2,7 @@ use crate::primitives::point::Point;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
 use crate::utils::python::no_gil;
+use geo::line_intersection::line_intersection;
 use geo::{Contains, Intersects, Line, LineString};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -89,6 +90,14 @@ impl PolygonalArea {
         })
     }
 
+    #[pyo3(name = "is_self_intersecting")]
+    pub fn is_self_intersecting_py(&mut self) -> bool {
+        no_gil(|| {
+            self.build_polygon();
+            self.is_self_intersecting()
+        })
+    }
+
     #[pyo3(name = "contains")]
     pub fn contains_py(&mut self, p: &Point) -> bool {
         no_gil(|| {
@@ -140,6 +149,27 @@ impl PolygonalArea {
 }
 
 impl PolygonalArea {
+    pub fn is_self_intersecting(&self) -> bool {
+        use geo::algorithm::line_intersection::LineIntersection::*;
+        let poly = self.polygon.as_ref().unwrap();
+        let exterior = poly.exterior();
+        exterior.lines().any(|l| {
+            exterior.lines().filter(|l2| &l != l2).any(|l2| {
+                let res = line_intersection(l, l2);
+                match res {
+                    Some(li) => match li {
+                        SinglePoint {
+                            intersection: _,
+                            is_proper,
+                        } => is_proper,
+                        _ => true,
+                    },
+                    _ => false,
+                }
+            })
+        })
+    }
+
     pub fn crossed_by_segment(&mut self, seg: &Segment) -> Intersection {
         let seg = Line::from([(seg.begin.x, seg.begin.y), (seg.end.x, seg.end.y)]);
         let poly = self.polygon.as_ref().unwrap();
@@ -440,5 +470,42 @@ mod tests {
                 ]
             ]
         );
+    }
+
+    #[test]
+    fn test_self_intersecting() {
+        let area = PolygonalArea::new(
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(1.0, 1.0),
+                Point::new(0.0, 1.0),
+            ],
+            None,
+        );
+        assert!(!area.is_self_intersecting());
+
+        let area = PolygonalArea::new(
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 1.0),
+                Point::new(1.0, 0.0),
+                Point::new(0.0, 1.0),
+            ],
+            None,
+        );
+        assert!(area.is_self_intersecting());
+
+        let area = PolygonalArea::new(
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(0.5, 0.0),
+                Point::new(1.0, 1.0),
+                Point::new(0.0, 1.0),
+            ],
+            None,
+        );
+        assert!(area.is_self_intersecting());
     }
 }
