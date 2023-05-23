@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 pub mod query;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct ParentObject {
     #[pyo3(get, set)]
@@ -20,6 +20,24 @@ pub struct ParentObject {
     pub creator: String,
     #[pyo3(get, set)]
     pub label: String,
+    #[with(Skip)]
+    #[builder(default)]
+    pub creator_id: Option<i64>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub label_id: Option<i64>,
+}
+
+impl Default for ParentObject {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            creator: "".to_string(),
+            label: "".to_string(),
+            creator_id: None,
+            label_id: None,
+        }
+    }
 }
 
 impl ToSerdeJsonValue for ParentObject {
@@ -47,7 +65,16 @@ impl ParentObject {
 
     #[new]
     pub fn new(id: i64, creator: String, label: String) -> Self {
-        Self { id, creator, label }
+        let (creator_id, label_id) =
+            get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
+
+        Self {
+            id,
+            creator,
+            label,
+            creator_id,
+            label_id,
+        }
     }
 }
 

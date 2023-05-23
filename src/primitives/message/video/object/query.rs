@@ -434,11 +434,7 @@ mod tests {
         assert!(expr.execute(&gen_object()));
 
         let mut inner = gen_object();
-        inner.parent = Some(ParentObject {
-            id: 13,
-            creator: s("peoplenet"),
-            label: s("person"),
-        });
+        inner.parent = Some(ParentObject::new(13, s("peoplenet"), s("person")));
 
         assert!(expr.execute(&inner));
 
