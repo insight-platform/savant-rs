@@ -241,17 +241,16 @@ impl ExecutableQuery<&InnerObject> for Query {
             Query::AttributesEmpty => o.attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
-                let json = serde_json::to_string(&serde_json::json!(o
+                let json = &serde_json::json!(o
                     .attributes
                     .values()
                     .map(|v| v.to_serde_json_value())
-                    .collect::<Vec<_>>()))
-                .unwrap();
-                let jmp_var = jmespath::Variable::from_json(&json).unwrap();
-                let res = filter.search(jmp_var).unwrap();
+                    .collect::<Vec<_>>());
+                let res = filter.search(json).unwrap();
                 !(res.is_null()
                     || (res.is_array() && res.as_array().unwrap().is_empty())
-                    || (res.is_boolean() && !res.as_boolean().unwrap()))
+                    || (res.is_boolean() && !res.as_boolean().unwrap())
+                    || (res.is_object()) && res.as_object().unwrap().is_empty())
             }
             Query::Idle => true,
         }
