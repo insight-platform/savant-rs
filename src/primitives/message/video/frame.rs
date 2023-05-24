@@ -3,12 +3,14 @@ use crate::primitives::message::video::object::query::py::QueryWrapper;
 use crate::primitives::message::video::object::query::{ExecutableQuery, Query};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Message, Object};
+use crate::primitives::{Attribute, Message, Object, ParentObject};
 use crate::utils::python::no_gil;
+use hashbrown::HashSet;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::mem;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
@@ -383,20 +385,71 @@ impl InnerAttributes for Box<InnerVideoFrame> {
 }
 
 impl InnerVideoFrame {
-    pub(crate) fn prepare_before_save(&mut self) {
+    pub(crate) fn preserve(&mut self) {
+        for o in self.resident_objects.iter() {
+            let mut obj = o.lock().unwrap();
+            let real_parent_id = obj.parent.as_ref().map(|p| p.inner.lock().unwrap().id);
+            obj.parent_id = real_parent_id;
+        }
+
         self.offline_objects = self
             .resident_objects
             .iter()
             .map(|o| o.lock().unwrap().clone())
             .collect();
+
+        let ids = self
+            .offline_objects
+            .iter()
+            .map(|o| o.id)
+            .collect::<HashSet<_>>();
+
+        assert!(self
+            .offline_objects
+            .iter()
+            .all(|x| x.parent_id.map(|id| ids.contains(&id)).unwrap_or(true)));
     }
 
-    pub(crate) fn prepare_after_load(&mut self) {
+    pub(crate) fn restore(&mut self) {
         self.resident_objects = self
             .offline_objects
             .iter()
             .map(|o| Arc::new(Mutex::new(o.clone())))
             .collect();
+
+        for (i, o) in self.resident_objects.iter().enumerate() {
+            let mut o = o.lock().unwrap();
+            let required_parent_id = o.parent_id;
+            if required_parent_id.is_none() {
+                continue;
+            }
+
+            let required_parent_id = required_parent_id.unwrap();
+
+            for (j, p) in self.resident_objects.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                let p_inner = p.lock().unwrap();
+                let parent_id = p_inner.id;
+                if parent_id == required_parent_id {
+                    o.parent = Some(ParentObject::new(Object::from_arc_inner_object(p.clone())));
+                    break;
+                }
+            }
+
+            if o.parent.is_none() {
+                panic!("Parent object with id {} not found", required_parent_id);
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn restore_with_merge(&mut self) {
+        let _objects = mem::take(&mut self.resident_objects);
+        self.restore();
+        todo!("merge objects")
     }
 }
 
@@ -425,7 +478,7 @@ impl VideoFrame {
             .resident_objects
             .iter()
             .filter_map(|o| {
-                if q.execute(o.lock().unwrap().deref()) {
+                if q.execute(&Object::from_arc_inner_object(o.clone())) {
                     Some(Object::from_arc_inner_object(o.clone()))
                 } else {
                     None
@@ -463,7 +516,7 @@ impl VideoFrame {
         let mut frame = self.inner.lock().unwrap();
         frame
             .resident_objects
-            .retain(|o| !q.execute(o.lock().unwrap().deref()));
+            .retain(|o| !q.execute(&Object::from_arc_inner_object(o.clone())));
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -477,13 +530,13 @@ impl VideoFrame {
 
     pub fn make_snapshot(&mut self) {
         let mut frame = self.inner.lock().unwrap();
-        frame.prepare_before_save();
+        frame.preserve();
     }
 
     pub fn restore_from_snapshot(&mut self) {
         let mut frame = self.inner.lock().unwrap();
         frame.resident_objects.clear();
-        frame.prepare_after_load();
+        frame.restore();
     }
 
     pub fn get_modified_objects(&self) -> Vec<Object> {
@@ -828,8 +881,9 @@ impl VideoFrame {
 mod tests {
     use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::query::Query;
-    use crate::primitives::Modification;
-    use crate::test::utils::gen_frame;
+    use crate::primitives::message::video::object::InnerObjectBuilder;
+    use crate::primitives::{Modification, Object, RBBox};
+    use crate::test::utils::{gen_frame, s};
 
     #[test]
     fn test_access_objects_by_id() {
@@ -913,7 +967,7 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshotting() {
+    fn test_snapshot_simple() {
         let mut t = gen_frame();
         t.make_snapshot_py();
         let mut o = t.access_objects_by_id_py(vec![0]).pop().unwrap();
@@ -939,5 +993,47 @@ mod tests {
 
         let modified = t.get_modified_objects();
         assert!(modified.is_empty());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_snapshot_no_parent_added_to_frame() {
+        let parent = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .parent_id(None)
+                .creator(s("some-model"))
+                .label(s("some-label"))
+                .id(155)
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .build()
+                .unwrap(),
+        );
+        let mut frame = gen_frame();
+        let mut obj = frame.get_object(0).unwrap();
+        obj.set_parent(Some(parent));
+        frame.make_snapshot();
+    }
+
+    #[test]
+    fn test_snapshot_with_parent_added_to_frame() {
+        let mut parent = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .parent_id(None)
+                .creator(s("some-model"))
+                .label(s("some-label"))
+                .id(155)
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .build()
+                .unwrap(),
+        );
+        let mut frame = gen_frame();
+        let mut obj = frame.get_object(0).unwrap();
+        obj.set_parent(Some(parent.clone()));
+        frame.add_object(parent.clone());
+        parent.set_id(155);
+        frame.make_snapshot();
+        frame.restore_from_snapshot();
+        let obj = frame.get_object(0).unwrap();
+        assert_eq!(obj.get_parent().unwrap().inner.lock().unwrap().id, 155);
     }
 }

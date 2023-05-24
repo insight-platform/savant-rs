@@ -18,7 +18,7 @@ impl VideoFrameBatch {
     pub(crate) fn prepare_after_load(&mut self) {
         let offline_frames = std::mem::take(&mut self.offline_frames);
         for (id, mut frame) in offline_frames.into_iter() {
-            frame.prepare_after_load();
+            frame.restore();
             self.frames.insert(id, VideoFrame::from_inner(frame));
         }
     }
@@ -26,7 +26,7 @@ impl VideoFrameBatch {
     pub(crate) fn prepare_before_save(&mut self) {
         for (id, frame) in self.frames.iter_mut() {
             let mut frame = frame.inner.lock().unwrap();
-            frame.prepare_before_save();
+            frame.preserve();
             self.offline_frames.insert(*id, frame.as_ref().clone());
         }
     }

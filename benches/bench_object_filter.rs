@@ -3,11 +3,11 @@
 extern crate test;
 
 use savant_rs::primitives::message::video::object::query::*;
-use savant_rs::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
-use savant_rs::primitives::{AttributeBuilder, RBBox, Value};
+use savant_rs::primitives::message::video::object::InnerObjectBuilder;
+use savant_rs::primitives::{AttributeBuilder, Object, RBBox, Value};
 use test::Bencher;
 
-fn get_objects() -> Vec<InnerObject> {
+fn get_objects() -> Vec<Object> {
     (0..100)
         .into_iter()
         .map(|i| {
@@ -30,7 +30,7 @@ fn get_objects() -> Vec<InnerObject> {
                     .build()
                     .unwrap(),
             );
-            o
+            Object::from_inner_object(o)
         })
         .collect::<Vec<_>>()
 }

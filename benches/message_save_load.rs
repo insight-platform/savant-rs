@@ -7,7 +7,7 @@ use savant_rs::test::utils::gen_frame;
 use test::Bencher;
 
 #[bench]
-fn bench_video_frame_sync(b: &mut Bencher) {
+fn bench_save_load_video_frame(b: &mut Bencher) {
     pyo3::prepare_freethreaded_python();
     let frame = Message::video_frame(gen_frame());
     b.iter(|| {
@@ -18,7 +18,7 @@ fn bench_video_frame_sync(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_eos_sync(b: &mut Bencher) {
+fn bench_save_load_eos(b: &mut Bencher) {
     let eos = savant_rs::primitives::EndOfStream::new("test".to_string());
     let frame = Message::end_of_stream(eos);
     b.iter(|| {
@@ -29,7 +29,7 @@ fn bench_eos_sync(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_batch_sync(b: &mut Bencher) {
+fn bench_save_load_batch(b: &mut Bencher) {
     let mut batch = VideoFrameBatch::new();
     batch.add(1, gen_frame());
     batch.add(2, gen_frame());

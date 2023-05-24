@@ -6,46 +6,29 @@ use crate::utils::symbol_mapper::get_object_id;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub mod query;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone)]
 pub struct ParentObject {
-    #[pyo3(get, set)]
-    pub id: i64,
-    #[pyo3(get, set)]
-    pub creator: String,
-    #[pyo3(get, set)]
-    pub label: String,
-    #[with(Skip)]
-    #[builder(default)]
-    pub creator_id: Option<i64>,
-    #[with(Skip)]
-    #[builder(default)]
-    pub label_id: Option<i64>,
+    pub(crate) inner: Arc<Mutex<InnerObject>>,
 }
 
-impl Default for ParentObject {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            creator: "".to_string(),
-            label: "".to_string(),
-            creator_id: None,
-            label_id: None,
-        }
+impl PartialEq for ParentObject {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
     }
 }
 
 impl ToSerdeJsonValue for ParentObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
+        let inner = self.inner.lock().unwrap();
         serde_json::json!({
-            "id": self.id,
-            "creator": self.creator,
-            "label": self.label,
+            "id": inner.id,
+            "creator": inner.creator,
+            "label": inner.label,
         })
     }
 }
@@ -64,16 +47,16 @@ impl ParentObject {
     }
 
     #[new]
-    pub fn new(id: i64, creator: String, label: String) -> Self {
-        let (creator_id, label_id) =
-            get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
-
+    pub fn new(o: Object) -> Self {
         Self {
-            id,
-            creator,
-            label,
-            creator_id,
-            label_id,
+            inner: o.inner.clone(),
+        }
+    }
+
+    #[getter]
+    pub fn object(&self) -> Object {
+        Object {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -109,6 +92,9 @@ pub struct InnerObject {
     #[builder(default)]
     pub confidence: Option<f64>,
     #[builder(default)]
+    pub(crate) parent_id: Option<i64>,
+    #[with(Skip)]
+    #[builder(default)]
     pub parent: Option<ParentObject>,
     #[builder(default)]
     pub track_id: Option<i64>,
@@ -132,6 +118,7 @@ impl Default for InnerObject {
             bbox: RBBox::default(),
             attributes: HashMap::new(),
             confidence: None,
+            parent_id: None,
             parent: None,
             track_id: None,
             modifications: Vec::new(),
@@ -186,15 +173,19 @@ impl Attributive<InnerObject> for Object {
 }
 
 impl Object {
-    #[cfg(test)]
-    pub(crate) fn from_inner_object(object: InnerObject) -> Self {
+    pub fn from_inner_object(object: InnerObject) -> Self {
         Self {
             inner: Arc::new(Mutex::new(object)),
         }
     }
 
-    pub(crate) fn from_arc_inner_object(object: Arc<Mutex<InnerObject>>) -> Self {
+    pub fn from_arc_inner_object(object: Arc<Mutex<InnerObject>>) -> Self {
         Self { inner: object }
+    }
+
+    pub fn get_inner(&self) -> MutexGuard<InnerObject> {
+        let inner = self.inner.lock().unwrap();
+        inner
     }
 }
 
@@ -226,6 +217,8 @@ impl Object {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
+        let parent_id = parent.as_ref().map(|p| p.inner.lock().unwrap().id);
+
         let object = InnerObject {
             id,
             creator,
@@ -235,6 +228,7 @@ impl Object {
             confidence,
             parent,
             track_id,
+            parent_id,
             modifications: Vec::default(),
             creator_id,
             label_id,
@@ -278,8 +272,14 @@ impl Object {
 
     #[getter]
     pub fn get_parent(&self) -> Option<ParentObject> {
-        let object = self.inner.lock().unwrap();
-        object.parent.clone()
+        let object = &self.inner.lock().unwrap();
+        match (object.parent.as_ref(), object.parent_id.as_ref()) {
+            (Some(o), Some(_)) => Some(o.clone()),
+            (None, None) => None,
+            (Some(_), None) | (None, Some(_)) => {
+                panic!("Parent Id and Parent object must be both set")
+            }
+        }
     }
 
     #[setter]
@@ -325,9 +325,14 @@ impl Object {
     }
 
     #[setter]
-    pub fn set_parent(&mut self, parent: Option<ParentObject>) {
+    pub fn set_parent(&mut self, parent: Option<Object>) {
+        if let Some(parent) = parent.as_ref() {
+            assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
+        }
         let mut object = self.inner.lock().unwrap();
-        object.parent = parent;
+        let p = parent.as_ref();
+        object.parent_id = p.map(|p| p.inner.lock().unwrap().id);
+        object.parent = p.map(|p| ParentObject::new(p.clone()));
         object.modifications.push(Modification::Parent);
     }
 
@@ -532,5 +537,21 @@ mod tests {
             vec![Modification::BoundingBox, Modification::Attributes]
         );
         assert_eq!(t.take_modifications(), vec![]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn self_parent_assignment_panic_trivial() {
+        let mut obj = get_object();
+        obj.set_parent(Some(obj.clone()));
+    }
+
+    #[test]
+    #[should_panic]
+    fn self_parent_assignment_change_id() {
+        let mut obj = get_object();
+        let mut parent = obj.clone();
+        parent.set_id(2);
+        obj.set_parent(Some(parent));
     }
 }

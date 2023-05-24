@@ -91,7 +91,7 @@ frame.add_object(Object(
     bbox=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
     attributes={},
-    parent=ParentObject(id=2, creator="some", label="car"),
+    parent=None,
     track_id=None,
 ))
 

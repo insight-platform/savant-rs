@@ -2,12 +2,12 @@ pub mod functions;
 pub mod macros;
 pub mod py;
 
-use crate::primitives::message::video::object::InnerObject;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 use crate::primitives::to_json_value::ToSerdeJsonValue;
+use crate::primitives::Object;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
@@ -198,49 +198,73 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
     Ok(c)
 }
 
-impl ExecutableQuery<&InnerObject> for Query {
-    fn execute(&self, o: &InnerObject) -> bool {
+impl ExecutableQuery<&Object> for Query {
+    fn execute(&self, o: &Object) -> bool {
         match self {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
             Query::Not(x) => !x.execute(o),
             // self
-            Query::Id(x) => x.execute(&o.id),
-            Query::Creator(x) => x.execute(&o.creator),
-            Query::Label(x) => x.execute(&o.label),
-            Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
-            Query::TrackId(x) => o.track_id.map(|t| x.execute(&t)).unwrap_or(false),
-            Query::ConfidenceDefined => o.confidence.is_some(),
-            Query::TrackIdDefined => o.track_id.is_some(),
+            Query::Id(x) => x.execute(&o.get_inner().id),
+            Query::Creator(x) => x.execute(&o.get_inner().creator),
+            Query::Label(x) => x.execute(&o.get_inner().label),
+            Query::Confidence(x) => o
+                .get_inner()
+                .confidence
+                .map(|c| x.execute(&c))
+                .unwrap_or(false),
+            Query::TrackId(x) => o
+                .get_inner()
+                .track_id
+                .map(|t| x.execute(&t))
+                .unwrap_or(false),
+            Query::ConfidenceDefined => o.get_inner().confidence.is_some(),
+            Query::TrackIdDefined => o.get_inner().track_id.is_some(),
 
             // parent
-            Query::ParentDefined => o.parent.is_some(),
-            Query::ParentId(x) => o.parent.as_ref().map(|p| x.execute(&p.id)).unwrap_or(false),
-            Query::ParentCreator(x) => o
+            Query::ParentDefined => o.get_inner().parent.is_some(),
+            Query::ParentId(x) => o
+                .get_inner()
                 .parent
                 .as_ref()
-                .map(|p| x.execute(&p.creator))
+                .map(|p| x.execute(&p.inner.lock().unwrap().id))
+                .unwrap_or(false),
+            Query::ParentCreator(x) => o
+                .get_inner()
+                .parent
+                .as_ref()
+                .map(|p| x.execute(&p.inner.lock().unwrap().creator))
                 .unwrap_or(false),
             Query::ParentLabel(x) => o
+                .get_inner()
                 .parent
                 .as_ref()
-                .map(|p| x.execute(&p.label))
+                .map(|p| x.execute(&p.inner.lock().unwrap().label))
                 .unwrap_or(false),
 
             // box
-            Query::BoxWidth(x) => x.execute(&o.bbox.width),
-            Query::BoxHeight(x) => x.execute(&o.bbox.height),
-            Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
-            Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
-            Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
-            Query::BoxAngleDefined => o.bbox.angle.is_some(),
-            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
+            Query::BoxWidth(x) => x.execute(&o.get_inner().bbox.width),
+            Query::BoxHeight(x) => x.execute(&o.get_inner().bbox.height),
+            Query::BoxArea(x) => x.execute({
+                let inner = o.get_inner();
+                &(inner.bbox.width * inner.bbox.height)
+            }),
+            Query::BoxXCenter(x) => x.execute(&o.get_inner().bbox.xc),
+            Query::BoxYCenter(x) => x.execute(&o.get_inner().bbox.yc),
+            Query::BoxAngleDefined => o.get_inner().bbox.angle.is_some(),
+            Query::BoxAngle(x) => o
+                .get_inner()
+                .bbox
+                .angle
+                .map(|a| x.execute(&a))
+                .unwrap_or(false),
 
             // attributes
-            Query::AttributesEmpty => o.attributes.is_empty(),
+            Query::AttributesEmpty => o.get_inner().attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = &serde_json::json!(o
+                    .get_inner()
                     .attributes
                     .values()
                     .map(|v| v.to_serde_json_value())
@@ -282,6 +306,7 @@ impl Query {
 mod tests {
     use super::Query::*;
     use super::*;
+    use crate::primitives::message::video::object::InnerObject;
     use crate::primitives::{AttributeBuilder, ParentObject, RBBox, Value};
     use crate::query_and;
     use crate::test::utils::{gen_frame, s};
@@ -398,15 +423,15 @@ mod tests {
         let _q: super::Query = serde_json::from_str(&json).unwrap();
     }
 
-    fn gen_object() -> InnerObject {
-        InnerObject {
+    fn gen_object() -> crate::primitives::Object {
+        crate::primitives::Object::from_inner_object(InnerObject {
             id: 1,
             creator: s("peoplenet"),
             label: s("face"),
             confidence: Some(0.5),
             bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
             ..Default::default()
-        }
+        })
     }
 
     #[test]
@@ -432,19 +457,30 @@ mod tests {
         let expr = AttributesEmpty;
         assert!(expr.execute(&gen_object()));
 
-        let mut inner = gen_object();
-        inner.parent = Some(ParentObject::new(13, s("peoplenet"), s("person")));
-
-        assert!(expr.execute(&inner));
+        print!("{:?}", "test");
+        let object = gen_object();
+        {
+            let mut inner = object.inner.lock().unwrap();
+            inner.parent = Some(ParentObject::new(Object::from_inner_object(InnerObject {
+                id: 13,
+                creator: s("peoplenet"),
+                label: s("person"),
+                confidence: None,
+                bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+                ..Default::default()
+            })));
+        }
+        assert!(expr.execute(&object));
+        print!("{:?}", "after test");
 
         let expr = ParentId(eq(13));
-        assert!(expr.execute(&inner));
+        assert!(expr.execute(&object));
 
         let expr = ParentCreator(eq("peoplenet"));
-        assert!(expr.execute(&inner));
+        assert!(expr.execute(&object));
 
         let expr = ParentLabel(eq("person"));
-        assert!(expr.execute(&inner));
+        assert!(expr.execute(&object));
 
         let expr = BoxXCenter(gt(0.0));
         assert!(expr.execute(&gen_object()));
@@ -467,48 +503,52 @@ mod tests {
         let expr = BoxAngleDefined;
         assert!(!expr.execute(&gen_object()));
 
-        let mut inner = gen_object();
-        inner.bbox = RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0));
-        assert!(expr.execute(&inner));
+        let object = gen_object();
+        {
+            let mut inner = object.inner.lock().unwrap();
+            inner.bbox = RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0));
+        }
+        assert!(expr.execute(&object));
 
         let expr = BoxAngle(gt(20.0));
-        assert!(expr.execute(&inner));
+        assert!(expr.execute(&object));
 
         let expr = TrackIdDefined;
         assert!(!expr.execute(&gen_object()));
 
-        inner.track_id = Some(1);
-        assert!(expr.execute(&inner));
+        {
+            let mut inner = object.inner.lock().unwrap();
+            inner.track_id = Some(1);
+        }
+        assert!(expr.execute(&object));
 
-        inner.attributes = vec![AttributeBuilder::default()
-            .name(s("age-min-max-avg"))
-            .creator(s("classifier"))
-            .hint(Some(s("morphological-classifier")))
-            .values(vec![
-                Value::float(10.0, Some(0.7)),
-                Value::float(20.0, Some(0.8)),
-                Value::float(15.0, None),
-            ])
-            .build()
-            .unwrap()]
-        .into_iter()
-        .map(|a| ((a.creator.clone(), a.name.clone()), a))
-        .collect();
-
-        // print!(
-        //     "{}",
-        //     serde_json::to_string_pretty(&inner.to_serde_json_value()).unwrap()
-        // );
+        {
+            let mut inner = object.inner.lock().unwrap();
+            inner.attributes = vec![AttributeBuilder::default()
+                .name(s("age-min-max-avg"))
+                .creator(s("classifier"))
+                .hint(Some(s("morphological-classifier")))
+                .values(vec![
+                    Value::float(10.0, Some(0.7)),
+                    Value::float(20.0, Some(0.8)),
+                    Value::float(15.0, None),
+                ])
+                .build()
+                .unwrap()]
+            .into_iter()
+            .map(|a| ((a.creator.clone(), a.name.clone()), a))
+            .collect();
+        }
 
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (creator == 'classifier')]",
         ));
-        assert!(expr.execute(&inner));
+        assert!(expr.execute(&object));
 
         let expr = AttributesJMESQuery(s(
             "[? (hint != 'morphological-classifier') && (creator == 'classifier')]",
         ));
-        assert!(!expr.execute(&inner));
+        assert!(!expr.execute(&object));
     }
 
     #[test]

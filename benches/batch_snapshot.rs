@@ -7,7 +7,7 @@ use savant_rs::test::utils::gen_frame;
 use test::Bencher;
 
 #[bench]
-fn bench_batch(b: &mut Bencher) {
+fn bench_batch_snapshot(b: &mut Bencher) {
     let mut batch = VideoFrameBatch::new();
     batch.add(1, gen_frame());
     batch.add(2, gen_frame());
@@ -20,7 +20,7 @@ fn bench_batch(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_batch_py(b: &mut Bencher) {
+fn bench_batch_snapshot_py(b: &mut Bencher) {
     pyo3::prepare_freethreaded_python();
     let mut batch = VideoFrameBatch::new();
     batch.add(1, gen_frame());

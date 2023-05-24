@@ -26,7 +26,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
         NativeMessage::VideoFrame(s) => {
             let mut buf = Vec::with_capacity(760);
             let mut inner = s.inner.lock().unwrap();
-            inner.prepare_before_save();
+            inner.preserve();
             buf.extend_from_slice(
                 rkyv::to_bytes::<_, 756>(inner.as_ref())
                     .expect("Failed to serialize VideoFrame")

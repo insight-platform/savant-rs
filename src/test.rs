@@ -4,7 +4,8 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, Value,
+        AttributeBuilder, Intersection, IntersectionKind, Object, ParentObject, Point,
+        PyVideoFrameContent, Value,
     };
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
@@ -13,6 +14,20 @@ pub mod utils {
 
     #[pyfunction]
     pub fn gen_frame() -> VideoFrame {
+        let parent_object = Arc::new(Mutex::new(
+            InnerObjectBuilder::default()
+                .id(0)
+                .track_id(None)
+                .modifications(Vec::default())
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .parent(None)
+                .attributes(HashMap::default())
+                .confidence(None)
+                .creator("test".to_string())
+                .label("test2".to_string())
+                .build()
+                .unwrap(),
+        ));
         let mut f = VideoFrame::from_inner(
             InnerVideoFrameBuilder::default()
                 .source_id("test".to_string())
@@ -30,27 +45,16 @@ pub mod utils {
                 .attributes(HashMap::default())
                 .offline_objects(Default::default())
                 .resident_objects(vec![
-                    Arc::new(Mutex::new(
-                        InnerObjectBuilder::default()
-                            .id(0)
-                            .track_id(None)
-                            .modifications(Vec::default())
-                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                            .parent(None)
-                            .attributes(HashMap::default())
-                            .confidence(None)
-                            .creator("test".to_string())
-                            .label("test2".to_string())
-                            .build()
-                            .unwrap(),
-                    )),
+                    parent_object.clone(),
                     Arc::new(Mutex::new(
                         InnerObjectBuilder::default()
                             .id(1)
                             .track_id(None)
                             .modifications(Vec::default())
                             .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                            .parent(None)
+                            .parent(Some(ParentObject::new(Object::from_arc_inner_object(
+                                parent_object.clone(),
+                            ))))
                             .attributes(HashMap::default())
                             .confidence(None)
                             .creator("test2".to_string())
@@ -64,7 +68,9 @@ pub mod utils {
                             .track_id(None)
                             .modifications(Vec::default())
                             .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                            .parent(None)
+                            .parent(Some(ParentObject::new(Object::from_arc_inner_object(
+                                parent_object,
+                            ))))
                             .attributes(HashMap::default())
                             .confidence(None)
                             .creator("test2".to_string())
