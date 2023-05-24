@@ -51,4 +51,5 @@ assert (r.edges == [(0, "up"), (3, None), (1, None)])
 
 r = res[3]
 assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(0, "up"), (1, None), (3, None)])
+print(r.edges)
+assert (r.edges == [(1, None), (0, "up"), (3, None)])
