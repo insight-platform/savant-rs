@@ -3,7 +3,7 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
 use crate::utils::python::no_gil;
 use geo::line_intersection::line_intersection;
-use geo::{Contains, Intersects, Line, LineString};
+use geo::{Contains, EuclideanDistance, Line, LineIntersection, LineString};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -174,11 +174,27 @@ impl PolygonalArea {
         let seg = Line::from([(seg.begin.x, seg.begin.y), (seg.end.x, seg.end.y)]);
         let poly = self.polygon.as_ref().unwrap();
 
-        let intersections = poly
+        let mut intersections = poly
             .exterior()
             .lines()
             .enumerate()
-            .flat_map(|(indx, l)| if l.intersects(&seg) { Some(indx) } else { None })
+            .flat_map(|(indx, l)| match line_intersection(l, seg) {
+                None => None,
+                Some(intersection) => match intersection {
+                    LineIntersection::SinglePoint {
+                        intersection,
+                        is_proper: _,
+                    } => Some((indx, seg.start.euclidean_distance(&intersection))),
+                    LineIntersection::Collinear { intersection } => {
+                        Some((indx, seg.start.euclidean_distance(&intersection.start)))
+                    }
+                },
+            })
+            .collect::<Vec<_>>();
+        intersections.sort_by(|(_, ld), (_, rd)| ld.partial_cmp(rd).unwrap());
+        let intersections = intersections
+            .into_iter()
+            .map(|(e, _)| e)
             .collect::<Vec<_>>();
 
         let contains_start = poly.contains(&seg.start) || poly.exterior().contains(&seg.start);
@@ -354,7 +370,7 @@ mod tests {
         let res = area.crossed_by_segment_py(&seg5);
         assert_eq!(
             res,
-            Intersection::new(IntersectionKind::Cross, vec![(1, None), (3, None)])
+            Intersection::new(IntersectionKind::Cross, vec![(3, None), (1, None)])
         );
 
         let seg6 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, -2.0));
@@ -394,10 +410,10 @@ mod tests {
             Intersection::new(
                 IntersectionKind::Inside,
                 vec![
+                    (2, Some(LOWER.into())),
+                    (3, None),
                     (0, Some(UPPER.into())),
                     (1, None),
-                    (2, Some(LOWER.into())),
-                    (3, None)
                 ]
             )
         );
@@ -409,6 +425,26 @@ mod tests {
             Intersection::new(
                 IntersectionKind::Inside,
                 vec![(0, Some(UPPER.into())), (1, None),]
+            )
+        );
+
+        let seg10 = Segment::new(Point::new(-2.0, 1.0), Point::new(2.0, 1.0));
+        let res = area.crossed_by_segment_py(&seg10);
+        assert_eq!(
+            res,
+            Intersection::new(
+                IntersectionKind::Cross,
+                vec![(0, Some(UPPER.into())), (3, None), (1, None)]
+            )
+        );
+
+        let seg11 = Segment::new(Point::new(2.0, 1.0), Point::new(-2.0, 1.0));
+        let res = area.crossed_by_segment_py(&seg11);
+        assert_eq!(
+            res,
+            Intersection::new(
+                IntersectionKind::Cross,
+                vec![(1, None), (0, Some(UPPER.into())), (3, None),]
             )
         );
     }
@@ -446,8 +482,8 @@ mod tests {
                     Intersection::new(
                         IntersectionKind::Cross,
                         vec![
+                            (3, Some(format!("{LEFT}_1"))),
                             (1, Some(format!("{RIGHT}_1"))),
-                            (3, Some(format!("{LEFT}_1")))
                         ]
                     ),
                     Intersection::new(
@@ -462,8 +498,8 @@ mod tests {
                     Intersection::new(
                         IntersectionKind::Cross,
                         vec![
+                            (3, Some(format!("{LEFT}_2"))),
                             (1, Some(format!("{RIGHT}_2"))),
-                            (3, Some(format!("{LEFT}_2")))
                         ]
                     ),
                     Intersection::new(IntersectionKind::Outside, vec![])

@@ -15,8 +15,10 @@ assert bad_area2.is_self_intersecting() == True
 good_area2 = PolygonalArea([Point(-1, -1), Point(1, 1), Point(-1, 1)], ["up", None, "down"])
 assert good_area2.is_self_intersecting() == False
 
-crosses_13 = Segment(Point(-2, 0), Point(2, 0))
-crosses_02 = Segment(Point(0, -2), Point(0, 2))
+crosses_031 = Segment(Point(-2, 1), Point(2, 1))
+crosses_013 = Segment(Point(2, 1), Point(-2, 1))
+crosses_31 = Segment(Point(-2, 0), Point(2, 0))
+crosses_20 = Segment(Point(0, -2), Point(0, 2))
 leaves_vertex = Segment(Point(0, 0), Point(2, 2))
 crosses_vertices = Segment(Point(-2, -2), Point(2, 2))
 crosses_whole_edge = Segment(Point(-2, 1), Point(2, 1))
@@ -24,7 +26,7 @@ enters_vertex = Segment(Point(2, 2), Point(0, 0))
 outside = Segment(Point(-2, 2), Point(2, 2))
 inside = Segment(Point(-0.5, -0.5), Point(0.5, 0.5))
 
-l = [crosses_13, crosses_02, leaves_vertex, crosses_vertices, crosses_whole_edge, enters_vertex, outside, inside]
+l = [crosses_31, crosses_20, crosses_031, crosses_013, leaves_vertex, crosses_vertices, crosses_whole_edge, enters_vertex, outside, inside]
 
 t = timer()
 
@@ -35,10 +37,18 @@ for _ in range(10_000):
 print("Spent", timer() - t)
 pprint(list(zip(l, res)))
 
-r = res[1]
-assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(0, "up"), (2, "down")])
-
 r = res[0]
 assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(1, None), (3, None)])
+assert (r.edges == [(3, None), (1, None)])
+
+r = res[1]
+assert (r.kind == IntersectionKind.Cross)
+assert (r.edges == [(2, "down"), (0, "up")])
+
+r = res[2]
+assert (r.kind == IntersectionKind.Cross)
+assert (r.edges == [(0, "up"), (3, None), (1, None)])
+
+r = res[3]
+assert (r.kind == IntersectionKind.Cross)
+assert (r.edges == [(0, "up"), (1, None), (3, None)])
