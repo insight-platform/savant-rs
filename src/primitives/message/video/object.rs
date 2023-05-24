@@ -48,9 +48,7 @@ impl ParentObject {
 
     #[new]
     pub fn new(o: Object) -> Self {
-        Self {
-            inner: o.inner.clone(),
-        }
+        Self { inner: o.inner }
     }
 
     #[getter]
