@@ -23,6 +23,7 @@ impl PaddingDraw {
     }
 
     #[new]
+    #[pyo3(signature = (left=0, top=0, right=0, bottom=0))]
     pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> Self {
         assert!(left >= 0);
         assert!(top >= 0);
@@ -86,6 +87,7 @@ impl ColorDraw {
     }
 
     #[new]
+    #[pyo3(signature = (red=0, green=255, blue=0, alpha=255))]
     pub fn new(red: i64, green: i64, blue: i64, alpha: i64) -> Self {
         assert!((0..=255).contains(&red));
         assert!((0..=255).contains(&green));
@@ -203,6 +205,7 @@ impl DotDraw {
     }
 
     #[new]
+    #[pyo3(signature = (color, radius = 2))]
     pub fn new(color: ColorDraw, radius: i64) -> Self {
         assert!((0..=100).contains(&radius));
 
@@ -243,6 +246,7 @@ impl LabelDraw {
     }
 
     #[new]
+    #[pyo3(signature = (color, font_scale = 1.0, thickness = 1, format = vec!["{label}".to_string()]))]
     pub fn new(color: ColorDraw, font_scale: f64, thickness: i64, format: Vec<String>) -> Self {
         assert!((0.0..=200.0).contains(&font_scale));
         assert!((0..=100).contains(&thickness));
