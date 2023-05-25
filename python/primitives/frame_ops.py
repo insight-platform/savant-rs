@@ -1,5 +1,7 @@
 from savant_rs.utils import gen_frame, save_message, load_message
-from savant_rs.primitives import Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
+from savant_rs.primitives import SetDrawLabelKind, Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, \
+    Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
+from savant_rs.video_object_query import Query as Q
 import json
 from timeit import default_timer as timer
 
@@ -62,11 +64,15 @@ frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
     Value.bboxes([BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()], confidence=0.5),
     Value.point(Point(0.1, 0.2), confidence=0.5),
     Value.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
-    Value.polygon(PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]), confidence=0.5),
+    Value.polygon(PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
+                  confidence=0.5),
     Value.polygons([
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
-        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])], confidence=0.5),
+        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])],
+        confidence=0.5),
 ]))
+
+
 
 frame.set_attribute(Attribute(creator="other", name="attr", values=[
     Value.integer(1, confidence=0.5),
@@ -122,5 +128,14 @@ print(frame_message.is_video_frame)
 frame = frame_message.as_video_frame
 
 # print(frame)
+objects = frame.access_objects(Q.idle())
+assert len(objects) == 1
 
+frame.set_draw_label(Q.idle(), SetDrawLabelKind.own("person"))
+frame.set_draw_label(Q.idle(), SetDrawLabelKind.parent("also_person"))
+
+frame.delete_objects(Q.idle())
+
+objects = frame.access_objects(Q.idle())
+assert len(objects) == 0
 
