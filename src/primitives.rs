@@ -1,5 +1,6 @@
 pub mod attribute;
 pub mod bbox;
+pub mod draw;
 pub mod message;
 pub mod point;
 pub mod polygonal_area;
@@ -10,26 +11,20 @@ use crate::primitives::message::video::frame::PyFrameTransformation;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
-pub use bbox::BBox;
-pub use bbox::RBBox;
+pub use bbox::{BBox, RBBox};
+pub use draw::*;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
 pub use message::video::batch::VideoFrameBatch;
-pub use message::video::frame::PyVideoFrameContent;
-pub use message::video::frame::VideoFrame;
-pub use message::video::frame::VideoTranscodingMethod;
-pub use message::video::object::Modification;
-pub use message::video::object::Object;
-pub use message::video::object::ParentObject;
+pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoTranscodingMethod};
+pub use message::video::object::{Modification, Object, ParentObject};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, PyResult, Python};
-pub use segment::Intersection;
-pub use segment::IntersectionKind;
-pub use segment::Segment;
+pub use segment::{Intersection, IntersectionKind, Segment};
 
 #[pymodule]
 pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -52,5 +47,12 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyVideoFrameContent>()?;
     m.add_class::<PyFrameTransformation>()?;
     m.add_class::<Modification>()?;
+
+    m.add_class::<ColorDraw>()?;
+    m.add_class::<BoundingBoxDraw>()?;
+    m.add_class::<DotDraw>()?;
+    m.add_class::<LabelDraw>()?;
+    m.add_class::<PaddingDraw>()?;
+    m.add_class::<ObjectDraw>()?;
     Ok(())
 }
