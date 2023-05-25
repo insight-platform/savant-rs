@@ -580,6 +580,24 @@ impl VideoFrame {
             }
         });
     }
+
+    pub fn set_parent(&self, q: &Query, parent: &Object) {
+        let objects = self.access_objects(q);
+        objects.iter().for_each(|o| {
+            let mut inner = o.inner.lock().unwrap();
+            inner.parent = Some(ParentObject::new(parent.clone()));
+            inner.parent_id = Some(parent.get_id());
+        });
+    }
+
+    pub fn clear_parent(&self, q: &Query) {
+        let objects = self.access_objects(q);
+        objects.iter().for_each(|o| {
+            let mut inner = o.inner.lock().unwrap();
+            inner.parent = None;
+            inner.parent_id = None;
+        });
+    }
 }
 
 impl ToSerdeJsonValue for VideoFrame {
@@ -893,6 +911,16 @@ impl VideoFrame {
         no_gil(|| self.delete_objects(&query.inner))
     }
 
+    #[pyo3(name = "set_parent")]
+    pub fn set_parent_py(&mut self, q: QueryWrapper, parent: Object) {
+        no_gil(|| self.set_parent(q.inner.deref(), &parent))
+    }
+
+    #[pyo3(name = "clear_parent")]
+    pub fn clear_parent_py(&mut self, q: QueryWrapper) {
+        no_gil(|| self.clear_parent(q.inner.deref()))
+    }
+
     pub fn clear_objects(&mut self) {
         let mut frame = self.inner.lock().unwrap();
         frame.resident_objects.clear();
@@ -917,7 +945,7 @@ impl VideoFrame {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attributive;
-    use crate::primitives::message::video::object::query::Query;
+    use crate::primitives::message::video::object::query::{one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, s};
@@ -1111,5 +1139,23 @@ mod tests {
 
         let child_object = frame.get_object(2).unwrap();
         assert_eq!(child_object.draw_label(), s("draw"));
+    }
+
+    #[test]
+    fn test_set_clear_parent_ops() {
+        let frame = gen_frame();
+        let parent = frame.get_object(0).unwrap();
+        frame.clear_parent(&Query::Id(one_of(&[1, 2])));
+        let obj = frame.get_object(1).unwrap();
+        assert!(obj.get_parent().is_none());
+        let obj = frame.get_object(2).unwrap();
+        assert!(obj.get_parent().is_none());
+
+        frame.set_parent(&Query::Id(one_of(&[1, 2])), &parent);
+        let obj = frame.get_object(1).unwrap();
+        assert!(obj.get_parent().is_some());
+
+        let obj = frame.get_object(2).unwrap();
+        assert!(obj.get_parent().is_some());
     }
 }

@@ -241,7 +241,6 @@ impl ExecutableQuery<&Object> for Query {
                 .as_ref()
                 .map(|p| x.execute(&p.inner.lock().unwrap().label))
                 .unwrap_or(false),
-
             // box
             Query::BoxWidth(x) => x.execute(&o.get_inner().bbox.width),
             Query::BoxHeight(x) => x.execute(&o.get_inner().bbox.height),
