@@ -54,5 +54,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LabelDraw>()?;
     m.add_class::<PaddingDraw>()?;
     m.add_class::<ObjectDraw>()?;
+    m.add_class::<SetDrawLabelKindWrapper>()?;
     Ok(())
 }

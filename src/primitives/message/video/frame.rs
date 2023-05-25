@@ -3,7 +3,9 @@ use crate::primitives::message::video::object::query::py::QueryWrapper;
 use crate::primitives::message::video::object::query::{ExecutableQuery, Query};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Message, Object, ParentObject};
+use crate::primitives::{
+    Attribute, Message, Object, ParentObject, SetDrawLabelKind, SetDrawLabelKindWrapper,
+};
 use crate::utils::python::no_gil;
 use hashbrown::HashSet;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
@@ -472,6 +474,22 @@ impl VideoFrame {
         }
     }
 
+    pub fn children_objects(&self, o: &Object) -> Vec<Object> {
+        let frame = self.inner.lock().unwrap();
+        let res = frame
+            .resident_objects
+            .iter()
+            .filter_map(|ch| {
+                ch.lock().unwrap().parent.as_ref().map(|p| {
+                    Arc::ptr_eq(&o.inner, &p.inner)
+                        .then(|| Object::from_arc_inner_object(ch.clone()))
+                })
+            })
+            .flatten()
+            .collect();
+        res
+    }
+
     pub fn access_objects(&self, q: &Query) -> Vec<Object> {
         let frame = self.inner.lock().unwrap();
         frame
@@ -547,6 +565,20 @@ impl VideoFrame {
             .filter(|o| !o.lock().unwrap().modifications.is_empty())
             .map(|o| Object::from_arc_inner_object(o.clone()))
             .collect()
+    }
+
+    pub fn set_draw_label(&self, q: &Query, label: SetDrawLabelKind) {
+        let objects = self.access_objects(q);
+        objects.iter().for_each(|o| match &label {
+            SetDrawLabelKind::OwnLabel(l) => {
+                o.inner.lock().unwrap().draw_label = Some(l.clone());
+            }
+            SetDrawLabelKind::ParentLabel(l) => {
+                o.inner.lock().unwrap().parent.as_ref().map(|p| {
+                    p.inner.lock().unwrap().draw_label = Some(l.clone());
+                });
+            }
+        });
     }
 }
 
@@ -816,6 +848,11 @@ impl VideoFrame {
         self.delete_attribute(creator, name)
     }
 
+    #[pyo3(name = "set_draw_label")]
+    pub fn set_draw_label_py(&mut self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
+        no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
+    }
+
     #[pyo3(name = "set_attribute")]
     pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.set_attribute(attribute)
@@ -882,7 +919,7 @@ mod tests {
     use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::query::Query;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{Modification, Object, RBBox};
+    use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, s};
 
     #[test]
@@ -1035,5 +1072,44 @@ mod tests {
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
         assert_eq!(obj.get_parent().unwrap().inner.lock().unwrap().id, 155);
+    }
+
+    #[test]
+    fn test_no_children() {
+        let frame = gen_frame();
+        let obj = frame.get_object(2).unwrap();
+        assert!(frame.children_objects(&obj).is_empty());
+    }
+
+    #[test]
+    fn test_two_children() {
+        let frame = gen_frame();
+        let obj = frame.get_object(0).unwrap();
+        assert_eq!(frame.children_objects(&obj).len(), 2);
+    }
+
+    #[test]
+    fn set_parent_draw_label() {
+        let frame = gen_frame();
+        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
+        let parent_object = frame.get_object(0).unwrap();
+        assert_eq!(parent_object.draw_label(), s("draw"));
+
+        let child_object = frame.get_object(1).unwrap();
+        assert_ne!(child_object.draw_label(), s("draw"));
+    }
+
+    #[test]
+    fn set_own_draw_label() {
+        let frame = gen_frame();
+        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
+        let parent_object = frame.get_object(0).unwrap();
+        assert_eq!(parent_object.draw_label(), s("draw"));
+
+        let child_object = frame.get_object(1).unwrap();
+        assert_eq!(child_object.draw_label(), s("draw"));
+
+        let child_object = frame.get_object(2).unwrap();
+        assert_eq!(child_object.draw_label(), s("draw"));
     }
 }

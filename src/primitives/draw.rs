@@ -330,3 +330,52 @@ impl ObjectDraw {
         self.label.clone()
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum SetDrawLabelKind {
+    OwnLabel(String),
+    ParentLabel(String),
+}
+
+#[pyclass]
+#[derive(Clone, Debug)]
+#[pyo3(name = "SetDrawLabelKind")]
+pub struct SetDrawLabelKindWrapper {
+    pub(crate) inner: SetDrawLabelKind,
+}
+
+#[pymethods]
+impl SetDrawLabelKindWrapper {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    #[staticmethod]
+    pub fn own(label: String) -> Self {
+        Self {
+            inner: SetDrawLabelKind::OwnLabel(label),
+        }
+    }
+
+    #[staticmethod]
+    pub fn parent(label: String) -> Self {
+        Self {
+            inner: SetDrawLabelKind::ParentLabel(label),
+        }
+    }
+
+    pub fn is_own_label(&self) -> bool {
+        matches!(self.inner, SetDrawLabelKind::OwnLabel(_))
+    }
+
+    pub fn is_parent_label(&self) -> bool {
+        matches!(self.inner, SetDrawLabelKind::ParentLabel(_))
+    }
+
+    pub fn get_label(&self) -> String {
+        match &self.inner {
+            SetDrawLabelKind::OwnLabel(label) | SetDrawLabelKind::ParentLabel(label) => {
+                label.clone()
+            }
+        }
+    }
+}

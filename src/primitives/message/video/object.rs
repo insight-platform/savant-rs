@@ -70,6 +70,7 @@ pub enum Modification {
     Confidence,
     Parent,
     TrackId,
+    DrawLabel,
 }
 
 impl ToSerdeJsonValue for Modification {
@@ -84,6 +85,8 @@ pub struct InnerObject {
     pub id: i64,
     pub creator: String,
     pub label: String,
+    #[builder(default)]
+    pub draw_label: Option<String>,
     pub bbox: RBBox,
     #[builder(default)]
     pub attributes: HashMap<(String, String), Attribute>,
@@ -113,6 +116,7 @@ impl Default for InnerObject {
             id: 0,
             creator: "".to_string(),
             label: "".to_string(),
+            draw_label: None,
             bbox: RBBox::default(),
             attributes: HashMap::new(),
             confidence: None,
@@ -132,6 +136,7 @@ impl ToSerdeJsonValue for InnerObject {
             "id": self.id,
             "creator": self.creator,
             "label": self.label,
+            "draw_label": self.draw_label,
             "bbox": self.bbox.to_serde_json_value(),
             "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
@@ -227,9 +232,9 @@ impl Object {
             parent,
             track_id,
             parent_id,
-            modifications: Vec::default(),
             creator_id,
             label_id,
+            ..Default::default()
         };
         Self {
             inner: Arc::new(Mutex::new(object)),
@@ -266,6 +271,19 @@ impl Object {
     pub fn get_confidence(&self) -> Option<f64> {
         let object = self.inner.lock().unwrap();
         object.confidence
+    }
+
+    #[getter]
+    pub fn draw_label(&self) -> String {
+        let inner = self.inner.lock().unwrap();
+        inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
+    }
+
+    #[setter]
+    pub fn set_draw_label(&mut self, draw_label: Option<String>) {
+        let mut object = self.inner.lock().unwrap();
+        object.draw_label = draw_label;
+        object.modifications.push(Modification::DrawLabel);
     }
 
     #[getter]
