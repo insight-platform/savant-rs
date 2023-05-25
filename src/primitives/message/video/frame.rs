@@ -388,8 +388,10 @@ impl InnerAttributes for Box<InnerVideoFrame> {
 
 impl InnerVideoFrame {
     pub(crate) fn preserve(&mut self) {
+        let mut ids = HashSet::new();
         for o in self.resident_objects.iter() {
             let mut obj = o.lock().unwrap();
+            ids.insert(obj.id);
             let real_parent_id = obj.parent.as_ref().map(|p| p.inner.lock().unwrap().id);
             obj.parent_id = real_parent_id;
         }
@@ -399,12 +401,6 @@ impl InnerVideoFrame {
             .iter()
             .map(|o| o.lock().unwrap().clone())
             .collect();
-
-        let ids = self
-            .offline_objects
-            .iter()
-            .map(|o| o.id)
-            .collect::<HashSet<_>>();
 
         assert!(self
             .offline_objects
