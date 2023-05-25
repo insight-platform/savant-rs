@@ -1,6 +1,6 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::query::py::QueryWrapper;
-use crate::primitives::message::video::object::query::{ExecutableQuery, Query};
+use crate::primitives::message::video::object::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
@@ -524,6 +524,7 @@ impl VideoFrame {
     }
 
     pub fn delete_objects_by_ids(&mut self, ids: &[i64]) {
+        self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut frame = self.inner.lock().unwrap();
         frame
             .resident_objects
@@ -531,10 +532,9 @@ impl VideoFrame {
     }
 
     pub fn delete_objects(&mut self, q: &Query) {
-        let mut frame = self.inner.lock().unwrap();
-        frame
-            .resident_objects
-            .retain(|o| !q.execute(&Object::from_arc_inner_object(o.clone())));
+        let objs = self.access_objects(q);
+        let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
+        self.delete_objects_by_ids(&ids);
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -945,7 +945,7 @@ impl VideoFrame {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attributive;
-    use crate::primitives::message::video::object::query::{one_of, Query};
+    use crate::primitives::message::video::object::query::{eq, one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, s};
@@ -1020,6 +1020,31 @@ mod tests {
         let objects = t.access_objects(&Query::Idle);
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
+    }
+
+    #[test]
+    fn test_parent_cleared_when_delete_objects_by_ids() {
+        let mut f = gen_frame();
+        f.delete_objects_by_ids(&[0]);
+        let o = f.get_object(1).unwrap();
+        assert!(o.get_parent().is_none());
+        let o = f.get_object(2).unwrap();
+        assert!(o.get_parent().is_none());
+
+        let mut f = gen_frame();
+        f.delete_objects_by_ids(&[1]);
+        let o = f.get_object(2).unwrap();
+        assert!(o.get_parent().is_some());
+    }
+
+    #[test]
+    fn test_parent_cleared_when_delete_objects_by_query() {
+        let mut f = gen_frame();
+        f.delete_objects(&Query::Id(eq(0)));
+        let o = f.get_object(1).unwrap();
+        assert!(o.get_parent().is_none());
+        let o = f.get_object(2).unwrap();
+        assert!(o.get_parent().is_none());
     }
 
     #[test]

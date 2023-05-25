@@ -290,10 +290,10 @@ impl Object {
     pub fn get_parent(&self) -> Option<ParentObject> {
         let object = &self.inner.lock().unwrap();
         match (object.parent.as_ref(), object.parent_id.as_ref()) {
-            (Some(o), Some(_)) => Some(o.clone()),
+            (Some(o), _) => Some(o.clone()),
             (None, None) => None,
-            (Some(_), None) | (None, Some(_)) => {
-                panic!("Parent Id and Parent object must be both set")
+            (None, Some(_)) => {
+                panic!("Parent must be set when ParentId is set")
             }
         }
     }
