@@ -25,7 +25,7 @@ impl VideoFrameBatch {
 
     pub(crate) fn prepare_before_save(&mut self) {
         for (id, frame) in self.frames.iter_mut() {
-            let mut frame = frame.inner.lock().unwrap();
+            let mut frame = frame.inner.lock();
             frame.preserve();
             self.offline_frames.insert(*id, frame.as_ref().clone());
         }

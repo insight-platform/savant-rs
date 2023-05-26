@@ -3,8 +3,9 @@ pub mod macros;
 pub mod py;
 
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::Object;
@@ -189,7 +190,7 @@ lazy_static! {
 }
 
 fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression>> {
-    let mut compiled_jmp_filter = COMPILED_JMP_FILTER.lock().unwrap();
+    let mut compiled_jmp_filter = COMPILED_JMP_FILTER.lock();
     if let Some(c) = compiled_jmp_filter.get(query) {
         return Ok(c.clone());
     }
@@ -227,19 +228,19 @@ impl ExecutableQuery<&Object> for Query {
                 .get_inner()
                 .parent
                 .as_ref()
-                .map(|p| x.execute(&p.inner.lock().unwrap().id))
+                .map(|p| x.execute(&p.object().get_id()))
                 .unwrap_or(false),
             Query::ParentCreator(x) => o
                 .get_inner()
                 .parent
                 .as_ref()
-                .map(|p| x.execute(&p.inner.lock().unwrap().creator))
+                .map(|p| x.execute(&p.object().get_creator()))
                 .unwrap_or(false),
             Query::ParentLabel(x) => o
                 .get_inner()
                 .parent
                 .as_ref()
-                .map(|p| x.execute(&p.inner.lock().unwrap().label))
+                .map(|p| x.execute(&p.object().get_label()))
                 .unwrap_or(false),
             // box
             Query::BoxWidth(x) => x.execute(&o.get_inner().bbox.width),
@@ -317,8 +318,9 @@ pub fn filter(objs: &[Object], query: &Query) -> Vec<Object> {
 mod tests {
     use super::Query::*;
     use super::*;
+    use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::InnerObject;
-    use crate::primitives::{AttributeBuilder, ParentObject, RBBox, Value};
+    use crate::primitives::{AttributeBuilder, RBBox, Value};
     use crate::query_and;
     use crate::test::utils::{gen_frame, s};
 
@@ -434,8 +436,8 @@ mod tests {
         let _q: super::Query = serde_json::from_str(&json).unwrap();
     }
 
-    fn gen_object() -> crate::primitives::Object {
-        crate::primitives::Object::from_inner_object(InnerObject {
+    fn gen_object() -> Object {
+        Object::from_inner_object(InnerObject {
             id: 1,
             creator: s("peoplenet"),
             label: s("face"),
@@ -469,18 +471,16 @@ mod tests {
         assert!(expr.execute(&gen_object()));
 
         print!("{:?}", "test");
-        let object = gen_object();
-        {
-            let mut inner = object.inner.lock().unwrap();
-            inner.parent = Some(ParentObject::new(Object::from_inner_object(InnerObject {
-                id: 13,
-                creator: s("peoplenet"),
-                label: s("person"),
-                confidence: None,
-                bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
-                ..Default::default()
-            })));
-        }
+        let mut object = gen_object();
+        let parent_object = Object::from_inner_object(InnerObject {
+            id: 13,
+            creator: s("peoplenet"),
+            label: s("person"),
+            confidence: None,
+            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+            ..Default::default()
+        });
+        object.set_parent(Some(parent_object));
         assert!(expr.execute(&object));
         print!("{:?}", "after test");
 
@@ -514,11 +514,8 @@ mod tests {
         let expr = BoxAngleDefined;
         assert!(!expr.execute(&gen_object()));
 
-        let object = gen_object();
-        {
-            let mut inner = object.inner.lock().unwrap();
-            inner.bbox = RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0));
-        }
+        let mut object = gen_object();
+        object.set_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         assert!(expr.execute(&object));
 
         let expr = BoxAngle(gt(20.0));
@@ -527,15 +524,11 @@ mod tests {
         let expr = TrackIdDefined;
         assert!(!expr.execute(&gen_object()));
 
-        {
-            let mut inner = object.inner.lock().unwrap();
-            inner.track_id = Some(1);
-        }
+        object.set_track_id(Some(1));
         assert!(expr.execute(&object));
 
-        {
-            let mut inner = object.inner.lock().unwrap();
-            inner.attributes = vec![AttributeBuilder::default()
+        object.set_attribute(
+            AttributeBuilder::default()
                 .name(s("age-min-max-avg"))
                 .creator(s("classifier"))
                 .hint(Some(s("morphological-classifier")))
@@ -545,11 +538,8 @@ mod tests {
                     Value::float(15.0, None),
                 ])
                 .build()
-                .unwrap()]
-            .into_iter()
-            .map(|a| ((a.creator.clone(), a.name.clone()), a))
-            .collect();
-        }
+                .unwrap(),
+        );
 
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (creator == 'classifier')]",

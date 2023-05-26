@@ -3,10 +3,11 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
+use parking_lot::{Mutex, MutexGuard};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 pub mod query;
 pub mod vector;
@@ -25,7 +26,7 @@ impl PartialEq for ParentObject {
 
 impl ToSerdeJsonValue for ParentObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         serde_json::json!({
             "id": inner.id,
             "creator": inner.creator,
@@ -132,7 +133,7 @@ pub struct InnerObject {
 
 impl From<&Object> for InferenceObjectMeta {
     fn from(o: &Object) -> Self {
-        let o = o.inner.lock().unwrap();
+        let o = o.inner.lock();
         Self {
             id: o.id,
             creator_id: o.creator_id.unwrap_or(i64::MAX),
@@ -205,7 +206,7 @@ pub struct Object {
 
 impl ToSerdeJsonValue for Object {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        self.inner.lock().unwrap().to_serde_json_value()
+        self.inner.lock().to_serde_json_value()
     }
 }
 
@@ -227,7 +228,7 @@ impl Object {
     }
 
     pub fn get_inner(&self) -> MutexGuard<InnerObject> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner
     }
 }
@@ -238,7 +239,7 @@ impl Object {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.inner.lock().unwrap())
+        format!("{:#?}", self.inner.lock())
     }
 
     fn __str__(&self) -> String {
@@ -260,7 +261,7 @@ impl Object {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
-        let parent_id = parent.as_ref().map(|p| p.inner.lock().unwrap().id);
+        let parent_id = parent.as_ref().map(|p| p.inner.lock().id);
 
         let object = InnerObject {
             id,
@@ -283,67 +284,67 @@ impl Object {
 
     #[getter]
     pub fn get_track_id(&self) -> Option<i64> {
-        let object = self.inner.lock().unwrap();
+        let object = self.inner.lock();
         object.track_id
     }
 
     pub fn attach(&self, frame: VideoFrame) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.frame = Some(frame);
     }
 
     pub fn detach(&self) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.frame = None;
     }
 
     pub fn get_frame(&self) -> Option<VideoFrame> {
-        let object = self.inner.lock().unwrap();
+        let object = self.inner.lock();
         object.frame.clone()
     }
 
     #[getter]
     pub fn get_id(&self) -> i64 {
-        self.inner.lock().unwrap().id
+        self.inner.lock().id
     }
 
     #[getter]
     pub fn get_creator(&self) -> String {
-        self.inner.lock().unwrap().creator.clone()
+        self.inner.lock().creator.clone()
     }
 
     #[getter]
     pub fn get_label(&self) -> String {
-        self.inner.lock().unwrap().label.clone()
+        self.inner.lock().label.clone()
     }
 
     #[getter]
     pub fn get_bbox(&self) -> crate::primitives::RBBox {
-        self.inner.lock().unwrap().bbox.clone()
+        self.inner.lock().bbox.clone()
     }
 
     #[getter]
     pub fn get_confidence(&self) -> Option<f64> {
-        let object = self.inner.lock().unwrap();
+        let object = self.inner.lock();
         object.confidence
     }
 
     #[getter]
     pub fn draw_label(&self) -> String {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock();
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
     #[setter]
     pub fn set_draw_label(&mut self, draw_label: Option<String>) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.draw_label = draw_label;
         object.modifications.push(Modification::DrawLabel);
     }
 
     #[getter]
     pub fn get_parent(&self) -> Option<ParentObject> {
-        let object = &self.inner.lock().unwrap();
+        let object = &self.inner.lock();
         match (object.parent.as_ref(), object.parent_id.as_ref()) {
             (Some(o), _) => Some(o.clone()),
             (None, None) => None,
@@ -355,42 +356,42 @@ impl Object {
 
     #[setter]
     pub fn set_track_id(&mut self, track_id: Option<i64>) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.track_id = track_id;
         object.modifications.push(Modification::TrackId);
     }
 
     #[setter]
     pub fn set_id(&mut self, id: i64) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.id = id;
         object.modifications.push(Modification::Id);
     }
 
     #[setter]
     pub fn set_creator(&mut self, creator: String) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.creator = creator;
         object.modifications.push(Modification::Creator);
     }
 
     #[setter]
     pub fn set_label(&mut self, label: String) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.label = label;
         object.modifications.push(Modification::Label);
     }
 
     #[setter]
     pub fn set_bbox(&mut self, bbox: RBBox) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.bbox = bbox;
         object.modifications.push(Modification::BoundingBox);
     }
 
     #[setter]
     pub fn set_confidence(&mut self, confidence: Option<f64>) {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         object.confidence = confidence;
         object.modifications.push(Modification::Confidence);
     }
@@ -408,13 +409,16 @@ impl Object {
                     "When setting parent, both objects must be attached to the same frame"
                 );
             }
+            (None, Some(p)) => {
+                assert!(p.get_frame().is_none(), "When the object is set as parent to the object detached from a frame it must have no frame too.");
+            }
             (None, None) => {}
             _ => panic!("When setting parent, both objects must be attached to the same frame or both detached"),
         }
 
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         let p = parent.as_ref();
-        object.parent_id = p.map(|p| p.inner.lock().unwrap().id);
+        object.parent_id = p.map(|p| p.inner.lock().id);
         object.parent = p.map(|p| ParentObject::new(p.clone()));
         object.modifications.push(Modification::Parent);
     }
@@ -433,7 +437,7 @@ impl Object {
     pub fn delete_attribute_py(&mut self, creator: String, name: String) -> Option<Attribute> {
         match self.delete_attribute(creator, name) {
             Some(attribute) => {
-                let mut object = self.inner.lock().unwrap();
+                let mut object = self.inner.lock();
                 object.modifications.push(Modification::Attributes);
                 Some(attribute)
             }
@@ -444,7 +448,7 @@ impl Object {
     #[pyo3(name = "set_attribute")]
     pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
         {
-            let mut object = self.inner.lock().unwrap();
+            let mut object = self.inner.lock();
             object.modifications.push(Modification::Attributes);
         }
         self.set_attribute(attribute)
@@ -453,7 +457,7 @@ impl Object {
     #[pyo3(name = "clear_attributes")]
     pub fn clear_attributes_py(&mut self) {
         {
-            let mut object = self.inner.lock().unwrap();
+            let mut object = self.inner.lock();
             object.modifications.push(Modification::Attributes);
         }
         self.clear_attributes()
@@ -469,7 +473,7 @@ impl Object {
     ) {
         no_gil(move || {
             {
-                let mut object = self.inner.lock().unwrap();
+                let mut object = self.inner.lock();
                 object.modifications.push(Modification::Attributes);
             }
             self.delete_attributes(negated, creator, names)
@@ -487,7 +491,7 @@ impl Object {
     }
 
     pub fn take_modifications(&self) -> Vec<Modification> {
-        let mut object = self.inner.lock().unwrap();
+        let mut object = self.inner.lock();
         std::mem::take(&mut object.modifications)
     }
 }
@@ -548,35 +552,35 @@ mod tests {
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec![]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 3);
+        assert_eq!(t.inner.lock().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec![]);
-        assert!(t.inner.lock().unwrap().attributes.is_empty());
+        assert!(t.inner.lock().attributes.is_empty());
 
         let mut t = get_object();
         t.delete_attributes(false, Some("creator".to_string()), vec![]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, Some("creator".to_string()), vec![]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string()]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string()]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 0);
+        assert_eq!(t.inner.lock().attributes.len(), 0);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 3);
+        assert_eq!(t.inner.lock().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(
@@ -584,10 +588,10 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 1);
+        assert_eq!(t.inner.lock().attributes.len(), 1);
 
         assert_eq!(
-            &t.inner.lock().unwrap().attributes[&("creator2".to_string(), "name".to_string())],
+            &t.inner.lock().attributes[&("creator2".to_string(), "name".to_string())],
             &AttributeBuilder::default()
                 .creator("creator2".to_string())
                 .name("name".to_string())
@@ -603,7 +607,7 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.inner.lock().unwrap().attributes.len(), 2);
+        assert_eq!(t.inner.lock().attributes.len(), 2);
     }
 
     #[test]

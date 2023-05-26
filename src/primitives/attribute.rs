@@ -1,9 +1,10 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
+use parking_lot::Mutex;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
@@ -433,7 +434,6 @@ pub trait Attributive<T: InnerAttributes + Send> {
     fn get_attributes(&self) -> Vec<(String, String)> {
         self.get_inner()
             .lock()
-            .unwrap()
             .get_attributes_ref()
             .iter()
             .map(|((creator, name), _)| (creator.clone(), name.clone()))
@@ -443,7 +443,6 @@ pub trait Attributive<T: InnerAttributes + Send> {
     fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
         self.get_inner()
             .lock()
-            .unwrap()
             .get_attributes_ref()
             .get(&(creator, name))
             .cloned()
@@ -452,36 +451,26 @@ pub trait Attributive<T: InnerAttributes + Send> {
     fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
         self.get_inner()
             .lock()
-            .unwrap()
             .get_attributes_ref_mut()
             .remove(&(creator, name))
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.get_inner()
-            .lock()
-            .unwrap()
-            .get_attributes_ref_mut()
-            .insert(
-                (attribute.creator.clone(), attribute.name.clone()),
-                attribute,
-            )
+        self.get_inner().lock().get_attributes_ref_mut().insert(
+            (attribute.creator.clone(), attribute.name.clone()),
+            attribute,
+        )
     }
 
     #[allow(clippy::let_unit_value)]
     fn clear_attributes(&mut self) {
-        self.get_inner()
-            .lock()
-            .unwrap()
-            .get_attributes_ref_mut()
-            .clear()
+        self.get_inner().lock().get_attributes_ref_mut().clear()
     }
 
     fn delete_attributes(&mut self, negated: bool, creator: Option<String>, names: Vec<String>) {
         // let inner = self.get_inner();
         self.get_inner()
             .lock()
-            .unwrap()
             .get_attributes_ref_mut()
             .retain(|(c, label), _| match creator {
                 Some(ref creator) => {
@@ -499,7 +488,6 @@ pub trait Attributive<T: InnerAttributes + Send> {
     ) -> Vec<(String, String)> {
         self.get_inner()
             .lock()
-            .unwrap()
             .get_attributes_ref()
             .iter()
             .filter(|((_, _), a)| {
