@@ -46,9 +46,11 @@ impl VectorView {
     }
 }
 
-/// Returns the object vector length.
+/// Returns the object vector length
+///
 /// # Safety
-/// This function is unsafe because it dereferences a raw pointer.
+///
+/// This function is unsafe because it dereferences a raw pointer
 ///
 #[no_mangle]
 pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
@@ -56,9 +58,11 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
     this.inner.len()
 }
 
-/// Returns the object vector length.
+/// Returns the object data casted to InferenceObjectMeta by index
+///
 /// # Safety
-/// This function is unsafe because it dereferences a raw pointer.
+///
+/// This function is unsafe because it dereferences a raw pointer
 ///
 #[no_mangle]
 pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
