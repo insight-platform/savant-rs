@@ -600,8 +600,8 @@ impl VideoFrame {
         });
     }
 
-    pub fn set_parent(&self, q: &Query, parent: &Object) {
-        let objects = self.access_objects(q);
+    pub fn set_parent(&self, q: &Query, parent: &Object) -> Vec<Object> {
+        let mut objects = self.access_objects(q);
         assert!(
             parent
                 .get_frame()
@@ -609,20 +609,18 @@ impl VideoFrame {
                 .is_some(),
             "Parent must be attached to the frame before being assigned to its objects!"
         );
-        objects.iter().for_each(|o| {
-            let mut inner = o.inner.lock();
-            inner.parent = Some(ParentObject::new(parent.clone()));
-            inner.parent_id = Some(parent.get_id());
+        objects.iter_mut().for_each(|o| {
+            o.set_parent(Some(parent.clone()));
         });
+
+        objects
     }
 
-    pub fn clear_parent(&self, q: &Query) {
-        let objects = self.access_objects(q);
-        objects.iter().for_each(|o| {
-            let mut inner = o.inner.lock();
-            inner.parent = None;
-            inner.parent_id = None;
-        });
+    pub fn clear_parent(&self, q: &Query) -> Vec<Object> {
+        let mut objects = self.access_objects(q);
+        objects.iter_mut().for_each(|o| o.set_parent(None));
+
+        objects
     }
 
     pub fn get_children(&self, o: &Object) -> Vec<Object> {
@@ -961,13 +959,13 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_py(&mut self, q: QueryWrapper, parent: Object) {
-        no_gil(|| self.set_parent(q.inner.deref(), &parent))
+    pub fn set_parent_py(&mut self, q: QueryWrapper, parent: Object) -> VectorView {
+        no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_py(&mut self, q: QueryWrapper) {
-        no_gil(|| self.clear_parent(q.inner.deref()))
+    pub fn clear_parent_py(&mut self, q: QueryWrapper) -> VectorView {
+        no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
     pub fn clear_objects(&mut self) {
@@ -1001,7 +999,7 @@ mod tests {
     use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::query::{eq, one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
+    use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, s};
 
     #[test]
@@ -1259,7 +1257,29 @@ mod tests {
     #[test]
     #[should_panic]
     fn attach_object_with_detached_parent() {
-        todo!("")
+        let p = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .id(11)
+                .creator(s("random"))
+                .label(s("something"))
+                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .build()
+                .unwrap(),
+        );
+
+        let o = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .id(23)
+                .creator(s("random"))
+                .label(s("something"))
+                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .parent(Some(ParentObject::new(p)))
+                .build()
+                .unwrap(),
+        );
+
+        let mut f = gen_frame();
+        f.add_object(o);
     }
 
     #[test]
@@ -1268,6 +1288,7 @@ mod tests {
         let f = gen_frame();
         let o = Object::from_inner_object(
             InnerObjectBuilder::default()
+                .id(11)
                 .creator(s("random"))
                 .label(s("something"))
                 .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))

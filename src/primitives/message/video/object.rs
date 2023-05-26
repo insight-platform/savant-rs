@@ -412,8 +412,7 @@ impl Object {
             (None, Some(p)) => {
                 assert!(p.get_frame().is_none(), "When the object is set as parent to the object detached from a frame it must have no frame too.");
             }
-            (None, None) => {}
-            _ => panic!("When setting parent, both objects must be attached to the same frame or both detached"),
+            (_, None) => {}
         }
 
         let mut object = self.inner.lock();
