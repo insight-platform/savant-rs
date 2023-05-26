@@ -493,7 +493,7 @@ impl VideoFrame {
             inner: Arc::new(Mutex::new(Box::new(object))),
         };
         let objects = f.access_objects(&Query::Idle);
-        objects.iter().for_each(|o| o.set_frame(Some(f.clone())));
+        objects.iter().for_each(|o| o.attach(f.clone()));
         f
     }
 
@@ -558,7 +558,7 @@ impl VideoFrame {
             .into_iter()
             .map(|o| {
                 let o = Object::from_arc_inner_object(o);
-                o.set_frame(None);
+                o.detach();
                 o
             })
             .collect()
@@ -943,7 +943,7 @@ impl VideoFrame {
 
     pub fn add_object(&mut self, object: Object) {
         let mut frame = self.inner.lock().unwrap();
-        object.set_frame(Some(self.clone()));
+        object.attach(self.clone());
         frame.resident_objects.push(object.inner);
     }
 

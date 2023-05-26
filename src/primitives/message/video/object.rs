@@ -252,9 +252,14 @@ impl Object {
         object.track_id
     }
 
-    pub fn set_frame(&self, frame_opt: Option<VideoFrame>) {
+    pub fn attach(&self, frame: VideoFrame) {
         let mut object = self.inner.lock().unwrap();
-        object.frame = frame_opt;
+        object.frame = Some(frame);
+    }
+
+    pub fn detach(&self) {
+        let mut object = self.inner.lock().unwrap();
+        object.frame = None;
     }
 
     pub fn get_frame(&self) -> Option<VideoFrame> {
