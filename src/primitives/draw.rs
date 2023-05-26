@@ -134,7 +134,6 @@ pub struct BoundingBoxDraw {
     pub color: ColorDraw,
     pub thickness: i64,
     pub padding: Option<PaddingDraw>,
-    pub blur: bool,
 }
 
 #[pymethods]
@@ -159,7 +158,6 @@ impl BoundingBoxDraw {
             color,
             thickness,
             padding,
-            blur,
         }
     }
 
@@ -176,11 +174,6 @@ impl BoundingBoxDraw {
     #[getter]
     pub fn padding(&self) -> Option<PaddingDraw> {
         self.padding
-    }
-
-    #[getter]
-    pub fn blur(&self) -> bool {
-        self.blur
     }
 }
 
@@ -286,6 +279,7 @@ pub struct ObjectDraw {
     pub bounding_box: Option<BoundingBoxDraw>,
     pub central_dot: Option<DotDraw>,
     pub label: Option<LabelDraw>,
+    pub blur: bool,
 }
 
 #[pymethods]
@@ -302,17 +296,24 @@ impl ObjectDraw {
     }
 
     #[new]
-    #[pyo3(signature = (bounding_box = None, central_dot = None, label = None))]
+    #[pyo3(signature = (bounding_box = None, central_dot = None, label = None, blur = false))]
     pub fn new(
         bounding_box: Option<BoundingBoxDraw>,
         central_dot: Option<DotDraw>,
         label: Option<LabelDraw>,
+        blur: bool,
     ) -> Self {
         Self {
             bounding_box,
             central_dot,
             label,
+            blur,
         }
+    }
+
+    #[getter]
+    pub fn blur(&self) -> bool {
+        self.blur
     }
 
     #[getter]
