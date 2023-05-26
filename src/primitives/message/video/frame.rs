@@ -602,6 +602,13 @@ impl VideoFrame {
 
     pub fn set_parent(&self, q: &Query, parent: &Object) {
         let objects = self.access_objects(q);
+        assert!(
+            parent
+                .get_frame()
+                .filter(|f| Arc::ptr_eq(&f.inner, &self.inner))
+                .is_some(),
+            "Parent must be attached to the frame before being assigned to its objects!"
+        );
         objects.iter().for_each(|o| {
             let mut inner = o.inner.lock();
             inner.parent = Some(ParentObject::new(parent.clone()));
@@ -1253,5 +1260,41 @@ mod tests {
     #[should_panic]
     fn attach_object_with_detached_parent() {
         todo!("")
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_detached_parent_as_parent() {
+        let f = gen_frame();
+        let o = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .creator(s("random"))
+                .label(s("something"))
+                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .build()
+                .unwrap(),
+        );
+        f.set_parent(&Query::Id(eq(0)), &o);
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_wrong_parent_as_parent() {
+        let f1 = gen_frame();
+        let f2 = gen_frame();
+        let f1o = f1.get_object(0).unwrap();
+        f2.set_parent(&Query::Id(eq(1)), &f1o);
+    }
+
+    #[test]
+    fn normally_transfer_parent() {
+        let mut f1 = gen_frame();
+        let mut f2 = gen_frame();
+        let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
+        assert!(o.get_frame().is_none());
+        o.set_id(33);
+        f2.add_object(o);
+        o = f2.get_object(33).unwrap();
+        f2.set_parent(&Query::Id(eq(1)), &o);
     }
 }
