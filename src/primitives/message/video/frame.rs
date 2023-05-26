@@ -519,18 +519,24 @@ impl VideoFrame {
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&mut self, ids: &[i64]) {
+    pub fn delete_objects_by_ids(&mut self, ids: &[i64]) -> Vec<Object> {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut frame = self.inner.lock().unwrap();
-        frame
-            .resident_objects
-            .retain(|o| !ids.contains(&o.lock().unwrap().id));
+        let objects = mem::take(&mut frame.resident_objects);
+        let (retained, removed) = objects
+            .into_iter()
+            .partition(|o| !ids.contains(&o.lock().unwrap().id));
+        frame.resident_objects = retained;
+        removed
+            .into_iter()
+            .map(|o| Object::from_arc_inner_object(o))
+            .collect()
     }
 
-    pub fn delete_objects(&mut self, q: &Query) {
+    pub fn delete_objects(&mut self, q: &Query) -> Vec<Object> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
-        self.delete_objects_by_ids(&ids);
+        self.delete_objects_by_ids(&ids)
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
@@ -898,12 +904,12 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) {
+    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) -> Vec<Object> {
         no_gil(|| self.delete_objects_by_ids(&ids))
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_py(&mut self, query: QueryWrapper) {
+    pub fn delete_objects_py(&mut self, query: QueryWrapper) -> Vec<Object> {
         no_gil(|| self.delete_objects(&query.inner))
     }
 
@@ -1036,7 +1042,9 @@ mod tests {
     #[test]
     fn test_parent_cleared_when_delete_objects_by_query() {
         let mut f = gen_frame();
-        f.delete_objects(&Query::Id(eq(0)));
+        let removed = f.delete_objects(&Query::Id(eq(0)));
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].get_id(), 0);
         let o = f.get_object(1).unwrap();
         assert!(o.get_parent().is_none());
         let o = f.get_object(2).unwrap();
@@ -1047,7 +1055,8 @@ mod tests {
     fn test_delete_all_objects() {
         pyo3::prepare_freethreaded_python();
         let mut t = gen_frame();
-        t.delete_objects(&Query::Idle);
+        let objs = t.delete_objects(&Query::Idle);
+        assert_eq!(objs.len(), 3);
         let objects = t.access_objects(&Query::Idle);
         assert!(objects.is_empty());
     }

@@ -150,8 +150,8 @@ impl BoundingBoxDraw {
     }
 
     #[new]
-    #[pyo3(signature = (color, thickness = 1, padding = None, blur = false))]
-    pub fn new(color: ColorDraw, thickness: i64, padding: Option<PaddingDraw>, blur: bool) -> Self {
+    #[pyo3(signature = (color, thickness = 1, padding = None))]
+    pub fn new(color: ColorDraw, thickness: i64, padding: Option<PaddingDraw>) -> Self {
         assert!((0..=100).contains(&thickness));
 
         Self {
