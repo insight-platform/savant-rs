@@ -1,6 +1,6 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox};
+use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use pyo3::{pyclass, pymethods, Py, PyAny};
@@ -79,7 +79,7 @@ impl ToSerdeJsonValue for Modification {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct InnerObject {
     pub id: i64,
@@ -108,6 +108,9 @@ pub struct InnerObject {
     #[with(Skip)]
     #[builder(default)]
     pub label_id: Option<i64>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub(crate) frame: Option<VideoFrame>,
 }
 
 impl Default for InnerObject {
@@ -126,6 +129,7 @@ impl Default for InnerObject {
             modifications: Vec::new(),
             creator_id: None,
             label_id: None,
+            frame: None,
         }
     }
 }
@@ -143,6 +147,7 @@ impl ToSerdeJsonValue for InnerObject {
             "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
             "track_id": self.track_id,
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
+            "frame": self.frame.as_ref().map(|f| f.get_source_id()),
         })
     }
 }
@@ -245,6 +250,16 @@ impl Object {
     pub fn get_track_id(&self) -> Option<i64> {
         let object = self.inner.lock().unwrap();
         object.track_id
+    }
+
+    pub fn set_frame(&self, frame_opt: Option<VideoFrame>) {
+        let mut object = self.inner.lock().unwrap();
+        object.frame = frame_opt;
+    }
+
+    pub fn get_frame(&self) -> Option<VideoFrame> {
+        let object = self.inner.lock().unwrap();
+        object.frame.clone()
     }
 
     #[getter]

@@ -10,24 +10,9 @@ pub mod utils {
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
 
     #[pyfunction]
     pub fn gen_frame() -> VideoFrame {
-        let parent_object = Arc::new(Mutex::new(
-            InnerObjectBuilder::default()
-                .id(0)
-                .track_id(None)
-                .modifications(Vec::default())
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                .parent(None)
-                .attributes(HashMap::default())
-                .confidence(None)
-                .creator("test".to_string())
-                .label("test2".to_string())
-                .build()
-                .unwrap(),
-        ));
         let mut f = VideoFrame::from_inner(
             InnerVideoFrameBuilder::default()
                 .source_id("test".to_string())
@@ -44,44 +29,58 @@ pub mod utils {
                 .keyframe(None)
                 .attributes(HashMap::default())
                 .offline_objects(Default::default())
-                .resident_objects(vec![
-                    parent_object.clone(),
-                    Arc::new(Mutex::new(
-                        InnerObjectBuilder::default()
-                            .id(1)
-                            .track_id(None)
-                            .modifications(Vec::default())
-                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                            .parent(Some(ParentObject::new(Object::from_arc_inner_object(
-                                parent_object.clone(),
-                            ))))
-                            .attributes(HashMap::default())
-                            .confidence(None)
-                            .creator("test2".to_string())
-                            .label("test".to_string())
-                            .build()
-                            .unwrap(),
-                    )),
-                    Arc::new(Mutex::new(
-                        InnerObjectBuilder::default()
-                            .id(2)
-                            .track_id(None)
-                            .modifications(Vec::default())
-                            .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                            .parent(Some(ParentObject::new(Object::from_arc_inner_object(
-                                parent_object,
-                            ))))
-                            .attributes(HashMap::default())
-                            .confidence(None)
-                            .creator("test2".to_string())
-                            .label("test2".to_string())
-                            .build()
-                            .unwrap(),
-                    )),
-                ])
                 .build()
                 .unwrap(),
         );
+
+        let parent_object = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .id(0)
+                .track_id(None)
+                .modifications(Vec::default())
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .parent(None)
+                .attributes(HashMap::default())
+                .confidence(None)
+                .creator("test".to_string())
+                .label("test2".to_string())
+                .build()
+                .unwrap(),
+        );
+
+        let c1 = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .id(1)
+                .track_id(None)
+                .modifications(Vec::default())
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .parent(Some(ParentObject::new(parent_object.clone())))
+                .attributes(HashMap::default())
+                .confidence(None)
+                .creator("test2".to_string())
+                .label("test".to_string())
+                .build()
+                .unwrap(),
+        );
+
+        let c2 = Object::from_inner_object(
+            InnerObjectBuilder::default()
+                .id(2)
+                .track_id(None)
+                .modifications(Vec::default())
+                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .parent(Some(ParentObject::new(parent_object.clone())))
+                .attributes(HashMap::default())
+                .confidence(None)
+                .creator("test2".to_string())
+                .label("test2".to_string())
+                .build()
+                .unwrap(),
+        );
+
+        f.add_object(parent_object);
+        f.add_object(c1);
+        f.add_object(c2);
 
         f.set_attribute_py(
             AttributeBuilder::default()

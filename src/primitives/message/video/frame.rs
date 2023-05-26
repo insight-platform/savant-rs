@@ -7,6 +7,7 @@ use crate::primitives::{
     Attribute, Message, Object, ParentObject, SetDrawLabelKind, SetDrawLabelKindWrapper,
 };
 use crate::utils::python::no_gil;
+use derive_builder::Builder;
 use hashbrown::HashSet;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -331,7 +332,7 @@ impl PyFrameTransformation {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
 #[archive(check_bytes)]
 pub struct InnerVideoFrame {
     pub source_id: String,
@@ -349,7 +350,30 @@ pub struct InnerVideoFrame {
     pub attributes: HashMap<(String, String), Attribute>,
     pub offline_objects: Vec<InnerObject>,
     #[with(Skip)]
+    #[builder(setter(skip))]
     pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
+}
+
+impl Default for InnerVideoFrame {
+    fn default() -> Self {
+        Self {
+            source_id: String::new(),
+            framerate: String::new(),
+            width: 0,
+            height: 0,
+            transcoding_method: VideoTranscodingMethod::Copy,
+            codec: None,
+            keyframe: None,
+            pts: 0,
+            dts: None,
+            duration: None,
+            content: VideoFrameContent::None,
+            transformations: Vec::new(),
+            attributes: HashMap::new(),
+            offline_objects: Vec::new(),
+            resident_objects: Vec::new(),
+        }
+    }
 }
 
 impl ToSerdeJsonValue for InnerVideoFrame {
@@ -465,9 +489,12 @@ impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
 
 impl VideoFrame {
     pub(crate) fn from_inner(object: InnerVideoFrame) -> Self {
-        VideoFrame {
+        let f = VideoFrame {
             inner: Arc::new(Mutex::new(Box::new(object))),
-        }
+        };
+        let objects = f.access_objects(&Query::Idle);
+        objects.iter().for_each(|o| o.set_frame(Some(f.clone())));
+        f
     }
 
     pub fn children_objects(&self, o: &Object) -> Vec<Object> {
@@ -529,7 +556,11 @@ impl VideoFrame {
         frame.resident_objects = retained;
         removed
             .into_iter()
-            .map(|o| Object::from_arc_inner_object(o))
+            .map(|o| {
+                let o = Object::from_arc_inner_object(o);
+                o.set_frame(None);
+                o
+            })
             .collect()
     }
 
@@ -600,6 +631,21 @@ impl VideoFrame {
             inner.parent_id = None;
         });
     }
+
+    pub fn get_children(&self, o: &Object) -> Vec<Object> {
+        let frame = self.inner.lock().unwrap();
+        frame
+            .resident_objects
+            .iter()
+            .filter_map(|ch| {
+                ch.lock().unwrap().parent.as_ref().map(|p| {
+                    Arc::ptr_eq(&o.inner, &p.inner)
+                        .then(|| Object::from_arc_inner_object(ch.clone()))
+                })
+            })
+            .flatten()
+            .collect()
+    }
 }
 
 impl ToSerdeJsonValue for VideoFrame {
@@ -650,11 +696,8 @@ impl VideoFrame {
             transcoding_method,
             codec,
             keyframe,
-            transformations: vec![],
             content: content.inner,
-            attributes: HashMap::default(),
-            offline_objects: vec![],
-            resident_objects: vec![],
+            ..Default::default()
         })
     }
 
@@ -900,6 +943,7 @@ impl VideoFrame {
 
     pub fn add_object(&mut self, object: Object) {
         let mut frame = self.inner.lock().unwrap();
+        object.set_frame(Some(self.clone()));
         frame.resident_objects.push(object.inner);
     }
 
@@ -941,6 +985,11 @@ impl VideoFrame {
     #[pyo3(name = "get_modified_objects")]
     pub fn get_modified_objects_py(&self) -> Vec<Object> {
         no_gil(|| self.get_modified_objects())
+    }
+
+    #[pyo3(name = "get_children")]
+    pub fn get_children_py(&self, o: Object) -> Vec<Object> {
+        no_gil(|| self.get_children(&o))
     }
 }
 
@@ -1042,11 +1091,18 @@ mod tests {
     #[test]
     fn test_parent_cleared_when_delete_objects_by_query() {
         let mut f = gen_frame();
+
+        let o = f.get_object(0).unwrap();
+        assert!(o.get_frame().is_some());
+
         let removed = f.delete_objects(&Query::Id(eq(0)));
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].get_id(), 0);
+        assert!(removed[0].get_frame().is_none());
+
         let o = f.get_object(1).unwrap();
         assert!(o.get_parent().is_none());
+
         let o = f.get_object(2).unwrap();
         assert!(o.get_parent().is_none());
     }
@@ -1187,5 +1243,13 @@ mod tests {
 
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_some());
+    }
+
+    #[test]
+    fn retrieve_children() {
+        let frame = gen_frame();
+        let parent = frame.get_object(0).unwrap();
+        let children = frame.children_objects(&parent);
+        assert_eq!(children.len(), 2);
     }
 }
