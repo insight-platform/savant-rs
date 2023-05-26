@@ -8,6 +8,7 @@ pub mod segment;
 pub mod to_json_value;
 
 use crate::primitives::message::video::frame::PyFrameTransformation;
+use crate::primitives::message::video::object::vector::ObjectVector;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
@@ -38,6 +39,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
     m.add_class::<Value>()?;
     m.add_class::<Object>()?;
+    m.add_class::<ObjectVector>()?;
     m.add_class::<ParentObject>()?;
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameBatch>()?;

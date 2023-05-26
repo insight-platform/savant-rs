@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub mod query;
+pub mod vector;
 
 #[pyclass]
 #[derive(Debug, Clone)]
