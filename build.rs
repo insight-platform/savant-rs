@@ -10,5 +10,5 @@ fn main() {
     };
     cbindgen::generate_with_config(crate_dir, config)
         .unwrap()
-        .write_to_file("target/savant_rs.h");
+        .write_to_file("capi/savant_rs.h");
 }
