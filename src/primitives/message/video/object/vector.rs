@@ -2,6 +2,7 @@ use crate::primitives::message::video::object::query::filter;
 use crate::primitives::message::video::object::query::py::QueryWrapper;
 use crate::primitives::message::video::object::InferenceObjectMeta;
 use crate::primitives::Object;
+use crate::utils::python::no_gil;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use std::sync::Arc;
@@ -40,9 +41,9 @@ impl VectorView {
     }
 
     fn filter(&self, q: QueryWrapper) -> VectorView {
-        VectorView {
+        no_gil(|| VectorView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
-        }
+        })
     }
 }
 
