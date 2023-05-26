@@ -1,11 +1,16 @@
+import ctypes
+
 from savant_rs.utils import gen_frame, save_message, load_message
 from savant_rs.primitives import SetDrawLabelKind, Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, \
     Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
 from savant_rs.video_object_query import Query as Q
 import json
 from timeit import default_timer as timer
+from ctypes import *
+
 
 f = gen_frame()
+
 t = timer()
 for _ in range(1_000):
     r = f.json
@@ -26,7 +31,6 @@ frame = VideoFrame(
     dts=None,
     duration=None,
 )
-
 print(frame.json)
 
 frame.width = 3840
@@ -101,9 +105,24 @@ frame.add_object(Object(
     track_id=None,
 ))
 
-o = frame.access_objects_by_id([1])
+# demonstrates chained filtering on VectorView object
+#
+o = frame.access_objects_by_id([1])\
+    .filter(Q.idle())\
+    .filter(Q.idle())
+
+# demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
+#
+lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
+lib.object_vector_len.argtypes = [c_uint64]
+print("Length:", lib.object_vector_len(o.address))
+
+# demonstrates VectorView len() op
+print("Vector View len() op", len(o))
+
+# demonstrates VectorView index access operation
 o = o[0]
-print(o)
+print("Object", o)
 
 o.set_attribute(Attribute(creator="other", name="attr", values=[
     Value.integer(1, confidence=0.5),

@@ -304,7 +304,7 @@ impl Query {
 pub fn filter(objs: &[Object], query: &Query) -> Vec<Object> {
     objs.iter()
         .filter_map(|o| {
-            if query.execute(&o) {
+            if query.execute(o) {
                 Some(o.clone())
             } else {
                 None

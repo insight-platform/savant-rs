@@ -148,7 +148,6 @@ impl ToSerdeJsonValue for InnerObject {
             "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
             "track_id": self.track_id,
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
-            "frame": self.frame.as_ref().map(|f| f.get_source_id()),
         })
     }
 }

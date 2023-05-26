@@ -8,20 +8,20 @@ use std::sync::Arc;
 #[pyclass]
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct ObjectVector {
+pub struct VectorView {
     pub(crate) inner: Arc<Vec<Object>>,
 }
 
-impl From<Vec<Object>> for ObjectVector {
+impl From<Vec<Object>> for VectorView {
     fn from(value: Vec<Object>) -> Self {
-        ObjectVector {
+        VectorView {
             inner: Arc::new(value),
         }
     }
 }
 
 #[pymethods]
-impl ObjectVector {
+impl VectorView {
     fn __getitem__(&self, index: usize) -> PyResult<Object> {
         self.inner
             .get(index)
@@ -29,19 +29,28 @@ impl ObjectVector {
             .map(|x| x.clone())
     }
 
+    #[getter]
+    fn address(&self) -> usize {
+        self as *const Self as usize
+    }
+
     fn __len__(&self) -> PyResult<usize> {
         Ok(self.inner.len())
     }
 
-    fn filter(&self, q: QueryWrapper) -> ObjectVector {
-        ObjectVector {
+    fn filter(&self, q: QueryWrapper) -> VectorView {
+        VectorView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         }
     }
 }
 
+/// Returns the object vector length.
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
+///
 #[no_mangle]
-pub extern "C" fn object_vector_len(this: *const ObjectVector) -> usize {
-    let this = unsafe { &*this };
+pub unsafe extern "C" fn object_vector_len(this: usize) -> usize {
+    let this = unsafe { &*(this as *const VectorView) };
     this.inner.len()
 }

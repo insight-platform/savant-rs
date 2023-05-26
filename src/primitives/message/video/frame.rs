@@ -1,6 +1,7 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::query::py::QueryWrapper;
 use crate::primitives::message::video::object::query::{ExecutableQuery, IntExpression, Query};
+use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
@@ -497,22 +498,6 @@ impl VideoFrame {
         f
     }
 
-    pub fn children_objects(&self, o: &Object) -> Vec<Object> {
-        let frame = self.inner.lock().unwrap();
-        let res = frame
-            .resident_objects
-            .iter()
-            .filter_map(|ch| {
-                ch.lock().unwrap().parent.as_ref().map(|p| {
-                    Arc::ptr_eq(&o.inner, &p.inner)
-                        .then(|| Object::from_arc_inner_object(ch.clone()))
-                })
-            })
-            .flatten()
-            .collect();
-        res
-    }
-
     pub fn access_objects(&self, q: &Query) -> Vec<Object> {
         let frame = self.inner.lock().unwrap();
         frame
@@ -607,9 +592,9 @@ impl VideoFrame {
                 o.inner.lock().unwrap().draw_label = Some(l.clone());
             }
             SetDrawLabelKind::ParentLabel(l) => {
-                o.inner.lock().unwrap().parent.as_ref().map(|p| {
+                if let Some(p) = o.inner.lock().unwrap().parent.as_ref() {
                     p.inner.lock().unwrap().draw_label = Some(l.clone());
-                });
+                }
             }
         });
     }
@@ -932,13 +917,13 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_py(&self, q: QueryWrapper) -> Vec<Object> {
-        no_gil(|| self.access_objects(q.inner.deref()))
+    pub fn access_objects_py(&self, q: QueryWrapper) -> VectorView {
+        no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_py(&self, ids: Vec<i64>) -> Vec<Object> {
-        no_gil(|| self.access_objects_by_id(&ids))
+    pub fn access_objects_by_id_py(&self, ids: Vec<i64>) -> VectorView {
+        no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     pub fn add_object(&mut self, object: Object) {
@@ -948,13 +933,13 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) -> Vec<Object> {
-        no_gil(|| self.delete_objects_by_ids(&ids))
+    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) -> VectorView {
+        no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_py(&mut self, query: QueryWrapper) -> Vec<Object> {
-        no_gil(|| self.delete_objects(&query.inner))
+    pub fn delete_objects_py(&mut self, query: QueryWrapper) -> VectorView {
+        no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
@@ -983,13 +968,13 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_py(&self) -> Vec<Object> {
-        no_gil(|| self.get_modified_objects())
+    pub fn get_modified_objects_py(&self) -> VectorView {
+        no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_py(&self, o: Object) -> Vec<Object> {
-        no_gil(|| self.get_children(&o))
+    pub fn get_children_py(&self, o: Object) -> VectorView {
+        no_gil(|| self.get_children(&o).into())
     }
 }
 
@@ -1005,7 +990,7 @@ mod tests {
     fn test_access_objects_by_id() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let objects = t.access_objects_by_id_py(vec![0, 1]);
+        let objects = t.access_objects_by_id(&vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1015,7 +1000,7 @@ mod tests {
     fn test_objects_by_id() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let objects = t.access_objects_by_id_py(vec![0, 1]);
+        let objects = t.access_objects_by_id(&vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1121,17 +1106,17 @@ mod tests {
     fn test_snapshot_simple() {
         let mut t = gen_frame();
         t.make_snapshot_py();
-        let mut o = t.access_objects_by_id_py(vec![0]).pop().unwrap();
+        let mut o = t.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_id(12);
-        assert!(matches!(t.access_objects_by_id_py(vec![0]).pop(), None));
+        assert!(matches!(t.access_objects_by_id(&vec![0]).pop(), None));
         t.restore_from_snapshot_py();
-        t.access_objects_by_id_py(vec![0]).pop().unwrap();
+        t.access_objects_by_id(&vec![0]).pop().unwrap();
     }
 
     #[test]
     fn test_modified_objects() {
         let t = gen_frame();
-        let mut o = t.access_objects_by_id_py(vec![0]).pop().unwrap();
+        let mut o = t.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_id(12);
         let mut modified = t.get_modified_objects();
         assert_eq!(modified.len(), 1);
@@ -1192,14 +1177,14 @@ mod tests {
     fn test_no_children() {
         let frame = gen_frame();
         let obj = frame.get_object(2).unwrap();
-        assert!(frame.children_objects(&obj).is_empty());
+        assert!(frame.get_children(&obj).is_empty());
     }
 
     #[test]
     fn test_two_children() {
         let frame = gen_frame();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(frame.children_objects(&obj).len(), 2);
+        assert_eq!(frame.get_children(&obj).len(), 2);
     }
 
     #[test]
@@ -1249,7 +1234,7 @@ mod tests {
     fn retrieve_children() {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
-        let children = frame.children_objects(&parent);
+        let children = frame.get_children(&parent);
         assert_eq!(children.len(), 2);
     }
 }
