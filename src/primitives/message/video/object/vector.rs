@@ -31,8 +31,7 @@ impl VectorView {
     }
 
     #[getter]
-    fn address(&self) -> usize {
-        println!("Pointer: {:?}", self as *const Self as usize);
+    fn raw_memory_address(&self) -> usize {
         self as *const Self as usize
     }
 
@@ -64,6 +63,5 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
     let this = unsafe { &*(handle as *const VectorView) };
-    eprintln!("Len: {}, Pos: {}", this.inner.len(), pos);
     (&this.inner[pos]).into()
 }
