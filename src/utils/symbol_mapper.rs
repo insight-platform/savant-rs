@@ -1,15 +1,17 @@
+use crate::utils::python::no_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use parking_lot::const_mutex;
+use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap as StdHashMap;
-use std::sync::Mutex;
 use thiserror::Error;
 
 const REGISTRY_KEY_SEPARATOR: char = '.';
 
 lazy_static! {
-    static ref SYMBOL_MAPPER: Mutex<SymbolMapper> = Mutex::new(SymbolMapper::default());
+    static ref SYMBOL_MAPPER: Mutex<SymbolMapper> = const_mutex(SymbolMapper::default());
 }
 
 #[pyclass]
@@ -36,36 +38,32 @@ pub enum Errors {
 #[pyfunction]
 #[pyo3(name = "get_model_id")]
 pub fn get_model_id_py(model_name: String) -> PyResult<i64> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper
-                .get_model_id(&model_name)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    no_gil(|| {
+        let mut mapper = SYMBOL_MAPPER.lock();
+        mapper
+            .get_model_id(&model_name)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
 
 pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
-    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+    let mut mapper = SYMBOL_MAPPER.lock();
     mapper.get_model_id(model_name)
 }
 
 #[pyfunction]
 #[pyo3(name = "get_object_id")]
 pub fn get_object_id_py(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper
-                .get_object_id(&model_name, &object_label)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    no_gil(|| {
+        let mut mapper = SYMBOL_MAPPER.lock();
+        mapper
+            .get_object_id(&model_name, &object_label)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
 
 pub fn get_object_id(model_name: &String, object_label: &String) -> anyhow::Result<(i64, i64)> {
-    let mut mapper = SYMBOL_MAPPER.lock().unwrap();
+    let mut mapper = SYMBOL_MAPPER.lock();
     mapper.get_object_id(model_name, object_label)
 }
 
@@ -75,51 +73,43 @@ pub fn register_model_objects(
     elements: StdHashMap<i64, String>,
     policy: RegistrationPolicy,
 ) -> PyResult<i64> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper
-                .register_model_objects(&model_name, &elements, &policy)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    no_gil(|| {
+        let mut mapper = SYMBOL_MAPPER.lock();
+        mapper
+            .register_model_objects(&model_name, &elements, &policy)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
 
 #[pyfunction]
 pub fn get_model_name(model_id: i64) -> Option<String> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.get_model_name(model_id)
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        mapper.get_model_name(model_id)
     })
 }
 
 #[pyfunction]
 pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.get_object_label(model_id, object_id)
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        mapper.get_object_label(model_id, object_id)
     })
 }
 
 #[pyfunction]
 pub fn get_object_labels(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            object_ids
-                .iter()
-                .flat_map(|object_id| {
-                    mapper
-                        .get_object_label(model_id, *object_id)
-                        .map(|label| (*object_id, Some(label)))
-                        .or(Some((*object_id, None)))
-                })
-                .collect()
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        object_ids
+            .iter()
+            .flat_map(|object_id| {
+                mapper
+                    .get_object_label(model_id, *object_id)
+                    .map(|label| (*object_id, Some(label)))
+                    .or(Some((*object_id, None)))
+            })
+            .collect()
     })
 }
 
@@ -128,85 +118,69 @@ pub fn get_object_ids(
     model_name: String,
     object_labels: Vec<String>,
 ) -> Vec<(String, Option<i64>)> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-            object_labels
-                .iter()
-                .flat_map(|object_label| {
-                    mapper
-                        .get_object_id(&model_name, object_label)
-                        .ok()
-                        .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
-                        .or_else(|| Some((object_label.clone(), None)))
-                })
-                .collect()
-        })
+    no_gil(|| {
+        let mut mapper = SYMBOL_MAPPER.lock();
+        object_labels
+            .iter()
+            .flat_map(|object_label| {
+                mapper
+                    .get_object_id(&model_name, object_label)
+                    .ok()
+                    .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
+                    .or_else(|| Some((object_label.clone(), None)))
+            })
+            .collect()
     })
 }
 
 #[pyfunction]
 pub fn clear_symbol_maps() {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mut mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.clear();
-        })
+    no_gil(|| {
+        let mut mapper = SYMBOL_MAPPER.lock();
+        mapper.clear();
     })
 }
 
 #[pyfunction]
 pub fn build_model_object_key(model_name: String, object_label: String) -> String {
-    Python::with_gil(|py| {
-        py.allow_threads(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
-    })
+    no_gil(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
 }
 
 #[pyfunction]
 pub fn parse_compound_key(key: String) -> PyResult<(String, String)> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            SymbolMapper::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    no_gil(|| {
+        SymbolMapper::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
 
 #[pyfunction]
 pub fn validate_base_key(key: String) -> PyResult<String> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    no_gil(|| {
+        SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
 
 #[pyfunction]
 pub fn is_model_registered(model_name: String) -> bool {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.is_model_registered(&model_name)
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        mapper.is_model_registered(&model_name)
     })
 }
 
 #[pyfunction]
 pub fn is_object_registered(model_name: String, object_label: String) -> bool {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.is_object_registered(&model_name, &object_label)
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        mapper.is_object_registered(&model_name, &object_label)
     })
 }
 
 #[pyfunction]
 pub fn dump_registry() -> Vec<String> {
-    Python::with_gil(|py| {
-        py.allow_threads(|| {
-            let mapper = SYMBOL_MAPPER.lock().unwrap();
-            mapper.dump_registry()
-        })
+    no_gil(|| {
+        let mapper = SYMBOL_MAPPER.lock();
+        mapper.dump_registry()
     })
 }
 
@@ -427,10 +401,8 @@ impl SymbolMapper {
         elements: StdHashMap<i64, String>,
         policy: RegistrationPolicy,
     ) -> PyResult<i64> {
-        Python::with_gil(|py| {
-            py.allow_threads(|| self.register_model_objects(&model_name, &elements, &policy))
-        })
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+        no_gil(|| self.register_model_objects(&model_name, &elements, &policy))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn get_model_name(&self, id: i64) -> Option<String> {
@@ -462,7 +434,7 @@ impl SymbolMapper {
         model_name: String,
         object_label: String,
     ) -> PyResult<(i64, i64)> {
-        Python::with_gil(|py| py.allow_threads(|| self.get_object_id(&model_name, &object_label)))
+        no_gil(|| self.get_object_id(&model_name, &object_label))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }

@@ -37,7 +37,7 @@ lazy_static = "1.4"
 nalgebra = "0.32"
 ndarray = "0.15"
 num-traits = "0.2"
-parking_lot = "0.12"
+parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 
 [dependencies.pyo3]
 version = "0.18"
