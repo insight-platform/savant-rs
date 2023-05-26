@@ -365,6 +365,18 @@ impl Object {
         if let Some(parent) = parent.as_ref() {
             assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
         }
+
+        match (self.get_frame(), parent.as_ref()) {
+            (Some(f), Some(p)) => {
+                assert!(
+                    p.get_frame().is_some() && Arc::ptr_eq(&f.inner, &p.get_frame().unwrap().inner),
+                    "When setting parent, both objects must be attached to the same frame"
+                );
+            }
+            (None, None) => {}
+            _ => panic!("When setting parent, both objects must be attached to the same frame or both detached"),
+        }
+
         let mut object = self.inner.lock().unwrap();
         let p = parent.as_ref();
         object.parent_id = p.map(|p| p.inner.lock().unwrap().id);

@@ -1178,14 +1178,14 @@ mod tests {
                 .unwrap(),
         );
         let mut frame = gen_frame();
+        frame.add_object(parent.clone());
         let mut obj = frame.get_object(0).unwrap();
         obj.set_parent(Some(parent.clone()));
-        frame.add_object(parent.clone());
-        parent.set_id(155);
+        parent.set_id(255);
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(obj.get_parent().unwrap().inner.lock().unwrap().id, 155);
+        assert_eq!(obj.get_parent().unwrap().inner.lock().unwrap().id, 255);
     }
 
     #[test]
