@@ -1,14 +1,14 @@
-from savant_rs.primitives import Object, Value, Attribute, ParentObject, BBox
+from savant_rs.primitives import Object, Value, Attribute, ParentObject, RBBox
 from timeit import default_timer as timer
 
 o = Object(
     id=1,
     creator="some",
     label="person",
-    bbox=BBox(0.1, 0.2, 0.3, 0.4),
+    bbox=RBBox(0.1, 0.2, 0.3, 0.4, None),
     confidence=0.5,
     attributes={},
-    parent=ParentObject(id=2, creator="some", label="car"),
+    parent=None,
     track_id=None,
 )
 
