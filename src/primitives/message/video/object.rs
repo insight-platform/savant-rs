@@ -80,6 +80,22 @@ impl ToSerdeJsonValue for Modification {
     }
 }
 
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct InferenceObjectMeta {
+    pub id: i64,
+    pub creator_id: i64,
+    pub label_id: i64,
+    pub confidence: f64,
+    pub track_id: i64,
+    pub parent_id: i64,
+    pub box_xc: f64,
+    pub box_yx: f64,
+    pub box_width: f64,
+    pub box_height: f64,
+    pub box_angle: f64,
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct InnerObject {
@@ -112,6 +128,25 @@ pub struct InnerObject {
     #[with(Skip)]
     #[builder(default)]
     pub(crate) frame: Option<VideoFrame>,
+}
+
+impl From<&Object> for InferenceObjectMeta {
+    fn from(o: &Object) -> Self {
+        let o = o.inner.lock().unwrap();
+        Self {
+            id: o.id,
+            creator_id: o.creator_id.unwrap_or(i64::MAX),
+            label_id: o.label_id.unwrap_or(i64::MAX),
+            confidence: o.confidence.unwrap_or(-1.0),
+            track_id: o.track_id.unwrap_or(i64::MAX),
+            parent_id: o.parent_id.unwrap_or(i64::MAX),
+            box_xc: o.bbox.xc,
+            box_yx: o.bbox.yc,
+            box_width: o.bbox.width,
+            box_height: o.bbox.height,
+            box_angle: o.bbox.angle.unwrap_or(0.0),
+        }
+    }
 }
 
 impl Default for InnerObject {

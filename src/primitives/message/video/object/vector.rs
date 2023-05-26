@@ -1,5 +1,6 @@
 use crate::primitives::message::video::object::query::filter;
 use crate::primitives::message::video::object::query::py::QueryWrapper;
+use crate::primitives::message::video::object::InferenceObjectMeta;
 use crate::primitives::Object;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
@@ -31,6 +32,7 @@ impl VectorView {
 
     #[getter]
     fn address(&self) -> usize {
+        println!("Pointer: {:?}", self as *const Self as usize);
         self as *const Self as usize
     }
 
@@ -50,7 +52,18 @@ impl VectorView {
 /// This function is unsafe because it dereferences a raw pointer.
 ///
 #[no_mangle]
-pub unsafe extern "C" fn object_vector_len(this: usize) -> usize {
-    let this = unsafe { &*(this as *const VectorView) };
+pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
+    let this = unsafe { &*(handle as *const VectorView) };
     this.inner.len()
+}
+
+/// Returns the object vector length.
+/// # Safety
+/// This function is unsafe because it dereferences a raw pointer.
+///
+#[no_mangle]
+pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
+    let this = unsafe { &*(handle as *const VectorView) };
+    eprintln!("Len: {}, Pos: {}", this.inner.len(), pos);
+    (&this.inner[pos]).into()
 }

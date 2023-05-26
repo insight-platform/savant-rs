@@ -117,6 +117,44 @@ lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 print("Length:", lib.object_vector_len(o.address))
 
+# Demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
+# Return complex object from C-compatible Rust-function
+#
+#     pub id: i64,
+#     pub creator_id: i64,
+#     pub label_id: i64,
+#     pub confidence: f64,
+#     pub track_id: i64,
+#     pub parent_id: i64,
+#     pub box_xc: f64,
+#     pub box_yx: f64,
+#     pub box_width: f64,
+#     pub box_height: f64,
+#     pub box_angle: f64,
+
+class InferenceMeta(Structure):
+    _fields_ = [
+        ("id", c_int64),
+        ("creator_id", c_int64),
+        ("label_id", c_int64),
+        ("confidence", c_double),
+        ("track_id", c_int64),
+        ("parent_id", c_int64),
+        ("box_xc", c_double),
+        ("box_yc", c_double),
+        ("box_width", c_double),
+        ("box_height", c_double),
+        ("box_angle", c_double),
+    ]
+
+
+lib.get_inference_meta.argtypes = [c_uint64, c_uint64]
+lib.get_inference_meta.restype = InferenceMeta
+meta = lib.get_inference_meta(o.address, 0)
+
+for field_name, field_type in meta._fields_:
+    print(field_name, getattr(meta, field_name))
+
 # demonstrates VectorView len() op
 print("Vector View len() op", len(o))
 
