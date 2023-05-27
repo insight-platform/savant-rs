@@ -320,6 +320,16 @@ impl QueryWrapper {
     }
 
     #[staticmethod]
+    fn with_children(a: QueryWrapper, n: IntExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::WithChildren(
+                Box::new(a.inner.deref().clone()),
+                n.inner,
+            )),
+        }
+    }
+
+    #[staticmethod]
     fn id(e: IntExpressionWrapper) -> QueryWrapper {
         QueryWrapper {
             inner: Arc::new(Query::Id(e.inner)),

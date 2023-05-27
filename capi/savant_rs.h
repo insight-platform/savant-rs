@@ -38,3 +38,15 @@ uintptr_t object_vector_len(uintptr_t handle);
  *
  */
 struct InferenceObjectMeta get_inference_meta(uintptr_t handle, uintptr_t pos);
+
+/**
+ * Updates frame meta from inference meta
+ *
+ * # Safety
+ *
+ * This function is unsafe because it transforms raw pointer to VideoFrame
+ *
+ */
+void update_frame_meta(uintptr_t frame_handle,
+                       const struct InferenceObjectMeta *ffi_inference_meta,
+                       uintptr_t count);

@@ -23,7 +23,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
             buf.extend_from_slice(t.as_ref());
             buf
         }
-        NativeMessage::VideoFrame(mut frame) => {
+        NativeMessage::VideoFrame(frame) => {
             let mut buf = Vec::with_capacity(760);
             frame.make_snapshot();
             let inner = frame.inner.read_recursive();

@@ -83,22 +83,6 @@ impl ToSerdeJsonValue for Modification {
     }
 }
 
-#[derive(Clone, Debug)]
-#[repr(C)]
-pub struct InferenceObjectMeta {
-    pub id: i64,
-    pub creator_id: i64,
-    pub label_id: i64,
-    pub confidence: f64,
-    pub track_id: i64,
-    pub parent_id: i64,
-    pub box_xc: f64,
-    pub box_yx: f64,
-    pub box_width: f64,
-    pub box_height: f64,
-    pub box_angle: f64,
-}
-
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct InnerObject {
@@ -131,25 +115,6 @@ pub struct InnerObject {
     #[with(Skip)]
     #[builder(default)]
     pub(crate) frame: Option<BelongingVideoFrame>,
-}
-
-impl From<&Object> for InferenceObjectMeta {
-    fn from(o: &Object) -> Self {
-        let o = o.inner.read_recursive();
-        Self {
-            id: o.id,
-            creator_id: o.creator_id.unwrap_or(i64::MAX),
-            label_id: o.label_id.unwrap_or(i64::MAX),
-            confidence: o.confidence.unwrap_or(-1.0),
-            track_id: o.track_id.unwrap_or(i64::MAX),
-            parent_id: o.parent_id.unwrap_or(i64::MAX),
-            box_xc: o.bbox.xc,
-            box_yx: o.bbox.yc,
-            box_width: o.bbox.width,
-            box_height: o.bbox.height,
-            box_angle: o.bbox.angle.unwrap_or(0.0),
-        }
-    }
 }
 
 impl Default for InnerObject {
@@ -186,6 +151,17 @@ impl ToSerdeJsonValue for InnerObject {
             "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
             "track_id": self.track_id,
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
+            "frame": self.get_parent_frame_source(),
+        })
+    }
+}
+
+impl InnerObject {
+    pub fn get_parent_frame_source(&self) -> Option<String> {
+        self.frame.as_ref().and_then(|f| {
+            f.inner
+                .upgrade()
+                .map(|f| f.read_recursive().source_id.clone())
         })
     }
 }
@@ -239,7 +215,7 @@ impl Object {
         inner
     }
 
-    pub(crate) fn set_parent(&mut self, parent: Option<Object>) {
+    pub(crate) fn set_parent(&self, parent: Option<Object>) {
         if let Some(parent) = parent.as_ref() {
             assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
         }
@@ -382,7 +358,7 @@ impl Object {
     }
 
     #[setter]
-    pub fn set_draw_label(&mut self, draw_label: Option<String>) {
+    pub fn set_draw_label(&self, draw_label: Option<String>) {
         let mut inner = self.inner.write();
         inner.draw_label = draw_label;
         inner.modifications.push(Modification::DrawLabel);
@@ -401,42 +377,42 @@ impl Object {
     }
 
     #[setter]
-    pub fn set_track_id(&mut self, track_id: Option<i64>) {
+    pub fn set_track_id(&self, track_id: Option<i64>) {
         let mut inner = self.inner.write();
         inner.track_id = track_id;
         inner.modifications.push(Modification::TrackId);
     }
 
     #[setter]
-    pub fn set_id(&mut self, id: i64) {
+    pub fn set_id(&self, id: i64) {
         let mut inner = self.inner.write();
         inner.id = id;
         inner.modifications.push(Modification::Id);
     }
 
     #[setter]
-    pub fn set_creator(&mut self, creator: String) {
+    pub fn set_creator(&self, creator: String) {
         let mut inner = self.inner.write();
         inner.creator = creator;
         inner.modifications.push(Modification::Creator);
     }
 
     #[setter]
-    pub fn set_label(&mut self, label: String) {
+    pub fn set_label(&self, label: String) {
         let mut inner = self.inner.write();
         inner.label = label;
         inner.modifications.push(Modification::Label);
     }
 
     #[setter]
-    pub fn set_bbox(&mut self, bbox: RBBox) {
+    pub fn set_bbox(&self, bbox: RBBox) {
         let mut inner = self.inner.write();
         inner.bbox = bbox;
         inner.modifications.push(Modification::BoundingBox);
     }
 
     #[setter]
-    pub fn set_confidence(&mut self, confidence: Option<f64>) {
+    pub fn set_confidence(&self, confidence: Option<f64>) {
         let mut inner = self.inner.write();
         inner.confidence = confidence;
         inner.modifications.push(Modification::Confidence);
@@ -650,15 +626,15 @@ mod tests {
     #[test]
     #[should_panic]
     fn self_parent_assignment_panic_trivial() {
-        let mut obj = get_object();
+        let obj = get_object();
         obj.set_parent(Some(obj.clone()));
     }
 
     #[test]
     #[should_panic]
     fn self_parent_assignment_change_id() {
-        let mut obj = get_object();
-        let mut parent = obj.clone();
+        let obj = get_object();
+        let parent = obj.clone();
         parent.set_id(2);
         obj.set_parent(Some(parent));
     }
@@ -677,7 +653,7 @@ mod tests {
         let f = gen_frame();
         let o = f.get_object(0).unwrap();
         drop(f);
-        let mut f = gen_frame();
+        let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
         f.add_object(o);
     }

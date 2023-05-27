@@ -479,7 +479,7 @@ mod tests {
         assert!(expr.execute(&gen_object()));
 
         print!("{:?}", "test");
-        let mut object = gen_object();
+        let object = gen_object();
         let parent_object = Object::from_inner_object(InnerObject {
             id: 13,
             creator: s("peoplenet"),

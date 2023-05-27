@@ -1,3 +1,4 @@
+pub mod capi;
 pub mod primitives;
 pub mod test;
 pub mod tests_pyo3_access;

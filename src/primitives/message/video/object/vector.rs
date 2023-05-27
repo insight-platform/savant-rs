@@ -1,6 +1,5 @@
 use crate::primitives::message::video::object::query::filter;
 use crate::primitives::message::video::object::query::py::QueryWrapper;
-use crate::primitives::message::video::object::InferenceObjectMeta;
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
 use pyo3::exceptions::PyIndexError;
@@ -32,7 +31,7 @@ impl VectorView {
     }
 
     #[getter]
-    fn raw_memory_address(&self) -> usize {
+    fn memory_handle(&self) -> usize {
         self as *const Self as usize
     }
 
@@ -46,28 +45,4 @@ impl VectorView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         })
     }
-}
-
-/// Returns the object vector length
-///
-/// # Safety
-///
-/// This function is unsafe because it dereferences a raw pointer
-///
-#[no_mangle]
-pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
-    let this = unsafe { &*(handle as *const VectorView) };
-    this.inner.len()
-}
-
-/// Returns the object data casted to InferenceObjectMeta by index
-///
-/// # Safety
-///
-/// This function is unsafe because it dereferences a raw pointer
-///
-#[no_mangle]
-pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
-    let this = unsafe { &*(handle as *const VectorView) };
-    (&this.inner[pos]).into()
 }

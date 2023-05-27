@@ -1,3 +1,4 @@
+use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::object::query::py::QueryWrapper;
 use crate::primitives::message::video::object::query::{ExecutableQuery, IntExpression, Query};
@@ -15,6 +16,7 @@ use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::ops::Deref;
 use std::sync::{Arc, Weak};
@@ -478,14 +480,27 @@ impl InnerVideoFrame {
 
 #[pyclass]
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct VideoFrame {
     pub(crate) inner: Arc<RwLock<Box<InnerVideoFrame>>>,
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct BelongingVideoFrame {
     pub(crate) inner: Weak<RwLock<Box<InnerVideoFrame>>>,
+}
+
+impl Debug for BelongingVideoFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self.inner.upgrade() {
+            Some(inner) => f
+                .debug_struct("BelongingVideoFrame")
+                .field("stream_id", &inner.read_recursive().source_id)
+                .finish(),
+            None => f.debug_struct("Unset").finish(),
+        }
+    }
 }
 
 impl From<VideoFrame> for BelongingVideoFrame {
@@ -525,6 +540,13 @@ impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
 }
 
 impl VideoFrame {
+    pub(crate) fn update_from_inference_meta(
+        &self,
+        _meta: &InferenceObjectMeta,
+    ) -> anyhow::Result<()> {
+        todo!("To implement the function");
+    }
+
     pub(crate) fn from_inner(object: InnerVideoFrame) -> Self {
         let f = VideoFrame {
             inner: Arc::new(RwLock::new(Box::new(object))),
@@ -567,7 +589,7 @@ impl VideoFrame {
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&mut self, ids: &[i64]) -> Vec<Object> {
+    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<Object> {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
@@ -585,7 +607,7 @@ impl VideoFrame {
             .collect()
     }
 
-    pub fn delete_objects(&mut self, q: &Query) -> Vec<Object> {
+    pub fn delete_objects(&self, q: &Query) -> Vec<Object> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
@@ -600,18 +622,18 @@ impl VideoFrame {
             .map(|o| Object::from_arc_inner_object(o.clone()))
     }
 
-    pub fn make_snapshot(&mut self) {
+    pub fn make_snapshot(&self) {
         let mut inner = self.inner.write();
         inner.preserve();
     }
 
-    fn fix_object_ownership(&mut self) {
+    fn fix_object_ownership(&self) {
         self.access_objects(&Query::Idle)
             .iter()
             .for_each(|o| o.attach(self.clone()));
     }
 
-    pub fn restore_from_snapshot(&mut self) {
+    pub fn restore_from_snapshot(&self) {
         {
             let mut inner = self.inner.write();
             inner.resident_objects.clear();
@@ -697,6 +719,11 @@ impl ToSerdeJsonValue for VideoFrame {
 
 #[pymethods]
 impl VideoFrame {
+    #[getter]
+    fn memory_handle(&self) -> usize {
+        self as *const Self as usize
+    }
+
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -953,11 +980,6 @@ impl VideoFrame {
         self.delete_attribute(creator, name)
     }
 
-    #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&mut self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
-        no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
-    }
-
     #[pyo3(name = "set_attribute")]
     pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.set_attribute(attribute)
@@ -966,6 +988,11 @@ impl VideoFrame {
     #[pyo3(name = "clear_attributes")]
     pub fn clear_attributes_gil(&mut self) {
         self.clear_attributes()
+    }
+
+    #[pyo3(name = "set_draw_label")]
+    pub fn set_draw_label_gil(&self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
+        no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "get_object")]
@@ -983,7 +1010,7 @@ impl VideoFrame {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
-    pub fn add_object(&mut self, object: Object) {
+    pub fn add_object(&self, object: Object) {
         let mut inner = self.inner.write();
         let parent = object.get_parent();
         if let Some(parent) = parent.as_ref() {
@@ -1000,37 +1027,37 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&mut self, ids: Vec<i64>) -> VectorView {
+    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VectorView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&mut self, query: QueryWrapper) -> VectorView {
+    pub fn delete_objects_gil(&self, query: QueryWrapper) -> VectorView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&mut self, q: QueryWrapper, parent: Object) -> VectorView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: Object) -> VectorView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&mut self, q: QueryWrapper) -> VectorView {
+    pub fn clear_parent_gil(&self, q: QueryWrapper) -> VectorView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
-    pub fn clear_objects(&mut self) {
+    pub fn clear_objects(&self) {
         let mut frame = self.inner.write();
         frame.resident_objects.clear();
     }
 
     #[pyo3(name = "make_snapshot")]
-    pub fn make_snapshot_gil(&mut self) {
+    pub fn make_snapshot_gil(&self) {
         no_gil(|| self.make_snapshot())
     }
 
     #[pyo3(name = "restore_from_snapshot")]
-    pub fn restore_from_snapshot_gil(&mut self) {
+    pub fn restore_from_snapshot_gil(&self) {
         no_gil(|| self.restore_from_snapshot())
     }
 
@@ -1119,23 +1146,23 @@ mod tests {
     #[test]
     fn test_delete_objects_by_ids() {
         pyo3::prepare_freethreaded_python();
-        let mut t = gen_frame();
-        t.delete_objects_by_ids(&[0, 1]);
-        let objects = t.access_objects(&Query::Idle);
+        let f = gen_frame();
+        f.delete_objects_by_ids(&[0, 1]);
+        let objects = f.access_objects(&Query::Idle);
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
     }
 
     #[test]
     fn test_parent_cleared_when_delete_objects_by_ids() {
-        let mut f = gen_frame();
+        let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
         let o = f.get_object(1).unwrap();
         assert!(o.get_parent().is_none());
         let o = f.get_object(2).unwrap();
         assert!(o.get_parent().is_none());
 
-        let mut f = gen_frame();
+        let f = gen_frame();
         f.delete_objects_by_ids(&[1]);
         let o = f.get_object(2).unwrap();
         assert!(o.get_parent().is_some());
@@ -1143,7 +1170,7 @@ mod tests {
 
     #[test]
     fn test_parent_cleared_when_delete_objects_by_query() {
-        let mut f = gen_frame();
+        let f = gen_frame();
 
         let o = f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
@@ -1163,28 +1190,28 @@ mod tests {
     #[test]
     fn test_delete_all_objects() {
         pyo3::prepare_freethreaded_python();
-        let mut t = gen_frame();
-        let objs = t.delete_objects(&Query::Idle);
+        let f = gen_frame();
+        let objs = f.delete_objects(&Query::Idle);
         assert_eq!(objs.len(), 3);
-        let objects = t.access_objects(&Query::Idle);
+        let objects = f.access_objects(&Query::Idle);
         assert!(objects.is_empty());
     }
 
     #[test]
     fn test_snapshot_simple() {
-        let mut t = gen_frame();
-        t.make_snapshot_gil();
-        let mut o = t.access_objects_by_id(&vec![0]).pop().unwrap();
+        let f = gen_frame();
+        f.make_snapshot_gil();
+        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_id(12);
-        assert!(matches!(t.access_objects_by_id(&vec![0]).pop(), None));
-        t.restore_from_snapshot_gil();
-        t.access_objects_by_id(&vec![0]).pop().unwrap();
+        assert!(matches!(f.access_objects_by_id(&vec![0]).pop(), None));
+        f.restore_from_snapshot_gil();
+        f.access_objects_by_id(&vec![0]).pop().unwrap();
     }
 
     #[test]
     fn test_modified_objects() {
         let t = gen_frame();
-        let mut o = t.access_objects_by_id(&vec![0]).pop().unwrap();
+        let o = t.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_id(12);
         let mut modified = t.get_modified_objects();
         assert_eq!(modified.len(), 1);
@@ -1212,15 +1239,15 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let mut frame = gen_frame();
-        let mut obj = frame.get_object(0).unwrap();
+        let frame = gen_frame();
+        let obj = frame.get_object(0).unwrap();
         obj.set_parent(Some(parent));
         frame.make_snapshot();
     }
 
     #[test]
     fn test_snapshot_with_parent_added_to_frame() {
-        let mut parent = Object::from_inner_object(
+        let parent = Object::from_inner_object(
             InnerObjectBuilder::default()
                 .parent_id(None)
                 .creator(s("some-model"))
@@ -1230,9 +1257,9 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let mut frame = gen_frame();
+        let frame = gen_frame();
         frame.add_object(parent.clone());
-        let mut obj = frame.get_object(0).unwrap();
+        let obj = frame.get_object(0).unwrap();
         obj.set_parent(Some(parent.clone()));
         parent.set_id(255);
         frame.make_snapshot();
@@ -1330,7 +1357,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let mut f = gen_frame();
+        let f = gen_frame();
         f.add_object(o);
     }
 
@@ -1361,8 +1388,8 @@ mod tests {
 
     #[test]
     fn normally_transfer_parent() {
-        let mut f1 = gen_frame();
-        let mut f2 = gen_frame();
+        let f1 = gen_frame();
+        let f2 = gen_frame();
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(o.get_frame().is_none());
         o.set_id(33);
@@ -1373,7 +1400,7 @@ mod tests {
 
     #[test]
     fn frame_is_properly_set_after_snapshotting() {
-        let mut frame = gen_frame();
+        let frame = gen_frame();
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let o = frame.get_object(0).unwrap();

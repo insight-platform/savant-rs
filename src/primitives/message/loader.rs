@@ -37,7 +37,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
             let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(&bytes[..]);
             match f {
                 Ok(f) => {
-                    let mut f = VideoFrame::from_inner(f);
+                    let f = VideoFrame::from_inner(f);
                     f.restore_from_snapshot();
                     Message::video_frame(f)
                 }

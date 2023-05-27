@@ -3,7 +3,8 @@ import ctypes
 from savant_rs.utils import gen_frame, save_message, load_message
 from savant_rs.primitives import SetDrawLabelKind, Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, \
     Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
-from savant_rs.video_object_query import Query as Q
+from savant_rs.video_object_query import Query as Q, \
+    IntExpression as IE
 import json
 from timeit import default_timer as timer
 from ctypes import *
@@ -105,6 +106,12 @@ frame.add_object(Object(
     track_id=None,
 ))
 
+f = gen_frame()
+print("Raw address to pass to C-funcs: ", f.memory_handle)
+o = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
+print("Object with two children:", o[0])
+
+
 # demonstrates chained filtering on VectorView object
 #
 o = frame.access_objects_by_id([1])\
@@ -116,7 +123,7 @@ o = frame.access_objects_by_id([1])\
 lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 lib.object_vector_len.rettype = c_uint64
-print("Length:", lib.object_vector_len(o.raw_memory_address))
+print("Length:", lib.object_vector_len(o.memory_handle))
 
 # Demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
 # Return complex object from C-compatible Rust-function
@@ -151,7 +158,7 @@ class InferenceMeta(Structure):
 
 lib.get_inference_meta.argtypes = [c_uint64, c_uint64]
 lib.get_inference_meta.restype = InferenceMeta
-meta = lib.get_inference_meta(o.raw_memory_address, 0)
+meta = lib.get_inference_meta(o.memory_handle, 0)
 
 print("C-struct: ", meta)
 for field_name, field_type in meta._fields_:
