@@ -1,4 +1,5 @@
 pub mod utils {
+    use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::frame::{
         InnerVideoFrameBuilder, VideoTranscodingMethod,
     };
@@ -82,7 +83,7 @@ pub mod utils {
         f.add_object(c1);
         f.add_object(c2);
 
-        f.set_attribute_py(
+        f.set_attribute(
             AttributeBuilder::default()
                 .creator("system".into())
                 .name("test".into())
@@ -93,7 +94,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute_py(
+        f.set_attribute(
             AttributeBuilder::default()
                 .creator("system2".into())
                 .name("test2".into())
@@ -103,7 +104,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute_py(
+        f.set_attribute(
             AttributeBuilder::default()
                 .creator("system".into())
                 .name("test2".into())
@@ -113,7 +114,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.set_attribute_py(
+        f.set_attribute(
             AttributeBuilder::default()
                 .creator("test".to_string())
                 .name("test".to_string())

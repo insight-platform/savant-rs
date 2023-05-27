@@ -1,4 +1,5 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
+use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
@@ -128,7 +129,7 @@ pub struct InnerObject {
     pub label_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
-    pub(crate) frame: Option<VideoFrame>,
+    pub(crate) frame: Option<BelongingVideoFrame>,
 }
 
 impl From<&Object> for InferenceObjectMeta {
@@ -231,6 +232,41 @@ impl Object {
         let inner = self.inner.lock();
         inner
     }
+
+    pub(crate) fn set_parent(&mut self, parent: Option<Object>) {
+        if let Some(parent) = parent.as_ref() {
+            assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
+        }
+
+        match (self.get_frame(), parent.as_ref()) {
+            (Some(f), Some(p)) => {
+                assert!(
+                    p.get_frame().is_some() && Arc::ptr_eq(&f.inner, &p.get_frame().unwrap().inner),
+                    "When setting parent, both objects must be attached to the same frame"
+                );
+            }
+            (None, Some(p)) => {
+                assert!(p.get_frame().is_none(), "When the object is set as parent to the object detached from a frame it must have no frame too.");
+            }
+            (_, None) => {}
+        }
+
+        let mut object = self.inner.lock();
+        let p = parent.as_ref();
+        object.parent_id = p.map(|p| p.inner.lock().id);
+        object.parent = p.map(|p| ParentObject::new(p.clone()));
+        object.modifications.push(Modification::Parent);
+    }
+
+    pub(crate) fn attach(&self, frame: VideoFrame) {
+        let mut object = self.inner.lock();
+        object.frame = Some(frame.into());
+    }
+
+    pub(crate) fn detach(&self) {
+        let mut object = self.inner.lock();
+        object.frame = None;
+    }
 }
 
 #[pymethods]
@@ -288,19 +324,9 @@ impl Object {
         object.track_id
     }
 
-    pub fn attach(&self, frame: VideoFrame) {
-        let mut object = self.inner.lock();
-        object.frame = Some(frame);
-    }
-
-    pub fn detach(&self) {
-        let mut object = self.inner.lock();
-        object.frame = None;
-    }
-
     pub fn get_frame(&self) -> Option<VideoFrame> {
         let object = self.inner.lock();
-        object.frame.clone()
+        object.frame.as_ref().map(|f| f.into())
     }
 
     #[getter]
@@ -396,32 +422,6 @@ impl Object {
         object.modifications.push(Modification::Confidence);
     }
 
-    #[setter]
-    pub fn set_parent(&mut self, parent: Option<Object>) {
-        if let Some(parent) = parent.as_ref() {
-            assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
-        }
-
-        match (self.get_frame(), parent.as_ref()) {
-            (Some(f), Some(p)) => {
-                assert!(
-                    p.get_frame().is_some() && Arc::ptr_eq(&f.inner, &p.get_frame().unwrap().inner),
-                    "When setting parent, both objects must be attached to the same frame"
-                );
-            }
-            (None, Some(p)) => {
-                assert!(p.get_frame().is_none(), "When the object is set as parent to the object detached from a frame it must have no frame too.");
-            }
-            (_, None) => {}
-        }
-
-        let mut object = self.inner.lock();
-        let p = parent.as_ref();
-        object.parent_id = p.map(|p| p.inner.lock().id);
-        object.parent = p.map(|p| ParentObject::new(p.clone()));
-        object.modifications.push(Modification::Parent);
-    }
-
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
         no_gil(|| self.get_attributes())
@@ -500,6 +500,7 @@ mod tests {
     use crate::primitives::attribute::Attributive;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, Modification, Object, RBBox, Value};
+    use crate::test::utils::gen_frame;
 
     fn get_object() -> Object {
         Object::from_inner_object(
@@ -639,5 +640,24 @@ mod tests {
         let mut parent = obj.clone();
         parent.set_id(2);
         obj.set_parent(Some(parent));
+    }
+
+    #[test]
+    #[should_panic(expected = "Frame is dropped, you cannot use attached objects anymore")]
+    fn try_access_frame_object_after_frame_drop() {
+        let f = gen_frame();
+        let o = f.get_object(0).unwrap();
+        drop(f);
+        let _f = o.get_frame().unwrap();
+    }
+
+    #[test]
+    fn reassing_object_from_dropped_frame_to_new_frame() {
+        let f = gen_frame();
+        let o = f.get_object(0).unwrap();
+        drop(f);
+        let mut f = gen_frame();
+        f.delete_objects_by_ids(&[0]);
+        f.add_object(o);
     }
 }

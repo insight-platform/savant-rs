@@ -17,7 +17,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -483,6 +483,42 @@ pub struct VideoFrame {
     pub(crate) inner: Arc<Mutex<Box<InnerVideoFrame>>>,
 }
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct BelongingVideoFrame {
+    pub(crate) inner: Weak<Mutex<Box<InnerVideoFrame>>>,
+}
+
+impl From<VideoFrame> for BelongingVideoFrame {
+    fn from(value: VideoFrame) -> Self {
+        Self {
+            inner: Arc::downgrade(&value.inner),
+        }
+    }
+}
+
+impl From<BelongingVideoFrame> for VideoFrame {
+    fn from(value: BelongingVideoFrame) -> Self {
+        Self {
+            inner: value
+                .inner
+                .upgrade()
+                .expect("Frame is dropped, you cannot use attached objects anymore"),
+        }
+    }
+}
+
+impl From<&BelongingVideoFrame> for VideoFrame {
+    fn from(value: &BelongingVideoFrame) -> Self {
+        Self {
+            inner: value
+                .inner
+                .upgrade()
+                .expect("Frame is dropped, you cannot use attached objects anymore"),
+        }
+    }
+}
+
 impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
     fn get_inner(&self) -> Arc<Mutex<Box<InnerVideoFrame>>> {
         self.inner.clone()
@@ -638,6 +674,12 @@ impl VideoFrame {
             .collect()
     }
 }
+
+// impl Drop for VideoFrame {
+//     fn drop(&mut self) {
+//         self.delete_objects(&Query::Idle);
+//     }
+// }
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
