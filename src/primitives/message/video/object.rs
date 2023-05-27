@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn reassing_object_from_dropped_frame_to_new_frame() {
+    fn reassign_object_from_dropped_frame_to_new_frame() {
         let f = gen_frame();
         let o = f.get_object(0).unwrap();
         drop(f);
