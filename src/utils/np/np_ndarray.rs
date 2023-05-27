@@ -117,7 +117,7 @@ pub fn np_to_ndarray<T: ElementType>(arr: PyReadonlyArrayDyn<T>) -> PyResult<Dyn
 
 #[pyfunction]
 #[pyo3(name = "np_to_ndarray")]
-pub fn np_to_ndarray_py(arr: &PyAny) -> PyResult<PyObject> {
+pub fn np_to_ndarray_gil(arr: &PyAny) -> PyResult<PyObject> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_fp32)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
@@ -175,7 +175,7 @@ pub fn np_to_ndarray_py(arr: &PyAny) -> PyResult<PyObject> {
 
 #[pyfunction]
 #[pyo3(name = "ndarray_to_np")]
-pub fn ndarray_to_np_py(m: &PyAny) -> PyResult<PyObject> {
+pub fn ndarray_to_np_gil(m: &PyAny) -> PyResult<PyObject> {
     if let Ok(m) = m.extract::<NDarray>() {
         let m = match m.inner.deref() {
             NDarrayVariant::Float64(m) => ndarray_to_np(m),

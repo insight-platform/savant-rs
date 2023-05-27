@@ -1,10 +1,11 @@
 use crate::primitives::attribute::{Attributive, InnerAttributes};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
+use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
-use parking_lot::{Mutex, MutexGuard};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ pub mod vector;
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct ParentObject {
-    pub(crate) inner: Arc<Mutex<InnerObject>>,
+    pub(crate) inner: Arc<RwLock<InnerObject>>,
 }
 
 impl PartialEq for ParentObject {
@@ -27,7 +28,7 @@ impl PartialEq for ParentObject {
 
 impl ToSerdeJsonValue for ParentObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        let inner = self.inner.lock();
+        let inner = self.inner.read_recursive();
         serde_json::json!({
             "id": inner.id,
             "creator": inner.creator,
@@ -134,7 +135,7 @@ pub struct InnerObject {
 
 impl From<&Object> for InferenceObjectMeta {
     fn from(o: &Object) -> Self {
-        let o = o.inner.lock();
+        let o = o.inner.read_recursive();
         Self {
             id: o.id,
             creator_id: o.creator_id.unwrap_or(i64::MAX),
@@ -202,17 +203,17 @@ impl InnerAttributes for InnerObject {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Object {
-    pub(crate) inner: Arc<Mutex<InnerObject>>,
+    pub(crate) inner: Arc<RwLock<InnerObject>>,
 }
 
 impl ToSerdeJsonValue for Object {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        self.inner.lock().to_serde_json_value()
+        self.inner.read_recursive().to_serde_json_value()
     }
 }
 
 impl Attributive<InnerObject> for Object {
-    fn get_inner(&self) -> Arc<Mutex<InnerObject>> {
+    fn get_inner(&self) -> Arc<RwLock<InnerObject>> {
         self.inner.clone()
     }
 }
@@ -220,16 +221,21 @@ impl Attributive<InnerObject> for Object {
 impl Object {
     pub fn from_inner_object(object: InnerObject) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(object)),
+            inner: Arc::new(RwLock::new(object)),
         }
     }
 
-    pub fn from_arc_inner_object(object: Arc<Mutex<InnerObject>>) -> Self {
+    pub fn from_arc_inner_object(object: Arc<RwLock<InnerObject>>) -> Self {
         Self { inner: object }
     }
 
-    pub fn get_inner(&self) -> MutexGuard<InnerObject> {
-        let inner = self.inner.lock();
+    pub fn get_inner_read(&self) -> RwLockReadGuard<InnerObject> {
+        let inner = self.inner.read_recursive();
+        inner
+    }
+
+    pub fn get_inner_write(&self) -> RwLockWriteGuard<InnerObject> {
+        let inner = self.inner.write();
         inner
     }
 
@@ -251,21 +257,29 @@ impl Object {
             (_, None) => {}
         }
 
-        let mut object = self.inner.lock();
+        let mut inner = self.inner.write();
         let p = parent.as_ref();
-        object.parent_id = p.map(|p| p.inner.lock().id);
-        object.parent = p.map(|p| ParentObject::new(p.clone()));
-        object.modifications.push(Modification::Parent);
+        inner.parent_id = p.map(|p| p.inner.read_recursive().id);
+        inner.parent = p.map(|p| ParentObject::new(p.clone()));
+        inner.modifications.push(Modification::Parent);
+    }
+
+    pub fn get_children(&self) -> Vec<Object> {
+        let f = self.get_frame();
+        match f {
+            Some(f) => f.get_children(self),
+            None => Vec::new(),
+        }
     }
 
     pub(crate) fn attach(&self, frame: VideoFrame) {
-        let mut object = self.inner.lock();
-        object.frame = Some(frame.into());
+        let mut inner = self.inner.write();
+        inner.frame = Some(frame.into());
     }
 
     pub(crate) fn detach(&self) {
-        let mut object = self.inner.lock();
-        object.frame = None;
+        let mut inner = self.inner.write();
+        inner.frame = None;
     }
 }
 
@@ -275,7 +289,7 @@ impl Object {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.inner.lock())
+        format!("{:#?}", self.inner.read_recursive())
     }
 
     fn __str__(&self) -> String {
@@ -297,7 +311,7 @@ impl Object {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
-        let parent_id = parent.as_ref().map(|p| p.inner.lock().id);
+        let parent_id = parent.as_ref().map(|p| p.inner.read_recursive().id);
 
         let object = InnerObject {
             id,
@@ -314,64 +328,70 @@ impl Object {
             ..Default::default()
         };
         Self {
-            inner: Arc::new(Mutex::new(object)),
+            inner: Arc::new(RwLock::new(object)),
         }
     }
 
     #[getter]
+    #[pyo3(name = "get_children")]
+    pub fn get_children_gil(&self) -> VectorView {
+        self.get_children().into()
+    }
+
+    #[getter]
     pub fn get_track_id(&self) -> Option<i64> {
-        let object = self.inner.lock();
-        object.track_id
+        let inner = self.inner.read_recursive();
+        inner.track_id
     }
 
     pub fn get_frame(&self) -> Option<VideoFrame> {
-        let object = self.inner.lock();
-        object.frame.as_ref().map(|f| f.into())
+        let inner = self.inner.read_recursive();
+        inner.frame.as_ref().map(|f| f.into())
     }
 
     #[getter]
     pub fn get_id(&self) -> i64 {
-        self.inner.lock().id
+        self.inner.read_recursive().id
     }
 
     #[getter]
     pub fn get_creator(&self) -> String {
-        self.inner.lock().creator.clone()
+        self.inner.read_recursive().creator.clone()
     }
 
     #[getter]
     pub fn get_label(&self) -> String {
-        self.inner.lock().label.clone()
+        self.inner.read_recursive().label.clone()
     }
 
     #[getter]
     pub fn get_bbox(&self) -> crate::primitives::RBBox {
-        self.inner.lock().bbox.clone()
+        self.inner.read_recursive().bbox.clone()
     }
 
     #[getter]
     pub fn get_confidence(&self) -> Option<f64> {
-        let object = self.inner.lock();
-        object.confidence
+        let inner = self.inner.read_recursive();
+        inner.confidence
     }
 
     #[getter]
     pub fn draw_label(&self) -> String {
-        let inner = self.inner.lock();
+        let inner = self.inner.read_recursive();
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
     #[setter]
     pub fn set_draw_label(&mut self, draw_label: Option<String>) {
-        let mut object = self.inner.lock();
-        object.draw_label = draw_label;
-        object.modifications.push(Modification::DrawLabel);
+        let mut inner = self.inner.write();
+        inner.draw_label = draw_label;
+        inner.modifications.push(Modification::DrawLabel);
     }
 
     #[getter]
     pub fn get_parent(&self) -> Option<ParentObject> {
-        let object = &self.inner.lock();
-        match (object.parent.as_ref(), object.parent_id.as_ref()) {
+        let inner = &self.inner.write();
+        match (inner.parent.as_ref(), inner.parent_id.as_ref()) {
             (Some(o), _) => Some(o.clone()),
             (None, None) => None,
             (None, Some(_)) => {
@@ -382,61 +402,62 @@ impl Object {
 
     #[setter]
     pub fn set_track_id(&mut self, track_id: Option<i64>) {
-        let mut object = self.inner.lock();
-        object.track_id = track_id;
-        object.modifications.push(Modification::TrackId);
+        let mut inner = self.inner.write();
+        inner.track_id = track_id;
+        inner.modifications.push(Modification::TrackId);
     }
 
     #[setter]
     pub fn set_id(&mut self, id: i64) {
-        let mut object = self.inner.lock();
-        object.id = id;
-        object.modifications.push(Modification::Id);
+        let mut inner = self.inner.write();
+        inner.id = id;
+        inner.modifications.push(Modification::Id);
     }
 
     #[setter]
     pub fn set_creator(&mut self, creator: String) {
-        let mut object = self.inner.lock();
-        object.creator = creator;
-        object.modifications.push(Modification::Creator);
+        let mut inner = self.inner.write();
+        inner.creator = creator;
+        inner.modifications.push(Modification::Creator);
     }
 
     #[setter]
     pub fn set_label(&mut self, label: String) {
-        let mut object = self.inner.lock();
-        object.label = label;
-        object.modifications.push(Modification::Label);
+        let mut inner = self.inner.write();
+        inner.label = label;
+        inner.modifications.push(Modification::Label);
     }
 
     #[setter]
     pub fn set_bbox(&mut self, bbox: RBBox) {
-        let mut object = self.inner.lock();
-        object.bbox = bbox;
-        object.modifications.push(Modification::BoundingBox);
+        let mut inner = self.inner.write();
+        inner.bbox = bbox;
+        inner.modifications.push(Modification::BoundingBox);
     }
 
     #[setter]
     pub fn set_confidence(&mut self, confidence: Option<f64>) {
-        let mut object = self.inner.lock();
-        object.confidence = confidence;
-        object.modifications.push(Modification::Confidence);
+        let mut inner = self.inner.write();
+        inner.confidence = confidence;
+        inner.modifications.push(Modification::Confidence);
     }
 
     #[getter]
-    pub fn attributes(&self) -> Vec<(String, String)> {
+    #[pyo3(name = "attributes")]
+    pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
         no_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_py(&self, creator: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
         self.get_attribute(creator, name)
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_py(&mut self, creator: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
         match self.delete_attribute(creator, name) {
             Some(attribute) => {
-                let mut object = self.inner.lock();
+                let mut object = self.inner.write();
                 object.modifications.push(Modification::Attributes);
                 Some(attribute)
             }
@@ -445,18 +466,18 @@ impl Object {
     }
 
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
+    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
         {
-            let mut object = self.inner.lock();
+            let mut object = self.inner.write();
             object.modifications.push(Modification::Attributes);
         }
         self.set_attribute(attribute)
     }
 
     #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_py(&mut self) {
+    pub fn clear_attributes_gil(&mut self) {
         {
-            let mut object = self.inner.lock();
+            let mut object = self.inner.write();
             object.modifications.push(Modification::Attributes);
         }
         self.clear_attributes()
@@ -464,7 +485,7 @@ impl Object {
 
     #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_py(
+    pub fn delete_attributes_gil(
         &mut self,
         negated: bool,
         creator: Option<String>,
@@ -472,7 +493,7 @@ impl Object {
     ) {
         no_gil(move || {
             {
-                let mut object = self.inner.lock();
+                let mut object = self.inner.write();
                 object.modifications.push(Modification::Attributes);
             }
             self.delete_attributes(negated, creator, names)
@@ -480,7 +501,7 @@ impl Object {
     }
 
     #[pyo3(name = "find_attributes")]
-    pub fn find_attributes_py(
+    pub fn find_attributes_gil(
         &self,
         creator: Option<String>,
         name: Option<String>,
@@ -490,7 +511,7 @@ impl Object {
     }
 
     pub fn take_modifications(&self) -> Vec<Modification> {
-        let mut object = self.inner.lock();
+        let mut object = self.inner.write();
         std::mem::take(&mut object.modifications)
     }
 }
@@ -552,35 +573,35 @@ mod tests {
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec![]);
-        assert_eq!(t.inner.lock().attributes.len(), 3);
+        assert_eq!(t.get_inner_read().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec![]);
-        assert!(t.inner.lock().attributes.is_empty());
+        assert!(t.get_inner_read().attributes.is_empty());
 
         let mut t = get_object();
         t.delete_attributes(false, Some("creator".to_string()), vec![]);
-        assert_eq!(t.inner.lock().attributes.len(), 1);
+        assert_eq!(t.get_inner_read().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, Some("creator".to_string()), vec![]);
-        assert_eq!(t.inner.lock().attributes.len(), 2);
+        assert_eq!(t.get_inner_read().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string()]);
-        assert_eq!(t.inner.lock().attributes.len(), 1);
+        assert_eq!(t.get_inner_read().attributes.len(), 1);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string()]);
-        assert_eq!(t.inner.lock().attributes.len(), 2);
+        assert_eq!(t.get_inner_read().attributes.len(), 2);
 
         let mut t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.inner.lock().attributes.len(), 0);
+        assert_eq!(t.get_inner_read().attributes.len(), 0);
 
         let mut t = get_object();
         t.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.inner.lock().attributes.len(), 3);
+        assert_eq!(t.get_inner_read().attributes.len(), 3);
 
         let mut t = get_object();
         t.delete_attributes(
@@ -588,10 +609,10 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.inner.lock().attributes.len(), 1);
+        assert_eq!(t.get_inner_read().attributes.len(), 1);
 
         assert_eq!(
-            &t.inner.lock().attributes[&("creator2".to_string(), "name".to_string())],
+            &t.get_inner_read().attributes[&("creator2".to_string(), "name".to_string())],
             &AttributeBuilder::default()
                 .creator("creator2".to_string())
                 .name("name".to_string())
@@ -607,7 +628,7 @@ mod tests {
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.inner.lock().attributes.len(), 2);
+        assert_eq!(t.get_inner_read().attributes.len(), 2);
     }
 
     #[test]
@@ -618,7 +639,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![]);
 
         t.set_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
-        t.clear_attributes_py();
+        t.clear_attributes_gil();
         assert_eq!(
             t.take_modifications(),
             vec![Modification::BoundingBox, Modification::Attributes]

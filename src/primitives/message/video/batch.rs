@@ -17,18 +17,19 @@ pub struct VideoFrameBatch {
 impl VideoFrameBatch {
     pub(crate) fn prepare_after_load(&mut self) {
         let offline_frames = std::mem::take(&mut self.offline_frames);
-        for (id, mut frame) in offline_frames.into_iter() {
-            frame.restore();
-            self.frames.insert(id, VideoFrame::from_inner(frame));
+        for (id, inner) in offline_frames.into_iter() {
+            let mut frame = VideoFrame::from_inner(inner);
+            frame.restore_from_snapshot();
+            self.frames.insert(id, frame);
         }
     }
 
     pub(crate) fn prepare_before_save(&mut self) {
         self.offline_frames.clear();
         for (id, frame) in self.frames.iter_mut() {
-            let mut frame = frame.inner.lock();
-            frame.preserve();
-            self.offline_frames.insert(*id, frame.as_ref().clone());
+            frame.make_snapshot();
+            let inner = frame.inner.read_recursive();
+            self.offline_frames.insert(*id, inner.as_ref().clone());
         }
     }
 
@@ -61,12 +62,12 @@ impl VideoFrameBatch {
     }
 
     #[pyo3(name = "snapshot")]
-    pub fn snapshot_py(&mut self) {
+    pub fn snapshot_gil(&mut self) {
         no_gil(|| self.snapshot())
     }
 
     #[pyo3(name = "restore")]
-    pub fn restore_py(&mut self) {
+    pub fn restore_gil(&mut self) {
         no_gil(|| self.restore())
     }
 }

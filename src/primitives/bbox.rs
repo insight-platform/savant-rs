@@ -70,7 +70,7 @@ impl RBBox {
     }
 
     #[pyo3(name = "scale")]
-    pub fn scale_py(&mut self, scale_x: f64, scale_y: f64) {
+    pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
         no_gil(|| {
             self.scale(scale_x, scale_y);
         })
@@ -78,41 +78,41 @@ impl RBBox {
 
     #[getter]
     #[pyo3(name = "vertices")]
-    pub fn vertices_py(&self) -> Vec<(f64, f64)> {
+    pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
         no_gil(|| self.vertices())
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
-    pub fn vertices_rounded_py(&self) -> Vec<(f64, f64)> {
+    pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
         no_gil(|| self.vertices_rounded())
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
-    pub fn vertices_int_py(&self) -> Vec<(i64, i64)> {
+    pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
         no_gil(|| self.vertices_int())
     }
 
     #[pyo3(name = "as_polygonal_area")]
-    pub fn as_polygonal_area_py(&self) -> PolygonalArea {
+    pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
         no_gil(|| self.as_polygonal_area())
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
-    pub fn wrapping_box_py(&self) -> BBox {
+    pub fn wrapping_box_gil(&self) -> PythonBBox {
         no_gil(|| self.wrapping_bbox())
     }
 
     #[pyo3(name = "as_graphical_wrapping_box")]
-    pub fn as_graphical_wrapping_box_py(
+    pub fn as_graphical_wrapping_box_gil(
         &self,
         padding: f64,
         border_width: f64,
         max_x: f64,
         max_y: f64,
-    ) -> BBox {
+    ) -> PythonBBox {
         no_gil(|| self.graphical_wrapping_bbox(padding, border_width, max_x, max_y))
     }
 }
@@ -187,9 +187,9 @@ impl RBBox {
         )
     }
 
-    pub fn wrapping_bbox(&self) -> BBox {
+    pub fn wrapping_bbox(&self) -> PythonBBox {
         if self.angle.is_none() {
-            BBox::new(self.xc, self.yc, self.width, self.height)
+            PythonBBox::new(self.xc, self.yc, self.width, self.height)
         } else {
             let mut vertices = self.vertices();
             let (initial_vtx_x, initial_vtx_y) = vertices.pop().unwrap();
@@ -210,7 +210,7 @@ impl RBBox {
                     max_y = vtx_y;
                 }
             }
-            BBox::new(
+            PythonBBox::new(
                 (min_x + max_x) / 2.0,
                 (min_y + max_y) / 2.0,
                 max_x - min_x,
@@ -225,7 +225,7 @@ impl RBBox {
         border_width: f64,
         max_x: f64,
         max_y: f64,
-    ) -> BBox {
+    ) -> PythonBBox {
         assert!(padding >= 0.0 && border_width >= 0.0 && max_x >= 0.0 && max_y >= 0.0);
         let bbox = self.wrapping_bbox();
         let left = 0.0f64.max(bbox.get_left() - padding - border_width).floor();
@@ -243,18 +243,19 @@ impl RBBox {
             height += 1.0;
         }
 
-        BBox::new(left + width / 2.0, top + height / 2.0, width, height)
+        PythonBBox::new(left + width / 2.0, top + height / 2.0, width, height)
     }
 }
 
 #[pyclass]
 #[derive(Clone, Debug)]
-pub struct BBox {
+#[pyo3(name = "BBox")]
+pub struct PythonBBox {
     rbbox: RBBox,
 }
 
 #[pymethods]
-impl BBox {
+impl PythonBBox {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -367,32 +368,37 @@ impl BBox {
     }
 
     #[getter]
-    pub fn vertices(&self) -> Vec<(f64, f64)> {
+    #[pyo3(name = "vertices")]
+    pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
         no_gil(|| self.rbbox.vertices())
     }
 
     #[getter]
-    pub fn vertices_rounded(&self) -> Vec<(f64, f64)> {
+    #[pyo3(name = "vertices_rounded")]
+    pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
         no_gil(|| self.rbbox.vertices_rounded())
     }
 
     #[getter]
-    pub fn vertices_int(&self) -> Vec<(i64, i64)> {
+    #[pyo3(name = "vertices_int")]
+    pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
         no_gil(|| self.rbbox.vertices_int())
     }
 
     #[getter]
-    pub fn wrapping_box(&self) -> BBox {
+    #[pyo3(name = "wrapping_box")]
+    pub fn wrapping_box_gil(&self) -> PythonBBox {
         no_gil(|| self.rbbox.wrapping_bbox())
     }
 
-    pub fn as_graphical_wrapping_box(
+    #[pyo3(name = "as_graphical_wrapping_box")]
+    pub fn as_graphical_wrapping_box_gil(
         &self,
         padding: f64,
         border_width: f64,
         max_x: f64,
         max_y: f64,
-    ) -> BBox {
+    ) -> PythonBBox {
         no_gil(|| {
             self.rbbox
                 .graphical_wrapping_bbox(padding, border_width, max_x, max_y)
@@ -451,13 +457,15 @@ impl BBox {
         self.rbbox.clone()
     }
 
-    pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
+    #[pyo3(name = "scale")]
+    pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
         no_gil(|| {
             self.rbbox.scale(scale_x, scale_y);
         })
     }
 
-    pub fn as_polygonal_area(&self) -> PolygonalArea {
+    #[pyo3(name = "as_polygonal_area")]
+    pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
         no_gil(|| self.rbbox.as_polygonal_area())
     }
 }

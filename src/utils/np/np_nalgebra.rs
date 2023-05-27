@@ -183,7 +183,7 @@ pub fn np_to_matrix<T: ElementType>(arr: PyReadonlyArrayDyn<T>) -> PyResult<DMat
 
 #[pyfunction]
 #[pyo3(name = "np_to_matrix")]
-pub fn np_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
+pub fn np_to_matrix_gil(arr: &PyAny) -> PyResult<PyObject> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
         let m = np_to_matrix(arr.readonly()).map(NalgebraDMatrix::from_fp32)?;
         return Python::with_gil(|py| Ok(m.into_py(py)));
@@ -241,7 +241,7 @@ pub fn np_to_matrix_py(arr: &PyAny) -> PyResult<PyObject> {
 
 #[pyfunction]
 #[pyo3(name = "matrix_to_np")]
-pub fn matrix_to_np_py(m: &PyAny) -> PyResult<PyObject> {
+pub fn matrix_to_np_gil(m: &PyAny) -> PyResult<PyObject> {
     if let Ok(m) = m.extract::<NalgebraDMatrix>() {
         let m = match m.inner.deref() {
             NalgebraDMatrixVariant::Float64(m) => matrix_to_np(m),

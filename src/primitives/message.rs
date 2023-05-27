@@ -152,7 +152,7 @@ impl Message {
 #[cfg(test)]
 mod tests {
     use crate::primitives::message::loader::load_message;
-    use crate::primitives::message::saver::save_message_py;
+    use crate::primitives::message::saver::save_message_gil;
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
     };
@@ -164,7 +164,7 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let eos = EndOfStream::new("test".to_string());
         let m = Message::end_of_stream(eos);
-        let res = save_message_py(m);
+        let res = save_message_gil(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::EndOfStream).as_ref()
@@ -177,7 +177,7 @@ mod tests {
     fn test_save_load_video_frame() {
         pyo3::prepare_freethreaded_python();
         let m = Message::video_frame(gen_frame());
-        let res = save_message_py(m);
+        let res = save_message_gil(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrame).as_ref()
@@ -190,7 +190,7 @@ mod tests {
     fn test_save_load_unknown() {
         pyo3::prepare_freethreaded_python();
         let m = Message::unknown("x".to_string());
-        let res = save_message_py(m);
+        let res = save_message_gil(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::Unknown).as_ref()
@@ -207,7 +207,7 @@ mod tests {
         batch.add(2, gen_frame());
         batch.add(3, gen_frame());
         let m = Message::video_frame_batch(batch);
-        let res = save_message_py(m);
+        let res = save_message_gil(m);
         assert_eq!(
             res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrameBatch).as_ref()
@@ -220,7 +220,7 @@ mod tests {
         assert!(b.get(2).is_some());
         assert!(b.get(3).is_some());
         let f = b.get(1).unwrap();
-        let mut attrs = f.attributes();
+        let mut attrs = f.attributes_gil();
         attrs.sort();
 
         assert_eq!(

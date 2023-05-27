@@ -28,7 +28,7 @@ fn bench_batch_snapshot_py(b: &mut Bencher) {
     batch.add(3, gen_frame());
     batch.add(4, gen_frame());
     b.iter(|| {
-        batch.snapshot_py();
-        batch.restore_py();
+        batch.snapshot_gil();
+        batch.restore_gil();
     });
 }

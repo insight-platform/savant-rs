@@ -1,4 +1,4 @@
-use crate::primitives::{BBox, RBBox};
+use crate::primitives::{PythonBBox, RBBox};
 use crate::utils::np::{ConvF64, ElementType, RConvF64};
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
@@ -35,26 +35,26 @@ pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF64>(
 pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
     arr: PyReadonlyArrayDyn<T>,
     format: BBoxFormat,
-) -> Vec<BBox> {
+) -> Vec<PythonBBox> {
     let dims = arr.shape();
     assert!(dims.len() == 2 && dims[1] >= 4);
     arr.as_array()
         .rows()
         .into_iter()
         .map(|r| match format {
-            BBoxFormat::LeftTopRightBottom => BBox::ltrb(
+            BBoxFormat::LeftTopRightBottom => PythonBBox::ltrb(
                 r[0].conv_f64(),
                 r[1].conv_f64(),
                 r[2].conv_f64(),
                 r[3].conv_f64(),
             ),
-            BBoxFormat::LeftTopWidthHeight => BBox::ltwh(
+            BBoxFormat::LeftTopWidthHeight => PythonBBox::ltwh(
                 r[0].conv_f64(),
                 r[1].conv_f64(),
                 r[2].conv_f64(),
                 r[3].conv_f64(),
             ),
-            BBoxFormat::XcYcWidthHeight => BBox::new(
+            BBoxFormat::XcYcWidthHeight => PythonBBox::new(
                 r[0].conv_f64(),
                 r[1].conv_f64(),
                 r[2].conv_f64(),
@@ -65,7 +65,7 @@ pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
 }
 
 pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zero>(
-    boxes: Vec<BBox>,
+    boxes: Vec<PythonBBox>,
     format: BBoxFormat,
 ) -> Py<PyArray<T, IxDyn>> {
     Python::with_gil(|py| {
@@ -112,7 +112,7 @@ pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identit
 
 #[pyfunction]
 #[pyo3(name = "rotated_bboxes_to_ndarray")]
-pub fn rotated_bboxes_to_ndarray_py(boxes: Vec<RBBox>, dtype: String) -> PyObject {
+pub fn rotated_bboxes_to_ndarray_gil(boxes: Vec<RBBox>, dtype: String) -> PyObject {
     match dtype.as_str() {
         "float32" => {
             let arr = rotated_bboxes_to_ndarray::<f32>(boxes);
@@ -136,7 +136,7 @@ pub fn rotated_bboxes_to_ndarray_py(boxes: Vec<RBBox>, dtype: String) -> PyObjec
 
 #[pyfunction]
 #[pyo3(name = "ndarray_to_bboxes")]
-pub fn ndarray_to_bboxes_py(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<BBox>> {
+pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<PythonBBox>> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
         return Ok(ndarray_to_bboxes(arr.readonly(), format));
     }
@@ -160,7 +160,7 @@ pub fn ndarray_to_bboxes_py(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<BBo
 
 #[pyfunction]
 #[pyo3(name = "ndarray_to_rotated_bboxes")]
-pub fn ndarray_to_rotated_bboxes_py(arr: &PyAny) -> PyResult<Vec<RBBox>> {
+pub fn ndarray_to_rotated_bboxes_gil(arr: &PyAny) -> PyResult<Vec<RBBox>> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
         return Ok(ndarray_to_rotated_bboxes(arr.readonly()));
     }
@@ -184,7 +184,11 @@ pub fn ndarray_to_rotated_bboxes_py(arr: &PyAny) -> PyResult<Vec<RBBox>> {
 
 #[pyfunction]
 #[pyo3(name = "bboxes_to_ndarray")]
-pub fn bboxes_to_ndarray_py(boxes: Vec<BBox>, format: BBoxFormat, dtype: String) -> PyObject {
+pub fn bboxes_to_ndarray_gil(
+    boxes: Vec<PythonBBox>,
+    format: BBoxFormat,
+    dtype: String,
+) -> PyObject {
     match dtype.as_str() {
         "float32" => {
             let arr = bboxes_to_ndarray::<f32>(boxes, format);

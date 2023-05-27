@@ -40,7 +40,8 @@ impl VectorView {
         Ok(self.inner.len())
     }
 
-    fn filter(&self, q: QueryWrapper) -> VectorView {
+    #[pyo3(name = "filter")]
+    fn filter_gil(&self, q: QueryWrapper) -> VectorView {
         no_gil(|| VectorView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         })

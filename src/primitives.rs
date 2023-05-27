@@ -12,7 +12,7 @@ use crate::primitives::message::video::object::vector::VectorView;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;
-pub use bbox::{BBox, RBBox};
+pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
@@ -35,7 +35,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Intersection>()?;
     m.add_class::<PolygonalArea>()?;
     m.add_class::<RBBox>()?;
-    m.add_class::<BBox>()?;
+    m.add_class::<PythonBBox>()?;
     m.add_class::<Attribute>()?;
     m.add_class::<Value>()?;
     m.add_class::<Object>()?;

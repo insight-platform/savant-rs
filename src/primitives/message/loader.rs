@@ -8,7 +8,7 @@ use pyo3::pyfunction;
 
 #[pyfunction]
 #[pyo3(name = "load_message")]
-pub fn load_message_py(bytes: Vec<u8>) -> Message {
+pub fn load_message_gil(bytes: Vec<u8>) -> Message {
     no_gil(|| load_message(bytes))
 }
 
@@ -36,9 +36,10 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
         NativeMessageTypeConsts::VideoFrame => {
             let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(&bytes[..]);
             match f {
-                Ok(mut f) => {
-                    f.restore();
-                    Message::video_frame(VideoFrame::from_inner(f))
+                Ok(f) => {
+                    let mut f = VideoFrame::from_inner(f);
+                    f.restore_from_snapshot();
+                    Message::video_frame(f)
                 }
                 Err(e) => Message::unknown(format!("{:?}", e)),
             }

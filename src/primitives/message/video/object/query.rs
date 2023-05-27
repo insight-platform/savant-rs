@@ -149,6 +149,9 @@ pub enum Query {
     ParentLabel(StringExpression),
     #[serde(rename = "parent.defined")]
     ParentDefined,
+    // children query
+    #[serde(rename = "with_children")]
+    WithChildren(Box<Query>, IntExpression),
     // bbox
     #[serde(rename = "bbox.xc")]
     BoxXCenter(FloatExpression),
@@ -205,66 +208,71 @@ impl ExecutableQuery<&Object> for Query {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
             Query::Not(x) => !x.execute(o),
+            Query::WithChildren(q, n) => {
+                let children = o.get_children();
+                let v = filter(&children, q).len() as i64;
+                n.execute(&v)
+            }
             // self
-            Query::Id(x) => x.execute(&o.get_inner().id),
-            Query::Creator(x) => x.execute(&o.get_inner().creator),
-            Query::Label(x) => x.execute(&o.get_inner().label),
+            Query::Id(x) => x.execute(&o.get_inner_read().id),
+            Query::Creator(x) => x.execute(&o.get_inner_read().creator),
+            Query::Label(x) => x.execute(&o.get_inner_read().label),
             Query::Confidence(x) => o
-                .get_inner()
+                .get_inner_read()
                 .confidence
                 .map(|c| x.execute(&c))
                 .unwrap_or(false),
             Query::TrackId(x) => o
-                .get_inner()
+                .get_inner_read()
                 .track_id
                 .map(|t| x.execute(&t))
                 .unwrap_or(false),
-            Query::ConfidenceDefined => o.get_inner().confidence.is_some(),
-            Query::TrackIdDefined => o.get_inner().track_id.is_some(),
+            Query::ConfidenceDefined => o.get_inner_read().confidence.is_some(),
+            Query::TrackIdDefined => o.get_inner_read().track_id.is_some(),
 
             // parent
-            Query::ParentDefined => o.get_inner().parent.is_some(),
+            Query::ParentDefined => o.get_inner_read().parent.is_some(),
             Query::ParentId(x) => o
-                .get_inner()
+                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_id()))
                 .unwrap_or(false),
             Query::ParentCreator(x) => o
-                .get_inner()
+                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_creator()))
                 .unwrap_or(false),
             Query::ParentLabel(x) => o
-                .get_inner()
+                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_label()))
                 .unwrap_or(false),
             // box
-            Query::BoxWidth(x) => x.execute(&o.get_inner().bbox.width),
-            Query::BoxHeight(x) => x.execute(&o.get_inner().bbox.height),
+            Query::BoxWidth(x) => x.execute(&o.get_inner_read().bbox.width),
+            Query::BoxHeight(x) => x.execute(&o.get_inner_read().bbox.height),
             Query::BoxArea(x) => x.execute({
-                let inner = o.get_inner();
+                let inner = o.get_inner_read();
                 &(inner.bbox.width * inner.bbox.height)
             }),
-            Query::BoxXCenter(x) => x.execute(&o.get_inner().bbox.xc),
-            Query::BoxYCenter(x) => x.execute(&o.get_inner().bbox.yc),
-            Query::BoxAngleDefined => o.get_inner().bbox.angle.is_some(),
+            Query::BoxXCenter(x) => x.execute(&o.get_inner_read().bbox.xc),
+            Query::BoxYCenter(x) => x.execute(&o.get_inner_read().bbox.yc),
+            Query::BoxAngleDefined => o.get_inner_read().bbox.angle.is_some(),
             Query::BoxAngle(x) => o
-                .get_inner()
+                .get_inner_read()
                 .bbox
                 .angle
                 .map(|a| x.execute(&a))
                 .unwrap_or(false),
 
             // attributes
-            Query::AttributesEmpty => o.get_inner().attributes.is_empty(),
+            Query::AttributesEmpty => o.get_inner_read().attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = &serde_json::json!(o
-                    .get_inner()
+                    .get_inner_read()
                     .attributes
                     .values()
                     .map(|v| v.to_serde_json_value())
@@ -562,5 +570,13 @@ mod tests {
 
         let expr = not!(Id(eq(2)));
         assert!(expr.execute(&gen_object()));
+    }
+
+    #[test]
+    fn test_children_expression() {
+        let f = gen_frame();
+        let o = f.access_objects(&WithChildren(Box::new(Idle), eq(2)));
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].get_id(), 0);
     }
 }

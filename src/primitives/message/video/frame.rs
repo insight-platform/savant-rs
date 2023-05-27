@@ -10,7 +10,7 @@ use crate::primitives::{
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
 use hashbrown::HashSet;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -353,7 +353,7 @@ pub struct InnerVideoFrame {
     pub offline_objects: Vec<InnerObject>,
     #[with(Skip)]
     #[builder(setter(skip))]
-    pub(crate) resident_objects: Vec<Arc<Mutex<InnerObject>>>,
+    pub(crate) resident_objects: Vec<Arc<RwLock<InnerObject>>>,
 }
 
 impl Default for InnerVideoFrame {
@@ -396,7 +396,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-                "objects": self.resident_objects.iter().map(|o| o.lock().to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": self.resident_objects.iter().map(|o| o.read_recursive().to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
     }
@@ -413,19 +413,19 @@ impl InnerAttributes for Box<InnerVideoFrame> {
 }
 
 impl InnerVideoFrame {
-    pub(crate) fn preserve(&mut self) {
+    fn preserve(&mut self) {
         let mut ids = HashSet::new();
         for o in self.resident_objects.iter() {
-            let mut obj = o.lock();
+            let mut obj = o.write();
             ids.insert(obj.id);
-            let real_parent_id = obj.parent.as_ref().map(|p| p.inner.lock().id);
+            let real_parent_id = obj.parent.as_ref().map(|p| p.inner.read_recursive().id);
             obj.parent_id = real_parent_id;
         }
 
         self.offline_objects = self
             .resident_objects
             .iter()
-            .map(|o| o.lock().clone())
+            .map(|o| o.read_recursive().clone())
             .collect();
 
         assert!(self
@@ -434,15 +434,14 @@ impl InnerVideoFrame {
             .all(|x| x.parent_id.map(|id| ids.contains(&id)).unwrap_or(true)));
     }
 
-    pub(crate) fn restore(&mut self) {
-        self.resident_objects = self
-            .offline_objects
-            .iter()
-            .map(|o| Arc::new(Mutex::new(o.clone())))
+    fn restore(&mut self) {
+        self.resident_objects = mem::take(&mut self.offline_objects)
+            .into_iter()
+            .map(|o| Arc::new(RwLock::new(o)))
             .collect();
 
         for (i, o) in self.resident_objects.iter().enumerate() {
-            let mut o = o.lock();
+            let mut o = o.write();
             let required_parent_id = o.parent_id;
             if required_parent_id.is_none() {
                 continue;
@@ -455,7 +454,7 @@ impl InnerVideoFrame {
                     continue;
                 }
 
-                let p_inner = p.lock();
+                let p_inner = p.read_recursive();
                 let parent_id = p_inner.id;
                 if parent_id == required_parent_id {
                     o.parent = Some(ParentObject::new(Object::from_arc_inner_object(p.clone())));
@@ -480,13 +479,13 @@ impl InnerVideoFrame {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct VideoFrame {
-    pub(crate) inner: Arc<Mutex<Box<InnerVideoFrame>>>,
+    pub(crate) inner: Arc<RwLock<Box<InnerVideoFrame>>>,
 }
 
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct BelongingVideoFrame {
-    pub(crate) inner: Weak<Mutex<Box<InnerVideoFrame>>>,
+    pub(crate) inner: Weak<RwLock<Box<InnerVideoFrame>>>,
 }
 
 impl From<VideoFrame> for BelongingVideoFrame {
@@ -520,7 +519,7 @@ impl From<&BelongingVideoFrame> for VideoFrame {
 }
 
 impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
-    fn get_inner(&self) -> Arc<Mutex<Box<InnerVideoFrame>>> {
+    fn get_inner(&self) -> Arc<RwLock<Box<InnerVideoFrame>>> {
         self.inner.clone()
     }
 }
@@ -528,7 +527,7 @@ impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
 impl VideoFrame {
     pub(crate) fn from_inner(object: InnerVideoFrame) -> Self {
         let f = VideoFrame {
-            inner: Arc::new(Mutex::new(Box::new(object))),
+            inner: Arc::new(RwLock::new(Box::new(object))),
         };
         let objects = f.access_objects(&Query::Idle);
         objects.iter().for_each(|o| o.attach(f.clone()));
@@ -536,8 +535,8 @@ impl VideoFrame {
     }
 
     pub fn access_objects(&self, q: &Query) -> Vec<Object> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .resident_objects
             .iter()
             .filter_map(|o| {
@@ -559,23 +558,23 @@ impl VideoFrame {
     }
 
     pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<Object> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .resident_objects
             .iter()
-            .filter(|o| ids.contains(&o.lock().id))
+            .filter(|o| ids.contains(&o.read_recursive().id))
             .map(|o| Object::from_arc_inner_object(o.clone()))
             .collect()
     }
 
     pub fn delete_objects_by_ids(&mut self, ids: &[i64]) -> Vec<Object> {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
-        let mut frame = self.inner.lock();
-        let objects = mem::take(&mut frame.resident_objects);
+        let mut inner = self.inner.write();
+        let objects = mem::take(&mut inner.resident_objects);
         let (retained, removed) = objects
             .into_iter()
-            .partition(|o| !ids.contains(&o.lock().id));
-        frame.resident_objects = retained;
+            .partition(|o| !ids.contains(&o.read_recursive().id));
+        inner.resident_objects = retained;
         removed
             .into_iter()
             .map(|o| {
@@ -593,31 +592,40 @@ impl VideoFrame {
     }
 
     pub fn get_object(&self, id: i64) -> Option<Object> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .resident_objects
             .iter()
-            .find(|o| o.lock().id == id)
+            .find(|o| o.read_recursive().id == id)
             .map(|o| Object::from_arc_inner_object(o.clone()))
     }
 
     pub fn make_snapshot(&mut self) {
-        let mut frame = self.inner.lock();
-        frame.preserve();
+        let mut inner = self.inner.write();
+        inner.preserve();
+    }
+
+    fn fix_object_ownership(&mut self) {
+        self.access_objects(&Query::Idle)
+            .iter()
+            .for_each(|o| o.attach(self.clone()));
     }
 
     pub fn restore_from_snapshot(&mut self) {
-        let mut frame = self.inner.lock();
-        frame.resident_objects.clear();
-        frame.restore();
+        {
+            let mut inner = self.inner.write();
+            inner.resident_objects.clear();
+            inner.restore();
+        }
+        self.fix_object_ownership();
     }
 
     pub fn get_modified_objects(&self) -> Vec<Object> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .resident_objects
             .iter()
-            .filter(|o| !o.lock().modifications.is_empty())
+            .filter(|o| !o.read_recursive().modifications.is_empty())
             .map(|o| Object::from_arc_inner_object(o.clone()))
             .collect()
     }
@@ -626,11 +634,11 @@ impl VideoFrame {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| match &label {
             SetDrawLabelKind::OwnLabel(l) => {
-                o.inner.lock().draw_label = Some(l.clone());
+                o.inner.write().draw_label = Some(l.clone());
             }
             SetDrawLabelKind::ParentLabel(l) => {
-                if let Some(p) = o.inner.lock().parent.as_ref() {
-                    p.inner.lock().draw_label = Some(l.clone());
+                if let Some(p) = o.inner.read_recursive().parent.as_ref() {
+                    p.inner.write().draw_label = Some(l.clone());
                 }
             }
         });
@@ -660,12 +668,12 @@ impl VideoFrame {
     }
 
     pub fn get_children(&self, o: &Object) -> Vec<Object> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .resident_objects
             .iter()
             .filter_map(|ch| {
-                ch.lock().parent.as_ref().map(|p| {
+                ch.read_recursive().parent.as_ref().map(|p| {
                     Arc::ptr_eq(&o.inner, &p.inner)
                         .then(|| Object::from_arc_inner_object(ch.clone()))
                 })
@@ -683,7 +691,7 @@ impl VideoFrame {
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
-        self.inner.lock().to_serde_json_value()
+        self.inner.read_recursive().to_serde_json_value()
     }
 }
 
@@ -693,7 +701,7 @@ impl VideoFrame {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.inner.lock())
+        format!("{:#?}", self.inner.read_recursive())
     }
 
     fn __str__(&self) -> String {
@@ -740,78 +748,78 @@ impl VideoFrame {
 
     #[getter]
     pub fn get_source_id(&self) -> String {
-        self.inner.lock().source_id.clone()
+        self.inner.read_recursive().source_id.clone()
     }
 
     #[getter]
     #[pyo3(name = "json")]
-    pub fn json_py(&self) -> String {
+    pub fn json_gil(&self) -> String {
         no_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
-    fn json_pretty_py(&self) -> String {
+    fn json_pretty_gil(&self) -> String {
         no_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
     }
 
     #[setter]
     pub fn set_source_id(&mut self, source_id: String) {
-        let mut frame = self.inner.lock();
-        frame.source_id = source_id;
+        let mut inner = self.inner.write();
+        inner.source_id = source_id;
     }
 
     #[getter]
     pub fn get_pts(&self) -> i64 {
-        self.inner.lock().pts
+        self.inner.read_recursive().pts
     }
 
     #[setter]
     pub fn set_pts(&mut self, pts: i64) {
         assert!(pts >= 0, "pts must be greater than or equal to 0");
-        let mut frame = self.inner.lock();
-        frame.pts = pts;
+        let mut inner = self.inner.write();
+        inner.pts = pts;
     }
 
     #[getter]
     pub fn get_framerate(&self) -> String {
-        self.inner.lock().framerate.clone()
+        self.inner.read_recursive().framerate.clone()
     }
 
     #[setter]
     pub fn set_framerate(&mut self, framerate: String) {
-        let mut frame = self.inner.lock();
-        frame.framerate = framerate;
+        let mut inner = self.inner.write();
+        inner.framerate = framerate;
     }
 
     #[getter]
     pub fn get_width(&self) -> i64 {
-        self.inner.lock().width
+        self.inner.read_recursive().width
     }
 
     #[setter]
     pub fn set_width(&mut self, width: i64) {
         assert!(width > 0, "width must be greater than 0");
-        let mut frame = self.inner.lock();
-        frame.width = width;
+        let mut inner = self.inner.write();
+        inner.width = width;
     }
 
     #[getter]
     pub fn get_height(&self) -> i64 {
-        self.inner.lock().height
+        self.inner.read_recursive().height
     }
 
     #[setter]
     pub fn set_height(&mut self, height: i64) {
         assert!(height > 0, "height must be greater than 0");
-        let mut frame = self.inner.lock();
-        frame.height = height;
+        let mut inner = self.inner.write();
+        inner.height = height;
     }
 
     #[getter]
     pub fn get_dts(&self) -> Option<i64> {
-        let frame = self.inner.lock();
-        frame.dts
+        let inner = self.inner.read_recursive();
+        inner.dts
     }
 
     #[setter]
@@ -820,14 +828,14 @@ impl VideoFrame {
             dts.is_none() || dts.unwrap() >= 0,
             "dts must be greater than or equal to 0"
         );
-        let mut frame = self.inner.lock();
-        frame.dts = dts;
+        let mut inner = self.inner.write();
+        inner.dts = dts;
     }
 
     #[getter]
     pub fn get_duration(&self) -> Option<i64> {
-        let frame = self.inner.lock();
-        frame.duration
+        let inner = self.inner.read_recursive();
+        inner.duration
     }
 
     #[setter]
@@ -836,48 +844,48 @@ impl VideoFrame {
             duration.is_none() || duration.unwrap() >= 0,
             "duration must be greater than or equal to 0"
         );
-        let mut frame = self.inner.lock();
-        frame.duration = duration;
+        let mut inner = self.inner.write();
+        inner.duration = duration;
     }
 
     #[getter]
     pub fn get_transcoding_method(&self) -> VideoTranscodingMethod {
-        let frame = self.inner.lock();
-        frame.transcoding_method.clone()
+        let inner = self.inner.read_recursive();
+        inner.transcoding_method.clone()
     }
 
     #[setter]
     pub fn set_transcoding_method(&mut self, transcoding_method: VideoTranscodingMethod) {
-        let mut frame = self.inner.lock();
-        frame.transcoding_method = transcoding_method;
+        let mut inner = self.inner.write();
+        inner.transcoding_method = transcoding_method;
     }
 
     #[getter]
     pub fn get_codec(&self) -> Option<String> {
-        let frame = self.inner.lock();
-        frame.codec.clone()
+        let inner = self.inner.read_recursive();
+        inner.codec.clone()
     }
 
     #[setter]
     pub fn set_codec(&mut self, codec: Option<String>) {
-        let mut frame = self.inner.lock();
-        frame.codec = codec;
+        let mut inner = self.inner.write();
+        inner.codec = codec;
     }
 
     pub fn clear_transformations(&mut self) {
-        let mut frame = self.inner.lock();
-        frame.transformations.clear();
+        let mut inner = self.inner.write();
+        inner.transformations.clear();
     }
 
     pub fn add_transformation(&mut self, transformation: PyFrameTransformation) {
-        let mut frame = self.inner.lock();
-        frame.transformations.push(transformation.inner);
+        let mut inner = self.inner.write();
+        inner.transformations.push(transformation.inner);
     }
 
     #[getter]
     pub fn get_transformations(&self) -> Vec<PyFrameTransformation> {
-        let frame = self.inner.lock();
-        frame
+        let inner = self.inner.read_recursive();
+        inner
             .transformations
             .iter()
             .map(|t| PyFrameTransformation::new(t.clone()))
@@ -886,35 +894,36 @@ impl VideoFrame {
 
     #[getter]
     pub fn get_keyframe(&self) -> Option<bool> {
-        let frame = self.inner.lock();
-        frame.keyframe
+        let inner = self.inner.read_recursive();
+        inner.keyframe
     }
 
     #[setter]
     pub fn set_keyframe(&mut self, keyframe: Option<bool>) {
-        let mut frame = self.inner.lock();
-        frame.keyframe = keyframe;
+        let mut inner = self.inner.write();
+        inner.keyframe = keyframe;
     }
 
     #[getter]
     pub fn get_content(&self) -> PyVideoFrameContent {
-        let frame = self.inner.lock();
-        PyVideoFrameContent::new(frame.content.clone())
+        let inner = self.inner.read_recursive();
+        PyVideoFrameContent::new(inner.content.clone())
     }
 
     #[setter]
     pub fn set_content(&mut self, content: PyVideoFrameContent) {
-        let mut frame = self.inner.lock();
-        frame.content = content.inner;
+        let mut inner = self.inner.write();
+        inner.content = content.inner;
     }
 
     #[getter]
-    pub fn attributes(&self) -> Vec<(String, String)> {
+    #[pyo3(name = "attributes")]
+    pub fn attributes_gil(&self) -> Vec<(String, String)> {
         no_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "find_attributes")]
-    pub fn find_attributes_py(
+    pub fn find_attributes_gil(
         &self,
         creator: Option<String>,
         name: Option<String>,
@@ -924,13 +933,13 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_py(&self, creator: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
         no_gil(|| self.get_attribute(creator, name))
     }
 
     #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_py(
+    pub fn delete_attributes_gil(
         &mut self,
         negated: bool,
         creator: Option<String>,
@@ -940,42 +949,42 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_py(&mut self, creator: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
         self.delete_attribute(creator, name)
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_py(&mut self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
+    pub fn set_draw_label_gil(&mut self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
         no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
+    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.set_attribute(attribute)
     }
 
     #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_py(&mut self) {
+    pub fn clear_attributes_gil(&mut self) {
         self.clear_attributes()
     }
 
     #[pyo3(name = "get_object")]
-    pub fn get_object_py(&self, id: i64) -> Option<Object> {
+    pub fn get_object_gil(&self, id: i64) -> Option<Object> {
         no_gil(|| self.get_object(id))
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_py(&self, q: QueryWrapper) -> VectorView {
+    pub fn access_objects_gil(&self, q: QueryWrapper) -> VectorView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_py(&self, ids: Vec<i64>) -> VectorView {
+    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VectorView {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     pub fn add_object(&mut self, object: Object) {
-        let mut frame = self.inner.lock();
+        let mut inner = self.inner.write();
         let parent = object.get_parent();
         if let Some(parent) = parent.as_ref() {
             let parent_frame = parent.object().get_frame();
@@ -987,51 +996,51 @@ impl VideoFrame {
             );
         }
         object.attach(self.clone());
-        frame.resident_objects.push(object.inner);
+        inner.resident_objects.push(object.inner);
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_py(&mut self, ids: Vec<i64>) -> VectorView {
+    pub fn delete_objects_by_ids_gil(&mut self, ids: Vec<i64>) -> VectorView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_py(&mut self, query: QueryWrapper) -> VectorView {
+    pub fn delete_objects_gil(&mut self, query: QueryWrapper) -> VectorView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_py(&mut self, q: QueryWrapper, parent: Object) -> VectorView {
+    pub fn set_parent_gil(&mut self, q: QueryWrapper, parent: Object) -> VectorView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_py(&mut self, q: QueryWrapper) -> VectorView {
+    pub fn clear_parent_gil(&mut self, q: QueryWrapper) -> VectorView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
     pub fn clear_objects(&mut self) {
-        let mut frame = self.inner.lock();
+        let mut frame = self.inner.write();
         frame.resident_objects.clear();
     }
 
     #[pyo3(name = "make_snapshot")]
-    pub fn make_snapshot_py(&mut self) {
+    pub fn make_snapshot_gil(&mut self) {
         no_gil(|| self.make_snapshot())
     }
 
     #[pyo3(name = "restore_from_snapshot")]
-    pub fn restore_from_snapshot_py(&mut self) {
+    pub fn restore_from_snapshot_gil(&mut self) {
         no_gil(|| self.restore_from_snapshot())
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_py(&self) -> VectorView {
+    pub fn get_modified_objects_gil(&self) -> VectorView {
         no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_py(&self, o: Object) -> VectorView {
+    pub fn get_children_gil(&self, o: Object) -> VectorView {
         no_gil(|| self.get_children(&o).into())
     }
 }
@@ -1043,6 +1052,7 @@ mod tests {
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, s};
+    use std::sync::Arc;
 
     #[test]
     fn test_access_objects_by_id() {
@@ -1080,18 +1090,18 @@ mod tests {
     fn test_find_attributes() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let mut attributes = t.find_attributes_py(Some("system".to_string()), None, None);
+        let mut attributes = t.find_attributes_gil(Some("system".to_string()), None, None);
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
 
         let attributes =
-            t.find_attributes_py(Some("system".to_string()), Some("test".to_string()), None);
+            t.find_attributes_gil(Some("system".to_string()), Some("test".to_string()), None);
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let attributes = t.find_attributes_py(
+        let attributes = t.find_attributes_gil(
             Some("system".to_string()),
             Some("test".to_string()),
             Some("test".to_string()),
@@ -1099,7 +1109,7 @@ mod tests {
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let mut attributes = t.find_attributes_py(None, None, Some("test".to_string()));
+        let mut attributes = t.find_attributes_gil(None, None, Some("test".to_string()));
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
@@ -1163,11 +1173,11 @@ mod tests {
     #[test]
     fn test_snapshot_simple() {
         let mut t = gen_frame();
-        t.make_snapshot_py();
+        t.make_snapshot_gil();
         let mut o = t.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_id(12);
         assert!(matches!(t.access_objects_by_id(&vec![0]).pop(), None));
-        t.restore_from_snapshot_py();
+        t.restore_from_snapshot_gil();
         t.access_objects_by_id(&vec![0]).pop().unwrap();
     }
 
@@ -1228,7 +1238,7 @@ mod tests {
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(obj.get_parent().unwrap().inner.lock().id, 255);
+        assert_eq!(obj.get_parent().unwrap().inner.read_recursive().id, 255);
     }
 
     #[test]
@@ -1359,5 +1369,16 @@ mod tests {
         f2.add_object(o);
         o = f2.get_object(33).unwrap();
         f2.set_parent(&Query::Id(eq(1)), &o);
+    }
+
+    #[test]
+    fn frame_is_properly_set_after_snapshotting() {
+        let mut frame = gen_frame();
+        frame.make_snapshot();
+        frame.restore_from_snapshot();
+        let o = frame.get_object(0).unwrap();
+        let saved_frame = o.get_frame();
+        assert!(saved_frame.is_some());
+        assert!(Arc::ptr_eq(&frame.inner, &saved_frame.unwrap().inner));
     }
 }

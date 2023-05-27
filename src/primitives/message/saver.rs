@@ -6,7 +6,7 @@ use crate::utils::python::no_gil;
 
 #[pyfunction]
 #[pyo3(name = "save_message")]
-pub fn save_message_py(frame: Message) -> Vec<u8> {
+pub fn save_message_gil(frame: Message) -> Vec<u8> {
     no_gil(|| save_message(frame))
 }
 
@@ -23,10 +23,10 @@ pub fn save_message(m: Message) -> Vec<u8> {
             buf.extend_from_slice(t.as_ref());
             buf
         }
-        NativeMessage::VideoFrame(s) => {
+        NativeMessage::VideoFrame(mut frame) => {
             let mut buf = Vec::with_capacity(760);
-            let mut inner = s.inner.lock();
-            inner.preserve();
+            frame.make_snapshot();
+            let inner = frame.inner.read_recursive();
             buf.extend_from_slice(
                 rkyv::to_bytes::<_, 756>(inner.as_ref())
                     .expect("Failed to serialize VideoFrame")
