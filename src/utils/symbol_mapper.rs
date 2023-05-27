@@ -139,7 +139,7 @@ pub fn get_object_ids_gil(
 }
 
 #[pyfunction]
-#[pyo3(name = "lear_symbol_maps")]
+#[pyo3(name = "clear_symbol_maps")]
 pub fn clear_symbol_maps_gil() {
     no_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
