@@ -9,7 +9,6 @@ import json
 from timeit import default_timer as timer
 from ctypes import *
 
-
 f = gen_frame()
 
 t = timer()
@@ -77,8 +76,6 @@ frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
         confidence=0.5),
 ]))
 
-
-
 frame.set_attribute(Attribute(creator="other", name="attr", values=[
     Value.integer(1, confidence=0.5),
 ]))
@@ -111,12 +108,15 @@ print("Raw address to pass to C-funcs: ", f.memory_handle)
 o = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
 print("Object with two children:", o[0])
 
-
 # demonstrates chained filtering on VectorView object
 #
-o = frame.access_objects_by_id([1])\
-    .filter(Q.idle())\
-    .filter(Q.idle())
+f = gen_frame()
+one, two = f.access_objects(Q.idle()) \
+    .filter(Q.id(IE.one_of(1, 2))) \
+    .partition(Q.id(IE.eq(1)))
+
+print("One", one)
+print("Two", two)
 
 # demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
 #
@@ -124,6 +124,7 @@ lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 lib.object_vector_len.rettype = c_uint64
 print("Length:", lib.object_vector_len(o.memory_handle))
+
 
 # Demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
 # Return complex object from C-compatible Rust-function
@@ -204,4 +205,3 @@ frame.delete_objects(Q.idle())
 
 objects = frame.access_objects(Q.idle())
 assert len(objects) == 0
-

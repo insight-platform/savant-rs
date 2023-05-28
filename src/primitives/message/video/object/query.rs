@@ -322,6 +322,17 @@ pub fn filter(objs: &[Object], query: &Query) -> Vec<Object> {
         .collect()
 }
 
+pub fn partition(objs: &[Object], query: &Query) -> (Vec<Object>, Vec<Object>) {
+    objs.iter().fold((Vec::new(), Vec::new()), |mut acc, o| {
+        if query.execute(o) {
+            acc.0.push(o.clone());
+        } else {
+            acc.1.push(o.clone());
+        }
+        acc
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::Query::*;
@@ -578,5 +589,22 @@ mod tests {
         let o = f.access_objects(&WithChildren(Box::new(Idle), eq(2)));
         assert_eq!(o.len(), 1);
         assert_eq!(o[0].get_id(), 0);
+    }
+
+    #[test]
+    fn test_filter() {
+        let f = gen_frame();
+        let objects = f.access_objects(&Idle);
+        let filtered = filter(&objects, &Id(eq(1)));
+        assert_eq!(filtered.len(), 1);
+    }
+
+    #[test]
+    fn test_partition() {
+        let f = gen_frame();
+        let objects = f.access_objects(&Idle);
+        let (matching, others) = partition(&objects, &Id(eq(1)));
+        assert_eq!(matching.len(), 1);
+        assert_eq!(others.len(), 2);
     }
 }

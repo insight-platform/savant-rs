@@ -1,5 +1,5 @@
-use crate::primitives::message::video::object::query::filter;
 use crate::primitives::message::video::object::query::py::QueryWrapper;
+use crate::primitives::message::video::object::query::{filter, partition};
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
 use pyo3::exceptions::PyIndexError;
@@ -23,6 +23,17 @@ impl From<Vec<Object>> for VectorView {
 
 #[pymethods]
 impl VectorView {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self.inner)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
     fn __getitem__(&self, index: usize) -> PyResult<Object> {
         self.inner
             .get(index)
@@ -43,6 +54,17 @@ impl VectorView {
     fn filter_gil(&self, q: QueryWrapper) -> VectorView {
         no_gil(|| VectorView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
+        })
+    }
+
+    #[pyo3(name = "partition")]
+    fn partition_gil(&self, q: QueryWrapper) -> (VectorView, VectorView) {
+        no_gil(|| {
+            let (a, b) = partition(self.inner.as_ref(), &q.inner);
+            (
+                VectorView { inner: Arc::new(a) },
+                VectorView { inner: Arc::new(b) },
+            )
         })
     }
 }
