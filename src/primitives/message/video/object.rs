@@ -308,6 +308,30 @@ impl Object {
         }
     }
 
+    pub fn is_spoiled(&self) -> bool {
+        let inner = self.inner.read_recursive();
+        match inner.frame {
+            Some(ref f) => f.inner.upgrade().is_none(),
+            None => false,
+        }
+    }
+
+    pub fn is_detached(&self) -> bool {
+        let inner = self.inner.read_recursive();
+        inner.frame.is_none()
+    }
+
+    pub fn clean_copy(&self) -> Self {
+        let inner = self.inner.read_recursive();
+        let mut new_inner = inner.clone();
+        new_inner.parent = None;
+        new_inner.parent_id = None;
+        new_inner.frame = None;
+        Self {
+            inner: Arc::new(RwLock::new(new_inner)),
+        }
+    }
+
     #[getter]
     #[pyo3(name = "get_children")]
     pub fn get_children_gil(&self) -> VectorView {
@@ -654,6 +678,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Only detached objects can be attached to a frame.")]
     fn reassign_object_from_dropped_frame_to_new_frame() {
         let f = gen_frame();
         let o = f.get_object(0).unwrap();
@@ -661,5 +686,22 @@ mod tests {
         let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
         f.add_object(&o);
+    }
+
+    #[test]
+    fn reassign_clean_copy_from_dropped_to_new_frame() {
+        let f = gen_frame();
+        let o = f.get_object(0).unwrap();
+        drop(f);
+        let f = gen_frame();
+        f.delete_objects_by_ids(&[0]);
+        let copy = o.clean_copy();
+        assert!(copy.is_detached(), "Clean copy is not attached");
+        assert!(!copy.is_spoiled(), "Clean copy must be not spoiled");
+        assert!(
+            copy.get_parent().is_none(),
+            "Clean copy must have no parent"
+        );
+        f.add_object(&o.clean_copy());
     }
 }

@@ -634,7 +634,10 @@ impl VideoFrame {
     pub fn restore_from_snapshot(&self) {
         {
             let mut inner = self.inner.write();
-            inner.resident_objects.clear();
+            inner.resident_objects.iter().for_each(|(_, o)| {
+                let mut o = o.write();
+                o.frame = None
+            });
             inner.restore();
         }
         self.fix_object_owned_frame();
@@ -673,6 +676,7 @@ impl VideoFrame {
                 .is_some(),
             "Parent must be attached to the frame before being assigned to its objects!"
         );
+
         objects.iter().for_each(|o| {
             o.set_parent(Some(parent.clone()));
         });
@@ -705,6 +709,11 @@ impl VideoFrame {
 
     pub fn add_object(&self, object: &Object) {
         let mut inner = self.inner.write();
+        assert!(
+            object.is_detached(),
+            "Only detached objects can be attached to a frame."
+        );
+
         let parent = object.get_parent();
         if let Some(parent) = parent.as_ref() {
             let parent_frame = parent.object().get_frame();
@@ -715,10 +724,11 @@ impl VideoFrame {
                 "Parent must be attached to the frame before its children."
             );
         }
+
         object.attach_to_video_frame(self.clone());
         let object_id = object.get_id();
         if inner.resident_objects.contains_key(&object_id) {
-            panic!("Object with id {} already exists in the frame.", object_id);
+            panic!("Object with ID {} already exists in the frame.", object_id);
         }
 
         inner
@@ -1083,7 +1093,7 @@ mod tests {
     use crate::primitives::message::video::object::query::{eq, one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
-    use crate::test::utils::{gen_frame, s};
+    use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
     #[test]
@@ -1414,13 +1424,41 @@ mod tests {
     }
 
     #[test]
-    fn try_to_assign_expired_frame() {
+    fn ensure_owned_objects_detached_after_snapshot() {
         let frame = gen_frame();
+        frame.add_object(&gen_object(111));
         frame.make_snapshot();
+        let object = frame.get_object(111).unwrap();
+        assert!(!object.is_detached(), "Object is expected to be attached");
+
         frame.restore_from_snapshot();
+        assert!(object.is_detached(), "Object is expected to be detached");
+
         let o = frame.get_object(0).unwrap();
-        let saved_frame = o.get_frame();
-        assert!(saved_frame.is_some());
-        assert!(Arc::ptr_eq(&frame.inner, &saved_frame.unwrap().inner));
+        assert!(!o.is_detached(), "Object is expected to be attached");
+    }
+
+    #[test]
+    fn ensure_object_spoiled_when_frame_is_dropped() {
+        let frame = gen_frame();
+        let object = frame.get_object(0).unwrap();
+        assert!(
+            !object.is_spoiled(),
+            "Object is expected to be in a normal state."
+        );
+        drop(frame);
+        assert!(object.is_spoiled(), "Object is expected to be spoiled");
+    }
+
+    #[test]
+    #[should_panic(expected = "Only detached objects can be attached to a frame.")]
+    fn ensure_spoiled_object_cannot_be_added() {
+        let frame = gen_frame();
+        frame.add_object(&gen_object(111));
+        let old_object = frame.get_object(111).unwrap();
+        drop(frame);
+        let frame = gen_frame();
+        assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
+        frame.add_object(&old_object);
     }
 }
