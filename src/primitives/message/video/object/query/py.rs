@@ -458,7 +458,7 @@ impl QueryWrapper {
     #[staticmethod]
     fn track_id_defined() -> QueryWrapper {
         QueryWrapper {
-            inner: Arc::new(Query::TrackIdDefined),
+            inner: Arc::new(Query::TrackDefined),
         }
     }
 

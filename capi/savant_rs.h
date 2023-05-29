@@ -10,13 +10,18 @@ typedef struct InferenceObjectMeta {
   int64_t creator_id;
   int64_t label_id;
   double confidence;
-  int64_t track_id;
   int64_t parent_id;
   double box_xc;
   double box_yx;
   double box_width;
   double box_height;
   double box_angle;
+  int64_t track_id;
+  double track_box_xc;
+  double track_box_yx;
+  double track_box_width;
+  double track_box_height;
+  double track_box_angle;
 } InferenceObjectMeta;
 
 /**

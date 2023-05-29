@@ -37,7 +37,7 @@ pub mod utils {
         let parent_object = Object::from_inner_object(
             InnerObjectBuilder::default()
                 .id(0)
-                .track_id(None)
+                .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .parent(None)
@@ -52,7 +52,7 @@ pub mod utils {
         let c1 = Object::from_inner_object(
             InnerObjectBuilder::default()
                 .id(1)
-                .track_id(None)
+                .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .parent(Some(ParentObject::new(parent_object.clone())))
@@ -67,7 +67,7 @@ pub mod utils {
         let c2 = Object::from_inner_object(
             InnerObjectBuilder::default()
                 .id(2)
-                .track_id(None)
+                .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .parent(Some(ParentObject::new(parent_object.clone())))

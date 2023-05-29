@@ -8,11 +8,42 @@ use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub mod query;
 pub mod vector;
+
+#[pyclass]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
+#[archive(check_bytes)]
+pub struct ObjectTrack {
+    #[pyo3(get, set)]
+    pub id: i64,
+    #[pyo3(get, set)]
+    pub bounding_box: RBBox,
+}
+
+impl ToSerdeJsonValue for ObjectTrack {
+    fn to_serde_json_value(&self) -> Value {
+        serde_json::json!({
+            "track_id": self.id,
+            "track_bounding_box": self.bounding_box.to_serde_json_value(),
+        })
+    }
+}
+
+#[pymethods]
+impl ObjectTrack {
+    #[new]
+    pub fn new(track_id: i64, bounding_box: RBBox) -> Self {
+        Self {
+            id: track_id,
+            bounding_box,
+        }
+    }
+}
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -73,7 +104,7 @@ pub enum Modification {
     Attributes,
     Confidence,
     Parent,
-    TrackId,
+    Track,
     DrawLabel,
 }
 
@@ -102,7 +133,7 @@ pub struct InnerObject {
     #[builder(default)]
     pub parent: Option<ParentObject>,
     #[builder(default)]
-    pub track_id: Option<i64>,
+    pub track: Option<ObjectTrack>,
     #[with(Skip)]
     #[builder(default)]
     pub modifications: Vec<Modification>,
@@ -129,7 +160,7 @@ impl Default for InnerObject {
             confidence: None,
             parent_id: None,
             parent: None,
-            track_id: None,
+            track: None,
             modifications: Vec::new(),
             creator_id: None,
             label_id: None,
@@ -149,7 +180,7 @@ impl ToSerdeJsonValue for InnerObject {
             "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
-            "track_id": self.track_id,
+            "track": self.track.as_ref().map(|t| t.to_serde_json_value()),
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
             "frame": self.get_parent_frame_source(),
         })
@@ -282,7 +313,7 @@ impl Object {
         attributes: HashMap<(String, String), Attribute>,
         confidence: Option<f64>,
         parent: Option<ParentObject>,
-        track_id: Option<i64>,
+        track: Option<ObjectTrack>,
     ) -> Self {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
@@ -297,7 +328,7 @@ impl Object {
             attributes,
             confidence,
             parent,
-            track_id,
+            track,
             parent_id,
             creator_id,
             label_id,
@@ -339,9 +370,9 @@ impl Object {
     }
 
     #[getter]
-    pub fn get_track_id(&self) -> Option<i64> {
+    pub fn get_track(&self) -> Option<ObjectTrack> {
         let inner = self.inner.read_recursive();
-        inner.track_id
+        inner.track.clone()
     }
 
     pub fn get_frame(&self) -> Option<VideoFrame> {
@@ -401,10 +432,10 @@ impl Object {
     }
 
     #[setter]
-    pub fn set_track_id(&self, track_id: Option<i64>) {
+    pub fn set_track(&self, track: Option<ObjectTrack>) {
         let mut inner = self.inner.write();
-        inner.track_id = track_id;
-        inner.modifications.push(Modification::TrackId);
+        inner.track = track;
+        inner.modifications.push(Modification::Track);
     }
 
     #[setter]
@@ -532,7 +563,7 @@ mod tests {
         Object::from_inner_object(
             InnerObjectBuilder::default()
                 .id(1)
-                .track_id(None)
+                .track(None)
                 .modifications(vec![])
                 .creator("model".to_string())
                 .label("label".to_string())

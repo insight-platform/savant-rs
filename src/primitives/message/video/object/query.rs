@@ -137,10 +137,25 @@ pub enum Query {
     Confidence(FloatExpression),
     #[serde(rename = "confidence.defined")]
     ConfidenceDefined,
-    #[serde(rename = "track_id")]
+    #[serde(rename = "track.id")]
     TrackId(IntExpression),
-    #[serde(rename = "track_id.defined")]
-    TrackIdDefined,
+    #[serde(rename = "track.id.defined")]
+    TrackDefined,
+    #[serde(rename = "track.bbox.xc")]
+    TrackBoxXCenter(FloatExpression),
+    #[serde(rename = "track.bbox.yc")]
+    TrackBoxYCenter(FloatExpression),
+    #[serde(rename = "track.bbox.width")]
+    TrackBoxWidth(FloatExpression),
+    #[serde(rename = "track.bbox.height")]
+    TrackBoxHeight(FloatExpression),
+    #[serde(rename = "track.bbox.area")]
+    TrackBoxArea(FloatExpression),
+    #[serde(rename = "track.bbox.angle")]
+    TrackBoxAngle(FloatExpression),
+    #[serde(rename = "track.bbox.angle.defined")]
+    TrackBoxAngleDefined,
+
     // parent
     #[serde(rename = "parent.id")]
     ParentId(IntExpression),
@@ -210,9 +225,40 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
             Query::Creator(x) => x.execute(&o.creator),
             Query::Label(x) => x.execute(&o.label),
             Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
-            Query::TrackId(x) => o.track_id.map(|t| x.execute(&t)).unwrap_or(false),
             Query::ConfidenceDefined => o.confidence.is_some(),
-            Query::TrackIdDefined => o.track_id.is_some(),
+            Query::TrackDefined => o.track.is_some(),
+            Query::TrackId(x) => o.track.as_ref().map(|t| x.execute(&t.id)).unwrap_or(false),
+            Query::TrackBoxXCenter(x) => o
+                .track
+                .as_ref()
+                .map(|t| x.execute(&t.bounding_box.xc))
+                .unwrap_or(false),
+            Query::TrackBoxYCenter(x) => o
+                .track
+                .as_ref()
+                .map(|t| x.execute(&t.bounding_box.yc))
+                .unwrap_or(false),
+            Query::TrackBoxWidth(x) => o
+                .track
+                .as_ref()
+                .map(|t| x.execute(&t.bounding_box.width))
+                .unwrap_or(false),
+            Query::TrackBoxHeight(x) => o
+                .track
+                .as_ref()
+                .map(|t| x.execute(&t.bounding_box.height))
+                .unwrap_or(false),
+            Query::TrackBoxArea(x) => o
+                .track
+                .as_ref()
+                .map(|t| x.execute(&(t.bounding_box.width * t.bounding_box.height)))
+                .unwrap_or(false),
+            Query::TrackBoxAngle(x) => o
+                .track
+                .as_ref()
+                .map(|t| t.bounding_box.angle.map(|a| x.execute(&a)))
+                .flatten()
+                .unwrap_or(false),
 
             // parent
             Query::ParentDefined => o.parent.is_some(),
@@ -330,6 +376,7 @@ mod tests {
     use super::Query::*;
     use super::*;
     use crate::primitives::attribute::Attributive;
+    use crate::primitives::message::video::object::ObjectTrack;
     use crate::primitives::{AttributeBuilder, RBBox, Value};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
@@ -511,10 +558,13 @@ mod tests {
         let expr = BoxAngle(gt(20.0));
         assert!(expr.execute(&object));
 
-        let expr = TrackIdDefined;
+        let expr = TrackDefined;
         assert!(!expr.execute(&gen_object(1)));
 
-        object.set_track_id(Some(1));
+        object.set_track(Some(ObjectTrack::new(
+            1,
+            RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+        )));
         assert!(expr.execute(&object));
 
         object.set_attribute(
