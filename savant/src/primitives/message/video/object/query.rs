@@ -263,8 +263,7 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
             Query::TrackBoxAngle(x) => o
                 .track
                 .as_ref()
-                .map(|t| t.bounding_box.angle.map(|a| x.execute(&a)))
-                .flatten()
+                .and_then(|t| t.bounding_box.angle.map(|a| x.execute(&a)))
                 .unwrap_or(false),
 
             // parent

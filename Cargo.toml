@@ -1,6 +1,6 @@
 [workspace]
 
 members = [
-    "savant",
-    "sample_plugin"
+    "sample_plugin",
+    "savant"
 ]

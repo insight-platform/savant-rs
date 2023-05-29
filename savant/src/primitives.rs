@@ -2,7 +2,6 @@ pub mod attribute;
 pub mod bbox;
 pub mod draw;
 pub mod message;
-pub mod plugin_api;
 pub mod point;
 pub mod polygonal_area;
 pub mod segment;
