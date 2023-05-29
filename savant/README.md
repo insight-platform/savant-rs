@@ -27,4 +27,4 @@ pip3 install --force-reinstall dist/savant_primitives-0.1.2-cp38-cp38-manylinux2
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](../LICENSE)
