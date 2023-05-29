@@ -17,12 +17,11 @@ on:
 permissions:
   contents: read
 
-defaults:
-    run:
-        working-directory: savant
-
 jobs:
   linux:
+    defaults:
+        run:
+            working-directory: savant
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -46,6 +45,9 @@ jobs:
           path: dist
 
   sdist:
+    defaults:
+        run:
+            working-directory: savant
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -61,6 +63,9 @@ jobs:
           path: dist
 
   release:
+    defaults:
+      run:
+        working-directory: savant
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
