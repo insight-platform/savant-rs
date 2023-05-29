@@ -8,8 +8,7 @@ name: CI
 on:
   push:
     branches:
-      - main
-      - master
+      - '*'
     tags:
       - '*'
   pull_request:
@@ -17,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+defaults:
+    run:
+        working-directory: savant
 
 jobs:
   linux:
