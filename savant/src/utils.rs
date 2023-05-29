@@ -22,6 +22,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
+use crate::utils::pluggable_udf_api::{call_boolean_gil, register_plugin_function_gil};
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
 pub use np_nalgebra::*;
@@ -53,6 +54,10 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(matrix_to_np_gil, m)?)?;
     m.add_function(wrap_pyfunction!(np_to_ndarray_gil, m)?)?;
     m.add_function(wrap_pyfunction!(ndarray_to_np_gil, m)?)?;
+
+    // UDF API
+    m.add_function(wrap_pyfunction!(register_plugin_function_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(call_boolean_gil, m)?)?;
 
     // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key_gil, m)?)?;

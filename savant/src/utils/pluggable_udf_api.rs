@@ -1,9 +1,10 @@
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
 use hashbrown::HashMap;
+use lazy_static::lazy_static;
 use libloading::os::unix::Symbol;
+use parking_lot::{const_rwlock, RwLock};
 use pyo3::prelude::*;
-use std::sync::Arc;
 
 pub type UnaryObjectPredicateFunc = extern "C" fn(o: &Object) -> bool;
 pub type UnaryObjectPredicate = Symbol<UnaryObjectPredicateFunc>;
@@ -24,118 +25,85 @@ pub enum UserFunction {
     BinaryObjectMatchPredicate(BinaryObjectMatchPredicate),
 }
 
-#[pyclass]
-#[derive(Debug)]
-pub struct UserFunctionPluginFactory {
-    lib: Option<libloading::Library>,
-    functions: Option<HashMap<String, UserFunction>>,
+lazy_static! {
+    static ref PLUGIN_REGISTRY: RwLock<HashMap<String, UserFunction>> =
+        const_rwlock(HashMap::new());
+    static ref PLUGIN_LIB_REGISTRY: RwLock<HashMap<String, libloading::Library>> =
+        const_rwlock(HashMap::new());
 }
 
-#[pyclass]
-#[derive(Debug, Clone)]
-pub struct UserFunctionPlugin {
-    inner: Arc<UserFunctionPluginFactory>,
+#[pyfunction]
+#[pyo3(name = "register_plugin_function")]
+pub fn register_plugin_function_gil(
+    plugin: String,
+    function: String,
+    kind: UserFunctionKind,
+    alias: String,
+) -> PyResult<()> {
+    no_gil(|| {
+        register_plugin_function(&plugin, &function, kind, &alias)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    })
 }
 
-impl UserFunctionPlugin {
-    pub fn eval(&self, name: &str, args: &[&Object]) -> anyhow::Result<bool> {
-        let inner = self.inner.clone();
-        let func = match inner.functions.as_ref().unwrap().get(name) {
-            Some(func) => func,
-            None => panic!("Function {} not found", name),
-        };
+pub fn register_plugin_function(
+    plugin: &str,
+    function: &str,
+    kind: UserFunctionKind,
+    alias: &str,
+) -> anyhow::Result<()> {
+    let mut registry = PLUGIN_REGISTRY.write();
+    let mut lib_registry = PLUGIN_LIB_REGISTRY.write();
 
-        match func {
-            UserFunction::UnaryObjectPredicate(f) => {
-                let arg = args.get(0).expect("Unary predicate requires one argument");
-                Ok(f(arg))
+    if !lib_registry.contains_key(plugin) {
+        let lib = unsafe { libloading::Library::new(plugin)? };
+        lib_registry.insert(plugin.to_string(), lib);
+    }
+
+    let lib = lib_registry.get(plugin).unwrap();
+    let byte_name = function.as_bytes();
+
+    let func = match kind {
+        UserFunctionKind::UnaryObjectPredicate => unsafe {
+            let func: libloading::Symbol<UnaryObjectPredicateFunc> = lib.get(byte_name)?;
+            UserFunction::UnaryObjectPredicate(func.into_raw())
+        },
+        UserFunctionKind::BinaryObjectMatchPredicate => unsafe {
+            let func: libloading::Symbol<BinaryObjectMatchPredicateFunc> = lib.get(byte_name)?;
+            UserFunction::BinaryObjectMatchPredicate(func.into_raw())
+        },
+    };
+
+    registry.insert(alias.to_string(), func);
+    Ok(())
+}
+
+#[pyfunction]
+#[pyo3(name = "call_boolean")]
+pub fn call_boolean_gil(alias: String, args: Vec<Object>) -> PyResult<bool> {
+    no_gil(|| {
+        call_boolean(&alias, args.iter().collect::<Vec<_>>().as_slice())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    })
+}
+
+pub fn call_boolean(alias: &str, args: &[&Object]) -> anyhow::Result<bool> {
+    let registry = PLUGIN_REGISTRY.read();
+    let func = match registry.get(alias) {
+        Some(func) => func,
+        None => panic!("Function {} not found", alias),
+    };
+
+    match func {
+        UserFunction::UnaryObjectPredicate(f) => {
+            let arg = args.get(0).expect("Unary predicate requires one argument");
+            Ok(f(arg))
+        }
+        UserFunction::BinaryObjectMatchPredicate(f) => {
+            if args.len() != 2 {
+                panic!("Binary predicate requires two arguments");
             }
-            UserFunction::BinaryObjectMatchPredicate(f) => {
-                let left = args
-                    .get(0)
-                    .expect("Binary predicate requires two arguments");
-                let right = args
-                    .get(1)
-                    .expect("Binary predicate requires two arguments");
-                Ok(f(left, right))
-            }
-        }
-    }
-}
-
-#[pymethods]
-impl UserFunctionPlugin {
-    #[pyo3(name = "eval")]
-    fn eval_py(&self, name: String, args: Vec<Object>) -> PyResult<bool> {
-        no_gil(|| {
-            self.eval(&name, args.iter().map(|e| e).collect::<Vec<_>>().as_slice())
-                .map_err(|e| {
-                    pyo3::exceptions::PyException::new_err(format!(
-                        "Error evaluating function: {}",
-                        e
-                    ))
-                })
-        })
-    }
-}
-
-impl UserFunctionPluginFactory {
-    pub fn new(name: &str) -> anyhow::Result<Self> {
-        let lib = unsafe { libloading::Library::new(name)? };
-        let functions = Some(HashMap::new());
-        Ok(Self {
-            lib: Some(lib),
-            functions,
-        })
-    }
-
-    pub fn register_function(&mut self, name: &str, kind: UserFunctionKind) -> anyhow::Result<()> {
-        let byte_name = name.as_bytes();
-        let lib = self.lib.as_ref().unwrap();
-        let func = match kind {
-            UserFunctionKind::UnaryObjectPredicate => unsafe {
-                let func: libloading::Symbol<UnaryObjectPredicateFunc> = lib.get(byte_name)?;
-                UserFunction::UnaryObjectPredicate(func.into_raw())
-            },
-            UserFunctionKind::BinaryObjectMatchPredicate => unsafe {
-                let func: libloading::Symbol<BinaryObjectMatchPredicateFunc> =
-                    lib.get(byte_name)?;
-                UserFunction::BinaryObjectMatchPredicate(func.into_raw())
-            },
-        };
-        if let Some(f) = self.functions.as_mut() {
-            f.insert(name.to_string(), func);
-        }
-        Ok(())
-    }
-}
-
-#[pymethods]
-impl UserFunctionPluginFactory {
-    #[new]
-    pub fn init(name: String) -> PyResult<Self> {
-        no_gil(|| Self::new(&name)).map_err(|e| {
-            pyo3::exceptions::PyException::new_err(format!("Error initializing plugin: {}", e))
-        })
-    }
-
-    #[pyo3(name = "register_function")]
-    pub fn register_function_py(&mut self, name: String, kind: UserFunctionKind) -> PyResult<()> {
-        no_gil(|| self.register_function(&name, kind)).map_err(|e| {
-            pyo3::exceptions::PyException::new_err(format!("Error registering function: {}", e))
-        })
-    }
-
-    pub fn initialize(&mut self) -> UserFunctionPlugin {
-        if self.lib.is_none() {
-            panic!("UserFunctionPlugin already initialized");
-        }
-
-        UserFunctionPlugin {
-            inner: Arc::new(Self {
-                lib: self.lib.take(),
-                functions: self.functions.take(),
-            }),
+            Ok(f(args[0], args[1]))
         }
     }
 }
@@ -148,25 +116,30 @@ mod tests {
     #[test]
     fn test_plugin_api_2() -> anyhow::Result<()> {
         pyo3::prepare_freethreaded_python();
-        let mut p = UserFunctionPluginFactory::new("../target/release/libsample_plugin.so")?;
-        p.register_function(
+        register_plugin_function(
+            "../target/release/libsample_plugin.so",
+            "unary_op_even",
+            UserFunctionKind::UnaryObjectPredicate,
+            "sample.unary_op_even",
+        )?;
+        register_plugin_function(
+            "../target/release/libsample_plugin.so",
             "binary_op_parent",
             UserFunctionKind::BinaryObjectMatchPredicate,
+            "sample.binary_op_parent",
         )?;
-        p.register_function("unary_op_even", UserFunctionKind::UnaryObjectPredicate)?;
-        let p = p.initialize();
 
         let o = gen_object(12);
-        assert!(p.eval("unary_op_even", &[&o])?);
+        assert!(call_boolean("sample.unary_op_even", &[&o])?);
 
         let o = gen_object(13);
-        assert!(!p.eval("unary_op_even", &[&o])?);
+        assert!(!call_boolean("sample.unary_op_even", &[&o])?);
 
-        assert!(!p.eval("binary_op_parent", &[&o, &o])?);
+        assert!(!call_boolean("sample.binary_op_parent", &[&o, &o])?);
 
         let o2 = gen_object(12);
         o.set_parent(Some(o2.clone()));
-        assert!(p.eval("binary_op_parent", &[&o, &o2])?);
+        assert!(call_boolean("sample.binary_op_parent", &[&o, &o2])?);
 
         Ok(())
     }
