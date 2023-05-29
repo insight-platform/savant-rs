@@ -137,10 +137,12 @@ pub enum Query {
     Confidence(FloatExpression),
     #[serde(rename = "confidence.defined")]
     ConfidenceDefined,
-    #[serde(rename = "track.id")]
-    TrackId(IntExpression),
+
+    // track ops
     #[serde(rename = "track.id.defined")]
     TrackDefined,
+    #[serde(rename = "track.id")]
+    TrackId(IntExpression),
     #[serde(rename = "track.bbox.xc")]
     TrackBoxXCenter(FloatExpression),
     #[serde(rename = "track.bbox.yc")]
@@ -165,9 +167,11 @@ pub enum Query {
     ParentLabel(StringExpression),
     #[serde(rename = "parent.defined")]
     ParentDefined,
+
     // children query
     #[serde(rename = "with_children")]
     WithChildren(Box<Query>, IntExpression),
+
     // bbox
     #[serde(rename = "bbox.xc")]
     BoxXCenter(FloatExpression),
@@ -183,11 +187,13 @@ pub enum Query {
     BoxAngle(FloatExpression),
     #[serde(rename = "bbox.angle.defined")]
     BoxAngleDefined,
+
     // Attributes
     #[serde(rename = "attributes.jmes_query")]
     AttributesJMESQuery(String),
     #[serde(rename = "attributes.empty")]
     AttributesEmpty,
+
     // combinators
     #[serde(rename = "and")]
     And(Vec<Query>),
@@ -196,6 +202,7 @@ pub enum Query {
     #[serde(rename = "not")]
     Not(Box<Query>),
     #[serde(rename = "pass")]
+    // pass-through
     Idle,
 }
 

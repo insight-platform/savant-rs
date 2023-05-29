@@ -3,7 +3,7 @@
 extern crate test;
 
 use savant_rs::primitives::message::video::object::query::*;
-use savant_rs::primitives::message::video::object::InnerObjectBuilder;
+use savant_rs::primitives::message::video::object::{InnerObjectBuilder, ObjectTrack};
 use savant_rs::primitives::{AttributeBuilder, Object, RBBox, Value};
 use test::Bencher;
 
@@ -17,7 +17,10 @@ fn get_objects() -> Vec<Object> {
                 .id(i)
                 .confidence(Some(0.53))
                 .bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
-                .track_id(Some(i))
+                .track(Some(ObjectTrack::new(
+                    i,
+                    RBBox::new(10.0, 20.0, 21.0, 231.0, None),
+                )))
                 .build()
                 .unwrap();
             o.attributes.insert(
