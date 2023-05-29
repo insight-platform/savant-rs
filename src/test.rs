@@ -3,7 +3,7 @@ pub mod utils {
     use crate::primitives::message::video::frame::{
         InnerVideoFrameBuilder, VideoTranscodingMethod,
     };
-    use crate::primitives::message::video::object::InnerObjectBuilder;
+    use crate::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
     use crate::primitives::{
         AttributeBuilder, Intersection, IntersectionKind, Object, ParentObject, Point,
         PyVideoFrameContent, Value,
@@ -79,9 +79,9 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.add_object(parent_object);
-        f.add_object(c1);
-        f.add_object(c2);
+        f.add_object(&parent_object);
+        f.add_object(&c1);
+        f.add_object(&c2);
 
         f.set_attribute(
             AttributeBuilder::default()
@@ -150,6 +150,17 @@ pub mod utils {
         );
 
         f
+    }
+
+    pub fn gen_object(id: i64) -> Object {
+        Object::from_inner_object(InnerObject {
+            id,
+            creator: s("peoplenet"),
+            label: s("face"),
+            confidence: Some(0.5),
+            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+            ..Default::default()
+        })
     }
 
     #[inline(always)]

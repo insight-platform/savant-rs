@@ -201,7 +201,7 @@ impl Object {
         }
     }
 
-    pub fn from_arc_inner_object(object: Arc<RwLock<InnerObject>>) -> Self {
+    pub fn from_arced_inner_object(object: Arc<RwLock<InnerObject>>) -> Self {
         Self { inner: object }
     }
 
@@ -248,12 +248,12 @@ impl Object {
         }
     }
 
-    pub(crate) fn attach(&self, frame: VideoFrame) {
+    pub(crate) fn attach_to_video_frame(&self, frame: VideoFrame) {
         let mut inner = self.inner.write();
         inner.frame = Some(frame.into());
     }
 
-    pub(crate) fn detach(&self) {
+    pub(crate) fn detach_from_video_frame(&self) {
         let mut inner = self.inner.write();
         inner.frame = None;
     }
@@ -385,6 +385,11 @@ impl Object {
 
     #[setter]
     pub fn set_id(&self, id: i64) {
+        assert!(
+            !matches!(self.get_frame(), Some(_)),
+            "When object is attached to a frame, it is impossible to change its ID"
+        );
+
         let mut inner = self.inner.write();
         inner.id = id;
         inner.modifications.push(Modification::Id);
@@ -655,6 +660,6 @@ mod tests {
         drop(f);
         let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
-        f.add_object(o);
+        f.add_object(&o);
     }
 }

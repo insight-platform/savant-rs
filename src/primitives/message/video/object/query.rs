@@ -3,10 +3,11 @@ pub mod macros;
 pub mod py;
 
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::Object;
 pub use crate::query_and as and;
@@ -202,77 +203,48 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
     Ok(c)
 }
 
-impl ExecutableQuery<&Object> for Query {
-    fn execute(&self, o: &Object) -> bool {
+impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
+    fn execute(&self, o: &RwLockReadGuard<InnerObject>) -> bool {
         match self {
-            Query::And(v) => v.iter().all(|x| x.execute(o)),
-            Query::Or(v) => v.iter().any(|x| x.execute(o)),
-            Query::Not(x) => !x.execute(o),
-            Query::WithChildren(q, n) => {
-                let children = o.get_children();
-                let v = filter(&children, q).len() as i64;
-                n.execute(&v)
-            }
-            // self
-            Query::Id(x) => x.execute(&o.get_inner_read().id),
-            Query::Creator(x) => x.execute(&o.get_inner_read().creator),
-            Query::Label(x) => x.execute(&o.get_inner_read().label),
-            Query::Confidence(x) => o
-                .get_inner_read()
-                .confidence
-                .map(|c| x.execute(&c))
-                .unwrap_or(false),
-            Query::TrackId(x) => o
-                .get_inner_read()
-                .track_id
-                .map(|t| x.execute(&t))
-                .unwrap_or(false),
-            Query::ConfidenceDefined => o.get_inner_read().confidence.is_some(),
-            Query::TrackIdDefined => o.get_inner_read().track_id.is_some(),
+            Query::Id(x) => x.execute(&o.id),
+            Query::Creator(x) => x.execute(&o.creator),
+            Query::Label(x) => x.execute(&o.label),
+            Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
+            Query::TrackId(x) => o.track_id.map(|t| x.execute(&t)).unwrap_or(false),
+            Query::ConfidenceDefined => o.confidence.is_some(),
+            Query::TrackIdDefined => o.track_id.is_some(),
 
             // parent
-            Query::ParentDefined => o.get_inner_read().parent.is_some(),
+            Query::ParentDefined => o.parent.is_some(),
             Query::ParentId(x) => o
-                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_id()))
                 .unwrap_or(false),
             Query::ParentCreator(x) => o
-                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_creator()))
                 .unwrap_or(false),
             Query::ParentLabel(x) => o
-                .get_inner_read()
                 .parent
                 .as_ref()
                 .map(|p| x.execute(&p.object().get_label()))
                 .unwrap_or(false),
             // box
-            Query::BoxWidth(x) => x.execute(&o.get_inner_read().bbox.width),
-            Query::BoxHeight(x) => x.execute(&o.get_inner_read().bbox.height),
-            Query::BoxArea(x) => x.execute({
-                let inner = o.get_inner_read();
-                &(inner.bbox.width * inner.bbox.height)
-            }),
-            Query::BoxXCenter(x) => x.execute(&o.get_inner_read().bbox.xc),
-            Query::BoxYCenter(x) => x.execute(&o.get_inner_read().bbox.yc),
-            Query::BoxAngleDefined => o.get_inner_read().bbox.angle.is_some(),
-            Query::BoxAngle(x) => o
-                .get_inner_read()
-                .bbox
-                .angle
-                .map(|a| x.execute(&a))
-                .unwrap_or(false),
+            Query::BoxWidth(x) => x.execute(&o.bbox.width),
+            Query::BoxHeight(x) => x.execute(&o.bbox.height),
+            Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
+            Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
+            Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
+            Query::BoxAngleDefined => o.bbox.angle.is_some(),
+            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
 
             // attributes
-            Query::AttributesEmpty => o.get_inner_read().attributes.is_empty(),
+            Query::AttributesEmpty => o.attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = &serde_json::json!(o
-                    .get_inner_read()
                     .attributes
                     .values()
                     .map(|v| v.to_serde_json_value())
@@ -284,6 +256,26 @@ impl ExecutableQuery<&Object> for Query {
                     || (res.is_object()) && res.as_object().unwrap().is_empty())
             }
             Query::Idle => true,
+            _ => panic!("not implemented"),
+        }
+    }
+}
+
+impl ExecutableQuery<&Object> for Query {
+    fn execute(&self, o: &Object) -> bool {
+        match self {
+            Query::And(v) => v.iter().all(|x| x.execute(o)),
+            Query::Or(v) => v.iter().any(|x| x.execute(o)),
+            Query::Not(x) => !x.execute(o),
+            Query::WithChildren(q, n) => {
+                let children = o.get_children();
+                let v = filter(&children, q).len() as i64;
+                n.execute(&v)
+            } // self
+            _ => {
+                let inner = o.get_inner_read();
+                self.execute(&inner)
+            }
         }
     }
 }
@@ -338,10 +330,9 @@ mod tests {
     use super::Query::*;
     use super::*;
     use crate::primitives::attribute::Attributive;
-    use crate::primitives::message::video::object::InnerObject;
     use crate::primitives::{AttributeBuilder, RBBox, Value};
     use crate::query_and;
-    use crate::test::utils::{gen_frame, s};
+    use crate::test::utils::{gen_frame, gen_object, s};
 
     #[test]
     fn test_int() {
@@ -455,53 +446,33 @@ mod tests {
         let _q: super::Query = serde_json::from_str(&json).unwrap();
     }
 
-    fn gen_object() -> Object {
-        Object::from_inner_object(InnerObject {
-            id: 1,
-            creator: s("peoplenet"),
-            label: s("face"),
-            confidence: Some(0.5),
-            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
-            ..Default::default()
-        })
-    }
-
     #[test]
     fn test_query() {
         let expr = Id(eq(1));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = Creator(eq("peoplenet"));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = Label(starts_with("face"));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = Confidence(gt(0.4));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = ConfidenceDefined;
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = ParentDefined;
-        assert!(!expr.execute(&gen_object()));
+        assert!(!expr.execute(&gen_object(1)));
 
         let expr = AttributesEmpty;
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
-        print!("{:?}", "test");
-        let object = gen_object();
-        let parent_object = Object::from_inner_object(InnerObject {
-            id: 13,
-            creator: s("peoplenet"),
-            label: s("person"),
-            confidence: None,
-            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
-            ..Default::default()
-        });
+        let object = gen_object(1);
+        let parent_object = gen_object(13);
         object.set_parent(Some(parent_object));
         assert!(expr.execute(&object));
-        print!("{:?}", "after test");
 
         let expr = ParentId(eq(13));
         assert!(expr.execute(&object));
@@ -509,31 +480,31 @@ mod tests {
         let expr = ParentCreator(eq("peoplenet"));
         assert!(expr.execute(&object));
 
-        let expr = ParentLabel(eq("person"));
+        let expr = ParentLabel(eq("face"));
         assert!(expr.execute(&object));
 
         let expr = BoxXCenter(gt(0.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxYCenter(gt(1.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxWidth(gt(5.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxHeight(gt(10.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxArea(gt(150.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxArea(lt(250.0));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = BoxAngleDefined;
-        assert!(!expr.execute(&gen_object()));
+        assert!(!expr.execute(&gen_object(1)));
 
-        let mut object = gen_object();
+        let mut object = gen_object(1);
         object.set_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         assert!(expr.execute(&object));
 
@@ -541,7 +512,7 @@ mod tests {
         assert!(expr.execute(&object));
 
         let expr = TrackIdDefined;
-        assert!(!expr.execute(&gen_object()));
+        assert!(!expr.execute(&gen_object(1)));
 
         object.set_track_id(Some(1));
         assert!(expr.execute(&object));
@@ -574,13 +545,13 @@ mod tests {
     #[test]
     fn test_logical_functions() {
         let expr = and![Id(eq(1)), Creator(eq("peoplenet")), Confidence(gt(0.4))];
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = or![Id(eq(10)), Creator(eq("peoplenet")),];
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
 
         let expr = not!(Id(eq(2)));
-        assert!(expr.execute(&gen_object()));
+        assert!(expr.execute(&gen_object(1)));
     }
 
     #[test]
