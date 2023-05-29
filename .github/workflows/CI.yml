@@ -19,9 +19,6 @@ permissions:
 
 jobs:
   linux:
-    defaults:
-        run:
-            working-directory: savant
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -32,6 +29,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Build wheels
+        working-directory: savant
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -40,32 +38,29 @@ jobs:
           manylinux: auto
       - name: Upload wheels
         uses: actions/upload-artifact@v3
+        working-directory: savant
         with:
           name: wheels
           path: dist
 
   sdist:
-    defaults:
-        run:
-            working-directory: savant
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Build sdist
+        working-directory: savant
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
       - name: Upload sdist
         uses: actions/upload-artifact@v3
+        working-directory: savant
         with:
           name: wheels
           path: dist
 
   release:
-    defaults:
-      run:
-        working-directory: savant
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
