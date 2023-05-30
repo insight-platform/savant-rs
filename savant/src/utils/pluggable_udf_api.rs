@@ -12,17 +12,22 @@ pub type ObjectPredicate = Symbol<ObjectPredicateFunc>;
 pub type InplaceObjectModifierFunc = fn(o: &[&Object]) -> anyhow::Result<()>;
 pub type InplaceObjectModifier = Symbol<InplaceObjectModifierFunc>;
 
+pub type MapObjectModifierFunc = fn(o: &Object) -> anyhow::Result<Object>;
+pub type MapObjectModifier = Symbol<MapObjectModifierFunc>;
+
 #[pyclass]
 #[derive(Clone, Debug)]
 pub enum UserFunctionKind {
     ObjectPredicate,
     InplaceObjectModifier,
+    MapObjectModifier,
 }
 
 #[derive(Clone, Debug)]
 pub enum UserFunction {
     ObjectPredicate(ObjectPredicate),
     InplaceObjectModifier(InplaceObjectModifier),
+    MapObjectModifier(MapObjectModifier),
 }
 
 lazy_static! {
@@ -83,6 +88,10 @@ pub fn register_plugin_function(
             let func: libloading::Symbol<InplaceObjectModifierFunc> = lib.get(byte_name)?;
             UserFunction::InplaceObjectModifier(func.into_raw())
         },
+        UserFunctionKind::MapObjectModifier => unsafe {
+            let func: libloading::Symbol<MapObjectModifierFunc> = lib.get(byte_name)?;
+            UserFunction::MapObjectModifier(func.into_raw())
+        },
     };
 
     registry.insert(alias.to_string(), func);
@@ -133,6 +142,28 @@ pub fn call_inplace_object_modifier(alias: &str, args: &[&Object]) -> anyhow::Re
     }
 }
 
+#[pyfunction]
+#[pyo3(name = "call_map_object_modifier")]
+pub fn call_map_object_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {
+    no_gil(|| {
+        call_map_object_modifier(&alias, &arg)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    })
+}
+
+pub fn call_map_object_modifier(alias: &str, arg: &Object) -> anyhow::Result<Object> {
+    let registry = PLUGIN_REGISTRY.read();
+    let func = match registry.get(alias) {
+        Some(func) => func,
+        None => panic!("Function {} not found", alias),
+    };
+
+    match func {
+        UserFunction::MapObjectModifier(f) => Ok(f(arg)?),
+        _ => panic!("Function '{}' is not an map object modifier", alias),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +192,13 @@ mod tests {
             "sample.inplace_modifier",
         )?;
 
+        register_plugin_function(
+            "../target/release/libsample_plugin.so",
+            "map_modifier",
+            UserFunctionKind::MapObjectModifier,
+            "sample.map_modifier",
+        )?;
+
         let o = gen_object(12);
         assert!(call_object_predicate("sample.unary_op_even", &[&o])?);
 
@@ -181,6 +219,11 @@ mod tests {
 
         let o = gen_object(12);
         call_inplace_object_modifier("sample.inplace_modifier", &[&o])?;
+        let label = o.get_label();
+        assert!(label.starts_with("modified"));
+
+        let o = gen_object(12);
+        let o = call_map_object_modifier("sample.map_modifier", &o)?;
         let label = o.get_label();
         assert!(label.starts_with("modified"));
 

@@ -23,8 +23,8 @@ use crate::utils::symbol_mapper::{
 };
 
 use crate::utils::pluggable_udf_api::{
-    call_inplace_object_modifier_gil, call_object_predicate_gil, is_plugin_function_registered_gil,
-    register_plugin_function_gil,
+    call_inplace_object_modifier_gil, call_map_object_modifier_gil, call_object_predicate_gil,
+    is_plugin_function_registered_gil, register_plugin_function_gil,
 };
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
@@ -63,6 +63,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_plugin_function_registered_gil, m)?)?;
     m.add_function(wrap_pyfunction!(call_object_predicate_gil, m)?)?;
     m.add_function(wrap_pyfunction!(call_inplace_object_modifier_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(call_map_object_modifier_gil, m)?)?;
 
     // model object registry
     m.add_function(wrap_pyfunction!(build_model_object_key_gil, m)?)?;

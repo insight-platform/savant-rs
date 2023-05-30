@@ -36,3 +36,11 @@ pub fn inplace_modifier(objs: &[&Object]) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[no_mangle]
+pub fn map_modifier(obj: &Object) -> anyhow::Result<Object> {
+    let label = obj.get_label();
+    let new_obj = obj.clean_copy();
+    new_obj.set_label(format!("modified_{}", label));
+    Ok(new_obj)
+}
