@@ -1,5 +1,5 @@
 use crate::primitives::message::video::query::py::QueryWrapper;
-use crate::primitives::message::video::query::{filter, partition};
+use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
 use pyo3::exceptions::PyIndexError;
@@ -66,5 +66,28 @@ impl VectorView {
                 VectorView { inner: Arc::new(b) },
             )
         })
+    }
+
+    #[pyo3(name = "map_udf")]
+    fn map_udf_gil(&self, udf: String) -> PyResult<VectorView> {
+        no_gil(|| {
+            map_udf(
+                &self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
+                &udf,
+            )
+            .map(|x| VectorView { inner: Arc::new(x) })
+        })
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    #[pyo3(name = "foreach_udf")]
+    fn foreach_udf_gil(&self, udf: String) -> PyResult<Vec<()>> {
+        no_gil(|| {
+            foreach_udf(
+                &self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
+                &udf,
+            )
+        })
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     }
 }
