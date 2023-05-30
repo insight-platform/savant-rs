@@ -100,7 +100,7 @@ frame.add_object(Object(
     confidence=0.5,
     attributes={},
     parent=None,
-    track_id=None,
+    track=None,
 ))
 
 f = gen_frame()
@@ -133,13 +133,18 @@ print("Length:", lib.object_vector_len(o.memory_handle))
 #     pub creator_id: i64,
 #     pub label_id: i64,
 #     pub confidence: f64,
-#     pub track_id: i64,
 #     pub parent_id: i64,
 #     pub box_xc: f64,
 #     pub box_yx: f64,
 #     pub box_width: f64,
 #     pub box_height: f64,
 #     pub box_angle: f64,
+#     pub track_id: i64,
+#     pub track_box_xc: f64,
+#     pub track_box_yx: f64,
+#     pub track_box_width: f64,
+#     pub track_box_height: f64,
+#     pub track_box_angle: f64,
 
 class InferenceMeta(Structure):
     _fields_ = [
@@ -147,13 +152,18 @@ class InferenceMeta(Structure):
         ("creator_id", c_int64),
         ("label_id", c_int64),
         ("confidence", c_double),
-        ("track_id", c_int64),
         ("parent_id", c_int64),
         ("box_xc", c_double),
-        ("box_yc", c_double),
+        ("box_yx", c_double),
         ("box_width", c_double),
         ("box_height", c_double),
         ("box_angle", c_double),
+        ("track_id", c_int64),
+        ("track_box_xc", c_double),
+        ("track_box_yx", c_double),
+        ("track_box_width", c_double),
+        ("track_box_height", c_double),
+        ("track_box_angle", c_double),
     ]
 
 

@@ -335,15 +335,24 @@ impl ExecutableQuery<&Object> for Query {
                 let udf_name = format!("{}@{}", plugin, function);
                 if !is_plugin_function_registered(&udf_name) {
                     register_plugin_function(
-                        &plugin,
-                        &function,
+                        plugin,
+                        function,
                         UserFunctionKind::ObjectPredicate,
                         &udf_name,
                     )
-                    .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to register '{}' plugin function. Error: {:?}",
+                            udf_name, e
+                        )
+                    });
                 }
-                call_object_predicate(&udf_name, &[o])
-                    .expect(format!("Failed to call '{}' plugin function", udf_name).as_str())
+                call_object_predicate(&udf_name, &[o]).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to call '{}' plugin function. Error: {:?}",
+                        udf_name, e
+                    )
+                })
             }
             _ => {
                 let inner = o.get_inner_read();
