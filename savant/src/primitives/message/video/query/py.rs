@@ -407,6 +407,13 @@ impl QueryWrapper {
     }
 
     #[staticmethod]
+    fn user_defined_rust_plugin_object_predicate(plugin: String, function: String) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::UserDefinedObjectPredicate(plugin, function)),
+        }
+    }
+
+    #[staticmethod]
     fn parent_id(e: IntExpressionWrapper) -> QueryWrapper {
         QueryWrapper {
             inner: Arc::new(Query::ParentId(e.inner)),
