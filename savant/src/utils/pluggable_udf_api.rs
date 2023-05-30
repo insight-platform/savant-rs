@@ -9,25 +9,25 @@ use pyo3::prelude::*;
 pub type ObjectPredicateFunc = fn(o: &[&Object]) -> bool;
 pub type ObjectPredicate = Symbol<ObjectPredicateFunc>;
 
-pub type InplaceObjectModifierFunc = fn(o: &[&Object]) -> anyhow::Result<()>;
-pub type InplaceObjectModifier = Symbol<InplaceObjectModifierFunc>;
+pub type ObjectInplaceModifierFunc = fn(o: &[&Object]) -> anyhow::Result<()>;
+pub type ObjectInplaceModifier = Symbol<ObjectInplaceModifierFunc>;
 
-pub type MapObjectModifierFunc = fn(o: &Object) -> anyhow::Result<Object>;
-pub type MapObjectModifier = Symbol<MapObjectModifierFunc>;
+pub type ObjectMapModifierFunc = fn(o: &Object) -> anyhow::Result<Object>;
+pub type ObjectMapModifier = Symbol<ObjectMapModifierFunc>;
 
 #[pyclass]
 #[derive(Clone, Debug)]
 pub enum UserFunctionKind {
     ObjectPredicate,
-    InplaceObjectModifier,
-    MapObjectModifier,
+    ObjectInplaceModifier,
+    ObjectMapModifier,
 }
 
 #[derive(Clone, Debug)]
 pub enum UserFunction {
     ObjectPredicate(ObjectPredicate),
-    InplaceObjectModifier(InplaceObjectModifier),
-    MapObjectModifier(MapObjectModifier),
+    ObjectInplaceModifier(ObjectInplaceModifier),
+    ObjectMapModifier(ObjectMapModifier),
 }
 
 lazy_static! {
@@ -84,13 +84,13 @@ pub fn register_plugin_function(
             let func: libloading::Symbol<ObjectPredicateFunc> = lib.get(byte_name)?;
             UserFunction::ObjectPredicate(func.into_raw())
         },
-        UserFunctionKind::InplaceObjectModifier => unsafe {
-            let func: libloading::Symbol<InplaceObjectModifierFunc> = lib.get(byte_name)?;
-            UserFunction::InplaceObjectModifier(func.into_raw())
+        UserFunctionKind::ObjectInplaceModifier => unsafe {
+            let func: libloading::Symbol<ObjectInplaceModifierFunc> = lib.get(byte_name)?;
+            UserFunction::ObjectInplaceModifier(func.into_raw())
         },
-        UserFunctionKind::MapObjectModifier => unsafe {
-            let func: libloading::Symbol<MapObjectModifierFunc> = lib.get(byte_name)?;
-            UserFunction::MapObjectModifier(func.into_raw())
+        UserFunctionKind::ObjectMapModifier => unsafe {
+            let func: libloading::Symbol<ObjectMapModifierFunc> = lib.get(byte_name)?;
+            UserFunction::ObjectMapModifier(func.into_raw())
         },
     };
 
@@ -121,15 +121,15 @@ pub fn call_object_predicate(alias: &str, args: &[&Object]) -> anyhow::Result<bo
 }
 
 #[pyfunction]
-#[pyo3(name = "call_inplace_object_modifier")]
-pub fn call_inplace_object_modifier_gil(alias: String, args: Vec<Object>) -> PyResult<()> {
+#[pyo3(name = "call_object_inplace_modifier")]
+pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<Object>) -> PyResult<()> {
     no_gil(|| {
-        call_inplace_object_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
+        call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_inplace_object_modifier(alias: &str, args: &[&Object]) -> anyhow::Result<()> {
+pub fn call_object_inplace_modifier(alias: &str, args: &[&Object]) -> anyhow::Result<()> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -137,21 +137,21 @@ pub fn call_inplace_object_modifier(alias: &str, args: &[&Object]) -> anyhow::Re
     };
 
     match func {
-        UserFunction::InplaceObjectModifier(f) => Ok(f(args)?),
+        UserFunction::ObjectInplaceModifier(f) => Ok(f(args)?),
         _ => panic!("Function '{}' is not an inplace object modifier", alias),
     }
 }
 
 #[pyfunction]
-#[pyo3(name = "call_map_object_modifier")]
-pub fn call_map_object_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {
+#[pyo3(name = "call_object_map_modifier")]
+pub fn call_object_map_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {
     no_gil(|| {
-        call_map_object_modifier(&alias, &arg)
+        call_object_map_modifier(&alias, &arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_map_object_modifier(alias: &str, arg: &Object) -> anyhow::Result<Object> {
+pub fn call_object_map_modifier(alias: &str, arg: &Object) -> anyhow::Result<Object> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -159,7 +159,7 @@ pub fn call_map_object_modifier(alias: &str, arg: &Object) -> anyhow::Result<Obj
     };
 
     match func {
-        UserFunction::MapObjectModifier(f) => Ok(f(arg)?),
+        UserFunction::ObjectMapModifier(f) => Ok(f(arg)?),
         _ => panic!("Function '{}' is not an map object modifier", alias),
     }
 }
@@ -188,14 +188,14 @@ mod tests {
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "inplace_modifier",
-            UserFunctionKind::InplaceObjectModifier,
+            UserFunctionKind::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "map_modifier",
-            UserFunctionKind::MapObjectModifier,
+            UserFunctionKind::ObjectMapModifier,
             "sample.map_modifier",
         )?;
 
@@ -218,12 +218,12 @@ mod tests {
         )?);
 
         let o = gen_object(12);
-        call_inplace_object_modifier("sample.inplace_modifier", &[&o])?;
+        call_object_inplace_modifier("sample.inplace_modifier", &[&o])?;
         let label = o.get_label();
         assert!(label.starts_with("modified"));
 
         let o = gen_object(12);
-        let o = call_map_object_modifier("sample.map_modifier", &o)?;
+        let o = call_object_map_modifier("sample.map_modifier", &o)?;
         let label = o.get_label();
         assert!(label.starts_with("modified"));
 
