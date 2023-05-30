@@ -1,9 +1,9 @@
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{Attributive, InnerAttributes};
-use crate::primitives::message::video::object::query::py::QueryWrapper;
-use crate::primitives::message::video::object::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::message::video::query::py::QueryWrapper;
+use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, Object, ParentObject, SetDrawLabelKind, SetDrawLabelKindWrapper,
@@ -1085,8 +1085,8 @@ impl VideoFrame {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attributive;
-    use crate::primitives::message::video::object::query::{eq, one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
+    use crate::primitives::message::video::query::{eq, one_of, Query};
     use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;

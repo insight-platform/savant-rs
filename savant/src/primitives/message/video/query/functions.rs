@@ -1,6 +1,4 @@
-use crate::primitives::message::video::object::query::{
-    FloatExpression, IntExpression, StringExpression,
-};
+use crate::primitives::message::video::query::{FloatExpression, IntExpression, StringExpression};
 
 pub trait EqOps<T: Clone, R> {
     fn eq(v: T) -> R;
