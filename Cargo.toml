@@ -4,3 +4,9 @@ members = [
     "sample_plugin",
     "savant"
 ]
+
+[profile.release]
+opt-level = 3
+
+[profile.bench]
+opt-level = 3

@@ -14,8 +14,8 @@ pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
 use crate::utils::pluggable_udf_api::{
-    call_object_predicate, is_plugin_function_registered, register_plugin_function,
-    UserFunctionKind,
+    call_inplace_object_modifier, call_map_object_modifier, call_object_predicate,
+    is_plugin_function_registered, register_plugin_function, UserFunctionKind,
 };
 pub use functions::*;
 
@@ -407,6 +407,18 @@ pub fn partition(objs: &[Object], query: &Query) -> (Vec<Object>, Vec<Object>) {
     })
 }
 
+pub fn map_udf(objs: &[&Object], udf: &str) -> anyhow::Result<Vec<Object>> {
+    objs.iter()
+        .map(|o| call_map_object_modifier(udf, o))
+        .collect()
+}
+
+pub fn foreach_udf(objs: &[&Object], udf: &str) -> anyhow::Result<Vec<()>> {
+    objs.iter()
+        .map(|o| call_inplace_object_modifier(udf, &[o]))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::Query::*;
@@ -673,5 +685,65 @@ mod tests {
             "unary_op_even".to_string(),
         ));
         assert_eq!(objects.len(), 2, "Only even objects must be returned");
+    }
+
+    #[test]
+    fn test_map_udf() {
+        let f = gen_frame();
+        let objects = f.access_objects(&Idle);
+
+        let udf_name = "sample.map_modifier";
+        if !is_plugin_function_registered(&udf_name) {
+            register_plugin_function(
+                "../target/release/libsample_plugin.so",
+                "map_modifier",
+                UserFunctionKind::MapObjectModifier,
+                udf_name,
+            )
+            .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
+        }
+
+        let new_objects = map_udf(
+            &objects.iter().collect::<Vec<_>>().as_slice(),
+            "sample.map_modifier",
+        )
+        .unwrap();
+        assert_eq!(new_objects.len(), 3);
+        for o in new_objects {
+            assert!(
+                o.get_label().starts_with("modified"),
+                "Label must be modified"
+            );
+        }
+    }
+
+    #[test]
+    fn test_foreach_udf() {
+        let f = gen_frame();
+        let objects = f.access_objects(&Idle);
+
+        let udf_name = "sample.inplace_modifier";
+        if !is_plugin_function_registered(&udf_name) {
+            register_plugin_function(
+                "../target/release/libsample_plugin.so",
+                "inplace_modifier",
+                UserFunctionKind::InplaceObjectModifier,
+                udf_name,
+            )
+            .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
+        }
+
+        foreach_udf(
+            &objects.iter().collect::<Vec<_>>().as_slice(),
+            "sample.inplace_modifier",
+        )
+        .unwrap();
+
+        for o in objects {
+            assert!(
+                o.get_label().starts_with("modified"),
+                "Label must be modified"
+            );
+        }
     }
 }
