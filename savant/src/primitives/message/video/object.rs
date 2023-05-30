@@ -12,7 +12,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub mod query;
 pub mod vector;
 
 #[pyclass]

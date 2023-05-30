@@ -365,6 +365,48 @@ impl QueryWrapper {
     }
 
     #[staticmethod]
+    fn track_box_x_center(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxXCenter(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_y_center(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxYCenter(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_width(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxWidth(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_height(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxHeight(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_area(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxArea(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_angle(e: FloatExpressionWrapper) -> QueryWrapper {
+        QueryWrapper {
+            inner: Arc::new(Query::TrackBoxAngle(e.inner)),
+        }
+    }
+
+    #[staticmethod]
     fn parent_id(e: IntExpressionWrapper) -> QueryWrapper {
         QueryWrapper {
             inner: Arc::new(Query::ParentId(e.inner)),

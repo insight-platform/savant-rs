@@ -1,25 +1,29 @@
-dev: clean clippy tests build install
+dev: clean sample_plugin clippy tests build install
 
 clippy:
 	@echo "Running clippy..."
 	cargo clippy
 
+sample_plugin: /proc/uptime
+	@echo "Building sample plugin..."
+	cd sample_plugin && cargo build --release
+
 build:
 	@echo "Building..."
-	RUSTFLAGS=" -C target-cpu=native -C opt-level=3" maturin build --release -o dist -i python3.10
+	cd savant && maturin build --release -o dist
 
 install:
 	@echo "Installing..."
-	pip3.10 install --force-reinstall dist/*.whl
+	cd savant && pip3.10 install --force-reinstall dist/*.whl
 
 clean:
 	@echo "Cleaning..."
-	rm -rf dist/*.whl
+	cd savant && rm -rf dist/*.whl
 
-tests:
+tests: sample_plugin
 	@echo "Running tests..."
-	cargo test --no-default-features  -- --nocapture
+	cd savant && cargo test --no-default-features  -- --nocapture
 
-bench:
+bench: sample_plugin
 	@echo "Running benchmarks..."
-	cargo bench --no-default-features -- --nocapture
+	cd savant && cargo bench --no-default-features -- --nocapture

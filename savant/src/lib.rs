@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
-use primitives::message::video::object::query::py::video_object_query;
+use primitives::message::video::query::py::video_object_query;
 
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {

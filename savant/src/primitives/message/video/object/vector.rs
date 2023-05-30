@@ -1,5 +1,5 @@
-use crate::primitives::message::video::object::query::py::QueryWrapper;
-use crate::primitives::message::video::object::query::{filter, partition};
+use crate::primitives::message::video::query::py::QueryWrapper;
+use crate::primitives::message::video::query::{filter, partition};
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
 use pyo3::exceptions::PyIndexError;

@@ -8,8 +8,7 @@ name: CI
 on:
   push:
     branches:
-      - main
-      - master
+      - '*'
     tags:
       - '*'
   pull_request:
@@ -32,6 +31,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
+          working-directory: savant
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -40,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: dist
+          path: savant/dist
 
   sdist:
     runs-on: ubuntu-latest
@@ -49,13 +49,14 @@ jobs:
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
+          working-directory: savant
           command: sdist
           args: --out dist
       - name: Upload sdist
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: dist
+          path: savant/dist
 
   release:
     name: Release

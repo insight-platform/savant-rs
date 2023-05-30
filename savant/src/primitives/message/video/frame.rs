@@ -1,9 +1,9 @@
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{Attributive, InnerAttributes};
-use crate::primitives::message::video::object::query::py::QueryWrapper;
-use crate::primitives::message::video::object::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::message::video::query::py::QueryWrapper;
+use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, Object, ParentObject, SetDrawLabelKind, SetDrawLabelKindWrapper,
@@ -397,7 +397,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-                "objects": self.resident_objects.iter().map(|(_id, o)| o.read_recursive().to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": self.resident_objects.values().map(|o| o.read_recursive().to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
     }
@@ -543,14 +543,9 @@ impl VideoFrame {
     }
 
     pub(crate) fn from_inner(inner: InnerVideoFrame) -> Self {
-        let f = VideoFrame {
+        VideoFrame {
             inner: Arc::new(RwLock::new(Box::new(inner))),
-        };
-        // let objects = f.access_objects(&Query::Idle);
-        // objects
-        //     .iter()
-        //     .for_each(|o| o.attach_to_video_frame(f.clone()));
-        f
+        }
     }
 
     pub fn access_objects(&self, q: &Query) -> Vec<Object> {
@@ -584,7 +579,7 @@ impl VideoFrame {
                     .resident_objects
                     .get(id)
                     .expect("Object must be contained among objects in the frame");
-                Object::from_arced_inner_object(o.clone()).into()
+                Object::from_arced_inner_object(o.clone())
             })
             .collect()
     }
@@ -593,12 +588,12 @@ impl VideoFrame {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
-        let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(&id));
+        let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
 
         inner.resident_objects = retained;
         removed
-            .into_iter()
-            .map(|(_id, o)| {
+            .into_values()
+            .map(|o| {
                 let o = Object::from_arced_inner_object(o);
                 o.detach_from_video_frame();
                 o
@@ -1090,8 +1085,8 @@ impl VideoFrame {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attributive;
-    use crate::primitives::message::video::object::query::{eq, one_of, Query};
     use crate::primitives::message::video::object::InnerObjectBuilder;
+    use crate::primitives::message::video::query::{eq, one_of, Query};
     use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
