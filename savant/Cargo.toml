@@ -50,12 +50,6 @@ serial_test = "2.0"
 pyo3-build-config = "0.18"
 cbindgen = "0.24"
 
-[profile.release]
-opt-level = 3
-
-[profile.bench]
-opt-level = 3
-
 [package.metadata.maturin]
 python-source = "python"
 

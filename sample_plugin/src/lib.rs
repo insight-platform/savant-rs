@@ -7,6 +7,7 @@ pub fn binary_op_parent(objs: &[&Object]) -> bool {
     assert_eq!(objs.len(), 2, "Expected 2 objects, got {}", objs.len());
     let left = objs[0];
     let right = objs[1];
+
     let left_inner = left.get_inner();
     let right_inner = right.get_inner();
     if Arc::ptr_eq(&left_inner, &right_inner) {
