@@ -72,7 +72,7 @@ impl VectorView {
     fn map_udf_gil(&self, udf: String) -> PyResult<VectorView> {
         no_gil(|| {
             map_udf(
-                &self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
+                self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
                 &udf,
             )
             .map(|x| VectorView { inner: Arc::new(x) })
@@ -84,7 +84,7 @@ impl VectorView {
     fn foreach_udf_gil(&self, udf: String) -> PyResult<Vec<()>> {
         no_gil(|| {
             foreach_udf(
-                &self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
+                self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
                 &udf,
             )
         })
