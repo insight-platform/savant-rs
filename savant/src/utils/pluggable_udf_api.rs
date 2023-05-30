@@ -33,6 +33,17 @@ lazy_static! {
 }
 
 #[pyfunction]
+#[pyo3(name = "is_plugin_function_registered")]
+pub fn is_plugin_function_registered_gil(alias: String) -> bool {
+    no_gil(|| is_plugin_function_registered(&alias))
+}
+
+pub fn is_plugin_function_registered(alias: &str) -> bool {
+    let registry = PLUGIN_REGISTRY.read();
+    registry.contains_key(alias)
+}
+
+#[pyfunction]
 #[pyo3(name = "register_plugin_function")]
 pub fn register_plugin_function_gil(
     plugin: String,

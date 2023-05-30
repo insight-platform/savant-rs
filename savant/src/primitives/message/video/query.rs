@@ -13,6 +13,10 @@ use crate::primitives::Object;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
+use crate::utils::pluggable_udf_api::{
+    call_object_predicate, is_plugin_function_registered, register_plugin_function,
+    UserFunctionKind,
+};
 pub use functions::*;
 
 pub trait ExecutableQuery<T> {
@@ -204,6 +208,9 @@ pub enum Query {
     #[serde(rename = "pass")]
     // pass-through
     Idle,
+    // User-defined plugin function
+    #[serde(rename = "user_defined_object_predicate")]
+    UserDefinedObjectPredicate(String, String),
 }
 
 const MAX_JMES_CACHE_SIZE: usize = 1024;
@@ -323,7 +330,21 @@ impl ExecutableQuery<&Object> for Query {
                 let children = o.get_children();
                 let v = filter(&children, q).len() as i64;
                 n.execute(&v)
-            } // self
+            }
+            Query::UserDefinedObjectPredicate(plugin, function) => {
+                let udf_name = format!("{}@{}", plugin, function);
+                if !is_plugin_function_registered(&udf_name) {
+                    register_plugin_function(
+                        &plugin,
+                        &function,
+                        UserFunctionKind::ObjectPredicate,
+                        &udf_name,
+                    )
+                    .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
+                }
+                call_object_predicate(&udf_name, &[o])
+                    .expect(format!("Failed to call '{}' plugin function", udf_name).as_str())
+            }
             _ => {
                 let inner = o.get_inner_read();
                 self.execute(&inner)
@@ -633,5 +654,15 @@ mod tests {
         let (matching, others) = partition(&objects, &Id(eq(1)));
         assert_eq!(matching.len(), 1);
         assert_eq!(others.len(), 2);
+    }
+
+    #[test]
+    fn test_udf() {
+        let f = gen_frame();
+        let objects = f.access_objects(&UserDefinedObjectPredicate(
+            "../target/release/libsample_plugin.so".to_string(),
+            "unary_op_even".to_string(),
+        ));
+        assert_eq!(objects.len(), 2, "Only even objects must be returned");
     }
 }
