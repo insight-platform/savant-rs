@@ -9,7 +9,7 @@ o = Object(
     confidence=0.5,
     attributes={},
     parent=None,
-    track_id=None,
+    track=None,
 )
 
 
