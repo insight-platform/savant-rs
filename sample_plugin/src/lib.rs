@@ -3,7 +3,10 @@ use savant_rs::primitives::Object;
 use std::sync::Arc;
 
 #[no_mangle]
-pub extern "C" fn binary_op_parent(left: &Object, right: &Object) -> bool {
+pub fn binary_op_parent(objs: &[&Object]) -> bool {
+    assert_eq!(objs.len(), 2, "Expected 2 objects, got {}", objs.len());
+    let left = objs[0];
+    let right = objs[1];
     let left_inner = left.get_inner();
     let right_inner = right.get_inner();
     if Arc::ptr_eq(&left_inner, &right_inner) {
@@ -18,6 +21,18 @@ pub extern "C" fn binary_op_parent(left: &Object, right: &Object) -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn unary_op_even(o: &Object) -> bool {
+pub fn unary_op_even(objs: &[&Object]) -> bool {
+    assert_eq!(objs.len(), 1, "Expected 1 object, got {}", objs.len());
+    let o = objs[0];
     o.get_id() % 2 == 0
+}
+
+#[no_mangle]
+pub fn inplace_modifier(objs: &[&Object]) -> anyhow::Result<()> {
+    for obj in objs {
+        let label = obj.get_label();
+        obj.set_label(format!("modified_{}", label));
+    }
+
+    Ok(())
 }

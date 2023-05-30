@@ -4,9 +4,9 @@ clippy:
 	@echo "Running clippy..."
 	cargo clippy
 
-sample_plugin: sample_plugin/src/lib.rs sample_plugin/Cargo.toml
+sample_plugin: /proc/uptime
 	@echo "Building sample plugin..."
-	cd sample_plugin && maturin build --release -o dist
+	cd sample_plugin && cargo build --release
 
 build:
 	@echo "Building..."
