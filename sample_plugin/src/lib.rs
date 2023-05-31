@@ -1,4 +1,3 @@
-use savant_rs::primitives::attribute::Attributive;
 use savant_rs::primitives::Object;
 use std::sync::Arc;
 

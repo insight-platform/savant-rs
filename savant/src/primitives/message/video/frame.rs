@@ -1,5 +1,5 @@
 use crate::capi::InferenceObjectMeta;
-use crate::primitives::attribute::{Attributive, InnerAttributes};
+use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
@@ -403,13 +403,21 @@ impl ToSerdeJsonValue for InnerVideoFrame {
     }
 }
 
-impl InnerAttributes for Box<InnerVideoFrame> {
+impl Attributive for Box<InnerVideoFrame> {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
 
     fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
         &mut self.attributes
+    }
+
+    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+        mem::take(&mut self.attributes)
+    }
+
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
+        self.attributes = attributes;
     }
 }
 
@@ -528,13 +536,63 @@ impl From<&BelongingVideoFrame> for VideoFrame {
     }
 }
 
-impl Attributive<Box<InnerVideoFrame>> for VideoFrame {
-    fn get_inner(&self) -> Arc<RwLock<Box<InnerVideoFrame>>> {
-        self.inner.clone()
+impl AttributeMethods for VideoFrame {
+    fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
+        let mut inner = self.inner.write();
+        inner.exclude_temporary_attributes()
+    }
+
+    fn restore_attributes(&self, attributes: Vec<Attribute>) {
+        let mut inner = self.inner.write();
+        inner.restore_attributes(attributes)
+    }
+
+    fn get_attributes(&self) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.get_attributes()
+    }
+
+    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        let inner = self.inner.read_recursive();
+        inner.get_attribute(creator, name)
+    }
+
+    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        let mut inner = self.inner.write();
+        inner.delete_attribute(creator, name)
+    }
+
+    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
+        let mut inner = self.inner.write();
+        inner.set_attribute(attribute)
+    }
+
+    fn clear_attributes(&self) {
+        let mut inner = self.inner.write();
+        inner.clear_attributes()
+    }
+
+    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>) {
+        let mut inner = self.inner.write();
+        inner.delete_attributes(negated, creator, names)
+    }
+
+    fn find_attributes(
+        &self,
+        creator: Option<String>,
+        name: Option<String>,
+        hint: Option<String>,
+    ) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.find_attributes(creator, name, hint)
     }
 }
 
 impl VideoFrame {
+    pub fn get_inner(&self) -> Arc<RwLock<Box<InnerVideoFrame>>> {
+        self.inner.clone()
+    }
+
     pub(crate) fn update_from_inference_meta(
         &self,
         _meta: &InferenceObjectMeta,
@@ -1084,7 +1142,7 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::Attributive;
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
     use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};

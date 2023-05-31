@@ -1,4 +1,4 @@
-use crate::primitives::attribute::{Attributive, InnerAttributes};
+use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::vector::VectorView;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
@@ -196,16 +196,6 @@ impl InnerObject {
     }
 }
 
-impl InnerAttributes for InnerObject {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
-        &self.attributes
-    }
-
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
-        &mut self.attributes
-    }
-}
-
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Object {
@@ -218,13 +208,81 @@ impl ToSerdeJsonValue for Object {
     }
 }
 
-impl Attributive<InnerObject> for Object {
-    fn get_inner(&self) -> Arc<RwLock<InnerObject>> {
-        self.inner.clone()
+impl Attributive for InnerObject {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+        &self.attributes
+    }
+
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+        &mut self.attributes
+    }
+
+    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+        std::mem::take(&mut self.attributes)
+    }
+
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
+        self.attributes = attributes;
+    }
+}
+
+impl AttributeMethods for Object {
+    fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
+        let mut inner = self.inner.write();
+        inner.exclude_temporary_attributes()
+    }
+
+    fn restore_attributes(&self, attributes: Vec<Attribute>) {
+        let mut inner = self.inner.write();
+        inner.restore_attributes(attributes)
+    }
+
+    fn get_attributes(&self) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.get_attributes()
+    }
+
+    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        let inner = self.inner.read_recursive();
+        inner.get_attribute(creator, name)
+    }
+
+    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+        let mut inner = self.inner.write();
+        inner.delete_attribute(creator, name)
+    }
+
+    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
+        let mut inner = self.inner.write();
+        inner.set_attribute(attribute)
+    }
+
+    fn clear_attributes(&self) {
+        let mut inner = self.inner.write();
+        inner.clear_attributes()
+    }
+
+    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>) {
+        let mut inner = self.inner.write();
+        inner.delete_attributes(negated, creator, names)
+    }
+
+    fn find_attributes(
+        &self,
+        creator: Option<String>,
+        name: Option<String>,
+        hint: Option<String>,
+    ) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.find_attributes(creator, name, hint)
     }
 }
 
 impl Object {
+    pub fn get_inner(&self) -> Arc<RwLock<InnerObject>> {
+        self.inner.clone()
+    }
+
     pub fn from_inner_object(object: InnerObject) -> Self {
         Self {
             inner: Arc::new(RwLock::new(object)),
@@ -553,7 +611,7 @@ impl Object {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::Attributive;
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, Modification, Object, RBBox, Value};
     use crate::test::utils::gen_frame;
@@ -606,48 +664,48 @@ mod tests {
     fn test_delete_attributes() {
         pyo3::prepare_freethreaded_python();
 
-        let mut t = get_object();
-        t.delete_attributes(false, None, vec![]);
-        assert_eq!(t.get_inner_read().attributes.len(), 3);
+        let obj = get_object();
+        obj.delete_attributes(false, None, vec![]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 3);
 
-        let mut t = get_object();
-        t.delete_attributes(true, None, vec![]);
-        assert!(t.get_inner_read().attributes.is_empty());
+        let obj = get_object();
+        obj.delete_attributes(true, None, vec![]);
+        assert!(obj.get_inner_read().attributes.is_empty());
 
-        let mut t = get_object();
-        t.delete_attributes(false, Some("creator".to_string()), vec![]);
-        assert_eq!(t.get_inner_read().attributes.len(), 1);
+        let obj = get_object();
+        obj.delete_attributes(false, Some("creator".to_string()), vec![]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 1);
 
-        let mut t = get_object();
-        t.delete_attributes(true, Some("creator".to_string()), vec![]);
-        assert_eq!(t.get_inner_read().attributes.len(), 2);
+        let obj = get_object();
+        obj.delete_attributes(true, Some("creator".to_string()), vec![]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 2);
 
-        let mut t = get_object();
-        t.delete_attributes(false, None, vec!["name".to_string()]);
-        assert_eq!(t.get_inner_read().attributes.len(), 1);
+        let obj = get_object();
+        obj.delete_attributes(false, None, vec!["name".to_string()]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 1);
 
-        let mut t = get_object();
-        t.delete_attributes(true, None, vec!["name".to_string()]);
-        assert_eq!(t.get_inner_read().attributes.len(), 2);
+        let obj = get_object();
+        obj.delete_attributes(true, None, vec!["name".to_string()]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 2);
 
-        let mut t = get_object();
+        let t = get_object();
         t.delete_attributes(false, None, vec!["name".to_string(), "name2".to_string()]);
         assert_eq!(t.get_inner_read().attributes.len(), 0);
 
-        let mut t = get_object();
-        t.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(t.get_inner_read().attributes.len(), 3);
+        let obj = get_object();
+        obj.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 3);
 
-        let mut t = get_object();
-        t.delete_attributes(
+        let obj = get_object();
+        obj.delete_attributes(
             false,
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.get_inner_read().attributes.len(), 1);
+        assert_eq!(obj.get_inner_read().attributes.len(), 1);
 
         assert_eq!(
-            &t.get_inner_read().attributes[&("creator2".to_string(), "name".to_string())],
+            &obj.get_inner_read().attributes[&("creator2".to_string(), "name".to_string())],
             &AttributeBuilder::default()
                 .creator("creator2".to_string())
                 .name("name".to_string())
@@ -657,13 +715,13 @@ mod tests {
                 .unwrap()
         );
 
-        let mut t = get_object();
-        t.delete_attributes(
+        let obj = get_object();
+        obj.delete_attributes(
             true,
             Some("creator".to_string()),
             vec!["name".to_string(), "name2".to_string()],
         );
-        assert_eq!(t.get_inner_read().attributes.len(), 2);
+        assert_eq!(obj.get_inner_read().attributes.len(), 2);
     }
 
     #[test]

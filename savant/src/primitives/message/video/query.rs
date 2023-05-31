@@ -423,7 +423,7 @@ pub fn foreach_udf(objs: &[&Object], udf: &str) -> anyhow::Result<Vec<()>> {
 mod tests {
     use super::Query::*;
     use super::*;
-    use crate::primitives::attribute::Attributive;
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::ObjectTrack;
     use crate::primitives::{AttributeBuilder, RBBox, Value};
     use crate::query_and;
@@ -599,7 +599,7 @@ mod tests {
         let expr = BoxAngleDefined;
         assert!(!expr.execute(&gen_object(1)));
 
-        let mut object = gen_object(1);
+        let object = gen_object(1);
         object.set_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         assert!(expr.execute(&object));
 

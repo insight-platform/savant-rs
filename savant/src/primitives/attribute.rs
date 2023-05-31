@@ -1,10 +1,8 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
-use parking_lot::RwLock;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
@@ -386,6 +384,9 @@ pub struct Attribute {
     pub values: Vec<Value>,
     #[pyo3(get)]
     pub hint: Option<String>,
+    #[pyo3(get)]
+    #[builder(default = "true")]
+    pub is_persistent: bool,
 }
 
 impl ToSerdeJsonValue for Attribute {
@@ -415,63 +416,108 @@ impl Attribute {
     #[new]
     pub fn new(creator: String, name: String, values: Vec<Value>, hint: Option<String>) -> Self {
         Self {
+            is_persistent: true,
             creator,
             name,
             values,
             hint,
         }
     }
+
+    #[staticmethod]
+    pub fn temporary(
+        creator: String,
+        name: String,
+        values: Vec<Value>,
+        hint: Option<String>,
+    ) -> Self {
+        Self {
+            is_persistent: false,
+            creator,
+            name,
+            values,
+            hint,
+        }
+    }
+
+    pub fn is_temporary(&self) -> bool {
+        !self.is_persistent
+    }
 }
 
-pub trait InnerAttributes {
+pub trait AttributeMethods {
+    fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
+    fn restore_attributes(&self, attributes: Vec<Attribute>);
+    fn get_attributes(&self) -> Vec<(String, String)>;
+    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute>;
+    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute>;
+    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
+    fn clear_attributes(&self);
+    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>);
+    fn find_attributes(
+        &self,
+        creator: Option<String>,
+        name: Option<String>,
+        hint: Option<String>,
+    ) -> Vec<(String, String)>;
+}
+
+pub trait Attributive: Send {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute>;
     fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute>;
-}
+    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute>;
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>);
 
-pub trait Attributive<T: InnerAttributes + Send> {
-    fn get_inner(&self) -> Arc<RwLock<T>>;
+    fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
+        let attributes = self.take_attributes();
+        let (retained, removed): (Vec<Attribute>, Vec<Attribute>) =
+            attributes.into_values().partition(|a| !a.is_temporary());
+
+        self.place_attributes(
+            retained
+                .into_iter()
+                .map(|a| ((a.creator.clone(), a.name.clone()), a))
+                .collect(),
+        );
+
+        removed
+    }
+
+    fn restore_attributes(&mut self, attributes: Vec<Attribute>) {
+        let attrs = self.get_attributes_ref_mut();
+        attributes.into_iter().for_each(|a| {
+            attrs.insert((a.creator.clone(), a.name.clone()), a);
+        })
+    }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
-        self.get_inner()
-            .read_recursive()
-            .get_attributes_ref()
+        self.get_attributes_ref()
             .iter()
             .map(|((creator, name), _)| (creator.clone(), name.clone()))
             .collect()
     }
 
     fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        self.get_inner()
-            .read_recursive()
-            .get_attributes_ref()
-            .get(&(creator, name))
-            .cloned()
+        self.get_attributes_ref().get(&(creator, name)).cloned()
     }
 
     fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        self.get_inner()
-            .write()
-            .get_attributes_ref_mut()
-            .remove(&(creator, name))
+        self.get_attributes_ref_mut().remove(&(creator, name))
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.get_inner().write().get_attributes_ref_mut().insert(
+        self.get_attributes_ref_mut().insert(
             (attribute.creator.clone(), attribute.name.clone()),
             attribute,
         )
     }
 
-    #[allow(clippy::let_unit_value)]
     fn clear_attributes(&mut self) {
-        self.get_inner().write().get_attributes_ref_mut().clear()
+        self.get_attributes_ref_mut().clear();
     }
 
     fn delete_attributes(&mut self, negated: bool, creator: Option<String>, names: Vec<String>) {
-        // let inner = self.get_inner();
-        self.get_inner()
-            .write()
-            .get_attributes_ref_mut()
+        self.get_attributes_ref_mut()
             .retain(|(c, label), _| match creator {
                 Some(ref creator) => {
                     ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
@@ -486,9 +532,7 @@ pub trait Attributive<T: InnerAttributes + Send> {
         name: Option<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.get_inner()
-            .read_recursive()
-            .get_attributes_ref()
+        self.get_attributes_ref()
             .iter()
             .filter(|((_, _), a)| {
                 if let Some(creator) = &creator {

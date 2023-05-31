@@ -151,12 +151,13 @@ impl Message {
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::loader::load_message;
     use crate::primitives::message::saver::save_message_gil;
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
     };
-    use crate::primitives::{EndOfStream, Message, VideoFrameBatch};
+    use crate::primitives::{save_message, Attribute, EndOfStream, Message, VideoFrameBatch};
     use crate::test::utils::gen_frame;
 
     #[test]
@@ -234,5 +235,26 @@ mod tests {
         );
 
         let _ = f.access_objects_by_id(&vec![0]).pop().unwrap();
+    }
+
+    #[test]
+    fn test_save_load_frame_with_temp_attributes() {
+        pyo3::prepare_freethreaded_python();
+
+        let f = gen_frame();
+        let tmp_attr =
+            Attribute::temporary("chronos".to_string(), "temp".to_string(), vec![], None);
+        let attrs = f.get_attributes();
+        assert_eq!(attrs.len(), 4);
+        f.set_attribute(tmp_attr);
+        let attrs = f.get_attributes();
+        assert_eq!(attrs.len(), 5);
+        let m = Message::video_frame(f);
+        let res = save_message(m);
+        let m = load_message(res);
+        assert!(m.is_video_frame());
+        let f = m.as_video_frame().unwrap();
+        let attrs = f.get_attributes();
+        assert_eq!(attrs.len(), 4);
     }
 }

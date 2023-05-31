@@ -1,5 +1,5 @@
 pub mod utils {
-    use crate::primitives::attribute::Attributive;
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::frame::{
         InnerVideoFrameBuilder, VideoTranscodingMethod,
     };
@@ -14,7 +14,7 @@ pub mod utils {
 
     #[pyfunction]
     pub fn gen_frame() -> VideoFrame {
-        let mut f = VideoFrame::from_inner(
+        let f = VideoFrame::from_inner(
             InnerVideoFrameBuilder::default()
                 .source_id("test".to_string())
                 .pts(0)

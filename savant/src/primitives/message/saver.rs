@@ -1,3 +1,4 @@
+use crate::primitives::attribute::AttributeMethods;
 use pyo3::pyfunction;
 
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
@@ -26,6 +27,14 @@ pub fn save_message(m: Message) -> Vec<u8> {
         NativeMessage::VideoFrame(frame) => {
             let mut buf = Vec::with_capacity(760);
             frame.make_snapshot();
+            let frame_excluded_temp_attrs = frame.exclude_temporary_attributes();
+
+            // let objects_excluded_temp_attrs = frame
+            //     .access_objects(&Query::Idle)
+            //     .iter()
+            //     .map(|o| (o.get_id(), o.exclude_temporary_attributes()))
+            //     .collect::<HashMap<_, _>>();
+
             let inner = frame.inner.read_recursive();
             buf.extend_from_slice(
                 rkyv::to_bytes::<_, 756>(inner.as_ref())
@@ -34,6 +43,9 @@ pub fn save_message(m: Message) -> Vec<u8> {
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrame.into();
             buf.extend_from_slice(t.as_ref());
+            drop(inner);
+            frame.restore_attributes(frame_excluded_temp_attrs);
+
             buf
         }
         NativeMessage::VideoFrameBatch(mut b) => {

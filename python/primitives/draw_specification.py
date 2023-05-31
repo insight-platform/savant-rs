@@ -48,4 +48,6 @@ spec = ObjectDraw(
     blur=True
 )
 
-print(spec)
+new_spec = spec.copy()
+print(new_spec)
+

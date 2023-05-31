@@ -22,6 +22,11 @@ impl PaddingDraw {
         self.__repr__()
     }
 
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        *self
+    }
+
     #[new]
     #[pyo3(signature = (left=0, top=0, right=0, bottom=0))]
     pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> Self {
@@ -86,6 +91,11 @@ impl ColorDraw {
         self.__repr__()
     }
 
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        *self
+    }
+
     #[new]
     #[pyo3(signature = (red=0, green=255, blue=0, alpha=255))]
     pub fn new(red: i64, green: i64, blue: i64, alpha: i64) -> Self {
@@ -105,6 +115,11 @@ impl ColorDraw {
     #[getter]
     pub fn bgra(&self) -> (i64, i64, i64, i64) {
         (self.blue, self.green, self.red, self.alpha)
+    }
+
+    #[getter]
+    pub fn rgba(&self) -> (i64, i64, i64, i64) {
+        (self.red, self.green, self.blue, self.alpha)
     }
 
     #[getter]
@@ -147,6 +162,11 @@ impl BoundingBoxDraw {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        *self
     }
 
     #[new]
@@ -197,6 +217,11 @@ impl DotDraw {
         self.__repr__()
     }
 
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        *self
+    }
+
     #[new]
     #[pyo3(signature = (color, radius = 2))]
     pub fn new(color: ColorDraw, radius: i64) -> Self {
@@ -236,6 +261,11 @@ impl LabelDraw {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        self.clone()
     }
 
     #[new]
@@ -293,6 +323,11 @@ impl ObjectDraw {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        self.clone()
     }
 
     #[new]
