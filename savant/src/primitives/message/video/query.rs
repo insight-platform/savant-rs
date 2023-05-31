@@ -274,22 +274,7 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
                 .unwrap_or(false),
 
             // parent
-            Query::ParentDefined => o.parent.is_some(),
-            Query::ParentId(x) => o
-                .parent
-                .as_ref()
-                .map(|p| x.execute(&p.object().get_id()))
-                .unwrap_or(false),
-            Query::ParentCreator(x) => o
-                .parent
-                .as_ref()
-                .map(|p| x.execute(&p.object().get_creator()))
-                .unwrap_or(false),
-            Query::ParentLabel(x) => o
-                .parent
-                .as_ref()
-                .map(|p| x.execute(&p.object().get_label()))
-                .unwrap_or(false),
+            Query::ParentDefined => o.parent_id.is_some(),
             // box
             Query::BoxWidth(x) => x.execute(&o.bbox.width),
             Query::BoxHeight(x) => x.execute(&o.bbox.height),
@@ -331,6 +316,21 @@ impl ExecutableQuery<&Object> for Query {
                 let v = filter(&children, q).len() as i64;
                 n.execute(&v)
             }
+            Query::ParentId(x) => o
+                .get_parent()
+                .as_ref()
+                .map(|p| x.execute(&p.get_id()))
+                .unwrap_or(false),
+            Query::ParentCreator(x) => o
+                .get_parent()
+                .as_ref()
+                .map(|p| x.execute(&p.get_creator()))
+                .unwrap_or(false),
+            Query::ParentLabel(x) => o
+                .get_parent()
+                .as_ref()
+                .map(|p| x.execute(&p.get_label()))
+                .unwrap_or(false),
             Query::UserDefinedObjectPredicate(plugin, function) => {
                 let udf_name = format!("{}@{}", plugin, function);
                 if !is_plugin_function_registered(&udf_name) {
@@ -566,7 +566,11 @@ mod tests {
 
         let object = gen_object(1);
         let parent_object = gen_object(13);
-        object.set_parent(Some(parent_object));
+        let f = gen_frame();
+        f.delete_objects(&Query::Idle);
+        f.add_object(&parent_object);
+        f.add_object(&object);
+        object.set_parent(Some(parent_object.get_id()));
         assert!(expr.execute(&object));
 
         let expr = ParentId(eq(13));

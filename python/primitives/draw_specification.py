@@ -42,7 +42,14 @@ spec = ObjectDraw(
     )
 )
 
-print(spec)
+new_spec = ObjectDraw(
+    bounding_box=spec.bounding_box,
+    label=spec.label,
+    central_dot=spec.central_dot,
+    blur=spec.blur
+)
+
+print(new_spec)
 
 spec = ObjectDraw(
     blur=True

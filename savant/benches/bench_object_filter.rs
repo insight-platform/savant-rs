@@ -2,8 +2,8 @@
 
 extern crate test;
 
-use savant_rs::primitives::message::video::object::query::*;
 use savant_rs::primitives::message::video::object::{InnerObjectBuilder, ObjectTrack};
+use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{AttributeBuilder, Object, RBBox, Value};
 use test::Bencher;
 

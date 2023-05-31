@@ -15,7 +15,7 @@ pub fn binary_op_parent(objs: &[&Object]) -> bool {
         left.get_parent().is_some()
             && left
                 .get_parent()
-                .map(|p| p.object().get_id() == right.get_id())
+                .map(|p| p.get_id() == right.get_id())
                 .unwrap_or(false)
     }
 }

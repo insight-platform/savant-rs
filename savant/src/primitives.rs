@@ -20,7 +20,7 @@ pub use message::loader::load_message;
 pub use message::saver::save_message;
 pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoTranscodingMethod};
-pub use message::video::object::{Modification, Object, ParentObject};
+pub use message::video::object::{Modification, Object};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
@@ -42,7 +42,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Object>()?;
     m.add_class::<ObjectTrack>()?;
     m.add_class::<VectorView>()?;
-    m.add_class::<ParentObject>()?;
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;

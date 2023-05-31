@@ -1,7 +1,7 @@
 import ctypes
 
 from savant_rs.utils import gen_frame, save_message, load_message
-from savant_rs.primitives import SetDrawLabelKind, Message, ParentObject, Object, PolygonalArea, Point, BBox, Value, \
+from savant_rs.primitives import SetDrawLabelKind, Message, Object, PolygonalArea, Point, BBox, Value, \
     Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
 from savant_rs.video_object_query import Query as Q, \
     IntExpression as IE
@@ -105,8 +105,8 @@ frame.add_object(Object(
 
 f = gen_frame()
 print("Raw address to pass to C-funcs: ", f.memory_handle)
-o = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
-print("Object with two children:", o[0])
+vec = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
+print("Object with two children:", vec[0])
 
 # demonstrates chained filtering on VectorView object
 #
@@ -123,7 +123,7 @@ print("Two", two)
 lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 lib.object_vector_len.rettype = c_uint64
-print("Length:", lib.object_vector_len(o.memory_handle))
+print("Length:", lib.object_vector_len(vec.memory_handle))
 
 
 # Demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
@@ -169,24 +169,24 @@ class InferenceMeta(Structure):
 
 lib.get_inference_meta.argtypes = [c_uint64, c_uint64]
 lib.get_inference_meta.restype = InferenceMeta
-meta = lib.get_inference_meta(o.memory_handle, 0)
+meta = lib.get_inference_meta(vec.memory_handle, 0)
 
 print("C-struct: ", meta)
 for field_name, field_type in meta._fields_:
     print("\t", field_name, getattr(meta, field_name))
 
 # demonstrates VectorView len() op
-print("Vector View len() op", len(o))
+print("Vector View len() op", len(vec))
 
 # demonstrates VectorView index access operation
-o = o[0]
-print("Object", o)
+vec = vec[0]
+print("Object", vec)
 
-o.set_attribute(Attribute(creator="other", name="attr", values=[
+vec.set_attribute(Attribute(creator="other", name="attr", values=[
     Value.integer(1, confidence=0.5),
 ]))
 
-o.set_attribute(Attribute(creator="some", name="attr", values=[
+vec.set_attribute(Attribute(creator="some", name="attr", values=[
     Value.integers([1, 2, 3], confidence=0.5),
 ]))
 

@@ -45,55 +45,6 @@ impl ObjectTrack {
 }
 
 #[pyclass]
-#[derive(Debug, Clone)]
-pub struct ParentObject {
-    pub(crate) inner: Arc<RwLock<InnerObject>>,
-}
-
-impl PartialEq for ParentObject {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.inner, &other.inner)
-    }
-}
-
-impl ToSerdeJsonValue for ParentObject {
-    fn to_serde_json_value(&self) -> serde_json::Value {
-        let inner = self.inner.read_recursive();
-        serde_json::json!({
-            "id": inner.id,
-            "creator": inner.creator,
-            "label": inner.label,
-        })
-    }
-}
-
-#[pymethods]
-impl ParentObject {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-
-    fn __repr__(&self) -> String {
-        format!("{self:?}")
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-
-    #[new]
-    pub fn new(o: Object) -> Self {
-        Self { inner: o.inner }
-    }
-
-    #[getter]
-    pub fn object(&self) -> Object {
-        Object {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
-#[pyclass]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Modification {
     Id,
@@ -128,9 +79,6 @@ pub struct InnerObject {
     pub confidence: Option<f64>,
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
-    #[with(Skip)]
-    #[builder(default)]
-    pub parent: Option<ParentObject>,
     #[builder(default)]
     pub track: Option<ObjectTrack>,
     #[with(Skip)]
@@ -158,7 +106,6 @@ impl Default for InnerObject {
             attributes: HashMap::new(),
             confidence: None,
             parent_id: None,
-            parent: None,
             track: None,
             modifications: Vec::new(),
             creator_id: None,
@@ -178,7 +125,7 @@ impl ToSerdeJsonValue for InnerObject {
             "bbox": self.bbox.to_serde_json_value(),
             "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
-            "parent": self.parent.as_ref().map(|p| p.to_serde_json_value()),
+            "parent": self.parent_id,
             "track": self.track.as_ref().map(|t| t.to_serde_json_value()),
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
             "frame": self.get_parent_frame_source(),
@@ -279,6 +226,11 @@ impl AttributeMethods for Object {
 }
 
 impl Object {
+    pub fn get_parent_id(&self) -> Option<i64> {
+        let inner = self.inner.read_recursive();
+        inner.parent_id
+    }
+
     pub fn get_inner(&self) -> Arc<RwLock<InnerObject>> {
         self.inner.clone()
     }
@@ -303,35 +255,39 @@ impl Object {
         inner
     }
 
-    pub(crate) fn set_parent(&self, parent: Option<Object>) {
-        if let Some(parent) = parent.as_ref() {
-            assert!(!Arc::ptr_eq(&parent.inner, &self.inner));
-        }
-
-        match (self.get_frame(), parent.as_ref()) {
-            (Some(f), Some(p)) => {
-                assert!(
-                    p.get_frame().is_some() && Arc::ptr_eq(&f.inner, &p.get_frame().unwrap().inner),
-                    "When setting parent, both objects must be attached to the same frame"
-                );
+    pub(crate) fn set_parent(&self, parent_opt: Option<i64>) {
+        if let Some(parent) = parent_opt {
+            if self.get_frame().is_none() {
+                panic!("Cannot set parent to the object detached from a frame");
             }
-            (None, Some(p)) => {
-                assert!(p.get_frame().is_none(), "When the object is set as parent to the object detached from a frame it must have no frame too.");
+            if self.get_id() == parent {
+                panic!("Cannot set parent to itself");
             }
-            (_, None) => {}
+            let f = self.get_frame().unwrap();
+            if !f.object_exists(parent) {
+                panic!("Cannot set parent to the object which cannot be found in the frame");
+            }
         }
 
         let mut inner = self.inner.write();
-        let p = parent.as_ref();
-        inner.parent_id = p.map(|p| p.inner.read_recursive().id);
-        inner.parent = p.map(|p| ParentObject::new(p.clone()));
+        inner.parent_id = parent_opt;
         inner.modifications.push(Modification::Parent);
     }
 
-    pub fn get_children(&self) -> Vec<Object> {
+    pub fn get_parent(&self) -> Option<Object> {
+        let id = self.inner.read_recursive().parent_id?;
         let f = self.get_frame();
         match f {
-            Some(f) => f.get_children(self),
+            Some(f) => f.get_object(id),
+            None => None,
+        }
+    }
+
+    pub fn get_children(&self) -> Vec<Object> {
+        let id = self.get_id();
+        let f = self.get_frame();
+        match f {
+            Some(f) => f.get_children(id),
             None => Vec::new(),
         }
     }
@@ -369,13 +325,10 @@ impl Object {
         bbox: RBBox,
         attributes: HashMap<(String, String), Attribute>,
         confidence: Option<f64>,
-        parent: Option<ParentObject>,
         track: Option<ObjectTrack>,
     ) -> Self {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
-
-        let parent_id = parent.as_ref().map(|p| p.inner.read_recursive().id);
 
         let object = InnerObject {
             id,
@@ -384,9 +337,7 @@ impl Object {
             bbox,
             attributes,
             confidence,
-            parent,
             track,
-            parent_id,
             creator_id,
             label_id,
             ..Default::default()
@@ -412,7 +363,6 @@ impl Object {
     pub fn clean_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let mut new_inner = inner.clone();
-        new_inner.parent = None;
         new_inner.parent_id = None;
         new_inner.frame = None;
         Self {
@@ -474,18 +424,6 @@ impl Object {
         let mut inner = self.inner.write();
         inner.draw_label = draw_label;
         inner.modifications.push(Modification::DrawLabel);
-    }
-
-    #[getter]
-    pub fn get_parent(&self) -> Option<ParentObject> {
-        let inner = &self.inner.write();
-        match (inner.parent.as_ref(), inner.parent_id.as_ref()) {
-            (Some(o), _) => Some(o.clone()),
-            (None, None) => None,
-            (None, Some(_)) => {
-                panic!("Parent must be set when ParentId is set")
-            }
-        }
     }
 
     #[setter]
@@ -654,7 +592,7 @@ mod tests {
                     .map(|a| ((a.creator.clone(), a.name.clone()), a))
                     .collect(),
                 )
-                .parent(None)
+                .parent_id(None)
                 .build()
                 .unwrap(),
         )
@@ -744,7 +682,7 @@ mod tests {
     #[should_panic]
     fn self_parent_assignment_panic_trivial() {
         let obj = get_object();
-        obj.set_parent(Some(obj.clone()));
+        obj.set_parent(Some(obj.get_id()));
     }
 
     #[test]
@@ -753,7 +691,7 @@ mod tests {
         let obj = get_object();
         let parent = obj.clone();
         parent.set_id(2);
-        obj.set_parent(Some(parent));
+        obj.set_parent(Some(parent.get_id()));
     }
 
     #[test]

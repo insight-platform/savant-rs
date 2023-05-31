@@ -2,7 +2,6 @@
 
 extern crate test;
 
-use pyo3::prelude::*;
 use savant_rs::test::utils::gen_object;
 use savant_rs::utils::pluggable_udf_api::*;
 use test::Bencher;
@@ -11,13 +10,16 @@ use test::Bencher;
 fn bench_udf(b: &mut Bencher) -> anyhow::Result<()> {
     pyo3::prepare_freethreaded_python();
 
-    let mut p = UserFunctionPluginFactory::new("../target/release/libsample_plugin.so")?;
-    p.register_function("unary_op_even", UserFunctionKind::UnaryObjectPredicate)?;
-    let p = p.initialize();
+    register_plugin_function(
+        "../target/release/libsample_plugin.so",
+        "unary_op_even",
+        UserFunctionKind::ObjectPredicate,
+        "sample.unary_op_even",
+    )?;
 
     let o = gen_object(12);
     b.iter(|| {
-        assert!(p.eval("unary_op_even", &[&o]).unwrap());
+        assert!(call_object_predicate("sample.unary_op_even", &[&o]).unwrap());
     });
 
     Ok(())

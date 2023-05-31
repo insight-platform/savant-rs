@@ -5,9 +5,7 @@ use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{
-    Attribute, Message, Object, ParentObject, SetDrawLabelKind, SetDrawLabelKindWrapper,
-};
+use crate::primitives::{Attribute, Message, Object, SetDrawLabelKind, SetDrawLabelKindWrapper};
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
 use parking_lot::RwLock;
@@ -423,22 +421,6 @@ impl Attributive for Box<InnerVideoFrame> {
 
 impl InnerVideoFrame {
     fn preserve(&mut self) {
-        for (id, o) in self.resident_objects.iter() {
-            let mut obj = o.write();
-            assert_eq!(
-                obj.id, *id,
-                "Key object ID must match the ID in the object itself"
-            );
-            let real_parent_id = obj.parent.as_ref().map(|p| p.inner.read_recursive().id);
-            obj.parent_id = real_parent_id;
-            if let Some(real_parent_id) = real_parent_id {
-                assert!(
-                    self.resident_objects.contains_key(&real_parent_id),
-                    "Parent object must be contained among objects in the frame"
-                );
-            }
-        }
-
         self.offline_objects = self
             .resident_objects
             .iter()
@@ -451,26 +433,6 @@ impl InnerVideoFrame {
             .into_iter()
             .map(|(id, o)| (id, Arc::new(RwLock::new(o))))
             .collect();
-
-        for (_, o) in self.resident_objects.iter() {
-            let mut o = o.write();
-            let required_parent_id = o.parent_id;
-            if required_parent_id.is_none() {
-                continue;
-            }
-
-            let required_parent_id = required_parent_id.unwrap();
-
-            let parent = self
-                .resident_objects
-                .get(&required_parent_id)
-                .expect("Parent object not found - must exist");
-
-            o.parent = Some(ParentObject::new(Object::from_arced_inner_object(
-                parent.clone(),
-            )));
-            o.parent_id = Some(required_parent_id);
-        }
     }
 
     #[allow(dead_code)]
@@ -608,8 +570,10 @@ impl VideoFrame {
 
     pub fn access_objects(&self, q: &Query) -> Vec<Object> {
         let inner = self.inner.read_recursive();
-        inner
-            .resident_objects
+        let resident_objects = inner.resident_objects.clone();
+        drop(inner);
+
+        resident_objects
             .iter()
             .filter_map(|(_id, o)| {
                 if q.execute(&Object::from_arced_inner_object(o.clone())) {
@@ -631,10 +595,11 @@ impl VideoFrame {
 
     pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<Object> {
         let inner = self.inner.read_recursive();
+        let resident_objects = inner.resident_objects.clone();
+        drop(inner);
         ids.iter()
             .map(|id| {
-                let o = inner
-                    .resident_objects
+                let o = resident_objects
                     .get(id)
                     .expect("Object must be contained among objects in the frame");
                 Object::from_arced_inner_object(o.clone())
@@ -647,8 +612,9 @@ impl VideoFrame {
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
         let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
-
         inner.resident_objects = retained;
+        drop(inner);
+
         removed
             .into_values()
             .map(|o| {
@@ -657,6 +623,11 @@ impl VideoFrame {
                 o
             })
             .collect()
+    }
+
+    pub fn object_exists(&self, id: i64) -> bool {
+        let inner = self.inner.read_recursive();
+        inner.resident_objects.contains_key(&id)
     }
 
     pub fn delete_objects(&self, q: &Query) -> Vec<Object> {
@@ -686,11 +657,16 @@ impl VideoFrame {
 
     pub fn restore_from_snapshot(&self) {
         {
-            let mut inner = self.inner.write();
-            inner.resident_objects.iter().for_each(|(_, o)| {
+            let inner = self.inner.write();
+            let resident_objects = inner.resident_objects.clone();
+            drop(inner);
+
+            resident_objects.iter().for_each(|(_, o)| {
                 let mut o = o.write();
                 o.frame = None
             });
+
+            let mut inner = self.inner.write();
             inner.restore();
         }
         self.fix_object_owned_frame();
@@ -698,8 +674,10 @@ impl VideoFrame {
 
     pub fn get_modified_objects(&self) -> Vec<Object> {
         let inner = self.inner.read_recursive();
-        inner
-            .resident_objects
+        let resident_objects = inner.resident_objects.clone();
+        drop(inner);
+
+        resident_objects
             .iter()
             .filter(|(_id, o)| !o.read_recursive().modifications.is_empty())
             .map(|(_id, o)| Object::from_arced_inner_object(o.clone()))
@@ -714,24 +692,21 @@ impl VideoFrame {
             }
             SetDrawLabelKind::ParentLabel(l) => {
                 if let Some(p) = o.get_parent().as_ref() {
-                    p.object().set_draw_label(Some(l.clone()));
+                    p.set_draw_label(Some(l.clone()));
                 }
             }
         });
     }
 
     pub fn set_parent(&self, q: &Query, parent: &Object) -> Vec<Object> {
-        let objects = self.access_objects(q);
+        let frame = parent.get_frame();
         assert!(
-            parent
-                .get_frame()
-                .filter(|f| Arc::ptr_eq(&f.inner, &self.inner))
-                .is_some(),
-            "Parent must be attached to the frame before being assigned to its objects!"
+            frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
+            "Parent object must be attached to the same frame"
         );
-
+        let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
-            o.set_parent(Some(parent.clone()));
+            o.set_parent(Some(parent.get_id()));
         });
 
         objects
@@ -745,45 +720,32 @@ impl VideoFrame {
         objects
     }
 
-    pub fn get_children(&self, o: &Object) -> Vec<Object> {
-        let inner = self.inner.read_recursive();
-        inner
-            .resident_objects
-            .iter()
-            .filter_map(|(_id, ch)| {
-                ch.read_recursive().parent.as_ref().map(|p| {
-                    Arc::ptr_eq(&o.inner, &p.inner)
-                        .then(|| Object::from_arced_inner_object(ch.clone()))
-                })
-            })
-            .flatten()
-            .collect()
+    pub fn get_children(&self, id: i64) -> Vec<Object> {
+        self.access_objects(&Query::ParentId(IntExpression::EQ(id)))
     }
 
     pub fn add_object(&self, object: &Object) {
+        let parent_id_opt = object.get_parent_id();
+        if let Some(parent_id) = parent_id_opt {
+            assert!(
+                self.object_exists(parent_id),
+                "Parent object with ID {} does not exist in the frame.",
+                parent_id
+            );
+        }
+
         let mut inner = self.inner.write();
         assert!(
             object.is_detached(),
             "Only detached objects can be attached to a frame."
         );
 
-        let parent = object.get_parent();
-        if let Some(parent) = parent.as_ref() {
-            let parent_frame = parent.object().get_frame();
-            assert!(parent_frame.is_some(), "When a detached object with parent is being attached to a frame, the parent must be attached to the same frame.");
-            let parent_frame = parent_frame.as_ref().unwrap();
-            assert!(
-                Arc::ptr_eq(&parent_frame.inner, &self.inner),
-                "Parent must be attached to the frame before its children."
-            );
-        }
-
-        object.attach_to_video_frame(self.clone());
         let object_id = object.get_id();
         if inner.resident_objects.contains_key(&object_id) {
             panic!("Object with ID {} already exists in the frame.", object_id);
         }
 
+        object.attach_to_video_frame(self.clone());
         inner
             .resident_objects
             .insert(object_id, object.inner.clone());
@@ -792,7 +754,8 @@ impl VideoFrame {
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
-        self.inner.read_recursive().to_serde_json_value()
+        let inner = self.inner.read_recursive().clone();
+        inner.to_serde_json_value()
     }
 }
 
@@ -1135,8 +1098,8 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, o: Object) -> VectorView {
-        no_gil(|| self.get_children(&o).into())
+    pub fn get_children_gil(&self, id: i64) -> VectorView {
+        no_gil(|| self.get_children(id).into())
     }
 }
 
@@ -1145,7 +1108,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{Modification, Object, ParentObject, RBBox, SetDrawLabelKind};
+    use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1309,7 +1272,7 @@ mod tests {
         );
         let frame = gen_frame();
         let obj = frame.get_object(0).unwrap();
-        obj.set_parent(Some(parent));
+        obj.set_parent(Some(parent.get_id()));
         frame.make_snapshot();
     }
 
@@ -1328,7 +1291,7 @@ mod tests {
         let frame = gen_frame();
         frame.add_object(&parent);
         let obj = frame.get_object(0).unwrap();
-        obj.set_parent(Some(parent.clone()));
+        obj.set_parent(Some(parent.get_id()));
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
@@ -1339,14 +1302,14 @@ mod tests {
     fn test_no_children() {
         let frame = gen_frame();
         let obj = frame.get_object(2).unwrap();
-        assert!(frame.get_children(&obj).is_empty());
+        assert!(frame.get_children(obj.get_id()).is_empty());
     }
 
     #[test]
     fn test_two_children() {
         let frame = gen_frame();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(frame.get_children(&obj).len(), 2);
+        assert_eq!(frame.get_children(obj.get_id()).len(), 2);
     }
 
     #[test]
@@ -1396,13 +1359,14 @@ mod tests {
     fn retrieve_children() {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
-        let children = frame.get_children(&parent);
+        let children = frame.get_children(parent.get_id());
         assert_eq!(children.len(), 2);
     }
 
     #[test]
     #[should_panic]
     fn attach_object_with_detached_parent() {
+        pyo3::prepare_freethreaded_python();
         let p = Object::from_inner_object(
             InnerObjectBuilder::default()
                 .id(11)
@@ -1419,7 +1383,7 @@ mod tests {
                 .creator(s("random"))
                 .label(s("something"))
                 .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
-                .parent(Some(ParentObject::new(p)))
+                .parent_id(Some(p.get_id()))
                 .build()
                 .unwrap(),
         );

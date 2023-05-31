@@ -5,8 +5,7 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Object, ParentObject, Point,
-        PyVideoFrameContent, Value,
+        AttributeBuilder, Intersection, IntersectionKind, Object, Point, PyVideoFrameContent, Value,
     };
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
@@ -40,7 +39,6 @@ pub mod utils {
                 .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                .parent(None)
                 .attributes(HashMap::default())
                 .confidence(None)
                 .creator("test".to_string())
@@ -55,7 +53,7 @@ pub mod utils {
                 .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                .parent(Some(ParentObject::new(parent_object.clone())))
+                .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
                 .creator("test2".to_string())
@@ -70,7 +68,7 @@ pub mod utils {
                 .track(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-                .parent(Some(ParentObject::new(parent_object.clone())))
+                .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
                 .creator("test2".to_string())

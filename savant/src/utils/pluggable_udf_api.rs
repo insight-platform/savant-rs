@@ -167,7 +167,8 @@ pub fn call_object_map_modifier(alias: &str, arg: &Object) -> anyhow::Result<Obj
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::utils::gen_object;
+    use crate::primitives::message::video::query::Query;
+    use crate::test::utils::{gen_frame, gen_object};
 
     #[test]
     fn pluggable_udf_api() -> anyhow::Result<()> {
@@ -210,11 +211,16 @@ mod tests {
             &[&o, &o]
         )?);
 
-        let o2 = gen_object(12);
-        o.set_parent(Some(o2.clone()));
+        let f = gen_frame();
+        f.delete_objects(&Query::Idle);
+        let parent = gen_object(12);
+        f.add_object(&parent);
+        f.add_object(&o);
+        o.set_parent(Some(parent.get_id()));
+
         assert!(call_object_predicate(
             "sample.binary_op_parent",
-            &[&o, &o2]
+            &[&o, &parent]
         )?);
 
         let o = gen_object(12);
