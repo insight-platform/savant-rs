@@ -46,7 +46,7 @@ print(spec)
 
 spec = ObjectDraw(
     bounding_box=BoundingBoxDraw(
-        color=ColorDraw(
+        border_color=ColorDraw(
             red=100, blue=50, green=50, alpha=100),
     )
 )
