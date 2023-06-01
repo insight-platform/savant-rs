@@ -76,6 +76,16 @@ impl PaddingDraw {
         }
     }
 
+    #[staticmethod]
+    pub fn default_padding() -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        }
+    }
+
     /// Returns the padding as a tuple
     ///
     /// # Python API
@@ -335,7 +345,7 @@ impl ColorDraw {
 ///     border_color=ColorDraw.transparent(),
 ///     background_color=ColorDraw.transparent(),
 ///     thickness=1,
-///     padding=None)
+///     padding=PaddingDraw(0, 0, 0, 0))
 /// ```
 ///
 /// ```python
@@ -349,7 +359,7 @@ pub struct BoundingBoxDraw {
     pub border_color: ColorDraw,
     pub background_color: ColorDraw,
     pub thickness: i64,
-    pub padding: Option<PaddingDraw>,
+    pub padding: PaddingDraw,
 }
 
 #[pymethods]
@@ -381,12 +391,17 @@ impl BoundingBoxDraw {
     /// Constructs a new bounding box
     ///
     #[new]
-    #[pyo3(signature = (border_color = ColorDraw::transparent(), background_color = ColorDraw::transparent(), thickness = 1, padding = None))]
+    #[pyo3(signature = (
+        border_color = ColorDraw::transparent(),
+        background_color = ColorDraw::transparent(),
+        thickness = 1,
+        padding = PaddingDraw::default_padding())
+    )]
     pub fn new(
         border_color: ColorDraw,
         background_color: ColorDraw,
         thickness: i64,
-        padding: Option<PaddingDraw>,
+        padding: PaddingDraw,
     ) -> Self {
         assert!((0..=100).contains(&thickness));
 
@@ -446,7 +461,7 @@ impl BoundingBoxDraw {
     /// ```
     ///
     #[getter]
-    pub fn padding(&self) -> Option<PaddingDraw> {
+    pub fn padding(&self) -> PaddingDraw {
         self.padding
     }
 }
@@ -745,7 +760,7 @@ pub struct LabelDraw {
     pub font_scale: f64,
     pub thickness: i64,
     pub position: LabelPosition,
-    pub padding: Option<PaddingDraw>,
+    pub padding: PaddingDraw,
     pub format: Vec<String>,
 }
 
@@ -782,7 +797,9 @@ impl LabelDraw {
     #[pyo3(signature = (font_color, background_color = ColorDraw::transparent(),
                         border_color = ColorDraw::transparent(), font_scale = 1.0,
                         thickness = 1, position = LabelPosition::default_position(),
-                        padding = None, format = vec!["{label}".to_string()]))]
+                        padding = PaddingDraw::default_padding(),
+                        format = vec!["{label}".to_string()])
+    )]
     pub fn new(
         font_color: ColorDraw,
         background_color: ColorDraw,
@@ -790,7 +807,7 @@ impl LabelDraw {
         font_scale: f64,
         thickness: i64,
         position: LabelPosition,
-        padding: Option<PaddingDraw>,
+        padding: PaddingDraw,
         format: Vec<String>,
     ) -> Self {
         assert!((0.0..=200.0).contains(&font_scale));
@@ -884,6 +901,16 @@ impl LabelDraw {
     #[getter]
     pub fn format(&self) -> Vec<String> {
         self.format.clone()
+    }
+
+    #[getter]
+    pub fn position(&self) -> LabelPosition {
+        self.position
+    }
+
+    #[getter]
+    pub fn padding(&self) -> PaddingDraw {
+        self.padding
     }
 }
 
