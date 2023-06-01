@@ -597,12 +597,13 @@ impl VideoFrame {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
+
         ids.iter()
-            .map(|id| {
+            .flat_map(|id| {
                 let o = resident_objects
                     .get(id)
-                    .expect("Object must be contained among objects in the frame");
-                Object::from_arced_inner_object(o.clone())
+                    .map(|o| Object::from_arced_inner_object(o.clone()));
+                o
             })
             .collect()
     }
@@ -619,8 +620,7 @@ impl VideoFrame {
             .into_values()
             .map(|o| {
                 let o = Object::from_arced_inner_object(o);
-                o.detach_from_video_frame();
-                o
+                o.detached_copy()
             })
             .collect()
     }
@@ -1477,5 +1477,13 @@ mod tests {
         let frame = gen_frame();
         assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
         frame.add_object(&old_object);
+    }
+
+    #[test]
+    fn deleted_objects_clean() {
+        let frame = gen_frame();
+        let removed = frame.delete_objects_by_ids(&[0]).pop().unwrap();
+        assert!(removed.is_detached());
+        assert!(removed.get_parent().is_none());
     }
 }

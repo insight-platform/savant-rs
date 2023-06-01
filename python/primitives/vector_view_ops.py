@@ -14,7 +14,7 @@ assert is_plugin_function_registered("sample.inplace_modifier")
 
 f = gen_frame()
 
-objects = f.access_objects(Q.idle()).filter(Q.id(IE.one_of(1, 2)))
+objects = f.access_objects(Q.idle()).filter(Q.id(IE.one_of(1, 2))).sorted_by_id()
 
 new_objects = objects.map_udf("sample.map_modifier")
 assert new_objects[0].label == "modified_test"
@@ -22,3 +22,9 @@ assert objects[0].label == "test"
 
 objects.foreach_udf("sample.inplace_modifier")
 assert objects[0].label == "modified_test"
+
+ids = objects.ids
+track_ids = objects.track_ids
+
+boxes = objects.boxes_as_numpy()
+tracking_boxes = objects.tracking_boxes_as_numpy()

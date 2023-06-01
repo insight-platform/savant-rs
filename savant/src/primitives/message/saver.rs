@@ -1,6 +1,8 @@
 use crate::primitives::attribute::AttributeMethods;
 use pyo3::pyfunction;
+use std::collections::HashMap;
 
+use crate::primitives::message::video::query::Query;
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
 use crate::utils::python::no_gil;
@@ -29,11 +31,11 @@ pub fn save_message(m: Message) -> Vec<u8> {
             frame.make_snapshot();
             let frame_excluded_temp_attrs = frame.exclude_temporary_attributes();
 
-            // let objects_excluded_temp_attrs = frame
-            //     .access_objects(&Query::Idle)
-            //     .iter()
-            //     .map(|o| (o.get_id(), o.exclude_temporary_attributes()))
-            //     .collect::<HashMap<_, _>>();
+            let objects_excluded_temp_attrs = frame
+                .access_objects(&Query::Idle)
+                .iter()
+                .map(|o| (o.get_id(), o.exclude_temporary_attributes()))
+                .collect::<HashMap<_, _>>();
 
             let inner = frame.inner.read_recursive();
             buf.extend_from_slice(
@@ -44,7 +46,16 @@ pub fn save_message(m: Message) -> Vec<u8> {
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrame.into();
             buf.extend_from_slice(t.as_ref());
             drop(inner);
+
             frame.restore_attributes(frame_excluded_temp_attrs);
+
+            objects_excluded_temp_attrs
+                .into_iter()
+                .for_each(|(id, attrs)| {
+                    if let Some(o) = frame.get_object(id) {
+                        o.restore_attributes(attrs)
+                    }
+                });
 
             buf
         }

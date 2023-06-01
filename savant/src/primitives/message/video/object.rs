@@ -275,18 +275,18 @@ impl Object {
     }
 
     pub fn get_parent(&self) -> Option<Object> {
+        let frame = self.get_frame();
         let id = self.inner.read_recursive().parent_id?;
-        let f = self.get_frame();
-        match f {
+        match frame {
             Some(f) => f.get_object(id),
             None => None,
         }
     }
 
     pub fn get_children(&self) -> Vec<Object> {
+        let frame = self.get_frame();
         let id = self.get_id();
-        let f = self.get_frame();
-        match f {
+        match frame {
             Some(f) => f.get_children(id),
             None => Vec::new(),
         }
@@ -295,11 +295,6 @@ impl Object {
     pub(crate) fn attach_to_video_frame(&self, frame: VideoFrame) {
         let mut inner = self.inner.write();
         inner.frame = Some(frame.into());
-    }
-
-    pub(crate) fn detach_from_video_frame(&self) {
-        let mut inner = self.inner.write();
-        inner.frame = None;
     }
 }
 
@@ -360,7 +355,7 @@ impl Object {
         inner.frame.is_none()
     }
 
-    pub fn clean_copy(&self) -> Self {
+    pub fn detached_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let mut new_inner = inner.clone();
         new_inner.parent_id = None;
@@ -721,13 +716,13 @@ mod tests {
         drop(f);
         let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
-        let copy = o.clean_copy();
+        let copy = o.detached_copy();
         assert!(copy.is_detached(), "Clean copy is not attached");
         assert!(!copy.is_spoiled(), "Clean copy must be not spoiled");
         assert!(
             copy.get_parent().is_none(),
             "Clean copy must have no parent"
         );
-        f.add_object(&o.clean_copy());
+        f.add_object(&o.detached_copy());
     }
 }

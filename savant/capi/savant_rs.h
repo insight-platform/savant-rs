@@ -3,7 +3,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define BBOX_ELEMENT_UNDEFINED 1.7976931348623157e308
+
 #define NATIVE_MESSAGE_MARKER_LEN 4
+
+typedef struct RBBox RBBox;
 
 typedef struct InferenceObjectMeta {
   int64_t id;
@@ -23,6 +27,8 @@ typedef struct InferenceObjectMeta {
   double track_box_height;
   double track_box_angle;
 } InferenceObjectMeta;
+
+
 
 /**
  * Returns the object vector length

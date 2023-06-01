@@ -1,6 +1,16 @@
 use crate::primitives::message::video::object::vector::VectorView;
-use crate::primitives::{Object, VideoFrame};
+use crate::primitives::{Object, RBBox, VideoFrame};
 use std::slice::from_raw_parts;
+
+pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
+
+pub const BBOX_UNDEFINED: RBBox = RBBox {
+    xc: BBOX_ELEMENT_UNDEFINED,
+    yc: BBOX_ELEMENT_UNDEFINED,
+    width: BBOX_ELEMENT_UNDEFINED,
+    height: BBOX_ELEMENT_UNDEFINED,
+    angle: None,
+};
 
 #[derive(Clone, Debug)]
 #[repr(C)]

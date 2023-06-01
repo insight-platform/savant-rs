@@ -1,7 +1,11 @@
+use crate::capi::BBOX_UNDEFINED;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
 use crate::primitives::Object;
 use crate::utils::python::no_gil;
+use crate::utils::rotated_bboxes_to_ndarray;
+use ndarray::IxDyn;
+use numpy::PyArray;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use std::sync::Arc;
@@ -89,5 +93,61 @@ impl VectorView {
             )
         })
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+
+    #[getter]
+    #[pyo3(name = "ids")]
+    fn ids_py(&self) -> Vec<i64> {
+        no_gil(|| self.inner.iter().map(|x| x.get_id()).collect())
+    }
+
+    #[pyo3(name = "detached_copy")]
+    fn detached_copy_py(&self) -> VectorView {
+        no_gil(|| VectorView {
+            inner: Arc::new(self.inner.iter().map(|x| x.detached_copy()).collect()),
+        })
+    }
+
+    #[pyo3(name = "boxes_as_numpy")]
+    fn boxes_as_numpy_gil(&self) -> Py<PyArray<f64, IxDyn>> {
+        let boxes = no_gil(|| self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>());
+        rotated_bboxes_to_ndarray(boxes)
+    }
+
+    #[pyo3(name = "tracking_boxes_as_numpy")]
+    fn tracking_boxes_as_numpy_gil(&self) -> Py<PyArray<f64, IxDyn>> {
+        let boxes = no_gil(|| {
+            self.inner
+                .iter()
+                .flat_map(|o| {
+                    o.get_track()
+                        .map(|t| t.bounding_box)
+                        .or(Some(BBOX_UNDEFINED))
+                })
+                .collect::<Vec<_>>()
+        });
+        rotated_bboxes_to_ndarray(boxes)
+    }
+
+    #[getter]
+    #[pyo3(name = "track_ids")]
+    pub fn track_ids_gil(&self) -> Vec<Option<i64>> {
+        no_gil(|| {
+            self.inner
+                .iter()
+                .map(|o| o.get_track().map(|t| t.id))
+                .collect::<Vec<_>>()
+        })
+    }
+
+    #[pyo3(name = "sorted_by_id")]
+    pub fn sorted_by_id_gil(&self) -> VectorView {
+        no_gil(|| {
+            let mut objects = self.inner.as_ref().clone();
+            objects.sort_by_key(|o| o.get_track().map(|t| t.id));
+            VectorView {
+                inner: Arc::new(objects),
+            }
+        })
     }
 }
