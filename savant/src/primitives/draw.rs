@@ -141,12 +141,18 @@ impl ColorDraw {
     pub fn alpha(&self) -> i64 {
         self.alpha
     }
+
+    #[staticmethod]
+    pub fn transparent() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
 }
 
 #[pyclass]
 #[derive(Clone, Copy, Debug)]
 pub struct BoundingBoxDraw {
-    pub color: ColorDraw,
+    pub border_color: ColorDraw,
+    pub background_color: ColorDraw,
     pub thickness: i64,
     pub padding: Option<PaddingDraw>,
 }
@@ -170,12 +176,18 @@ impl BoundingBoxDraw {
     }
 
     #[new]
-    #[pyo3(signature = (color, thickness = 1, padding = None))]
-    pub fn new(color: ColorDraw, thickness: i64, padding: Option<PaddingDraw>) -> Self {
+    #[pyo3(signature = (border_color = ColorDraw::transparent(), background_color = ColorDraw::transparent(), thickness = 1, padding = None))]
+    pub fn new(
+        border_color: ColorDraw,
+        background_color: ColorDraw,
+        thickness: i64,
+        padding: Option<PaddingDraw>,
+    ) -> Self {
         assert!((0..=100).contains(&thickness));
 
         Self {
-            color,
+            border_color,
+            background_color,
             thickness,
             padding,
         }
@@ -183,7 +195,7 @@ impl BoundingBoxDraw {
 
     #[getter]
     pub fn color(&self) -> ColorDraw {
-        self.color
+        self.border_color
     }
 
     #[getter]
@@ -242,11 +254,86 @@ impl DotDraw {
 }
 
 #[pyclass]
+#[derive(Clone, Copy, Debug)]
+pub enum LabelPositionKind {
+    /// margin is relative to the **top** left corner of the text bounding box
+    TopLeftInside,
+    /// margin is relative to the **bottom** left corner of the text bounding box
+    TopLeftOutside,
+    /// margin is relative to the **top** left corner of the text bounding box
+    Center,
+}
+
+#[pyclass]
+#[derive(Clone, Copy, Debug)]
+pub struct LabelPosition {
+    position: LabelPositionKind,
+    margin_x: i64,
+    margin_y: i64,
+}
+
+#[pymethods]
+impl LabelPosition {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!("{self:?}")
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        *self
+    }
+
+    #[new]
+    #[pyo3(signature = (position = LabelPositionKind::TopLeftOutside, margin_x = 0, margin_y = -10))]
+    pub fn new(position: LabelPositionKind, margin_x: i64, margin_y: i64) -> Self {
+        assert!((-100..=100).contains(&margin_x));
+        assert!((-100..=100).contains(&margin_y));
+
+        Self {
+            position,
+            margin_x,
+            margin_y,
+        }
+    }
+
+    #[staticmethod]
+    pub fn default_position() -> Self {
+        Self::new(LabelPositionKind::TopLeftOutside, 0, -10)
+    }
+
+    #[getter]
+    pub fn position(&self) -> LabelPositionKind {
+        self.position
+    }
+
+    #[getter]
+    pub fn margin_x(&self) -> i64 {
+        self.margin_x
+    }
+
+    #[getter]
+    pub fn margin_y(&self) -> i64 {
+        self.margin_y
+    }
+}
+
+#[pyclass]
 #[derive(Clone, Debug)]
 pub struct LabelDraw {
-    pub color: ColorDraw,
+    pub font_color: ColorDraw,
+    pub background_color: ColorDraw,
+    pub border_color: ColorDraw,
     pub font_scale: f64,
     pub thickness: i64,
+    pub position: LabelPosition,
+    pub padding: Option<PaddingDraw>,
     pub format: Vec<String>,
 }
 
@@ -269,22 +356,38 @@ impl LabelDraw {
     }
 
     #[new]
-    #[pyo3(signature = (color, font_scale = 1.0, thickness = 1, format = vec!["{label}".to_string()]))]
-    pub fn new(color: ColorDraw, font_scale: f64, thickness: i64, format: Vec<String>) -> Self {
+    #[pyo3(signature = (font_color, background_color = ColorDraw::transparent(),
+                        border_color = ColorDraw::transparent(), font_scale = 1.0,
+                        thickness = 1, position = LabelPosition::default_position(),
+                        padding = None, format = vec!["{label}".to_string()]))]
+    pub fn new(
+        font_color: ColorDraw,
+        background_color: ColorDraw,
+        border_color: ColorDraw,
+        font_scale: f64,
+        thickness: i64,
+        position: LabelPosition,
+        padding: Option<PaddingDraw>,
+        format: Vec<String>,
+    ) -> Self {
         assert!((0.0..=200.0).contains(&font_scale));
         assert!((0..=100).contains(&thickness));
 
         Self {
-            color,
+            font_color,
+            background_color,
+            border_color,
             font_scale,
             thickness,
+            position,
+            padding,
             format,
         }
     }
 
     #[getter]
     pub fn color(&self) -> ColorDraw {
-        self.color
+        self.font_color
     }
 
     #[getter]

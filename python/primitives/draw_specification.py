@@ -1,14 +1,23 @@
-from savant_rs.primitives import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, PaddingDraw, ObjectDraw
+from savant_rs.primitives import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, PaddingDraw, ObjectDraw, LabelPosition, \
+    LabelPositionKind
 
 spec = ObjectDraw(
     bounding_box=BoundingBoxDraw(
-        color=ColorDraw(
+        border_color=ColorDraw(
             red=100, blue=50, green=50, alpha=100),
+        background_color=ColorDraw(
+            red=0, blue=50, green=50, alpha=100),
         thickness=2,
         padding=PaddingDraw(left=5, top=5, right=5, bottom=5)),
     label=LabelDraw(
-        color=ColorDraw(
+        font_color=ColorDraw(
             red=100, blue=50, green=50, alpha=100),
+        border_color=ColorDraw(
+            red=100, blue=50, green=50, alpha=100),
+        background_color=ColorDraw(
+            red=0, blue=50, green=50, alpha=100),
+        padding=PaddingDraw(left=5, top=5, right=5, bottom=5),
+        position=LabelPosition(position=LabelPositionKind.TopLeftOutside, margin_x=0, margin_y=-20),
         font_scale=2.5,
         thickness=2,
         format=["{model}", "{label}", "{confidence}", "{track_id}"]),
@@ -57,4 +66,3 @@ spec = ObjectDraw(
 
 new_spec = spec.copy()
 print(new_spec)
-
