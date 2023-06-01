@@ -34,7 +34,7 @@ impl PaddingDraw {
     ///
     /// # Python API
     ///
-    /// ```
+    /// ```python
     /// padding.copy()
     /// ```
     ///
