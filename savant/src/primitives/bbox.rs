@@ -251,7 +251,7 @@ impl RBBox {
 #[derive(Clone, Debug)]
 #[pyo3(name = "BBox")]
 pub struct PythonBBox {
-    rbbox: RBBox,
+    pub(crate) inner: RBBox,
 }
 
 #[pymethods]
@@ -260,7 +260,7 @@ impl PythonBBox {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.rbbox)
+        format!("{:?}", self.inner)
     }
 
     fn __str__(&self) -> String {
@@ -270,7 +270,7 @@ impl PythonBBox {
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64) -> Self {
         Self {
-            rbbox: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::new(xc, yc, width, height, None),
         }
     }
 
@@ -283,7 +283,7 @@ impl PythonBBox {
         let yc = (top + bottom) / 2.0;
 
         Self {
-            rbbox: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::new(xc, yc, width, height, None),
         }
     }
 
@@ -293,102 +293,102 @@ impl PythonBBox {
         let yc = top + height / 2.0;
 
         Self {
-            rbbox: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::new(xc, yc, width, height, None),
         }
     }
 
     #[getter]
     pub fn get_xc(&self) -> f64 {
-        self.rbbox.xc
+        self.inner.xc
     }
 
     #[setter]
     pub fn set_xc(&mut self, xc: f64) {
-        self.rbbox.xc = xc;
+        self.inner.xc = xc;
     }
 
     #[getter]
     pub fn get_yc(&self) -> f64 {
-        self.rbbox.yc
+        self.inner.yc
     }
 
     #[setter]
     pub fn set_yc(&mut self, yc: f64) {
-        self.rbbox.yc = yc;
+        self.inner.yc = yc;
     }
 
     #[getter]
     pub fn get_width(&self) -> f64 {
-        self.rbbox.width
+        self.inner.width
     }
 
     #[setter]
     pub fn set_width(&mut self, width: f64) {
-        self.rbbox.width = width;
+        self.inner.width = width;
     }
 
     #[getter]
     pub fn get_height(&self) -> f64 {
-        self.rbbox.height
+        self.inner.height
     }
 
     #[setter]
     pub fn set_height(&mut self, height: f64) {
-        self.rbbox.height = height;
+        self.inner.height = height;
     }
 
     #[getter]
     pub fn get_top(&self) -> f64 {
-        self.rbbox.yc - self.rbbox.height / 2.0
+        self.inner.yc - self.inner.height / 2.0
     }
 
     #[setter]
     pub fn set_top(&mut self, top: f64) {
-        self.rbbox.yc = top + self.rbbox.height / 2.0;
+        self.inner.yc = top + self.inner.height / 2.0;
     }
 
     #[getter]
     pub fn get_left(&self) -> f64 {
-        self.rbbox.xc - self.rbbox.width / 2.0
+        self.inner.xc - self.inner.width / 2.0
     }
 
     #[setter]
     pub fn set_left(&mut self, left: f64) {
-        self.rbbox.xc = left + self.rbbox.width / 2.0;
+        self.inner.xc = left + self.inner.width / 2.0;
     }
 
     #[getter]
     pub fn get_right(&self) -> f64 {
-        self.rbbox.xc + self.rbbox.width / 2.0
+        self.inner.xc + self.inner.width / 2.0
     }
 
     #[getter]
     pub fn get_bottom(&self) -> f64 {
-        self.rbbox.yc + self.rbbox.height / 2.0
+        self.inner.yc + self.inner.height / 2.0
     }
 
     #[getter]
     #[pyo3(name = "vertices")]
     pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.rbbox.vertices())
+        no_gil(|| self.inner.vertices())
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.rbbox.vertices_rounded())
+        no_gil(|| self.inner.vertices_rounded())
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        no_gil(|| self.rbbox.vertices_int())
+        no_gil(|| self.inner.vertices_int())
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn wrapping_box_gil(&self) -> PythonBBox {
-        no_gil(|| self.rbbox.wrapping_bbox())
+        no_gil(|| self.inner.wrapping_bbox())
     }
 
     #[pyo3(name = "as_graphical_wrapping_box")]
@@ -400,7 +400,7 @@ impl PythonBBox {
         max_y: f64,
     ) -> PythonBBox {
         no_gil(|| {
-            self.rbbox
+            self.inner
                 .graphical_wrapping_bbox(padding, border_width, max_x, max_y)
         })
     }
@@ -454,19 +454,19 @@ impl PythonBBox {
     }
 
     pub fn as_rbbox(&self) -> RBBox {
-        self.rbbox.clone()
+        self.inner.clone()
     }
 
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
         no_gil(|| {
-            self.rbbox.scale(scale_x, scale_y);
+            self.inner.scale(scale_x, scale_y);
         })
     }
 
     #[pyo3(name = "as_polygonal_area")]
     pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
-        no_gil(|| self.rbbox.as_polygonal_area())
+        no_gil(|| self.inner.as_polygonal_area())
     }
 }
 
@@ -513,57 +513,57 @@ mod tests {
     fn test_wrapping_bbox() {
         let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
         let wrapped = bbox.wrapping_bbox();
-        assert_eq!(wrapped.rbbox.xc, 0.0);
-        assert_eq!(wrapped.rbbox.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 141.42);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 141.42);
-        assert_eq!(wrapped.rbbox.angle, None);
+        assert_eq!(wrapped.inner.xc, 0.0);
+        assert_eq!(wrapped.inner.yc, 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 141.42);
+        assert_eq!(round_2_digits(wrapped.inner.height), 141.42);
+        assert_eq!(wrapped.inner.angle, None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, None);
         let wrapped = bbox.wrapping_bbox();
-        assert_eq!(wrapped.rbbox.xc, 0.0);
-        assert_eq!(wrapped.rbbox.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 50.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 100.0);
-        assert_eq!(wrapped.rbbox.angle, None);
+        assert_eq!(wrapped.inner.xc, 0.0);
+        assert_eq!(wrapped.inner.yc, 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 50.0);
+        assert_eq!(round_2_digits(wrapped.inner.height), 100.0);
+        assert_eq!(wrapped.inner.angle, None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, Some(90.0));
         let wrapped = bbox.wrapping_bbox();
-        assert_eq!(wrapped.rbbox.xc, 0.0);
-        assert_eq!(wrapped.rbbox.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 100.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 50.0);
-        assert_eq!(wrapped.rbbox.angle, None);
+        assert_eq!(wrapped.inner.xc, 0.0);
+        assert_eq!(wrapped.inner.yc, 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 100.0);
+        assert_eq!(round_2_digits(wrapped.inner.height), 50.0);
+        assert_eq!(wrapped.inner.angle, None);
     }
 
     #[test]
     fn test_graphical_wrapping_box() {
         let bbox = RBBox::new(50.0, 50.0, 100.0, 100.0, None);
         let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 200.0, 200.0);
-        assert_eq!(wrapped.rbbox.xc, 50.0);
-        assert_eq!(wrapped.rbbox.yc, 50.0);
-        assert_eq!(wrapped.rbbox.width, 100.0);
-        assert_eq!(wrapped.rbbox.height, 100.0);
+        assert_eq!(wrapped.inner.xc, 50.0);
+        assert_eq!(wrapped.inner.yc, 50.0);
+        assert_eq!(wrapped.inner.width, 100.0);
+        assert_eq!(wrapped.inner.height, 100.0);
 
         let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(45.0));
         let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.rbbox.xc, 100.0);
-        assert_eq!(wrapped.rbbox.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 142.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 142.0);
+        assert_eq!(wrapped.inner.xc, 100.0);
+        assert_eq!(wrapped.inner.yc, 100.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 142.0);
+        assert_eq!(round_2_digits(wrapped.inner.height), 142.0);
 
         let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(45.0));
         let wrapped = bbox.graphical_wrapping_bbox(10.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.rbbox.xc, 100.0);
-        assert_eq!(wrapped.rbbox.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 162.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 162.0);
+        assert_eq!(wrapped.inner.xc, 100.0);
+        assert_eq!(wrapped.inner.yc, 100.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 162.0);
+        assert_eq!(round_2_digits(wrapped.inner.height), 162.0);
 
         let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(30.0));
         let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.rbbox.xc, 100.0);
-        assert_eq!(wrapped.rbbox.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.width), 138.0);
-        assert_eq!(round_2_digits(wrapped.rbbox.height), 138.0);
+        assert_eq!(wrapped.inner.xc, 100.0);
+        assert_eq!(wrapped.inner.yc, 100.0);
+        assert_eq!(round_2_digits(wrapped.inner.width), 138.0);
+        assert_eq!(round_2_digits(wrapped.inner.height), 138.0);
     }
 }

@@ -8,8 +8,8 @@ pub mod segment;
 pub mod to_json_value;
 
 use crate::primitives::message::video::frame::PyFrameTransformation;
-use crate::primitives::message::video::object::vector::VectorView;
-use crate::primitives::message::video::object::ObjectTrack;
+pub use crate::primitives::message::video::object::vector::{ObjectBBoxKind, VectorView};
+pub use crate::primitives::message::video::object::ObjectTrack;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::Value;

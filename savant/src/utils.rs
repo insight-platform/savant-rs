@@ -22,6 +22,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
+use crate::primitives::ObjectBBoxKind;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionKind,
@@ -85,6 +86,8 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<SymbolMapper>()?;
     m.add_class::<RegistrationPolicy>()?;
     m.add_class::<BBoxFormat>()?;
+    m.add_class::<ObjectBBoxKind>()?;
+
     m.add_class::<NalgebraDMatrix>()?;
     m.add_class::<NDarray>()?;
     m.add_class::<UserFunctionKind>()?;

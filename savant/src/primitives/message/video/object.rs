@@ -355,6 +355,13 @@ impl Object {
         inner.frame.is_none()
     }
 
+    pub fn update_track_bbox(&self, bbox: RBBox) {
+        let mut inner = self.inner.write();
+        if let Some(t) = inner.track.as_mut() {
+            t.bounding_box = bbox;
+        }
+    }
+
     pub fn detached_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let mut new_inner = inner.clone();

@@ -1,14 +1,24 @@
 use crate::capi::BBOX_UNDEFINED;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
-use crate::primitives::Object;
+use crate::primitives::{Object, RBBox};
 use crate::utils::python::no_gil;
-use crate::utils::rotated_bboxes_to_ndarray;
+use crate::utils::{
+    ndarray_to_bboxes, ndarray_to_rotated_bboxes, rotated_bboxes_to_ndarray, BBoxFormat,
+};
 use ndarray::IxDyn;
-use numpy::PyArray;
+use numpy::{PyArray, PyReadonlyArrayDyn};
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
+use std::iter::zip;
 use std::sync::Arc;
+
+#[pyclass]
+#[derive(Clone, Debug)]
+pub enum ObjectBBoxKind {
+    Detection,
+    Tracking,
+}
 
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -22,6 +32,18 @@ impl From<Vec<Object>> for VectorView {
         VectorView {
             inner: Arc::new(value),
         }
+    }
+}
+
+impl VectorView {
+    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: ObjectBBoxKind) {
+        no_gil(|| {
+            let it = zip(self.inner.iter(), boxes);
+            match kind {
+                ObjectBBoxKind::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
+                ObjectBBoxKind::Tracking => it.for_each(|(o, b)| o.update_track_bbox(b)),
+            }
+        })
     }
 }
 
@@ -108,23 +130,21 @@ impl VectorView {
         })
     }
 
-    #[pyo3(name = "boxes_as_numpy")]
-    fn boxes_as_numpy_gil(&self) -> Py<PyArray<f64, IxDyn>> {
-        let boxes = no_gil(|| self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>());
-        rotated_bboxes_to_ndarray(boxes)
-    }
-
-    #[pyo3(name = "tracking_boxes_as_numpy")]
-    fn tracking_boxes_as_numpy_gil(&self) -> Py<PyArray<f64, IxDyn>> {
-        let boxes = no_gil(|| {
-            self.inner
+    #[pyo3(name = "rotated_boxes_as_numpy")]
+    fn rotated_boxes_as_numpy_gil(&self, kind: ObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
+        let boxes = no_gil(|| match kind {
+            ObjectBBoxKind::Detection => {
+                self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>()
+            }
+            ObjectBBoxKind::Tracking => self
+                .inner
                 .iter()
                 .flat_map(|o| {
                     o.get_track()
                         .map(|t| t.bounding_box)
                         .or(Some(BBOX_UNDEFINED))
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         });
         rotated_bboxes_to_ndarray(boxes)
     }
@@ -144,10 +164,35 @@ impl VectorView {
     pub fn sorted_by_id_gil(&self) -> VectorView {
         no_gil(|| {
             let mut objects = self.inner.as_ref().clone();
-            objects.sort_by_key(|o| o.get_track().map(|t| t.id));
+            objects.sort_by_key(|o| o.get_id());
             VectorView {
                 inner: Arc::new(objects),
             }
         })
+    }
+
+    #[pyo3(name = "update_from_numpy_boxes")]
+    pub fn update_from_numpy_boxes_gil(
+        &mut self,
+        np_boxes: PyReadonlyArrayDyn<f64>,
+        format: BBoxFormat,
+        kind: ObjectBBoxKind,
+    ) {
+        let boxes = ndarray_to_bboxes(np_boxes, format)
+            .into_iter()
+            .map(|x| x.inner)
+            .collect::<Vec<_>>();
+
+        self.fill_boxes_gil(boxes, kind);
+    }
+
+    #[pyo3(name = "update_from_numpy_rotated_boxes")]
+    pub fn update_from_numpy_rotated_boxes_gil(
+        &mut self,
+        np_boxes: PyReadonlyArrayDyn<f64>,
+        kind: ObjectBBoxKind,
+    ) {
+        let boxes = ndarray_to_rotated_bboxes(np_boxes);
+        self.fill_boxes_gil(boxes, kind);
     }
 }

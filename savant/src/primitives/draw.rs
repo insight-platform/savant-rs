@@ -355,6 +355,7 @@ impl LabelDraw {
         self.clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(signature = (font_color, background_color = ColorDraw::transparent(),
                         border_color = ColorDraw::transparent(), font_scale = 1.0,
