@@ -1,9 +1,15 @@
-use crate::primitives::message::video::object::vector::VectorView;
+/// # C API for Savant Rust Library
+///
+/// This API is used to interface with the Savant Rust library from C.
+///
+use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::{Object, RBBox, VideoFrame};
 use std::slice::from_raw_parts;
 
+/// When BBox is not defined, its elements are set to this value.
 pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
 
+/// When BBox is not defined, it is set to this value.
 pub const BBOX_UNDEFINED: RBBox = RBBox {
     xc: BBOX_ELEMENT_UNDEFINED,
     yc: BBOX_ELEMENT_UNDEFINED,
@@ -72,7 +78,7 @@ impl From<&Object> for InferenceObjectMeta {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
-    let this = unsafe { &*(handle as *const VectorView) };
+    let this = unsafe { &*(handle as *const ObjectVectorView) };
     this.inner.len()
 }
 
@@ -84,7 +90,7 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
-    let this = unsafe { &*(handle as *const VectorView) };
+    let this = unsafe { &*(handle as *const ObjectVectorView) };
     (&this.inner[pos]).into()
 }
 

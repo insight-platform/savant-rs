@@ -1,12 +1,17 @@
+/// # C API for Savant Rust Library
+///
 pub mod capi;
+/// # Basic objects
+///
 pub mod primitives;
 pub mod test;
-pub mod tests_pyo3_access;
+/// # Utility functions
+///
 pub mod utils;
 
-use crate::tests_pyo3_access::{
-    CopyWrapper, Internal, InternalMtx, InternalNoClone, ProxyWrapper, TakeWrapper, Wrapper,
-};
+/// Reexport for all objects and functions which can be used from Python
+///
+pub mod python_api;
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -14,17 +19,11 @@ use pyo3::wrap_pymodule;
 
 use primitives::message::video::query::py::video_object_query;
 
+/// # Python module for Savant Rust Library
+///
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
-
-    m.add_class::<Internal>()?;
-    m.add_class::<InternalNoClone>()?;
-    m.add_class::<InternalMtx>()?;
-    m.add_class::<Wrapper>()?;
-    m.add_class::<CopyWrapper>()?;
-    m.add_class::<TakeWrapper>()?;
-    m.add_class::<ProxyWrapper>()?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(utils::utils))?;

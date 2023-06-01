@@ -1,11 +1,11 @@
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
-use crate::primitives::message::video::object::vector::VectorView;
+use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Message, Object, SetDrawLabelKind, SetDrawLabelKindWrapper};
+use crate::primitives::{Attribute, Message, Object, PySetDrawLabelKind, SetDrawLabelKind};
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
 use parking_lot::RwLock;
@@ -80,6 +80,7 @@ impl ToSerdeJsonValue for VideoFrameContent {
 
 #[pyclass]
 #[derive(Debug, Clone)]
+#[pyo3(name = "VideoFrameContent")]
 pub struct PyVideoFrameContent {
     pub(crate) inner: VideoFrameContent,
 }
@@ -211,6 +212,7 @@ impl ToSerdeJsonValue for FrameTransformation {
 
 #[pyclass]
 #[derive(Debug, Clone)]
+#[pyo3(name = "FrameTransformation")]
 pub struct PyFrameTransformation {
     pub(crate) inner: FrameTransformation,
 }
@@ -1038,7 +1040,7 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: QueryWrapper, draw_label: SetDrawLabelKindWrapper) {
+    pub fn set_draw_label_gil(&self, q: QueryWrapper, draw_label: PySetDrawLabelKind) {
         no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
@@ -1048,32 +1050,32 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryWrapper) -> VectorView {
+    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectVectorView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VectorView {
+    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VectorView {
+    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: QueryWrapper) -> VectorView {
+    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectVectorView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: Object) -> VectorView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: Object) -> ObjectVectorView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: QueryWrapper) -> VectorView {
+    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectVectorView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1093,12 +1095,12 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_gil(&self) -> VectorView {
+    pub fn get_modified_objects_gil(&self) -> ObjectVectorView {
         no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, id: i64) -> VectorView {
+    pub fn get_children_gil(&self, id: i64) -> ObjectVectorView {
         no_gil(|| self.get_children(id).into())
     }
 }
@@ -1108,7 +1110,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{Modification, Object, RBBox, SetDrawLabelKind};
+    use crate::primitives::{Object, ObjectModification, RBBox, SetDrawLabelKind};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1251,7 +1253,7 @@ mod tests {
 
         let mods = modified.take_modifications();
         assert_eq!(mods.len(), 1);
-        assert_eq!(mods, vec![Modification::Creator]);
+        assert_eq!(mods, vec![ObjectModification::Creator]);
 
         let modified = t.get_modified_objects();
         assert!(modified.is_empty());

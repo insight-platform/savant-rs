@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/**
+ * When BBox is not defined, its elements are set to this value.
+ */
 #define BBOX_ELEMENT_UNDEFINED 1.7976931348623157e308
 
 #define NATIVE_MESSAGE_MARKER_LEN 4

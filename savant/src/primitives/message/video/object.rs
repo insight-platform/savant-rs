@@ -1,6 +1,6 @@
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
-use crate::primitives::message::video::object::vector::VectorView;
+use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
@@ -46,7 +46,7 @@ impl ObjectTrack {
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
-pub enum Modification {
+pub enum ObjectModification {
     Id,
     Creator,
     Label,
@@ -58,7 +58,7 @@ pub enum Modification {
     DrawLabel,
 }
 
-impl ToSerdeJsonValue for Modification {
+impl ToSerdeJsonValue for ObjectModification {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!(format!("{:?}", self))
     }
@@ -83,7 +83,7 @@ pub struct InnerObject {
     pub track: Option<ObjectTrack>,
     #[with(Skip)]
     #[builder(default)]
-    pub modifications: Vec<Modification>,
+    pub modifications: Vec<ObjectModification>,
     #[with(Skip)]
     #[builder(default)]
     pub creator_id: Option<i64>,
@@ -271,7 +271,7 @@ impl Object {
 
         let mut inner = self.inner.write();
         inner.parent_id = parent_opt;
-        inner.modifications.push(Modification::Parent);
+        inner.modifications.push(ObjectModification::Parent);
     }
 
     pub fn get_parent(&self) -> Option<Object> {
@@ -374,7 +374,7 @@ impl Object {
 
     #[getter]
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self) -> VectorView {
+    pub fn get_children_gil(&self) -> ObjectVectorView {
         self.get_children().into()
     }
 
@@ -425,14 +425,14 @@ impl Object {
     pub fn set_draw_label(&self, draw_label: Option<String>) {
         let mut inner = self.inner.write();
         inner.draw_label = draw_label;
-        inner.modifications.push(Modification::DrawLabel);
+        inner.modifications.push(ObjectModification::DrawLabel);
     }
 
     #[setter]
     pub fn set_track(&self, track: Option<ObjectTrack>) {
         let mut inner = self.inner.write();
         inner.track = track;
-        inner.modifications.push(Modification::Track);
+        inner.modifications.push(ObjectModification::Track);
     }
 
     #[setter]
@@ -444,35 +444,35 @@ impl Object {
 
         let mut inner = self.inner.write();
         inner.id = id;
-        inner.modifications.push(Modification::Id);
+        inner.modifications.push(ObjectModification::Id);
     }
 
     #[setter]
     pub fn set_creator(&self, creator: String) {
         let mut inner = self.inner.write();
         inner.creator = creator;
-        inner.modifications.push(Modification::Creator);
+        inner.modifications.push(ObjectModification::Creator);
     }
 
     #[setter]
     pub fn set_label(&self, label: String) {
         let mut inner = self.inner.write();
         inner.label = label;
-        inner.modifications.push(Modification::Label);
+        inner.modifications.push(ObjectModification::Label);
     }
 
     #[setter]
     pub fn set_bbox(&self, bbox: RBBox) {
         let mut inner = self.inner.write();
         inner.bbox = bbox;
-        inner.modifications.push(Modification::BoundingBox);
+        inner.modifications.push(ObjectModification::BoundingBox);
     }
 
     #[setter]
     pub fn set_confidence(&self, confidence: Option<f64>) {
         let mut inner = self.inner.write();
         inner.confidence = confidence;
-        inner.modifications.push(Modification::Confidence);
+        inner.modifications.push(ObjectModification::Confidence);
     }
 
     #[getter]
@@ -491,7 +491,7 @@ impl Object {
         match self.delete_attribute(creator, name) {
             Some(attribute) => {
                 let mut object = self.inner.write();
-                object.modifications.push(Modification::Attributes);
+                object.modifications.push(ObjectModification::Attributes);
                 Some(attribute)
             }
             None => None,
@@ -502,7 +502,7 @@ impl Object {
     pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
         {
             let mut object = self.inner.write();
-            object.modifications.push(Modification::Attributes);
+            object.modifications.push(ObjectModification::Attributes);
         }
         self.set_attribute(attribute)
     }
@@ -511,7 +511,7 @@ impl Object {
     pub fn clear_attributes_gil(&mut self) {
         {
             let mut object = self.inner.write();
-            object.modifications.push(Modification::Attributes);
+            object.modifications.push(ObjectModification::Attributes);
         }
         self.clear_attributes()
     }
@@ -527,7 +527,7 @@ impl Object {
         no_gil(move || {
             {
                 let mut object = self.inner.write();
-                object.modifications.push(Modification::Attributes);
+                object.modifications.push(ObjectModification::Attributes);
             }
             self.delete_attributes(negated, creator, names)
         })
@@ -543,7 +543,7 @@ impl Object {
         no_gil(|| self.find_attributes(creator, name, hint))
     }
 
-    pub fn take_modifications(&self) -> Vec<Modification> {
+    pub fn take_modifications(&self) -> Vec<ObjectModification> {
         let mut object = self.inner.write();
         std::mem::take(&mut object.modifications)
     }
@@ -553,7 +553,7 @@ impl Object {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, Modification, Object, RBBox, Value};
+    use crate::primitives::{AttributeBuilder, Object, ObjectModification, RBBox, Value};
     use crate::test::utils::gen_frame;
 
     fn get_object() -> Object {
@@ -668,14 +668,17 @@ mod tests {
     fn test_modifications() {
         let mut t = get_object();
         t.set_label("label2".to_string());
-        assert_eq!(t.take_modifications(), vec![Modification::Label]);
+        assert_eq!(t.take_modifications(), vec![ObjectModification::Label]);
         assert_eq!(t.take_modifications(), vec![]);
 
         t.set_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
         t.clear_attributes_gil();
         assert_eq!(
             t.take_modifications(),
-            vec![Modification::BoundingBox, Modification::Attributes]
+            vec![
+                ObjectModification::BoundingBox,
+                ObjectModification::Attributes
+            ]
         );
         assert_eq!(t.take_modifications(), vec![]);
     }
