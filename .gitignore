@@ -19,3 +19,5 @@ Cargo.lock
 /dist
 /target
 /Cargo.lock
+/docs/build
+/docs/source/generated

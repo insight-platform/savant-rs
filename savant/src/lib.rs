@@ -9,17 +9,14 @@ pub mod test;
 ///
 pub mod utils;
 
-/// Reexport for all objects and functions which can be used from Python
-///
-pub mod python_api;
-
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
 use primitives::message::video::query::py::video_object_query;
 
-/// # Python module for Savant Rust Library
+/// Python module for Savant Rust Library
+/// -------------------------------------
 ///
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {

@@ -1,5 +1,9 @@
 dev: clean sample_plugin clippy tests build install
 
+docs: build install docs/build/html/index.html
+	@echo "Building docs..."
+	cd docs && make html
+
 clippy:
 	@echo "Running clippy..."
 	cargo clippy
