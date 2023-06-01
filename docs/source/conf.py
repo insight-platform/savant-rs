@@ -6,13 +6,13 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-from sphinx.ext.autosummary import _import_by_name
 import savant_rs
 
 project = 'savant_rs'
 copyright = '2023, Ivan A. Kudriavtsev'
 author = 'Ivan A. Kudriavtsev'
-release = '0.1.19'
+release = savant_rs.version()
+version = release
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -39,3 +39,4 @@ exclude_patterns = []
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+

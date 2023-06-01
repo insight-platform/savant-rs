@@ -8,8 +8,13 @@ Savant Rust
 ****************
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
+   modules/savant_rs
    modules/primitives
+   modules/utils
+   modules/video_object_query
+
+
 
 

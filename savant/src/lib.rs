@@ -15,12 +15,18 @@ use pyo3::wrap_pymodule;
 
 use primitives::message::video::query::py::video_object_query;
 
-/// Python module for Savant Rust Library
-/// -------------------------------------
+/// Returns the version of the package set in Cargo.toml
 ///
+#[pyfunction]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_owned()
+}
+
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
+
+    m.add_function(wrap_pyfunction!(version, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(utils::utils))?;

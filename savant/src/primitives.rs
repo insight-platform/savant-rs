@@ -38,9 +38,6 @@ use pyo3::prelude::PyModule;
 use pyo3::{pymodule, PyResult, Python};
 pub use segment::{Intersection, IntersectionKind, Segment};
 
-/// Basic types used in Savant Rust Library
-/// ---------------------------------------
-///
 #[pymodule]
 pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Point>()?;
