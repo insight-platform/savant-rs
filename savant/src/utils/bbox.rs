@@ -4,6 +4,15 @@ use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
 
+/// The format of a bounding box passed as a parameter or requested as a return type.
+///
+/// LeftTopRightBottom
+///   The format is [left, top, right, bottom].
+/// LeftTopWidthHeight
+///   The format is [left, top, width, height].
+/// XcYcWidthHeight
+///   The format is [xcenter, ycenter, width, height].
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub enum BBoxFormat {
@@ -110,6 +119,24 @@ pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identit
     })
 }
 
+/// Converts a list of :class:`savant_rs.primitives.geometry.RBBox`-es to a numpy
+/// array with rows represented by ``[xc, yc, width, height, angle]``.
+///
+/// Parameters
+/// ----------
+/// arr : List[savant_rs.primitives.geometry.RBBox]
+///   The numpy array with rows represented by ``[xc, yc, width, height, angle]``.
+/// dtype : str
+///   The data type of the numpy array. Can be ``float32``, ``float64``, ``int32`` or ``int64``.
+///
+/// Returns
+/// -------
+/// numpy.ndarray
+///   The numpy array with rows represented by ``[xc, yc, width, height, angle]``.
+///
+///
+/// Panics when a data type is not ``float32``, ``float64``, ``int32`` or ``int64``.
+///
 #[pyfunction]
 #[pyo3(name = "rotated_bboxes_to_ndarray")]
 pub fn rotated_bboxes_to_ndarray_gil(boxes: Vec<RBBox>, dtype: String) -> PyObject {
@@ -134,6 +161,20 @@ pub fn rotated_bboxes_to_ndarray_gil(boxes: Vec<RBBox>, dtype: String) -> PyObje
     }
 }
 
+/// Converts a numpy array with rows in a format specified by ``format`` to a list of :class:`savant_rs.primitives.geometry.BBox`-es.
+///
+/// Parameters
+/// ----------
+/// arr : numpy.ndarray
+///   The numpy array with rows in a format specified by ``format``.
+/// format : BBoxFormat
+///   The format of the numpy array. Can be ``BBoxFormat.LeftTopRightBottom``, ``BBoxFormat.LeftTopWidthHeight`` or ``BBoxFormat.XcYcWidthHeight``.
+///
+/// Returns
+/// -------
+/// List[savant_rs.primitives.geometry.BBox]
+///   The list of :class:`savant_rs.primitives.geometry.BBox`-es.
+///
 #[pyfunction]
 #[pyo3(name = "ndarray_to_bboxes")]
 pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<PythonBBox>> {
@@ -158,6 +199,23 @@ pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<Py
     ))
 }
 
+/// Converts numpy array with rows represented by ``[xc, yc, width, height, angle]`` to a list of :class:`savant_rs.primitives.geometry.RBBox`-es.
+///
+/// Parameters
+/// ----------
+/// arr : numpy.ndarray
+///   The numpy array with rows represented by ``[xc, yc, width, height, angle]``.
+///
+/// Returns
+/// -------
+/// List[savant_rs.primitives.geometry.RBBox]
+///   The list of :class:`savant_rs.primitives.geometry.RBBox`-es.
+///
+/// Raises
+/// ------
+/// TypeError
+///   If the numpy array is not of type ``float32``, ``float64``, ``int32`` or ``int64``.
+///
 #[pyfunction]
 #[pyo3(name = "ndarray_to_rotated_bboxes")]
 pub fn ndarray_to_rotated_bboxes_gil(arr: &PyAny) -> PyResult<Vec<RBBox>> {
@@ -182,6 +240,23 @@ pub fn ndarray_to_rotated_bboxes_gil(arr: &PyAny) -> PyResult<Vec<RBBox>> {
     ))
 }
 
+/// Converts a list of :class:`savant_rs.primitives.geometry.BBox`-es to a numpy ndarray. The format of the ndarray is determined by the ``format`` parameter.
+///
+/// Parameters
+/// ----------
+/// boxes : List[savant_rs.primitives.geometry.BBox]
+///   The list of :class:`savant_rs.primitives.geometry.BBox`-es.
+/// format : BBoxFormat
+///   The format of bbox representation. One
+///   of :class:`BBoxFormat.LeftTopRightBottom`, :class:`BBoxFormat.LeftTopWidthHeight`, or :class:`BBoxFormat.XcYcWidthHeight`.
+/// dtype : str
+///   The data type of the numpy array. Can be ``float32``, ``float64``, ``int32`` or ``int64``.
+///
+/// Returns
+/// -------
+/// numpy.ndarray
+///   The numpy array with rows in a specified format.
+///
 #[pyfunction]
 #[pyo3(name = "bboxes_to_ndarray")]
 pub fn bboxes_to_ndarray_gil(

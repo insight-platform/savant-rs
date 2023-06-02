@@ -90,6 +90,7 @@ pub fn numpy_module(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<NalgebraDMatrix>()?;
     m.add_class::<NDarray>()?;
+    m.add_class::<BBoxFormat>()?;
 
     Ok(())
 }
@@ -104,7 +105,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
     m.add_class::<FpsMeter>()?;
-    m.add_class::<BBoxFormat>()?;
     m.add_class::<ObjectBBoxKind>()?;
 
     Ok(())

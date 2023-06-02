@@ -40,6 +40,21 @@ pub enum NalgebraDMatrixVariant {
     UnsignedInt8(DMatrix<u8>),
 }
 
+/// The class is a wrapper class to handle Rust's Nalgebra DMatrix in Python.
+/// The class doesn't have methods intended to be used directly by the user. Instead, it is used
+/// by Rust functions to which the user passes a :class:`NalgebraDMatrix` object for optimized processing.
+///
+/// Examples
+/// --------
+/// .. code-block:: python
+///
+///   from savant_rs.utils.numpy import matrix_to_np, NalgebraDMatrix, np_to_matrix
+///   import numpy as np
+///   numpy_ndarray = np.zeros((4, 10), dtype='int32')
+///   matrix = np_to_matrix(numpy_ndarray)
+///   new_numpy_ndarray = matrix_to_np(matrix)
+///   assert np.array_equal(numpy_ndarray, new_numpy_ndarray)
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct NalgebraDMatrix {
@@ -181,6 +196,24 @@ pub fn np_to_matrix<T: ElementType>(arr: PyReadonlyArrayDyn<T>) -> PyResult<DMat
     })
 }
 
+/// Converts a Numpy array to a :class:`NalgebraDMatrix`. This function is GIL-free. It supports the following Numpy dtypes:
+/// ``f32``, ``f64``, ``i8``, ``i16``, ``i32``, ``i64``, ``u8``, ``u16``, ``u32``, ``u64``.
+///
+/// Parameters
+/// ----------
+/// arr : np.ndarray
+///   The array to convert
+///
+/// Returns
+/// -------
+/// :class:`NalgebraDMatrix`
+///   The python handle to the converted matrix
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the array is not compatible.
+///
 #[pyfunction]
 #[pyo3(name = "np_to_matrix")]
 pub fn np_to_matrix_gil(arr: &PyAny) -> PyResult<PyObject> {
@@ -239,6 +272,24 @@ pub fn np_to_matrix_gil(arr: &PyAny) -> PyResult<PyObject> {
     ))
 }
 
+/// Converts a :class:`NalgebraDMatrix` to a numpy array. This function is GIL-free. It supports the following Numpy dtypes:
+/// ``f32``, ``f64``, ``i8``, ``i16``, ``i32``, ``i64``, ``u8``, ``u16``, ``u32``, ``u64``.
+///
+/// Parameters
+/// ----------
+/// m : :class:`NalgebraDMatrix`
+///   The matrix to convert
+///
+/// Returns
+/// -------
+/// np.ndarray
+///   The numpy array
+///
+/// Raises
+/// ------
+/// TypeError
+///   If the matrix is not of a supported type
+///
 #[pyfunction]
 #[pyo3(name = "matrix_to_np")]
 pub fn matrix_to_np_gil(m: &PyAny) -> PyResult<PyObject> {
