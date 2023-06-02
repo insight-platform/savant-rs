@@ -1,6 +1,7 @@
-dev: clean sample_plugin clippy tests build install
+dev: clean clippy build install
+release: clean clippy tests build_release install
 
-docs: docs/build/html/index.html
+docs: build install docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html
 
@@ -10,9 +11,13 @@ clippy:
 
 sample_plugin: sample_plugin/src/lib.rs sample_plugin/Cargo.toml
 	@echo "Building sample plugin..."
-	cd sample_plugin && cargo build --release
+	cd sample_plugin && cargo build
 
 build:
+	@echo "Building..."
+	cd savant && CARGO_INCREMENTAL=true maturin build -o dist
+
+build_release:
 	@echo "Building..."
 	cd savant && maturin build --release -o dist
 

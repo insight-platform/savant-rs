@@ -1,8 +1,7 @@
 from random import choice
 from timeit import default_timer as timer
 
-
-from savant_rs.utils import RegistrationPolicy, \
+from savant_rs.utils.symbol_mapper import RegistrationPolicy, \
     build_model_object_key, \
     is_model_registered, \
     is_object_registered, \
@@ -17,7 +16,6 @@ from savant_rs.utils import RegistrationPolicy, \
     get_object_label, \
     get_object_labels, \
     register_model_objects
-
 
 models = ["model1", "model2", "model3", "model4", "model5", "model6", "model7", "model8", "model9", "model10"]
 
@@ -56,6 +54,7 @@ def simple_count():
     for _ in range(num):
         get_object_id(model_name=random_model, object_label=random_object)
     return num, timer() - total_time
+
 
 num, total = simple_count()
 print(f"Time to get in individually (total: {total})")

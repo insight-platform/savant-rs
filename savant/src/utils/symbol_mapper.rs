@@ -14,10 +14,19 @@ lazy_static! {
     static ref SYMBOL_MAPPER: Mutex<SymbolMapper> = const_mutex(SymbolMapper::default());
 }
 
+/// Defines how to act when the key is already registered.
+///
+/// Override
+///   The key will be registered and the previous value will be overwritten, otherwise error will be triggered.
+/// ErrorIfNonUnique
+///   The key will not be registered and a error will be triggered.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub enum RegistrationPolicy {
+    /// The key will be registered and the previous value will be overwritten, otherwise error will be triggered.
     Override,
+    /// The key will not be registered and a error will be triggered.
     ErrorIfNonUnique,
 }
 
@@ -35,6 +44,25 @@ pub enum Errors {
     DuplicateId(String, i64, String, i64),
 }
 
+/// The function is used to fetch designated model id by a model name.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model to fetch id for.
+///
+/// Returns
+/// -------
+/// int
+///   Id of the model (int)
+///
+/// Raises
+/// ------
+/// ValueError
+///   if the model is not registered
+///
 #[pyfunction]
 #[pyo3(name = "get_model_id")]
 pub fn get_model_id_gil(model_name: String) -> PyResult<i64> {
@@ -51,6 +79,27 @@ pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
     mapper.get_model_id(model_name)
 }
 
+/// The function is used to fetch designated object id by a model name and object label.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model to fetch id for.
+/// object_label : str
+///   The label of the object to fetch id for.
+///
+/// Returns
+/// -------
+/// (int, int)
+///   Id of the model (int) and id of the object (int)
+///
+/// Raises
+/// ------
+/// ValueError
+///   if the object is not registered
+///
 #[pyfunction]
 #[pyo3(name = "get_object_id")]
 pub fn get_object_id_gil(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
@@ -67,6 +116,29 @@ pub fn get_object_id(model_name: &String, object_label: &String) -> anyhow::Resu
     mapper.get_object_id(model_name, object_label)
 }
 
+/// The function is used to register a new model and its object classes.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model to register.
+/// elements : dict[int, str]
+///   The dictionary of objects in the form  id:label to register.
+/// policy : :class:`RegistrationPolicy`
+///   The policy to use when registering objects.
+///
+/// Returns
+/// -------
+/// int
+///   Id of the model
+///
+/// Raises
+/// ------
+/// ValueError
+///   if there are objects with the same IDs or labels are already registered.
+///
 #[pyfunction]
 #[pyo3(name = "register_model_objects")]
 pub fn register_model_objects_gil(
@@ -82,6 +154,22 @@ pub fn register_model_objects_gil(
     })
 }
 
+/// The function allows the fetch a model name by its id.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_id : int
+///   The id of the model to fetch name for.
+///
+/// Returns
+/// -------
+/// str
+///   Name of the model
+/// None
+///   If the model is not registered
+///
 #[pyfunction]
 #[pyo3(name = "get_model_name")]
 pub fn get_model_name_gil(model_id: i64) -> Option<String> {
@@ -91,6 +179,24 @@ pub fn get_model_name_gil(model_id: i64) -> Option<String> {
     })
 }
 
+/// The function allows getting the object label by its id.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_id : int
+///   The id of the model to fetch name for.
+/// object_id : int
+///   The id of the object to fetch label for.
+///
+/// Returns
+/// -------
+/// str
+///   Label of the object
+/// None
+///   If the object is not registered
+///
 #[pyfunction]
 #[pyo3(name = "get_object_label")]
 pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
@@ -100,6 +206,22 @@ pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
     })
 }
 
+/// The function allows getting the object labels by their ids (bulk operation).
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_id : int
+///   The id of the model to fetch objects for.
+/// object_ids : list[int]
+///   The ids of the objects to fetch labels for.
+///
+/// Returns
+/// -------
+/// list[(int, str)]
+///   List of tuples (object_id, object_label), if object_label is None, then the object is not registered.
+///
 #[pyfunction]
 #[pyo3(name = "get_object_labels")]
 pub fn get_object_labels_gil(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
@@ -117,6 +239,21 @@ pub fn get_object_labels_gil(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, O
     })
 }
 
+/// The function allows getting the object ids by their labels (bulk operation).
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model to fetch objects for.
+/// object_labels : list[str]
+///   The labels of the objects to fetch ids for.
+///
+/// Returns
+/// -------
+///   List of tuples (object_label, object_id), if object_id is None, then the object is not registered.
+///
 #[pyfunction]
 #[pyo3(name = "get_object_ids")]
 pub fn get_object_ids_gil(
@@ -138,6 +275,10 @@ pub fn get_object_ids_gil(
     })
 }
 
+/// The function clears mapping database.
+///
+/// GIL management: the function is GIL-free.
+///
 #[pyfunction]
 #[pyo3(name = "clear_symbol_maps")]
 pub fn clear_symbol_maps_gil() {
@@ -147,12 +288,47 @@ pub fn clear_symbol_maps_gil() {
     })
 }
 
+/// The function allows building a model object key from model name and object label.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model.
+/// object_label : str
+///   The label of the object.
+///
+/// Returns
+/// -------
+/// str
+///   The model object key.
+///
 #[pyfunction]
 #[pyo3(name = "build_model_object_key")]
 pub fn build_model_object_key_gil(model_name: String, object_label: String) -> String {
     no_gil(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
 }
 
+/// The function allows parsing a model object key into model name and object label.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// key : str
+///   The model object key.
+///
+/// Returns
+/// -------
+/// (str, str)
+///   The model name and object label.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the key is not a valid key in format "model.key".
+///
 #[pyfunction]
 #[pyo3(name = "parse_compound_key")]
 pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
@@ -161,6 +337,25 @@ pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
     })
 }
 
+/// The function allows validating a model or object key.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// key : str
+///   The model or object key.
+///
+/// Returns
+/// -------
+/// str
+///   The key.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the key is not a valid key in format "wordwithoutdots".
+///
 #[pyfunction]
 #[pyo3(name = "validate_base_key")]
 pub fn validate_base_key_gil(key: String) -> PyResult<String> {
@@ -169,6 +364,20 @@ pub fn validate_base_key_gil(key: String) -> PyResult<String> {
     })
 }
 
+/// The function checks if the model is registered.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model.
+///
+/// Returns
+/// -------
+/// bool
+///   True if the model is registered, False otherwise.
+///
 #[pyfunction]
 #[pyo3(name = "is_model_registered")]
 pub fn is_model_registered_gil(model_name: String) -> bool {
@@ -178,6 +387,22 @@ pub fn is_model_registered_gil(model_name: String) -> bool {
     })
 }
 
+/// The function checks if the object is registered.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// model_name : str
+///   The name of the model.
+/// object_label : str
+///   The label of the object.
+///
+/// Returns
+/// -------
+/// bool
+///   True if the object is registered, False otherwise.
+///
 #[pyfunction]
 #[pyo3(name = "is_object_registered")]
 pub fn is_object_registered_gil(model_name: String, object_label: String) -> bool {
@@ -187,6 +412,14 @@ pub fn is_object_registered_gil(model_name: String, object_label: String) -> boo
     })
 }
 
+/// The function dumps the registry in the form of model or object label, model_id and optional object id.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Returns
+/// -------
+/// list[str]
+///   The list of strings in the form of "model_name[.object_label] model_id Option[object_id]".
 #[pyfunction]
 #[pyo3(name = "dump_registry")]
 pub fn dump_registry_gil() -> Vec<String> {
@@ -196,6 +429,10 @@ pub fn dump_registry_gil() -> Vec<String> {
     })
 }
 
+/// In case you need it (but you don't) you can use this class to manage symbol mapping.
+///
+/// It is used internally as a singleton to deliver the functionality provided by the module functions.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct SymbolMapper {
