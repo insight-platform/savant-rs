@@ -72,7 +72,7 @@ jobs:
         run: |
           cd docs
           make clean html
-          cp -r ./docs/build/html/* /html
+          cp -r ./build/html/* /html
       - name: Archive docs
         shell: bash
         run: |
