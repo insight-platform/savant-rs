@@ -58,8 +58,9 @@ jobs:
           name: wheels
           path: savant/dist
 
-  docs:
+  build-docs:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v3
       - name: Build dist (no release)
@@ -84,6 +85,22 @@ jobs:
           name: github-pages
           path: docs/artifact.tar
           if-no-files-found: error
+
+  deploy-docs:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build-docs
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v1
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
 
   release:
     name: Release
