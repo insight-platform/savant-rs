@@ -57,6 +57,17 @@ jobs:
         with:
           name: wheels
           path: savant/dist
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build dist (no release)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: savant
+          command: dist
+          args: --out dist
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
       - name: Install savant_rs
