@@ -34,6 +34,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::utils))?;
     m.add_wrapped(wrap_pymodule!(utils::symbol_mapper_module))?;
     m.add_wrapped(wrap_pymodule!(utils::udf_api_module))?;
+    m.add_wrapped(wrap_pymodule!(utils::numpy_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
 
     let sys = PyModule::import(py, "sys")?;
@@ -48,6 +49,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
         m.getattr("symbol_mapper_module")?,
     )?;
     sys_modules.set_item("savant_rs.utils.udf_api", m.getattr("udf_api_module")?)?;
+    sys_modules.set_item("savant_rs.utils.numpy", m.getattr("numpy_module")?)?;
     sys_modules.set_item(
         "savant_rs.video_object_query",
         m.getattr("video_object_query")?,
