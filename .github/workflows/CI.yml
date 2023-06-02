@@ -82,7 +82,7 @@ jobs:
         uses: actions/upload-artifact@main
         with:
           name: github-pages
-          path: docs/build/artifact.tar
+          path: docs/artifact.tar
           if-no-files-found: error
 
   release:
