@@ -39,7 +39,7 @@ use pyo3::{pymodule, PyResult, Python};
 pub use segment::{Intersection, IntersectionKind, Segment};
 
 #[pymodule]
-pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn geometry(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Point>()?;
     m.add_class::<Segment>()?;
     m.add_class::<IntersectionKind>()?;
@@ -47,6 +47,25 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PolygonalArea>()?;
     m.add_class::<RBBox>()?;
     m.add_class::<PythonBBox>()?;
+    Ok(())
+}
+
+#[pymodule]
+pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<ColorDraw>()?;
+    m.add_class::<BoundingBoxDraw>()?;
+    m.add_class::<DotDraw>()?;
+    m.add_class::<LabelDraw>()?;
+    m.add_class::<LabelPositionKind>()?;
+    m.add_class::<LabelPosition>()?;
+    m.add_class::<PaddingDraw>()?;
+    m.add_class::<ObjectDraw>()?;
+    m.add_class::<PySetDrawLabelKind>()?;
+    Ok(())
+}
+
+#[pymodule]
+pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
     m.add_class::<Value>()?;
     m.add_class::<Object>()?;
@@ -60,15 +79,5 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyVideoFrameContent>()?;
     m.add_class::<PyFrameTransformation>()?;
     m.add_class::<ObjectModification>()?;
-
-    m.add_class::<ColorDraw>()?;
-    m.add_class::<BoundingBoxDraw>()?;
-    m.add_class::<DotDraw>()?;
-    m.add_class::<LabelDraw>()?;
-    m.add_class::<LabelPositionKind>()?;
-    m.add_class::<LabelPosition>()?;
-    m.add_class::<PaddingDraw>()?;
-    m.add_class::<ObjectDraw>()?;
-    m.add_class::<PySetDrawLabelKind>()?;
     Ok(())
 }

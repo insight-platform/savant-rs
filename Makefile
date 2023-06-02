@@ -2,7 +2,7 @@ dev: clean sample_plugin clippy tests build install
 
 docs: docs/build/html/index.html
 	@echo "Building docs..."
-	cd docs && make html
+	cd docs && make clean html
 
 clippy:
 	@echo "Running clippy..."

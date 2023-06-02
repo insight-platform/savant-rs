@@ -1,6 +1,6 @@
 """Utility for scale rotated bboxes."""
 import numpy as np
-from savant_rs.primitives import BBox
+from savant_rs.primitives.geometry import BBox
 
 
 def scale_rbbox(

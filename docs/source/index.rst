@@ -11,7 +11,9 @@ Savant Rust
    :maxdepth: 2
 
    modules/savant_rs
+   modules/draw_spec
    modules/primitives
+   modules/geometry
    modules/utils
    modules/video_object_query
 

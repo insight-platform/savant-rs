@@ -2,9 +2,25 @@ use pyo3::prelude::*;
 
 /// Defines the padding for a draw operation.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
+///
+///
+/// Constructor arguments:
+///    left (int): left padding, default 0
+///    top (int): top padding, default 0
+///    right (int): right padding, default 0
+///    bottom (int): bottom padding, default 0
+///
+/// Returns:
+///   The padding object
+///
+/// .. code-block:: python
+///
+///   from savant_rs.draw_spec import PaddingDraw
+///   padding = PaddingDraw(1, 2, 3, 4)
+///
 ///
 #[pyclass]
 #[derive(Clone, Copy, Debug)]
@@ -28,15 +44,22 @@ impl PaddingDraw {
         self.__repr__()
     }
 
-    /// Returns a copy of the padding
+    /// Returns a copy of the padding object
+    ///
+    /// Returns:
+    ///   The padding object
+    ///
+    /// .. code-block:: python
+    ///
+    ///   from savant_rs.draw_spec import PaddingDraw
+    ///   padding = PaddingDraw(1, 2, 3, 4)
+    ///   padding_copy = padding.copy()
     ///
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
         *self
     }
 
-    /// Constructs a new padding
-    ///
     #[new]
     #[pyo3(signature = (left=0, top=0, right=0, bottom=0))]
     pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> Self {
@@ -53,6 +76,16 @@ impl PaddingDraw {
         }
     }
 
+    /// Creates a new padding object with all fields set to 0
+    ///
+    /// Returns:
+    ///   The padding object
+    ///
+    /// .. code-block:: python
+    ///
+    ///   from savant_rs.draw_spec import PaddingDraw
+    ///   padding = PaddingDraw.default_padding()
+    ///
     #[staticmethod]
     pub fn default_padding() -> Self {
         Self {
@@ -65,33 +98,36 @@ impl PaddingDraw {
 
     /// Returns the padding as a tuple
     ///
+    /// Returns:
+    ///   (left, top, right, bottom)
+    ///
     #[getter]
     pub fn padding(&self) -> (i64, i64, i64, i64) {
         (self.left, self.top, self.right, self.bottom)
     }
 
-    /// Returns the left padding
+    /// Returns the left padding (int)
     ///
     #[getter]
     pub fn left(&self) -> i64 {
         self.left
     }
 
-    /// Returns the top padding
+    /// Returns the top padding (int)
     ///
     #[getter]
     pub fn top(&self) -> i64 {
         self.top
     }
 
-    /// Returns the right padding
+    /// Returns the right padding (int)
     ///
     #[getter]
     pub fn right(&self) -> i64 {
         self.right
     }
 
-    /// Returns the bottom padding
+    /// Returns the bottom padding (int)
     ///
     #[getter]
     pub fn bottom(&self) -> i64 {
@@ -101,9 +137,23 @@ impl PaddingDraw {
 
 /// Represents the draw specification for a color.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
+///
+/// Constructor arguments:
+///   red (int): red component, default 0
+///   green (int): green component, default 255
+///   blue (int): blue component, default 0
+///   alpha (int): alpha component, default 255
+///
+/// Returns:
+///   The color object
+///
+/// .. code-block:: python
+///
+///   from savant_rs.draw_spec import ColorDraw
+///   color = ColorDraw(1, 2, 3, 4)
 ///
 #[pyclass]
 #[derive(Clone, Copy, Debug)]
@@ -152,42 +202,48 @@ impl ColorDraw {
         }
     }
 
-    /// Returns the color as a BGRA tuple
+    /// The color as a BGRA tuple
+    ///
+    /// Returns:
+    ///   (blue, green, red, alpha)
     ///
     #[getter]
     pub fn bgra(&self) -> (i64, i64, i64, i64) {
         (self.blue, self.green, self.red, self.alpha)
     }
 
-    /// Returns the color as a RGBA tuple
+    /// The color as a RGBA tuple
+    ///
+    /// Returns:
+    ///   (red, green, blue, alpha)
     ///
     #[getter]
     pub fn rgba(&self) -> (i64, i64, i64, i64) {
         (self.red, self.green, self.blue, self.alpha)
     }
 
-    /// Returns the red component of the color
+    /// The red component of the color (int)
     ///
     #[getter]
     pub fn red(&self) -> i64 {
         self.red
     }
 
-    /// Returns the green component of the color
+    /// The green component of the color (int)
     ///
     #[getter]
     pub fn green(&self) -> i64 {
         self.green
     }
 
-    /// Returns the blue component of the color
+    /// The blue component of the color (int)
     ///
     #[getter]
     pub fn blue(&self) -> i64 {
         self.blue
     }
 
-    /// Returns the alpha component of the color
+    /// The alpha component of the color (int)
     ///
     #[getter]
     pub fn alpha(&self) -> i64 {
@@ -195,6 +251,14 @@ impl ColorDraw {
     }
 
     /// Creates a new transparent color
+    ///
+    /// Returns:
+    ///   The color object
+    ///
+    /// .. code-block:: python
+    ///
+    ///   from savant_rs.draw_spec import ColorDraw
+    ///   color = ColorDraw.transparent()
     ///
     #[staticmethod]
     pub fn transparent() -> Self {
@@ -204,9 +268,7 @@ impl ColorDraw {
 
 /// Represents the draw specification for a bounding box.
 ///
-/// # Python API
-///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
@@ -264,7 +326,18 @@ impl BoundingBoxDraw {
         }
     }
 
-    /// Returns the background color of the bounding box
+    /// Returns the border color of the bounding box
+    ///
+    /// Returns:
+    ///   The `ColorDraw` object
+    ///
+    /// .. code-block:: python
+    ///
+    ///   from savant_rs.draw_spec import ColorDraw, PaddingDraw, BoundingBoxDraw
+    ///   border_color = ColorDraw(255, 255, 255, 255)
+    ///   background_color = ColorDraw(0, 0, 0, 0)
+    ///   box = BoundingBoxDraw(border_color, background_color, 1, PaddingDraw(1, 2, 3, 4))
+    ///   border_color = box.border_color
     ///
     #[getter]
     pub fn border_color(&self) -> ColorDraw {
@@ -295,7 +368,7 @@ impl BoundingBoxDraw {
 
 /// Represents the draw specification for a central body bullet visualization.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
@@ -353,7 +426,7 @@ impl DotDraw {
 
 /// Represents the draw specification for a position of a label versus object bounding box.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
@@ -370,7 +443,7 @@ pub enum LabelPositionKind {
 
 /// Represents the draw specification for a position of a label versus object bounding box.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
@@ -448,7 +521,7 @@ impl LabelPosition {
 
 /// Represents the draw specification for a label.
 ///
-/// The object is read-only in Python API. You may construct it, make a copy
+/// The object is read-only after creation in Python. You may construct it, make a copy
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///

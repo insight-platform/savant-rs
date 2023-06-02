@@ -1,4 +1,4 @@
-from savant_rs.primitives import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, PaddingDraw, ObjectDraw, LabelPosition, \
+from savant_rs.draw_spec import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, PaddingDraw, ObjectDraw, LabelPosition, \
     LabelPositionKind
 
 spec = ObjectDraw(
@@ -28,8 +28,8 @@ spec = ObjectDraw(
     blur=False
 )
 
-print(spec.bounding_box.color.bgra)
-print(spec.bounding_box.color.red)
+print(spec.bounding_box.border_color.rgba)
+print(spec.bounding_box.background_color.rgba)
 print(spec)
 
 spec = ObjectDraw(

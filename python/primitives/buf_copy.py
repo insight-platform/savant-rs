@@ -1,4 +1,5 @@
-from savant_rs.primitives import Object, Value, Attribute, ParentObject, RBBox
+from savant_rs.primitives import Object, Value, Attribute
+from savant_rs.primitives.geometry import RBBox
 from timeit import default_timer as timer
 
 o = Object(
@@ -8,10 +9,8 @@ o = Object(
     bbox=RBBox(0.1, 0.2, 0.3, 0.4, None),
     confidence=0.5,
     attributes={},
-    parent=None,
     track=None,
 )
-
 
 t = timer()
 
@@ -31,4 +30,3 @@ for _ in range(1_000):
     # x = a.name
 
 print(timer() - t)
-

@@ -29,6 +29,8 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
+    m.add_wrapped(wrap_pymodule!(primitives::geometry))?;
+    m.add_wrapped(wrap_pymodule!(primitives::draw_spec))?;
     m.add_wrapped(wrap_pymodule!(utils::utils))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
 
@@ -36,6 +38,8 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
 
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
+    sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
+    sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
     sys_modules.set_item(
         "savant_rs.video_object_query",

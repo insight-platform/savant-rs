@@ -1,8 +1,10 @@
 import ctypes
 
 from savant_rs.utils import gen_frame, save_message, load_message
-from savant_rs.primitives import SetDrawLabelKind, Message, Object, PolygonalArea, Point, BBox, Value, \
-    Attribute, VideoFrame, PyVideoFrameContent, PyFrameTransformation
+from savant_rs.primitives import Message, Object, Value, \
+    Attribute, VideoFrame, VideoFrameContent, FrameTransformation
+from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
+from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.video_object_query import Query as Q, \
     IntExpression as IE
 import json
@@ -24,7 +26,7 @@ frame = VideoFrame(
     framerate="30/1",
     width=1920,
     height=1080,
-    content=PyVideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
+    content=VideoFrameContent.external("s3", "s3://some-bucket/some-key.jpeg"),
     codec="jpeg",
     keyframe=True,
     pts=0,
@@ -40,9 +42,9 @@ frame.duration = 100
 
 print(frame.json)
 
-frame.add_transformation(PyFrameTransformation.initial_size(1920, 1080))
-frame.add_transformation(PyFrameTransformation.scale(3840, 2160))
-frame.add_transformation(PyFrameTransformation.padding(left=0, top=120, right=0, bottom=0))
+frame.add_transformation(FrameTransformation.initial_size(1920, 1080))
+frame.add_transformation(FrameTransformation.scale(3840, 2160))
+frame.add_transformation(FrameTransformation.padding(left=0, top=120, right=0, bottom=0))
 
 print(frame.transformations)
 
@@ -99,7 +101,6 @@ frame.add_object(Object(
     bbox=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
     attributes={},
-    parent=None,
     track=None,
 ))
 
