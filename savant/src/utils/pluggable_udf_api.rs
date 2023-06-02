@@ -138,7 +138,7 @@ pub fn register_plugin_function(
     Ok(())
 }
 
-/// Invokes a registered plugin function of the **UserFunctionType.ObjectPredicate** type.
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectPredicate` type.
 ///
 /// GIL Management: This function is GIL-free.
 ///
@@ -181,6 +181,22 @@ pub fn call_object_predicate(alias: &str, args: &[&Object]) -> anyhow::Result<bo
     }
 }
 
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectInplaceModifier`
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+/// args : List[savant_rs.primitives.Object]
+///   The arguments to pass to the plugin function.
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the plugin function cannot be invoked.
+///
 #[pyfunction]
 #[pyo3(name = "call_object_inplace_modifier")]
 pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<Object>) -> PyResult<()> {
@@ -203,6 +219,27 @@ pub fn call_object_inplace_modifier(alias: &str, args: &[&Object]) -> anyhow::Re
     }
 }
 
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectMapModifier`
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+/// arg : savant_rs.primitives.Object
+///   The argument to pass to the plugin function.
+///
+/// Returns
+/// -------
+/// savant_rs.primitives.Object
+///   Resulting object
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the plugin function cannot be invoked.
+///
 #[pyfunction]
 #[pyo3(name = "call_object_map_modifier")]
 pub fn call_object_map_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {

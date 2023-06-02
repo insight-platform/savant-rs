@@ -70,6 +70,7 @@ pub fn udf_api_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(call_object_inplace_modifier_gil, m)?)?;
     m.add_function(wrap_pyfunction!(call_object_map_modifier_gil, m)?)?;
 
+    m.add_class::<UserFunctionType>()?;
     Ok(())
 }
 
@@ -102,7 +103,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<NalgebraDMatrix>()?;
     m.add_class::<NDarray>()?;
-    m.add_class::<UserFunctionType>()?;
 
     Ok(())
 }
