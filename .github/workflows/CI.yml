@@ -75,11 +75,9 @@ jobs:
         run: |
           cd docs
           make clean html
-          cp -r ./build/html/* /html
-          cd build
           tar \
           --dereference --hard-dereference \
-          --directory html -cvf artifact.tar .
+          --directory build/html -cvf artifact.tar .
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
