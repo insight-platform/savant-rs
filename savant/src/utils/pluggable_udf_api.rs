@@ -15,9 +15,20 @@ pub type ObjectInplaceModifier = Symbol<ObjectInplaceModifierFunc>;
 pub type ObjectMapModifierFunc = fn(o: &Object) -> anyhow::Result<Object>;
 pub type ObjectMapModifier = Symbol<ObjectMapModifierFunc>;
 
+/// Determines the type of user function.
+///
+/// ObjectPredicate
+///   A function that takes a slice of objects and returns a boolean.
+///
+/// ObjectInplaceModifier
+///   A function that takes a slice of objects and modifies them in place.
+///
+/// ObjectMapModifier
+///   A function that takes an object and returns a new object.
+///
 #[pyclass]
 #[derive(Clone, Debug)]
-pub enum UserFunctionKind {
+pub enum UserFunctionType {
     ObjectPredicate,
     ObjectInplaceModifier,
     ObjectMapModifier,
@@ -37,6 +48,15 @@ lazy_static! {
         const_rwlock(HashMap::new());
 }
 
+/// Checks if a plugin function is registered for alias.
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+///
 #[pyfunction]
 #[pyo3(name = "is_plugin_function_registered")]
 pub fn is_plugin_function_registered_gil(alias: String) -> bool {
@@ -48,16 +68,36 @@ pub fn is_plugin_function_registered(alias: &str) -> bool {
     registry.contains_key(alias)
 }
 
+/// Allows registering a plugin function.
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// plugin : str
+///   The path to the plugin library.
+/// function : str
+///   The name of the function to register.
+/// function_type : UserFunctionType
+///   The type of the function to register.
+/// alias : str
+///   The alias to register the function under.
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the function cannot be registered.
+///
 #[pyfunction]
 #[pyo3(name = "register_plugin_function")]
 pub fn register_plugin_function_gil(
     plugin: String,
     function: String,
-    kind: UserFunctionKind,
+    function_type: UserFunctionType,
     alias: String,
 ) -> PyResult<()> {
     no_gil(|| {
-        register_plugin_function(&plugin, &function, kind, &alias)
+        register_plugin_function(&plugin, &function, function_type, &alias)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
@@ -65,7 +105,7 @@ pub fn register_plugin_function_gil(
 pub fn register_plugin_function(
     plugin: &str,
     function: &str,
-    kind: UserFunctionKind,
+    kind: UserFunctionType,
     alias: &str,
 ) -> anyhow::Result<()> {
     let mut registry = PLUGIN_REGISTRY.write();
@@ -80,15 +120,15 @@ pub fn register_plugin_function(
     let byte_name = function.as_bytes();
 
     let func = match kind {
-        UserFunctionKind::ObjectPredicate => unsafe {
+        UserFunctionType::ObjectPredicate => unsafe {
             let func: libloading::Symbol<ObjectPredicateFunc> = lib.get(byte_name)?;
             UserFunction::ObjectPredicate(func.into_raw())
         },
-        UserFunctionKind::ObjectInplaceModifier => unsafe {
+        UserFunctionType::ObjectInplaceModifier => unsafe {
             let func: libloading::Symbol<ObjectInplaceModifierFunc> = lib.get(byte_name)?;
             UserFunction::ObjectInplaceModifier(func.into_raw())
         },
-        UserFunctionKind::ObjectMapModifier => unsafe {
+        UserFunctionType::ObjectMapModifier => unsafe {
             let func: libloading::Symbol<ObjectMapModifierFunc> = lib.get(byte_name)?;
             UserFunction::ObjectMapModifier(func.into_raw())
         },
@@ -98,6 +138,27 @@ pub fn register_plugin_function(
     Ok(())
 }
 
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectPredicate` type.
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+/// args : List[savant_rs.primitives.Object]
+///   The arguments to pass to the plugin function.
+///
+/// Returns
+/// -------
+/// bool
+///   The result of the plugin function.
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the plugin function cannot be invoked.
+///
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
 pub fn call_object_predicate_gil(alias: String, args: Vec<Object>) -> PyResult<bool> {
@@ -120,6 +181,22 @@ pub fn call_object_predicate(alias: &str, args: &[&Object]) -> anyhow::Result<bo
     }
 }
 
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectInplaceModifier`
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+/// args : List[savant_rs.primitives.Object]
+///   The arguments to pass to the plugin function.
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the plugin function cannot be invoked.
+///
 #[pyfunction]
 #[pyo3(name = "call_object_inplace_modifier")]
 pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<Object>) -> PyResult<()> {
@@ -142,6 +219,27 @@ pub fn call_object_inplace_modifier(alias: &str, args: &[&Object]) -> anyhow::Re
     }
 }
 
+/// Invokes a registered plugin function of the :class:`UserFunctionType.ObjectMapModifier`
+///
+/// GIL Management: This function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// alias : str
+///   The alias of the plugin function.
+/// arg : savant_rs.primitives.Object
+///   The argument to pass to the plugin function.
+///
+/// Returns
+/// -------
+/// savant_rs.primitives.Object
+///   Resulting object
+///
+/// Raises
+/// ------
+/// PyRuntimeError
+///   If the plugin function cannot be invoked.
+///
 #[pyfunction]
 #[pyo3(name = "call_object_map_modifier")]
 pub fn call_object_map_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {
@@ -176,27 +274,27 @@ mod tests {
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "unary_op_even",
-            UserFunctionKind::ObjectPredicate,
+            UserFunctionType::ObjectPredicate,
             "sample.unary_op_even",
         )?;
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "binary_op_parent",
-            UserFunctionKind::ObjectPredicate,
+            UserFunctionType::ObjectPredicate,
             "sample.binary_op_parent",
         )?;
 
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "inplace_modifier",
-            UserFunctionKind::ObjectInplaceModifier,
+            UserFunctionType::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
             "../target/release/libsample_plugin.so",
             "map_modifier",
-            UserFunctionKind::ObjectMapModifier,
+            UserFunctionType::ObjectMapModifier,
             "sample.map_modifier",
         )?;
 

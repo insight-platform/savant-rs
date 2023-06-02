@@ -16,6 +16,7 @@ Savant Rust
    modules/primitives_geometry
    modules/utils
    modules/utils_symbol_mapper
+   modules/utils_udf_api
    modules/video_object_query
 
 
