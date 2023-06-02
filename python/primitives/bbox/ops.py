@@ -1,5 +1,6 @@
 from savant_rs.primitives.geometry import BBox, RBBox
-from savant_rs.utils import *
+from savant_rs.utils.numpy import *
+from savant_rs.utils import BBoxFormat
 
 box = BBox(50, 50, 50, 50)
 print("Original bbox:", box)

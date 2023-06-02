@@ -1,5 +1,5 @@
 import numpy as np
-from savant_rs.utils import *
+from savant_rs.utils.numpy import *
 from timeit import default_timer as timer
 
 num = 10_000
