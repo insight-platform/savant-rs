@@ -57,17 +57,10 @@ jobs:
         with:
           name: wheels
           path: savant/dist
-
-  docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Install Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.10'
-      - name: Install Pip dependencies
+      - name: Install dependencies
         run: pip install -r docs/requirements.txt
+      - name: Install savant_rs
+        run: pip install savant/dist/*.whl
       - name: Build docs
         run: |
           cd docs
