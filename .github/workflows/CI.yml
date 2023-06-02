@@ -58,6 +58,23 @@ jobs:
           name: wheels
           path: savant/dist
 
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: "startsWith(github.ref, 'refs/tags/')"
+    needs: [linux, sdist]
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels
+      - name: Publish to PyPI
+        uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        with:
+          command: upload
+          args: --skip-existing *
+
   build-docs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -101,20 +118,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1
-
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux, sdist]
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: wheels
-      - name: Publish to PyPI
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --skip-existing *
