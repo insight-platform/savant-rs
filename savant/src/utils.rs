@@ -39,6 +39,29 @@ pub fn round_2_digits(v: f64) -> f64 {
 }
 
 #[pymodule]
+pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(build_model_object_key_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_symbol_maps_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(dump_registry_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_model_id_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_model_name_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_object_id_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_object_ids_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_object_label_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_object_labels_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(is_model_registered_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(is_object_registered_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_compound_key_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(register_model_objects_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_base_key_gil, m)?)?;
+
+    m.add_class::<RegistrationPolicy>()?;
+    m.add_class::<SymbolMapper>()?;
+
+    Ok(())
+}
+
+#[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
     // ser deser
@@ -67,24 +90,9 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(call_object_map_modifier_gil, m)?)?;
 
     // model object registry
-    m.add_function(wrap_pyfunction!(build_model_object_key_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(clear_symbol_maps_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(dump_registry_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_model_id_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_model_name_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_object_id_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_object_ids_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_object_label_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(get_object_labels_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(is_model_registered_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(is_object_registered_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_compound_key_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(register_model_objects_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(validate_base_key_gil, m)?)?;
 
     m.add_class::<FpsMeter>()?;
     m.add_class::<SymbolMapper>()?;
-    m.add_class::<RegistrationPolicy>()?;
     m.add_class::<BBoxFormat>()?;
     m.add_class::<ObjectBBoxKind>()?;
 

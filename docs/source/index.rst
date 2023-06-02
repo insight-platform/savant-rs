@@ -13,8 +13,9 @@ Savant Rust
    modules/savant_rs
    modules/draw_spec
    modules/primitives
-   modules/geometry
+   modules/primitives_geometry
    modules/utils
+   modules/utils_symbol_mapper
    modules/video_object_query
 
 
