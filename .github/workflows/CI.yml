@@ -76,14 +76,10 @@ jobs:
           cd docs
           make clean html
           cp -r ./build/html/* /html
-      - name: Archive docs
-        shell: bash
-        run: |
+          cd build
           tar \
           --dereference --hard-dereference \
-          --directory /html \
-          -cvf /html/artifact.tar \
-          .
+          --directory html -cvf artifact.tar .
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
