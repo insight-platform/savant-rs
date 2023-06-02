@@ -25,7 +25,7 @@ use crate::utils::symbol_mapper::{
 use crate::primitives::ObjectBBoxKind;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
-    is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionKind,
+    is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
 };
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
@@ -62,6 +62,18 @@ pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
+pub fn udf_api_module(_py: Python, m: &PyModule) -> PyResult<()> {
+    // UDF API
+    m.add_function(wrap_pyfunction!(register_plugin_function_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(is_plugin_function_registered_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(call_object_predicate_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(call_object_inplace_modifier_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(call_object_map_modifier_gil, m)?)?;
+
+    Ok(())
+}
+
+#[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
     // ser deser
@@ -82,23 +94,15 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(np_to_ndarray_gil, m)?)?;
     m.add_function(wrap_pyfunction!(ndarray_to_np_gil, m)?)?;
 
-    // UDF API
-    m.add_function(wrap_pyfunction!(register_plugin_function_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(is_plugin_function_registered_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_predicate_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_inplace_modifier_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_map_modifier_gil, m)?)?;
-
     // model object registry
 
     m.add_class::<FpsMeter>()?;
-    m.add_class::<SymbolMapper>()?;
     m.add_class::<BBoxFormat>()?;
     m.add_class::<ObjectBBoxKind>()?;
 
     m.add_class::<NalgebraDMatrix>()?;
     m.add_class::<NDarray>()?;
-    m.add_class::<UserFunctionKind>()?;
+    m.add_class::<UserFunctionType>()?;
 
     Ok(())
 }

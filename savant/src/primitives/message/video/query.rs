@@ -15,7 +15,7 @@ pub use crate::query_not as not;
 pub use crate::query_or as or;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
-    is_plugin_function_registered, register_plugin_function, UserFunctionKind,
+    is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
 pub use functions::*;
 
@@ -337,7 +337,7 @@ impl ExecutableQuery<&Object> for Query {
                     register_plugin_function(
                         plugin,
                         function,
-                        UserFunctionKind::ObjectPredicate,
+                        UserFunctionType::ObjectPredicate,
                         &udf_name,
                     )
                     .unwrap_or_else(|e| {
@@ -701,7 +701,7 @@ mod tests {
             register_plugin_function(
                 "../target/release/libsample_plugin.so",
                 "map_modifier",
-                UserFunctionKind::ObjectMapModifier,
+                UserFunctionType::ObjectMapModifier,
                 udf_name,
             )
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
@@ -731,7 +731,7 @@ mod tests {
             register_plugin_function(
                 "../target/release/libsample_plugin.so",
                 "inplace_modifier",
-                UserFunctionKind::ObjectInplaceModifier,
+                UserFunctionType::ObjectInplaceModifier,
                 udf_name,
             )
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());

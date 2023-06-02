@@ -1,13 +1,14 @@
-from savant_rs.utils import gen_frame, register_plugin_function, is_plugin_function_registered, UserFunctionKind, BBoxFormat, ObjectBBoxKind
+from savant_rs.utils import gen_frame, UserFunctionType, BBoxFormat, ObjectBBoxKind
+from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered
 from savant_rs.video_object_query import Query as Q, IntExpression as IE
 
-register_plugin_function("../../target/release/libsample_plugin.so", "map_modifier", UserFunctionKind.ObjectMapModifier,
+register_plugin_function("../../target/release/libsample_plugin.so", "map_modifier", UserFunctionType.ObjectMapModifier,
                          "sample.map_modifier")
 
 assert is_plugin_function_registered("sample.map_modifier")
 
 register_plugin_function("../../target/release/libsample_plugin.so", "inplace_modifier",
-                         UserFunctionKind.ObjectInplaceModifier,
+                         UserFunctionType.ObjectInplaceModifier,
                          "sample.inplace_modifier")
 
 assert is_plugin_function_registered("sample.inplace_modifier")
