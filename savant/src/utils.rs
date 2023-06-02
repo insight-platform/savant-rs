@@ -75,14 +75,7 @@ pub fn udf_api_module(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
-    // ser deser
-    m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
-    // utility
-    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
-
+pub fn numpy_module(_py: Python, m: &PyModule) -> PyResult<()> {
     // bbox batch ops
     m.add_function(wrap_pyfunction!(rotated_bboxes_to_ndarray_gil, m)?)?;
     m.add_function(wrap_pyfunction!(bboxes_to_ndarray_gil, m)?)?;
@@ -95,14 +88,24 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(np_to_ndarray_gil, m)?)?;
     m.add_function(wrap_pyfunction!(ndarray_to_np_gil, m)?)?;
 
-    // model object registry
+    m.add_class::<NalgebraDMatrix>()?;
+    m.add_class::<NDarray>()?;
+
+    Ok(())
+}
+
+#[pymodule]
+pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    // ser deser
+    m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
+    // utility
+    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
     m.add_class::<FpsMeter>()?;
     m.add_class::<BBoxFormat>()?;
     m.add_class::<ObjectBBoxKind>()?;
-
-    m.add_class::<NalgebraDMatrix>()?;
-    m.add_class::<NDarray>()?;
 
     Ok(())
 }
