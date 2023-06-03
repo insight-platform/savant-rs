@@ -17,16 +17,14 @@ lazy_static! {
 /// Defines how to act when the key is already registered.
 ///
 /// Override
-///   The key will be registered and the previous value will be overwritten, otherwise error will be triggered.
+///   The key will be registered and the previous value will be overwritten.
 /// ErrorIfNonUnique
 ///   The key will not be registered and a error will be triggered.
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub enum RegistrationPolicy {
-    /// The key will be registered and the previous value will be overwritten, otherwise error will be triggered.
     Override,
-    /// The key will not be registered and a error will be triggered.
     ErrorIfNonUnique,
 }
 

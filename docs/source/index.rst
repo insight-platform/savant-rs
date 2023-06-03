@@ -18,6 +18,7 @@ Savant Rust
    modules/utils_symbol_mapper
    modules/utils_numpy
    modules/utils_udf_api
+   modules/utils_serialization
    modules/video_object_query
 
 

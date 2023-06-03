@@ -68,6 +68,18 @@ impl Message {
         self.__repr__()
     }
 
+    /// Create a new undefined message
+    ///
+    /// Parameters
+    /// ----------
+    /// s : str
+    ///   The message text
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of Unknown type
+    ///
     #[staticmethod]
     pub fn unknown(s: String) -> Self {
         Self {
@@ -75,6 +87,18 @@ impl Message {
         }
     }
 
+    /// Create a new video frame message
+    ///
+    /// Parameters
+    /// ----------
+    /// frame : savant_rs.primitives.VideoFrame
+    ///   The video frame
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of VideoFrame type
+    ///
     #[staticmethod]
     pub fn video_frame(frame: VideoFrame) -> Self {
         Self {
@@ -82,6 +106,18 @@ impl Message {
         }
     }
 
+    /// Create a new video frame batch message
+    ///
+    /// Parameters
+    /// ----------
+    /// batch : savant_rs.primitives.VideoFrameBatch
+    ///   The video frame batch
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of VideoFrameBatch type
+    ///
     #[staticmethod]
     pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
         Self {
@@ -89,6 +125,18 @@ impl Message {
         }
     }
 
+    /// Create a new end of stream message
+    ///
+    /// Parameters
+    /// ----------
+    /// eos : savant_rs.primitives.EndOfStream
+    ///   The end of stream message
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of EndOfStream type
+    ///
     #[staticmethod]
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
@@ -96,26 +144,63 @@ impl Message {
         }
     }
 
+    /// Checks if the message is of Unknown type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of Unknown type, False otherwise
+    ///
     #[getter]
     pub fn is_unknown(&self) -> bool {
         matches!(self.payload, NativeMessage::Unknown(_))
     }
 
+    /// Checks if the message is of EndOfStream type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of EndOfStream type, False otherwise
+    ///
     #[getter]
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.payload, NativeMessage::EndOfStream(_))
     }
 
+    /// Checks if the message is of VideoFrame type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of VideoFrame type, False otherwise
+    ///
     #[getter]
     pub fn is_video_frame(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrame(_))
     }
 
+    /// Checks if the message is of VideoFrameBatch type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of VideoFrameBatch type, False otherwise
+    ///
     #[getter]
     pub fn is_video_frame_batch(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrameBatch(_))
     }
 
+    /// Returns the message as Unknown type
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The message as Unknown type
+    /// None
+    ///   If the message is not of Unknown type
+    ///
     #[getter]
     pub fn as_unknown(&self) -> Option<String> {
         match &self.payload {
@@ -124,6 +209,15 @@ impl Message {
         }
     }
 
+    /// Returns the message as EndOfStream type
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.primitives.EndOfStream`
+    ///   The message as EndOfStream type
+    /// None
+    ///   If the message is not of EndOfStream type
+    ///
     #[getter]
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
         match &self.payload {
@@ -132,6 +226,15 @@ impl Message {
         }
     }
 
+    /// Returns the message as VideoFrame type
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.primitives.VideoFrame`
+    ///   The message as VideoFrame type
+    /// None
+    ///   If the message is not of VideoFrame type
+    ///
     #[getter]
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.payload {
@@ -140,6 +243,15 @@ impl Message {
         }
     }
 
+    /// Returns the message as VideoFrameBatch type
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.primitives.VideoFrameBatch`
+    ///   The message as VideoFrameBatch type
+    /// None
+    ///   If the message is not of VideoFrameBatch type
+    ///
     #[getter]
     pub fn as_video_frame_batch(&self) -> Option<VideoFrameBatch> {
         match &self.payload {

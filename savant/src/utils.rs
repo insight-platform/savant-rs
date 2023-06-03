@@ -22,7 +22,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
-use crate::primitives::ObjectBBoxKind;
+use crate::primitives::{Message, ObjectBBoxKind};
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
@@ -96,11 +96,18 @@ pub fn numpy_module(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
     // ser deser
     m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
+
+    m.add_class::<Message>()?;
+    Ok(())
+}
+
+#[pymodule]
+pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
