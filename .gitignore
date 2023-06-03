@@ -21,3 +21,5 @@ Cargo.lock
 /Cargo.lock
 /docs/build
 /docs/source/generated
+/savant/dist
+/sample_plugin/dist
