@@ -6,6 +6,18 @@ use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch};
 use crate::utils::python::no_gil;
 use pyo3::pyfunction;
 
+/// Loads a message from a byte array. The function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// bytes : bytes
+///   The byte array to load the message from.
+///
+/// Returns
+/// -------
+/// savant_rs.primitives.Message
+///   The loaded message.
+///
 #[pyfunction]
 #[pyo3(name = "load_message")]
 pub fn load_message_gil(bytes: Vec<u8>) -> Message {

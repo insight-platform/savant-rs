@@ -7,10 +7,22 @@ use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeM
 use crate::primitives::Message;
 use crate::utils::python::no_gil;
 
+/// Save a message to a byte array
+///
+/// Parameters
+/// ----------
+/// message: savant_rs.primitives.Message
+///   The message to save
+///
+/// Returns
+/// -------
+/// bytes
+///   The byte array containing the message
+///
 #[pyfunction]
 #[pyo3(name = "save_message")]
-pub fn save_message_gil(frame: Message) -> Vec<u8> {
-    no_gil(|| save_message(frame))
+pub fn save_message_gil(message: Message) -> Vec<u8> {
+    no_gil(|| save_message(message))
 }
 
 pub fn save_message(m: Message) -> Vec<u8> {

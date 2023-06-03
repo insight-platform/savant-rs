@@ -1,4 +1,5 @@
-from savant_rs.utils import gen_frame, BBoxFormat, ObjectBBoxKind
+from savant_rs.utils import gen_frame, ObjectBBoxKind
+from savant_rs.utils.numpy import BBoxFormat
 from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered, UserFunctionType
 from savant_rs.video_object_query import Query as Q, IntExpression as IE
 

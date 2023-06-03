@@ -74,7 +74,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;
-    m.add_class::<Message>()?;
     m.add_class::<VideoTranscodingMethod>()?;
     m.add_class::<PyVideoFrameContent>()?;
     m.add_class::<PyFrameTransformation>()?;

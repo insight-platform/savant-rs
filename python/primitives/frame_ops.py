@@ -1,7 +1,8 @@
 import ctypes
 
-from savant_rs.utils import gen_frame, save_message, load_message
-from savant_rs.primitives import Message, Object, Value, \
+from savant_rs.utils import gen_frame
+from savant_rs.utils.serialization import save_message, load_message, Message
+from savant_rs.primitives import Object, Value, \
     Attribute, VideoFrame, VideoFrameContent, FrameTransformation
 from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
 from savant_rs.draw_spec import SetDrawLabelKind
