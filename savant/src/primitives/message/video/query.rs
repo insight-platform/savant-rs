@@ -425,7 +425,7 @@ mod tests {
     use super::*;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::ObjectTrack;
-    use crate::primitives::{AttributeBuilder, RBBox, Value};
+    use crate::primitives::{AttributeBuilder, AttributeValue, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
 
@@ -625,9 +625,9 @@ mod tests {
                 .creator(s("classifier"))
                 .hint(Some(s("morphological-classifier")))
                 .values(vec![
-                    Value::float(10.0, Some(0.7)),
-                    Value::float(20.0, Some(0.8)),
-                    Value::float(15.0, None),
+                    AttributeValue::float(10.0, Some(0.7)),
+                    AttributeValue::float(20.0, Some(0.8)),
+                    AttributeValue::float(15.0, None),
                 ])
                 .build()
                 .unwrap(),
