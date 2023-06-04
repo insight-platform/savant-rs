@@ -549,7 +549,7 @@ impl Object {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, Object, ObjectModification, RBBox, Value};
+    use crate::primitives::{AttributeBuilder, AttributeValue, Object, ObjectModification, RBBox};
     use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> Object {
@@ -567,21 +567,21 @@ mod tests {
                         AttributeBuilder::default()
                             .creator("creator".to_string())
                             .name("name".to_string())
-                            .values(vec![Value::string("value".to_string(), None)])
+                            .values(vec![AttributeValue::string("value".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
                             .creator("creator".to_string())
                             .name("name2".to_string())
-                            .values(vec![Value::string("value2".to_string(), None)])
+                            .values(vec![AttributeValue::string("value2".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
                             .creator("creator2".to_string())
                             .name("name".to_string())
-                            .values(vec![Value::string("value".to_string(), None)])
+                            .values(vec![AttributeValue::string("value".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),

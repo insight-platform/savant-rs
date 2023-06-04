@@ -5,7 +5,8 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Object, Point, PyVideoFrameContent, Value,
+        AttributeBuilder, AttributeValue, Intersection, IntersectionKind, Object, Point,
+        PyVideoFrameContent,
     };
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
@@ -87,7 +88,7 @@ pub mod utils {
                 .name("test".into())
                 .hint(None)
                 .hint(Some("test".into()))
-                .values(vec![Value::string("1".into(), None)])
+                .values(vec![AttributeValue::string("1".into(), None)])
                 .build()
                 .unwrap(),
         );
@@ -97,7 +98,7 @@ pub mod utils {
                 .creator("system2".into())
                 .name("test2".into())
                 .hint(None)
-                .values(vec![Value::string("2".into(), None)])
+                .values(vec![AttributeValue::string("2".into(), None)])
                 .build()
                 .unwrap(),
         );
@@ -107,7 +108,7 @@ pub mod utils {
                 .creator("system".into())
                 .name("test2".into())
                 .hint(Some("test".into()))
-                .values(vec![Value::string("3".into(), None)])
+                .values(vec![AttributeValue::string("3".into(), None)])
                 .build()
                 .unwrap(),
         );
@@ -118,24 +119,24 @@ pub mod utils {
                 .name("test".to_string())
                 .hint(Some("hint".to_string()))
                 .values(vec![
-                    Value::bytes(vec![8, 3, 8, 8], [0; 192].into(), None),
-                    Value::integers([0, 1, 2, 3, 4, 5].into(), None),
-                    Value::string("incoming".to_string(), Some(0.56)),
-                    Value::strings(vec!["abc".into(), "cde".into()], None),
-                    Value::string("outgoing".to_string(), Some(0.64)),
-                    Value::none(),
-                    Value::bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None), None),
-                    Value::bboxes(
+                    AttributeValue::bytes(vec![8, 3, 8, 8], [0; 192].into(), None),
+                    AttributeValue::integers([0, 1, 2, 3, 4, 5].into(), None),
+                    AttributeValue::string("incoming".to_string(), Some(0.56)),
+                    AttributeValue::strings(vec!["abc".into(), "cde".into()], None),
+                    AttributeValue::string("outgoing".to_string(), Some(0.64)),
+                    AttributeValue::none(),
+                    AttributeValue::bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None), None),
+                    AttributeValue::bboxes(
                         vec![
                             RBBox::new(0.0, 0.0, 0.0, 0.0, None),
                             RBBox::new(0.0, 0.0, 0.0, 0.0, None),
                         ],
                         None,
                     ),
-                    Value::float(0.0, None),
-                    Value::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
-                    Value::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
-                    Value::intersection(
+                    AttributeValue::float(0.0, None),
+                    AttributeValue::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
+                    AttributeValue::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
+                    AttributeValue::intersection(
                         Intersection::new(
                             IntersectionKind::Enter,
                             vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],

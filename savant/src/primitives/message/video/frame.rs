@@ -1,7 +1,7 @@
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{
     AttributeMethods, AttributeUpdateCollisionResolutionPolicy, Attributive,
-    PythonAttributeUpdateCollisionResolutionPolicy,
+    PyAttributeUpdateCollisionResolutionPolicy,
 };
 use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerObject;
@@ -1175,7 +1175,7 @@ impl VideoFrame {
     pub fn update_attributes_gil(
         &self,
         other: VideoFrame,
-        update_policy: PythonAttributeUpdateCollisionResolutionPolicy,
+        update_policy: PyAttributeUpdateCollisionResolutionPolicy,
     ) -> PyResult<()> {
         no_gil(|| self.update_attributes(&other, &update_policy.inner))
             .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -1184,10 +1184,15 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::attribute::{
+        AttributeMethods, AttributeUpdateCollisionResolutionPolicy, AttributeValueVariant,
+    };
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{Object, ObjectModification, RBBox, SetDrawLabelKind};
+    use crate::primitives::{
+        Attribute, AttributeBuilder, AttributeValue, Object, ObjectModification, RBBox,
+        SetDrawLabelKind,
+    };
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1582,5 +1587,103 @@ mod tests {
         f.clear_attributes();
         assert!(f.get_attributes().is_empty());
         assert!(!new_f.get_attributes().is_empty());
+    }
+
+    #[test]
+    fn update_attributes_error_when_dup() {
+        let f = gen_frame();
+        let new_f = gen_frame();
+        let res = f.update_attributes(
+            &new_f,
+            &AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+        );
+        assert!(res.is_err());
+    }
+
+    fn get_attributes() -> (Attribute, Attribute) {
+        (
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test".into())
+                .hint(None)
+                .hint(Some("test".into()))
+                .values(vec![AttributeValue::boolean(true, None)])
+                .build()
+                .unwrap(),
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test".into())
+                .hint(None)
+                .hint(Some("test".into()))
+                .values(vec![AttributeValue::integer(10, None)])
+                .build()
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn update_attributes_replace_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let new_f = gen_frame();
+        new_f.set_attribute(their);
+
+        let res = f.update_attributes(
+            &new_f,
+            &AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
+        );
+        assert!(res.is_ok());
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+    }
+
+    #[test]
+    fn update_attributes_keep_own_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let new_f = gen_frame();
+        new_f.set_attribute(their);
+
+        let res = f.update_attributes(
+            &new_f,
+            &AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
+        );
+        assert!(res.is_ok());
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+    }
+
+    #[test]
+    fn update_attributes_prefix_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let new_f = gen_frame();
+        new_f.set_attribute(their);
+
+        let res = f.update_attributes(
+            &new_f,
+            &AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
+        );
+        assert!(res.is_ok());
+
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+
+        let attr = f.get_attribute(s("system"), s("conflict_test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
     }
 }

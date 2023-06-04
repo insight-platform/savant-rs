@@ -22,7 +22,8 @@ pub use crate::primitives::message::video::object::vector::{ObjectBBoxKind, Obje
 pub use crate::primitives::message::video::object::ObjectTrack;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
-pub use attribute::Value;
+pub use attribute::AttributeValue;
+pub use attribute::PyAttributeUpdateCollisionResolutionPolicy;
 pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;
 pub use message::eos::EndOfStream;
@@ -67,7 +68,8 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
-    m.add_class::<Value>()?;
+    m.add_class::<PyAttributeUpdateCollisionResolutionPolicy>()?;
+    m.add_class::<AttributeValue>()?;
     m.add_class::<Object>()?;
     m.add_class::<ObjectTrack>()?;
     m.add_class::<ObjectVectorView>()?;

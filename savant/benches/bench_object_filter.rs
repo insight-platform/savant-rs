@@ -4,7 +4,7 @@ extern crate test;
 
 use savant_rs::primitives::message::video::object::{InnerObjectBuilder, ObjectTrack};
 use savant_rs::primitives::message::video::query::*;
-use savant_rs::primitives::{AttributeBuilder, Object, RBBox, Value};
+use savant_rs::primitives::{AttributeBuilder, AttributeValue, Object, RBBox};
 use test::Bencher;
 
 fn get_objects() -> Vec<Object> {
@@ -29,7 +29,7 @@ fn get_objects() -> Vec<Object> {
                     .creator("test".to_string())
                     .name("test".to_string())
                     .hint(Some("hint".to_string()))
-                    .values(vec![Value::integer(1, None)])
+                    .values(vec![AttributeValue::integer(1, None)])
                     .build()
                     .unwrap(),
             );
