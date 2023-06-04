@@ -1,5 +1,8 @@
 use crate::capi::InferenceObjectMeta;
-use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::attribute::{
+    AttributeMethods, AttributeUpdateCollisionResolutionPolicy, Attributive,
+    PythonAttributeUpdateCollisionResolutionPolicy,
+};
 use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
@@ -9,6 +12,7 @@ use crate::primitives::{Attribute, Message, Object, PySetDrawLabelKind, SetDrawL
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
 use parking_lot::RwLock;
+use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -437,11 +441,11 @@ impl InnerVideoFrame {
             .collect();
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn restore_with_merge(&mut self) {
-        let _objects = mem::take(&mut self.resident_objects);
-        self.restore();
-        todo!("merge objects")
+    pub fn deep_copy(&self) -> Self {
+        let mut frame = self.clone();
+        frame.preserve();
+        frame.restore();
+        frame
     }
 }
 
@@ -536,23 +540,30 @@ impl AttributeMethods for VideoFrame {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>) {
         let mut inner = self.inner.write();
-        inner.delete_attributes(negated, creator, names)
+        inner.delete_attributes(creator, names)
     }
 
     fn find_attributes(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         let inner = self.inner.read_recursive();
-        inner.find_attributes(creator, name, hint)
+        inner.find_attributes(creator, names, hint)
     }
 }
 
 impl VideoFrame {
+    pub fn deep_copy(&self) -> Self {
+        let inner = self.inner.read_recursive();
+        let inner_copy = inner.deep_copy();
+        drop(inner);
+        Self::from_inner(inner_copy)
+    }
+
     pub fn get_inner(&self) -> Arc<RwLock<Box<InnerVideoFrame>>> {
         self.inner.clone()
     }
@@ -751,6 +762,61 @@ impl VideoFrame {
         inner
             .resident_objects
             .insert(object_id, object.inner.clone());
+    }
+
+    pub fn update_attributes(
+        &self,
+        other: &VideoFrame,
+        update_policy: &AttributeUpdateCollisionResolutionPolicy,
+    ) -> anyhow::Result<()> {
+        use AttributeUpdateCollisionResolutionPolicy::*;
+        match update_policy {
+            ReplaceWithForeignWhenDuplicate => {
+                let mut inner = self.inner.write();
+                let other_inner = other.inner.write();
+                inner
+                    .attributes
+                    .extend(other_inner.attributes.clone().into_iter());
+            }
+            KeepOwnWhenDuplicate => {
+                let mut inner = self.inner.write();
+                let other_inner = other.inner.read();
+                for (k, v) in other_inner.attributes.iter() {
+                    if !inner.attributes.contains_key(k) {
+                        inner.attributes.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            ErrorWhenDuplicate => {
+                let mut inner = self.inner.write();
+                let other_inner = other.inner.read();
+                for (k, v) in other_inner.attributes.iter() {
+                    if inner.attributes.contains_key(k) {
+                        anyhow::bail!(
+                            "Attribute with name '{}' created by '{}' already exists in the frame.",
+                            k.1,
+                            k.0
+                        );
+                    }
+                    inner.attributes.insert(k.clone(), v.clone());
+                }
+            }
+            PrefixDuplicates(prefix) => {
+                let mut inner = self.inner.write();
+                let other_inner = other.inner.read();
+                for (k, v) in other_inner.attributes.iter() {
+                    if inner.attributes.contains_key(k) {
+                        let mut new_key = k.clone();
+                        new_key.1 = format!("{}{}", prefix, new_key.1);
+                        inner.attributes.insert(new_key, v.clone());
+                    } else {
+                        inner.attributes.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -994,13 +1060,14 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "find_attributes")]
+    #[pyo3(signature = (creator=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, name, hint))
+        no_gil(|| self.find_attributes(creator, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
@@ -1008,15 +1075,10 @@ impl VideoFrame {
         no_gil(|| self.get_attribute(creator, name))
     }
 
-    #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
+    #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(
-        &mut self,
-        negated: bool,
-        creator: Option<String>,
-        names: Vec<String>,
-    ) {
-        no_gil(|| self.delete_attributes(negated, creator, names))
+    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
+        no_gil(|| self.delete_attributes(creator, names))
     }
 
     #[pyo3(name = "add_object")]
@@ -1103,6 +1165,21 @@ impl VideoFrame {
     pub fn get_children_gil(&self, id: i64) -> ObjectVectorView {
         no_gil(|| self.get_children(id).into())
     }
+
+    #[pyo3(name = "copy")]
+    pub fn copy_gil(&self) -> VideoFrame {
+        no_gil(|| self.deep_copy())
+    }
+
+    #[pyo3(name = "update_attributes")]
+    pub fn update_attributes_gil(
+        &self,
+        other: VideoFrame,
+        update_policy: PythonAttributeUpdateCollisionResolutionPolicy,
+    ) -> PyResult<()> {
+        no_gil(|| self.update_attributes(&other, &update_policy.inner))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -1150,26 +1227,26 @@ mod tests {
     fn test_find_attributes() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let mut attributes = t.find_attributes_gil(Some("system".to_string()), None, None);
+        let mut attributes = t.find_attributes_gil(Some("system".to_string()), vec![], None);
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
 
         let attributes =
-            t.find_attributes_gil(Some("system".to_string()), Some("test".to_string()), None);
+            t.find_attributes_gil(Some("system".to_string()), vec!["test".to_string()], None);
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
         let attributes = t.find_attributes_gil(
             Some("system".to_string()),
-            Some("test".to_string()),
+            vec!["test".to_string()],
             Some("test".to_string()),
         );
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let mut attributes = t.find_attributes_gil(None, None, Some("test".to_string()));
+        let mut attributes = t.find_attributes_gil(None, vec![], Some("test".to_string()));
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
@@ -1487,5 +1564,23 @@ mod tests {
         let removed = frame.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(removed.is_detached());
         assert!(removed.get_parent().is_none());
+    }
+
+    #[test]
+    fn deep_copy() {
+        let f = gen_frame();
+        let new_f = f.deep_copy();
+
+        // check that objects are copied
+        let o = f.get_object(0).unwrap();
+        let new_o = new_f.get_object(0).unwrap();
+        let label = s("new label");
+        o.set_label(label.clone());
+        assert_ne!(new_o.get_label(), label);
+
+        // check that attributes are copied
+        f.clear_attributes();
+        assert!(f.get_attributes().is_empty());
+        assert!(!new_f.get_attributes().is_empty());
     }
 }

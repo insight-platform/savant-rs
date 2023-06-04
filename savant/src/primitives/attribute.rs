@@ -4,6 +4,52 @@ use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone)]
+pub enum AttributeUpdateCollisionResolutionPolicy {
+    ReplaceWithForeignWhenDuplicate,
+    KeepOwnWhenDuplicate,
+    ErrorWhenDuplicate,
+    PrefixDuplicates(String),
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+#[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]
+pub struct PythonAttributeUpdateCollisionResolutionPolicy {
+    pub(crate) inner: AttributeUpdateCollisionResolutionPolicy,
+}
+
+#[pymethods]
+impl PythonAttributeUpdateCollisionResolutionPolicy {
+    #[staticmethod]
+    pub fn replace_with_foreign() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn keep_own() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn error() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn prefix_duplicates(prefix: String) -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(prefix),
+        }
+    }
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
 pub enum ValueVariant {
@@ -443,6 +489,14 @@ impl Attribute {
     pub fn is_temporary(&self) -> bool {
         !self.is_persistent
     }
+
+    pub fn make_persistent(&mut self) {
+        self.is_persistent = true;
+    }
+
+    pub fn make_temporary(&mut self) {
+        self.is_persistent = false;
+    }
 }
 
 pub trait AttributeMethods {
@@ -453,11 +507,11 @@ pub trait AttributeMethods {
     fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute>;
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
     fn clear_attributes(&self);
-    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>);
+    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>);
     fn find_attributes(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)>;
 }
@@ -516,20 +570,26 @@ pub trait Attributive: Send {
         self.get_attributes_ref_mut().clear();
     }
 
-    fn delete_attributes(&mut self, negated: bool, creator: Option<String>, names: Vec<String>) {
-        self.get_attributes_ref_mut()
-            .retain(|(c, label), _| match creator {
-                Some(ref creator) => {
-                    ((names.is_empty() || names.contains(label)) && creator == c) ^ !negated
+    fn delete_attributes(&mut self, creator: Option<String>, names: Vec<String>) {
+        self.get_attributes_ref_mut().retain(|(c, label), _| {
+            if let Some(creator) = &creator {
+                if c != creator {
+                    return true;
                 }
-                None => names.contains(label) ^ !negated,
-            });
+            }
+
+            if !names.is_empty() && !names.contains(label) {
+                return true;
+            }
+
+            false
+        });
     }
 
     fn find_attributes(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         self.get_attributes_ref()
@@ -541,10 +601,8 @@ pub trait Attributive: Send {
                     }
                 }
 
-                if let Some(name) = &name {
-                    if a.name != *name {
-                        return false;
-                    }
+                if !names.is_empty() && !names.contains(&a.name) {
+                    return false;
                 }
 
                 if let Some(hint) = &hint {

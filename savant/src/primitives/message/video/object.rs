@@ -209,19 +209,19 @@ impl AttributeMethods for Object {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, negated: bool, creator: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>) {
         let mut inner = self.inner.write();
-        inner.delete_attributes(negated, creator, names)
+        inner.delete_attributes(creator, names)
     }
 
     fn find_attributes(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         let inner = self.inner.read_recursive();
-        inner.find_attributes(creator, name, hint)
+        inner.find_attributes(creator, names, hint)
     }
 }
 
@@ -516,31 +516,27 @@ impl Object {
         self.clear_attributes()
     }
 
-    #[pyo3(signature = (negated=false, creator=None, names=vec![]))]
+    #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(
-        &mut self,
-        negated: bool,
-        creator: Option<String>,
-        names: Vec<String>,
-    ) {
+    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
         no_gil(move || {
             {
                 let mut object = self.inner.write();
                 object.modifications.push(ObjectModification::Attributes);
             }
-            self.delete_attributes(negated, creator, names)
+            self.delete_attributes(creator, names)
         })
     }
 
     #[pyo3(name = "find_attributes")]
+    #[pyo3(signature = (creator=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
         &self,
         creator: Option<String>,
-        name: Option<String>,
+        names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, name, hint))
+        no_gil(|| self.find_attributes(creator, names, hint))
     }
 
     pub fn take_modifications(&self) -> Vec<ObjectModification> {
@@ -554,7 +550,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
     use crate::primitives::{AttributeBuilder, Object, ObjectModification, RBBox, Value};
-    use crate::test::utils::gen_frame;
+    use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> Object {
         Object::from_inner_object(
@@ -605,63 +601,20 @@ mod tests {
         pyo3::prepare_freethreaded_python();
 
         let obj = get_object();
-        obj.delete_attributes(false, None, vec![]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 3);
+        obj.delete_attributes(None, vec![]);
+        assert_eq!(obj.get_inner_read().attributes.len(), 0);
 
         let obj = get_object();
-        obj.delete_attributes(true, None, vec![]);
-        assert!(obj.get_inner_read().attributes.is_empty());
+        obj.delete_attributes(Some(s("creator")), vec![]);
+        assert_eq!(obj.get_attributes().len(), 1);
 
         let obj = get_object();
-        obj.delete_attributes(false, Some("creator".to_string()), vec![]);
+        obj.delete_attributes(None, vec![s("name")]);
         assert_eq!(obj.get_inner_read().attributes.len(), 1);
-
-        let obj = get_object();
-        obj.delete_attributes(true, Some("creator".to_string()), vec![]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 2);
-
-        let obj = get_object();
-        obj.delete_attributes(false, None, vec!["name".to_string()]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 1);
-
-        let obj = get_object();
-        obj.delete_attributes(true, None, vec!["name".to_string()]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 2);
 
         let t = get_object();
-        t.delete_attributes(false, None, vec!["name".to_string(), "name2".to_string()]);
+        t.delete_attributes(None, vec![s("name"), s("name2")]);
         assert_eq!(t.get_inner_read().attributes.len(), 0);
-
-        let obj = get_object();
-        obj.delete_attributes(true, None, vec!["name".to_string(), "name2".to_string()]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 3);
-
-        let obj = get_object();
-        obj.delete_attributes(
-            false,
-            Some("creator".to_string()),
-            vec!["name".to_string(), "name2".to_string()],
-        );
-        assert_eq!(obj.get_inner_read().attributes.len(), 1);
-
-        assert_eq!(
-            &obj.get_inner_read().attributes[&("creator2".to_string(), "name".to_string())],
-            &AttributeBuilder::default()
-                .creator("creator2".to_string())
-                .name("name".to_string())
-                .values(vec![Value::string("value".to_string(), None)])
-                .hint(None)
-                .build()
-                .unwrap()
-        );
-
-        let obj = get_object();
-        obj.delete_attributes(
-            true,
-            Some("creator".to_string()),
-            vec!["name".to_string(), "name2".to_string()],
-        );
-        assert_eq!(obj.get_inner_read().attributes.len(), 2);
     }
 
     #[test]
