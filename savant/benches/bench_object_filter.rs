@@ -4,10 +4,10 @@ extern crate test;
 
 use savant_rs::primitives::message::video::object::{InnerObjectBuilder, ObjectTrack};
 use savant_rs::primitives::message::video::query::*;
-use savant_rs::primitives::{AttributeBuilder, AttributeValue, Object, RBBox};
+use savant_rs::primitives::{AttributeBuilder, AttributeValue, RBBox, VideoObject};
 use test::Bencher;
 
-fn get_objects() -> Vec<Object> {
+fn get_objects() -> Vec<VideoObject> {
     (0..100)
         .into_iter()
         .map(|i| {
@@ -33,7 +33,7 @@ fn get_objects() -> Vec<Object> {
                     .build()
                     .unwrap(),
             );
-            Object::from_inner_object(o)
+            VideoObject::from_inner_object(o)
         })
         .collect::<Vec<_>>()
 }

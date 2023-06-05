@@ -145,11 +145,11 @@ impl InnerObject {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct Object {
+pub struct VideoObject {
     pub(crate) inner: Arc<RwLock<InnerObject>>,
 }
 
-impl ToSerdeJsonValue for Object {
+impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
         self.inner.read_recursive().to_serde_json_value()
     }
@@ -173,7 +173,7 @@ impl Attributive for InnerObject {
     }
 }
 
-impl AttributeMethods for Object {
+impl AttributeMethods for VideoObject {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
         inner.exclude_temporary_attributes()
@@ -225,7 +225,7 @@ impl AttributeMethods for Object {
     }
 }
 
-impl Object {
+impl VideoObject {
     pub fn get_parent_id(&self) -> Option<i64> {
         let inner = self.inner.read_recursive();
         inner.parent_id
@@ -274,7 +274,7 @@ impl Object {
         inner.modifications.push(ObjectModification::Parent);
     }
 
-    pub fn get_parent(&self) -> Option<Object> {
+    pub fn get_parent(&self) -> Option<VideoObject> {
         let frame = self.get_frame();
         let id = self.inner.read_recursive().parent_id?;
         match frame {
@@ -283,7 +283,7 @@ impl Object {
         }
     }
 
-    pub fn get_children(&self) -> Vec<Object> {
+    pub fn get_children(&self) -> Vec<VideoObject> {
         let frame = self.get_frame();
         let id = self.get_id();
         match frame {
@@ -299,7 +299,7 @@ impl Object {
 }
 
 #[pymethods]
-impl Object {
+impl VideoObject {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -549,11 +549,13 @@ impl Object {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, AttributeValue, Object, ObjectModification, RBBox};
+    use crate::primitives::{
+        AttributeBuilder, AttributeValue, ObjectModification, RBBox, VideoObject,
+    };
     use crate::test::utils::{gen_frame, s};
 
-    fn get_object() -> Object {
-        Object::from_inner_object(
+    fn get_object() -> VideoObject {
+        VideoObject::from_inner_object(
             InnerObjectBuilder::default()
                 .id(1)
                 .track(None)

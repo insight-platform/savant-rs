@@ -5,8 +5,8 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{InnerObject, InnerObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, AttributeValue, Intersection, IntersectionKind, Object, Point,
-        PyVideoFrameContent,
+        AttributeBuilder, AttributeValue, Intersection, IntersectionKind, Point,
+        PyVideoFrameContent, VideoObject,
     };
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;
@@ -34,7 +34,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let parent_object = Object::from_inner_object(
+        let parent_object = VideoObject::from_inner_object(
             InnerObjectBuilder::default()
                 .id(0)
                 .track(None)
@@ -48,7 +48,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let c1 = Object::from_inner_object(
+        let c1 = VideoObject::from_inner_object(
             InnerObjectBuilder::default()
                 .id(1)
                 .track(None)
@@ -63,7 +63,7 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let c2 = Object::from_inner_object(
+        let c2 = VideoObject::from_inner_object(
             InnerObjectBuilder::default()
                 .id(2)
                 .track(None)
@@ -151,8 +151,8 @@ pub mod utils {
         f
     }
 
-    pub fn gen_object(id: i64) -> Object {
-        Object::from_inner_object(InnerObject {
+    pub fn gen_object(id: i64) -> VideoObject {
+        VideoObject::from_inner_object(InnerObject {
             id,
             creator: s("peoplenet"),
             label: s("face"),

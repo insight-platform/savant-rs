@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::primitives::message::video::object::InnerObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::Object;
+use crate::primitives::VideoObject;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
@@ -305,8 +305,8 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
     }
 }
 
-impl ExecutableQuery<&Object> for Query {
-    fn execute(&self, o: &Object) -> bool {
+impl ExecutableQuery<&VideoObject> for Query {
+    fn execute(&self, o: &VideoObject) -> bool {
         match self {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
@@ -384,7 +384,7 @@ impl Query {
     }
 }
 
-pub fn filter(objs: &[Object], query: &Query) -> Vec<Object> {
+pub fn filter(objs: &[VideoObject], query: &Query) -> Vec<VideoObject> {
     objs.iter()
         .filter_map(|o| {
             if query.execute(o) {
@@ -396,7 +396,7 @@ pub fn filter(objs: &[Object], query: &Query) -> Vec<Object> {
         .collect()
 }
 
-pub fn partition(objs: &[Object], query: &Query) -> (Vec<Object>, Vec<Object>) {
+pub fn partition(objs: &[VideoObject], query: &Query) -> (Vec<VideoObject>, Vec<VideoObject>) {
     objs.iter().fold((Vec::new(), Vec::new()), |mut acc, o| {
         if query.execute(o) {
             acc.0.push(o.clone());
@@ -407,13 +407,13 @@ pub fn partition(objs: &[Object], query: &Query) -> (Vec<Object>, Vec<Object>) {
     })
 }
 
-pub fn map_udf(objs: &[&Object], udf: &str) -> anyhow::Result<Vec<Object>> {
+pub fn map_udf(objs: &[&VideoObject], udf: &str) -> anyhow::Result<Vec<VideoObject>> {
     objs.iter()
         .map(|o| call_object_map_modifier(udf, o))
         .collect()
 }
 
-pub fn foreach_udf(objs: &[&Object], udf: &str) -> anyhow::Result<Vec<()>> {
+pub fn foreach_udf(objs: &[&VideoObject], udf: &str) -> anyhow::Result<Vec<()>> {
     objs.iter()
         .map(|o| call_object_inplace_modifier(udf, &[o]))
         .collect()
