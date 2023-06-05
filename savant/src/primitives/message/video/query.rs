@@ -7,7 +7,7 @@ use parking_lot::{Mutex, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::VideoObject;
 pub use crate::query_and as and;
@@ -232,8 +232,8 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
     Ok(c)
 }
 
-impl ExecutableQuery<&RwLockReadGuard<'_, InnerObject>> for Query {
-    fn execute(&self, o: &RwLockReadGuard<InnerObject>) -> bool {
+impl ExecutableQuery<&RwLockReadGuard<'_, InnerVideoObject>> for Query {
+    fn execute(&self, o: &RwLockReadGuard<InnerVideoObject>) -> bool {
         match self {
             Query::Id(x) => x.execute(&o.id),
             Query::Creator(x) => x.execute(&o.creator),
