@@ -1,7 +1,7 @@
 use crate::capi::BBOX_UNDEFINED;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
-use crate::primitives::{Object, RBBox};
+use crate::primitives::{RBBox, VideoObject};
 use crate::utils::python::no_gil;
 use crate::utils::{
     ndarray_to_bboxes, ndarray_to_rotated_bboxes, rotated_bboxes_to_ndarray, BBoxFormat,
@@ -24,11 +24,11 @@ pub enum ObjectBBoxKind {
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct ObjectVectorView {
-    pub(crate) inner: Arc<Vec<Object>>,
+    pub(crate) inner: Arc<Vec<VideoObject>>,
 }
 
-impl From<Vec<Object>> for ObjectVectorView {
-    fn from(value: Vec<Object>) -> Self {
+impl From<Vec<VideoObject>> for ObjectVectorView {
+    fn from(value: Vec<VideoObject>) -> Self {
         ObjectVectorView {
             inner: Arc::new(value),
         }
@@ -60,7 +60,7 @@ impl ObjectVectorView {
         self.__repr__()
     }
 
-    fn __getitem__(&self, index: usize) -> PyResult<Object> {
+    fn __getitem__(&self, index: usize) -> PyResult<VideoObject> {
         self.inner
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))

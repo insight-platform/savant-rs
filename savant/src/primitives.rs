@@ -1,4 +1,4 @@
-/// Attribute module specifies attribute code for [crate::primitives::Object] and [crate::primitives::VideoFrame].
+/// Attribute module specifies attribute code for [crate::primitives::VideoObject] and [crate::primitives::VideoFrame].
 ///
 pub mod attribute;
 /// Here are decleared bounding boxes
@@ -30,8 +30,9 @@ pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
 pub use message::video::batch::VideoFrameBatch;
+pub use message::video::frame::frame_update::VideoFrameUpdate;
 pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoTranscodingMethod};
-pub use message::video::object::{Object, ObjectModification};
+pub use message::video::object::{ObjectModification, VideoObject};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
@@ -70,10 +71,11 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
     m.add_class::<PyAttributeUpdateCollisionResolutionPolicy>()?;
     m.add_class::<AttributeValue>()?;
-    m.add_class::<Object>()?;
+    m.add_class::<VideoObject>()?;
     m.add_class::<ObjectTrack>()?;
     m.add_class::<ObjectVectorView>()?;
     m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameUpdate>()?;
     m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;
     m.add_class::<VideoTranscodingMethod>()?;

@@ -1,14 +1,18 @@
+pub mod frame_update;
+
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{
     AttributeMethods, AttributeUpdateCollisionResolutionPolicy, Attributive,
     PyAttributeUpdateCollisionResolutionPolicy,
 };
 use crate::primitives::message::video::object::vector::ObjectVectorView;
-use crate::primitives::message::video::object::InnerObject;
+use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Message, Object, PySetDrawLabelKind, SetDrawLabelKind};
+use crate::primitives::{
+    Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObject,
+};
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
 use parking_lot::RwLock;
@@ -355,10 +359,10 @@ pub struct InnerVideoFrame {
     pub content: VideoFrameContent,
     pub transformations: Vec<FrameTransformation>,
     pub attributes: HashMap<(String, String), Attribute>,
-    pub offline_objects: HashMap<i64, InnerObject>,
+    pub offline_objects: HashMap<i64, InnerVideoObject>,
     #[with(Skip)]
     #[builder(setter(skip))]
-    pub(crate) resident_objects: HashMap<i64, Arc<RwLock<InnerObject>>>,
+    pub(crate) resident_objects: HashMap<i64, Arc<RwLock<InnerVideoObject>>>,
 }
 
 impl Default for InnerVideoFrame {
@@ -581,7 +585,7 @@ impl VideoFrame {
         }
     }
 
-    pub fn access_objects(&self, q: &Query) -> Vec<Object> {
+    pub fn access_objects(&self, q: &Query) -> Vec<VideoObject> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -589,8 +593,8 @@ impl VideoFrame {
         resident_objects
             .iter()
             .filter_map(|(_id, o)| {
-                if q.execute(&Object::from_arced_inner_object(o.clone())) {
-                    Some(Object::from_arced_inner_object(o.clone()))
+                if q.execute(&VideoObject::from_arced_inner_object(o.clone())) {
+                    Some(VideoObject::from_arced_inner_object(o.clone()))
                 } else {
                     None
                 }
@@ -606,7 +610,7 @@ impl VideoFrame {
         serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
     }
 
-    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<Object> {
+    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObject> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -615,13 +619,13 @@ impl VideoFrame {
             .flat_map(|id| {
                 let o = resident_objects
                     .get(id)
-                    .map(|o| Object::from_arced_inner_object(o.clone()));
+                    .map(|o| VideoObject::from_arced_inner_object(o.clone()));
                 o
             })
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<Object> {
+    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
@@ -632,7 +636,7 @@ impl VideoFrame {
         removed
             .into_values()
             .map(|o| {
-                let o = Object::from_arced_inner_object(o);
+                let o = VideoObject::from_arced_inner_object(o);
                 o.detached_copy()
             })
             .collect()
@@ -643,18 +647,18 @@ impl VideoFrame {
         inner.resident_objects.contains_key(&id)
     }
 
-    pub fn delete_objects(&self, q: &Query) -> Vec<Object> {
+    pub fn delete_objects(&self, q: &Query) -> Vec<VideoObject> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
     }
 
-    pub fn get_object(&self, id: i64) -> Option<Object> {
+    pub fn get_object(&self, id: i64) -> Option<VideoObject> {
         let inner = self.inner.read_recursive();
         inner
             .resident_objects
             .get(&id)
-            .map(|o| Object::from_arced_inner_object(o.clone()))
+            .map(|o| VideoObject::from_arced_inner_object(o.clone()))
     }
 
     pub fn make_snapshot(&self) {
@@ -685,7 +689,7 @@ impl VideoFrame {
         self.fix_object_owned_frame();
     }
 
-    pub fn get_modified_objects(&self) -> Vec<Object> {
+    pub fn get_modified_objects(&self) -> Vec<VideoObject> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -693,7 +697,7 @@ impl VideoFrame {
         resident_objects
             .iter()
             .filter(|(_id, o)| !o.read_recursive().modifications.is_empty())
-            .map(|(_id, o)| Object::from_arced_inner_object(o.clone()))
+            .map(|(_id, o)| VideoObject::from_arced_inner_object(o.clone()))
             .collect()
     }
 
@@ -711,7 +715,7 @@ impl VideoFrame {
         });
     }
 
-    pub fn set_parent(&self, q: &Query, parent: &Object) -> Vec<Object> {
+    pub fn set_parent(&self, q: &Query, parent: &VideoObject) -> Vec<VideoObject> {
         let frame = parent.get_frame();
         assert!(
             frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
@@ -725,7 +729,7 @@ impl VideoFrame {
         objects
     }
 
-    pub fn clear_parent(&self, q: &Query) -> Vec<Object> {
+    pub fn clear_parent(&self, q: &Query) -> Vec<VideoObject> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
             o.set_parent(None);
@@ -733,11 +737,11 @@ impl VideoFrame {
         objects
     }
 
-    pub fn get_children(&self, id: i64) -> Vec<Object> {
+    pub fn get_children(&self, id: i64) -> Vec<VideoObject> {
         self.access_objects(&Query::ParentId(IntExpression::EQ(id)))
     }
 
-    pub fn add_object(&self, object: &Object) {
+    pub fn add_object(&self, object: &VideoObject) {
         let parent_id_opt = object.get_parent_id();
         if let Some(parent_id) = parent_id_opt {
             assert!(
@@ -766,51 +770,57 @@ impl VideoFrame {
 
     pub fn update_attributes(
         &self,
-        other: &VideoFrame,
+        update: &VideoFrameUpdate,
         update_policy: &AttributeUpdateCollisionResolutionPolicy,
     ) -> anyhow::Result<()> {
         use AttributeUpdateCollisionResolutionPolicy::*;
         match update_policy {
             ReplaceWithForeignWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = other.inner.write();
-                inner
-                    .attributes
-                    .extend(other_inner.attributes.clone().into_iter());
+                let other_inner = update.attributes.clone();
+                inner.attributes.extend(
+                    other_inner
+                        .into_iter()
+                        .map(|a| ((a.creator.clone(), a.name.clone()), a)),
+                );
             }
             KeepOwnWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = other.inner.read();
-                for (k, v) in other_inner.attributes.iter() {
-                    if !inner.attributes.contains_key(k) {
-                        inner.attributes.insert(k.clone(), v.clone());
+                let other_inner = update.attributes.clone();
+                for attr in other_inner {
+                    let key = (attr.creator.clone(), attr.name.clone());
+
+                    if !inner.attributes.contains_key(&key) {
+                        inner.attributes.insert(key, attr);
                     }
                 }
             }
             ErrorWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = other.inner.read();
-                for (k, v) in other_inner.attributes.iter() {
-                    if inner.attributes.contains_key(k) {
+                let other_inner = update.attributes.clone();
+                for attr in other_inner {
+                    let key = (attr.creator.clone(), attr.name.clone());
+                    if inner.attributes.contains_key(&key) {
                         anyhow::bail!(
                             "Attribute with name '{}' created by '{}' already exists in the frame.",
-                            k.1,
-                            k.0
+                            key.1,
+                            key.0
                         );
                     }
-                    inner.attributes.insert(k.clone(), v.clone());
+                    inner.attributes.insert(key, attr);
                 }
             }
             PrefixDuplicates(prefix) => {
                 let mut inner = self.inner.write();
-                let other_inner = other.inner.read();
-                for (k, v) in other_inner.attributes.iter() {
-                    if inner.attributes.contains_key(k) {
-                        let mut new_key = k.clone();
+                let other_inner = update.attributes.clone();
+                for attr in other_inner {
+                    let key = (attr.creator.clone(), attr.name.clone());
+                    if inner.attributes.contains_key(&key) {
+                        let mut new_key = key.clone();
                         new_key.1 = format!("{}{}", prefix, new_key.1);
-                        inner.attributes.insert(new_key, v.clone());
+                        inner.attributes.insert(new_key, attr);
                     } else {
-                        inner.attributes.insert(k.clone(), v.clone());
+                        inner.attributes.insert(key, attr);
                     }
                 }
             }
@@ -1082,7 +1092,7 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "add_object")]
-    pub fn add_object_py(&self, o: Object) {
+    pub fn add_object_py(&self, o: VideoObject) {
         no_gil(|| self.add_object(&o))
     }
 
@@ -1107,7 +1117,7 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_object")]
-    pub fn get_object_gil(&self, id: i64) -> Option<Object> {
+    pub fn get_object_gil(&self, id: i64) -> Option<VideoObject> {
         no_gil(|| self.get_object(id))
     }
 
@@ -1132,7 +1142,7 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: Object) -> ObjectVectorView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectVectorView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
@@ -1174,7 +1184,7 @@ impl VideoFrame {
     #[pyo3(name = "update_attributes")]
     pub fn update_attributes_gil(
         &self,
-        other: VideoFrame,
+        other: VideoFrameUpdate,
         update_policy: PyAttributeUpdateCollisionResolutionPolicy,
     ) -> PyResult<()> {
         no_gil(|| self.update_attributes(&other, &update_policy.inner))
@@ -1187,11 +1197,11 @@ mod tests {
     use crate::primitives::attribute::{
         AttributeMethods, AttributeUpdateCollisionResolutionPolicy, AttributeValueVariant,
     };
-    use crate::primitives::message::video::object::InnerObjectBuilder;
+    use crate::primitives::message::video::object::InnerVideoObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
     use crate::primitives::{
-        Attribute, AttributeBuilder, AttributeValue, Object, ObjectModification, RBBox,
-        SetDrawLabelKind,
+        Attribute, AttributeBuilder, AttributeValue, ObjectModification, RBBox, SetDrawLabelKind,
+        VideoFrameUpdate, VideoObject,
     };
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
@@ -1344,8 +1354,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_panic_snapshot_no_parent_added_to_frame() {
-        let parent = Object::from_inner_object(
-            InnerObjectBuilder::default()
+        let parent = VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .parent_id(None)
                 .creator(s("some-model"))
                 .label(s("some-label"))
@@ -1362,8 +1372,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_with_parent_added_to_frame() {
-        let parent = Object::from_inner_object(
-            InnerObjectBuilder::default()
+        let parent = VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .parent_id(None)
                 .creator(s("some-model"))
                 .label(s("some-label"))
@@ -1451,8 +1461,8 @@ mod tests {
     #[should_panic]
     fn attach_object_with_detached_parent() {
         pyo3::prepare_freethreaded_python();
-        let p = Object::from_inner_object(
-            InnerObjectBuilder::default()
+        let p = VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))
@@ -1461,8 +1471,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let o = Object::from_inner_object(
-            InnerObjectBuilder::default()
+        let o = VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .id(23)
                 .creator(s("random"))
                 .label(s("something"))
@@ -1480,8 +1490,8 @@ mod tests {
     #[should_panic]
     fn set_detached_parent_as_parent() {
         let f = gen_frame();
-        let o = Object::from_inner_object(
-            InnerObjectBuilder::default()
+        let o = VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))
@@ -1592,11 +1602,17 @@ mod tests {
     #[test]
     fn update_attributes_error_when_dup() {
         let f = gen_frame();
-        let new_f = gen_frame();
+        let (my, _) = get_attributes();
+        f.set_attribute(my.clone());
+
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(my);
+
         let res = f.update_attributes(
-            &new_f,
+            &upd,
             &AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         );
+
         assert!(res.is_err());
     }
 
@@ -1627,11 +1643,11 @@ mod tests {
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
-        let new_f = gen_frame();
-        new_f.set_attribute(their);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
 
         let res = f.update_attributes(
-            &new_f,
+            &upd,
             &AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
         );
         assert!(res.is_ok());
@@ -1647,11 +1663,11 @@ mod tests {
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
-        let new_f = gen_frame();
-        new_f.set_attribute(their);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
 
         let res = f.update_attributes(
-            &new_f,
+            &upd,
             &AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
         );
         assert!(res.is_ok());
@@ -1667,11 +1683,11 @@ mod tests {
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
-        let new_f = gen_frame();
-        new_f.set_attribute(their);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
 
         let res = f.update_attributes(
-            &new_f,
+            &upd,
             &AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
         );
         assert!(res.is_ok());

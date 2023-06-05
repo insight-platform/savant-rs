@@ -66,7 +66,7 @@ impl ToSerdeJsonValue for ObjectModification {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub struct InnerObject {
+pub struct InnerVideoObject {
     pub id: i64,
     pub creator: String,
     pub label: String,
@@ -95,7 +95,7 @@ pub struct InnerObject {
     pub(crate) frame: Option<BelongingVideoFrame>,
 }
 
-impl Default for InnerObject {
+impl Default for InnerVideoObject {
     fn default() -> Self {
         Self {
             id: 0,
@@ -115,7 +115,7 @@ impl Default for InnerObject {
     }
 }
 
-impl ToSerdeJsonValue for InnerObject {
+impl ToSerdeJsonValue for InnerVideoObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "id": self.id,
@@ -133,7 +133,7 @@ impl ToSerdeJsonValue for InnerObject {
     }
 }
 
-impl InnerObject {
+impl InnerVideoObject {
     pub fn get_parent_frame_source(&self) -> Option<String> {
         self.frame.as_ref().and_then(|f| {
             f.inner
@@ -145,17 +145,17 @@ impl InnerObject {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct Object {
-    pub(crate) inner: Arc<RwLock<InnerObject>>,
+pub struct VideoObject {
+    pub(crate) inner: Arc<RwLock<InnerVideoObject>>,
 }
 
-impl ToSerdeJsonValue for Object {
+impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
         self.inner.read_recursive().to_serde_json_value()
     }
 }
 
-impl Attributive for InnerObject {
+impl Attributive for InnerVideoObject {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
@@ -173,7 +173,7 @@ impl Attributive for InnerObject {
     }
 }
 
-impl AttributeMethods for Object {
+impl AttributeMethods for VideoObject {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
         inner.exclude_temporary_attributes()
@@ -225,32 +225,32 @@ impl AttributeMethods for Object {
     }
 }
 
-impl Object {
+impl VideoObject {
     pub fn get_parent_id(&self) -> Option<i64> {
         let inner = self.inner.read_recursive();
         inner.parent_id
     }
 
-    pub fn get_inner(&self) -> Arc<RwLock<InnerObject>> {
+    pub fn get_inner(&self) -> Arc<RwLock<InnerVideoObject>> {
         self.inner.clone()
     }
 
-    pub fn from_inner_object(object: InnerObject) -> Self {
+    pub fn from_inner_object(object: InnerVideoObject) -> Self {
         Self {
             inner: Arc::new(RwLock::new(object)),
         }
     }
 
-    pub fn from_arced_inner_object(object: Arc<RwLock<InnerObject>>) -> Self {
+    pub fn from_arced_inner_object(object: Arc<RwLock<InnerVideoObject>>) -> Self {
         Self { inner: object }
     }
 
-    pub fn get_inner_read(&self) -> RwLockReadGuard<InnerObject> {
+    pub fn get_inner_read(&self) -> RwLockReadGuard<InnerVideoObject> {
         let inner = self.inner.read_recursive();
         inner
     }
 
-    pub fn get_inner_write(&self) -> RwLockWriteGuard<InnerObject> {
+    pub fn get_inner_write(&self) -> RwLockWriteGuard<InnerVideoObject> {
         let inner = self.inner.write();
         inner
     }
@@ -274,7 +274,7 @@ impl Object {
         inner.modifications.push(ObjectModification::Parent);
     }
 
-    pub fn get_parent(&self) -> Option<Object> {
+    pub fn get_parent(&self) -> Option<VideoObject> {
         let frame = self.get_frame();
         let id = self.inner.read_recursive().parent_id?;
         match frame {
@@ -283,7 +283,7 @@ impl Object {
         }
     }
 
-    pub fn get_children(&self) -> Vec<Object> {
+    pub fn get_children(&self) -> Vec<VideoObject> {
         let frame = self.get_frame();
         let id = self.get_id();
         match frame {
@@ -299,7 +299,7 @@ impl Object {
 }
 
 #[pymethods]
-impl Object {
+impl VideoObject {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -325,7 +325,7 @@ impl Object {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
-        let object = InnerObject {
+        let object = InnerVideoObject {
             id,
             creator,
             label,
@@ -548,13 +548,15 @@ impl Object {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::message::video::object::InnerObjectBuilder;
-    use crate::primitives::{AttributeBuilder, AttributeValue, Object, ObjectModification, RBBox};
+    use crate::primitives::message::video::object::InnerVideoObjectBuilder;
+    use crate::primitives::{
+        AttributeBuilder, AttributeValue, ObjectModification, RBBox, VideoObject,
+    };
     use crate::test::utils::{gen_frame, s};
 
-    fn get_object() -> Object {
-        Object::from_inner_object(
-            InnerObjectBuilder::default()
+    fn get_object() -> VideoObject {
+        VideoObject::from_inner_object(
+            InnerVideoObjectBuilder::default()
                 .id(1)
                 .track(None)
                 .modifications(vec![])

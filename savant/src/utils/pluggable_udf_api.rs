@@ -1,4 +1,4 @@
-use crate::primitives::Object;
+use crate::primitives::VideoObject;
 use crate::utils::python::no_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
@@ -6,13 +6,13 @@ use libloading::os::unix::Symbol;
 use parking_lot::{const_rwlock, RwLock};
 use pyo3::prelude::*;
 
-pub type ObjectPredicateFunc = fn(o: &[&Object]) -> bool;
+pub type ObjectPredicateFunc = fn(o: &[&VideoObject]) -> bool;
 pub type ObjectPredicate = Symbol<ObjectPredicateFunc>;
 
-pub type ObjectInplaceModifierFunc = fn(o: &[&Object]) -> anyhow::Result<()>;
+pub type ObjectInplaceModifierFunc = fn(o: &[&VideoObject]) -> anyhow::Result<()>;
 pub type ObjectInplaceModifier = Symbol<ObjectInplaceModifierFunc>;
 
-pub type ObjectMapModifierFunc = fn(o: &Object) -> anyhow::Result<Object>;
+pub type ObjectMapModifierFunc = fn(o: &VideoObject) -> anyhow::Result<VideoObject>;
 pub type ObjectMapModifier = Symbol<ObjectMapModifierFunc>;
 
 /// Determines the type of user function.
@@ -161,14 +161,14 @@ pub fn register_plugin_function(
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
-pub fn call_object_predicate_gil(alias: String, args: Vec<Object>) -> PyResult<bool> {
+pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObject>) -> PyResult<bool> {
     no_gil(|| {
         call_object_predicate(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_predicate(alias: &str, args: &[&Object]) -> anyhow::Result<bool> {
+pub fn call_object_predicate(alias: &str, args: &[&VideoObject]) -> anyhow::Result<bool> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -199,14 +199,14 @@ pub fn call_object_predicate(alias: &str, args: &[&Object]) -> anyhow::Result<bo
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_inplace_modifier")]
-pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<Object>) -> PyResult<()> {
+pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<VideoObject>) -> PyResult<()> {
     no_gil(|| {
         call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_inplace_modifier(alias: &str, args: &[&Object]) -> anyhow::Result<()> {
+pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObject]) -> anyhow::Result<()> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -242,14 +242,14 @@ pub fn call_object_inplace_modifier(alias: &str, args: &[&Object]) -> anyhow::Re
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_map_modifier")]
-pub fn call_object_map_modifier_gil(alias: String, arg: Object) -> PyResult<Object> {
+pub fn call_object_map_modifier_gil(alias: String, arg: VideoObject) -> PyResult<VideoObject> {
     no_gil(|| {
         call_object_map_modifier(&alias, &arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_map_modifier(alias: &str, arg: &Object) -> anyhow::Result<Object> {
+pub fn call_object_map_modifier(alias: &str, arg: &VideoObject) -> anyhow::Result<VideoObject> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,

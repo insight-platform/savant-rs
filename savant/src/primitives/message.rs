@@ -3,6 +3,7 @@ pub mod loader;
 pub mod saver;
 pub mod video;
 
+use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
 use pyo3::{pyclass, pymethods, Py, PyAny};
@@ -12,6 +13,7 @@ pub enum NativeMessage {
     EndOfStream(EndOfStream),
     VideoFrame(VideoFrame),
     VideoFrameBatch(VideoFrameBatch),
+    VideoFrameUpdate(VideoFrameUpdate),
     Unknown(String),
 }
 
@@ -21,6 +23,7 @@ enum NativeMessageTypeConsts {
     EndOfStream,
     VideoFrame,
     VideoFrameBatch,
+    VideFrameUpdate,
     Unknown,
 }
 
@@ -33,6 +36,7 @@ impl From<NativeMessageTypeConsts> for NativeMessageMarkerType {
             NativeMessageTypeConsts::EndOfStream => [0, 0, 0, 0],
             NativeMessageTypeConsts::VideoFrame => [1, 0, 0, 0],
             NativeMessageTypeConsts::VideoFrameBatch => [2, 0, 0, 0],
+            NativeMessageTypeConsts::VideFrameUpdate => [3, 0, 0, 0],
             NativeMessageTypeConsts::Unknown => [255, 255, 255, 255],
         }
     }
@@ -44,6 +48,7 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
             [0, 0, 0, 0] => NativeMessageTypeConsts::EndOfStream,
             [1, 0, 0, 0] => NativeMessageTypeConsts::VideoFrame,
             [2, 0, 0, 0] => NativeMessageTypeConsts::VideoFrameBatch,
+            [3, 0, 0, 0] => NativeMessageTypeConsts::VideFrameUpdate,
             _ => NativeMessageTypeConsts::Unknown,
         }
     }
@@ -144,6 +149,25 @@ impl Message {
         }
     }
 
+    /// Create a new video frame update message
+    ///
+    /// Parameters
+    /// ----------
+    /// update : savant_rs.primitives.VideoFrameUpdate
+    ///   The update struct
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of VideoFrameUpdate type
+    ///
+    #[staticmethod]
+    pub fn video_fram_update(update: VideoFrameUpdate) -> Self {
+        Self {
+            payload: NativeMessage::VideoFrameUpdate(update),
+        }
+    }
+
     /// Checks if the message is of Unknown type
     ///
     /// Returns
@@ -178,6 +202,18 @@ impl Message {
     #[getter]
     pub fn is_video_frame(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrame(_))
+    }
+
+    /// Checks if the message is of VideoFrameUpdate type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of VideoFrameUpdate type, False otherwise
+    ///
+    #[getter]
+    pub fn is_video_frame_update(&self) -> bool {
+        matches!(self.payload, NativeMessage::VideoFrameUpdate(_))
     }
 
     /// Checks if the message is of VideoFrameBatch type
@@ -239,6 +275,23 @@ impl Message {
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.payload {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
+            _ => None,
+        }
+    }
+
+    /// Returns the message as VideoFrameUpdate type
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.primitives.VideoFrameUpdate`
+    ///   The message as VideoFrameUpdate type
+    /// None
+    ///   If the message is not of VideoFrameUpdate type
+    ///
+    #[getter]
+    pub fn as_video_frame_update(&self) -> Option<VideoFrameUpdate> {
+        match &self.payload {
+            NativeMessage::VideoFrameUpdate(update) => Some(update.clone()),
             _ => None,
         }
     }

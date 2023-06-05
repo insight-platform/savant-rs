@@ -2,7 +2,7 @@ use crate::primitives::message::video::frame::InnerVideoFrame;
 use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
 };
-use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch};
+use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch, VideoFrameUpdate};
 use crate::utils::python::no_gil;
 use pyo3::pyfunction;
 
@@ -45,6 +45,15 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
                 Err(e) => Message::unknown(format!("{:?}", e)),
             }
         }
+
+        NativeMessageTypeConsts::VideFrameUpdate => {
+            let update: Result<VideoFrameUpdate, _> = rkyv::from_bytes(&bytes[..]);
+            match update {
+                Ok(upd) => Message::video_fram_update(upd),
+                Err(e) => Message::unknown(format!("{:?}", e)),
+            }
+        }
+
         NativeMessageTypeConsts::VideoFrame => {
             let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(&bytes[..]);
             match f {

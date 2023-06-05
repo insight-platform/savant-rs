@@ -3,7 +3,7 @@
 /// This API is used to interface with the Savant Rust library from C.
 ///
 use crate::primitives::message::video::object::vector::ObjectVectorView;
-use crate::primitives::{Object, RBBox, VideoFrame};
+use crate::primitives::{RBBox, VideoFrame, VideoObject};
 use std::slice::from_raw_parts;
 
 /// When BBox is not defined, its elements are set to this value.
@@ -39,8 +39,8 @@ pub struct InferenceObjectMeta {
     pub track_box_angle: f64,
 }
 
-impl From<&Object> for InferenceObjectMeta {
-    fn from(o: &Object) -> Self {
+impl From<&VideoObject> for InferenceObjectMeta {
+    fn from(o: &VideoObject) -> Self {
         let o = o.inner.read_recursive();
         let track_info = o.track.as_ref();
         Self {

@@ -2,7 +2,7 @@ import ctypes
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
-from savant_rs.primitives import Object, Value, \
+from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, FrameTransformation
 from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
 from savant_rs.draw_spec import SetDrawLabelKind
@@ -57,37 +57,37 @@ print(frame.transformations[0].is_scale)
 frame.clear_transformations()
 
 frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
-    Value.none(),
-    Value.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
-    Value.integer(1, confidence=0.5),
-    Value.float(1.0, confidence=0.5),
-    Value.string("hello", confidence=0.5),
-    Value.boolean(True, confidence=0.5),
-    Value.strings(["hello", "world"], confidence=0.5),
-    Value.integers([1, 2, 3], confidence=0.5),
-    Value.floats([1.0, 2.0, 3.0], confidence=0.5),
-    Value.booleans([True, False, True], confidence=0.5),
-    Value.bbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
-    Value.bboxes([BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()], confidence=0.5),
-    Value.point(Point(0.1, 0.2), confidence=0.5),
-    Value.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
-    Value.polygon(PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
+    AttributeValue.none(),
+    AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
+    AttributeValue.integer(1, confidence=0.5),
+    AttributeValue.float(1.0, confidence=0.5),
+    AttributeValue.string("hello", confidence=0.5),
+    AttributeValue.boolean(True, confidence=0.5),
+    AttributeValue.strings(["hello", "world"], confidence=0.5),
+    AttributeValue.integers([1, 2, 3], confidence=0.5),
+    AttributeValue.floats([1.0, 2.0, 3.0], confidence=0.5),
+    AttributeValue.booleans([True, False, True], confidence=0.5),
+    AttributeValue.bbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
+    AttributeValue.bboxes([BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()], confidence=0.5),
+    AttributeValue.point(Point(0.1, 0.2), confidence=0.5),
+    AttributeValue.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
+    AttributeValue.polygon(PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
                   confidence=0.5),
-    Value.polygons([
+    AttributeValue.polygons([
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])],
         confidence=0.5),
 ]))
 
 frame.set_attribute(Attribute(creator="other", name="attr", values=[
-    Value.integer(1, confidence=0.5),
+    AttributeValue.integer(1, confidence=0.5),
 ]))
 
 print(frame.attributes)
 
-print(frame.find_attributes(name="attr"))
+print(frame.find_attributes(names=["attr"]))
 print(frame.find_attributes(creator="other"))
-print(frame.find_attributes(creator="other", name="attr"))
+print(frame.find_attributes(creator="other", names=["attr"]))
 print(frame.find_attributes(hint="x"))
 print(frame.find_attributes(creator="some", hint="x"))
 
@@ -95,7 +95,7 @@ print(frame.get_attribute(creator="other", name="attr"))
 deleted = frame.delete_attribute(creator="some", name="attr")
 print(deleted)
 
-frame.add_object(Object(
+frame.add_object(VideoObject(
     id=1,
     creator="some",
     label="person",
@@ -185,11 +185,11 @@ vec = vec[0]
 print("Object", vec)
 
 vec.set_attribute(Attribute(creator="other", name="attr", values=[
-    Value.integer(1, confidence=0.5),
+    AttributeValue.integer(1, confidence=0.5),
 ]))
 
 vec.set_attribute(Attribute(creator="some", name="attr", values=[
-    Value.integers([1, 2, 3], confidence=0.5),
+    AttributeValue.integers([1, 2, 3], confidence=0.5),
 ]))
 
 message = Message.video_frame(frame)
