@@ -1,8 +1,8 @@
-from savant_rs.primitives import Object, Value, Attribute
+from savant_rs.primitives import VideoObject, AttributeValue, Attribute
 from savant_rs.primitives.geometry import RBBox
 from timeit import default_timer as timer
 
-o = Object(
+o = VideoObject(
     id=1,
     creator="some",
     label="person",
@@ -18,10 +18,10 @@ bts = bytes(256)
 
 a = Attribute(creator="other", name="attr", values=[
     # Value.bytes(dims=[8, 3, 8, 8], blob=bts, confidence=None),
-    Value.integer(1, confidence=0.5),
-    Value.integer(2, confidence=0.5),
-    Value.integer(3, confidence=0.5),
-    Value.integer(4, confidence=0.5),
+    AttributeValue.integer(1, confidence=0.5),
+    AttributeValue.integer(2, confidence=0.5),
+    AttributeValue.integer(3, confidence=0.5),
+    AttributeValue.integer(4, confidence=0.5),
 ])
 
 for _ in range(1_000):
