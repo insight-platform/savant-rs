@@ -23,7 +23,6 @@ pub use crate::primitives::message::video::object::VideoObjectTrackingData;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::AttributeValue;
-pub use attribute::PyAttributeUpdateCollisionResolutionPolicy;
 pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;
 pub use message::eos::EndOfStream;
@@ -31,6 +30,10 @@ pub use message::loader::load_message;
 pub use message::saver::save_message;
 pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::frame_update::VideoFrameUpdate;
+pub use message::video::frame::frame_update::{
+    AttributeUpdateCollisionResolutionPolicy, ObjectUpdateCollisionResolutionPolicy,
+    PyAttributeUpdateCollisionResolutionPolicy, PyObjectUpdateCollisionResolutionPolicy,
+};
 pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoTranscodingMethod};
 pub use message::video::object::{ObjectModification, VideoObject};
 pub use message::Message;
@@ -70,6 +73,7 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
 pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Attribute>()?;
     m.add_class::<PyAttributeUpdateCollisionResolutionPolicy>()?;
+    m.add_class::<PyObjectUpdateCollisionResolutionPolicy>()?;
     m.add_class::<AttributeValue>()?;
     m.add_class::<VideoObject>()?;
     m.add_class::<VideoObjectTrackingData>()?;

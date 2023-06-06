@@ -4,65 +4,6 @@ use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
-#[archive(check_bytes)]
-pub enum AttributeUpdateCollisionResolutionPolicy {
-    ReplaceWithForeignWhenDuplicate,
-    KeepOwnWhenDuplicate,
-    ErrorWhenDuplicate,
-    PrefixDuplicates(String),
-}
-
-#[pyclass]
-#[derive(Debug, Clone)]
-#[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]
-pub struct PyAttributeUpdateCollisionResolutionPolicy {
-    pub(crate) inner: AttributeUpdateCollisionResolutionPolicy,
-}
-
-#[pymethods]
-impl PyAttributeUpdateCollisionResolutionPolicy {
-    #[staticmethod]
-    pub fn replace_with_foreign() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn keep_own() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn error() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn prefix_duplicates(prefix: String) -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(prefix),
-        }
-    }
-}
-
-impl From<AttributeUpdateCollisionResolutionPolicy> for PyAttributeUpdateCollisionResolutionPolicy {
-    fn from(value: AttributeUpdateCollisionResolutionPolicy) -> Self {
-        PyAttributeUpdateCollisionResolutionPolicy { inner: value }
-    }
-}
-
-impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisionResolutionPolicy {
-    fn from(value: PyAttributeUpdateCollisionResolutionPolicy) -> Self {
-        value.inner
-    }
-}
-
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
 #[archive(check_bytes)]
 pub enum AttributeValueVariant {

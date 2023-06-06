@@ -1,9 +1,7 @@
 pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
-use crate::primitives::attribute::{
-    AttributeMethods, AttributeUpdateCollisionResolutionPolicy, Attributive,
-};
+use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
@@ -768,7 +766,7 @@ impl VideoFrame {
     }
 
     pub fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
-        use AttributeUpdateCollisionResolutionPolicy::*;
+        use frame_update::AttributeUpdateCollisionResolutionPolicy::*;
         match &update.attribute_collision_resolution_policy {
             ReplaceWithForeignWhenDuplicate => {
                 let mut inner = self.inner.write();
@@ -1184,9 +1182,8 @@ impl VideoFrame {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::{
-        AttributeMethods, AttributeUpdateCollisionResolutionPolicy, AttributeValueVariant,
-    };
+    use crate::primitives::attribute::{AttributeMethods, AttributeValueVariant};
+    use crate::primitives::message::video::frame::frame_update::AttributeUpdateCollisionResolutionPolicy;
     use crate::primitives::message::video::object::InnerVideoObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
     use crate::primitives::{
