@@ -1,9 +1,10 @@
+use crate::primitives::attribute::AttributeUpdateCollisionResolutionPolicy;
 use crate::primitives::message::video::object::InnerVideoObject;
-use crate::primitives::{Attribute, VideoObject};
+use crate::primitives::{Attribute, PyAttributeUpdateCollisionResolutionPolicy, VideoObject};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
 
-/// A video frame update object is used to udpate state of a frame from external source.
+/// A video frame update object is used to update state of a frame from external source.
 ///
 /// It contains a list of attributes and a list of objects.
 ///
@@ -14,6 +15,22 @@ pub struct VideoFrameUpdate {
     #[pyo3(get, set)]
     pub(crate) attributes: Vec<Attribute>,
     pub(crate) objects: Vec<InnerVideoObject>,
+    pub(crate) attribute_collision_resolution_policy: AttributeUpdateCollisionResolutionPolicy,
+}
+
+impl VideoFrameUpdate {
+    pub fn set_attribute_collision_resolution_policy(
+        &mut self,
+        p: AttributeUpdateCollisionResolutionPolicy,
+    ) {
+        self.attribute_collision_resolution_policy = p;
+    }
+
+    pub fn get_attribute_collision_resolution_policy(
+        &self,
+    ) -> AttributeUpdateCollisionResolutionPolicy {
+        self.attribute_collision_resolution_policy.clone()
+    }
 }
 
 #[pymethods]
@@ -23,6 +40,8 @@ impl VideoFrameUpdate {
         Self {
             attributes: Vec::new(),
             objects: Vec::new(),
+            attribute_collision_resolution_policy:
+                AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         }
     }
 
@@ -39,6 +58,40 @@ impl VideoFrameUpdate {
     ///
     pub fn add_attribute(&mut self, attribute: Attribute) {
         self.attributes.push(attribute);
+    }
+
+    /// Sets collision resolution policy for attributes
+    ///
+    /// Parameters
+    /// ----------
+    /// attribute: savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy
+    ///    The policy to set
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///
+    #[setter]
+    #[pyo3(name = "attribute_collision_resolution_policy")]
+    pub fn set_attribute_collision_resolution_policy_py(
+        &mut self,
+        p: PyAttributeUpdateCollisionResolutionPolicy,
+    ) {
+        self.attribute_collision_resolution_policy = p.into();
+    }
+
+    /// Gets collision resolution policy for attributes
+    ///
+    /// Returns
+    /// -------
+    /// attribute: savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy
+    ///
+    #[getter]
+    #[pyo3(name = "attribute_collision_resolution_policy")]
+    pub fn get_attribute_collision_resolution_policy_py(
+        &self,
+    ) -> PyAttributeUpdateCollisionResolutionPolicy {
+        self.attribute_collision_resolution_policy.clone().into()
     }
 
     /// Adds an object to the frame update.

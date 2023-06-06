@@ -4,7 +4,8 @@ use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
 pub enum AttributeUpdateCollisionResolutionPolicy {
     ReplaceWithForeignWhenDuplicate,
     KeepOwnWhenDuplicate,
@@ -47,6 +48,18 @@ impl PyAttributeUpdateCollisionResolutionPolicy {
         Self {
             inner: AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(prefix),
         }
+    }
+}
+
+impl From<AttributeUpdateCollisionResolutionPolicy> for PyAttributeUpdateCollisionResolutionPolicy {
+    fn from(value: AttributeUpdateCollisionResolutionPolicy) -> Self {
+        PyAttributeUpdateCollisionResolutionPolicy { inner: value }
+    }
+}
+
+impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisionResolutionPolicy {
+    fn from(value: PyAttributeUpdateCollisionResolutionPolicy) -> Self {
+        value.inner
     }
 }
 

@@ -17,14 +17,14 @@ pub mod vector;
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub struct ObjectTrack {
+pub struct VideoObjectTrackingData {
     #[pyo3(get, set)]
     pub id: i64,
     #[pyo3(get, set)]
     pub bounding_box: RBBox,
 }
 
-impl ToSerdeJsonValue for ObjectTrack {
+impl ToSerdeJsonValue for VideoObjectTrackingData {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!({
             "track_id": self.id,
@@ -34,7 +34,7 @@ impl ToSerdeJsonValue for ObjectTrack {
 }
 
 #[pymethods]
-impl ObjectTrack {
+impl VideoObjectTrackingData {
     #[new]
     pub fn new(track_id: i64, bounding_box: RBBox) -> Self {
         Self {
@@ -80,7 +80,7 @@ pub struct InnerVideoObject {
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
-    pub track: Option<ObjectTrack>,
+    pub track: Option<VideoObjectTrackingData>,
     #[with(Skip)]
     #[builder(default)]
     pub modifications: Vec<ObjectModification>,
@@ -320,7 +320,7 @@ impl VideoObject {
         bbox: RBBox,
         attributes: HashMap<(String, String), Attribute>,
         confidence: Option<f64>,
-        track: Option<ObjectTrack>,
+        track: Option<VideoObjectTrackingData>,
     ) -> Self {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
@@ -379,7 +379,7 @@ impl VideoObject {
     }
 
     #[getter]
-    pub fn get_track(&self) -> Option<ObjectTrack> {
+    pub fn get_tracking_data(&self) -> Option<VideoObjectTrackingData> {
         let inner = self.inner.read_recursive();
         inner.track.clone()
     }
@@ -429,7 +429,7 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_track(&self, track: Option<ObjectTrack>) {
+    pub fn set_tracking_data(&self, track: Option<VideoObjectTrackingData>) {
         let mut inner = self.inner.write();
         inner.track = track;
         inner.modifications.push(ObjectModification::Track);

@@ -19,7 +19,7 @@ pub mod to_json_value;
 
 use crate::primitives::message::video::frame::PyFrameTransformation;
 pub use crate::primitives::message::video::object::vector::{ObjectBBoxKind, ObjectVectorView};
-pub use crate::primitives::message::video::object::ObjectTrack;
+pub use crate::primitives::message::video::object::VideoObjectTrackingData;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::AttributeValue;
@@ -72,7 +72,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyAttributeUpdateCollisionResolutionPolicy>()?;
     m.add_class::<AttributeValue>()?;
     m.add_class::<VideoObject>()?;
-    m.add_class::<ObjectTrack>()?;
+    m.add_class::<VideoObjectTrackingData>()?;
     m.add_class::<ObjectVectorView>()?;
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameUpdate>()?;

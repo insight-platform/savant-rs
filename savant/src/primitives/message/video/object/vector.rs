@@ -140,7 +140,7 @@ impl ObjectVectorView {
                 .inner
                 .iter()
                 .flat_map(|o| {
-                    o.get_track()
+                    o.get_tracking_data()
                         .map(|t| t.bounding_box)
                         .or(Some(BBOX_UNDEFINED))
                 })
@@ -155,7 +155,7 @@ impl ObjectVectorView {
         no_gil(|| {
             self.inner
                 .iter()
-                .map(|o| o.get_track().map(|t| t.id))
+                .map(|o| o.get_tracking_data().map(|t| t.id))
                 .collect::<Vec<_>>()
         })
     }

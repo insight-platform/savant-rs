@@ -424,7 +424,7 @@ mod tests {
     use super::Query::*;
     use super::*;
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::message::video::object::ObjectTrack;
+    use crate::primitives::message::video::object::VideoObjectTrackingData;
     use crate::primitives::{AttributeBuilder, AttributeValue, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
@@ -613,7 +613,7 @@ mod tests {
         let expr = TrackDefined;
         assert!(!expr.execute(&gen_object(1)));
 
-        object.set_track(Some(ObjectTrack::new(
+        object.set_tracking_data(Some(VideoObjectTrackingData::new(
             1,
             RBBox::new(1.0, 2.0, 10.0, 20.0, None),
         )));

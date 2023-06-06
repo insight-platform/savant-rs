@@ -3,7 +3,6 @@ pub mod frame_update;
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{
     AttributeMethods, AttributeUpdateCollisionResolutionPolicy, Attributive,
-    PyAttributeUpdateCollisionResolutionPolicy,
 };
 use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerVideoObject;
@@ -768,13 +767,9 @@ impl VideoFrame {
             .insert(object_id, object.inner.clone());
     }
 
-    pub fn update_attributes(
-        &self,
-        update: &VideoFrameUpdate,
-        update_policy: &AttributeUpdateCollisionResolutionPolicy,
-    ) -> anyhow::Result<()> {
+    pub fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use AttributeUpdateCollisionResolutionPolicy::*;
-        match update_policy {
+        match &update.attribute_collision_resolution_policy {
             ReplaceWithForeignWhenDuplicate => {
                 let mut inner = self.inner.write();
                 let other_inner = update.attributes.clone();
@@ -1182,13 +1177,8 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "update_attributes")]
-    pub fn update_attributes_gil(
-        &self,
-        other: VideoFrameUpdate,
-        update_policy: PyAttributeUpdateCollisionResolutionPolicy,
-    ) -> PyResult<()> {
-        no_gil(|| self.update_attributes(&other, &update_policy.inner))
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn update_attributes_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update_attributes(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
@@ -1607,12 +1597,11 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::new();
         upd.add_attribute(my);
-
-        let res = f.update_attributes(
-            &upd,
-            &AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         );
 
+        let res = f.update_attributes(&upd);
         assert!(res.is_err());
     }
 
@@ -1645,11 +1634,11 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::new();
         upd.add_attribute(their);
-
-        let res = f.update_attributes(
-            &upd,
-            &AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
         );
+
+        let res = f.update_attributes(&upd);
         assert!(res.is_ok());
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
@@ -1665,11 +1654,11 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::new();
         upd.add_attribute(their);
-
-        let res = f.update_attributes(
-            &upd,
-            &AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
         );
+
+        let res = f.update_attributes(&upd);
         assert!(res.is_ok());
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
@@ -1685,11 +1674,11 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::new();
         upd.add_attribute(their);
-
-        let res = f.update_attributes(
-            &upd,
-            &AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
         );
+
+        let res = f.update_attributes(&upd);
         assert!(res.is_ok());
 
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
