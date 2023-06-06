@@ -5,7 +5,9 @@ use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::vector::ObjectVectorView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
-use crate::primitives::message::video::query::{ExecutableQuery, IntExpression, Query};
+use crate::primitives::message::video::query::{
+    ExecutableQuery, IntExpression, Query, StringExpression,
+};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObject,
@@ -765,6 +767,61 @@ impl VideoFrame {
             .insert(object_id, object.inner.clone());
     }
 
+    pub fn get_min_object_id(&self) -> i64 {
+        let inner = self.inner.read_recursive();
+        inner.resident_objects.keys().min().map(|k| *k).unwrap_or(0)
+    }
+
+    pub fn get_max_object_id(&self) -> i64 {
+        let inner = self.inner.read_recursive();
+        inner.resident_objects.keys().max().map(|k| *k).unwrap_or(0)
+    }
+
+    pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+        use frame_update::ObjectUpdateCollisionResolutionPolicy::*;
+        let mut min_id = self.get_min_object_id();
+        let other_inner = update.objects.clone();
+        let object_query = |o: &InnerVideoObject| {
+            crate::primitives::message::video::query::and![
+                Query::Label(StringExpression::EQ(o.label.clone())),
+                Query::Creator(StringExpression::EQ(o.creator.clone()))
+            ]
+        };
+        match &update.object_collision_resolution_policy {
+            AddForeignObjects => {
+                for mut obj in other_inner {
+                    min_id -= 1;
+                    obj.id = min_id;
+                    self.add_object(&VideoObject::from_inner_object(obj));
+                }
+            }
+            ErrorIfLabelsCollide => {
+                for mut obj in other_inner {
+                    let objs = self.access_objects(&object_query(&obj));
+                    if !objs.is_empty() {
+                        anyhow::bail!(
+                            "Objects with label '{}' and creator '{}' already exists in the frame.",
+                            obj.label,
+                            obj.creator
+                        )
+                    }
+                    min_id -= 1;
+                    obj.id = min_id;
+                    self.add_object(&VideoObject::from_inner_object(obj));
+                }
+            }
+            ReplaceSameLabelObjects => {
+                for mut obj in other_inner {
+                    self.delete_objects(&object_query(&obj));
+                    min_id -= 1;
+                    obj.id = min_id;
+                    self.add_object(&VideoObject::from_inner_object(obj));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use frame_update::AttributeUpdateCollisionResolutionPolicy::*;
         match &update.attribute_collision_resolution_policy {
@@ -819,6 +876,12 @@ impl VideoFrame {
             }
         }
 
+        Ok(())
+    }
+
+    pub fn update(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+        self.update_objects(update)?;
+        self.update_attributes(update)?;
         Ok(())
     }
 }
@@ -1178,18 +1241,24 @@ impl VideoFrame {
     pub fn update_attributes_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
         no_gil(|| self.update_attributes(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    #[pyo3(name = "update_objects")]
+    pub fn update_objects_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update_objects(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(name = "update")]
+    pub fn update_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::{AttributeMethods, AttributeValueVariant};
-    use crate::primitives::message::video::frame::frame_update::AttributeUpdateCollisionResolutionPolicy;
+    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerVideoObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{
-        Attribute, AttributeBuilder, AttributeValue, ObjectModification, RBBox, SetDrawLabelKind,
-        VideoFrameUpdate, VideoObject,
-    };
+    use crate::primitives::{ObjectModification, RBBox, SetDrawLabelKind, VideoObject};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1584,108 +1653,5 @@ mod tests {
         f.clear_attributes();
         assert!(f.get_attributes().is_empty());
         assert!(!new_f.get_attributes().is_empty());
-    }
-
-    #[test]
-    fn update_attributes_error_when_dup() {
-        let f = gen_frame();
-        let (my, _) = get_attributes();
-        f.set_attribute(my.clone());
-
-        let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(my);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
-        );
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_err());
-    }
-
-    fn get_attributes() -> (Attribute, Attribute) {
-        (
-            AttributeBuilder::default()
-                .creator("system".into())
-                .name("test".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::boolean(true, None)])
-                .build()
-                .unwrap(),
-            AttributeBuilder::default()
-                .creator("system".into())
-                .name("test".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::integer(10, None)])
-                .build()
-                .unwrap(),
-        )
-    }
-
-    #[test]
-    fn update_attributes_replace_when_dup() {
-        let f = gen_frame();
-        let (my, their) = get_attributes();
-        f.set_attribute(my);
-
-        let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
-        );
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
-    }
-
-    #[test]
-    fn update_attributes_keep_own_when_dup() {
-        let f = gen_frame();
-        let (my, their) = get_attributes();
-        f.set_attribute(my);
-
-        let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
-        );
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
-    }
-
-    #[test]
-    fn update_attributes_prefix_when_dup() {
-        let f = gen_frame();
-        let (my, their) = get_attributes();
-        f.set_attribute(my);
-
-        let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
-        );
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_ok());
-
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
-
-        let attr = f.get_attribute(s("system"), s("conflict_test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
     }
 }

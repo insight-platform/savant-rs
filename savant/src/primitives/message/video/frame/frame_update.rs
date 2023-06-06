@@ -277,3 +277,116 @@ impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisi
         value.inner
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::{
+        Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy, AttributeValue,
+        AttributeValueVariant, VideoFrameUpdate,
+    };
+    use crate::test::utils::{gen_frame, s};
+
+    #[test]
+    fn update_attributes_error_when_dup() {
+        let f = gen_frame();
+        let (my, _) = get_attributes();
+        f.set_attribute(my.clone());
+
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(my);
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+        );
+
+        let res = f.update_attributes(&upd);
+        assert!(res.is_err());
+    }
+
+    fn get_attributes() -> (Attribute, Attribute) {
+        (
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test".into())
+                .hint(None)
+                .hint(Some("test".into()))
+                .values(vec![AttributeValue::boolean(true, None)])
+                .build()
+                .unwrap(),
+            AttributeBuilder::default()
+                .creator("system".into())
+                .name("test".into())
+                .hint(None)
+                .hint(Some("test".into()))
+                .values(vec![AttributeValue::integer(10, None)])
+                .build()
+                .unwrap(),
+        )
+    }
+
+    #[test]
+    fn update_attributes_replace_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
+        );
+
+        let res = f.update_attributes(&upd);
+        assert!(res.is_ok());
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+    }
+
+    #[test]
+    fn update_attributes_keep_own_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
+        );
+
+        let res = f.update_attributes(&upd);
+        assert!(res.is_ok());
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+    }
+
+    #[test]
+    fn update_attributes_prefix_when_dup() {
+        let f = gen_frame();
+        let (my, their) = get_attributes();
+        f.set_attribute(my);
+
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_attribute(their);
+        upd.set_attribute_collision_resolution_policy(
+            AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
+        );
+
+        let res = f.update_attributes(&upd);
+        assert!(res.is_ok());
+
+        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+
+        let attr = f.get_attribute(s("system"), s("conflict_test")).unwrap();
+        let vals = attr.get_values();
+        let v = &vals[0];
+        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+    }
+}

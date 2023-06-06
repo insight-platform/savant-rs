@@ -23,6 +23,7 @@ pub use crate::primitives::message::video::object::VideoObjectTrackingData;
 pub use attribute::Attribute;
 pub use attribute::AttributeBuilder;
 pub use attribute::AttributeValue;
+pub use attribute::AttributeValueVariant;
 pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;
 pub use message::eos::EndOfStream;
