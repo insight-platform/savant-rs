@@ -2,7 +2,8 @@
 
 members = [
     "sample_plugin",
-    "savant"
+    "savant",
+    "etcd_dynamic_state"
 ]
 
 [profile.release]
