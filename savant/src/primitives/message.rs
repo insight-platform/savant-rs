@@ -162,7 +162,7 @@ impl Message {
     ///   The message of VideoFrameUpdate type
     ///
     #[staticmethod]
-    pub fn video_fram_update(update: VideoFrameUpdate) -> Self {
+    pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
         Self {
             payload: NativeMessage::VideoFrameUpdate(update),
         }

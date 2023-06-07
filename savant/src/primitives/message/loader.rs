@@ -49,7 +49,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
         NativeMessageTypeConsts::VideFrameUpdate => {
             let update: Result<VideoFrameUpdate, _> = rkyv::from_bytes(&bytes[..]);
             match update {
-                Ok(upd) => Message::video_fram_update(upd),
+                Ok(upd) => Message::video_frame_update(upd),
                 Err(e) => Message::unknown(format!("{:?}", e)),
             }
         }

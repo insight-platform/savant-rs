@@ -769,12 +769,12 @@ impl VideoFrame {
 
     pub fn get_min_object_id(&self) -> i64 {
         let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().min().map(|k| *k).unwrap_or(0)
+        inner.resident_objects.keys().min().copied().unwrap_or(0)
     }
 
     pub fn get_max_object_id(&self) -> i64 {
         let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().max().map(|k| *k).unwrap_or(0)
+        inner.resident_objects.keys().max().copied().unwrap_or(0)
     }
 
     pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
@@ -787,6 +787,7 @@ impl VideoFrame {
                 Query::Creator(StringExpression::EQ(o.creator.clone()))
             ]
         };
+
         match &update.object_collision_resolution_policy {
             AddForeignObjects => {
                 for mut obj in other_inner {
@@ -842,10 +843,7 @@ impl VideoFrame {
                 let other_inner = update.attributes.clone();
                 for attr in other_inner {
                     let key = (attr.creator.clone(), attr.name.clone());
-
-                    if !inner.attributes.contains_key(&key) {
-                        inner.attributes.insert(key, attr);
-                    }
+                    inner.attributes.entry(key).or_insert(attr);
                 }
             }
             ErrorWhenDuplicate => {

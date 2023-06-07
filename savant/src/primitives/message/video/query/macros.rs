@@ -7,22 +7,10 @@ macro_rules! query_not {
 
 #[macro_export]
 macro_rules! query_or {
-    ($($args:expr),* $(,)?) => {{
-        let mut v: Vec<Query> = Vec::new();
-        $(
-            v.push($args);
-        )*
-        Query::Or(v)
-    }}
+    ($($x:expr),+ $(,)?) => ( Query::Or(vec![$($x),+]) );
 }
 
 #[macro_export]
 macro_rules! query_and {
-    ($($args:expr),* $(,)?) => {{
-        let mut v: Vec<Query> = Vec::new();
-        $(
-            v.push($args);
-        )*
-        Query::And(v)
-    }}
+    ($($x:expr),+ $(,)?) => ( Query::And(vec![$($x),+]) );
 }

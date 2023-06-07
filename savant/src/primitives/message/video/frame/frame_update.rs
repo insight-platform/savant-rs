@@ -154,10 +154,8 @@ impl VideoFrameUpdate {
     }
 }
 
-#[pymethods]
-impl VideoFrameUpdate {
-    #[new]
-    pub fn new() -> Self {
+impl Default for VideoFrameUpdate {
+    fn default() -> Self {
         Self {
             attributes: Vec::new(),
             objects: Vec::new(),
@@ -166,6 +164,14 @@ impl VideoFrameUpdate {
             attribute_collision_resolution_policy:
                 AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         }
+    }
+}
+
+#[pymethods]
+impl VideoFrameUpdate {
+    #[new]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Add an attribute to the frame update.
