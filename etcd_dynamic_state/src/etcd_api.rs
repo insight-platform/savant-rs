@@ -39,7 +39,7 @@ pub struct EtcdClient {
 pub enum Operation {
     Set {
         key: String,
-        value: String,
+        value: Vec<u8>,
         with_lease: bool,
     },
     DelKey {
@@ -79,18 +79,15 @@ impl VarPathSpec {
         )
     }
 
-    pub async fn get(&self, client: &mut Client) -> Result<(String, String)> {
+    pub async fn get(&self, client: &mut Client) -> Result<(String, Vec<u8>)> {
         match self {
             VarPathSpec::SingleVar(key) => {
                 let resp = client.get(key.as_bytes(), None).await?;
                 match resp.kvs().first() {
                     Some(res) => {
-                        info!(
-                            "Etcd Get: Key={}, Value={}",
-                            res.key_str()?,
-                            res.value_str()?
-                        );
-                        Ok((res.key_str()?.to_string(), res.value_str()?.to_string()))
+                        let value = Vec::from(res.value());
+                        info!("Etcd Get: Key={}, Value={:?}", res.key_str()?, value);
+                        Ok((res.key_str()?.to_string(), value))
                     }
                     None => {
                         warn!("No value found for key: {:?}", key);
@@ -102,7 +99,7 @@ impl VarPathSpec {
         }
     }
 
-    pub async fn get_prefix(&self, client: &mut Client) -> Result<Vec<(String, String)>> {
+    pub async fn get_prefix(&self, client: &mut Client) -> Result<Vec<(String, Vec<u8>)>> {
         match self {
             VarPathSpec::Prefix(key) => {
                 let resp = client
@@ -110,12 +107,9 @@ impl VarPathSpec {
                     .await?;
                 let mut result = Vec::default();
                 for kv in resp.kvs() {
-                    info!(
-                        "Etcd Get Prefix: Key={}, Value={}",
-                        kv.key_str()?,
-                        kv.value_str()?
-                    );
-                    result.push((kv.key_str()?.to_string(), kv.value_str()?.to_string()));
+                    let value = Vec::from(kv.value());
+                    info!("Etcd Get Prefix: Key={}, Value={:?}", kv.key_str()?, value);
+                    result.push((kv.key_str()?.to_string(), value));
                 }
                 Ok(result)
             }
@@ -168,7 +162,7 @@ impl EtcdClient {
     pub async fn fetch_vars(
         &mut self,
         var_spec: &Vec<VarPathSpec>,
-    ) -> Result<Vec<(String, String)>> {
+    ) -> Result<Vec<(String, Vec<u8>)>> {
         let mut res = Vec::default();
         for v in var_spec {
             match v {
@@ -270,7 +264,7 @@ impl EtcdClient {
                                     .await
                                     .notify(Operation::Set {
                                         key: kv.key_str()?.to_string(),
-                                        value: kv.value_str()?.to_string(),
+                                        value: kv.value().to_vec(),
                                         with_lease: kv.lease() != 0,
                                     })
                                     .await?;
