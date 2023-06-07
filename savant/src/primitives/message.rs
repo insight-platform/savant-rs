@@ -28,6 +28,7 @@ enum NativeMessageTypeConsts {
 }
 
 pub const NATIVE_MESSAGE_MARKER_LEN: usize = 4;
+pub const VERSION_LEN: usize = 4;
 pub type NativeMessageMarkerType = [u8; NATIVE_MESSAGE_MARKER_LEN];
 
 impl From<NativeMessageTypeConsts> for NativeMessageMarkerType {
@@ -320,10 +321,11 @@ mod tests {
     use crate::primitives::message::loader::load_message;
     use crate::primitives::message::saver::save_message_gil;
     use crate::primitives::message::{
-        NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
+        NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
     };
     use crate::primitives::{save_message, Attribute, EndOfStream, Message, VideoFrameBatch};
     use crate::test::utils::gen_frame;
+    use std::ops::AddAssign;
 
     #[test]
     fn test_save_load_eos() {
@@ -331,8 +333,11 @@ mod tests {
         let eos = EndOfStream::new("test".to_string());
         let m = Message::end_of_stream(eos);
         let res = save_message_gil(m);
+        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
+        let type_end = type_start + VERSION_LEN;
+
         assert_eq!(
-            res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
+            res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::EndOfStream).as_ref()
         );
         let m = load_message(res);
@@ -344,8 +349,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let m = Message::video_frame(gen_frame());
         let res = save_message_gil(m);
+        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
+        let type_end = type_start + VERSION_LEN;
         assert_eq!(
-            res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
+            res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrame).as_ref()
         );
         let m = load_message(res);
@@ -357,8 +364,10 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let m = Message::unknown("x".to_string());
         let res = save_message_gil(m);
+        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
+        let type_end = type_start + VERSION_LEN;
         assert_eq!(
-            res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
+            res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::Unknown).as_ref()
         );
         let m = load_message(res);
@@ -374,8 +383,11 @@ mod tests {
         batch.add(3, gen_frame());
         let m = Message::video_frame_batch(batch);
         let res = save_message_gil(m);
+        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
+        let type_end = type_start + VERSION_LEN;
+
         assert_eq!(
-            res[(res.len() - NATIVE_MESSAGE_MARKER_LEN)..].as_ref(),
+            res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrameBatch).as_ref()
         );
         let m = load_message(res);
@@ -421,5 +433,20 @@ mod tests {
         let f = m.as_video_frame().unwrap();
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);
+    }
+
+    #[test]
+    fn test_wrong_version() {
+        pyo3::prepare_freethreaded_python();
+        let eos = EndOfStream::new("test".to_string());
+        let m = Message::end_of_stream(eos);
+        let mut res = save_message_gil(m);
+        let version_start = res.len() - VERSION_LEN;
+        let version_end = version_start + VERSION_LEN;
+        res[version_end - 1].add_assign(1);
+        let m = load_message(res);
+        assert!(m.is_unknown());
+        let m = m.as_unknown().unwrap();
+        assert!(m.contains("CRC32"));
     }
 }

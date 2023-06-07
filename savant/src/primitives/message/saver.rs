@@ -6,6 +6,7 @@ use crate::primitives::message::video::query::Query;
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
 use crate::utils::python::no_gil;
+use crate::version_to_bytes_le;
 
 /// Save a message to a byte array
 ///
@@ -36,6 +37,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::EndOfStream.into();
             buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
             buf
         }
 
@@ -48,6 +50,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideFrameUpdate.into();
             buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
             buf
         }
 
@@ -70,6 +73,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrame.into();
             buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
             drop(inner);
 
             frame.restore_attributes(frame_excluded_temp_attrs);
@@ -95,12 +99,14 @@ pub fn save_message(m: Message) -> Vec<u8> {
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrameBatch.into();
             buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
             buf
         }
         _ => {
             let mut buf = Vec::with_capacity(4);
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::Unknown.into();
             buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
             buf
         }
     }

@@ -388,8 +388,10 @@ impl Default for InnerVideoFrame {
 
 impl ToSerdeJsonValue for InnerVideoFrame {
     fn to_serde_json_value(&self) -> Value {
+        use crate::version;
         serde_json::json!(
             {
+                "version": version(),
                 "type": "VideoFrame",
                 "source_id": self.source_id,
                 "framerate": self.framerate,

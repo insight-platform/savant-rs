@@ -9,11 +9,16 @@ pub mod test;
 ///
 pub mod utils;
 
+use lazy_static::lazy_static;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
 use primitives::message::video::query::py::video_object_query;
+
+lazy_static! {
+    static ref VERSION_CRC32: u32 = crc32fast::hash(env!("CARGO_PKG_VERSION").as_bytes());
+}
 
 /// Returns the version of the package set in Cargo.toml
 ///
@@ -22,11 +27,27 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// Returns version in CRC32 format
+///
+#[pyfunction]
+pub fn version_crc32() -> u32 {
+    *VERSION_CRC32
+}
+
+pub fn version_to_bytes_le() -> [u8; 4] {
+    VERSION_CRC32.to_le_bytes()
+}
+
+pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
+    u32::from_le_bytes(bytes)
+}
+
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
 
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(version_crc32, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(primitives::geometry))?;

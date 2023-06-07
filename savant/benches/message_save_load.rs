@@ -58,7 +58,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
         update.add_attribute(f.get_attribute(creator, label).unwrap());
     }
 
-    let message = Message::video_fram_update(update);
+    let message = Message::video_frame_update(update);
 
     b.iter(|| {
         let res = save_message(message.clone());

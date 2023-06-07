@@ -10,6 +10,8 @@
 
 #define NATIVE_MESSAGE_MARKER_LEN 4
 
+#define VERSION_LEN 4
+
 typedef struct RBBox RBBox;
 
 typedef struct InferenceObjectMeta {
