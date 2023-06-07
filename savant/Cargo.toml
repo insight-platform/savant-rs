@@ -39,6 +39,7 @@ ndarray = "0.15"
 num-traits = "0.2"
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 libloading = "0.8"
+crc32fast = "1"
 
 [dependencies.pyo3]
 version = "0.18"

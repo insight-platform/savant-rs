@@ -1,6 +1,7 @@
+use crate::bytes_le_to_version;
 use crate::primitives::message::video::frame::InnerVideoFrame;
 use crate::primitives::message::{
-    NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN,
+    NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
 };
 use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch, VideoFrameUpdate};
 use crate::utils::python::no_gil;
@@ -25,19 +26,41 @@ pub fn load_message_gil(bytes: Vec<u8>) -> Message {
 }
 
 pub fn load_message(mut bytes: Vec<u8>) -> Message {
-    if bytes.len() < NATIVE_MESSAGE_MARKER_LEN {
+    if bytes.len() < NATIVE_MESSAGE_MARKER_LEN + VERSION_LEN {
         return Message::unknown(format!(
             "Message is too short: {} < {}",
             bytes.len(),
             NATIVE_MESSAGE_MARKER_LEN
         ));
     }
-    let final_length = bytes.len().saturating_sub(NATIVE_MESSAGE_MARKER_LEN);
-    let t = NativeMessageTypeConsts::from(
-        <&NativeMessageMarkerType>::try_from(&bytes[final_length..]).unwrap(),
+    let final_length = bytes
+        .len()
+        .saturating_sub(NATIVE_MESSAGE_MARKER_LEN + VERSION_LEN);
+
+    let version_begin_offset = final_length + NATIVE_MESSAGE_MARKER_LEN;
+    let version_bytes: [u8; 4] = bytes[version_begin_offset..version_begin_offset + VERSION_LEN]
+        .try_into()
+        .unwrap();
+
+    let received_version = bytes_le_to_version(version_bytes);
+
+    if received_version != crate::version_crc32() {
+        return Message::unknown(format!(
+            "Message CRC32 version mismatch: {:?} != {:?}. Expected version: {}",
+            received_version,
+            crate::version_crc32(),
+            crate::version()
+        ));
+    }
+
+    let typ = NativeMessageTypeConsts::from(
+        <&NativeMessageMarkerType>::try_from(
+            &bytes[final_length..final_length + NATIVE_MESSAGE_MARKER_LEN],
+        )
+        .unwrap(),
     );
     bytes.truncate(final_length);
-    match t {
+    match typ {
         NativeMessageTypeConsts::EndOfStream => {
             let eos: Result<EndOfStream, _> = rkyv::from_bytes(&bytes[..]);
             match eos {
@@ -76,7 +99,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
             }
         }
         NativeMessageTypeConsts::Unknown => {
-            Message::unknown(format!("Unknown message type: {:?}", t))
+            Message::unknown(format!("Unknown message type: {:?}", typ))
         }
     }
 }
