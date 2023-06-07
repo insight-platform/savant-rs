@@ -3,6 +3,116 @@ use crate::primitives::{Attribute, VideoObject};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
 
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
+pub enum ObjectUpdateCollisionResolutionPolicy {
+    AddForeignObjects,
+    ErrorIfLabelsCollide,
+    ReplaceSameLabelObjects,
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+#[pyo3(name = "ObjectUpdateCollisionResolutionPolicy")]
+pub struct PyObjectUpdateCollisionResolutionPolicy {
+    pub(crate) inner: ObjectUpdateCollisionResolutionPolicy,
+}
+
+#[pymethods]
+impl PyObjectUpdateCollisionResolutionPolicy {
+    #[staticmethod]
+    pub fn add_foreign_objects() -> Self {
+        Self {
+            inner: ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
+        }
+    }
+
+    #[staticmethod]
+    pub fn error_if_labels_collide() -> Self {
+        Self {
+            inner: ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
+        }
+    }
+
+    #[staticmethod]
+    pub fn replace_same_label_objects() -> Self {
+        Self {
+            inner: ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
+        }
+    }
+}
+
+impl From<ObjectUpdateCollisionResolutionPolicy> for PyObjectUpdateCollisionResolutionPolicy {
+    fn from(p: ObjectUpdateCollisionResolutionPolicy) -> Self {
+        Self { inner: p }
+    }
+}
+
+impl From<PyObjectUpdateCollisionResolutionPolicy> for ObjectUpdateCollisionResolutionPolicy {
+    fn from(p: PyObjectUpdateCollisionResolutionPolicy) -> Self {
+        p.inner
+    }
+}
+
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
+pub enum AttributeUpdateCollisionResolutionPolicy {
+    ReplaceWithForeignWhenDuplicate,
+    KeepOwnWhenDuplicate,
+    ErrorWhenDuplicate,
+    PrefixDuplicates(String),
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+#[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]
+pub struct PyAttributeUpdateCollisionResolutionPolicy {
+    pub(crate) inner: AttributeUpdateCollisionResolutionPolicy,
+}
+
+#[pymethods]
+impl PyAttributeUpdateCollisionResolutionPolicy {
+    #[staticmethod]
+    pub fn replace_with_foreign() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn keep_own() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn error() -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+        }
+    }
+
+    #[staticmethod]
+    pub fn prefix_duplicates(prefix: String) -> Self {
+        Self {
+            inner: AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(prefix),
+        }
+    }
+}
+
+impl From<AttributeUpdateCollisionResolutionPolicy> for PyAttributeUpdateCollisionResolutionPolicy {
+    fn from(value: AttributeUpdateCollisionResolutionPolicy) -> Self {
+        PyAttributeUpdateCollisionResolutionPolicy { inner: value }
+    }
+}
+
+impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisionResolutionPolicy {
+    fn from(value: PyAttributeUpdateCollisionResolutionPolicy) -> Self {
+        value.inner
+    }
+}
+
 /// A video frame update object is used to update state of a frame from external source.
 ///
 /// It contains a list of attributes and a list of objects.
@@ -168,124 +278,15 @@ impl VideoFrameUpdate {
     }
 }
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
-#[archive(check_bytes)]
-pub enum ObjectUpdateCollisionResolutionPolicy {
-    AddForeignObjects,
-    ErrorIfLabelsCollide,
-    ReplaceSameLabelObjects,
-}
-
-#[pyclass]
-#[derive(Debug, Clone)]
-#[pyo3(name = "ObjectUpdateCollisionResolutionPolicy")]
-pub struct PyObjectUpdateCollisionResolutionPolicy {
-    pub(crate) inner: ObjectUpdateCollisionResolutionPolicy,
-}
-
-#[pymethods]
-impl PyObjectUpdateCollisionResolutionPolicy {
-    #[staticmethod]
-    pub fn add_foreign_objects() -> Self {
-        Self {
-            inner: ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
-        }
-    }
-
-    #[staticmethod]
-    pub fn error_if_labels_collide() -> Self {
-        Self {
-            inner: ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
-        }
-    }
-
-    #[staticmethod]
-    pub fn replace_same_label_objects() -> Self {
-        Self {
-            inner: ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
-        }
-    }
-}
-
-impl From<ObjectUpdateCollisionResolutionPolicy> for PyObjectUpdateCollisionResolutionPolicy {
-    fn from(p: ObjectUpdateCollisionResolutionPolicy) -> Self {
-        Self { inner: p }
-    }
-}
-
-impl From<PyObjectUpdateCollisionResolutionPolicy> for ObjectUpdateCollisionResolutionPolicy {
-    fn from(p: PyObjectUpdateCollisionResolutionPolicy) -> Self {
-        p.inner
-    }
-}
-
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
-#[archive(check_bytes)]
-pub enum AttributeUpdateCollisionResolutionPolicy {
-    ReplaceWithForeignWhenDuplicate,
-    KeepOwnWhenDuplicate,
-    ErrorWhenDuplicate,
-    PrefixDuplicates(String),
-}
-
-#[pyclass]
-#[derive(Debug, Clone)]
-#[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]
-pub struct PyAttributeUpdateCollisionResolutionPolicy {
-    pub(crate) inner: AttributeUpdateCollisionResolutionPolicy,
-}
-
-#[pymethods]
-impl PyAttributeUpdateCollisionResolutionPolicy {
-    #[staticmethod]
-    pub fn replace_with_foreign() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn keep_own() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn error() -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
-        }
-    }
-
-    #[staticmethod]
-    pub fn prefix_duplicates(prefix: String) -> Self {
-        Self {
-            inner: AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(prefix),
-        }
-    }
-}
-
-impl From<AttributeUpdateCollisionResolutionPolicy> for PyAttributeUpdateCollisionResolutionPolicy {
-    fn from(value: AttributeUpdateCollisionResolutionPolicy) -> Self {
-        PyAttributeUpdateCollisionResolutionPolicy { inner: value }
-    }
-}
-
-impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisionResolutionPolicy {
-    fn from(value: PyAttributeUpdateCollisionResolutionPolicy) -> Self {
-        value.inner
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::message::video::query::Query;
     use crate::primitives::{
         Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy, AttributeValue,
-        AttributeValueVariant, VideoFrameUpdate,
+        AttributeValueVariant, ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
     };
-    use crate::test::utils::{gen_frame, s};
+    use crate::test::utils::{gen_frame, gen_object, s};
 
     #[test]
     fn update_attributes_error_when_dup() {
@@ -388,5 +389,74 @@ mod tests {
         let vals = attr.get_values();
         let v = &vals[0];
         assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+    }
+
+    #[test]
+    fn test_update_objects_add_foreign_objects() {
+        let f = gen_frame();
+        let o1 = gen_object(1);
+        let o2 = gen_object(2);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(o1);
+        upd.add_object(o2);
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_ok());
+        assert_eq!(f.get_min_object_id(), -2);
+        let o = f.get_object(-2).unwrap();
+        assert_eq!(o.get_creator(), s("peoplenet"));
+        assert_eq!(f.access_objects(&Query::Idle).len(), 5);
+    }
+
+    #[test]
+    fn test_update_error_labels_collide() {
+        let f = gen_frame();
+        let o1 = gen_object(1);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(o1);
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_ok());
+        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+
+        let o2 = gen_object(2);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(o2);
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_err());
+        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+    }
+
+    #[test]
+    fn test_update_replace_same_label_objects() {
+        let f = gen_frame();
+        let o1 = gen_object(1);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(o1);
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_ok());
+        assert_eq!(f.get_min_object_id(), -1);
+        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+
+        let o2 = gen_object(2);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(o2);
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_ok());
+        assert_eq!(f.get_min_object_id(), -1);
+        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
     }
 }

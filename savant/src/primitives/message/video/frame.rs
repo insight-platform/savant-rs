@@ -812,7 +812,10 @@ impl VideoFrame {
             }
             ReplaceSameLabelObjects => {
                 for mut obj in other_inner {
-                    self.delete_objects(&object_query(&obj));
+                    let objs = self.delete_objects(&object_query(&obj));
+                    if !objs.is_empty() {
+                        min_id = self.get_min_object_id();
+                    }
                     min_id -= 1;
                     obj.id = min_id;
                     self.add_object(&VideoObject::from_inner_object(obj));
