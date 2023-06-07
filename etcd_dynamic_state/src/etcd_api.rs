@@ -7,6 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use etcd_client::*;
 use thiserror::Error;
+use tokio::sync::oneshot::Sender;
 
 use log::{info, warn};
 
@@ -35,12 +36,16 @@ pub struct EtcdClient {
     lease_id: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Debug, Default)]
 pub enum Operation {
     Set {
         key: String,
         value: Vec<u8>,
         with_lease: bool,
+    },
+    Get {
+        spec: VarPathSpec,
+        sender: Sender<Vec<(String, Vec<u8>)>>,
     },
     DelKey {
         key: String,
@@ -52,7 +57,7 @@ pub enum Operation {
     Nope,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VarPathSpec {
     SingleVar(String),
     Prefix(String),
@@ -208,6 +213,10 @@ impl EtcdClient {
                     self.client
                         .delete(prefix, Some(DeleteOptions::new().with_prefix()))
                         .await?;
+                }
+                Operation::Get { spec, sender } => {
+                    let res = self.fetch_vars(&vec![spec]).await?;
+                    sender.send(res).unwrap();
                 }
                 Operation::Nope => (),
             }
@@ -389,14 +398,14 @@ mod tests {
                     panic!("Unexpected termination occurred: {:?}", res);
                 }
                 Err(_) => {
-                    assert_eq!(
+                    assert!(matches!(
                         w.lock().await.watch_result,
                         Operation::Set {
-                            key: "local/node/leased".into(),
-                            value: "new_leased".into(),
+                            key: _,
+                            value: _,
                             with_lease: true,
                         }
-                    );
+                    ));
                     assert_eq!(w.lock().await.counter, 3);
                 }
             }

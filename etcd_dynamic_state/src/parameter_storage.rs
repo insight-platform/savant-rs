@@ -1,13 +1,15 @@
-use crate::etcd_api::{EtcdClient, KVOperator, Operation, WatchResult};
+use crate::etcd_api::{EtcdClient, KVOperator, Operation, VarPathSpec, WatchResult};
 use async_trait::async_trait;
 use glob::Pattern;
 use hashbrown::HashMap;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 
 type ParameterDatabase = Arc<RwLock<HashMap<String, Vec<u8>>>>;
 
-struct IdleKVOperator;
+struct EtcdKVOperator {
+    ops: Arc<Mutex<Vec<Operation>>>,
+}
 
 pub struct EtcdParameterStorage {
     client: Option<EtcdClient>,
@@ -16,6 +18,7 @@ pub struct EtcdParameterStorage {
     general_update_key: String,
     per_stream_update_pattern: Pattern,
     handle: Option<tokio::task::JoinHandle<()>>,
+    ops: Arc<Mutex<Vec<Operation>>>,
 }
 
 impl EtcdParameterStorage {
@@ -27,6 +30,7 @@ impl EtcdParameterStorage {
             general_update_key: self.general_update_key.clone(),
             per_stream_update_pattern: self.per_stream_update_pattern.clone(),
             handle: None,
+            ops: self.ops.clone(),
         }
     }
 
@@ -43,6 +47,7 @@ impl EtcdParameterStorage {
             general_update_key,
             per_stream_update_pattern,
             handle: None,
+            ops: Arc::new(Mutex::new(vec![])),
         }
     }
 
@@ -56,7 +61,9 @@ impl EtcdParameterStorage {
                     Arc::new(tokio::sync::Mutex::new(Watcher {
                         parameters: etcd_worker.parameters.clone(),
                     })),
-                    Arc::new(tokio::sync::Mutex::new(IdleKVOperator)),
+                    Arc::new(tokio::sync::Mutex::new(EtcdKVOperator {
+                        ops: etcd_worker.ops.clone(),
+                    })),
                 )
                 .await
                 .expect("Failed to monitor etcd");
@@ -74,7 +81,21 @@ impl EtcdParameterStorage {
 
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let parameters = self.parameters.read();
-        parameters.get(key).cloned()
+        let res = parameters.get(key);
+        if res.is_none() {
+            let (snd, recv) = tokio::sync::oneshot::channel();
+            let spec = VarPathSpec::SingleVar(key.to_string());
+            let op = Operation::Get { spec, sender: snd };
+            self.ops.lock().push(op);
+            let res = recv.blocking_recv().expect("Failed to receive result");
+
+            return if res.is_empty() {
+                None
+            } else {
+                Some(res[0].clone().1)
+            };
+        }
+        res.cloned()
     }
 }
 
@@ -99,6 +120,9 @@ impl WatchResult for Watcher {
             Operation::DelPrefix { prefix } => {
                 dbg!(prefix);
             }
+            Operation::Get { .. } => {
+                unreachable!();
+            }
             Operation::Nope => {}
         }
 
@@ -107,8 +131,8 @@ impl WatchResult for Watcher {
 }
 
 #[async_trait]
-impl KVOperator for IdleKVOperator {
+impl KVOperator for EtcdKVOperator {
     async fn ops(&mut self) -> anyhow::Result<Vec<Operation>> {
-        Ok(vec![])
+        Ok(self.ops.lock().drain(..).collect())
     }
 }
