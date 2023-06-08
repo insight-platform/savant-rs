@@ -7,11 +7,10 @@ use anyhow::Result;
 use async_trait::async_trait;
 use etcd_client::*;
 use thiserror::Error;
-use tokio::sync::oneshot::Sender;
 
 use log::{info, warn};
 
-const WATCH_WAIT_TTL: u64 = 1;
+const WATCH_WAIT_TTL: u64 = 100;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -21,12 +20,12 @@ pub enum ConfigError {
 
 #[async_trait]
 pub trait WatchResult {
-    async fn notify(&mut self, res: Operation) -> Result<()>;
+    async fn notify(&mut self, client: &mut EtcdClient, res: Operation) -> Result<()>;
 }
 
 #[async_trait]
 pub trait KVOperator {
-    async fn ops(&mut self) -> Result<Vec<Operation>>;
+    async fn ops(&mut self, client: &mut EtcdClient) -> Result<Vec<Operation>>;
 }
 
 pub struct EtcdClient {
@@ -45,7 +44,6 @@ pub enum Operation {
     },
     Get {
         spec: VarPathSpec,
-        sender: Sender<Vec<(String, Vec<u8>)>>,
     },
     DelKey {
         key: String,
@@ -214,10 +212,7 @@ impl EtcdClient {
                         .delete(prefix, Some(DeleteOptions::new().with_prefix()))
                         .await?;
                 }
-                Operation::Get { spec, sender } => {
-                    let res = self.fetch_vars(&vec![spec]).await?;
-                    sender.send(res).unwrap();
-                }
+                Operation::Get { spec: _ } => {}
                 Operation::Nope => (),
             }
         }
@@ -240,7 +235,7 @@ impl EtcdClient {
             self.client.lease_keep_alive(self.lease_id.unwrap()).await?;
 
             let res = tokio::time::timeout(
-                Duration::from_secs(WATCH_WAIT_TTL),
+                Duration::from_millis(WATCH_WAIT_TTL),
                 self.watcher.1.message(),
             )
             .await;
@@ -259,9 +254,12 @@ impl EtcdClient {
                                 watch_result
                                     .lock()
                                     .await
-                                    .notify(Operation::DelKey {
-                                        key: kv.key_str()?.into(),
-                                    })
+                                    .notify(
+                                        self,
+                                        Operation::DelKey {
+                                            key: kv.key_str()?.into(),
+                                        },
+                                    )
                                     .await?;
                             }
                         }
@@ -271,11 +269,14 @@ impl EtcdClient {
                                 watch_result
                                     .lock()
                                     .await
-                                    .notify(Operation::Set {
-                                        key: kv.key_str()?.to_string(),
-                                        value: kv.value().to_vec(),
-                                        with_lease: kv.lease() != 0,
-                                    })
+                                    .notify(
+                                        self,
+                                        Operation::Set {
+                                            key: kv.key_str()?.to_string(),
+                                            value: kv.value().to_vec(),
+                                            with_lease: kv.lease() != 0,
+                                        },
+                                    )
                                     .await?;
                             }
                         }
@@ -285,7 +286,7 @@ impl EtcdClient {
                 }
             }
 
-            let ops = kv_operator.lock().await.ops().await?;
+            let ops = kv_operator.lock().await.ops(self).await?;
             self.kv_operations(ops).await?;
         }
     }
@@ -303,8 +304,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor() -> Result<()> {
+        _ = env_logger::try_init();
         let mut client = EtcdClient::new(
-            vec!["10.0.0.1:2379".into()],
+            vec!["127.0.0.1:2379".into()],
             None,
             "local/node".into(),
             5,
@@ -360,7 +362,7 @@ mod tests {
 
         #[async_trait]
         impl WatchResult for Watcher {
-            async fn notify(&mut self, res: Operation) -> Result<()> {
+            async fn notify(&mut self, _client: &mut EtcdClient, res: Operation) -> Result<()> {
                 info!("Operation: {:?}", &res);
                 self.counter += 1;
                 self.watch_result = res;
@@ -374,7 +376,7 @@ mod tests {
 
         #[async_trait]
         impl KVOperator for Operator {
-            async fn ops(&mut self) -> Result<Vec<Operation>> {
+            async fn ops(&mut self, _client: &mut EtcdClient) -> Result<Vec<Operation>> {
                 let op: Vec<_> = self.operation.take().into_iter().collect();
                 Ok(op)
             }
