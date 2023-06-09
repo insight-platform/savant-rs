@@ -39,7 +39,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
-          before-script-linux: sh ../install_deps.sh
+          before-script-linux: sh -e ../install_deps.sh
 
       - name: Upload wheels
         uses: actions/upload-artifact@v3
