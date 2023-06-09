@@ -38,14 +38,12 @@ jobs:
         with:
           working-directory: savant
           args: --out dist
-          docker-options: -v /usr/local/bin/protoc:/usr/bin/protoc
 
       - name: Build Savant Etcd Dynamic State dist (no release)
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant_etcd_dynamic_state
           args: --out dist
-          docker-options: -v /usr/local/bin/protoc:/usr/bin/protoc
 
       - name: Install dependencies
         run: pip install -r docs/requirements.txt

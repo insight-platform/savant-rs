@@ -15,6 +15,6 @@ else
 fi
 
 unzip *.zip
-cp bin/protoc /usr/local/bin
-
+cp bin/protoc /usr/bin
+chmod 755 /usr/bin/protoc
 
