@@ -1,4 +1,5 @@
 use crate::etcd_api::{EtcdClient, KVOperator, Operation, VarPathSpec, WatchResult};
+use anyhow::bail;
 use async_trait::async_trait;
 use hashbrown::HashMap;
 use parking_lot::{Mutex, RwLock};
@@ -18,7 +19,7 @@ struct EtcdKVOperator {
 pub struct EtcdParameterStorage {
     client: Option<EtcdClient>,
     parameters: ParameterDatabase,
-    handle: Option<tokio::task::JoinHandle<()>>,
+    handle: Option<tokio::task::JoinHandle<anyhow::Result<()>>>,
     ops: Arc<Mutex<Vec<Operation>>>,
 }
 
@@ -46,7 +47,7 @@ impl EtcdParameterStorage {
 
         let handle = rt.spawn(async move {
             let mut client = etcd_worker.client.take().unwrap();
-            client
+            let res = client
                 .monitor(
                     Arc::new(tokio::sync::Mutex::new(Watcher {
                         parameters: etcd_worker.parameters.clone(),
@@ -56,8 +57,19 @@ impl EtcdParameterStorage {
                         parameters: etcd_worker.parameters.clone(),
                     })),
                 )
-                .await
-                .expect("Failed to monitor etcd.");
+                .await;
+
+            match res {
+                Ok(_) => {
+                    log::info!("EtcdParameterStorage is successfully finished.");
+                }
+                Err(e) => {
+                    let err_msg = format!("EtcdParameterStorage failed: {}", e);
+                    log::error!("{}", &err_msg);
+                    bail!(err_msg);
+                }
+            }
+            Ok(())
         });
         self.handle = Some(handle);
         Ok(())
@@ -71,78 +83,102 @@ impl EtcdParameterStorage {
         }
     }
 
-    pub fn blocking_wait_key(&self, key: &str, mut timeout_ms: u64) -> bool {
+    pub fn blocking_wait_key(&self, key: &str, mut timeout_ms: u64) -> anyhow::Result<bool> {
         if timeout_ms <= BLOCKING_WAIT_SLEEP_DELAY_MS {
             timeout_ms = BLOCKING_WAIT_SLEEP_DELAY_MS + 1;
         }
 
         while timeout_ms - BLOCKING_WAIT_SLEEP_DELAY_MS > 0 {
             if !self.is_active() {
-                panic!("EtcdParameterStorage is not active");
+                bail!("EtcdParameterStorage is not active");
             }
-            if !self.is_present(key) {
+            if !self.is_present(key)? {
                 sleep(std::time::Duration::from_millis(
                     BLOCKING_WAIT_SLEEP_DELAY_MS,
                 ));
                 timeout_ms -= BLOCKING_WAIT_SLEEP_DELAY_MS;
             } else {
-                return true;
+                return Ok(true);
             }
         }
-        false
+        Ok(false)
     }
 
     pub fn stop(&mut self, rt: Runtime) -> anyhow::Result<()> {
         if !self.is_active() {
-            panic!("EtcdParameterStorage is not active");
+            bail!("EtcdParameterStorage is not active");
         }
 
         if let Some(handle) = self.handle.take() {
             handle.abort();
+            rt.block_on(async move {
+                handle.await.unwrap_or_else(|e| {
+                    if e.is_cancelled() {
+                        Ok(())
+                    } else {
+                        let error_msg = format!("EtcdParameterStorage failed to stop: {}", e);
+                        log::error!("{}", &error_msg);
+                        bail!(error_msg);
+                    }
+                })
+            })?;
         }
+
         rt.shutdown_timeout(std::time::Duration::from_secs(5));
+
         Ok(())
     }
 
-    pub fn get_data_checksum(&self, key: &str) -> Option<u32> {
+    pub fn get_data_checksum(&self, key: &str) -> anyhow::Result<Option<u32>> {
         if !self.is_active() {
-            panic!("EtcdParameterStorage is not active");
+            bail!("EtcdParameterStorage is not active");
         }
 
         let parameters = self.parameters.upgradable_read();
         let res = parameters.get(key);
-        res.map(|(crc, _)| *crc)
+        Ok(res.map(|(crc, _)| *crc))
     }
 
-    pub fn order_data_update(&self, spec: VarPathSpec) {
+    pub fn order_data_update(&self, spec: VarPathSpec) -> anyhow::Result<()> {
         if !self.is_active() {
-            panic!("EtcdParameterStorage is not active");
+            bail!("EtcdParameterStorage is not active");
         }
 
         let op = Operation::Get { spec };
         self.ops.lock().push(op);
+        Ok(())
     }
 
-    pub fn get_data(&self, key: &str) -> Option<(u32, Vec<u8>)> {
+    pub fn get_data(&self, key: &str) -> anyhow::Result<Option<(u32, Vec<u8>)>> {
         if !self.is_active() {
-            panic!("EtcdParameterStorage is not active");
+            bail!("EtcdParameterStorage is not active");
         }
 
-        self.parameters.read().get(key).cloned()
+        Ok(self.parameters.read().get(key).cloned())
     }
 
-    pub fn set(&self, key: &str, value: Vec<u8>) {
+    pub fn set(&self, key: &str, value: Vec<u8>) -> anyhow::Result<()> {
+        if !self.is_active() {
+            bail!("EtcdParameterStorage is not active");
+        }
+
         let op = Operation::Set {
             key: key.to_string(),
             value,
             with_lease: false,
         };
+
         self.ops.lock().push(op);
+        Ok(())
     }
 
-    pub fn is_present(&self, key: &str) -> bool {
+    pub fn is_present(&self, key: &str) -> anyhow::Result<bool> {
+        if !self.is_active() {
+            bail!("EtcdParameterStorage is not active");
+        }
+
         let parameters = self.parameters.upgradable_read();
-        parameters.get(key).is_some()
+        Ok(parameters.get(key).is_some())
     }
 }
 
@@ -178,11 +214,11 @@ impl WatchResult for Watcher {
                 }
             }
             Operation::Get { spec: _ } => {
-                unreachable!("Get should not be sent to watcher");
+                bail!("Get should not be sent to watcher");
             }
 
             Operation::Nope => {
-                unreachable!("Nope should not be sent to watcher");
+                bail!("Nope should not be sent to watcher");
             }
         }
 
@@ -210,7 +246,7 @@ impl KVOperator for EtcdKVOperator {
                         parameters.insert(key, (crc, value));
                     }
                 }
-                _ => unreachable!("Get should be the only operation in get_ops."),
+                _ => bail!("Get should be the only operation in get_ops."),
             }
         }
         Ok(other_ops)
@@ -259,28 +295,38 @@ mod tests {
             .run(&runtime)
             .expect("Failed to run parameter storage");
 
-        assert!(!parameter_storage.is_present("parameters/node"));
+        assert!(!parameter_storage.is_present("parameters/node").unwrap());
 
-        parameter_storage.order_data_update(VarPathSpec::SingleVar("parameters/node".into()));
-        assert!(parameter_storage.blocking_wait_key("parameters/node", 2000));
+        parameter_storage
+            .order_data_update(VarPathSpec::SingleVar("parameters/node".into()))
+            .unwrap();
+        assert!(parameter_storage
+            .blocking_wait_key("parameters/node", 2000)
+            .unwrap());
 
         let (crc, res) = parameter_storage
             .get_data("parameters/node")
+            .unwrap()
             .expect("Failed to get value");
 
         assert_eq!(res, "value".as_bytes());
-        assert!(parameter_storage.is_present("parameters/node"));
+        assert!(parameter_storage.is_present("parameters/node").unwrap());
         assert_eq!(
-            parameter_storage.get_data_checksum("parameters/node"),
+            parameter_storage
+                .get_data_checksum("parameters/node")
+                .unwrap(),
             Some(crc)
         );
 
-        parameter_storage.set("parameters/node", "value2".as_bytes().to_vec());
+        parameter_storage
+            .set("parameters/node", "value2".as_bytes().to_vec())
+            .unwrap();
 
         sleep(std::time::Duration::from_secs(1));
 
         let (new_crc, res) = parameter_storage
             .get_data("parameters/node".into())
+            .unwrap()
             .expect("Failed to get value");
 
         assert_eq!(res, "value2".as_bytes());
