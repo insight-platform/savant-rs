@@ -114,6 +114,7 @@ impl EtcdParameterStorage {
             rt.block_on(async move {
                 handle.await.unwrap_or_else(|e| {
                     if e.is_cancelled() {
+                        log::info!("EtcdParameterStorage is successfully stopped.");
                         Ok(())
                     } else {
                         let error_msg = format!("EtcdParameterStorage failed to stop: {}", e);
