@@ -1,0 +1,14 @@
+version: "3"
+services:
+  etcd:
+    image: bitnami/etcd:latest
+    restart: on-failure
+    environment:
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ALLOW_NONE_AUTHENTICATION=yes
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

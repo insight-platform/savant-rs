@@ -1,9 +1,24 @@
 [workspace]
-
 members = [
     "sample_plugin",
-    "savant"
+    "savant",
+    "etcd_dynamic_state",
+    "savant_etcd_dynamic_state"
 ]
+
+[workspace.package]
+version = "0.1.24"
+edition = "2021"
+authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
+description = "Savant rust optimization library"
+homepage = "https://github.com/insight-platform/savant-rs"
+repository = "https://github.com/insight-platform/savant-rs"
+readme = "README.md"
+keywords = ["computer-vision", "video-processing"]
+categories = ["algorithms", "data-structures", "computer-vision"]
+license="Apache-2.0"
+rust-version = "1.66"
+
 
 [profile.release]
 opt-level = 3

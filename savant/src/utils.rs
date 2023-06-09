@@ -1,4 +1,5 @@
 pub mod bbox;
+pub mod byte_buffer;
 pub mod conversions;
 pub mod fps_meter;
 pub mod np;
@@ -23,6 +24,7 @@ use crate::utils::symbol_mapper::{
 };
 
 use crate::primitives::{Message, ObjectBBoxKind};
+use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
@@ -112,6 +114,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
     m.add_class::<FpsMeter>()?;
+    m.add_class::<ByteBuffer>()?;
     m.add_class::<ObjectBBoxKind>()?;
 
     Ok(())

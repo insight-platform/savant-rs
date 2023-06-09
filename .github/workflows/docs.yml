@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: CI
+name: Docs CI
 
 on:
   push:
@@ -20,77 +20,40 @@ permissions:
   id-token: write
 
 jobs:
-  linux:
+  build-docs:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [x86_64, aarch64]
+    # if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: savant
-          target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          manylinux: auto
-      - name: Upload wheels
-        uses: actions/upload-artifact@v3
-        with:
-          name: wheels
-          path: savant/dist
 
-  sdist:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: savant
-          command: sdist
-          args: --out dist
-      - name: Upload sdist
-        uses: actions/upload-artifact@v3
-        with:
-          name: wheels
-          path: savant/dist
+      - name: Install dependencies
+        run: sudo sh -e install_deps.sh
 
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux, sdist]
-    steps:
-      - uses: actions/download-artifact@v3
-        with:
-          name: wheels
-      - name: Publish to PyPI
-        uses: PyO3/maturin-action@v1
-        env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        with:
-          command: upload
-          args: --skip-existing *
-
-  build-docs:
-    runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build dist (no release)
+      - name: Build Savant dist (no release)
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant
           args: --out dist
+
+      - name: Build Savant Etcd Dynamic State dist (no release)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: savant_etcd_dynamic_state
+          args: --out dist
+
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
+
       - name: Install savant_rs
         run: pip install savant/dist/*.whl
+
+      - name: Install savant_etcd_dynamic_state
+        run: pip install savant_etcd_dynamic_state/dist/*.whl
+
       - name: Build docs
         run: |
           cd docs
@@ -98,6 +61,7 @@ jobs:
           tar \
           --dereference --hard-dereference \
           --directory build/html -cvf artifact.tar .
+
       - name: Upload artifact
         uses: actions/upload-artifact@main
         with:
