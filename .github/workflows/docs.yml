@@ -30,19 +30,22 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install dependencies
+        run: sudo sh -e install-deps.sh
+
       - name: Build Savant dist (no release)
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant
           args: --out dist
-          before-script-linux: sh -e ../install_deps.sh
+          docker-options: -v /usr/bin/protoc:/usr/bin/protoc
 
       - name: Build Savant Etcd Dynamic State dist (no release)
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant_etcd_dynamic_state
           args: --out dist
-          before-script-linux: sh -e ../install_deps.sh
+          docker-options: --volume /usr/bin/protoc:/usr/bin/protoc
 
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
