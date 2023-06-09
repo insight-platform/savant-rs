@@ -3,24 +3,31 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-****************
-Savant Rust
-****************
+*******************
+Savant Rust Library
+*******************
 
 .. toctree::
    :maxdepth: 2
 
-   modules/savant_rs
-   modules/draw_spec
-   modules/primitives
-   modules/primitives_geometry
-   modules/utils
-   modules/utils_symbol_mapper
-   modules/utils_numpy
-   modules/utils_udf_api
-   modules/utils_serialization
-   modules/video_object_query
+   modules/savant/savant_rs
+   modules/savant/draw_spec
+   modules/savant/primitives
+   modules/savant/primitives_geometry
+   modules/savant/utils
+   modules/savant/utils_symbol_mapper
+   modules/savant/utils_numpy
+   modules/savant/utils_udf_api
+   modules/savant/utils_serialization
+   modules/savant/video_object_query
 
+*********************************
+Savant Etcd Dynamic State Library
+*********************************
 
+.. toctree::
+   :maxdepth: 2
+
+   modules/savant_etcd_dynamic_state/module
 
 

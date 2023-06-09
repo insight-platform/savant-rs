@@ -83,7 +83,7 @@ impl EtcdParameterStorage {
         }
     }
 
-    pub fn blocking_wait_key(&self, key: &str, mut timeout_ms: u64) -> anyhow::Result<bool> {
+    pub fn wait_for_key(&self, key: &str, mut timeout_ms: u64) -> anyhow::Result<bool> {
         if timeout_ms <= BLOCKING_WAIT_SLEEP_DELAY_MS {
             timeout_ms = BLOCKING_WAIT_SLEEP_DELAY_MS + 1;
         }
@@ -92,7 +92,7 @@ impl EtcdParameterStorage {
             if !self.is_active() {
                 bail!("EtcdParameterStorage is not active");
             }
-            if !self.is_present(key)? {
+            if !self.is_key_present(key)? {
                 sleep(std::time::Duration::from_millis(
                     BLOCKING_WAIT_SLEEP_DELAY_MS,
                 ));
@@ -173,7 +173,7 @@ impl EtcdParameterStorage {
         Ok(())
     }
 
-    pub fn is_present(&self, key: &str) -> anyhow::Result<bool> {
+    pub fn is_key_present(&self, key: &str) -> anyhow::Result<bool> {
         if !self.is_active() {
             bail!("EtcdParameterStorage is not active");
         }
@@ -295,13 +295,13 @@ mod tests {
             .run(&runtime)
             .expect("Failed to run parameter storage");
 
-        assert!(!parameter_storage.is_present("parameters/node").unwrap());
+        assert!(!parameter_storage.is_key_present("parameters/node").unwrap());
 
         parameter_storage
             .order_data_update(VarPathSpec::SingleVar("parameters/node".into()))
             .unwrap();
         assert!(parameter_storage
-            .blocking_wait_key("parameters/node", 2000)
+            .wait_for_key("parameters/node", 2000)
             .unwrap());
 
         let (crc, res) = parameter_storage
@@ -310,7 +310,7 @@ mod tests {
             .expect("Failed to get value");
 
         assert_eq!(res, "value".as_bytes());
-        assert!(parameter_storage.is_present("parameters/node").unwrap());
+        assert!(parameter_storage.is_key_present("parameters/node").unwrap());
         assert_eq!(
             parameter_storage
                 .get_data_checksum("parameters/node")

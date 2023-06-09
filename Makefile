@@ -1,7 +1,7 @@
 dev: clean clippy build_savant build_etcd_dynamic_state install_savant install_etcd_dynamic_state
 release: clean clippy tests build_savant_release build_etcd_dynamic_state_release install_savant install_etcd_dynamic_state
 
-docs: build_savant install_savant docs/source/index.rst
+docs: build_savant install_savant build_etcd_dynamic_state install_etcd_dynamic_state docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html
 
@@ -40,6 +40,7 @@ install_etcd_dynamic_state:
 clean:
 	@echo "Cleaning..."
 	cd savant && rm -rf dist/*.whl
+	cd savant_etcd_dynamic_state && rm -rf dist/*.whl
 
 tests: sample_plugin
 	@echo "Running tests..."
