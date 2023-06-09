@@ -8,6 +8,8 @@ use tokio::runtime::Runtime;
 
 type ParameterDatabase = Arc<RwLock<HashMap<String, (u32, Vec<u8>)>>>;
 
+const BLOCKING_WAIT_SLEEP_DELAY_MS: u64 = 10;
+
 struct EtcdKVOperator {
     ops: Arc<Mutex<Vec<Operation>>>,
     parameters: ParameterDatabase,
@@ -70,15 +72,19 @@ impl EtcdParameterStorage {
     }
 
     pub fn blocking_wait_key(&self, key: &str, mut timeout_ms: u64) -> bool {
-        if !self.is_active() {
-            panic!("EtcdParameterStorage is not active");
+        if timeout_ms <= BLOCKING_WAIT_SLEEP_DELAY_MS {
+            timeout_ms = BLOCKING_WAIT_SLEEP_DELAY_MS + 1;
         }
 
-        let sleep_delay = 10;
-        while timeout_ms - sleep_delay > 0 {
+        while timeout_ms - BLOCKING_WAIT_SLEEP_DELAY_MS > 0 {
+            if !self.is_active() {
+                panic!("EtcdParameterStorage is not active");
+            }
             if !self.is_present(key) {
-                sleep(std::time::Duration::from_millis(10));
-                timeout_ms -= sleep_delay;
+                sleep(std::time::Duration::from_millis(
+                    BLOCKING_WAIT_SLEEP_DELAY_MS,
+                ));
+                timeout_ms -= BLOCKING_WAIT_SLEEP_DELAY_MS;
             } else {
                 return true;
             }
