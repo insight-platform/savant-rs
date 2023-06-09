@@ -3,8 +3,6 @@
 ARCH=$(uname -m)
 PB_REL="https://github.com/protocolbuffers/protobuf/releases"
 
-mkdir -p bin && cd bin
-
 if [ "$ARCH" = "x86_64" ]; then
     echo "Installing x86_64 dependencies"
     curl -LO $PB_REL/download/v23.2/protoc-23.2-linux-x86_64.zip
