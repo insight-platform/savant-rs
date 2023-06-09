@@ -35,14 +35,14 @@ jobs:
         with:
           working-directory: savant
           args: --out dist
-          before-script-linux: sh ../install_deps.sh
+          before-script-linux: sudo sh ../install_deps.sh
 
       - name: Build Savant Etcd Dynamic State dist (no release)
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant_etcd_dynamic_state
           args: --out dist
-          before-script-linux: sh ../install_deps.sh
+          before-script-linux: sudo sh ../install_deps.sh
 
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
