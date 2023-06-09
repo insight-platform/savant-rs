@@ -54,7 +54,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux, sdist]
+    needs: [linux]
     steps:
       - uses: actions/download-artifact@v3
         with:
