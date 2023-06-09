@@ -32,7 +32,7 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: sudo sh -e install-deps.sh
+        run: sudo sh -e install_deps.sh
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
