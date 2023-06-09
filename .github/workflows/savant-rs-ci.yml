@@ -42,7 +42,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
-          docker-options: -v /usr/bin/protoc:/usr/bin/protoc
+          docker-options: -v /usr/local/bin/protoc:/usr/bin/protoc
 
       - name: Upload wheels
         uses: actions/upload-artifact@v3
