@@ -3,7 +3,7 @@ requires = ["maturin>=0.14,<=0.15"]
 build-backend = "maturin"
 
 [project]
-name = "etcd_dynamic_state_py"
+name = "savant_etcd_dynamic_state"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",

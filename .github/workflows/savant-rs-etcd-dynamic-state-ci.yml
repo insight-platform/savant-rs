@@ -33,7 +33,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          working-directory: savant
+          working-directory: savant_etcd_dynamic_state
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -42,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: savant/dist
+          path: savant_etcd_dynamic_state/dist
 
   sdist:
     runs-on: ubuntu-latest
@@ -51,14 +51,14 @@ jobs:
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
-          working-directory: savant
+          working-directory: savant_etcd_dynamic_state
           command: sdist
           args: --out dist
       - name: Upload sdist
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: savant/dist
+          path: savant_etcd_dynamic_state/dist
 
   release:
     name: Release

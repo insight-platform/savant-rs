@@ -232,10 +232,9 @@ impl KVOperator for EtcdKVOperator {
     async fn ops(&mut self, client: &mut EtcdClient) -> anyhow::Result<Vec<Operation>> {
         let ops: Vec<Operation> = self.ops.lock().drain(..).collect();
 
-        let (get_ops, other_ops) = ops.into_iter().partition(|op| match op {
-            Operation::Get { .. } => true,
-            _ => false,
-        });
+        let (get_ops, other_ops) = ops
+            .into_iter()
+            .partition(|op| matches!(op, Operation::Get { .. }));
 
         for o in get_ops {
             match o {
