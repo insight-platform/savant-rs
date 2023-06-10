@@ -40,9 +40,12 @@ impl ByteBuffer {
     /// int
     ///   The length of the byte buffer.
     ///
-    #[getter]
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    fn __len__(&self) -> PyResult<usize> {
+        Ok(self.inner.len())
     }
 
     /// Returns whether the byte buffer is empty.
@@ -52,7 +55,6 @@ impl ByteBuffer {
     /// bool
     ///   Whether the byte buffer is empty.
     ///
-    #[getter]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
