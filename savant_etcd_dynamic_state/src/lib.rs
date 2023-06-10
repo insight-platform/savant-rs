@@ -101,7 +101,7 @@ impl VarPathSpec {
 /// credentials: Optional[(str, str)]
 ///   The credentials to use for authentication.
 ///   Defaults to ``None``.
-/// path: str
+/// watch_path: str
 ///   The path in Etcd used as the source of the state.
 ///   Defaults to ``"savant"``.
 /// connect_timeout: int
