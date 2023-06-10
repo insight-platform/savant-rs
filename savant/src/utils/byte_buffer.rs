@@ -33,21 +33,49 @@ impl ByteBuffer {
         }
     }
 
+    /// Returns the length of the byte buffer.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   The length of the byte buffer.
+    ///
     #[getter]
     pub fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Returns whether the byte buffer is empty.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   Whether the byte buffer is empty.
+    ///
     #[getter]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 
+    /// Returns the checksum of the byte buffer.
+    ///
+    /// Returns
+    /// -------
+    /// None or int
+    ///   The checksum of the byte buffer. If not set when creating the byte buffer, ``None`` is returned.
+    ///
     #[getter]
     pub fn checksum(&self) -> Option<u32> {
         self.checksum
     }
 
+    /// Returns the bytes as Python ``bytes``.
+    ///
+    /// Returns
+    /// -------
+    /// bytes
+    ///   The bytes as Python ``bytes``.
+    ///
     #[getter]
     #[pyo3(name = "bytes")]
     pub fn bytes_py(&self) -> PyObject {
