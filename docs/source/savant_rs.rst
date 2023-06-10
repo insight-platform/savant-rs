@@ -1,3 +1,6 @@
+************************
+Savant Rust Core Library
+************************
 
 .. toctree::
    :maxdepth: 2
