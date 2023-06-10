@@ -19,6 +19,6 @@ Dynamic State Library
 .. toctree::
    :maxdepth: 1
 
-   modules/savant_etcd_dynamic_state/module
+   modules/savant_rs_etcd_dynamic_state/module
 
 

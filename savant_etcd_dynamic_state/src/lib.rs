@@ -121,7 +121,7 @@ impl VarPathSpec {
 ///
 /// .. code-block:: python
 ///
-///   from savant_etcd_dynamic_state import EtcdParameterStorage, VarPathSpec
+///   from savant_rs_etcd_dynamic_state import EtcdParameterStorage, VarPathSpec
 ///   storage = EtcdParameterStorage(hosts=["127.0.0.1:2379"], credentials=None, watch_path="savant", connect_timeout=5)
 ///   storage.set_raw("savant/param1", b"abc")
 ///   storage.order_data_update(VarPathSpec.prefix("savant"))
@@ -447,7 +447,7 @@ impl EtcdParameterStorage {
 }
 
 #[pymodule]
-fn savant_etcd_dynamic_state(_py: Python, m: &PyModule) -> PyResult<()> {
+fn savant_rs_etcd_dynamic_state(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_class::<VarPathSpec>()?;
     m.add_class::<EtcdParameterStorage>()?;
