@@ -685,7 +685,7 @@ mod tests {
     fn test_udf() {
         let f = gen_frame();
         let objects = f.access_objects(&UserDefinedObjectPredicate(
-            "../target/release/libsample_plugin.so".to_string(),
+            "../target/debug/libsample_plugin.so".to_string(),
             "unary_op_even".to_string(),
         ));
         assert_eq!(objects.len(), 2, "Only even objects must be returned");
@@ -699,7 +699,7 @@ mod tests {
         let udf_name = "sample.map_modifier";
         if !is_plugin_function_registered(&udf_name) {
             register_plugin_function(
-                "../target/release/libsample_plugin.so",
+                "../target/debug/libsample_plugin.so",
                 "map_modifier",
                 UserFunctionType::ObjectMapModifier,
                 udf_name,
@@ -729,7 +729,7 @@ mod tests {
         let udf_name = "sample.inplace_modifier";
         if !is_plugin_function_registered(&udf_name) {
             register_plugin_function(
-                "../target/release/libsample_plugin.so",
+                "../target/debug/libsample_plugin.so",
                 "inplace_modifier",
                 UserFunctionType::ObjectInplaceModifier,
                 udf_name,

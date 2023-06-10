@@ -272,27 +272,27 @@ mod tests {
     fn pluggable_udf_api() -> anyhow::Result<()> {
         pyo3::prepare_freethreaded_python();
         register_plugin_function(
-            "../target/release/libsample_plugin.so",
+            "../target/debug/libsample_plugin.so",
             "unary_op_even",
             UserFunctionType::ObjectPredicate,
             "sample.unary_op_even",
         )?;
         register_plugin_function(
-            "../target/release/libsample_plugin.so",
+            "../target/debug/libsample_plugin.so",
             "binary_op_parent",
             UserFunctionType::ObjectPredicate,
             "sample.binary_op_parent",
         )?;
 
         register_plugin_function(
-            "../target/release/libsample_plugin.so",
+            "../target/debug/libsample_plugin.so",
             "inplace_modifier",
             UserFunctionType::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
-            "../target/release/libsample_plugin.so",
+            "../target/debug/libsample_plugin.so",
             "map_modifier",
             UserFunctionType::ObjectMapModifier,
             "sample.map_modifier",

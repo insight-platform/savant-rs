@@ -4,8 +4,10 @@ use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
 };
 use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch, VideoFrameUpdate};
+use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::no_gil;
 use pyo3::pyfunction;
+use pyo3::types::PyBytes;
 
 /// Loads a message from a byte array. The function is GIL-free.
 ///
@@ -22,10 +24,10 @@ use pyo3::pyfunction;
 #[pyfunction]
 #[pyo3(name = "load_message")]
 pub fn load_message_gil(bytes: Vec<u8>) -> Message {
-    no_gil(|| load_message(bytes))
+    no_gil(|| load_message(&bytes))
 }
 
-pub fn load_message(mut bytes: Vec<u8>) -> Message {
+pub fn load_message(bytes: &[u8]) -> Message {
     if bytes.len() < NATIVE_MESSAGE_MARKER_LEN + VERSION_LEN {
         return Message::unknown(format!(
             "Message is too short: {} < {}",
@@ -59,10 +61,10 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
         )
         .unwrap(),
     );
-    bytes.truncate(final_length);
+    let bytes = &bytes[..final_length];
     match typ {
         NativeMessageTypeConsts::EndOfStream => {
-            let eos: Result<EndOfStream, _> = rkyv::from_bytes(&bytes[..]);
+            let eos: Result<EndOfStream, _> = rkyv::from_bytes(bytes);
             match eos {
                 Ok(eos) => Message::end_of_stream(eos),
                 Err(e) => Message::unknown(format!("{:?}", e)),
@@ -70,7 +72,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
         }
 
         NativeMessageTypeConsts::VideFrameUpdate => {
-            let update: Result<VideoFrameUpdate, _> = rkyv::from_bytes(&bytes[..]);
+            let update: Result<VideoFrameUpdate, _> = rkyv::from_bytes(bytes);
             match update {
                 Ok(upd) => Message::video_frame_update(upd),
                 Err(e) => Message::unknown(format!("{:?}", e)),
@@ -78,7 +80,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
         }
 
         NativeMessageTypeConsts::VideoFrame => {
-            let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(&bytes[..]);
+            let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(bytes);
             match f {
                 Ok(f) => {
                     let f = VideoFrame::from_inner(f);
@@ -89,7 +91,7 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
             }
         }
         NativeMessageTypeConsts::VideoFrameBatch => {
-            let b: Result<VideoFrameBatch, _> = rkyv::from_bytes(&bytes[..]);
+            let b: Result<VideoFrameBatch, _> = rkyv::from_bytes(bytes);
             match b {
                 Ok(mut b) => {
                     b.prepare_after_load();
@@ -104,6 +106,43 @@ pub fn load_message(mut bytes: Vec<u8>) -> Message {
     }
 }
 
+/// Loads a message from a :class:`savant_rs.utils.ByteBuffer`. The function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// bytes : :class:`savant_rs.utils.ByteBuffer`
+///   The byte array to load the message from.
+///
+/// Returns
+/// -------
+/// savant_rs.primitives.Message
+///   The loaded message.
+///
+#[pyfunction]
+#[pyo3(name = "load_message_from_bytebuffer")]
+pub fn load_message_from_bytebuffer_gil(buffer: ByteBuffer) -> Message {
+    no_gil(|| load_message(buffer.bytes()))
+}
+
+/// Loads a message from a python bytes. The function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// bytes : bytes
+///   The byte buffer to load the message from.
+///
+/// Returns
+/// -------
+/// savant_rs.primitives.Message
+///   The loaded message.
+///
+#[pyfunction]
+#[pyo3(name = "load_message_from_bytes")]
+pub fn load_message_from_bytes_gil(buffer: &PyBytes) -> Message {
+    let bytes = buffer.as_bytes();
+    no_gil(|| load_message(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use crate::primitives::message::loader::load_message;
@@ -111,21 +150,21 @@ mod tests {
     #[test]
     fn test_load_short() {
         pyo3::prepare_freethreaded_python();
-        let f = load_message(vec![0; 1]);
+        let f = load_message(&vec![0; 1]);
         assert!(f.is_unknown());
     }
 
     #[test]
     fn test_load_invalid() {
         pyo3::prepare_freethreaded_python();
-        let f = load_message(vec![0; 5]);
+        let f = load_message(&vec![0; 5]);
         assert!(f.is_unknown());
     }
 
     #[test]
     fn test_load_invalid_marker() {
         pyo3::prepare_freethreaded_python();
-        let f = load_message(vec![0, 0, 0, 0, 1, 2, 3, 4]);
+        let f = load_message(&vec![0, 0, 0, 0, 1, 2, 3, 4]);
         assert!(f.is_unknown());
     }
 }

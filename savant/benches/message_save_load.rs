@@ -14,7 +14,7 @@ fn bench_save_load_video_frame(b: &mut Bencher) {
     let message = Message::video_frame(gen_frame());
     b.iter(|| {
         let res = save_message(message.clone());
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame());
     });
 }
@@ -25,7 +25,7 @@ fn bench_save_load_eos(b: &mut Bencher) {
     let message = Message::end_of_stream(eos);
     b.iter(|| {
         let res = save_message(message.clone());
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_end_of_stream());
     });
 }
@@ -40,7 +40,7 @@ fn bench_save_load_batch(b: &mut Bencher) {
     let message = Message::video_frame_batch(batch);
     b.iter(|| {
         let res = save_message(message.clone());
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame_batch());
     });
 }
@@ -62,7 +62,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
 
     b.iter(|| {
         let res = save_message(message.clone());
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame_update());
     });
 }

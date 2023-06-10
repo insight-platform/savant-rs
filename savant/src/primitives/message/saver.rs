@@ -1,10 +1,12 @@
 use crate::primitives::attribute::AttributeMethods;
-use pyo3::pyfunction;
+use pyo3::types::PyBytes;
+use pyo3::{pyfunction, PyObject, Python};
 use std::collections::HashMap;
 
 use crate::primitives::message::video::query::Query;
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
+use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::no_gil;
 use crate::version_to_bytes_le;
 
@@ -110,4 +112,54 @@ pub fn save_message(m: Message) -> Vec<u8> {
             buf
         }
     }
+}
+
+/// Save a message to a byte array
+///
+/// Parameters
+/// ----------
+/// message: savant_rs.primitives.Message
+///   The message to save
+/// with_hash: bool
+///   Whether to include a hash of the message in the returned byte buffer
+///
+/// Returns
+/// -------
+/// ByteBuffer
+///   The byte buffer containing the message
+///
+#[pyfunction]
+#[pyo3(name = "save_message_to_bytebuffer")]
+pub fn save_message_to_bytebuffer_gil(message: Message, with_hash: bool) -> ByteBuffer {
+    no_gil(|| {
+        let m = save_message(message);
+        let hash_opt = if with_hash {
+            Some(crc32fast::hash(&m))
+        } else {
+            None
+        };
+        ByteBuffer::new(m, hash_opt)
+    })
+}
+
+/// Save a message to python bytes
+///
+/// Parameters
+/// ----------
+/// message: savant_rs.primitives.Message
+///   The message to save
+///
+/// Returns
+/// -------
+/// bytes
+///   The byte buffer containing the message
+///
+#[pyfunction]
+#[pyo3(name = "save_message_to_bytes")]
+pub fn save_message_to_bytes_gil(message: Message) -> PyObject {
+    let bytes = no_gil(|| save_message(message));
+    Python::with_gil(|py| {
+        let bytes = PyBytes::new(py, &bytes);
+        PyObject::from(bytes)
+    })
 }

@@ -9,8 +9,13 @@ pub mod symbol_mapper;
 
 use pyo3::prelude::*;
 
-use crate::primitives::message::loader::load_message_gil;
-use crate::primitives::message::saver::save_message_gil;
+use crate::primitives::message::loader::{
+    load_message_from_bytebuffer_gil, load_message_from_bytes_gil, load_message_gil,
+};
+use crate::primitives::message::saver::{
+    save_message_gil, save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
+};
+
 use crate::test::utils::gen_frame;
 use crate::utils::np::np_nalgebra;
 use crate::utils::np::np_ndarray;
@@ -101,7 +106,12 @@ pub fn numpy_module(_py: Python, m: &PyModule) -> PyResult<()> {
 pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
     // ser deser
     m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(save_message_to_bytebuffer_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(save_message_to_bytes_gil, m)?)?;
+
     m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(load_message_from_bytebuffer_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(load_message_from_bytes_gil, m)?)?;
 
     m.add_class::<Message>()?;
     Ok(())

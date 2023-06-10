@@ -11,7 +11,7 @@ fn bench_udf(b: &mut Bencher) -> anyhow::Result<()> {
     pyo3::prepare_freethreaded_python();
 
     register_plugin_function(
-        "../target/release/libsample_plugin.so",
+        "../target/debug/libsample_plugin.so",
         "unary_op_even",
         UserFunctionType::ObjectPredicate,
         "sample.unary_op_even",

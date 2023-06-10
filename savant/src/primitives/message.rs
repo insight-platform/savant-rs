@@ -340,7 +340,7 @@ mod tests {
             res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::EndOfStream).as_ref()
         );
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_end_of_stream());
     }
 
@@ -355,7 +355,7 @@ mod tests {
             res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrame).as_ref()
         );
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame());
     }
 
@@ -370,7 +370,7 @@ mod tests {
             res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::Unknown).as_ref()
         );
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_unknown());
     }
 
@@ -390,7 +390,7 @@ mod tests {
             res[type_start..type_end].as_ref(),
             NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrameBatch).as_ref()
         );
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame_batch());
 
         let b = m.as_video_frame_batch().unwrap();
@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(attrs.len(), 5);
         let m = Message::video_frame(f);
         let res = save_message(m);
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_video_frame());
         let f = m.as_video_frame().unwrap();
         let attrs = f.get_attributes();
@@ -444,7 +444,7 @@ mod tests {
         let version_start = res.len() - VERSION_LEN;
         let version_end = version_start + VERSION_LEN;
         res[version_end - 1].add_assign(1);
-        let m = load_message(res);
+        let m = load_message(&res);
         assert!(m.is_unknown());
         let m = m.as_unknown().unwrap();
         assert!(m.contains("CRC32"));
