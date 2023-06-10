@@ -3,17 +3,17 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-*******************
-Savant Rust Library
-*******************
+************************
+Core Library
+************************
 
 .. toctree::
    :maxdepth: 1
 
-   savant_rs
+   modules/savant_rs/module
 
 *********************************
-Savant Etcd Dynamic State Library
+Dynamic State Library
 *********************************
 
 .. toctree::
