@@ -1,5 +1,5 @@
 [package]
-name = "savant_etcd_dynamic_state"
+name = "savant_rs_etcd_dynamic_state"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

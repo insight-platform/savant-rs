@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use tokio::runtime::Runtime;
 
-type ParameterDatabase = Arc<RwLock<HashMap<String, (u32, Vec<u8>)>>>;
+type ParameterDatabase = Arc<RwLock<HashMap<String, (u32, Arc<Vec<u8>>)>>>;
 
 const BLOCKING_WAIT_SLEEP_DELAY_MS: u64 = 10;
 
@@ -150,7 +150,7 @@ impl EtcdParameterStorage {
         Ok(())
     }
 
-    pub fn get_data(&self, key: &str) -> anyhow::Result<Option<(u32, Vec<u8>)>> {
+    pub fn get_data(&self, key: &str) -> anyhow::Result<Option<(u32, Arc<Vec<u8>>)>> {
         if !self.is_active() {
             bail!("EtcdParameterStorage is not active");
         }
@@ -197,7 +197,7 @@ impl WatchResult for Watcher {
                 with_lease: _,
             } => {
                 let crc = crc32fast::hash(&value);
-                self.parameters.write().insert(key, (crc, value));
+                self.parameters.write().insert(key, (crc, Arc::new(value)));
             }
             Operation::DelKey { key } => {
                 self.parameters.write().remove(&key);
@@ -243,7 +243,7 @@ impl KVOperator for EtcdKVOperator {
                     let mut parameters = self.parameters.write();
                     for (key, value) in res {
                         let crc = crc32fast::hash(&value);
-                        parameters.insert(key, (crc, value));
+                        parameters.insert(key, (crc, Arc::new(value)));
                     }
                 }
                 _ => bail!("Get should be the only operation in get_ops."),
@@ -309,7 +309,7 @@ mod tests {
             .unwrap()
             .expect("Failed to get value");
 
-        assert_eq!(res, "value".as_bytes());
+        assert_eq!(res.as_slice(), "value".as_bytes());
         assert!(parameter_storage.is_key_present("parameters/node").unwrap());
         assert_eq!(
             parameter_storage
@@ -329,7 +329,7 @@ mod tests {
             .unwrap()
             .expect("Failed to get value");
 
-        assert_eq!(res, "value2".as_bytes());
+        assert_eq!(res.as_slice(), "value2".as_bytes());
         assert_ne!(new_crc, crc);
 
         assert!(parameter_storage.is_active());
