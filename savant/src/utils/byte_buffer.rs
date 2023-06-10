@@ -1,6 +1,21 @@
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use std::sync::Arc;
 
+/// A fast copy-free byte buffer intended to efficiently exchange data between Rust & Python
+///
+/// Parameters
+/// ----------
+/// v: Vec<u8>
+///   The byte buffer.
+/// checksum: Optional[int]
+///   The checksum of the byte buffer.
+///
+/// Returns
+/// -------
+/// ByteBuffer
+///   The byte buffer.
+///
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct ByteBuffer {
@@ -34,7 +49,17 @@ impl ByteBuffer {
     }
 
     #[getter]
-    pub fn bytes(&self) -> Vec<u8> {
-        (*self.inner).clone()
+    #[pyo3(name = "bytes")]
+    pub fn bytes_py(&self) -> PyObject {
+        Python::with_gil(|py| {
+            let bytes = PyBytes::new(py, self.inner.as_slice());
+            PyObject::from(bytes)
+        })
+    }
+}
+
+impl ByteBuffer {
+    pub fn bytes(&self) -> &[u8] {
+        self.inner.as_slice()
     }
 }
