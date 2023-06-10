@@ -353,7 +353,7 @@ impl EtcdParameterStorage {
         })?;
 
         match data_opt {
-            Some((crc, data)) => Ok(Some(ByteBuffer::new(data, Some(crc)))),
+            Some((crc, data)) => Ok(Some(ByteBuffer::from_arc(data, Some(crc)))),
             None => Ok(None),
         }
     }

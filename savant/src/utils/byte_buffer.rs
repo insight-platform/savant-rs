@@ -89,6 +89,10 @@ impl ByteBuffer {
 }
 
 impl ByteBuffer {
+    pub fn from_arc(v: Arc<Vec<u8>>, checksum: Option<u32>) -> Self {
+        Self { inner: v, checksum }
+    }
+
     pub fn bytes(&self) -> &[u8] {
         self.inner.as_slice()
     }
