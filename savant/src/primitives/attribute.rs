@@ -32,22 +32,22 @@ pub enum AttributeValueVariant {
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-pub enum NativeAttributeValueType {
+pub enum AttributeValueType {
     Bytes,
     String,
-    StringVector,
+    StringList,
     Integer,
-    IntegerVector,
+    IntegerList,
     Float,
-    FloatVector,
+    FloatList,
     Boolean,
-    BooleanVector,
+    BooleanList,
     BBox,
-    BBoxVector,
+    BBoxList,
     Point,
-    PointVector,
+    PointList,
     Polygon,
-    PolygonVector,
+    PolygonList,
     Intersection,
     None,
 }
@@ -146,29 +146,29 @@ impl AttributeValue {
     ///
     /// Returns
     /// -------
-    /// :class:`NativeAttributeValueType`
+    /// :class:`AttributeValueType`
     ///    The type of the attribute value.
     ///
     #[getter]
-    fn get_value_type(&self) -> NativeAttributeValueType {
+    fn get_value_type(&self) -> AttributeValueType {
         match &self.v {
-            AttributeValueVariant::Bytes(_, _) => NativeAttributeValueType::Bytes,
-            AttributeValueVariant::String(_) => NativeAttributeValueType::String,
-            AttributeValueVariant::StringVector(_) => NativeAttributeValueType::StringVector,
-            AttributeValueVariant::Integer(_) => NativeAttributeValueType::Integer,
-            AttributeValueVariant::IntegerVector(_) => NativeAttributeValueType::IntegerVector,
-            AttributeValueVariant::Float(_) => NativeAttributeValueType::Float,
-            AttributeValueVariant::FloatVector(_) => NativeAttributeValueType::FloatVector,
-            AttributeValueVariant::Boolean(_) => NativeAttributeValueType::Boolean,
-            AttributeValueVariant::BooleanVector(_) => NativeAttributeValueType::BooleanVector,
-            AttributeValueVariant::BBox(_) => NativeAttributeValueType::BBox,
-            AttributeValueVariant::BBoxVector(_) => NativeAttributeValueType::BBoxVector,
-            AttributeValueVariant::Point(_) => NativeAttributeValueType::Point,
-            AttributeValueVariant::PointVector(_) => NativeAttributeValueType::PointVector,
-            AttributeValueVariant::Polygon(_) => NativeAttributeValueType::Polygon,
-            AttributeValueVariant::PolygonVector(_) => NativeAttributeValueType::PolygonVector,
-            AttributeValueVariant::Intersection(_) => NativeAttributeValueType::Intersection,
-            AttributeValueVariant::None => NativeAttributeValueType::None,
+            AttributeValueVariant::Bytes(_, _) => AttributeValueType::Bytes,
+            AttributeValueVariant::String(_) => AttributeValueType::String,
+            AttributeValueVariant::StringVector(_) => AttributeValueType::StringList,
+            AttributeValueVariant::Integer(_) => AttributeValueType::Integer,
+            AttributeValueVariant::IntegerVector(_) => AttributeValueType::IntegerList,
+            AttributeValueVariant::Float(_) => AttributeValueType::Float,
+            AttributeValueVariant::FloatVector(_) => AttributeValueType::FloatList,
+            AttributeValueVariant::Boolean(_) => AttributeValueType::Boolean,
+            AttributeValueVariant::BooleanVector(_) => AttributeValueType::BooleanList,
+            AttributeValueVariant::BBox(_) => AttributeValueType::BBox,
+            AttributeValueVariant::BBoxVector(_) => AttributeValueType::BBoxList,
+            AttributeValueVariant::Point(_) => AttributeValueType::Point,
+            AttributeValueVariant::PointVector(_) => AttributeValueType::PointList,
+            AttributeValueVariant::Polygon(_) => AttributeValueType::Polygon,
+            AttributeValueVariant::PolygonVector(_) => AttributeValueType::PolygonList,
+            AttributeValueVariant::Intersection(_) => AttributeValueType::Intersection,
+            AttributeValueVariant::None => AttributeValueType::None,
         }
     }
 
