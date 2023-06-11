@@ -1,3 +1,5 @@
+.PHONY: docs clippy build_savant build_etcd_dynamic_state build_savant_release build_etcd_dynamic_state_release install_savant install_etcd_dynamic_state clean tests bench
+
 dev: clean clippy build_savant build_etcd_dynamic_state install_savant install_etcd_dynamic_state
 release: clean clippy tests build_savant_release build_etcd_dynamic_state_release install_savant install_etcd_dynamic_state
 
@@ -9,7 +11,7 @@ clippy:
 	@echo "Running clippy..."
 	cargo clippy
 
-sample_plugin: sample_plugin/src/lib.rs sample_plugin/Cargo.toml
+sample_plugin:
 	@echo "Building sample plugin..."
 	cd sample_plugin && cargo build
 

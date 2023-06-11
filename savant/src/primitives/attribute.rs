@@ -1,5 +1,6 @@
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
+use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -24,6 +25,30 @@ pub enum AttributeValueVariant {
     PolygonVector(Vec<PolygonalArea>),
     Intersection(Intersection),
     #[default]
+    None,
+}
+
+/// Represents attribute value types for matching
+///
+#[pyclass]
+#[derive(Debug, Clone)]
+pub enum AttributeValueType {
+    Bytes,
+    String,
+    StringList,
+    Integer,
+    IntegerList,
+    Float,
+    FloatList,
+    Boolean,
+    BooleanList,
+    BBox,
+    BBoxList,
+    Point,
+    PointList,
+    Polygon,
+    PolygonList,
+    Intersection,
     None,
 }
 
@@ -117,14 +142,66 @@ impl AttributeValue {
         self.__repr__()
     }
 
-    #[staticmethod]
-    pub fn intersection(i: Intersection, confidence: Option<f64>) -> Self {
-        Self {
-            confidence,
-            v: AttributeValueVariant::Intersection(i),
+    /// Returns the confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValueType`
+    ///    The type of the attribute value.
+    ///
+    #[getter]
+    fn get_value_type(&self) -> AttributeValueType {
+        match &self.v {
+            AttributeValueVariant::Bytes(_, _) => AttributeValueType::Bytes,
+            AttributeValueVariant::String(_) => AttributeValueType::String,
+            AttributeValueVariant::StringVector(_) => AttributeValueType::StringList,
+            AttributeValueVariant::Integer(_) => AttributeValueType::Integer,
+            AttributeValueVariant::IntegerVector(_) => AttributeValueType::IntegerList,
+            AttributeValueVariant::Float(_) => AttributeValueType::Float,
+            AttributeValueVariant::FloatVector(_) => AttributeValueType::FloatList,
+            AttributeValueVariant::Boolean(_) => AttributeValueType::Boolean,
+            AttributeValueVariant::BooleanVector(_) => AttributeValueType::BooleanList,
+            AttributeValueVariant::BBox(_) => AttributeValueType::BBox,
+            AttributeValueVariant::BBoxVector(_) => AttributeValueType::BBoxList,
+            AttributeValueVariant::Point(_) => AttributeValueType::Point,
+            AttributeValueVariant::PointVector(_) => AttributeValueType::PointList,
+            AttributeValueVariant::Polygon(_) => AttributeValueType::Polygon,
+            AttributeValueVariant::PolygonVector(_) => AttributeValueType::PolygonList,
+            AttributeValueVariant::Intersection(_) => AttributeValueType::Intersection,
+            AttributeValueVariant::None => AttributeValueType::None,
         }
     }
 
+    /// Creates a new attribute value of type :class:`savant_rs.primitives.geometry.Intersection`.
+    ///
+    /// Parameters
+    /// ----------
+    /// int : :class:`savant_rs.primitives.geometry.Intersection`
+    ///   The intersection value.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
+    #[staticmethod]
+    #[pyo3(signature = (int, confidence = None))]
+    pub fn intersection(int: Intersection, confidence: Option<f64>) -> Self {
+        Self {
+            confidence,
+            v: AttributeValueVariant::Intersection(int),
+        }
+    }
+
+    /// Creates a new attribute value of type None
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
     pub fn none() -> Self {
         Self {
@@ -133,15 +210,70 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of blob type.
+    ///
+    /// Parameters
+    /// ----------
+    /// dims : list of int
+    ///   The dimensions of the blob.
+    /// blob : List[int]
+    ///   The blob.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   
     #[staticmethod]
-    pub fn bytes(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f64>) -> Self {
+    #[pyo3(signature = (dims, blob, confidence = None))]
+    pub fn bytes_from_list(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Bytes(dims, blob),
         }
     }
 
+    /// Creates a new attribute value of blob type.
+    ///
+    /// Parameters
+    /// ----------
+    /// dims : list of int
+    ///   The dimensions of the blob.
+    /// blob : bytes
+    ///   The blob.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   
     #[staticmethod]
+    #[pyo3(signature = (dims, blob, confidence = None))]
+    pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f64>) -> Self {
+        Self {
+            confidence,
+            v: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
+        }
+    }
+
+    /// Creates a new attribute value of string type.
+    ///
+    /// Parameters
+    /// ----------
+    /// s : str
+    ///   The string.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
+    #[staticmethod]
+    #[pyo3(signature = (s, confidence = None))]
     pub fn string(s: String, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -149,15 +281,45 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of strings type.
+    ///
+    /// Parameters
+    /// ----------
+    /// ss : List[str]
+    ///   The list of strings.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
-    pub fn strings(s: Vec<String>, confidence: Option<f64>) -> Self {
+    #[pyo3(signature = (ss, confidence = None))]
+    pub fn strings(ss: Vec<String>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::StringVector(s),
+            v: AttributeValueVariant::StringVector(ss),
         }
     }
 
+    /// Creates a new attribute value of integer type.
+    ///
+    /// Parameters
+    /// ----------
+    /// i : int
+    ///   The integer value.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (i, confidence = None))]
     pub fn integer(i: i64, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -165,15 +327,45 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of integers type.
+    ///
+    /// Parameters
+    /// ----------
+    /// ii : List[int]
+    ///   The list of integers.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
-    pub fn integers(i: Vec<i64>, confidence: Option<f64>) -> Self {
+    #[pyo3(signature = (ii, confidence = None))]
+    pub fn integers(ii: Vec<i64>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::IntegerVector(i),
+            v: AttributeValueVariant::IntegerVector(ii),
         }
     }
 
+    /// Creates a new attribute value of float type.
+    ///
+    /// Parameters
+    /// ----------
+    /// f : float
+    ///   The float value.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (f, confidence = None))]
     pub fn float(f: f64, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -181,15 +373,45 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of floats type.
+    ///
+    /// Parameters
+    /// ----------
+    /// ff : List[float]
+    ///   The list of floats.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
-    pub fn floats(f: Vec<f64>, confidence: Option<f64>) -> Self {
+    #[pyo3(signature = (ff, confidence = None))]
+    pub fn floats(ff: Vec<f64>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::FloatVector(f),
+            v: AttributeValueVariant::FloatVector(ff),
         }
     }
 
+    /// Creates a new attribute value of boolean type.
+    ///
+    /// Parameters
+    /// ----------
+    /// b : bool
+    ///   The boolean value.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (b, confidence = None))]
     pub fn boolean(b: bool, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -197,15 +419,45 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of booleans type.
+    ///
+    /// Parameters
+    /// ----------
+    /// bb : List[bool]
+    ///   The list of booleans.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
-    pub fn booleans(b: Vec<bool>, confidence: Option<f64>) -> Self {
+    #[pyo3(signature = (bb, confidence = None))]
+    pub fn booleans(bb: Vec<bool>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::BooleanVector(b),
+            v: AttributeValueVariant::BooleanVector(bb),
         }
     }
 
+    /// Creates a new attribute value of bounding box type.
+    ///
+    /// Parameters
+    /// ----------
+    /// bbox : :class:`savant_rs.primitives.geometry.RBBox`
+    ///   The bounding box.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (bbox, confidence = None))]
     pub fn bbox(bbox: RBBox, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -213,7 +465,21 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of bounding boxes type.
+    ///
+    /// Parameters
+    /// ----------
+    /// bboxes : List[:class:`savant_rs.primitives.geometry.RBBox`]
+    ///   The list of bounding boxes.
+    /// confidence : float, optional
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (bboxes, confidence = None))]
     pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -221,7 +487,22 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of point type.
+    ///
+    /// Parameters
+    /// ----------
+    /// point : :class:`savant_rs.primitives.geometry.Point`
+    ///   The point.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (point, confidence = None))]
     pub fn point(point: Point, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -229,7 +510,22 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of points type.
+    ///
+    /// Parameters
+    /// ----------
+    /// points : List[:class:`savant_rs.primitives.geometry.Point`]
+    ///   The list of points.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (points, confidence = None))]
     pub fn points(points: Vec<Point>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -237,7 +533,22 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of polygon type.
+    ///
+    /// Parameters
+    /// ----------
+    /// polygon : :class:`savant_rs.primitives.geometry.PolygonalArea`
+    ///   The polygon.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (polygon, confidence = None))]
     pub fn polygon(polygon: PolygonalArea, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -245,7 +556,22 @@ impl AttributeValue {
         }
     }
 
+    /// Creates a new attribute value of list of polygons type.
+    ///
+    /// Parameters
+    /// ----------
+    /// polygons : List[:class:`savant_rs.primitives.geometry.PolygonalArea`]
+    ///   The list of polygons.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
     #[staticmethod]
+    #[pyo3(signature = (polygons, confidence = None))]
     pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
@@ -253,10 +579,19 @@ impl AttributeValue {
         }
     }
 
+    /// Checks if the attribute valus if of None type.
+    ///
     pub fn is_none(&self) -> bool {
         matches!(&self.v, AttributeValueVariant::None)
     }
 
+    /// Returns the value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[List[int], bytes]]
+    ///   The value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
+    ///
     pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
         match &self.v {
             AttributeValueVariant::Bytes(dims, bytes) => Some((dims.clone(), bytes.clone())),
@@ -264,6 +599,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as an :class:`savant_rs.primitives.geometry.Intersection` or None if not an intersection type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:class:`savant_rs.primitives.geometry.Intersection`]
+    ///   The value of attribute as an :class:`savant_rs.primitives.geometry.Intersection` or None if not an intersection type.
+    ///
     pub fn as_intersection(&self) -> Option<Intersection> {
         match &self.v {
             AttributeValueVariant::Intersection(i) => Some(i.clone()),
@@ -271,6 +613,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a string or None if not a string type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[str]
+    ///   The value of attribute as a string or None if not a string type.
+    ///
     pub fn as_string(&self) -> Option<String> {
         match &self.v {
             AttributeValueVariant::String(s) => Some(s.clone()),
@@ -278,6 +627,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of strings or None if not a list of strings type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[str]]
+    ///   The value of attribute as a list of strings or None if not a list of strings type.
+    ///
     pub fn as_strings(&self) -> Option<Vec<String>> {
         match &self.v {
             AttributeValueVariant::StringVector(s) => Some(s.clone()),
@@ -285,6 +641,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as an integer or None if not an integer type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[int]
+    ///   The value of attribute as an integer or None if not an integer type.
+    ///
     pub fn as_integer(&self) -> Option<i64> {
         match &self.v {
             AttributeValueVariant::Integer(i) => Some(*i),
@@ -292,6 +655,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of integers or None if not a list of integers type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[int]]
+    ///   The value of attribute as a list of integers or None if not a list of integers type.
+    ///
     pub fn as_integers(&self) -> Option<Vec<i64>> {
         match &self.v {
             AttributeValueVariant::IntegerVector(i) => Some(i.clone()),
@@ -299,6 +669,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a float or None if not a float type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[float]
+    ///   The value of attribute as a float or None if not a float type.
+    ///
     pub fn as_float(&self) -> Option<f64> {
         match &self.v {
             AttributeValueVariant::Float(f) => Some(*f),
@@ -306,6 +683,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of floats or None if not a list of floats type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[float]]
+    ///   The value of attribute as a list of floats or None if not a list of floats type.
+    ///
     pub fn as_floats(&self) -> Option<Vec<f64>> {
         match &self.v {
             AttributeValueVariant::FloatVector(f) => Some(f.clone()),
@@ -313,6 +697,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a boolean or None if not a boolean type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[bool]
+    ///   The value of attribute as a boolean or None if not a boolean type.
+    ///
     pub fn as_boolean(&self) -> Option<bool> {
         match &self.v {
             AttributeValueVariant::Boolean(b) => Some(*b),
@@ -320,6 +711,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of booleans or None if not a list of booleans type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[bool]]
+    ///   The value of attribute as a list of booleans or None if not a list of booleans type.
+    ///
     pub fn as_booleans(&self) -> Option<Vec<bool>> {
         match &self.v {
             AttributeValueVariant::BooleanVector(b) => Some(b.clone()),
@@ -327,6 +725,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a :class:`savant_rs.primitives.geometry.RBBox` or None if not a bounding box type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:class:`savant_rs.primitives.geometry.RBBox`]
+    ///   The value of attribute as a :class:`savant_rs.primitives.geometry.RBBox` or None if not a bounding box type.
+    ///
     pub fn as_bbox(&self) -> Option<RBBox> {
         match &self.v {
             AttributeValueVariant::BBox(bbox) => Some(bbox.clone()),
@@ -334,6 +739,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of :class:`savant_rs.primitives.geometry.RBBox` or None if not a list of bounding boxes type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[:class:`savant_rs.primitives.geometry.RBBox`]]
+    ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.RBBox` or None if not a list of bounding boxes type.
+    ///
     pub fn as_bboxes(&self) -> Option<Vec<RBBox>> {
         match &self.v {
             AttributeValueVariant::BBoxVector(bbox) => Some(bbox.clone()),
@@ -341,6 +753,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a :class:`savant_rs.primitives.geometry.Point` or None if not a point type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:class:`savant_rs.primitives.geometry.Point`]
+    ///   The value of attribute as a :class:`savant_rs.primitives.geometry.Point` or None if not a point type.
+    ///
     pub fn as_point(&self) -> Option<Point> {
         match &self.v {
             AttributeValueVariant::Point(point) => Some(point.clone()),
@@ -348,6 +767,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of :class:`savant_rs.primitives.geometry.Point` or None if not a list of points type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[:class:`savant_rs.primitives.geometry.Point`]]
+    ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.Point` or None if not a list of points type.
+    ///
     pub fn as_points(&self) -> Option<Vec<Point>> {
         match &self.v {
             AttributeValueVariant::PointVector(point) => Some(point.clone()),
@@ -355,6 +781,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a polygon type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:class:`savant_rs.primitives.geometry.PolygonalArea`]
+    ///   The value of attribute as a :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a polygon type.
+    ///
     pub fn as_polygon(&self) -> Option<PolygonalArea> {
         match &self.v {
             AttributeValueVariant::Polygon(polygon) => Some(polygon.clone()),
@@ -362,6 +795,13 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a list of :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a list of polygons type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[:class:`savant_rs.primitives.geometry.PolygonalArea`]]
+    ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a list of polygons type.
+    ///
     pub fn as_polygons(&self) -> Option<Vec<PolygonalArea>> {
         match &self.v {
             AttributeValueVariant::PolygonVector(polygon) => Some(polygon.clone()),
@@ -370,6 +810,14 @@ impl AttributeValue {
     }
 }
 
+/// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
+/// The attribute value is a list of values, each of which has a confidence score. The attribute may include additional information in the form of a hint.
+/// There are two kinds of attributes: persistent and non-persistent. Persistent attributes are serialized, while non-persistent are not.
+///
+/// The list nature of attribute values is used to represent complex values of the same attribute.
+/// For example, the attribute ``(person_profiler, bio)`` may include values in the form ``["Age", 32, "Gender", None, "Height", 186]``. Each element of the
+/// list is :class:`AttributeValue`.
+///
 #[pyclass]
 #[derive(
     Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder, Default,
@@ -414,7 +862,43 @@ impl Attribute {
     }
 
     #[new]
+    #[pyo3(signature = (creator, name , values, hint = None, is_persistent = true))]
     pub fn new(
+        creator: String,
+        name: String,
+        values: Vec<AttributeValue>,
+        hint: Option<String>,
+        is_persistent: bool,
+    ) -> Self {
+        Self {
+            is_persistent,
+            creator,
+            name,
+            values,
+            hint,
+        }
+    }
+
+    /// Alias to constructor method. Creates a persistent attribute.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str
+    ///   The creator of the attribute.
+    /// name : str
+    ///   The name of the attribute.
+    /// values : List[:class:`AttributeValue`]
+    ///   The values of the attribute.
+    /// hint : str, optional
+    ///   The hint of the attribute. The hint is a user-defined string that may contain additional information about the attribute.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`Attribute`
+    ///   The created attribute.
+    ///
+    #[staticmethod]
+    pub fn persistent(
         creator: String,
         name: String,
         values: Vec<AttributeValue>,
@@ -429,6 +913,24 @@ impl Attribute {
         }
     }
 
+    /// Alias to constructor method for non-persistent attributes.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str
+    ///   The creator of the attribute.
+    /// name : str
+    ///   The name of the attribute.
+    /// values : List[:class:`AttributeValue`]
+    ///   The values of the attribute.
+    /// hint : str, optional
+    ///   The hint of the attribute. The hint is a user-defined string that may contain additional information about the attribute.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`Attribute`
+    ///   The created attribute.
+    ///
     #[staticmethod]
     pub fn temporary(
         creator: String,
@@ -445,43 +947,107 @@ impl Attribute {
         }
     }
 
+    /// Returns ``True`` if the attribute is persistent, ``False`` otherwise.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   ``True`` if the attribute is persistent, ``False`` otherwise.
+    ///
     pub fn is_temporary(&self) -> bool {
         !self.is_persistent
     }
 
+    /// Changes the attribute to be persistent.
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///   The attribute is changed in-place.
+    ///
     pub fn make_persistent(&mut self) {
         self.is_persistent = true;
     }
 
+    /// Changes the attribute to be non-persistent.
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///   The attribute is changed in-place.
+    ///
     pub fn make_temporary(&mut self) {
         self.is_persistent = false;
     }
 
+    /// Returns the creator of the attribute.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The creator of the attribute.
+    ///
     #[getter]
     pub fn get_creator(&self) -> String {
         self.creator.clone()
     }
 
+    /// Returns the name of the attribute.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The name of the attribute.
+    ///
     #[getter]
     pub fn get_name(&self) -> String {
         self.name.clone()
     }
 
+    /// Returns the values of the attribute. The values are returned as copies, changing them will not change the attribute. To change the values of the
+    /// attribute, use assignment to the ``values`` attribute.
+    ///
+    /// Returns
+    /// -------
+    /// List[:class:`AttributeValue`]
+    ///   The values of the attribute.
+    ///
     #[getter]
     pub fn get_values(&self) -> Vec<AttributeValue> {
         self.values.clone()
     }
 
+    /// Returns the hint of the attribute.
+    ///
+    /// Returns
+    /// -------
+    /// str or None
+    ///   The hint of the attribute or ``None`` if no hint is set.
+    ///
     #[getter]
     pub fn get_hint(&self) -> Option<String> {
         self.hint.clone()
     }
 
+    /// Sets the hint of the attribute.
+    ///
+    /// Parameters
+    /// ----------
+    /// hint : str or None
+    ///   The hint of the attribute or ``None`` if no hint is set.
+    ///
     #[setter]
     pub fn set_hint(&mut self, hint: Option<String>) {
         self.hint = hint;
     }
 
+    /// Sets the values of the attribute.
+    ///
+    /// Parameters
+    /// ----------
+    /// values : List[:class:`AttributeValue`]
+    ///   The values of the attribute.
+    ///
     #[setter]
     pub fn set_values(&mut self, values: Vec<AttributeValue>) {
         self.values = values;

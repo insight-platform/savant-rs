@@ -130,6 +130,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
 ///
 #[pyfunction]
 #[pyo3(name = "save_message_to_bytebuffer")]
+#[pyo3(signature = (message, with_hash=true))]
 pub fn save_message_to_bytebuffer_gil(message: Message, with_hash: bool) -> ByteBuffer {
     no_gil(|| {
         let m = save_message(message);

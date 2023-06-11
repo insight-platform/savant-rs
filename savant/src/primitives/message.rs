@@ -176,7 +176,6 @@ impl Message {
     /// bool
     ///   True if the message is of Unknown type, False otherwise
     ///
-    #[getter]
     pub fn is_unknown(&self) -> bool {
         matches!(self.payload, NativeMessage::Unknown(_))
     }
@@ -188,7 +187,6 @@ impl Message {
     /// bool
     ///   True if the message is of EndOfStream type, False otherwise
     ///
-    #[getter]
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.payload, NativeMessage::EndOfStream(_))
     }
@@ -200,7 +198,6 @@ impl Message {
     /// bool
     ///   True if the message is of VideoFrame type, False otherwise
     ///
-    #[getter]
     pub fn is_video_frame(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrame(_))
     }
@@ -212,7 +209,6 @@ impl Message {
     /// bool
     ///   True if the message is of VideoFrameUpdate type, False otherwise
     ///
-    #[getter]
     pub fn is_video_frame_update(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrameUpdate(_))
     }
@@ -224,7 +220,6 @@ impl Message {
     /// bool
     ///   True if the message is of VideoFrameBatch type, False otherwise
     ///
-    #[getter]
     pub fn is_video_frame_batch(&self) -> bool {
         matches!(self.payload, NativeMessage::VideoFrameBatch(_))
     }
@@ -238,7 +233,6 @@ impl Message {
     /// None
     ///   If the message is not of Unknown type
     ///
-    #[getter]
     pub fn as_unknown(&self) -> Option<String> {
         match &self.payload {
             NativeMessage::Unknown(s) => Some(s.clone()),
@@ -255,7 +249,6 @@ impl Message {
     /// None
     ///   If the message is not of EndOfStream type
     ///
-    #[getter]
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
         match &self.payload {
             NativeMessage::EndOfStream(eos) => Some(eos.clone()),
@@ -272,7 +265,6 @@ impl Message {
     /// None
     ///   If the message is not of VideoFrame type
     ///
-    #[getter]
     pub fn as_video_frame(&self) -> Option<VideoFrame> {
         match &self.payload {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
@@ -289,7 +281,6 @@ impl Message {
     /// None
     ///   If the message is not of VideoFrameUpdate type
     ///
-    #[getter]
     pub fn as_video_frame_update(&self) -> Option<VideoFrameUpdate> {
         match &self.payload {
             NativeMessage::VideoFrameUpdate(update) => Some(update.clone()),
@@ -306,7 +297,6 @@ impl Message {
     /// None
     ///   If the message is not of VideoFrameBatch type
     ///
-    #[getter]
     pub fn as_video_frame_batch(&self) -> Option<VideoFrameBatch> {
         match &self.payload {
             NativeMessage::VideoFrameBatch(batch) => Some(batch.clone()),

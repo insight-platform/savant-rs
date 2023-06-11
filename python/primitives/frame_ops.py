@@ -59,6 +59,7 @@ frame.clear_transformations()
 frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
     AttributeValue.none(),
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
+    AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
     AttributeValue.integer(1, confidence=0.5),
     AttributeValue.float(1.0, confidence=0.5),
     AttributeValue.string("hello", confidence=0.5),
@@ -122,7 +123,7 @@ print("Two", two)
 
 # demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
 #
-lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
+lib = cdll.LoadLibrary("../../target/debug/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 lib.object_vector_len.rettype = c_uint64
 print("Length:", lib.object_vector_len(vec.memory_handle))
@@ -203,8 +204,8 @@ for _ in range(1_000):
 
 print("1K ser/des for frame took:", timer() - t)
 
-print(frame_message.is_video_frame)
-frame = frame_message.as_video_frame
+print(frame_message.is_video_frame())
+frame = frame_message.as_video_frame()
 
 # print(frame)
 objects = frame.access_objects(Q.idle())
