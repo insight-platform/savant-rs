@@ -2,7 +2,7 @@ pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
-use crate::primitives::message::video::object::vector::ObjectVectorView;
+use crate::primitives::message::video::object::objects_view::ObjectsView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{
@@ -89,11 +89,17 @@ impl ToSerdeJsonValue for VideoFrameContent {
 #[derive(Debug, Clone)]
 #[pyo3(name = "VideoFrameContent")]
 pub struct PyVideoFrameContent {
-    pub(crate) inner: VideoFrameContent,
+    pub(crate) inner: Arc<VideoFrameContent>,
 }
 
 impl PyVideoFrameContent {
     pub fn new(inner: VideoFrameContent) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+
+    pub fn new_arced(inner: Arc<VideoFrameContent>) -> Self {
         Self { inner }
     }
 }
@@ -113,42 +119,35 @@ impl PyVideoFrameContent {
 
     #[staticmethod]
     pub fn external(method: String, location: Option<String>) -> Self {
-        Self {
-            inner: VideoFrameContent::External(ExternalFrame::new(method, location)),
-        }
+        Self::new(VideoFrameContent::External(ExternalFrame::new(
+            method, location,
+        )))
     }
 
     #[staticmethod]
     pub fn internal(data: Vec<u8>) -> Self {
-        Self {
-            inner: VideoFrameContent::Internal(data),
-        }
+        Self::new(VideoFrameContent::Internal(data))
     }
 
     #[staticmethod]
     pub fn none() -> Self {
-        Self {
-            inner: VideoFrameContent::None,
-        }
+        Self::new(VideoFrameContent::None)
     }
 
-    #[getter]
     pub fn is_external(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::External(_))
+        matches!(*self.inner, VideoFrameContent::External(_))
     }
 
-    #[getter]
     pub fn is_internal(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::Internal(_))
+        matches!(*self.inner, VideoFrameContent::Internal(_))
     }
 
-    #[getter]
     pub fn is_none(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::None)
+        matches!(*self.inner, VideoFrameContent::None)
     }
 
     pub fn get_data(&self) -> PyResult<Vec<u8>> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::Internal(data) => Ok(data.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
@@ -157,7 +156,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_method(&self) -> PyResult<String> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::External(data) => Ok(data.method.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -166,7 +165,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_location(&self) -> PyResult<Option<String>> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::External(data) => Ok(data.location.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -355,7 +354,7 @@ pub struct InnerVideoFrame {
     pub pts: i64,
     pub dts: Option<i64>,
     pub duration: Option<i64>,
-    pub content: VideoFrameContent,
+    pub content: Arc<VideoFrameContent>,
     pub transformations: Vec<FrameTransformation>,
     pub attributes: HashMap<(String, String), Attribute>,
     pub offline_objects: HashMap<i64, InnerVideoObject>,
@@ -377,7 +376,7 @@ impl Default for InnerVideoFrame {
             pts: 0,
             dts: None,
             duration: None,
-            content: VideoFrameContent::None,
+            content: Arc::new(VideoFrameContent::None),
             transformations: Vec::new(),
             attributes: HashMap::new(),
             offline_objects: HashMap::new(),
@@ -1113,7 +1112,7 @@ impl VideoFrame {
     #[getter]
     pub fn get_content(&self) -> PyVideoFrameContent {
         let inner = self.inner.read_recursive();
-        PyVideoFrameContent::new(inner.content.clone())
+        PyVideoFrameContent::new_arced(inner.content.clone())
     }
 
     #[setter]
@@ -1181,32 +1180,32 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectVectorView {
+    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectsView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
+    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectsView {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
+    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectsView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectVectorView {
+    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectsView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectVectorView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectsView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectVectorView {
+    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectsView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1226,12 +1225,12 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_gil(&self) -> ObjectVectorView {
+    pub fn get_modified_objects_gil(&self) -> ObjectsView {
         no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, id: i64) -> ObjectVectorView {
+    pub fn get_children_gil(&self, id: i64) -> ObjectsView {
         no_gil(|| self.get_children(id).into())
     }
 

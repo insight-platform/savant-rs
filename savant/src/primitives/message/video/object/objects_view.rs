@@ -23,19 +23,19 @@ pub enum ObjectBBoxKind {
 #[pyclass]
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct ObjectVectorView {
+pub struct ObjectsView {
     pub(crate) inner: Arc<Vec<VideoObject>>,
 }
 
-impl From<Vec<VideoObject>> for ObjectVectorView {
+impl From<Vec<VideoObject>> for ObjectsView {
     fn from(value: Vec<VideoObject>) -> Self {
-        ObjectVectorView {
+        ObjectsView {
             inner: Arc::new(value),
         }
     }
 }
 
-impl ObjectVectorView {
+impl ObjectsView {
     fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: ObjectBBoxKind) {
         no_gil(|| {
             let it = zip(self.inner.iter(), boxes);
@@ -48,7 +48,7 @@ impl ObjectVectorView {
 }
 
 #[pymethods]
-impl ObjectVectorView {
+impl ObjectsView {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -77,31 +77,31 @@ impl ObjectVectorView {
     }
 
     #[pyo3(name = "filter")]
-    fn filter_gil(&self, q: QueryWrapper) -> ObjectVectorView {
-        no_gil(|| ObjectVectorView {
+    fn filter_gil(&self, q: QueryWrapper) -> ObjectsView {
+        no_gil(|| ObjectsView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         })
     }
 
     #[pyo3(name = "partition")]
-    fn partition_gil(&self, q: QueryWrapper) -> (ObjectVectorView, ObjectVectorView) {
+    fn partition_gil(&self, q: QueryWrapper) -> (ObjectsView, ObjectsView) {
         no_gil(|| {
             let (a, b) = partition(self.inner.as_ref(), &q.inner);
             (
-                ObjectVectorView { inner: Arc::new(a) },
-                ObjectVectorView { inner: Arc::new(b) },
+                ObjectsView { inner: Arc::new(a) },
+                ObjectsView { inner: Arc::new(b) },
             )
         })
     }
 
     #[pyo3(name = "map_udf")]
-    fn map_udf_gil(&self, udf: String) -> PyResult<ObjectVectorView> {
+    fn map_udf_gil(&self, udf: String) -> PyResult<ObjectsView> {
         no_gil(|| {
             map_udf(
                 self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
                 &udf,
             )
-            .map(|x| ObjectVectorView { inner: Arc::new(x) })
+            .map(|x| ObjectsView { inner: Arc::new(x) })
         })
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     }
@@ -124,8 +124,8 @@ impl ObjectVectorView {
     }
 
     #[pyo3(name = "detached_copy")]
-    fn detached_copy_py(&self) -> ObjectVectorView {
-        no_gil(|| ObjectVectorView {
+    fn detached_copy_py(&self) -> ObjectsView {
+        no_gil(|| ObjectsView {
             inner: Arc::new(self.inner.iter().map(|x| x.detached_copy()).collect()),
         })
     }
@@ -161,11 +161,11 @@ impl ObjectVectorView {
     }
 
     #[pyo3(name = "sorted_by_id")]
-    pub fn sorted_by_id_gil(&self) -> ObjectVectorView {
+    pub fn sorted_by_id_gil(&self) -> ObjectsView {
         no_gil(|| {
             let mut objects = self.inner.as_ref().clone();
             objects.sort_by_key(|o| o.get_id());
-            ObjectVectorView {
+            ObjectsView {
                 inner: Arc::new(objects),
             }
         })

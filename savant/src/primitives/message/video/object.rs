@@ -1,6 +1,6 @@
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
-use crate::primitives::message::video::object::vector::ObjectVectorView;
+use crate::primitives::message::video::object::objects_view::ObjectsView;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::utils::python::no_gil;
@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub mod vector;
+pub mod objects_view;
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
@@ -374,7 +374,7 @@ impl VideoObject {
 
     #[getter]
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self) -> ObjectVectorView {
+    pub fn get_children_gil(&self) -> ObjectsView {
         self.get_children().into()
     }
 
@@ -547,11 +547,10 @@ impl VideoObject {
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerVideoObjectBuilder;
-    use crate::primitives::{
-        AttributeBuilder, AttributeValue, ObjectModification, RBBox, VideoObject,
-    };
+    use crate::primitives::{AttributeBuilder, ObjectModification, RBBox, VideoObject};
     use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> VideoObject {

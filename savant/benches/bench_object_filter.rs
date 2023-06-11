@@ -2,11 +2,12 @@
 
 extern crate test;
 
+use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::{
     InnerVideoObjectBuilder, VideoObjectTrackingData,
 };
 use savant_rs::primitives::message::video::query::*;
-use savant_rs::primitives::{AttributeBuilder, AttributeValue, RBBox, VideoObject};
+use savant_rs::primitives::{AttributeBuilder, RBBox, VideoObject};
 use test::Bencher;
 
 fn get_objects() -> Vec<VideoObject> {

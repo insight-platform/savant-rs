@@ -23,3 +23,4 @@ Cargo.lock
 /docs/source/generated
 /savant/dist
 /sample_plugin/dist
+/savant_etcd_dynamic_state/dist

@@ -1,12 +1,12 @@
 pub mod utils {
+    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::frame::{
         InnerVideoFrameBuilder, VideoTranscodingMethod,
     };
     use crate::primitives::message::video::object::{InnerVideoObject, InnerVideoObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, AttributeValue, Intersection, IntersectionKind, Point,
-        PyVideoFrameContent, VideoObject,
+        AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, VideoObject,
     };
     use crate::primitives::{RBBox, VideoFrame};
     use pyo3::pyfunction;

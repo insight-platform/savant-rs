@@ -301,11 +301,12 @@ impl VideoFrameUpdate {
 
 #[cfg(test)]
 mod tests {
+    use crate::primitives::attribute::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::query::Query;
     use crate::primitives::{
-        Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy, AttributeValue,
-        AttributeValueVariant, ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
+        Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
+        ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
     };
     use crate::test::utils::{gen_frame, gen_object, s};
 

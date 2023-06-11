@@ -2,7 +2,7 @@
 ///
 /// This API is used to interface with the Savant Rust library from C.
 ///
-use crate::primitives::message::video::object::vector::ObjectVectorView;
+use crate::primitives::message::video::object::objects_view::ObjectsView;
 use crate::primitives::{RBBox, VideoFrame, VideoObject};
 use std::slice::from_raw_parts;
 
@@ -78,7 +78,7 @@ impl From<&VideoObject> for InferenceObjectMeta {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
-    let this = unsafe { &*(handle as *const ObjectVectorView) };
+    let this = unsafe { &*(handle as *const ObjectsView) };
     this.inner.len()
 }
 
@@ -90,7 +90,7 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
-    let this = unsafe { &*(handle as *const ObjectVectorView) };
+    let this = unsafe { &*(handle as *const ObjectsView) };
     (&this.inner[pos]).into()
 }
 
