@@ -1,6 +1,6 @@
 pub mod attribute_value;
 
-use crate::primitives::attribute::attribute_value::AttributeValuesVectorView;
+use crate::primitives::attribute::attribute_value::AttributeValuesView;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use attribute_value::AttributeValue;
 use pyo3::{pyclass, pymethods, Py, PyAny};
@@ -228,8 +228,8 @@ impl Attribute {
     /// -------
     ///
     #[getter]
-    pub fn values_view(&self) -> AttributeValuesVectorView {
-        AttributeValuesVectorView {
+    pub fn values_view(&self) -> AttributeValuesView {
+        AttributeValuesView {
             inner: self.values.clone(),
         }
     }

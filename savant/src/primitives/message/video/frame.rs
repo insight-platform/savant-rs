@@ -2,7 +2,7 @@ pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
-use crate::primitives::message::video::object::vector_view::ObjectVectorView;
+use crate::primitives::message::video::object::objects_view::ObjectsView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{
@@ -1180,32 +1180,32 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectVectorView {
+    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectsView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
+    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectsView {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectVectorView {
+    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectsView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectVectorView {
+    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectsView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectVectorView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectsView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectVectorView {
+    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectsView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1225,12 +1225,12 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_gil(&self) -> ObjectVectorView {
+    pub fn get_modified_objects_gil(&self) -> ObjectsView {
         no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, id: i64) -> ObjectVectorView {
+    pub fn get_children_gil(&self, id: i64) -> ObjectsView {
         no_gil(|| self.get_children(id).into())
     }
 

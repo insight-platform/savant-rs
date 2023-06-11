@@ -817,12 +817,12 @@ pub enum AttributeValueType {
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct AttributeValuesVectorView {
+pub struct AttributeValuesView {
     pub inner: Arc<Vec<AttributeValue>>,
 }
 
 #[pymethods]
-impl AttributeValuesVectorView {
+impl AttributeValuesView {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 

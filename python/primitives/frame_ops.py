@@ -111,7 +111,7 @@ print("Raw address to pass to C-funcs: ", f.memory_handle)
 vec = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
 print("Object with two children:", vec[0])
 
-# demonstrates chained filtering on VectorView object
+# demonstrates chained filtering on ObjectsView object
 #
 f = gen_frame()
 one, two = f.access_objects(Q.idle()) \
@@ -178,10 +178,10 @@ print("C-struct: ", meta)
 for field_name, field_type in meta._fields_:
     print("\t", field_name, getattr(meta, field_name))
 
-# demonstrates VectorView len() op
-print("Vector View len() op", len(vec))
+# demonstrates ObjectsView len() op
+print("ObjectsView len() op", len(vec))
 
-# demonstrates VectorView index access operation
+# demonstrates ObjectsView index access operation
 vec = vec[0]
 print("Object", vec)
 
