@@ -59,6 +59,7 @@ frame.clear_transformations()
 frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
     AttributeValue.none(),
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
+    AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
     AttributeValue.integer(1, confidence=0.5),
     AttributeValue.float(1.0, confidence=0.5),
     AttributeValue.string("hello", confidence=0.5),
