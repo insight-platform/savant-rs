@@ -89,11 +89,17 @@ impl ToSerdeJsonValue for VideoFrameContent {
 #[derive(Debug, Clone)]
 #[pyo3(name = "VideoFrameContent")]
 pub struct PyVideoFrameContent {
-    pub(crate) inner: VideoFrameContent,
+    pub(crate) inner: Arc<VideoFrameContent>,
 }
 
 impl PyVideoFrameContent {
     pub fn new(inner: VideoFrameContent) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+
+    pub fn new_arced(inner: Arc<VideoFrameContent>) -> Self {
         Self { inner }
     }
 }
@@ -113,42 +119,35 @@ impl PyVideoFrameContent {
 
     #[staticmethod]
     pub fn external(method: String, location: Option<String>) -> Self {
-        Self {
-            inner: VideoFrameContent::External(ExternalFrame::new(method, location)),
-        }
+        Self::new(VideoFrameContent::External(ExternalFrame::new(
+            method, location,
+        )))
     }
 
     #[staticmethod]
     pub fn internal(data: Vec<u8>) -> Self {
-        Self {
-            inner: VideoFrameContent::Internal(data),
-        }
+        Self::new(VideoFrameContent::Internal(data))
     }
 
     #[staticmethod]
     pub fn none() -> Self {
-        Self {
-            inner: VideoFrameContent::None,
-        }
+        Self::new(VideoFrameContent::None)
     }
 
-    #[getter]
     pub fn is_external(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::External(_))
+        matches!(*self.inner, VideoFrameContent::External(_))
     }
 
-    #[getter]
     pub fn is_internal(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::Internal(_))
+        matches!(*self.inner, VideoFrameContent::Internal(_))
     }
 
-    #[getter]
     pub fn is_none(&self) -> bool {
-        matches!(self.inner, VideoFrameContent::None)
+        matches!(*self.inner, VideoFrameContent::None)
     }
 
     pub fn get_data(&self) -> PyResult<Vec<u8>> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::Internal(data) => Ok(data.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
@@ -157,7 +156,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_method(&self) -> PyResult<String> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::External(data) => Ok(data.method.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -166,7 +165,7 @@ impl PyVideoFrameContent {
     }
 
     pub fn get_location(&self) -> PyResult<Option<String>> {
-        match &self.inner {
+        match &*self.inner {
             VideoFrameContent::External(data) => Ok(data.location.clone()),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored externally",
@@ -355,7 +354,7 @@ pub struct InnerVideoFrame {
     pub pts: i64,
     pub dts: Option<i64>,
     pub duration: Option<i64>,
-    pub content: VideoFrameContent,
+    pub content: Arc<VideoFrameContent>,
     pub transformations: Vec<FrameTransformation>,
     pub attributes: HashMap<(String, String), Attribute>,
     pub offline_objects: HashMap<i64, InnerVideoObject>,
@@ -377,7 +376,7 @@ impl Default for InnerVideoFrame {
             pts: 0,
             dts: None,
             duration: None,
-            content: VideoFrameContent::None,
+            content: Arc::new(VideoFrameContent::None),
             transformations: Vec::new(),
             attributes: HashMap::new(),
             offline_objects: HashMap::new(),
@@ -1113,7 +1112,7 @@ impl VideoFrame {
     #[getter]
     pub fn get_content(&self) -> PyVideoFrameContent {
         let inner = self.inner.read_recursive();
-        PyVideoFrameContent::new(inner.content.clone())
+        PyVideoFrameContent::new_arced(inner.content.clone())
     }
 
     #[setter]
