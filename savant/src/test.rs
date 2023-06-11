@@ -119,7 +119,7 @@ pub mod utils {
                 .name("test".to_string())
                 .hint(Some("hint".to_string()))
                 .values(vec![
-                    AttributeValue::bytes(vec![8, 3, 8, 8], [0; 192].into(), None),
+                    AttributeValue::bytes_from_list(vec![8, 3, 8, 8], [0; 192].into(), None),
                     AttributeValue::integers([0, 1, 2, 3, 4, 5].into(), None),
                     AttributeValue::string("incoming".to_string(), Some(0.56)),
                     AttributeValue::strings(vec!["abc".into(), "cde".into()], None),

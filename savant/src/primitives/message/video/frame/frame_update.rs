@@ -11,6 +11,13 @@ pub enum ObjectUpdateCollisionResolutionPolicy {
     ReplaceSameLabelObjects,
 }
 
+/// Allows setting the policy for resolving collisions when updating objects in the frame with :class:`VideoFrameUpdate`.
+///
+/// There are three policies:
+///   * the one to just add objects;
+///   * the one to error if labels collide;
+///   * the one to replace objects with the same label.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "ObjectUpdateCollisionResolutionPolicy")]
@@ -63,6 +70,14 @@ pub enum AttributeUpdateCollisionResolutionPolicy {
     PrefixDuplicates(String),
 }
 
+/// Allows setting the policy for resolving collisions when updating attributes in the frame with :class:`VideoFrameUpdate`.
+///
+/// There are four policies:
+///   * the one to replace with foreign attributes when duplicates are found;
+///   * the one to keep own attributes when duplicates are found;
+///   * the one to error when duplicates are found;
+///   * the one to prefix duplicates with a given string.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]

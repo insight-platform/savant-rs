@@ -122,7 +122,7 @@ print("Two", two)
 
 # demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
 #
-lib = cdll.LoadLibrary("../../target/release/libsavant_rs.so")
+lib = cdll.LoadLibrary("../../target/debug/libsavant_rs.so")
 lib.object_vector_len.argtypes = [c_uint64]
 lib.object_vector_len.rettype = c_uint64
 print("Length:", lib.object_vector_len(vec.memory_handle))
