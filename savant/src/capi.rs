@@ -2,7 +2,7 @@
 ///
 /// This API is used to interface with the Savant Rust library from C.
 ///
-use crate::primitives::message::video::object::vector::ObjectVectorView;
+use crate::primitives::message::video::object::vector_view::ObjectVectorView;
 use crate::primitives::{RBBox, VideoFrame, VideoObject};
 use std::slice::from_raw_parts;
 

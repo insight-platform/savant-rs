@@ -423,9 +423,10 @@ pub fn foreach_udf(objs: &[&VideoObject], udf: &str) -> anyhow::Result<Vec<()>> 
 mod tests {
     use super::Query::*;
     use super::*;
+    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectTrackingData;
-    use crate::primitives::{AttributeBuilder, AttributeValue, RBBox};
+    use crate::primitives::{AttributeBuilder, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
 

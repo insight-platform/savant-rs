@@ -2,7 +2,7 @@ pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
-use crate::primitives::message::video::object::vector::ObjectVectorView;
+use crate::primitives::message::video::object::vector_view::ObjectVectorView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{
