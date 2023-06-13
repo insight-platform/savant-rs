@@ -16,6 +16,7 @@ pub const BBOX_UNDEFINED: RBBox = RBBox {
     width: BBOX_ELEMENT_UNDEFINED,
     height: BBOX_ELEMENT_UNDEFINED,
     angle: None,
+    has_changes: false,
 };
 
 #[derive(Clone, Debug)]
