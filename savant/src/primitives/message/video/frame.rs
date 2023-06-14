@@ -1575,7 +1575,7 @@ mod tests {
         let f2 = gen_frame();
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(o.get_frame().is_none());
-        o.set_id(33);
+        _ = o.set_id(33);
         f2.add_object(&o);
         o = f2.get_object(33).unwrap();
         f2.set_parent(&Query::Id(eq(1)), &o);

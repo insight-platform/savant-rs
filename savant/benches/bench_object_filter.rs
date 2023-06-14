@@ -20,7 +20,7 @@ fn get_objects() -> Vec<VideoObject> {
                 .id(i)
                 .confidence(Some(0.53))
                 .bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
-                .track(Some(VideoObjectTrackingData::new(
+                .track_info(Some(VideoObjectTrackingData::new(
                     i,
                     RBBox::new(10.0, 20.0, 21.0, 231.0, None),
                 )))

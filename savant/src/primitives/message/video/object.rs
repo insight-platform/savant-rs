@@ -885,7 +885,7 @@ mod tests {
     fn self_parent_assignment_change_id() {
         let obj = get_object();
         let parent = obj.clone();
-        parent.set_id(2);
+        _ = parent.set_id(2);
         obj.set_parent(Some(parent.get_id()));
     }
 
