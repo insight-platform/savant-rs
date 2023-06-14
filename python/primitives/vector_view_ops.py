@@ -1,4 +1,4 @@
-from savant_rs.utils import gen_frame, ObjectBBoxKind
+from savant_rs.utils import gen_frame, VideoObjectBBoxKind
 from savant_rs.utils.numpy import BBoxFormat
 from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered, UserFunctionType
 from savant_rs.video_object_query import Query as Q, IntExpression as IE
@@ -27,16 +27,16 @@ objects.foreach_udf("sample.inplace_modifier")
 assert objects[0].label == "modified_test"
 
 ids = objects.ids
-boxes = objects.rotated_boxes_as_numpy(ObjectBBoxKind.Detection)
+boxes = objects.rotated_boxes_as_numpy(VideoObjectBBoxKind.Detection)
 print("Ids:", ids)
 print("Detections:", boxes)
 
 track_ids = objects.track_ids
 print("Track ids:", track_ids)
-tr_boxes = objects.rotated_boxes_as_numpy(ObjectBBoxKind.Tracking)
+tr_boxes = objects.rotated_boxes_as_numpy(VideoObjectBBoxKind.TrackingInfo)
 print("Tracking:", tr_boxes)
 
-objects.update_from_numpy_boxes(boxes, BBoxFormat.XcYcWidthHeight, ObjectBBoxKind.Detection)
-objects.update_from_numpy_rotated_boxes(boxes, ObjectBBoxKind.Detection)
+objects.update_from_numpy_boxes(boxes, BBoxFormat.XcYcWidthHeight, VideoObjectBBoxKind.Detection)
+objects.update_from_numpy_rotated_boxes(boxes, VideoObjectBBoxKind.Detection)
 
 # tracking_boxes = objects.tracking_boxes_as_numpy()

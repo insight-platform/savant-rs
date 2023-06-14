@@ -2,7 +2,7 @@ pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
-use crate::primitives::message::video::object::objects_view::ObjectsView;
+use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{
@@ -177,12 +177,12 @@ impl PyVideoFrameContent {
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub enum VideoTranscodingMethod {
+pub enum VideoFrameTranscodingMethod {
     Copy,
     Encoded,
 }
 
-impl ToSerdeJsonValue for VideoTranscodingMethod {
+impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!(format!("{:?}", self))
     }
@@ -219,18 +219,18 @@ impl ToSerdeJsonValue for FrameTransformation {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "FrameTransformation")]
-pub struct PyFrameTransformation {
+pub struct PyVideoFrameTransformation {
     pub(crate) inner: FrameTransformation,
 }
 
-impl PyFrameTransformation {
+impl PyVideoFrameTransformation {
     pub fn new(inner: FrameTransformation) -> Self {
         Self { inner }
     }
 }
 
 #[pymethods]
-impl PyFrameTransformation {
+impl PyVideoFrameTransformation {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -348,7 +348,7 @@ pub struct InnerVideoFrame {
     pub framerate: String,
     pub width: i64,
     pub height: i64,
-    pub transcoding_method: VideoTranscodingMethod,
+    pub transcoding_method: VideoFrameTranscodingMethod,
     pub codec: Option<String>,
     pub keyframe: Option<bool>,
     pub pts: i64,
@@ -370,7 +370,7 @@ impl Default for InnerVideoFrame {
             framerate: String::new(),
             width: 0,
             height: 0,
-            transcoding_method: VideoTranscodingMethod::Copy,
+            transcoding_method: VideoFrameTranscodingMethod::Copy,
             codec: None,
             keyframe: None,
             pts: 0,
@@ -916,7 +916,7 @@ impl VideoFrame {
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
-        signature = (source_id, framerate, width, height, content, transcoding_method=VideoTranscodingMethod::Copy, codec=None, keyframe=None, pts=0, dts=None, duration=None)
+        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, pts=0, dts=None, duration=None)
     )]
     pub fn new(
         source_id: String,
@@ -924,7 +924,7 @@ impl VideoFrame {
         width: i64,
         height: i64,
         content: PyVideoFrameContent,
-        transcoding_method: VideoTranscodingMethod,
+        transcoding_method: VideoFrameTranscodingMethod,
         codec: Option<String>,
         keyframe: Option<bool>,
         pts: i64,
@@ -1054,13 +1054,13 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_transcoding_method(&self) -> VideoTranscodingMethod {
+    pub fn get_transcoding_method(&self) -> VideoFrameTranscodingMethod {
         let inner = self.inner.read_recursive();
         inner.transcoding_method.clone()
     }
 
     #[setter]
-    pub fn set_transcoding_method(&mut self, transcoding_method: VideoTranscodingMethod) {
+    pub fn set_transcoding_method(&mut self, transcoding_method: VideoFrameTranscodingMethod) {
         let mut inner = self.inner.write();
         inner.transcoding_method = transcoding_method;
     }
@@ -1082,18 +1082,18 @@ impl VideoFrame {
         inner.transformations.clear();
     }
 
-    pub fn add_transformation(&mut self, transformation: PyFrameTransformation) {
+    pub fn add_transformation(&mut self, transformation: PyVideoFrameTransformation) {
         let mut inner = self.inner.write();
         inner.transformations.push(transformation.inner);
     }
 
     #[getter]
-    pub fn get_transformations(&self) -> Vec<PyFrameTransformation> {
+    pub fn get_transformations(&self) -> Vec<PyVideoFrameTransformation> {
         let inner = self.inner.read_recursive();
         inner
             .transformations
             .iter()
-            .map(|t| PyFrameTransformation::new(t.clone()))
+            .map(|t| PyVideoFrameTransformation::new(t.clone()))
             .collect()
     }
 
@@ -1180,32 +1180,32 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryWrapper) -> ObjectsView {
+    pub fn access_objects_gil(&self, q: QueryWrapper) -> VideoObjectsView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> ObjectsView {
+    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
         no_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> ObjectsView {
+    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
         no_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: QueryWrapper) -> ObjectsView {
+    pub fn delete_objects_gil(&self, query: QueryWrapper) -> VideoObjectsView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> ObjectsView {
+    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> VideoObjectsView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: QueryWrapper) -> ObjectsView {
+    pub fn clear_parent_gil(&self, q: QueryWrapper) -> VideoObjectsView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1225,12 +1225,12 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_gil(&self) -> ObjectsView {
+    pub fn get_modified_objects_gil(&self) -> VideoObjectsView {
         no_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, id: i64) -> ObjectsView {
+    pub fn get_children_gil(&self, id: i64) -> VideoObjectsView {
         no_gil(|| self.get_children(id).into())
     }
 
@@ -1260,7 +1260,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerVideoObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{ObjectModification, RBBox, SetDrawLabelKind, VideoObject};
+    use crate::primitives::{RBBox, SetDrawLabelKind, VideoObject, VideoObjectModification};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1403,7 +1403,7 @@ mod tests {
 
         let mods = modified.take_modifications();
         assert_eq!(mods.len(), 1);
-        assert_eq!(mods, vec![ObjectModification::Creator]);
+        assert_eq!(mods, vec![VideoObjectModification::Creator]);
 
         let modified = t.get_modified_objects();
         assert!(modified.is_empty());
@@ -1469,10 +1469,10 @@ mod tests {
         let frame = gen_frame();
         frame.set_draw_label(&Query::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
-        assert_eq!(parent_object.draw_label(), s("draw"));
+        assert_eq!(parent_object.get_draw_label(), s("draw"));
 
         let child_object = frame.get_object(1).unwrap();
-        assert_ne!(child_object.draw_label(), s("draw"));
+        assert_ne!(child_object.get_draw_label(), s("draw"));
     }
 
     #[test]
@@ -1480,13 +1480,13 @@ mod tests {
         let frame = gen_frame();
         frame.set_draw_label(&Query::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
-        assert_eq!(parent_object.draw_label(), s("draw"));
+        assert_eq!(parent_object.get_draw_label(), s("draw"));
 
         let child_object = frame.get_object(1).unwrap();
-        assert_eq!(child_object.draw_label(), s("draw"));
+        assert_eq!(child_object.get_draw_label(), s("draw"));
 
         let child_object = frame.get_object(2).unwrap();
-        assert_eq!(child_object.draw_label(), s("draw"));
+        assert_eq!(child_object.get_draw_label(), s("draw"));
     }
 
     #[test]

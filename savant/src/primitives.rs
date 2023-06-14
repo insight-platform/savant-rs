@@ -12,14 +12,18 @@ pub mod message;
 pub mod point;
 /// A structure representing polygonal areas and functions.
 pub mod polygonal_area;
+pub mod proxy;
 /// A line consisting of two points.
 pub mod segment;
 /// A trait to serialize various objects to json.
 pub mod to_json_value;
 
-use crate::primitives::message::video::frame::PyFrameTransformation;
-pub use crate::primitives::message::video::object::objects_view::{ObjectBBoxKind, ObjectsView};
+use crate::primitives::message::video::frame::PyVideoFrameTransformation;
+pub use crate::primitives::message::video::object::objects_view::{
+    VideoObjectBBoxKind, VideoObjectsView,
+};
 pub use crate::primitives::message::video::object::VideoObjectTrackingData;
+use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 pub use attribute::attribute_value::{
     AttributeValue, AttributeValueType, AttributeValueVariant, AttributeValuesView,
 };
@@ -33,10 +37,10 @@ pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::frame_update::VideoFrameUpdate;
 pub use message::video::frame::frame_update::{
     AttributeUpdateCollisionResolutionPolicy, ObjectUpdateCollisionResolutionPolicy,
-    PyAttributeUpdateCollisionResolutionPolicy, PyObjectUpdateCollisionResolutionPolicy,
+    PyAttributeUpdateCollisionResolutionPolicy, PyVideoObjectUpdateCollisionResolutionPolicy,
 };
-pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoTranscodingMethod};
-pub use message::video::object::{ObjectModification, VideoObject};
+pub use message::video::frame::{PyVideoFrameContent, VideoFrame, VideoFrameTranscodingMethod};
+pub use message::video::object::{VideoObject, VideoObjectModification};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
@@ -72,22 +76,31 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
+    use PyAttributeUpdateCollisionResolutionPolicy as AttributeUpdateCollisionResolutionPolicy;
+    use PyVideoFrameContent as VideoFrameContent;
+    use PyVideoFrameTransformation as VideoFrameTransformation;
+    use PyVideoObjectUpdateCollisionResolutionPolicy as VideoObjectUpdateCollisionResolutionPolicy;
+
     m.add_class::<Attribute>()?;
-    m.add_class::<PyAttributeUpdateCollisionResolutionPolicy>()?;
-    m.add_class::<PyObjectUpdateCollisionResolutionPolicy>()?;
+    m.add_class::<AttributeUpdateCollisionResolutionPolicy>()?;
+    m.add_class::<VideoObjectUpdateCollisionResolutionPolicy>()?;
     m.add_class::<AttributeValue>()?;
     m.add_class::<AttributeValueType>()?;
     m.add_class::<AttributeValuesView>()?;
-    m.add_class::<VideoObject>()?;
-    m.add_class::<VideoObjectTrackingData>()?;
-    m.add_class::<ObjectsView>()?;
-    m.add_class::<VideoFrame>()?;
-    m.add_class::<VideoFrameUpdate>()?;
-    m.add_class::<VideoFrameBatch>()?;
     m.add_class::<EndOfStream>()?;
-    m.add_class::<VideoTranscodingMethod>()?;
-    m.add_class::<PyVideoFrameContent>()?;
-    m.add_class::<PyFrameTransformation>()?;
-    m.add_class::<ObjectModification>()?;
+
+    m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameBatch>()?;
+    m.add_class::<VideoFrameContent>()?;
+    m.add_class::<VideoFrameTranscodingMethod>()?;
+    m.add_class::<VideoFrameUpdate>()?;
+    m.add_class::<VideoFrameTransformation>()?;
+
+    m.add_class::<VideoObject>()?;
+    m.add_class::<VideoObjectModification>()?;
+    m.add_class::<VideoObjectTrackingData>()?;
+    m.add_class::<VideoObjectRBBoxProxy>()?;
+    m.add_class::<VideoObjectsView>()?;
+
     Ok(())
 }

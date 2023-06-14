@@ -240,35 +240,39 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerVideoObject>> for Query {
             Query::Label(x) => x.execute(&o.label),
             Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
             Query::ConfidenceDefined => o.confidence.is_some(),
-            Query::TrackDefined => o.track.is_some(),
-            Query::TrackId(x) => o.track.as_ref().map(|t| x.execute(&t.id)).unwrap_or(false),
+            Query::TrackDefined => o.track_info.is_some(),
+            Query::TrackId(x) => o
+                .track_info
+                .as_ref()
+                .map(|t| x.execute(&t.id))
+                .unwrap_or(false),
             Query::TrackBoxXCenter(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .map(|t| x.execute(&t.bounding_box.xc))
                 .unwrap_or(false),
             Query::TrackBoxYCenter(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .map(|t| x.execute(&t.bounding_box.yc))
                 .unwrap_or(false),
             Query::TrackBoxWidth(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .map(|t| x.execute(&t.bounding_box.width))
                 .unwrap_or(false),
             Query::TrackBoxHeight(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .map(|t| x.execute(&t.bounding_box.height))
                 .unwrap_or(false),
             Query::TrackBoxArea(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .map(|t| x.execute(&(t.bounding_box.width * t.bounding_box.height)))
                 .unwrap_or(false),
             Query::TrackBoxAngle(x) => o
-                .track
+                .track_info
                 .as_ref()
                 .and_then(|t| t.bounding_box.angle.map(|a| x.execute(&a)))
                 .unwrap_or(false),

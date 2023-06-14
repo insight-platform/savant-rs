@@ -13,42 +13,44 @@ use pyo3::prelude::*;
 use std::iter::zip;
 use std::sync::Arc;
 
+/// Determines which object bbox is a subject of the operation
+///
 #[pyclass]
 #[derive(Clone, Debug)]
-pub enum ObjectBBoxKind {
+pub enum VideoObjectBBoxKind {
     Detection,
-    Tracking,
+    TrackingInfo,
 }
 
 #[pyclass]
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct ObjectsView {
+pub struct VideoObjectsView {
     pub(crate) inner: Arc<Vec<VideoObject>>,
 }
 
-impl From<Vec<VideoObject>> for ObjectsView {
+impl From<Vec<VideoObject>> for VideoObjectsView {
     fn from(value: Vec<VideoObject>) -> Self {
-        ObjectsView {
+        VideoObjectsView {
             inner: Arc::new(value),
         }
     }
 }
 
-impl ObjectsView {
-    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: ObjectBBoxKind) {
+impl VideoObjectsView {
+    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: VideoObjectBBoxKind) {
         no_gil(|| {
             let it = zip(self.inner.iter(), boxes);
             match kind {
-                ObjectBBoxKind::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
-                ObjectBBoxKind::Tracking => it.for_each(|(o, b)| o.update_track_bbox(b)),
+                VideoObjectBBoxKind::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
+                VideoObjectBBoxKind::TrackingInfo => it.for_each(|(o, b)| o.update_track_bbox(b)),
             }
         })
     }
 }
 
 #[pymethods]
-impl ObjectsView {
+impl VideoObjectsView {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -77,31 +79,31 @@ impl ObjectsView {
     }
 
     #[pyo3(name = "filter")]
-    fn filter_gil(&self, q: QueryWrapper) -> ObjectsView {
-        no_gil(|| ObjectsView {
+    fn filter_gil(&self, q: QueryWrapper) -> VideoObjectsView {
+        no_gil(|| VideoObjectsView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         })
     }
 
     #[pyo3(name = "partition")]
-    fn partition_gil(&self, q: QueryWrapper) -> (ObjectsView, ObjectsView) {
+    fn partition_gil(&self, q: QueryWrapper) -> (VideoObjectsView, VideoObjectsView) {
         no_gil(|| {
             let (a, b) = partition(self.inner.as_ref(), &q.inner);
             (
-                ObjectsView { inner: Arc::new(a) },
-                ObjectsView { inner: Arc::new(b) },
+                VideoObjectsView { inner: Arc::new(a) },
+                VideoObjectsView { inner: Arc::new(b) },
             )
         })
     }
 
     #[pyo3(name = "map_udf")]
-    fn map_udf_gil(&self, udf: String) -> PyResult<ObjectsView> {
+    fn map_udf_gil(&self, udf: String) -> PyResult<VideoObjectsView> {
         no_gil(|| {
             map_udf(
                 self.inner.as_ref().iter().collect::<Vec<_>>().as_slice(),
                 &udf,
             )
-            .map(|x| ObjectsView { inner: Arc::new(x) })
+            .map(|x| VideoObjectsView { inner: Arc::new(x) })
         })
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     }
@@ -124,19 +126,19 @@ impl ObjectsView {
     }
 
     #[pyo3(name = "detached_copy")]
-    fn detached_copy_py(&self) -> ObjectsView {
-        no_gil(|| ObjectsView {
+    fn detached_copy_py(&self) -> VideoObjectsView {
+        no_gil(|| VideoObjectsView {
             inner: Arc::new(self.inner.iter().map(|x| x.detached_copy()).collect()),
         })
     }
 
     #[pyo3(name = "rotated_boxes_as_numpy")]
-    fn rotated_boxes_as_numpy_gil(&self, kind: ObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
+    fn rotated_boxes_as_numpy_gil(&self, kind: VideoObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
         let boxes = no_gil(|| match kind {
-            ObjectBBoxKind::Detection => {
+            VideoObjectBBoxKind::Detection => {
                 self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>()
             }
-            ObjectBBoxKind::Tracking => self
+            VideoObjectBBoxKind::TrackingInfo => self
                 .inner
                 .iter()
                 .flat_map(|o| {
@@ -161,11 +163,11 @@ impl ObjectsView {
     }
 
     #[pyo3(name = "sorted_by_id")]
-    pub fn sorted_by_id_gil(&self) -> ObjectsView {
+    pub fn sorted_by_id_gil(&self) -> VideoObjectsView {
         no_gil(|| {
             let mut objects = self.inner.as_ref().clone();
             objects.sort_by_key(|o| o.get_id());
-            ObjectsView {
+            VideoObjectsView {
                 inner: Arc::new(objects),
             }
         })
@@ -176,7 +178,7 @@ impl ObjectsView {
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
         format: BBoxFormat,
-        kind: ObjectBBoxKind,
+        kind: VideoObjectBBoxKind,
     ) {
         let boxes = ndarray_to_bboxes(np_boxes, format)
             .into_iter()
@@ -190,7 +192,7 @@ impl ObjectsView {
     pub fn update_from_numpy_rotated_boxes_gil(
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
-        kind: ObjectBBoxKind,
+        kind: VideoObjectBBoxKind,
     ) {
         let boxes = ndarray_to_rotated_bboxes(np_boxes);
         self.fill_boxes_gil(boxes, kind);

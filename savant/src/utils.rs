@@ -28,7 +28,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
-use crate::primitives::{Message, ObjectBBoxKind};
+use crate::primitives::{Message, VideoObjectBBoxKind};
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
@@ -125,7 +125,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
-    m.add_class::<ObjectBBoxKind>()?;
+    m.add_class::<VideoObjectBBoxKind>()?;
 
     Ok(())
 }
