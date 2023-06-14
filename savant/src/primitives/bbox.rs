@@ -9,16 +9,18 @@ use rkyv::{Archive, Deserialize, Serialize};
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub struct RBBox {
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub xc: f64,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub yc: f64,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub width: f64,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub height: f64,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub angle: Option<f64>,
+    #[pyo3(get)]
+    pub has_changes: bool,
 }
 
 impl Default for RBBox {
@@ -29,6 +31,7 @@ impl Default for RBBox {
             width: 0.0,
             height: 0.0,
             angle: None,
+            has_changes: false,
         }
     }
 }
@@ -58,6 +61,36 @@ impl RBBox {
         self.__repr__()
     }
 
+    #[setter]
+    pub fn set_xc(&mut self, xc: f64) {
+        self.xc = xc;
+        self.has_changes = true;
+    }
+
+    #[setter]
+    pub fn set_yc(&mut self, yc: f64) {
+        self.yc = yc;
+        self.has_changes = true;
+    }
+
+    #[setter]
+    pub fn set_width(&mut self, width: f64) {
+        self.width = width;
+        self.has_changes = true;
+    }
+
+    #[setter]
+    pub fn set_height(&mut self, height: f64) {
+        self.height = height;
+        self.has_changes = true;
+    }
+
+    #[setter]
+    pub fn set_angle(&mut self, angle: Option<f64>) {
+        self.angle = angle;
+        self.has_changes = true;
+    }
+
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64, angle: Option<f64>) -> Self {
         Self {
@@ -66,6 +99,7 @@ impl RBBox {
             width,
             height,
             angle,
+            has_changes: false,
         }
     }
 
@@ -119,6 +153,7 @@ impl RBBox {
 
 impl RBBox {
     pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
+        self.has_changes = true;
         match self.angle {
             None => {
                 self.xc *= scale_x;
@@ -267,6 +302,11 @@ impl PythonBBox {
         self.__repr__()
     }
 
+    #[getter]
+    fn has_changes(&self) -> bool {
+        self.inner.has_changes
+    }
+
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64) -> Self {
         Self {
@@ -304,7 +344,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_xc(&mut self, xc: f64) {
-        self.inner.xc = xc;
+        self.inner.set_xc(xc);
     }
 
     #[getter]
@@ -314,7 +354,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_yc(&mut self, yc: f64) {
-        self.inner.yc = yc;
+        self.inner.set_yc(yc);
     }
 
     #[getter]
@@ -324,7 +364,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_width(&mut self, width: f64) {
-        self.inner.width = width;
+        self.inner.set_width(width);
     }
 
     #[getter]
@@ -334,7 +374,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_height(&mut self, height: f64) {
-        self.inner.height = height;
+        self.inner.set_height(height);
     }
 
     #[getter]
@@ -344,7 +384,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_top(&mut self, top: f64) {
-        self.inner.yc = top + self.inner.height / 2.0;
+        self.inner.set_yc(top + self.inner.height / 2.0);
     }
 
     #[getter]
@@ -354,7 +394,7 @@ impl PythonBBox {
 
     #[setter]
     pub fn set_left(&mut self, left: f64) {
-        self.inner.xc = left + self.inner.width / 2.0;
+        self.inner.set_xc(left + self.inner.width / 2.0);
     }
 
     #[getter]

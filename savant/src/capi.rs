@@ -2,7 +2,7 @@
 ///
 /// This API is used to interface with the Savant Rust library from C.
 ///
-use crate::primitives::message::video::object::objects_view::ObjectsView;
+use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::{RBBox, VideoFrame, VideoObject};
 use std::slice::from_raw_parts;
 
@@ -16,6 +16,7 @@ pub const BBOX_UNDEFINED: RBBox = RBBox {
     width: BBOX_ELEMENT_UNDEFINED,
     height: BBOX_ELEMENT_UNDEFINED,
     angle: None,
+    has_changes: false,
 };
 
 #[derive(Clone, Debug)]
@@ -42,7 +43,7 @@ pub struct InferenceObjectMeta {
 impl From<&VideoObject> for InferenceObjectMeta {
     fn from(o: &VideoObject) -> Self {
         let o = o.inner.read_recursive();
-        let track_info = o.track.as_ref();
+        let track_info = o.track_info.as_ref();
         Self {
             id: o.id,
             creator_id: o.creator_id.unwrap_or(i64::MAX),
@@ -78,7 +79,7 @@ impl From<&VideoObject> for InferenceObjectMeta {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
-    let this = unsafe { &*(handle as *const ObjectsView) };
+    let this = unsafe { &*(handle as *const VideoObjectsView) };
     this.inner.len()
 }
 
@@ -90,7 +91,7 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
 ///
 #[no_mangle]
 pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
-    let this = unsafe { &*(handle as *const ObjectsView) };
+    let this = unsafe { &*(handle as *const VideoObjectsView) };
     (&this.inner[pos]).into()
 }
 

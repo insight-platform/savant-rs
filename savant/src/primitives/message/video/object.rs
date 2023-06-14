@@ -1,12 +1,15 @@
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
-use crate::primitives::message::video::object::objects_view::ObjectsView;
+use crate::primitives::message::video::object::objects_view::VideoObjectsView;
+use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
+use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox, VideoFrame};
+use crate::primitives::{Attribute, RBBox, VideoFrame, VideoObjectBBoxKind};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -14,13 +17,21 @@ use std::sync::Arc;
 
 pub mod objects_view;
 
+/// Represents tracking data for a single object filled by a tracker.
+/// This is a readonly object, you cannot change fields inplace. If you need to change tracking data for
+/// an object, you need to create a new instance and fill it. However, if you have requested the access with
+/// :py:attr:`VideoObject.tracking_data_ref`, you can change the fields of the returned object inplace (if it is defined).
+///
+/// The property :py:attr:`VideoObject.tracking_data` operates by value. If you change the fields of the returned object,
+/// the changes will not be applied to the original object.
+///
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
 pub struct VideoObjectTrackingData {
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub id: i64,
-    #[pyo3(get, set)]
+    #[pyo3(get)]
     pub bounding_box: RBBox,
 }
 
@@ -44,9 +55,12 @@ impl VideoObjectTrackingData {
     }
 }
 
+/// Represents operations happened with a video object. The operations are used to determine which fields of the object
+/// should be updated in the backing stores. You don't need to track modifications manually, they are tracked automatically.
+///
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
-pub enum ObjectModification {
+pub enum VideoObjectModification {
     Id,
     Creator,
     Label,
@@ -54,12 +68,12 @@ pub enum ObjectModification {
     Attributes,
     Confidence,
     Parent,
-    Track,
+    TrackInfo,
     DrawLabel,
 }
 
-impl ToSerdeJsonValue for ObjectModification {
-    fn to_serde_json_value(&self) -> serde_json::Value {
+impl ToSerdeJsonValue for VideoObjectModification {
+    fn to_serde_json_value(&self) -> Value {
         serde_json::json!(format!("{:?}", self))
     }
 }
@@ -80,10 +94,10 @@ pub struct InnerVideoObject {
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
-    pub track: Option<VideoObjectTrackingData>,
+    pub track_info: Option<VideoObjectTrackingData>,
     #[with(Skip)]
     #[builder(default)]
-    pub modifications: Vec<ObjectModification>,
+    pub modifications: Vec<VideoObjectModification>,
     #[with(Skip)]
     #[builder(default)]
     pub creator_id: Option<i64>,
@@ -106,7 +120,7 @@ impl Default for InnerVideoObject {
             attributes: HashMap::new(),
             confidence: None,
             parent_id: None,
-            track: None,
+            track_info: None,
             modifications: Vec::new(),
             creator_id: None,
             label_id: None,
@@ -126,7 +140,7 @@ impl ToSerdeJsonValue for InnerVideoObject {
             "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent_id,
-            "track": self.track.as_ref().map(|t| t.to_serde_json_value()),
+            "track": self.track_info.as_ref().map(|t| t.to_serde_json_value()),
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
             "frame": self.get_parent_frame_source(),
         })
@@ -141,8 +155,40 @@ impl InnerVideoObject {
                 .map(|f| f.read_recursive().source_id.clone())
         })
     }
+
+    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxKind) -> &RBBox {
+        match kind {
+            VideoObjectBBoxKind::Detection => &self.bbox,
+            VideoObjectBBoxKind::TrackingInfo => self
+                .track_info
+                .as_ref()
+                .map(|t| &t.bounding_box)
+                .unwrap_or(&self.bbox),
+        }
+    }
+
+    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxKind) -> &mut RBBox {
+        match kind {
+            VideoObjectBBoxKind::Detection => &mut self.bbox,
+            VideoObjectBBoxKind::TrackingInfo => self
+                .track_info
+                .as_mut()
+                .map(|t| &mut t.bounding_box)
+                .unwrap_or(&mut self.bbox),
+        }
+    }
+
+    pub(crate) fn add_modification(&mut self, modification: VideoObjectModification) {
+        self.modifications.push(modification);
+    }
 }
 
+/// Represents a video object. The object is a part of a video frame, it includes bounding
+/// box, attributes, label, creator label, etc. The objects are always accessible by reference. The only way to
+/// copy the object by value is to call :py:meth:`VideoObject.detached_copy`.
+///
+/// :py:class:`VideoObject` is a part of :py:class:`VideoFrame` and may outlive it if there are references.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct VideoObject {
@@ -226,6 +272,13 @@ impl AttributeMethods for VideoObject {
 }
 
 impl VideoObject {
+    pub fn update_track_bbox(&self, bbox: RBBox) {
+        let mut inner = self.inner.write();
+        if let Some(t) = inner.track_info.as_mut() {
+            t.bounding_box = bbox;
+        }
+    }
+
     pub fn get_parent_id(&self) -> Option<i64> {
         let inner = self.inner.read_recursive();
         inner.parent_id
@@ -271,7 +324,7 @@ impl VideoObject {
 
         let mut inner = self.inner.write();
         inner.parent_id = parent_opt;
-        inner.modifications.push(ObjectModification::Parent);
+        inner.add_modification(VideoObjectModification::Parent);
     }
 
     pub fn get_parent(&self) -> Option<VideoObject> {
@@ -332,7 +385,7 @@ impl VideoObject {
             bbox,
             attributes,
             confidence,
-            track,
+            track_info: track,
             creator_id,
             label_id,
             ..Default::default()
@@ -342,26 +395,148 @@ impl VideoObject {
         }
     }
 
-    pub fn is_spoiled(&self) -> bool {
+    /// Returns object's attributes as a list of tuples ``(creator, name)``.
+    ///
+    /// Returns
+    /// -------
+    /// List[Tuple[str, str]]
+    ///   List of attribute identifiers as ``(creator, name)``.
+    ///
+    #[getter]
+    #[pyo3(name = "attributes")]
+    pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
+        no_gil(|| self.get_attributes())
+    }
+
+    /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
+    /// When used as setter, allows setting object's bbox by value.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`savant_rs.primitives.geometry.RBBox`
+    ///   Object's bounding box.
+    ///
+    #[getter]
+    pub fn get_bbox(&self) -> RBBox {
+        self.inner.read_recursive().bbox.clone()
+    }
+
+    /// Accesses object's bbox by reference. The object returned by the method is a special proxy object.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`VideoObjectRBBoxProxy`
+    ///   A proxy object for the object's bbox.
+    ///
+    #[getter]
+    pub fn bbox_ref(&self) -> VideoObjectRBBoxProxy {
+        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxKind::Detection)
+    }
+
+    /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`VideoObjectsView`
+    ///   A view of the object's children.
+    ///
+    #[getter]
+    #[pyo3(name = "children_ref")]
+    pub fn children_ref_gil(&self) -> VideoObjectsView {
+        self.get_children().into()
+    }
+
+    /// Clears all object's attributes.
+    ///
+    #[pyo3(name = "clear_attributes")]
+    pub fn clear_attributes_gil(&mut self) {
+        {
+            let mut object = self.inner.write();
+            object.add_modification(VideoObjectModification::Attributes);
+        }
+        self.clear_attributes()
+    }
+
+    /// Returns object confidence if set. When used as setter, allows setting object's confidence.
+    ///
+    /// Returns
+    /// -------
+    /// float or None
+    ///   Object's confidence.
+    ///
+    #[getter]
+    pub fn get_confidence(&self) -> Option<f64> {
         let inner = self.inner.read_recursive();
-        match inner.frame {
-            Some(ref f) => f.inner.upgrade().is_none(),
-            None => false,
+        inner.confidence
+    }
+
+    /// Returns object's creator. When used as setter, allows setting object's creator.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   Object's creator.
+    ///
+    #[getter]
+    pub fn get_creator(&self) -> String {
+        self.inner.read_recursive().creator.clone()
+    }
+
+    /// Deletes an attribute from the object.
+    /// If the attribute is not found, returns None, otherwise returns the deleted attribute.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str
+    ///   Attribute creator.
+    /// name : str
+    ///   Attribute name.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Attribute` or None
+    ///   Deleted attribute or None if the attribute is not found.
+    ///
+    #[pyo3(name = "delete_attribute")]
+    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
+        match self.delete_attribute(creator, name) {
+            Some(attribute) => {
+                let mut object = self.inner.write();
+                object.add_modification(VideoObjectModification::Attributes);
+                Some(attribute)
+            }
+            None => None,
         }
     }
 
-    pub fn is_detached(&self) -> bool {
-        let inner = self.inner.read_recursive();
-        inner.frame.is_none()
+    /// Deletes attributes from the object.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str or None
+    ///   Attribute creator. If None, it is ignored when candidates are selected for removal.
+    /// names : List[str]
+    ///   Attribute names. If empty, it is ignored when candidates are selected for removal.
+    ///
+    #[pyo3(signature = (creator=None, names=vec![]))]
+    #[pyo3(name = "delete_attributes")]
+    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
+        no_gil(move || {
+            {
+                let mut object = self.inner.write();
+                object.add_modification(VideoObjectModification::Attributes);
+            }
+            self.delete_attributes(creator, names)
+        })
     }
 
-    pub fn update_track_bbox(&self, bbox: RBBox) {
-        let mut inner = self.inner.write();
-        if let Some(t) = inner.track.as_mut() {
-            t.bounding_box = bbox;
-        }
-    }
-
+    /// Returns a copy of the object with the same properties but detached from the frame and without a parent set.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`VideoObject`
+    ///   A copy of the object.
+    ///
     pub fn detached_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let mut new_inner = inner.clone();
@@ -372,162 +547,36 @@ impl VideoObject {
         }
     }
 
+    /// Returns object's draw label if set. When used as setter, allows setting object's draw label.
+    /// If the draw label is not set, returns object's label.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   Object's draw label.
+    ///
     #[getter]
-    #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self) -> ObjectsView {
-        self.get_children().into()
-    }
-
-    #[getter]
-    pub fn get_tracking_data(&self) -> Option<VideoObjectTrackingData> {
-        let inner = self.inner.read_recursive();
-        inner.track.clone()
-    }
-
-    pub fn get_frame(&self) -> Option<VideoFrame> {
-        let inner = self.inner.read_recursive();
-        inner.frame.as_ref().map(|f| f.into())
-    }
-
-    #[getter]
-    pub fn get_id(&self) -> i64 {
-        self.inner.read_recursive().id
-    }
-
-    #[getter]
-    pub fn get_creator(&self) -> String {
-        self.inner.read_recursive().creator.clone()
-    }
-
-    #[getter]
-    pub fn get_label(&self) -> String {
-        self.inner.read_recursive().label.clone()
-    }
-
-    #[getter]
-    pub fn get_bbox(&self) -> crate::primitives::RBBox {
-        self.inner.read_recursive().bbox.clone()
-    }
-
-    #[getter]
-    pub fn get_confidence(&self) -> Option<f64> {
-        let inner = self.inner.read_recursive();
-        inner.confidence
-    }
-
-    #[getter]
-    pub fn draw_label(&self) -> String {
+    pub fn get_draw_label(&self) -> String {
         let inner = self.inner.read_recursive();
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
-    #[setter]
-    pub fn set_draw_label(&self, draw_label: Option<String>) {
-        let mut inner = self.inner.write();
-        inner.draw_label = draw_label;
-        inner.modifications.push(ObjectModification::DrawLabel);
-    }
-
-    #[setter]
-    pub fn set_tracking_data(&self, track: Option<VideoObjectTrackingData>) {
-        let mut inner = self.inner.write();
-        inner.track = track;
-        inner.modifications.push(ObjectModification::Track);
-    }
-
-    #[setter]
-    pub fn set_id(&self, id: i64) {
-        assert!(
-            !matches!(self.get_frame(), Some(_)),
-            "When object is attached to a frame, it is impossible to change its ID"
-        );
-
-        let mut inner = self.inner.write();
-        inner.id = id;
-        inner.modifications.push(ObjectModification::Id);
-    }
-
-    #[setter]
-    pub fn set_creator(&self, creator: String) {
-        let mut inner = self.inner.write();
-        inner.creator = creator;
-        inner.modifications.push(ObjectModification::Creator);
-    }
-
-    #[setter]
-    pub fn set_label(&self, label: String) {
-        let mut inner = self.inner.write();
-        inner.label = label;
-        inner.modifications.push(ObjectModification::Label);
-    }
-
-    #[setter]
-    pub fn set_bbox(&self, bbox: RBBox) {
-        let mut inner = self.inner.write();
-        inner.bbox = bbox;
-        inner.modifications.push(ObjectModification::BoundingBox);
-    }
-
-    #[setter]
-    pub fn set_confidence(&self, confidence: Option<f64>) {
-        let mut inner = self.inner.write();
-        inner.confidence = confidence;
-        inner.modifications.push(ObjectModification::Confidence);
-    }
-
-    #[getter]
-    #[pyo3(name = "attributes")]
-    pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
-        no_gil(|| self.get_attributes())
-    }
-
-    #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        self.get_attribute(creator, name)
-    }
-
-    #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        match self.delete_attribute(creator, name) {
-            Some(attribute) => {
-                let mut object = self.inner.write();
-                object.modifications.push(ObjectModification::Attributes);
-                Some(attribute)
-            }
-            None => None,
-        }
-    }
-
-    #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
-        {
-            let mut object = self.inner.write();
-            object.modifications.push(ObjectModification::Attributes);
-        }
-        self.set_attribute(attribute)
-    }
-
-    #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_gil(&mut self) {
-        {
-            let mut object = self.inner.write();
-            object.modifications.push(ObjectModification::Attributes);
-        }
-        self.clear_attributes()
-    }
-
-    #[pyo3(signature = (creator=None, names=vec![]))]
-    #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        no_gil(move || {
-            {
-                let mut object = self.inner.write();
-                object.modifications.push(ObjectModification::Attributes);
-            }
-            self.delete_attributes(creator, names)
-        })
-    }
-
+    /// finds and returns names of attributes by expression based on creator, names and hint.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str or None
+    ///   Attribute creator. If None, it is ignored when candidates are selected.
+    /// names : List[str]
+    ///   Attribute names. If empty, it is ignored when candidates are selected.
+    /// hint : str or None
+    ///   Hint for the attribute name. If None, it is ignored when candidates are selected.
+    ///
+    /// Returns
+    /// -------
+    /// List[Tuple[str, str]]
+    ///   List of tuples with attribute creators and names.
+    ///
     #[pyo3(name = "find_attributes")]
     #[pyo3(signature = (creator=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
@@ -539,9 +588,196 @@ impl VideoObject {
         no_gil(|| self.find_attributes(creator, names, hint))
     }
 
-    pub fn take_modifications(&self) -> Vec<ObjectModification> {
+    /// Fetches attribute by creator and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
+    /// until the modification the values are shared. If the attribute is not found, returns None.
+    ///
+    /// Remember, because the attribute is fetched as a copy,
+    /// that changing attribute properties will not change the attribute kept in the object.
+    ///
+    /// Parameters
+    /// ----------
+    /// creator : str
+    ///   Attribute creator.
+    /// name : str
+    ///   Attribute name.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Attribute` or None
+    ///   Attribute or None if the attribute is not found.
+    ///
+    #[pyo3(name = "get_attribute")]
+    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
+        self.get_attribute(creator, name)
+    }
+
+    /// Returns the :py:class:`VideoFrame` reference to a frame the object belongs to.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`VideoFrame` or None
+    ///   A reference to a frame the object belongs to.
+    ///
+    pub fn get_frame(&self) -> Option<VideoFrame> {
+        let inner = self.inner.read_recursive();
+        inner.frame.as_ref().map(|f| f.into())
+    }
+
+    /// Returns the object's id. The setter causes ``RuntimeError`` when the object is attached to a frame.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   Object's id.
+    ///
+    #[getter]
+    pub fn get_id(&self) -> i64 {
+        self.inner.read_recursive().id
+    }
+
+    /// The object is detached if it is not attached to any frame. Such state may cause it impossible to operate with certain object properties.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the object is detached, False otherwise.
+    ///
+    pub fn is_detached(&self) -> bool {
+        let inner = self.inner.read_recursive();
+        inner.frame.is_none()
+    }
+
+    /// The object is spoiled if it is outlived the a belonging frame. Such state may cause it impossible to operate with certain object properties.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the object is spoiled, False otherwise.
+    pub fn is_spoiled(&self) -> bool {
+        let inner = self.inner.read_recursive();
+        match inner.frame {
+            Some(ref f) => f.inner.upgrade().is_none(),
+            None => false,
+        }
+    }
+
+    /// Returns the object's label. The setter allows setting object's label.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   Object's label.
+    ///
+    #[getter]
+    pub fn get_label(&self) -> String {
+        self.inner.read_recursive().label.clone()
+    }
+
+    /// Sets the attribute for the object. If the attribute is already set, it is replaced.
+    ///
+    /// Parameters
+    /// ----------
+    /// attribute : :py:class:`Attribute`
+    ///   Attribute to set.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Attribute` or None
+    ///   Attribute that was replaced or None if the attribute was not set.
+    ///
+    #[pyo3(name = "set_attribute")]
+    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
+        {
+            let mut object = self.inner.write();
+            object.add_modification(VideoObjectModification::Attributes);
+        }
+        self.set_attribute(attribute)
+    }
+
+    /// Fetches object modifications. The modifications are fetched by value, not reference. The modifications are cleared after the fetch.
+    ///
+    /// Returns
+    /// -------
+    /// List[:py:class:`VideoObjectModification`]
+    ///   List of object modifications.
+    ///
+    pub fn take_modifications(&self) -> Vec<VideoObjectModification> {
         let mut object = self.inner.write();
         std::mem::take(&mut object.modifications)
+    }
+
+    /// Returns object tracking data if it is available. The data returned by value, not reference.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`VideoObjectTrackingData` or None
+    ///   Object tracking data.
+    ///
+    #[getter]
+    pub fn get_tracking_data(&self) -> Option<VideoObjectTrackingData> {
+        let inner = self.inner.read_recursive();
+        inner.track_info.clone()
+    }
+
+    #[getter]
+    pub fn tracking_data_ref(&self) -> VideoObjectTrackingDataProxy {
+        VideoObjectTrackingDataProxy::new(self.inner.clone())
+    }
+
+    #[setter]
+    pub fn set_bbox(&self, bbox: RBBox) {
+        let mut inner = self.inner.write();
+        inner.bbox = bbox;
+        inner.add_modification(VideoObjectModification::BoundingBox);
+    }
+
+    #[setter]
+    pub fn set_draw_label(&self, draw_label: Option<String>) {
+        let mut inner = self.inner.write();
+        inner.draw_label = draw_label;
+        inner.add_modification(VideoObjectModification::DrawLabel);
+    }
+
+    #[setter]
+    pub fn set_tracking_data(&self, track: Option<VideoObjectTrackingData>) {
+        let mut inner = self.inner.write();
+        inner.track_info = track;
+        inner.add_modification(VideoObjectModification::TrackInfo);
+    }
+
+    #[setter]
+    pub fn set_id(&self, id: i64) -> PyResult<()> {
+        if matches!(self.get_frame(), Some(_)) {
+            return Err(PyRuntimeError::new_err(
+                "When object is attached to a frame, it is impossible to change its ID",
+            ));
+        }
+
+        let mut inner = self.inner.write();
+        inner.id = id;
+        inner.add_modification(VideoObjectModification::Id);
+        Ok(())
+    }
+
+    #[setter]
+    pub fn set_creator(&self, creator: String) {
+        let mut inner = self.inner.write();
+        inner.creator = creator;
+        inner.add_modification(VideoObjectModification::Creator);
+    }
+
+    #[setter]
+    pub fn set_label(&self, label: String) {
+        let mut inner = self.inner.write();
+        inner.label = label;
+        inner.add_modification(VideoObjectModification::Label);
+    }
+
+    #[setter]
+    pub fn set_confidence(&self, confidence: Option<f64>) {
+        let mut inner = self.inner.write();
+        inner.confidence = confidence;
+        inner.add_modification(VideoObjectModification::Confidence);
     }
 }
 
@@ -550,14 +786,14 @@ mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::InnerVideoObjectBuilder;
-    use crate::primitives::{AttributeBuilder, ObjectModification, RBBox, VideoObject};
+    use crate::primitives::{AttributeBuilder, RBBox, VideoObject, VideoObjectModification};
     use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> VideoObject {
         VideoObject::from_inner_object(
             InnerVideoObjectBuilder::default()
                 .id(1)
-                .track(None)
+                .track_info(None)
                 .modifications(vec![])
                 .creator("model".to_string())
                 .label("label".to_string())
@@ -622,7 +858,7 @@ mod tests {
     fn test_modifications() {
         let mut t = get_object();
         t.set_label("label2".to_string());
-        assert_eq!(t.take_modifications(), vec![ObjectModification::Label]);
+        assert_eq!(t.take_modifications(), vec![VideoObjectModification::Label]);
         assert_eq!(t.take_modifications(), vec![]);
 
         t.set_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
@@ -630,8 +866,8 @@ mod tests {
         assert_eq!(
             t.take_modifications(),
             vec![
-                ObjectModification::BoundingBox,
-                ObjectModification::Attributes
+                VideoObjectModification::BoundingBox,
+                VideoObjectModification::Attributes
             ]
         );
         assert_eq!(t.take_modifications(), vec![]);
@@ -649,7 +885,7 @@ mod tests {
     fn self_parent_assignment_change_id() {
         let obj = get_object();
         let parent = obj.clone();
-        parent.set_id(2);
+        _ = parent.set_id(2);
         obj.set_parent(Some(parent.get_id()));
     }
 

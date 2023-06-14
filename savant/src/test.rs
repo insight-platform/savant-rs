@@ -2,7 +2,7 @@ pub mod utils {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::frame::{
-        InnerVideoFrameBuilder, VideoTranscodingMethod,
+        InnerVideoFrameBuilder, VideoFrameTranscodingMethod,
     };
     use crate::primitives::message::video::object::{InnerVideoObject, InnerVideoObjectBuilder};
     use crate::primitives::{
@@ -25,7 +25,7 @@ pub mod utils {
                 .dts(None)
                 .transformations(Vec::default())
                 .duration(None)
-                .transcoding_method(VideoTranscodingMethod::Copy)
+                .transcoding_method(VideoFrameTranscodingMethod::Copy)
                 .codec(None)
                 .keyframe(None)
                 .attributes(HashMap::default())
@@ -37,7 +37,7 @@ pub mod utils {
         let parent_object = VideoObject::from_inner_object(
             InnerVideoObjectBuilder::default()
                 .id(0)
-                .track(None)
+                .track_info(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .attributes(HashMap::default())
@@ -51,7 +51,7 @@ pub mod utils {
         let c1 = VideoObject::from_inner_object(
             InnerVideoObjectBuilder::default()
                 .id(1)
-                .track(None)
+                .track_info(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .parent_id(Some(parent_object.get_id()))
@@ -66,7 +66,7 @@ pub mod utils {
         let c2 = VideoObject::from_inner_object(
             InnerVideoObjectBuilder::default()
                 .id(2)
-                .track(None)
+                .track_info(None)
                 .modifications(Vec::default())
                 .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
                 .parent_id(Some(parent_object.get_id()))

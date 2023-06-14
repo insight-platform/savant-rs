@@ -1,14 +1,14 @@
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.primitives import VideoObject, AttributeValue, \
-    Attribute, VideoFrame, VideoFrameUpdate, ObjectUpdateCollisionResolutionPolicy, \
+    Attribute, VideoFrame, VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs.video_object_query import Query as Q
 
 frame = gen_frame()
 update = VideoFrameUpdate()
 
-update.object_collision_resolution_policy = ObjectUpdateCollisionResolutionPolicy.add_foreign_objects()
+update.object_collision_resolution_policy = VideoObjectUpdateCollisionResolutionPolicy.add_foreign_objects()
 update.attribute_collision_resolution_policy = AttributeUpdateCollisionResolutionPolicy.replace_with_foreign()
 objects = frame.access_objects(Q.idle())
 

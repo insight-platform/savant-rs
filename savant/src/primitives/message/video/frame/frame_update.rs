@@ -20,13 +20,13 @@ pub enum ObjectUpdateCollisionResolutionPolicy {
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-#[pyo3(name = "ObjectUpdateCollisionResolutionPolicy")]
-pub struct PyObjectUpdateCollisionResolutionPolicy {
+#[pyo3(name = "VideoObjectUpdateCollisionResolutionPolicy")]
+pub struct PyVideoObjectUpdateCollisionResolutionPolicy {
     pub(crate) inner: ObjectUpdateCollisionResolutionPolicy,
 }
 
 #[pymethods]
-impl PyObjectUpdateCollisionResolutionPolicy {
+impl PyVideoObjectUpdateCollisionResolutionPolicy {
     #[staticmethod]
     pub fn add_foreign_objects() -> Self {
         Self {
@@ -49,14 +49,14 @@ impl PyObjectUpdateCollisionResolutionPolicy {
     }
 }
 
-impl From<ObjectUpdateCollisionResolutionPolicy> for PyObjectUpdateCollisionResolutionPolicy {
+impl From<ObjectUpdateCollisionResolutionPolicy> for PyVideoObjectUpdateCollisionResolutionPolicy {
     fn from(p: ObjectUpdateCollisionResolutionPolicy) -> Self {
         Self { inner: p }
     }
 }
 
-impl From<PyObjectUpdateCollisionResolutionPolicy> for ObjectUpdateCollisionResolutionPolicy {
-    fn from(p: PyObjectUpdateCollisionResolutionPolicy) -> Self {
+impl From<PyVideoObjectUpdateCollisionResolutionPolicy> for ObjectUpdateCollisionResolutionPolicy {
+    fn from(p: PyVideoObjectUpdateCollisionResolutionPolicy) -> Self {
         p.inner
     }
 }
@@ -235,7 +235,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "object_collision_resolution_policy")]
     pub fn set_object_collision_resolution_policy_py(
         &mut self,
-        p: PyObjectUpdateCollisionResolutionPolicy,
+        p: PyVideoObjectUpdateCollisionResolutionPolicy,
     ) {
         self.object_collision_resolution_policy = p.into();
     }
@@ -264,7 +264,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "object_collision_resolution_policy")]
     pub fn get_object_collision_resolution_policy_py(
         &self,
-    ) -> PyObjectUpdateCollisionResolutionPolicy {
+    ) -> PyVideoObjectUpdateCollisionResolutionPolicy {
         self.object_collision_resolution_policy.clone().into()
     }
 
