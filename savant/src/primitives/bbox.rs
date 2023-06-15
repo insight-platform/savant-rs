@@ -334,8 +334,8 @@ impl RBBox {
     pub fn visual_bbox(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
         assert!(border_width >= 0);
         let padding_with_border = PaddingDraw::new(
-            padding.left - border_width,
-            padding.top - border_width,
+            padding.left + border_width,
+            padding.top + border_width,
             padding.right + border_width,
             padding.bottom + border_width,
         );
@@ -362,8 +362,8 @@ impl PythonBBox {
         assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
 
         let padding_with_border = PaddingDraw::new(
-            padding.left - border_width,
-            padding.top - border_width,
+            padding.left + border_width,
+            padding.top + border_width,
             padding.right + border_width,
             padding.bottom + border_width,
         );
