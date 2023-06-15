@@ -21,17 +21,11 @@ lazy_static! {
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub struct RBBox {
-    #[pyo3(get)]
     xc: f64,
-    #[pyo3(get)]
     yc: f64,
-    #[pyo3(get)]
     width: f64,
-    #[pyo3(get)]
     height: f64,
-    #[pyo3(get)]
     angle: Option<f64>,
-    #[pyo3(get)]
     has_modifications: bool,
 }
 
