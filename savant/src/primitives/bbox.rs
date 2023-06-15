@@ -1,11 +1,12 @@
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Point, PolygonalArea};
+use crate::primitives::{PaddingDraw, Point, PolygonalArea};
 use crate::utils::python::no_gil;
 use crate::utils::round_2_digits;
 use lazy_static::lazy_static;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use std::f64::consts::PI;
 
 lazy_static! {
     pub static ref BBOX_UNDEFINED: RBBox = RBBox::new(
@@ -96,6 +97,10 @@ impl RBBox {
         self.has_modifications
     }
 
+    pub fn reset_modifications(&mut self) {
+        self.has_modifications = false;
+    }
+
     #[setter]
     pub fn set_xc(&mut self, xc: f64) {
         self.xc = xc;
@@ -174,15 +179,52 @@ impl RBBox {
         no_gil(|| self.wrapping_bbox())
     }
 
-    #[pyo3(name = "as_graphical_wrapping_box")]
-    pub fn as_graphical_wrapping_box_gil(
-        &self,
-        padding: f64,
-        border_width: f64,
-        max_x: f64,
-        max_y: f64,
-    ) -> PythonBBox {
-        no_gil(|| self.graphical_wrapping_bbox(padding, border_width, max_x, max_y))
+    #[pyo3(name = "visual_box")]
+    pub fn visual_box_gil(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
+        no_gil(|| self.visual_bbox(padding, border_width))
+    }
+
+    pub fn new_padded(&self, padding: PaddingDraw) -> Self {
+        let (left, right, top, bottom) = (
+            padding.left as f64,
+            padding.right as f64,
+            padding.top as f64,
+            padding.bottom as f64,
+        );
+
+        let angle_rad = self.angle.unwrap_or(0.0) * PI / 180.0;
+        let cos_theta = angle_rad.cos();
+        let sin_theta = angle_rad.sin();
+
+        let xc = self.xc + ((right - left) * cos_theta - (bottom - top) * sin_theta) / 2.0;
+        let yc = self.yc + ((right - left) * sin_theta + (bottom - top) * cos_theta) / 2.0;
+        let height = self.height + top + bottom;
+        let width = self.width + left + right;
+        let angle = self.angle;
+
+        Self {
+            xc,
+            yc,
+            width,
+            height,
+            angle,
+            has_modifications: false,
+        }
+    }
+
+    /// Returns a copy of the RBBox object
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`RBBox`
+    ///    A copy of the RBBox object
+    ///
+    ///
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        let mut new_self = self.clone();
+        new_self.has_modifications = false;
+        new_self
     }
 }
 
@@ -199,7 +241,7 @@ impl RBBox {
             Some(angle) => {
                 let scale_x2 = scale_x * scale_x;
                 let scale_y2 = scale_y * scale_y;
-                let cotan = (angle * std::f64::consts::PI / 180.0).tan().powi(-1);
+                let cotan = (angle * PI / 180.0).tan().powi(-1);
                 let cotan_2 = cotan * cotan;
                 let scale_angle =
                     (scale_x * angle.signum() / (scale_x2 + scale_y2 * cotan_2).sqrt()).acos();
@@ -289,19 +331,49 @@ impl RBBox {
         }
     }
 
-    pub fn graphical_wrapping_bbox(
+    pub fn visual_bbox(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
+        assert!(border_width >= 0);
+        let padding_with_border = PaddingDraw::new(
+            padding.left - border_width,
+            padding.top - border_width,
+            padding.right + border_width,
+            padding.bottom + border_width,
+        );
+
+        self.new_padded(padding_with_border)
+    }
+}
+
+#[pyclass]
+#[derive(Clone, Debug)]
+#[pyo3(name = "BBox")]
+pub struct PythonBBox {
+    pub(crate) inner: RBBox,
+}
+
+impl PythonBBox {
+    pub fn visual_bbox(
         &self,
-        padding: f64,
-        border_width: f64,
+        padding: PaddingDraw,
+        border_width: i64,
         max_x: f64,
         max_y: f64,
     ) -> PythonBBox {
-        assert!(padding >= 0.0 && border_width >= 0.0 && max_x >= 0.0 && max_y >= 0.0);
-        let bbox = self.wrapping_bbox();
-        let left = 0.0f64.max(bbox.get_left() - padding - border_width).floor();
-        let top = 0.0f64.max(bbox.get_top() - padding - border_width).floor();
-        let right = max_x.min(bbox.get_right() + padding + border_width).ceil();
-        let bottom = max_y.min(bbox.get_bottom() + padding + border_width).ceil();
+        assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
+
+        let padding_with_border = PaddingDraw::new(
+            padding.left - border_width,
+            padding.top - border_width,
+            padding.right + border_width,
+            padding.bottom + border_width,
+        );
+
+        let bbox = self.new_padded(padding_with_border);
+
+        let left = 0.0f64.max(bbox.get_left()).floor();
+        let top = 0.0f64.max(bbox.get_top()).floor();
+        let right = max_x.min(bbox.get_right()).ceil();
+        let bottom = max_y.min(bbox.get_bottom()).ceil();
 
         let mut width = 1.0f64.max(right - left);
         if width as i64 % 2 != 0 {
@@ -315,13 +387,6 @@ impl RBBox {
 
         PythonBBox::new(left + width / 2.0, top + height / 2.0, width, height)
     }
-}
-
-#[pyclass]
-#[derive(Clone, Debug)]
-#[pyo3(name = "BBox")]
-pub struct PythonBBox {
-    pub(crate) inner: RBBox,
 }
 
 #[pymethods]
@@ -465,18 +530,15 @@ impl PythonBBox {
         no_gil(|| self.inner.wrapping_bbox())
     }
 
-    #[pyo3(name = "as_graphical_wrapping_box")]
-    pub fn as_graphical_wrapping_box_gil(
+    #[pyo3(name = "visual_box")]
+    pub fn visual_box_gil(
         &self,
-        padding: f64,
-        border_width: f64,
+        padding: PaddingDraw,
+        border_width: i64,
         max_x: f64,
         max_y: f64,
     ) -> PythonBBox {
-        no_gil(|| {
-            self.inner
-                .graphical_wrapping_bbox(padding, border_width, max_x, max_y)
-        })
+        no_gil(|| self.visual_bbox(padding, border_width, max_x, max_y))
     }
 
     pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
@@ -542,11 +604,32 @@ impl PythonBBox {
     pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
         no_gil(|| self.inner.as_polygonal_area())
     }
+
+    /// Returns a copy of the BBox object
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`BBox`
+    ///    A copy of the BBox object
+    ///
+    ///
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        let mut new_self = self.clone();
+        new_self.inner.reset_modifications();
+        new_self
+    }
+
+    pub fn new_padded(&self, padding: PaddingDraw) -> Self {
+        let inner_copy = self.inner.clone();
+        let padded = inner_copy.new_padded(padding);
+        Self { inner: padded }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::RBBox;
+    use crate::primitives::{PaddingDraw, RBBox};
     use crate::utils::round_2_digits;
 
     #[test]
@@ -610,68 +693,79 @@ mod tests {
         assert_eq!(wrapped.inner.angle, None);
     }
 
-    #[test]
-    fn test_graphical_wrapping_box() {
-        let bbox = RBBox::new(50.0, 50.0, 100.0, 100.0, None);
-        let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 200.0, 200.0);
-        assert_eq!(wrapped.inner.xc, 50.0);
-        assert_eq!(wrapped.inner.yc, 50.0);
-        assert_eq!(wrapped.inner.width, 100.0);
-        assert_eq!(wrapped.inner.height, 100.0);
-
-        let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(45.0));
-        let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.inner.xc, 100.0);
-        assert_eq!(wrapped.inner.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 142.0);
-        assert_eq!(round_2_digits(wrapped.inner.height), 142.0);
-
-        let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(45.0));
-        let wrapped = bbox.graphical_wrapping_bbox(10.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.inner.xc, 100.0);
-        assert_eq!(wrapped.inner.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 162.0);
-        assert_eq!(round_2_digits(wrapped.inner.height), 162.0);
-
-        let bbox = RBBox::new(100.0, 100.0, 100.0, 100.0, Some(30.0));
-        let wrapped = bbox.graphical_wrapping_bbox(0.0, 0.0, 500.0, 500.0);
-        assert_eq!(wrapped.inner.xc, 100.0);
-        assert_eq!(wrapped.inner.yc, 100.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 138.0);
-        assert_eq!(round_2_digits(wrapped.inner.height), 138.0);
+    fn get_bbox(angle: Option<f64>) -> RBBox {
+        RBBox::new(0.0, 0.0, 100.0, 100.0, angle)
     }
 
-    fn get_bbox() -> RBBox {
-        RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0))
-    }
     #[test]
     fn check_modifications() {
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_xc(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_yc(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_width(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_height(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_angle(Some(10.0));
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.set_angle(None);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox();
+        let mut bb = get_bbox(Some(45.0));
         bb.scale(2.0, 2.0);
         assert!(bb.is_modified());
+    }
+
+    #[test]
+    fn test_padded_axis_aligned() {
+        let bb = get_bbox(None);
+        let padded = bb.new_padded(PaddingDraw::new(0, 0, 0, 0));
+        assert_eq!(padded.get_xc(), bb.get_xc());
+        assert_eq!(padded.get_yc(), bb.get_yc());
+        assert_eq!(padded.get_width(), bb.get_width());
+        assert_eq!(padded.get_height(), bb.get_height());
+
+        let bb = get_bbox(None);
+        let padded = bb.new_padded(PaddingDraw::new(2, 0, 0, 0));
+        assert_eq!(padded.get_xc(), bb.get_xc() - 1.0);
+        assert_eq!(padded.get_yc(), bb.get_yc());
+        assert_eq!(padded.get_width(), bb.get_width() + 2.0);
+        assert_eq!(padded.get_height(), bb.get_height());
+
+        let bb = get_bbox(None);
+        let padded = bb.new_padded(PaddingDraw::new(0, 2, 0, 0));
+        assert_eq!(padded.get_xc(), bb.get_xc());
+        assert_eq!(padded.get_yc(), bb.get_yc() - 1.0);
+        assert_eq!(padded.get_width(), bb.get_width());
+        assert_eq!(padded.get_height(), bb.get_height() + 2.0);
+
+        let bb = get_bbox(None);
+        let padded = bb.new_padded(PaddingDraw::new(2, 0, 4, 0));
+        assert_eq!(padded.get_xc(), bb.get_xc() + 1.0);
+        assert_eq!(padded.get_yc(), bb.get_yc());
+        assert_eq!(padded.get_width(), bb.get_width() + 6.0);
+        assert_eq!(padded.get_height(), bb.get_height());
+    }
+
+    #[test]
+    fn test_padded_rotated() {
+        let bb = get_bbox(Some(90.0));
+        let padded = bb.new_padded(PaddingDraw::new(2, 0, 0, 0));
+        assert_eq!(round_2_digits(padded.get_xc()), bb.get_xc());
+        assert_eq!(round_2_digits(padded.get_yc()), bb.get_yc() - 1.0);
+        assert_eq!(padded.get_width(), bb.get_width() + 2.0);
+        assert_eq!(padded.get_height(), bb.get_height());
     }
 }

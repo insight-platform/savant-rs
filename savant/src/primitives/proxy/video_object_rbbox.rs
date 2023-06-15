@@ -1,6 +1,6 @@
 use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
-use crate::primitives::{PolygonalArea, PythonBBox, VideoObjectBBoxKind};
+use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxKind};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -142,17 +142,11 @@ impl VideoObjectRBBoxProxy {
         self.get_object().read().bbox_ref(kind).wrapping_box_gil()
     }
 
-    pub fn as_graphical_wrapping_box(
-        &self,
-        padding: f64,
-        border_width: f64,
-        max_x: f64,
-        max_y: f64,
-    ) -> PythonBBox {
+    pub fn visual_box(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
         let kind = self.kind.clone();
         self.get_object()
             .read()
             .bbox_ref(kind)
-            .as_graphical_wrapping_box_gil(padding, border_width, max_x, max_y)
+            .visual_box_gil(padding, border_width)
     }
 }

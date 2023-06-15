@@ -1,4 +1,5 @@
 from savant_rs.primitives.geometry import BBox, RBBox
+from savant_rs.draw_spec import PaddingDraw
 from savant_rs.utils.numpy import *
 
 box = BBox(50, 50, 50, 50)
@@ -22,8 +23,8 @@ box = box.wrapping_box
 print("Wrapping box:", box)
 
 # max_x is limited to 180, max_y is limited to 500
-box = box.as_graphical_wrapping_box(padding=5, border_width=2, max_x=180, max_y=500)
-print("Graphical wrapping box:", box)
+box = box.visual_box(padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=180, max_y=500)
+print("Visual box:", box)
 
 ltrb = box.as_ltrb()
 print("Left, top, right, bottom:", ltrb)
@@ -71,7 +72,7 @@ box = box.wrapping_box
 print("Wrapping box:", box)
 
 # max_x is limited to 100, max_y is limited to 500
-box = box.as_graphical_wrapping_box(padding=5, border_width=2, max_x=100, max_y=500)
+box = box.visual_box(padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=100, max_y=500)
 print("Graphical wrapping box:", box)
 
 print(BBox.ltwh(0, 0, 100, 100))
