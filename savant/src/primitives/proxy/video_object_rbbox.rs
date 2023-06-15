@@ -38,10 +38,15 @@ impl VideoObjectRBBoxProxy {
         self.__repr__()
     }
 
+    fn is_modified(&self) -> bool {
+        let kind = self.kind.clone();
+        self.get_object().read().bbox_ref(kind).is_modified()
+    }
+
     #[getter]
     fn get_xc(&self) -> f64 {
         let kind = self.kind.clone();
-        self.get_object().read().bbox_ref(kind).xc
+        self.get_object().read().bbox_ref(kind).get_xc()
     }
 
     #[setter]
@@ -53,7 +58,7 @@ impl VideoObjectRBBoxProxy {
     #[getter]
     fn get_yc(&self) -> f64 {
         let kind = self.kind.clone();
-        self.get_object().read().bbox_ref(kind).yc
+        self.get_object().read().bbox_ref(kind).get_yc()
     }
 
     #[setter]
@@ -65,7 +70,7 @@ impl VideoObjectRBBoxProxy {
     #[getter]
     fn get_width(&self) -> f64 {
         let kind = self.kind.clone();
-        self.get_object().read().bbox_ref(kind).width
+        self.get_object().read().bbox_ref(kind).get_width()
     }
 
     #[setter]
@@ -77,7 +82,7 @@ impl VideoObjectRBBoxProxy {
     #[getter]
     fn get_height(&self) -> f64 {
         let kind = self.kind.clone();
-        self.get_object().read().bbox_ref(kind).height
+        self.get_object().read().bbox_ref(kind).get_height()
     }
 
     #[setter]
@@ -89,7 +94,7 @@ impl VideoObjectRBBoxProxy {
     #[getter]
     fn get_angle(&self) -> Option<f64> {
         let kind = self.kind.clone();
-        self.get_object().read().bbox_ref(kind).angle
+        self.get_object().read().bbox_ref(kind).get_angle()
     }
 
     #[setter]

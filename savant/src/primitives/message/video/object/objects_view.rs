@@ -1,4 +1,4 @@
-use crate::capi::BBOX_UNDEFINED;
+use crate::primitives::bbox::BBOX_UNDEFINED;
 use crate::primitives::message::video::query::py::QueryWrapper;
 use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
 use crate::primitives::{RBBox, VideoObject};
@@ -144,7 +144,7 @@ impl VideoObjectsView {
                 .flat_map(|o| {
                     o.get_tracking_data()
                         .map(|t| t.bounding_box)
-                        .or(Some(BBOX_UNDEFINED))
+                        .or(Some(BBOX_UNDEFINED.clone()))
                 })
                 .collect::<Vec<_>>(),
         });

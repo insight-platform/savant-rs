@@ -12,8 +12,6 @@
 
 #define VERSION_LEN 4
 
-typedef struct RBBox RBBox;
-
 typedef struct InferenceObjectMeta {
   int64_t id;
   int64_t creator_id;
@@ -32,8 +30,6 @@ typedef struct InferenceObjectMeta {
   double track_box_height;
   double track_box_angle;
 } InferenceObjectMeta;
-
-
 
 /**
  * Returns the object vector length

@@ -1,26 +1,38 @@
+use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Point, PolygonalArea};
 use crate::utils::python::no_gil;
 use crate::utils::round_2_digits;
+use lazy_static::lazy_static;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+
+lazy_static! {
+    pub static ref BBOX_UNDEFINED: RBBox = RBBox::new(
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        None,
+    );
+}
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub struct RBBox {
     #[pyo3(get)]
-    pub xc: f64,
+    xc: f64,
     #[pyo3(get)]
-    pub yc: f64,
+    yc: f64,
     #[pyo3(get)]
-    pub width: f64,
+    width: f64,
     #[pyo3(get)]
-    pub height: f64,
+    height: f64,
     #[pyo3(get)]
-    pub angle: Option<f64>,
+    angle: Option<f64>,
     #[pyo3(get)]
-    pub has_changes: bool,
+    has_modifications: bool,
 }
 
 impl Default for RBBox {
@@ -31,7 +43,7 @@ impl Default for RBBox {
             width: 0.0,
             height: 0.0,
             angle: None,
-            has_changes: false,
+            has_modifications: false,
         }
     }
 }
@@ -61,34 +73,63 @@ impl RBBox {
         self.__repr__()
     }
 
+    #[getter]
+    pub fn get_xc(&self) -> f64 {
+        self.xc
+    }
+
+    #[getter]
+    pub fn get_yc(&self) -> f64 {
+        self.yc
+    }
+
+    #[getter]
+    pub fn get_width(&self) -> f64 {
+        self.width
+    }
+
+    #[getter]
+    pub fn get_height(&self) -> f64 {
+        self.height
+    }
+
+    #[getter]
+    pub fn get_angle(&self) -> Option<f64> {
+        self.angle
+    }
+
+    pub fn is_modified(&self) -> bool {
+        self.has_modifications
+    }
+
     #[setter]
     pub fn set_xc(&mut self, xc: f64) {
         self.xc = xc;
-        self.has_changes = true;
+        self.has_modifications = true;
     }
 
     #[setter]
     pub fn set_yc(&mut self, yc: f64) {
         self.yc = yc;
-        self.has_changes = true;
+        self.has_modifications = true;
     }
 
     #[setter]
     pub fn set_width(&mut self, width: f64) {
         self.width = width;
-        self.has_changes = true;
+        self.has_modifications = true;
     }
 
     #[setter]
     pub fn set_height(&mut self, height: f64) {
         self.height = height;
-        self.has_changes = true;
+        self.has_modifications = true;
     }
 
     #[setter]
     pub fn set_angle(&mut self, angle: Option<f64>) {
         self.angle = angle;
-        self.has_changes = true;
+        self.has_modifications = true;
     }
 
     #[new]
@@ -99,7 +140,7 @@ impl RBBox {
             width,
             height,
             angle,
-            has_changes: false,
+            has_modifications: false,
         }
     }
 
@@ -153,7 +194,7 @@ impl RBBox {
 
 impl RBBox {
     pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
-        self.has_changes = true;
+        self.has_modifications = true;
         match self.angle {
             None => {
                 self.xc *= scale_x;
@@ -302,9 +343,8 @@ impl PythonBBox {
         self.__repr__()
     }
 
-    #[getter]
-    fn has_changes(&self) -> bool {
-        self.inner.has_changes
+    fn is_modified(&self) -> bool {
+        self.inner.has_modifications
     }
 
     #[new]
@@ -339,7 +379,7 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_xc(&self) -> f64 {
-        self.inner.xc
+        self.inner.get_xc()
     }
 
     #[setter]
@@ -349,7 +389,7 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_yc(&self) -> f64 {
-        self.inner.yc
+        self.inner.get_yc()
     }
 
     #[setter]
@@ -359,7 +399,7 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_width(&self) -> f64 {
-        self.inner.width
+        self.inner.get_width()
     }
 
     #[setter]
@@ -369,7 +409,7 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_height(&self) -> f64 {
-        self.inner.height
+        self.inner.get_height()
     }
 
     #[setter]
@@ -379,32 +419,32 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_top(&self) -> f64 {
-        self.inner.yc - self.inner.height / 2.0
+        self.inner.get_yc() - self.inner.get_height() / 2.0
     }
 
     #[setter]
     pub fn set_top(&mut self, top: f64) {
-        self.inner.set_yc(top + self.inner.height / 2.0);
+        self.inner.set_yc(top + self.inner.get_height() / 2.0);
     }
 
     #[getter]
     pub fn get_left(&self) -> f64 {
-        self.inner.xc - self.inner.width / 2.0
+        self.inner.get_xc() - self.inner.get_width() / 2.0
     }
 
     #[setter]
     pub fn set_left(&mut self, left: f64) {
-        self.inner.set_xc(left + self.inner.width / 2.0);
+        self.inner.set_xc(left + self.inner.get_width() / 2.0);
     }
 
     #[getter]
     pub fn get_right(&self) -> f64 {
-        self.inner.xc + self.inner.width / 2.0
+        self.inner.get_xc() + self.inner.get_width() / 2.0
     }
 
     #[getter]
     pub fn get_bottom(&self) -> f64 {
-        self.inner.yc + self.inner.height / 2.0
+        self.inner.get_yc() + self.inner.get_height() / 2.0
     }
 
     #[getter]
@@ -605,5 +645,39 @@ mod tests {
         assert_eq!(wrapped.inner.yc, 100.0);
         assert_eq!(round_2_digits(wrapped.inner.width), 138.0);
         assert_eq!(round_2_digits(wrapped.inner.height), 138.0);
+    }
+
+    fn get_bbox() -> RBBox {
+        RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0))
+    }
+    #[test]
+    fn check_modifications() {
+        let mut bb = get_bbox();
+        bb.set_xc(10.0);
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.set_yc(10.0);
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.set_width(10.0);
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.set_height(10.0);
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.set_angle(Some(10.0));
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.set_angle(None);
+        assert!(bb.is_modified());
+
+        let mut bb = get_bbox();
+        bb.scale(2.0, 2.0);
+        assert!(bb.is_modified());
     }
 }

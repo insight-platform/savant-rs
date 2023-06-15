@@ -106,11 +106,11 @@ pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identit
         let arr = py.allow_threads(|| {
             let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 5]));
             for (i, bbox) in boxes.iter().enumerate() {
-                arr[[i, 0]] = RConvF64::conv_from_f64(bbox.xc);
-                arr[[i, 1]] = RConvF64::conv_from_f64(bbox.yc);
-                arr[[i, 2]] = RConvF64::conv_from_f64(bbox.width);
-                arr[[i, 3]] = RConvF64::conv_from_f64(bbox.height);
-                arr[[i, 4]] = RConvF64::conv_from_f64(bbox.angle.unwrap_or(0.0));
+                arr[[i, 0]] = RConvF64::conv_from_f64(bbox.get_xc());
+                arr[[i, 1]] = RConvF64::conv_from_f64(bbox.get_yc());
+                arr[[i, 2]] = RConvF64::conv_from_f64(bbox.get_width());
+                arr[[i, 3]] = RConvF64::conv_from_f64(bbox.get_height());
+                arr[[i, 4]] = RConvF64::conv_from_f64(bbox.get_angle().unwrap_or(0.0));
             }
             arr
         });

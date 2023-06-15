@@ -3,21 +3,11 @@
 /// This API is used to interface with the Savant Rust library from C.
 ///
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
-use crate::primitives::{RBBox, VideoFrame, VideoObject};
+use crate::primitives::{VideoFrame, VideoObject};
 use std::slice::from_raw_parts;
 
 /// When BBox is not defined, its elements are set to this value.
 pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
-
-/// When BBox is not defined, it is set to this value.
-pub const BBOX_UNDEFINED: RBBox = RBBox {
-    xc: BBOX_ELEMENT_UNDEFINED,
-    yc: BBOX_ELEMENT_UNDEFINED,
-    width: BBOX_ELEMENT_UNDEFINED,
-    height: BBOX_ELEMENT_UNDEFINED,
-    angle: None,
-    has_changes: false,
-};
 
 #[derive(Clone, Debug)]
 #[repr(C)]
@@ -50,22 +40,26 @@ impl From<&VideoObject> for InferenceObjectMeta {
             label_id: o.label_id.unwrap_or(i64::MAX),
             confidence: o.confidence.unwrap_or(f64::MAX),
             parent_id: o.parent_id.unwrap_or(i64::MAX),
-            box_xc: o.bbox.xc,
-            box_yx: o.bbox.yc,
-            box_width: o.bbox.width,
-            box_height: o.bbox.height,
-            box_angle: o.bbox.angle.unwrap_or(0.0),
+            box_xc: o.bbox.get_xc(),
+            box_yx: o.bbox.get_yc(),
+            box_width: o.bbox.get_width(),
+            box_height: o.bbox.get_height(),
+            box_angle: o.bbox.get_angle().unwrap_or(0.0),
             track_id: track_info.map(|ti| ti.id).unwrap_or(i64::MAX),
-            track_box_xc: track_info.map(|ti| ti.bounding_box.xc).unwrap_or(f64::MAX),
-            track_box_yx: track_info.map(|ti| ti.bounding_box.yc).unwrap_or(f64::MAX),
+            track_box_xc: track_info
+                .map(|ti| ti.bounding_box.get_xc())
+                .unwrap_or(f64::MAX),
+            track_box_yx: track_info
+                .map(|ti| ti.bounding_box.get_yc())
+                .unwrap_or(f64::MAX),
             track_box_width: track_info
-                .map(|ti| ti.bounding_box.width)
+                .map(|ti| ti.bounding_box.get_width())
                 .unwrap_or(f64::MAX),
             track_box_height: track_info
-                .map(|ti| ti.bounding_box.height)
+                .map(|ti| ti.bounding_box.get_height())
                 .unwrap_or(f64::MAX),
             track_box_angle: track_info
-                .map(|ti| ti.bounding_box.angle.unwrap_or(0.0))
+                .map(|ti| ti.bounding_box.get_angle().unwrap_or(0.0))
                 .unwrap_or(0.0),
         }
     }

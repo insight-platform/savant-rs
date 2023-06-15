@@ -249,44 +249,44 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerVideoObject>> for Query {
             Query::TrackBoxXCenter(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.xc))
+                .map(|t| x.execute(&t.bounding_box.get_xc()))
                 .unwrap_or(false),
             Query::TrackBoxYCenter(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.yc))
+                .map(|t| x.execute(&t.bounding_box.get_yc()))
                 .unwrap_or(false),
             Query::TrackBoxWidth(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.width))
+                .map(|t| x.execute(&t.bounding_box.get_width()))
                 .unwrap_or(false),
             Query::TrackBoxHeight(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.height))
+                .map(|t| x.execute(&t.bounding_box.get_height()))
                 .unwrap_or(false),
             Query::TrackBoxArea(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&(t.bounding_box.width * t.bounding_box.height)))
+                .map(|t| x.execute(&(t.bounding_box.get_width() * t.bounding_box.get_height())))
                 .unwrap_or(false),
             Query::TrackBoxAngle(x) => o
                 .track_info
                 .as_ref()
-                .and_then(|t| t.bounding_box.angle.map(|a| x.execute(&a)))
+                .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a)))
                 .unwrap_or(false),
 
             // parent
             Query::ParentDefined => o.parent_id.is_some(),
             // box
-            Query::BoxWidth(x) => x.execute(&o.bbox.width),
-            Query::BoxHeight(x) => x.execute(&o.bbox.height),
-            Query::BoxArea(x) => x.execute(&(o.bbox.width * o.bbox.height)),
-            Query::BoxXCenter(x) => x.execute(&o.bbox.xc),
-            Query::BoxYCenter(x) => x.execute(&o.bbox.yc),
-            Query::BoxAngleDefined => o.bbox.angle.is_some(),
-            Query::BoxAngle(x) => o.bbox.angle.map(|a| x.execute(&a)).unwrap_or(false),
+            Query::BoxWidth(x) => x.execute(&o.bbox.get_width()),
+            Query::BoxHeight(x) => x.execute(&o.bbox.get_height()),
+            Query::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height())),
+            Query::BoxXCenter(x) => x.execute(&o.bbox.get_xc()),
+            Query::BoxYCenter(x) => x.execute(&o.bbox.get_yc()),
+            Query::BoxAngleDefined => o.bbox.get_angle().is_some(),
+            Query::BoxAngle(x) => o.bbox.get_angle().map(|a| x.execute(&a)).unwrap_or(false),
 
             // attributes
             Query::AttributesEmpty => o.attributes.is_empty(),
