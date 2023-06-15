@@ -3,8 +3,11 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
 use crate::utils::python::no_gil;
 use crate::utils::round_2_digits;
+use geo::{Area, BooleanOps};
 use lazy_static::lazy_static;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::exceptions::PyNotImplementedError;
+use pyo3::pyclass::CompareOp;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::f64::consts::PI;
 
@@ -66,6 +69,42 @@ impl RBBox {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    pub fn iou(&self, other: &Self) -> f64 {
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        let union = poly1.union(&poly2).unsigned_area();
+        intersection / union
+    }
+
+    pub fn eq(&self, other: &Self) -> bool {
+        self.xc == other.xc
+            && self.yc == other.yc
+            && self.width == other.width
+            && self.height == other.height
+            && self.angle == other.angle
+    }
+
+    pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
+        (self.xc - other.xc).abs() < eps
+            && (self.yc - other.yc).abs() < eps
+            && (self.width - other.width).abs() < eps
+            && (self.height - other.height).abs() < eps
+            && (self.angle.unwrap_or(0.0) - other.angle.unwrap_or(0.0)).abs() < eps
+    }
+
+    pub(crate) fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        match op {
+            CompareOp::Lt | CompareOp::Le | CompareOp::Gt | CompareOp::Ge => Err(
+                PyNotImplementedError::new_err("Comparison ops Ge/Gt/Le/Lt are not implemented"),
+            ),
+            CompareOp::Eq => Ok(self.eq(other)),
+            CompareOp::Ne => Ok(!self.eq(other)),
+        }
     }
 
     #[getter]
@@ -398,6 +437,22 @@ impl PythonBBox {
         format!("{:?}", self.inner)
     }
 
+    pub fn eq(&self, other: &Self) -> bool {
+        self.inner.eq(&other.inner)
+    }
+
+    pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
+        self.inner.almost_eq(&other.inner, eps)
+    }
+
+    pub(crate) fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        self.inner.__richcmp__(&other.inner, op)
+    }
+
+    fn iou(&self, other: &Self) -> f64 {
+        self.inner.iou(&other.inner)
+    }
+
     fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -631,6 +686,7 @@ impl PythonBBox {
 mod tests {
     use crate::primitives::{PaddingDraw, RBBox};
     use crate::utils::round_2_digits;
+    use pyo3::basic::CompareOp;
 
     #[test]
     fn test_scale_no_angle() {
@@ -767,5 +823,47 @@ mod tests {
         assert_eq!(round_2_digits(padded.get_yc()), bb.get_yc() - 1.0);
         assert_eq!(padded.get_width(), bb.get_width() + 2.0);
         assert_eq!(padded.get_height(), bb.get_height());
+    }
+
+    #[test]
+    fn test_eq() {
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(Some(45.0));
+        assert_eq!(bb1, bb2);
+
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(Some(90.0));
+        assert_ne!(bb1, bb2);
+
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(None);
+        assert_ne!(bb1, bb2);
+    }
+
+    #[test]
+    fn test_almost_eq() {
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(Some(45.05));
+        assert!(bb1.almost_eq(&bb2, 0.1));
+
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(Some(90.0));
+        assert!(!bb1.almost_eq(&bb2, 0.1));
+
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(None);
+        assert!(!bb1.almost_eq(&bb2, 0.1));
+    }
+
+    #[test]
+    fn test_richcmp_ok() {
+        let bb1 = get_bbox(Some(45.0));
+        let bb2 = get_bbox(Some(45.0));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Eq), Ok(true)));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Ne), Ok(false)));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Lt), Err(_)));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Le), Err(_)));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Gt), Err(_)));
+        assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Ge), Err(_)));
     }
 }

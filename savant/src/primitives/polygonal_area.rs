@@ -153,6 +153,11 @@ impl PolygonalArea {
 }
 
 impl PolygonalArea {
+    pub fn get_polygon(&mut self) -> geo::Polygon {
+        self.build_polygon();
+        self.polygon.as_ref().unwrap().clone()
+    }
+
     pub fn is_self_intersecting(&self) -> bool {
         use geo::algorithm::line_intersection::LineIntersection::*;
         let poly = self.polygon.as_ref().unwrap();

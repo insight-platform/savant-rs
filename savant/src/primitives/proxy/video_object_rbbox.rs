@@ -2,6 +2,7 @@ use crate::primitives::message::video::object::InnerVideoObject;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
 use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxKind};
 use pyo3::prelude::*;
+use pyo3::pyclass::CompareOp;
 
 #[pyclass]
 #[derive(Clone, Debug)]
@@ -148,5 +149,61 @@ impl VideoObjectRBBoxProxy {
             .read()
             .bbox_ref(kind)
             .visual_box_gil(padding, border_width)
+    }
+
+    pub fn eq(&self, other: &Self) -> bool {
+        let kind = self.kind.clone();
+        let ob1 = self.get_object();
+        let ob2 = other.get_object();
+
+        let br1 = ob1.read();
+        let br2 = ob2.read();
+
+        let o1 = br1.bbox_ref(kind.clone());
+        let o2 = br2.bbox_ref(kind);
+
+        o1.eq(o2)
+    }
+
+    pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
+        let kind = self.kind.clone();
+        let ob1 = self.get_object();
+        let ob2 = other.get_object();
+
+        let br1 = ob1.read();
+        let br2 = ob2.read();
+
+        let o1 = br1.bbox_ref(kind.clone());
+        let o2 = br2.bbox_ref(kind);
+
+        o1.almost_eq(o2, eps)
+    }
+
+    pub fn iou(&self, other: &Self) -> f64 {
+        let kind = self.kind.clone();
+        let ob1 = self.get_object();
+        let ob2 = other.get_object();
+
+        let br1 = ob1.read();
+        let br2 = ob2.read();
+
+        let o1 = br1.bbox_ref(kind.clone());
+        let o2 = br2.bbox_ref(kind);
+
+        o1.iou(o2)
+    }
+
+    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+        let kind = self.kind.clone();
+        let ob1 = self.get_object();
+        let ob2 = other.get_object();
+
+        let br1 = ob1.read();
+        let br2 = ob2.read();
+
+        let o1 = br1.bbox_ref(kind.clone());
+        let o2 = br2.bbox_ref(kind);
+
+        o1.__richcmp__(o2, op)
     }
 }
