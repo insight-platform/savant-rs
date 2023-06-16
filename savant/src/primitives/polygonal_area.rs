@@ -15,8 +15,8 @@ use std::sync::Arc;
 #[derive(Archive, Deserialize, Serialize, Debug, Default, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct PolygonalArea {
-    pub vertices: Arc<Vec<Point>>,
-    pub tags: Arc<Option<Vec<Option<String>>>>,
+    pub(self) vertices: Arc<Vec<Point>>,
+    pub(self) tags: Arc<Option<Vec<Option<String>>>>,
     #[with(Skip)]
     polygon: Option<geo::Polygon>,
 }
