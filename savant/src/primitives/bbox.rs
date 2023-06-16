@@ -3,13 +3,16 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
 use crate::utils::python::no_gil;
 use crate::utils::round_2_digits;
+use anyhow::bail;
 use geo::{Area, BooleanOps};
 use lazy_static::lazy_static;
-use pyo3::exceptions::PyNotImplementedError;
+use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::f64::consts::PI;
+
+pub const EPS: f64 = 0.00001;
 
 lazy_static! {
     pub static ref BBOX_UNDEFINED: RBBox = RBBox::new(
@@ -71,17 +74,12 @@ impl RBBox {
         self.__repr__()
     }
 
-    pub fn iou(&self, other: &Self) -> f64 {
-        let mut area1 = self.as_polygonal_area();
-        let poly1 = area1.get_polygon();
-        let mut area2 = other.as_polygonal_area();
-        let poly2 = area2.get_polygon();
-        let intersection = poly1.intersection(&poly2).unsigned_area();
-        let union = poly1.union(&poly2).unsigned_area();
-        intersection / union
+    pub fn area(&self) -> f64 {
+        self.width * self.height
     }
 
-    pub fn eq(&self, other: &Self) -> bool {
+    #[pyo3(name = "eq")]
+    pub fn geometric_eq(&self, other: &Self) -> bool {
         self.xc == other.xc
             && self.yc == other.yc
             && self.width == other.width
@@ -102,8 +100,8 @@ impl RBBox {
             CompareOp::Lt | CompareOp::Le | CompareOp::Gt | CompareOp::Ge => Err(
                 PyNotImplementedError::new_err("Comparison ops Ge/Gt/Le/Lt are not implemented"),
             ),
-            CompareOp::Eq => Ok(self.eq(other)),
-            CompareOp::Ne => Ok(!self.eq(other)),
+            CompareOp::Eq => Ok(self.geometric_eq(other)),
+            CompareOp::Ne => Ok(!self.geometric_eq(other)),
         }
     }
 
@@ -265,9 +263,35 @@ impl RBBox {
         new_self.has_modifications = false;
         new_self
     }
+
+    #[pyo3(name = "iou")]
+    pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
+        no_gil(|| {
+            self.iou(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
 }
 
 impl RBBox {
+    pub fn iou(&self, other: &Self) -> anyhow::Result<f64> {
+        if self.area() < EPS || other.area() < EPS {
+            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
+        }
+
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+        let union = poly1.union(&poly2).unsigned_area();
+        if union < EPS {
+            bail!("Union of two bounding boxes is zero. Division by zero is not allowed.",)
+        }
+
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        Ok(intersection / union)
+    }
+
     pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
         self.has_modifications = true;
         match self.angle {
@@ -437,8 +461,9 @@ impl PythonBBox {
         format!("{:?}", self.inner)
     }
 
-    pub fn eq(&self, other: &Self) -> bool {
-        self.inner.eq(&other.inner)
+    #[pyo3(name = "eq")]
+    pub fn geometric_eq(&self, other: &Self) -> bool {
+        self.inner.geometric_eq(&other.inner)
     }
 
     pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
@@ -449,8 +474,9 @@ impl PythonBBox {
         self.inner.__richcmp__(&other.inner, op)
     }
 
-    fn iou(&self, other: &Self) -> f64 {
-        self.inner.iou(&other.inner)
+    #[pyo3(name = "iou")]
+    fn iou_gil(&self, other: &Self) -> PyResult<f64> {
+        self.inner.iou_gil(&other.inner)
     }
 
     fn __str__(&self) -> String {
