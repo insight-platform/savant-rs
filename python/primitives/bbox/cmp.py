@@ -34,3 +34,18 @@ for f in [lambda: box1 > box2, lambda: box1 < box2, lambda: box1 >= box2, lambda
         assert False
     except NotImplementedError:
         pass
+
+empty_box = RBBox(0, 0, 0, 0)
+try:
+    iou = box1.iou(empty_box)
+    assert False
+except ValueError:
+    pass
+
+empty_box = BBox(0, 0, 0, 0)
+box1 = BBox(50, 50, 50, 50)
+try:
+    iou = box1.iou(empty_box)
+    assert False
+except ValueError:
+    pass
