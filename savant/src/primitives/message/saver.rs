@@ -24,8 +24,8 @@ use crate::version_to_bytes_le;
 ///
 #[pyfunction]
 #[pyo3(name = "save_message")]
-pub fn save_message_gil(message: Message) -> Vec<u8> {
-    no_gil(|| save_message(message))
+pub fn save_message_gil(message: &Message) -> Vec<u8> {
+    no_gil(|| save_message(message.clone()))
 }
 
 pub fn save_message(m: Message) -> Vec<u8> {

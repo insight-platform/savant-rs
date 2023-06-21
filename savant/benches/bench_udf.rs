@@ -13,7 +13,7 @@ fn bench_udf(b: &mut Bencher) -> anyhow::Result<()> {
     register_plugin_function(
         "../target/debug/libsample_plugin.so",
         "unary_op_even",
-        UserFunctionType::ObjectPredicate,
+        &UserFunctionType::ObjectPredicate,
         "sample.unary_op_even",
     )?;
 

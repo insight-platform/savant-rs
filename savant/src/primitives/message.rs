@@ -4,14 +4,15 @@ pub mod saver;
 pub mod video;
 
 use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
-use crate::primitives::VideoFrame;
+use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
+use crate::utils::python::no_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 
 #[derive(Debug, Clone)]
 pub enum NativeMessage {
     EndOfStream(EndOfStream),
-    VideoFrame(VideoFrame),
+    VideoFrame(VideoFrameProxy),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
     Unknown(String),
@@ -61,6 +62,31 @@ pub struct Message {
     payload: NativeMessage,
 }
 
+impl Message {
+    pub fn end_of_stream(eos: EndOfStream) -> Self {
+        Self {
+            payload: NativeMessage::EndOfStream(eos),
+        }
+    }
+    pub fn video_frame(frame: VideoFrameProxy) -> Self {
+        Self {
+            payload: NativeMessage::VideoFrame(frame),
+        }
+    }
+
+    pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
+        Self {
+            payload: NativeMessage::VideoFrameBatch(batch),
+        }
+    }
+
+    pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
+        no_gil(|| Self {
+            payload: NativeMessage::VideoFrameUpdate(update),
+        })
+    }
+}
+
 #[pymethods]
 impl Message {
     #[classattr]
@@ -106,10 +132,11 @@ impl Message {
     ///   The message of VideoFrame type
     ///
     #[staticmethod]
-    pub fn video_frame(frame: VideoFrame) -> Self {
-        Self {
-            payload: NativeMessage::VideoFrame(frame),
-        }
+    #[pyo3(name = "video_frame")]
+    fn video_frame_gil(frame: &VideoFrameProxy) -> Self {
+        no_gil(|| Self {
+            payload: NativeMessage::VideoFrame(frame.clone()),
+        })
     }
 
     /// Create a new video frame batch message
@@ -125,10 +152,11 @@ impl Message {
     ///   The message of VideoFrameBatch type
     ///
     #[staticmethod]
-    pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
-        Self {
-            payload: NativeMessage::VideoFrameBatch(batch),
-        }
+    #[pyo3(name = "video_frame_batch")]
+    fn video_frame_batch_gil(batch: &VideoFrameBatch) -> Self {
+        no_gil(|| Self {
+            payload: NativeMessage::VideoFrameBatch(batch.clone()),
+        })
     }
 
     /// Create a new end of stream message
@@ -144,10 +172,11 @@ impl Message {
     ///   The message of EndOfStream type
     ///
     #[staticmethod]
-    pub fn end_of_stream(eos: EndOfStream) -> Self {
-        Self {
-            payload: NativeMessage::EndOfStream(eos),
-        }
+    #[pyo3(name = "end_of_stream")]
+    fn end_of_stream_gil(eos: &EndOfStream) -> Self {
+        no_gil(|| Self {
+            payload: NativeMessage::EndOfStream(eos.clone()),
+        })
     }
 
     /// Create a new video frame update message
@@ -163,9 +192,10 @@ impl Message {
     ///   The message of VideoFrameUpdate type
     ///
     #[staticmethod]
-    pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
+    #[pyo3(name = "video_frame_update")]
+    fn video_frame_update_gil(update: &VideoFrameUpdate) -> Self {
         Self {
-            payload: NativeMessage::VideoFrameUpdate(update),
+            payload: NativeMessage::VideoFrameUpdate(update.clone()),
         }
     }
 
@@ -265,7 +295,7 @@ impl Message {
     /// None
     ///   If the message is not of VideoFrame type
     ///
-    pub fn as_video_frame(&self) -> Option<VideoFrame> {
+    pub fn as_video_frame(&self) -> Option<VideoFrameProxy> {
         match &self.payload {
             NativeMessage::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
@@ -309,7 +339,6 @@ impl Message {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::loader::load_message;
-    use crate::primitives::message::saver::save_message_gil;
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
     };
@@ -322,7 +351,7 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let eos = EndOfStream::new("test".to_string());
         let m = Message::end_of_stream(eos);
-        let res = save_message_gil(m);
+        let res = save_message(m);
         let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
         let type_end = type_start + VERSION_LEN;
 
@@ -338,7 +367,7 @@ mod tests {
     fn test_save_load_video_frame() {
         pyo3::prepare_freethreaded_python();
         let m = Message::video_frame(gen_frame());
-        let res = save_message_gil(m);
+        let res = save_message(m);
         let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
         let type_end = type_start + VERSION_LEN;
         assert_eq!(
@@ -353,7 +382,7 @@ mod tests {
     fn test_save_load_unknown() {
         pyo3::prepare_freethreaded_python();
         let m = Message::unknown("x".to_string());
-        let res = save_message_gil(m);
+        let res = save_message(m);
         let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
         let type_end = type_start + VERSION_LEN;
         assert_eq!(
@@ -372,7 +401,7 @@ mod tests {
         batch.add(2, gen_frame());
         batch.add(3, gen_frame());
         let m = Message::video_frame_batch(batch);
-        let res = save_message_gil(m);
+        let res = save_message(m);
         let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
         let type_end = type_start + VERSION_LEN;
 
@@ -430,7 +459,7 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let eos = EndOfStream::new("test".to_string());
         let m = Message::end_of_stream(eos);
-        let mut res = save_message_gil(m);
+        let mut res = save_message(m);
         let version_start = res.len() - VERSION_LEN;
         let version_end = version_start + VERSION_LEN;
         res[version_end - 1].add_assign(1);

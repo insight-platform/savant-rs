@@ -217,11 +217,11 @@ impl RBBox {
     }
 
     #[pyo3(name = "visual_box")]
-    pub fn visual_box_gil(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
+    pub fn visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
         no_gil(|| self.visual_bbox(padding, border_width))
     }
 
-    pub fn new_padded(&self, padding: PaddingDraw) -> Self {
+    pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let (left, right, top, bottom) = (
             padding.left as f64,
             padding.right as f64,
@@ -394,7 +394,7 @@ impl RBBox {
         }
     }
 
-    pub fn visual_bbox(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
+    pub fn visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
         assert!(border_width >= 0);
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
@@ -403,7 +403,7 @@ impl RBBox {
             padding.bottom + border_width,
         );
 
-        self.new_padded(padding_with_border)
+        self.new_padded(&padding_with_border)
     }
 }
 
@@ -417,7 +417,7 @@ pub struct PythonBBox {
 impl PythonBBox {
     pub fn visual_bbox(
         &self,
-        padding: PaddingDraw,
+        padding: &PaddingDraw,
         border_width: i64,
         max_x: f64,
         max_y: f64,
@@ -431,7 +431,7 @@ impl PythonBBox {
             padding.bottom + border_width,
         );
 
-        let bbox = self.new_padded(padding_with_border);
+        let bbox = self.new_padded(&padding_with_border);
 
         let left = 0.0f64.max(bbox.get_left()).floor();
         let top = 0.0f64.max(bbox.get_top()).floor();
@@ -614,7 +614,7 @@ impl PythonBBox {
     #[pyo3(name = "visual_box")]
     pub fn visual_box_gil(
         &self,
-        padding: PaddingDraw,
+        padding: &PaddingDraw,
         border_width: i64,
         max_x: f64,
         max_y: f64,
@@ -701,7 +701,7 @@ impl PythonBBox {
         new_self
     }
 
-    pub fn new_padded(&self, padding: PaddingDraw) -> Self {
+    pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let inner_copy = self.inner.clone();
         let padded = inner_copy.new_padded(padding);
         Self { inner: padded }
@@ -813,28 +813,28 @@ mod tests {
     #[test]
     fn test_padded_axis_aligned() {
         let bb = get_bbox(None);
-        let padded = bb.new_padded(PaddingDraw::new(0, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(0, 0, 0, 0));
         assert_eq!(padded.get_xc(), bb.get_xc());
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width());
         assert_eq!(padded.get_height(), bb.get_height());
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(PaddingDraw::new(2, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0));
         assert_eq!(padded.get_xc(), bb.get_xc() - 1.0);
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width() + 2.0);
         assert_eq!(padded.get_height(), bb.get_height());
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(PaddingDraw::new(0, 2, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(0, 2, 0, 0));
         assert_eq!(padded.get_xc(), bb.get_xc());
         assert_eq!(padded.get_yc(), bb.get_yc() - 1.0);
         assert_eq!(padded.get_width(), bb.get_width());
         assert_eq!(padded.get_height(), bb.get_height() + 2.0);
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(PaddingDraw::new(2, 0, 4, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 4, 0));
         assert_eq!(padded.get_xc(), bb.get_xc() + 1.0);
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width() + 6.0);
@@ -844,7 +844,7 @@ mod tests {
     #[test]
     fn test_padded_rotated() {
         let bb = get_bbox(Some(90.0));
-        let padded = bb.new_padded(PaddingDraw::new(2, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0));
         assert_eq!(round_2_digits(padded.get_xc()), bb.get_xc());
         assert_eq!(round_2_digits(padded.get_yc()), bb.get_yc() - 1.0);
         assert_eq!(padded.get_width(), bb.get_width() + 2.0);

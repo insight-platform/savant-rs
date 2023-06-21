@@ -1,4 +1,4 @@
-use crate::primitives::message::video::object::InnerVideoObject;
+use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
 use crate::primitives::{VideoObjectBBoxKind, VideoObjectModification};
@@ -7,17 +7,17 @@ use pyo3::prelude::*;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct VideoObjectTrackingDataProxy {
-    object: WeakInner<InnerVideoObject>,
+    object: WeakInner<VideoObject>,
 }
 
 impl VideoObjectTrackingDataProxy {
-    pub fn new(object: StrongInnerType<InnerVideoObject>) -> Self {
+    pub fn new(object: StrongInnerType<VideoObject>) -> Self {
         Self {
             object: WeakInner::new(object),
         }
     }
 
-    fn get_object(&self) -> StrongInnerType<InnerVideoObject> {
+    fn get_object(&self) -> StrongInnerType<VideoObject> {
         self.object.get_or_fail()
     }
 }

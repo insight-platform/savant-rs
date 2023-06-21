@@ -1,5 +1,5 @@
-use crate::primitives::message::video::frame::InnerVideoFrame;
-use crate::primitives::VideoFrame;
+use crate::primitives::message::video::frame::VideoFrame;
+use crate::primitives::VideoFrameProxy;
 use crate::utils::python::no_gil;
 use pyo3::{pyclass, pymethods};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -9,16 +9,16 @@ use std::collections::HashMap;
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
 #[archive(check_bytes)]
 pub struct VideoFrameBatch {
-    offline_frames: HashMap<i64, InnerVideoFrame>,
+    offline_frames: HashMap<i64, VideoFrame>,
     #[with(Skip)]
-    pub(crate) frames: HashMap<i64, VideoFrame>,
+    pub(crate) frames: HashMap<i64, VideoFrameProxy>,
 }
 
 impl VideoFrameBatch {
     pub(crate) fn prepare_after_load(&mut self) {
         let offline_frames = std::mem::take(&mut self.offline_frames);
         for (id, inner) in offline_frames.into_iter() {
-            let frame = VideoFrame::from_inner(inner);
+            let frame = VideoFrameProxy::from_inner(inner);
             frame.restore_from_snapshot();
             self.frames.insert(id, frame);
         }
@@ -49,15 +49,15 @@ impl VideoFrameBatch {
         Self::default()
     }
 
-    pub fn add(&mut self, id: i64, frame: VideoFrame) {
+    pub fn add(&mut self, id: i64, frame: VideoFrameProxy) {
         self.frames.insert(id, frame);
     }
 
-    pub fn get(&self, id: i64) -> Option<VideoFrame> {
+    pub fn get(&self, id: i64) -> Option<VideoFrameProxy> {
         self.frames.get(&id).cloned()
     }
 
-    pub fn del(&mut self, id: i64) -> Option<VideoFrame> {
+    pub fn del(&mut self, id: i64) -> Option<VideoFrameProxy> {
         self.frames.remove(&id)
     }
 

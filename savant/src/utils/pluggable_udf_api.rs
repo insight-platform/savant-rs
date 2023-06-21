@@ -1,4 +1,4 @@
-use crate::primitives::VideoObject;
+use crate::primitives::VideoObjectProxy;
 use crate::utils::python::no_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
@@ -6,13 +6,13 @@ use libloading::os::unix::Symbol;
 use parking_lot::{const_rwlock, RwLock};
 use pyo3::prelude::*;
 
-pub type ObjectPredicateFunc = fn(o: &[&VideoObject]) -> bool;
+pub type ObjectPredicateFunc = fn(o: &[&VideoObjectProxy]) -> bool;
 pub type ObjectPredicate = Symbol<ObjectPredicateFunc>;
 
-pub type ObjectInplaceModifierFunc = fn(o: &[&VideoObject]) -> anyhow::Result<()>;
+pub type ObjectInplaceModifierFunc = fn(o: &[&VideoObjectProxy]) -> anyhow::Result<()>;
 pub type ObjectInplaceModifier = Symbol<ObjectInplaceModifierFunc>;
 
-pub type ObjectMapModifierFunc = fn(o: &VideoObject) -> anyhow::Result<VideoObject>;
+pub type ObjectMapModifierFunc = fn(o: &VideoObjectProxy) -> anyhow::Result<VideoObjectProxy>;
 pub type ObjectMapModifier = Symbol<ObjectMapModifierFunc>;
 
 /// Determines the type of user function.
@@ -93,7 +93,7 @@ pub fn is_plugin_function_registered(alias: &str) -> bool {
 pub fn register_plugin_function_gil(
     plugin: String,
     function: String,
-    function_type: UserFunctionType,
+    function_type: &UserFunctionType,
     alias: String,
 ) -> PyResult<()> {
     no_gil(|| {
@@ -105,7 +105,7 @@ pub fn register_plugin_function_gil(
 pub fn register_plugin_function(
     plugin: &str,
     function: &str,
-    kind: UserFunctionType,
+    kind: &UserFunctionType,
     alias: &str,
 ) -> anyhow::Result<()> {
     let mut registry = PLUGIN_REGISTRY.write();
@@ -161,14 +161,14 @@ pub fn register_plugin_function(
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
-pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObject>) -> PyResult<bool> {
+pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObjectProxy>) -> PyResult<bool> {
     no_gil(|| {
         call_object_predicate(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_predicate(alias: &str, args: &[&VideoObject]) -> anyhow::Result<bool> {
+pub fn call_object_predicate(alias: &str, args: &[&VideoObjectProxy]) -> anyhow::Result<bool> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -199,14 +199,17 @@ pub fn call_object_predicate(alias: &str, args: &[&VideoObject]) -> anyhow::Resu
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_inplace_modifier")]
-pub fn call_object_inplace_modifier_gil(alias: String, args: Vec<VideoObject>) -> PyResult<()> {
+pub fn call_object_inplace_modifier_gil(
+    alias: String,
+    args: Vec<VideoObjectProxy>,
+) -> PyResult<()> {
     no_gil(|| {
         call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObject]) -> anyhow::Result<()> {
+pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObjectProxy]) -> anyhow::Result<()> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -242,14 +245,20 @@ pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObject]) -> anyho
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_map_modifier")]
-pub fn call_object_map_modifier_gil(alias: String, arg: VideoObject) -> PyResult<VideoObject> {
+pub fn call_object_map_modifier_gil(
+    alias: String,
+    arg: &VideoObjectProxy,
+) -> PyResult<VideoObjectProxy> {
     no_gil(|| {
-        call_object_map_modifier(&alias, &arg)
+        call_object_map_modifier(&alias, arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
 }
 
-pub fn call_object_map_modifier(alias: &str, arg: &VideoObject) -> anyhow::Result<VideoObject> {
+pub fn call_object_map_modifier(
+    alias: &str,
+    arg: &VideoObjectProxy,
+) -> anyhow::Result<VideoObjectProxy> {
     let registry = PLUGIN_REGISTRY.read();
     let func = match registry.get(alias) {
         Some(func) => func,
@@ -274,27 +283,27 @@ mod tests {
         register_plugin_function(
             "../target/debug/libsample_plugin.so",
             "unary_op_even",
-            UserFunctionType::ObjectPredicate,
+            &UserFunctionType::ObjectPredicate,
             "sample.unary_op_even",
         )?;
         register_plugin_function(
             "../target/debug/libsample_plugin.so",
             "binary_op_parent",
-            UserFunctionType::ObjectPredicate,
+            &UserFunctionType::ObjectPredicate,
             "sample.binary_op_parent",
         )?;
 
         register_plugin_function(
             "../target/debug/libsample_plugin.so",
             "inplace_modifier",
-            UserFunctionType::ObjectInplaceModifier,
+            &UserFunctionType::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
             "../target/debug/libsample_plugin.so",
             "map_modifier",
-            UserFunctionType::ObjectMapModifier,
+            &UserFunctionType::ObjectMapModifier,
             "sample.map_modifier",
         )?;
 

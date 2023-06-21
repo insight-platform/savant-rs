@@ -84,10 +84,13 @@ impl PolygonalArea {
     }
 
     #[pyo3(name = "crossed_by_segments")]
-    pub fn crossed_by_segments_gil(&mut self, segs: Vec<Segment>) -> Vec<Intersection> {
+    pub fn crossed_by_segments_gil(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
         no_gil(|| {
             self.build_polygon();
-            segs.iter().map(|s| self.crossed_by_segment(s)).collect()
+            segments
+                .iter()
+                .map(|s| self.crossed_by_segment(s))
+                .collect()
         })
     }
 
@@ -210,7 +213,7 @@ impl PolygonalArea {
         let contains_end = poly.contains(&seg.end) || poly.exterior().contains(&seg.end);
 
         Intersection::new(
-            match (contains_start, contains_end, intersections.is_empty()) {
+            &match (contains_start, contains_end, intersections.is_empty()) {
                 (false, false, false) => IntersectionKind::Cross,
                 (false, false, true) => IntersectionKind::Outside,
                 (true, true, _) => IntersectionKind::Inside,
@@ -353,71 +356,71 @@ mod tests {
             Some(vec![Some(UPPER.into()), None, Some(LOWER.into()), None]),
         );
 
-        let seg1 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, 0.0));
+        let seg1 = Segment::new(&Point::new(0.0, 2.0), &Point::new(0.0, 0.0));
         let res = area.crossed_by_segment_gil(&seg1);
         assert_eq!(
             res,
-            Intersection::new(IntersectionKind::Enter, vec![(0, Some(UPPER.into()))])
+            Intersection::new(&IntersectionKind::Enter, vec![(0, Some(UPPER.into()))])
         );
 
-        let seg2 = Segment::new(Point::new(0.0, 0.0), Point::new(0.0, -2.0));
+        let seg2 = Segment::new(&Point::new(0.0, 0.0), &Point::new(0.0, -2.0));
         let res = area.crossed_by_segment_gil(&seg2);
         assert_eq!(
             res,
-            Intersection::new(IntersectionKind::Leave, vec![(2, Some(LOWER.into()))])
+            Intersection::new(&IntersectionKind::Leave, vec![(2, Some(LOWER.into()))])
         );
 
-        let seg3 = Segment::new(Point::new(0.0, 0.0), Point::new(0.0, -0.5));
+        let seg3 = Segment::new(&Point::new(0.0, 0.0), &Point::new(0.0, -0.5));
         let res = area.crossed_by_segment_gil(&seg3);
-        assert_eq!(res, Intersection::new(IntersectionKind::Inside, vec![]));
+        assert_eq!(res, Intersection::new(&IntersectionKind::Inside, vec![]));
 
-        let seg4 = Segment::new(Point::new(-1.0, 2.0), Point::new(1.0, 2.0));
+        let seg4 = Segment::new(&Point::new(-1.0, 2.0), &Point::new(1.0, 2.0));
         let res = area.crossed_by_segment_gil(&seg4);
-        assert_eq!(res, Intersection::new(IntersectionKind::Outside, vec![]));
+        assert_eq!(res, Intersection::new(&IntersectionKind::Outside, vec![]));
 
-        let seg5 = Segment::new(Point::new(-2.0, 0.0), Point::new(2.0, 0.0));
+        let seg5 = Segment::new(&Point::new(-2.0, 0.0), &Point::new(2.0, 0.0));
         let res = area.crossed_by_segment_gil(&seg5);
         assert_eq!(
             res,
-            Intersection::new(IntersectionKind::Cross, vec![(3, None), (1, None)])
+            Intersection::new(&IntersectionKind::Cross, vec![(3, None), (1, None)])
         );
 
-        let seg6 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, -2.0));
+        let seg6 = Segment::new(&Point::new(0.0, 2.0), &Point::new(0.0, -2.0));
         let res = area.crossed_by_segment_gil(&seg6);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Cross,
+                &IntersectionKind::Cross,
                 vec![(0, Some(UPPER.into())), (2, Some(LOWER.into()))]
             )
         );
 
-        let seg7 = Segment::new(Point::new(0.0, 0.0), Point::new(1.0, 1.0));
+        let seg7 = Segment::new(&Point::new(0.0, 0.0), &Point::new(1.0, 1.0));
         let res = area.crossed_by_segment_gil(&seg7);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Inside,
+                &IntersectionKind::Inside,
                 vec![(0, Some(UPPER.into())), (1, None)]
             )
         );
 
-        let seg8 = Segment::new(Point::new(2.0, 2.0), Point::new(1.0, 1.0));
+        let seg8 = Segment::new(&Point::new(2.0, 2.0), &Point::new(1.0, 1.0));
         let res = area.crossed_by_segment_gil(&seg8);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Enter,
+                &IntersectionKind::Enter,
                 vec![(0, Some(UPPER.into())), (1, None)]
             )
         );
 
-        let seg9 = Segment::new(Point::new(-1.0, -1.0), Point::new(1.0, 1.0));
+        let seg9 = Segment::new(&Point::new(-1.0, -1.0), &Point::new(1.0, 1.0));
         let res = area.crossed_by_segment_gil(&seg9);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Inside,
+                &IntersectionKind::Inside,
                 vec![
                     (2, Some(LOWER.into())),
                     (3, None),
@@ -427,32 +430,32 @@ mod tests {
             )
         );
 
-        let seg9 = Segment::new(Point::new(0.0, 1.0), Point::new(1.0, 0.0));
+        let seg9 = Segment::new(&Point::new(0.0, 1.0), &Point::new(1.0, 0.0));
         let res = area.crossed_by_segment_gil(&seg9);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Inside,
+                &IntersectionKind::Inside,
                 vec![(0, Some(UPPER.into())), (1, None),]
             )
         );
 
-        let seg10 = Segment::new(Point::new(-2.0, 1.0), Point::new(2.0, 1.0));
+        let seg10 = Segment::new(&Point::new(-2.0, 1.0), &Point::new(2.0, 1.0));
         let res = area.crossed_by_segment_gil(&seg10);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Cross,
+                &IntersectionKind::Cross,
                 vec![(0, Some(UPPER.into())), (3, None), (1, None)]
             )
         );
 
-        let seg11 = Segment::new(Point::new(2.0, 1.0), Point::new(-2.0, 1.0));
+        let seg11 = Segment::new(&Point::new(2.0, 1.0), &Point::new(-2.0, 1.0));
         let res = area.crossed_by_segment_gil(&seg11);
         assert_eq!(
             res,
             Intersection::new(
-                IntersectionKind::Cross,
+                &IntersectionKind::Cross,
                 vec![(1, None), (0, Some(UPPER.into())), (3, None),]
             )
         );
@@ -480,8 +483,8 @@ mod tests {
             ]),
         );
 
-        let seg1 = Segment::new(Point::new(-2.0, 0.5), Point::new(3.0, 0.5));
-        let seg2 = Segment::new(Point::new(-0.5, 2.0), Point::new(-0.5, -2.0));
+        let seg1 = Segment::new(&Point::new(-2.0, 0.5), &Point::new(3.0, 0.5));
+        let seg2 = Segment::new(&Point::new(-0.5, 2.0), &Point::new(-0.5, -2.0));
         let intersections =
             PolygonalArea::segments_intersections_gil(vec![area1, area2], vec![seg1, seg2]);
         assert_eq!(
@@ -489,14 +492,14 @@ mod tests {
             vec![
                 vec![
                     Intersection::new(
-                        IntersectionKind::Cross,
+                        &IntersectionKind::Cross,
                         vec![
                             (3, Some(format!("{LEFT}_1"))),
                             (1, Some(format!("{RIGHT}_1"))),
                         ]
                     ),
                     Intersection::new(
-                        IntersectionKind::Cross,
+                        &IntersectionKind::Cross,
                         vec![
                             (0, Some(format!("{UPPER}_1"))),
                             (2, Some(format!("{LOWER}_1")))
@@ -505,13 +508,13 @@ mod tests {
                 ],
                 vec![
                     Intersection::new(
-                        IntersectionKind::Cross,
+                        &IntersectionKind::Cross,
                         vec![
                             (3, Some(format!("{LEFT}_2"))),
                             (1, Some(format!("{RIGHT}_2"))),
                         ]
                     ),
-                    Intersection::new(IntersectionKind::Outside, vec![])
+                    Intersection::new(&IntersectionKind::Outside, vec![])
                 ]
             ]
         );

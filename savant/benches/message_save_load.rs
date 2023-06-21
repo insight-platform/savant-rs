@@ -51,11 +51,11 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     let f = gen_frame();
     let mut update = savant_rs::primitives::VideoFrameUpdate::new();
     for o in f.access_objects(&Query::Idle) {
-        update.add_object(o);
+        update.add_object(&o);
     }
     let attrs = f.get_attributes();
     for (creator, label) in attrs {
-        update.add_attribute(f.get_attribute(creator, label).unwrap());
+        update.add_attribute(&f.get_attribute(creator, label).unwrap());
     }
 
     let message = Message::video_frame_update(update);

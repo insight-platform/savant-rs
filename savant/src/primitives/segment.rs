@@ -37,8 +37,11 @@ impl Segment {
     }
 
     #[new]
-    pub fn new(begin: Point, end: Point) -> Self {
-        Self { begin, end }
+    pub fn new(begin: &Point, end: &Point) -> Self {
+        Self {
+            begin: begin.clone(),
+            end: end.clone(),
+        }
     }
 }
 
@@ -104,8 +107,11 @@ impl Intersection {
     }
 
     #[new]
-    pub fn new(kind: IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
-        Self { kind, edges }
+    pub fn new(kind: &IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
+        Self {
+            kind: kind.clone(),
+            edges,
+        }
     }
 
     #[getter]

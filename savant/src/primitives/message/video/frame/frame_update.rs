@@ -1,5 +1,5 @@
-use crate::primitives::message::video::object::InnerVideoObject;
-use crate::primitives::{Attribute, VideoObject};
+use crate::primitives::message::video::object::VideoObject;
+use crate::primitives::{Attribute, VideoObjectProxy};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -21,12 +21,12 @@ pub enum ObjectUpdateCollisionResolutionPolicy {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "VideoObjectUpdateCollisionResolutionPolicy")]
-pub struct PyVideoObjectUpdateCollisionResolutionPolicy {
+pub struct VideoObjectUpdateCollisionResolutionPolicyProxy {
     pub(crate) inner: ObjectUpdateCollisionResolutionPolicy,
 }
 
 #[pymethods]
-impl PyVideoObjectUpdateCollisionResolutionPolicy {
+impl VideoObjectUpdateCollisionResolutionPolicyProxy {
     #[staticmethod]
     pub fn add_foreign_objects() -> Self {
         Self {
@@ -49,14 +49,18 @@ impl PyVideoObjectUpdateCollisionResolutionPolicy {
     }
 }
 
-impl From<ObjectUpdateCollisionResolutionPolicy> for PyVideoObjectUpdateCollisionResolutionPolicy {
+impl From<ObjectUpdateCollisionResolutionPolicy>
+    for VideoObjectUpdateCollisionResolutionPolicyProxy
+{
     fn from(p: ObjectUpdateCollisionResolutionPolicy) -> Self {
         Self { inner: p }
     }
 }
 
-impl From<PyVideoObjectUpdateCollisionResolutionPolicy> for ObjectUpdateCollisionResolutionPolicy {
-    fn from(p: PyVideoObjectUpdateCollisionResolutionPolicy) -> Self {
+impl From<VideoObjectUpdateCollisionResolutionPolicyProxy>
+    for ObjectUpdateCollisionResolutionPolicy
+{
+    fn from(p: VideoObjectUpdateCollisionResolutionPolicyProxy) -> Self {
         p.inner
     }
 }
@@ -81,12 +85,12 @@ pub enum AttributeUpdateCollisionResolutionPolicy {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "AttributeUpdateCollisionResolutionPolicy")]
-pub struct PyAttributeUpdateCollisionResolutionPolicy {
+pub struct AttributeUpdateCollisionResolutionPolicyProxy {
     pub(crate) inner: AttributeUpdateCollisionResolutionPolicy,
 }
 
 #[pymethods]
-impl PyAttributeUpdateCollisionResolutionPolicy {
+impl AttributeUpdateCollisionResolutionPolicyProxy {
     #[staticmethod]
     pub fn replace_with_foreign() -> Self {
         Self {
@@ -116,14 +120,18 @@ impl PyAttributeUpdateCollisionResolutionPolicy {
     }
 }
 
-impl From<AttributeUpdateCollisionResolutionPolicy> for PyAttributeUpdateCollisionResolutionPolicy {
+impl From<AttributeUpdateCollisionResolutionPolicy>
+    for AttributeUpdateCollisionResolutionPolicyProxy
+{
     fn from(value: AttributeUpdateCollisionResolutionPolicy) -> Self {
-        PyAttributeUpdateCollisionResolutionPolicy { inner: value }
+        AttributeUpdateCollisionResolutionPolicyProxy { inner: value }
     }
 }
 
-impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisionResolutionPolicy {
-    fn from(value: PyAttributeUpdateCollisionResolutionPolicy) -> Self {
+impl From<AttributeUpdateCollisionResolutionPolicyProxy>
+    for AttributeUpdateCollisionResolutionPolicy
+{
+    fn from(value: AttributeUpdateCollisionResolutionPolicyProxy) -> Self {
         value.inner
     }
 }
@@ -138,7 +146,7 @@ impl From<PyAttributeUpdateCollisionResolutionPolicy> for AttributeUpdateCollisi
 pub struct VideoFrameUpdate {
     #[pyo3(get, set)]
     pub(crate) attributes: Vec<Attribute>,
-    pub(crate) objects: Vec<InnerVideoObject>,
+    pub(crate) objects: Vec<VideoObject>,
     pub(crate) attribute_collision_resolution_policy: AttributeUpdateCollisionResolutionPolicy,
     pub(crate) object_collision_resolution_policy: ObjectUpdateCollisionResolutionPolicy,
 }
@@ -200,8 +208,8 @@ impl VideoFrameUpdate {
     /// -------
     /// None
     ///
-    pub fn add_attribute(&mut self, attribute: Attribute) {
-        self.attributes.push(attribute);
+    pub fn add_attribute(&mut self, attribute: &Attribute) {
+        self.attributes.push(attribute.clone());
     }
 
     /// Sets collision resolution policy for attributes
@@ -219,7 +227,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "attribute_collision_resolution_policy")]
     pub fn set_attribute_collision_resolution_policy_py(
         &mut self,
-        p: PyAttributeUpdateCollisionResolutionPolicy,
+        p: AttributeUpdateCollisionResolutionPolicyProxy,
     ) {
         self.attribute_collision_resolution_policy = p.into();
     }
@@ -235,7 +243,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "object_collision_resolution_policy")]
     pub fn set_object_collision_resolution_policy_py(
         &mut self,
-        p: PyVideoObjectUpdateCollisionResolutionPolicy,
+        p: VideoObjectUpdateCollisionResolutionPolicyProxy,
     ) {
         self.object_collision_resolution_policy = p.into();
     }
@@ -250,7 +258,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "attribute_collision_resolution_policy")]
     pub fn get_attribute_collision_resolution_policy_py(
         &self,
-    ) -> PyAttributeUpdateCollisionResolutionPolicy {
+    ) -> AttributeUpdateCollisionResolutionPolicyProxy {
         self.attribute_collision_resolution_policy.clone().into()
     }
 
@@ -264,7 +272,7 @@ impl VideoFrameUpdate {
     #[pyo3(name = "object_collision_resolution_policy")]
     pub fn get_object_collision_resolution_policy_py(
         &self,
-    ) -> PyVideoObjectUpdateCollisionResolutionPolicy {
+    ) -> VideoObjectUpdateCollisionResolutionPolicyProxy {
         self.object_collision_resolution_policy.clone().into()
     }
 
@@ -279,7 +287,7 @@ impl VideoFrameUpdate {
     /// -------
     /// None
     ///
-    pub fn add_object(&mut self, object: VideoObject) {
+    pub fn add_object(&mut self, object: &VideoObjectProxy) {
         self.objects.push(object.inner.read().clone());
     }
 
@@ -291,10 +299,10 @@ impl VideoFrameUpdate {
     ///   The list of objects
     ///
     #[getter]
-    pub fn get_objects(&self) -> Vec<VideoObject> {
+    pub fn get_objects(&self) -> Vec<VideoObjectProxy> {
         self.objects
             .iter()
-            .map(|o| VideoObject::from_inner_object(o.clone()))
+            .map(|o| VideoObjectProxy::from_video_object(o.clone()))
             .collect()
     }
 }
@@ -317,7 +325,7 @@ mod tests {
         f.set_attribute(my.clone());
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(my);
+        upd.add_attribute(&my);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         );
@@ -354,7 +362,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
+        upd.add_attribute(&their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
         );
@@ -374,7 +382,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
+        upd.add_attribute(&their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
         );
@@ -394,7 +402,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(their);
+        upd.add_attribute(&their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
         );
@@ -419,8 +427,8 @@ mod tests {
         let o1 = gen_object(1);
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(o1);
-        upd.add_object(o2);
+        upd.add_object(&o1);
+        upd.add_object(&o2);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
         );
@@ -437,7 +445,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(o1);
+        upd.add_object(&o1);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
         );
@@ -447,7 +455,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(o2);
+        upd.add_object(&o2);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
         );
@@ -461,7 +469,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(o1);
+        upd.add_object(&o1);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
         );
@@ -472,7 +480,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(o2);
+        upd.add_object(&o2);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
         );

@@ -1,4 +1,4 @@
-use crate::primitives::message::video::object::InnerVideoObject;
+use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
 use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxKind};
 use pyo3::prelude::*;
@@ -7,12 +7,12 @@ use pyo3::pyclass::CompareOp;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct VideoObjectRBBoxProxy {
-    object: WeakInner<InnerVideoObject>,
+    object: WeakInner<VideoObject>,
     kind: VideoObjectBBoxKind,
 }
 
 impl VideoObjectRBBoxProxy {
-    pub fn new(object: StrongInnerType<InnerVideoObject>, kind: VideoObjectBBoxKind) -> Self {
+    pub fn new(object: StrongInnerType<VideoObject>, kind: VideoObjectBBoxKind) -> Self {
         Self {
             object: WeakInner::new(object),
             kind,
@@ -21,7 +21,7 @@ impl VideoObjectRBBoxProxy {
 }
 
 impl VideoObjectRBBoxProxy {
-    fn get_object(&self) -> StrongInnerType<InnerVideoObject> {
+    fn get_object(&self) -> StrongInnerType<VideoObject> {
         self.object.get_or_fail()
     }
 }
@@ -143,7 +143,7 @@ impl VideoObjectRBBoxProxy {
         self.get_object().read().bbox_ref(kind).wrapping_box_gil()
     }
 
-    pub fn visual_box(&self, padding: PaddingDraw, border_width: i64) -> RBBox {
+    pub fn visual_box(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
         let kind = self.kind.clone();
         self.get_object()
             .read()
@@ -151,7 +151,8 @@ impl VideoObjectRBBoxProxy {
             .visual_box_gil(padding, border_width)
     }
 
-    pub fn eq(&self, other: &Self) -> bool {
+    #[pyo3(name = "eq")]
+    pub fn geometric_eq(&self, other: &Self) -> bool {
         let kind = self.kind.clone();
         let ob1 = self.get_object();
         let ob2 = other.get_object();
