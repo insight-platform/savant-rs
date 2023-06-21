@@ -4,7 +4,7 @@ use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox, VideoFrame, VideoObjectBBoxKind};
+use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxKind};
 use crate::utils::python::no_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -80,7 +80,7 @@ impl ToSerdeJsonValue for VideoObjectModification {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
 #[archive(check_bytes)]
-pub struct InnerVideoObject {
+pub struct VideoObject {
     pub id: i64,
     pub creator: String,
     pub label: String,
@@ -109,7 +109,7 @@ pub struct InnerVideoObject {
     pub(crate) frame: Option<BelongingVideoFrame>,
 }
 
-impl Default for InnerVideoObject {
+impl Default for VideoObject {
     fn default() -> Self {
         Self {
             id: 0,
@@ -129,7 +129,7 @@ impl Default for InnerVideoObject {
     }
 }
 
-impl ToSerdeJsonValue for InnerVideoObject {
+impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "id": self.id,
@@ -147,7 +147,7 @@ impl ToSerdeJsonValue for InnerVideoObject {
     }
 }
 
-impl InnerVideoObject {
+impl VideoObject {
     pub fn get_parent_frame_source(&self) -> Option<String> {
         self.frame.as_ref().and_then(|f| {
             f.inner
@@ -191,17 +191,18 @@ impl InnerVideoObject {
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct VideoObject {
-    pub(crate) inner: Arc<RwLock<InnerVideoObject>>,
+#[pyo3(name = "VideoObject")]
+pub struct VideoObjectProxy {
+    pub(crate) inner: Arc<RwLock<VideoObject>>,
 }
 
-impl ToSerdeJsonValue for VideoObject {
+impl ToSerdeJsonValue for VideoObjectProxy {
     fn to_serde_json_value(&self) -> serde_json::Value {
         self.inner.read_recursive().to_serde_json_value()
     }
 }
 
-impl Attributive for InnerVideoObject {
+impl Attributive for VideoObject {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
@@ -219,7 +220,7 @@ impl Attributive for InnerVideoObject {
     }
 }
 
-impl AttributeMethods for VideoObject {
+impl AttributeMethods for VideoObjectProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
         inner.exclude_temporary_attributes()
@@ -271,7 +272,7 @@ impl AttributeMethods for VideoObject {
     }
 }
 
-impl VideoObject {
+impl VideoObjectProxy {
     pub fn update_track_bbox(&self, bbox: RBBox) {
         let mut inner = self.inner.write();
         if let Some(t) = inner.track_info.as_mut() {
@@ -284,26 +285,26 @@ impl VideoObject {
         inner.parent_id
     }
 
-    pub fn get_inner(&self) -> Arc<RwLock<InnerVideoObject>> {
+    pub fn get_inner(&self) -> Arc<RwLock<VideoObject>> {
         self.inner.clone()
     }
 
-    pub fn from_inner_object(object: InnerVideoObject) -> Self {
+    pub fn from_video_object(object: VideoObject) -> Self {
         Self {
             inner: Arc::new(RwLock::new(object)),
         }
     }
 
-    pub fn from_arced_inner_object(object: Arc<RwLock<InnerVideoObject>>) -> Self {
+    pub fn from_arced_inner_object(object: Arc<RwLock<VideoObject>>) -> Self {
         Self { inner: object }
     }
 
-    pub fn get_inner_read(&self) -> RwLockReadGuard<InnerVideoObject> {
+    pub fn get_inner_read(&self) -> RwLockReadGuard<VideoObject> {
         let inner = self.inner.read_recursive();
         inner
     }
 
-    pub fn get_inner_write(&self) -> RwLockWriteGuard<InnerVideoObject> {
+    pub fn get_inner_write(&self) -> RwLockWriteGuard<VideoObject> {
         let inner = self.inner.write();
         inner
     }
@@ -327,7 +328,7 @@ impl VideoObject {
         inner.add_modification(VideoObjectModification::Parent);
     }
 
-    pub fn get_parent(&self) -> Option<VideoObject> {
+    pub fn get_parent(&self) -> Option<VideoObjectProxy> {
         let frame = self.get_frame();
         let id = self.inner.read_recursive().parent_id?;
         match frame {
@@ -336,7 +337,7 @@ impl VideoObject {
         }
     }
 
-    pub fn get_children(&self) -> Vec<VideoObject> {
+    pub fn get_children(&self) -> Vec<VideoObjectProxy> {
         let frame = self.get_frame();
         let id = self.get_id();
         match frame {
@@ -345,14 +346,14 @@ impl VideoObject {
         }
     }
 
-    pub(crate) fn attach_to_video_frame(&self, frame: VideoFrame) {
+    pub(crate) fn attach_to_video_frame(&self, frame: VideoFrameProxy) {
         let mut inner = self.inner.write();
         inner.frame = Some(frame.into());
     }
 }
 
 #[pymethods]
-impl VideoObject {
+impl VideoObjectProxy {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -378,7 +379,7 @@ impl VideoObject {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
-        let object = InnerVideoObject {
+        let object = VideoObject {
             id,
             creator,
             label,
@@ -618,7 +619,7 @@ impl VideoObject {
     /// :py:class:`VideoFrame` or None
     ///   A reference to a frame the object belongs to.
     ///
-    pub fn get_frame(&self) -> Option<VideoFrame> {
+    pub fn get_frame(&self) -> Option<VideoFrameProxy> {
         let inner = self.inner.read_recursive();
         inner.frame.as_ref().map(|f| f.into())
     }
@@ -686,12 +687,12 @@ impl VideoObject {
     ///   Attribute that was replaced or None if the attribute was not set.
     ///
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
+    pub fn set_attribute_gil(&mut self, attribute: &Attribute) -> Option<Attribute> {
         {
             let mut object = self.inner.write();
             object.add_modification(VideoObjectModification::Attributes);
         }
-        self.set_attribute(attribute)
+        self.set_attribute(attribute.clone())
     }
 
     /// Fetches object modifications. The modifications are fetched by value, not reference. The modifications are cleared after the fetch.
@@ -785,13 +786,13 @@ impl VideoObject {
 mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::message::video::object::InnerVideoObjectBuilder;
-    use crate::primitives::{AttributeBuilder, RBBox, VideoObject, VideoObjectModification};
+    use crate::primitives::message::video::object::VideoObjectBuilder;
+    use crate::primitives::{AttributeBuilder, RBBox, VideoObjectModification, VideoObjectProxy};
     use crate::test::utils::{gen_frame, s};
 
-    fn get_object() -> VideoObject {
-        VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+    fn get_object() -> VideoObjectProxy {
+        VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(1)
                 .track_info(None)
                 .modifications(vec![])

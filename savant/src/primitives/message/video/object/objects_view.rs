@@ -1,7 +1,7 @@
 use crate::primitives::bbox::BBOX_UNDEFINED;
-use crate::primitives::message::video::query::py::QueryWrapper;
+use crate::primitives::message::video::query::py::QueryProxy;
 use crate::primitives::message::video::query::{filter, foreach_udf, map_udf, partition};
-use crate::primitives::{RBBox, VideoObject};
+use crate::primitives::{RBBox, VideoObjectProxy};
 use crate::utils::python::no_gil;
 use crate::utils::{
     ndarray_to_bboxes, ndarray_to_rotated_bboxes, rotated_bboxes_to_ndarray, BBoxFormat,
@@ -26,11 +26,11 @@ pub enum VideoObjectBBoxKind {
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct VideoObjectsView {
-    pub(crate) inner: Arc<Vec<VideoObject>>,
+    pub(crate) inner: Arc<Vec<VideoObjectProxy>>,
 }
 
-impl From<Vec<VideoObject>> for VideoObjectsView {
-    fn from(value: Vec<VideoObject>) -> Self {
+impl From<Vec<VideoObjectProxy>> for VideoObjectsView {
+    fn from(value: Vec<VideoObjectProxy>) -> Self {
         VideoObjectsView {
             inner: Arc::new(value),
         }
@@ -38,7 +38,7 @@ impl From<Vec<VideoObject>> for VideoObjectsView {
 }
 
 impl VideoObjectsView {
-    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: VideoObjectBBoxKind) {
+    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxKind) {
         no_gil(|| {
             let it = zip(self.inner.iter(), boxes);
             match kind {
@@ -62,7 +62,7 @@ impl VideoObjectsView {
         self.__repr__()
     }
 
-    fn __getitem__(&self, index: usize) -> PyResult<VideoObject> {
+    fn __getitem__(&self, index: usize) -> PyResult<VideoObjectProxy> {
         self.inner
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))
@@ -79,14 +79,14 @@ impl VideoObjectsView {
     }
 
     #[pyo3(name = "filter")]
-    fn filter_gil(&self, q: QueryWrapper) -> VideoObjectsView {
+    fn filter_gil(&self, q: &QueryProxy) -> VideoObjectsView {
         no_gil(|| VideoObjectsView {
             inner: Arc::new(filter(self.inner.as_ref(), &q.inner)),
         })
     }
 
     #[pyo3(name = "partition")]
-    fn partition_gil(&self, q: QueryWrapper) -> (VideoObjectsView, VideoObjectsView) {
+    fn partition_gil(&self, q: &QueryProxy) -> (VideoObjectsView, VideoObjectsView) {
         no_gil(|| {
             let (a, b) = partition(self.inner.as_ref(), &q.inner);
             (
@@ -133,7 +133,7 @@ impl VideoObjectsView {
     }
 
     #[pyo3(name = "rotated_boxes_as_numpy")]
-    fn rotated_boxes_as_numpy_gil(&self, kind: VideoObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
+    fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
         let boxes = no_gil(|| match kind {
             VideoObjectBBoxKind::Detection => {
                 self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>()
@@ -177,10 +177,10 @@ impl VideoObjectsView {
     pub fn update_from_numpy_boxes_gil(
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
-        format: BBoxFormat,
-        kind: VideoObjectBBoxKind,
+        format: &BBoxFormat,
+        kind: &VideoObjectBBoxKind,
     ) {
-        let boxes = ndarray_to_bboxes(np_boxes, format)
+        let boxes = ndarray_to_bboxes(&np_boxes, format)
             .into_iter()
             .map(|x| x.inner)
             .collect::<Vec<_>>();
@@ -192,9 +192,9 @@ impl VideoObjectsView {
     pub fn update_from_numpy_rotated_boxes_gil(
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
-        kind: VideoObjectBBoxKind,
+        kind: &VideoObjectBBoxKind,
     ) {
-        let boxes = ndarray_to_rotated_bboxes(np_boxes);
+        let boxes = ndarray_to_rotated_bboxes(&np_boxes);
         self.fill_boxes_gil(boxes, kind);
     }
 }

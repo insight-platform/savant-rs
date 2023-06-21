@@ -7,9 +7,9 @@ use parking_lot::{Mutex, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::primitives::message::video::object::InnerVideoObject;
+use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::VideoObject;
+use crate::primitives::VideoObjectProxy;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
@@ -232,8 +232,8 @@ fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expressi
     Ok(c)
 }
 
-impl ExecutableQuery<&RwLockReadGuard<'_, InnerVideoObject>> for Query {
-    fn execute(&self, o: &RwLockReadGuard<InnerVideoObject>) -> bool {
+impl ExecutableQuery<&RwLockReadGuard<'_, VideoObject>> for Query {
+    fn execute(&self, o: &RwLockReadGuard<VideoObject>) -> bool {
         match self {
             Query::Id(x) => x.execute(&o.id),
             Query::Creator(x) => x.execute(&o.creator),
@@ -309,8 +309,8 @@ impl ExecutableQuery<&RwLockReadGuard<'_, InnerVideoObject>> for Query {
     }
 }
 
-impl ExecutableQuery<&VideoObject> for Query {
-    fn execute(&self, o: &VideoObject) -> bool {
+impl ExecutableQuery<&VideoObjectProxy> for Query {
+    fn execute(&self, o: &VideoObjectProxy) -> bool {
         match self {
             Query::And(v) => v.iter().all(|x| x.execute(o)),
             Query::Or(v) => v.iter().any(|x| x.execute(o)),
@@ -341,7 +341,7 @@ impl ExecutableQuery<&VideoObject> for Query {
                     register_plugin_function(
                         plugin,
                         function,
-                        UserFunctionType::ObjectPredicate,
+                        &UserFunctionType::ObjectPredicate,
                         &udf_name,
                     )
                     .unwrap_or_else(|e| {
@@ -388,7 +388,7 @@ impl Query {
     }
 }
 
-pub fn filter(objs: &[VideoObject], query: &Query) -> Vec<VideoObject> {
+pub fn filter(objs: &[VideoObjectProxy], query: &Query) -> Vec<VideoObjectProxy> {
     objs.iter()
         .filter_map(|o| {
             if query.execute(o) {
@@ -400,7 +400,10 @@ pub fn filter(objs: &[VideoObject], query: &Query) -> Vec<VideoObject> {
         .collect()
 }
 
-pub fn partition(objs: &[VideoObject], query: &Query) -> (Vec<VideoObject>, Vec<VideoObject>) {
+pub fn partition(
+    objs: &[VideoObjectProxy],
+    query: &Query,
+) -> (Vec<VideoObjectProxy>, Vec<VideoObjectProxy>) {
     objs.iter().fold((Vec::new(), Vec::new()), |mut acc, o| {
         if query.execute(o) {
             acc.0.push(o.clone());
@@ -411,13 +414,13 @@ pub fn partition(objs: &[VideoObject], query: &Query) -> (Vec<VideoObject>, Vec<
     })
 }
 
-pub fn map_udf(objs: &[&VideoObject], udf: &str) -> anyhow::Result<Vec<VideoObject>> {
+pub fn map_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<VideoObjectProxy>> {
     objs.iter()
         .map(|o| call_object_map_modifier(udf, o))
         .collect()
 }
 
-pub fn foreach_udf(objs: &[&VideoObject], udf: &str) -> anyhow::Result<Vec<()>> {
+pub fn foreach_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<()>> {
     objs.iter()
         .map(|o| call_object_inplace_modifier(udf, &[o]))
         .collect()
@@ -706,7 +709,7 @@ mod tests {
             register_plugin_function(
                 "../target/debug/libsample_plugin.so",
                 "map_modifier",
-                UserFunctionType::ObjectMapModifier,
+                &UserFunctionType::ObjectMapModifier,
                 udf_name,
             )
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
@@ -736,7 +739,7 @@ mod tests {
             register_plugin_function(
                 "../target/debug/libsample_plugin.so",
                 "inplace_modifier",
-                UserFunctionType::ObjectInplaceModifier,
+                &UserFunctionType::ObjectInplaceModifier,
                 udf_name,
             )
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());

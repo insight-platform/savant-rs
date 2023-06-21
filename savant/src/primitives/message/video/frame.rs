@@ -3,14 +3,14 @@ pub mod frame_update;
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
-use crate::primitives::message::video::object::InnerVideoObject;
-use crate::primitives::message::video::query::py::QueryWrapper;
+use crate::primitives::message::video::object::VideoObject;
+use crate::primitives::message::video::query::py::QueryProxy;
 use crate::primitives::message::video::query::{
     ExecutableQuery, IntExpression, Query, StringExpression,
 };
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObject,
+    Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
@@ -88,11 +88,11 @@ impl ToSerdeJsonValue for VideoFrameContent {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "VideoFrameContent")]
-pub struct PyVideoFrameContent {
+pub struct VideoFrameContentProxy {
     pub(crate) inner: Arc<VideoFrameContent>,
 }
 
-impl PyVideoFrameContent {
+impl VideoFrameContentProxy {
     pub fn new(inner: VideoFrameContent) -> Self {
         Self {
             inner: Arc::new(inner),
@@ -105,7 +105,7 @@ impl PyVideoFrameContent {
 }
 
 #[pymethods]
-impl PyVideoFrameContent {
+impl VideoFrameContentProxy {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -219,18 +219,18 @@ impl ToSerdeJsonValue for FrameTransformation {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "FrameTransformation")]
-pub struct PyVideoFrameTransformation {
+pub struct VideoFrameTransformationProxy {
     pub(crate) inner: FrameTransformation,
 }
 
-impl PyVideoFrameTransformation {
+impl VideoFrameTransformationProxy {
     pub fn new(inner: FrameTransformation) -> Self {
         Self { inner }
     }
 }
 
 #[pymethods]
-impl PyVideoFrameTransformation {
+impl VideoFrameTransformationProxy {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -343,7 +343,7 @@ impl PyVideoFrameTransformation {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
 #[archive(check_bytes)]
-pub struct InnerVideoFrame {
+pub struct VideoFrame {
     pub source_id: String,
     pub framerate: String,
     pub width: i64,
@@ -357,13 +357,13 @@ pub struct InnerVideoFrame {
     pub content: Arc<VideoFrameContent>,
     pub transformations: Vec<FrameTransformation>,
     pub attributes: HashMap<(String, String), Attribute>,
-    pub offline_objects: HashMap<i64, InnerVideoObject>,
+    pub offline_objects: HashMap<i64, VideoObject>,
     #[with(Skip)]
     #[builder(setter(skip))]
-    pub(crate) resident_objects: HashMap<i64, Arc<RwLock<InnerVideoObject>>>,
+    pub(crate) resident_objects: HashMap<i64, Arc<RwLock<VideoObject>>>,
 }
 
-impl Default for InnerVideoFrame {
+impl Default for VideoFrame {
     fn default() -> Self {
         Self {
             source_id: String::new(),
@@ -385,7 +385,7 @@ impl Default for InnerVideoFrame {
     }
 }
 
-impl ToSerdeJsonValue for InnerVideoFrame {
+impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
         use crate::version;
         serde_json::json!(
@@ -411,7 +411,7 @@ impl ToSerdeJsonValue for InnerVideoFrame {
     }
 }
 
-impl Attributive for Box<InnerVideoFrame> {
+impl Attributive for Box<VideoFrame> {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
@@ -429,7 +429,7 @@ impl Attributive for Box<InnerVideoFrame> {
     }
 }
 
-impl InnerVideoFrame {
+impl VideoFrame {
     fn preserve(&mut self) {
         self.offline_objects = self
             .resident_objects
@@ -456,14 +456,15 @@ impl InnerVideoFrame {
 #[pyclass]
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct VideoFrame {
-    pub(crate) inner: Arc<RwLock<Box<InnerVideoFrame>>>,
+#[pyo3(name = "VideoFrame")]
+pub struct VideoFrameProxy {
+    pub(crate) inner: Arc<RwLock<Box<VideoFrame>>>,
 }
 
 #[pyclass]
 #[derive(Clone)]
 pub struct BelongingVideoFrame {
-    pub(crate) inner: Weak<RwLock<Box<InnerVideoFrame>>>,
+    pub(crate) inner: Weak<RwLock<Box<VideoFrame>>>,
 }
 
 impl Debug for BelongingVideoFrame {
@@ -478,15 +479,15 @@ impl Debug for BelongingVideoFrame {
     }
 }
 
-impl From<VideoFrame> for BelongingVideoFrame {
-    fn from(value: VideoFrame) -> Self {
+impl From<VideoFrameProxy> for BelongingVideoFrame {
+    fn from(value: VideoFrameProxy) -> Self {
         Self {
             inner: Arc::downgrade(&value.inner),
         }
     }
 }
 
-impl From<BelongingVideoFrame> for VideoFrame {
+impl From<BelongingVideoFrame> for VideoFrameProxy {
     fn from(value: BelongingVideoFrame) -> Self {
         Self {
             inner: value
@@ -497,7 +498,7 @@ impl From<BelongingVideoFrame> for VideoFrame {
     }
 }
 
-impl From<&BelongingVideoFrame> for VideoFrame {
+impl From<&BelongingVideoFrame> for VideoFrameProxy {
     fn from(value: &BelongingVideoFrame) -> Self {
         Self {
             inner: value
@@ -508,7 +509,7 @@ impl From<&BelongingVideoFrame> for VideoFrame {
     }
 }
 
-impl AttributeMethods for VideoFrame {
+impl AttributeMethods for VideoFrameProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
         inner.exclude_temporary_attributes()
@@ -560,7 +561,7 @@ impl AttributeMethods for VideoFrame {
     }
 }
 
-impl VideoFrame {
+impl VideoFrameProxy {
     pub fn deep_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let inner_copy = inner.deep_copy();
@@ -568,7 +569,7 @@ impl VideoFrame {
         Self::from_inner(inner_copy)
     }
 
-    pub fn get_inner(&self) -> Arc<RwLock<Box<InnerVideoFrame>>> {
+    pub fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
         self.inner.clone()
     }
 
@@ -579,13 +580,13 @@ impl VideoFrame {
         todo!("To implement the function");
     }
 
-    pub(crate) fn from_inner(inner: InnerVideoFrame) -> Self {
-        VideoFrame {
+    pub(crate) fn from_inner(inner: VideoFrame) -> Self {
+        VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
         }
     }
 
-    pub fn access_objects(&self, q: &Query) -> Vec<VideoObject> {
+    pub fn access_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -593,8 +594,8 @@ impl VideoFrame {
         resident_objects
             .iter()
             .filter_map(|(_id, o)| {
-                if q.execute(&VideoObject::from_arced_inner_object(o.clone())) {
-                    Some(VideoObject::from_arced_inner_object(o.clone()))
+                if q.execute(&VideoObjectProxy::from_arced_inner_object(o.clone())) {
+                    Some(VideoObjectProxy::from_arced_inner_object(o.clone()))
                 } else {
                     None
                 }
@@ -610,7 +611,7 @@ impl VideoFrame {
         serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
     }
 
-    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObject> {
+    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -619,13 +620,13 @@ impl VideoFrame {
             .flat_map(|id| {
                 let o = resident_objects
                     .get(id)
-                    .map(|o| VideoObject::from_arced_inner_object(o.clone()));
+                    .map(|o| VideoObjectProxy::from_arced_inner_object(o.clone()));
                 o
             })
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
+    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
         self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
@@ -636,7 +637,7 @@ impl VideoFrame {
         removed
             .into_values()
             .map(|o| {
-                let o = VideoObject::from_arced_inner_object(o);
+                let o = VideoObjectProxy::from_arced_inner_object(o);
                 o.detached_copy()
             })
             .collect()
@@ -647,18 +648,18 @@ impl VideoFrame {
         inner.resident_objects.contains_key(&id)
     }
 
-    pub fn delete_objects(&self, q: &Query) -> Vec<VideoObject> {
+    pub fn delete_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
     }
 
-    pub fn get_object(&self, id: i64) -> Option<VideoObject> {
+    pub fn get_object(&self, id: i64) -> Option<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         inner
             .resident_objects
             .get(&id)
-            .map(|o| VideoObject::from_arced_inner_object(o.clone()))
+            .map(|o| VideoObjectProxy::from_arced_inner_object(o.clone()))
     }
 
     pub fn make_snapshot(&self) {
@@ -689,7 +690,7 @@ impl VideoFrame {
         self.fix_object_owned_frame();
     }
 
-    pub fn get_modified_objects(&self) -> Vec<VideoObject> {
+    pub fn get_modified_objects(&self) -> Vec<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -697,7 +698,7 @@ impl VideoFrame {
         resident_objects
             .iter()
             .filter(|(_id, o)| !o.read_recursive().modifications.is_empty())
-            .map(|(_id, o)| VideoObject::from_arced_inner_object(o.clone()))
+            .map(|(_id, o)| VideoObjectProxy::from_arced_inner_object(o.clone()))
             .collect()
     }
 
@@ -715,7 +716,7 @@ impl VideoFrame {
         });
     }
 
-    pub fn set_parent(&self, q: &Query, parent: &VideoObject) -> Vec<VideoObject> {
+    pub fn set_parent(&self, q: &Query, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
         let frame = parent.get_frame();
         assert!(
             frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
@@ -729,7 +730,7 @@ impl VideoFrame {
         objects
     }
 
-    pub fn clear_parent(&self, q: &Query) -> Vec<VideoObject> {
+    pub fn clear_parent(&self, q: &Query) -> Vec<VideoObjectProxy> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
             o.set_parent(None);
@@ -737,11 +738,11 @@ impl VideoFrame {
         objects
     }
 
-    pub fn get_children(&self, id: i64) -> Vec<VideoObject> {
+    pub fn get_children(&self, id: i64) -> Vec<VideoObjectProxy> {
         self.access_objects(&Query::ParentId(IntExpression::EQ(id)))
     }
 
-    pub fn add_object(&self, object: &VideoObject) {
+    pub fn add_object(&self, object: &VideoObjectProxy) {
         let parent_id_opt = object.get_parent_id();
         if let Some(parent_id) = parent_id_opt {
             assert!(
@@ -782,7 +783,7 @@ impl VideoFrame {
         use frame_update::ObjectUpdateCollisionResolutionPolicy::*;
         let mut min_id = self.get_min_object_id();
         let other_inner = update.objects.clone();
-        let object_query = |o: &InnerVideoObject| {
+        let object_query = |o: &VideoObject| {
             crate::primitives::message::video::query::and![
                 Query::Label(StringExpression::EQ(o.label.clone())),
                 Query::Creator(StringExpression::EQ(o.creator.clone()))
@@ -794,7 +795,7 @@ impl VideoFrame {
                 for mut obj in other_inner {
                     min_id -= 1;
                     obj.id = min_id;
-                    self.add_object(&VideoObject::from_inner_object(obj));
+                    self.add_object(&VideoObjectProxy::from_video_object(obj));
                 }
             }
             ErrorIfLabelsCollide => {
@@ -809,7 +810,7 @@ impl VideoFrame {
                     }
                     min_id -= 1;
                     obj.id = min_id;
-                    self.add_object(&VideoObject::from_inner_object(obj));
+                    self.add_object(&VideoObjectProxy::from_video_object(obj));
                 }
             }
             ReplaceSameLabelObjects => {
@@ -820,7 +821,7 @@ impl VideoFrame {
                     }
                     min_id -= 1;
                     obj.id = min_id;
-                    self.add_object(&VideoObject::from_inner_object(obj));
+                    self.add_object(&VideoObjectProxy::from_video_object(obj));
                 }
             }
         }
@@ -888,7 +889,7 @@ impl VideoFrame {
     }
 }
 
-impl ToSerdeJsonValue for VideoFrame {
+impl ToSerdeJsonValue for VideoFrameProxy {
     fn to_serde_json_value(&self) -> Value {
         let inner = self.inner.read_recursive().clone();
         inner.to_serde_json_value()
@@ -896,7 +897,7 @@ impl ToSerdeJsonValue for VideoFrame {
 }
 
 #[pymethods]
-impl VideoFrame {
+impl VideoFrameProxy {
     #[getter]
     fn memory_handle(&self) -> usize {
         self as *const Self as usize
@@ -923,7 +924,7 @@ impl VideoFrame {
         framerate: String,
         width: i64,
         height: i64,
-        content: PyVideoFrameContent,
+        content: VideoFrameContentProxy,
         transcoding_method: VideoFrameTranscodingMethod,
         codec: Option<String>,
         keyframe: Option<bool>,
@@ -931,7 +932,7 @@ impl VideoFrame {
         dts: Option<i64>,
         duration: Option<i64>,
     ) -> Self {
-        VideoFrame::from_inner(InnerVideoFrame {
+        VideoFrameProxy::from_inner(VideoFrame {
             source_id,
             pts,
             framerate,
@@ -939,7 +940,7 @@ impl VideoFrame {
             height,
             dts,
             duration,
-            transcoding_method,
+            transcoding_method: transcoding_method.clone(),
             codec,
             keyframe,
             content: content.inner,
@@ -1082,18 +1083,18 @@ impl VideoFrame {
         inner.transformations.clear();
     }
 
-    pub fn add_transformation(&mut self, transformation: PyVideoFrameTransformation) {
+    pub fn add_transformation(&mut self, transformation: &VideoFrameTransformationProxy) {
         let mut inner = self.inner.write();
-        inner.transformations.push(transformation.inner);
+        inner.transformations.push(transformation.inner.clone());
     }
 
     #[getter]
-    pub fn get_transformations(&self) -> Vec<PyVideoFrameTransformation> {
+    pub fn get_transformations(&self) -> Vec<VideoFrameTransformationProxy> {
         let inner = self.inner.read_recursive();
         inner
             .transformations
             .iter()
-            .map(|t| PyVideoFrameTransformation::new(t.clone()))
+            .map(|t| VideoFrameTransformationProxy::new(t.clone()))
             .collect()
     }
 
@@ -1110,15 +1111,15 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_content(&self) -> PyVideoFrameContent {
+    pub fn get_content(&self) -> VideoFrameContentProxy {
         let inner = self.inner.read_recursive();
-        PyVideoFrameContent::new_arced(inner.content.clone())
+        VideoFrameContentProxy::new_arced(inner.content.clone())
     }
 
     #[setter]
-    pub fn set_content(&mut self, content: PyVideoFrameContent) {
+    pub fn set_content(&mut self, content: VideoFrameContentProxy) {
         let mut inner = self.inner.write();
-        inner.content = content.inner;
+        inner.content = content.inner.clone();
     }
 
     #[getter]
@@ -1150,7 +1151,7 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "add_object")]
-    pub fn add_object_py(&self, o: VideoObject) {
+    pub fn add_object_py(&self, o: VideoObjectProxy) {
         no_gil(|| self.add_object(&o))
     }
 
@@ -1170,17 +1171,17 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: QueryWrapper, draw_label: PySetDrawLabelKind) {
+    pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: PySetDrawLabelKind) {
         no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "get_object")]
-    pub fn get_object_gil(&self, id: i64) -> Option<VideoObject> {
+    pub fn get_object_gil(&self, id: i64) -> Option<VideoObjectProxy> {
         no_gil(|| self.get_object(id))
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryWrapper) -> VideoObjectsView {
+    pub fn access_objects_gil(&self, q: &QueryProxy) -> VideoObjectsView {
         no_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
@@ -1195,17 +1196,17 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: QueryWrapper) -> VideoObjectsView {
+    pub fn delete_objects_gil(&self, query: &QueryProxy) -> VideoObjectsView {
         no_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: QueryWrapper, parent: VideoObject) -> VideoObjectsView {
+    pub fn set_parent_gil(&self, q: &QueryProxy, parent: &VideoObjectProxy) -> VideoObjectsView {
         no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: QueryWrapper) -> VideoObjectsView {
+    pub fn clear_parent_gil(&self, q: &QueryProxy) -> VideoObjectsView {
         no_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1235,32 +1236,32 @@ impl VideoFrame {
     }
 
     #[pyo3(name = "copy")]
-    pub fn copy_gil(&self) -> VideoFrame {
+    pub fn copy_gil(&self) -> VideoFrameProxy {
         no_gil(|| self.deep_copy())
     }
 
     #[pyo3(name = "update_attributes")]
-    pub fn update_attributes_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_attributes(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn update_attributes_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update_attributes(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update_objects")]
-    pub fn update_objects_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_objects(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn update_objects_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update_objects(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update")]
-    pub fn update_gil(&self, other: VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update(&other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
+        no_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::message::video::object::InnerVideoObjectBuilder;
+    use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{RBBox, SetDrawLabelKind, VideoObject, VideoObjectModification};
+    use crate::primitives::{RBBox, SetDrawLabelKind, VideoObjectModification, VideoObjectProxy};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1412,8 +1413,8 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_panic_snapshot_no_parent_added_to_frame() {
-        let parent = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let parent = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .parent_id(None)
                 .creator(s("some-model"))
                 .label(s("some-label"))
@@ -1430,8 +1431,8 @@ mod tests {
 
     #[test]
     fn test_snapshot_with_parent_added_to_frame() {
-        let parent = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let parent = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .parent_id(None)
                 .creator(s("some-model"))
                 .label(s("some-label"))
@@ -1519,8 +1520,8 @@ mod tests {
     #[should_panic]
     fn attach_object_with_detached_parent() {
         pyo3::prepare_freethreaded_python();
-        let p = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let p = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))
@@ -1529,8 +1530,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let o = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let o = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(23)
                 .creator(s("random"))
                 .label(s("something"))
@@ -1548,8 +1549,8 @@ mod tests {
     #[should_panic]
     fn set_detached_parent_as_parent() {
         let f = gen_frame();
-        let o = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let o = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))

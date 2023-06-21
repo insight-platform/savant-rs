@@ -2,26 +2,27 @@ pub mod utils {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::frame::{
-        InnerVideoFrameBuilder, VideoFrameTranscodingMethod,
+        VideoFrameBuilder, VideoFrameTranscodingMethod,
     };
-    use crate::primitives::message::video::object::{InnerVideoObject, InnerVideoObjectBuilder};
+    use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Point, PyVideoFrameContent, VideoObject,
+        AttributeBuilder, Intersection, IntersectionKind, Point, VideoFrameContentProxy,
+        VideoObjectProxy,
     };
-    use crate::primitives::{RBBox, VideoFrame};
+    use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
     use std::collections::HashMap;
 
     #[pyfunction]
-    pub fn gen_frame() -> VideoFrame {
-        let f = VideoFrame::from_inner(
-            InnerVideoFrameBuilder::default()
+    pub fn gen_frame() -> VideoFrameProxy {
+        let f = VideoFrameProxy::from_inner(
+            VideoFrameBuilder::default()
                 .source_id("test".to_string())
                 .pts(0)
                 .framerate("test".to_string())
                 .width(0)
                 .height(0)
-                .content(PyVideoFrameContent::none().inner)
+                .content(VideoFrameContentProxy::none().inner)
                 .dts(None)
                 .transformations(Vec::default())
                 .duration(None)
@@ -34,8 +35,8 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let parent_object = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let parent_object = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(0)
                 .track_info(None)
                 .modifications(Vec::default())
@@ -48,8 +49,8 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let c1 = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let c1 = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(1)
                 .track_info(None)
                 .modifications(Vec::default())
@@ -63,8 +64,8 @@ pub mod utils {
                 .unwrap(),
         );
 
-        let c2 = VideoObject::from_inner_object(
-            InnerVideoObjectBuilder::default()
+        let c2 = VideoObjectProxy::from_video_object(
+            VideoObjectBuilder::default()
                 .id(2)
                 .track_info(None)
                 .modifications(Vec::default())
@@ -138,7 +139,7 @@ pub mod utils {
                     AttributeValue::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
                     AttributeValue::intersection(
                         Intersection::new(
-                            IntersectionKind::Enter,
+                            &IntersectionKind::Enter,
                             vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],
                         ),
                         None,
@@ -151,8 +152,8 @@ pub mod utils {
         f
     }
 
-    pub fn gen_object(id: i64) -> VideoObject {
-        VideoObject::from_inner_object(InnerVideoObject {
+    pub fn gen_object(id: i64) -> VideoObjectProxy {
+        VideoObjectProxy::from_video_object(VideoObject {
             id,
             creator: s("peoplenet"),
             label: s("face"),

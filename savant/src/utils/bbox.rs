@@ -22,7 +22,7 @@ pub enum BBoxFormat {
 }
 
 pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF64>(
-    arr: PyReadonlyArrayDyn<T>,
+    arr: &PyReadonlyArrayDyn<T>,
 ) -> Vec<RBBox> {
     let dims = arr.shape();
     assert!(dims.len() == 2 && dims[1] >= 5);
@@ -42,8 +42,8 @@ pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF64>(
 }
 
 pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
-    arr: PyReadonlyArrayDyn<T>,
-    format: BBoxFormat,
+    arr: &PyReadonlyArrayDyn<T>,
+    format: &BBoxFormat,
 ) -> Vec<PythonBBox> {
     let dims = arr.shape();
     assert!(dims.len() == 2 && dims[1] >= 4);
@@ -74,8 +74,8 @@ pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
 }
 
 pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zero>(
-    boxes: Vec<PythonBBox>,
-    format: BBoxFormat,
+    boxes: &Vec<PythonBBox>,
+    format: &BBoxFormat,
 ) -> Py<PyArray<T, IxDyn>> {
     Python::with_gil(|py| {
         let arr = py.allow_threads(|| {
@@ -177,21 +177,21 @@ pub fn rotated_bboxes_to_ndarray_gil(boxes: Vec<RBBox>, dtype: String) -> PyObje
 ///
 #[pyfunction]
 #[pyo3(name = "ndarray_to_bboxes")]
-pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<PythonBBox>> {
+pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: &BBoxFormat) -> PyResult<Vec<PythonBBox>> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
-        return Ok(ndarray_to_bboxes(arr.readonly(), format));
+        return Ok(ndarray_to_bboxes(&arr.readonly(), format));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<f64, IxDyn>>() {
-        return Ok(ndarray_to_bboxes(arr.readonly(), format));
+        return Ok(ndarray_to_bboxes(&arr.readonly(), format));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i32, IxDyn>>() {
-        return Ok(ndarray_to_bboxes(arr.readonly(), format));
+        return Ok(ndarray_to_bboxes(&arr.readonly(), format));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i64, IxDyn>>() {
-        return Ok(ndarray_to_bboxes(arr.readonly(), format));
+        return Ok(ndarray_to_bboxes(&arr.readonly(), format));
     }
 
     Err(pyo3::exceptions::PyTypeError::new_err(
@@ -220,19 +220,19 @@ pub fn ndarray_to_bboxes_gil(arr: &PyAny, format: BBoxFormat) -> PyResult<Vec<Py
 #[pyo3(name = "ndarray_to_rotated_bboxes")]
 pub fn ndarray_to_rotated_bboxes_gil(arr: &PyAny) -> PyResult<Vec<RBBox>> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
-        return Ok(ndarray_to_rotated_bboxes(arr.readonly()));
+        return Ok(ndarray_to_rotated_bboxes(&arr.readonly()));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<f64, IxDyn>>() {
-        return Ok(ndarray_to_rotated_bboxes(arr.readonly()));
+        return Ok(ndarray_to_rotated_bboxes(&arr.readonly()));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i32, IxDyn>>() {
-        return Ok(ndarray_to_rotated_bboxes(arr.readonly()));
+        return Ok(ndarray_to_rotated_bboxes(&arr.readonly()));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i64, IxDyn>>() {
-        return Ok(ndarray_to_rotated_bboxes(arr.readonly()));
+        return Ok(ndarray_to_rotated_bboxes(&arr.readonly()));
     }
 
     Err(pyo3::exceptions::PyTypeError::new_err(
@@ -261,24 +261,24 @@ pub fn ndarray_to_rotated_bboxes_gil(arr: &PyAny) -> PyResult<Vec<RBBox>> {
 #[pyo3(name = "bboxes_to_ndarray")]
 pub fn bboxes_to_ndarray_gil(
     boxes: Vec<PythonBBox>,
-    format: BBoxFormat,
+    format: &BBoxFormat,
     dtype: String,
 ) -> PyObject {
     match dtype.as_str() {
         "float32" => {
-            let arr = bboxes_to_ndarray::<f32>(boxes, format);
+            let arr = bboxes_to_ndarray::<f32>(&boxes, format);
             Python::with_gil(|py| arr.to_object(py))
         }
         "float64" => {
-            let arr = bboxes_to_ndarray::<f64>(boxes, format);
+            let arr = bboxes_to_ndarray::<f64>(&boxes, format);
             Python::with_gil(|py| arr.to_object(py))
         }
         "int32" => {
-            let arr = bboxes_to_ndarray::<i32>(boxes, format);
+            let arr = bboxes_to_ndarray::<i32>(&boxes, format);
             Python::with_gil(|py| arr.to_object(py))
         }
         "int64" => {
-            let arr = bboxes_to_ndarray::<i64>(boxes, format);
+            let arr = bboxes_to_ndarray::<i64>(&boxes, format);
             Python::with_gil(|py| arr.to_object(py))
         }
         _ => panic!("Unsupported dtype"),

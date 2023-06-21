@@ -1,9 +1,9 @@
 use crate::bytes_le_to_version;
-use crate::primitives::message::video::frame::InnerVideoFrame;
+use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
 };
-use crate::primitives::{EndOfStream, Message, VideoFrame, VideoFrameBatch, VideoFrameUpdate};
+use crate::primitives::{EndOfStream, Message, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::no_gil;
 use pyo3::pyfunction;
@@ -80,10 +80,10 @@ pub fn load_message(bytes: &[u8]) -> Message {
         }
 
         NativeMessageTypeConsts::VideoFrame => {
-            let f: Result<InnerVideoFrame, _> = rkyv::from_bytes(bytes);
+            let f: Result<VideoFrame, _> = rkyv::from_bytes(bytes);
             match f {
                 Ok(f) => {
-                    let f = VideoFrame::from_inner(f);
+                    let f = VideoFrameProxy::from_inner(f);
                     f.restore_from_snapshot();
                     Message::video_frame(f)
                 }
@@ -120,7 +120,7 @@ pub fn load_message(bytes: &[u8]) -> Message {
 ///
 #[pyfunction]
 #[pyo3(name = "load_message_from_bytebuffer")]
-pub fn load_message_from_bytebuffer_gil(buffer: ByteBuffer) -> Message {
+pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer) -> Message {
     no_gil(|| load_message(buffer.bytes()))
 }
 
