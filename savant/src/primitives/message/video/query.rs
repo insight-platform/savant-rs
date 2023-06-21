@@ -157,6 +157,8 @@ pub enum Query {
     TrackBoxHeight(FloatExpression),
     #[serde(rename = "track.bbox.area")]
     TrackBoxArea(FloatExpression),
+    #[serde(rename = "track.bbox.width_to_height_ratio")]
+    TrackBoxWidthToHeightRatio(FloatExpression),
     #[serde(rename = "track.bbox.angle")]
     TrackBoxAngle(FloatExpression),
     #[serde(rename = "track.bbox.angle.defined")]
@@ -187,6 +189,8 @@ pub enum Query {
     BoxHeight(FloatExpression),
     #[serde(rename = "bbox.area")]
     BoxArea(FloatExpression),
+    #[serde(rename = "bbox.width_to_height_ratio")]
+    BoxWidthToHeightRatio(FloatExpression),
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
     #[serde(rename = "bbox.angle.defined")]
@@ -266,6 +270,11 @@ impl ExecutableQuery<&RwLockReadGuard<'_, VideoObject>> for Query {
                 .as_ref()
                 .map(|t| x.execute(&t.bounding_box.get_height()))
                 .unwrap_or(false),
+            Query::TrackBoxWidthToHeightRatio(x) => o
+                .track_info
+                .as_ref()
+                .map(|t| x.execute(&t.bounding_box.get_width_to_height_ratio()))
+                .unwrap_or(false),
             Query::TrackBoxArea(x) => o
                 .track_info
                 .as_ref()
@@ -282,10 +291,11 @@ impl ExecutableQuery<&RwLockReadGuard<'_, VideoObject>> for Query {
             // box
             Query::BoxWidth(x) => x.execute(&o.bbox.get_width()),
             Query::BoxHeight(x) => x.execute(&o.bbox.get_height()),
-            Query::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height())),
             Query::BoxXCenter(x) => x.execute(&o.bbox.get_xc()),
             Query::BoxYCenter(x) => x.execute(&o.bbox.get_yc()),
             Query::BoxAngleDefined => o.bbox.get_angle().is_some(),
+            Query::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height())),
+            Query::BoxWidthToHeightRatio(x) => x.execute(&o.bbox.get_width_to_height_ratio()),
             Query::BoxAngle(x) => o.bbox.get_angle().map(|a| x.execute(&a)).unwrap_or(false),
 
             // attributes

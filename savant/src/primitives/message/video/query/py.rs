@@ -5,6 +5,148 @@ use pyo3::types::PyTuple;
 use std::ops::Deref;
 use std::sync::Arc;
 
+/**
+Module for defining queries on video objects.
+
+JMES Query Syntax can be found here: `JMESPath <https://jmespath.org/>`__.
+
+Python
+------
+
+.. code-block:: python
+
+    from savant_rs.video_object_query import FloatExpression as FE, \
+        IntExpression as IE, \
+        StringExpression as SE, \
+        Query as Q
+
+    and_ = Q.and_
+    or_ = Q.or_
+    not_ = Q.not_
+
+
+    gt = IE.gt
+    lt = IE.lt
+    eq = IE.eq
+    fgt = FE.gt
+
+    q = and_(
+        Q.creator(SE.one_of('savant', 'deepstream')),
+        Q.label(SE.one_of('person', 'cyclist')),
+        and_(
+            or_(
+                not_(Q.parent_defined()),
+                or_(
+                    Q.parent_id(IE.one_of(0, 1, 2)),
+                    Q.parent_id(gt(10))
+                )
+            )
+        ),
+        Q.attributes_jmes_query("[?(name=='test' && creator=='test')]"),
+        Q.confidence(FE.gt(0.5)),
+        Q.box_height(FE.gt(100)),
+    )
+
+YAML
+----
+
+.. code-block:: yaml
+
+    and:
+    - creator:
+        one_of:
+        - savant
+        - deepstream
+    - label:
+        one_of:
+        - person
+        - cyclist
+    - and:
+      - or:
+        - not: parent.defined
+        - or:
+          - parent.id:
+              one_of:
+              - 0
+              - 1
+              - 2
+          - parent.id:
+              gt: 10
+    - attributes.jmes_query: '[?(name==''test'' && creator==''test'')]'
+    - confidence:
+        gt: 0.5
+    - bbox.height:
+        gt: 100.0
+
+JSON
+----
+
+.. code-block:: json
+
+    {
+      "and": [
+        {
+          "creator": {
+            "one_of": [
+              "savant",
+              "deepstream"
+            ]
+          }
+        },
+        {
+          "label": {
+            "one_of": [
+              "person",
+              "cyclist"
+            ]
+          }
+        },
+        {
+          "and": [
+            {
+              "or": [
+                {
+                  "not": "parent.defined"
+                },
+                {
+                  "or": [
+                    {
+                      "parent.id": {
+                        "one_of": [
+                          0,
+                          1,
+                          2
+                        ]
+                      }
+                    },
+                    {
+                      "parent.id": {
+                        "gt": 10
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "attributes.jmes_query": "[?(name=='test' && creator=='test')]"
+        },
+        {
+          "confidence": {
+            "gt": 0.5
+          }
+        },
+        {
+          "bbox.height": {
+            "gt": 100.0
+          }
+        }
+      ]
+    }
+
+*/
 #[pymodule]
 pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FloatExpressionProxy>()?;
@@ -14,6 +156,8 @@ pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
+/// A class allowing to define a float expression
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "FloatExpression")]
@@ -34,6 +178,20 @@ impl FloatExpressionProxy {
         self.__repr__()
     }
 
+    /// Eq expression
+    ///
+    /// In JSON/YAML: eq
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn eq(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -41,6 +199,20 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Ne expression
+    ///
+    /// In JSON/YAML: ne
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn ne(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -48,6 +220,20 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Lt expression
+    ///
+    /// In JSON/YAML: lt
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn lt(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -55,6 +241,20 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Le expression
+    ///
+    /// In JSON/YAML: le
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn le(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -62,6 +262,20 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Gt expression
+    ///
+    /// In JSON/YAML: gt
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn gt(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -69,6 +283,20 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Ge expression
+    ///
+    /// In JSON/YAML: ge
+    ///
+    /// Parameters
+    /// ----------
+    /// v: float
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn ge(v: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -76,6 +304,22 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// Between expression
+    ///
+    /// In JSON/YAML: between
+    ///
+    /// Parameters
+    /// ----------
+    /// a: float
+    ///   Lower bound
+    /// b: float
+    ///   Upper bound
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     fn between(a: f64, b: f64) -> FloatExpressionProxy {
         FloatExpressionProxy {
@@ -83,6 +327,22 @@ impl FloatExpressionProxy {
         }
     }
 
+    /// One of expression
+    ///
+    /// In JSON/YAML: one_of
+    ///
+    ///  
+    ///
+    /// Parameters
+    /// ----------
+    /// \*list: \*list of float
+    ///   List of values to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`FloatExpression`
+    ///   Float expression
+    ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
     fn one_of(list: &PyTuple) -> FloatExpressionProxy {
@@ -99,6 +359,8 @@ impl FloatExpressionProxy {
     }
 }
 
+/// A class allowing to define an integer expression
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "IntExpression")]
@@ -119,6 +381,20 @@ impl IntExpressionProxy {
         self.__repr__()
     }
 
+    /// Eq expression
+    ///
+    /// In JSON/YAML: eq
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn eq(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -126,6 +402,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Ne expression
+    ///
+    /// In JSON/YAML: ne
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn ne(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -133,6 +423,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Lt expression
+    ///
+    /// In JSON/YAML: lt
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn lt(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -140,6 +444,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Le expression
+    ///
+    /// In JSON/YAML: le
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn le(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -147,6 +465,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Gt expression
+    ///
+    /// In JSON/YAML: gt
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn gt(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -154,6 +486,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Ge expression
+    ///
+    /// In JSON/YAML: ge
+    ///
+    /// Parameters
+    /// ----------
+    /// v: int
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn ge(v: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -161,6 +507,22 @@ impl IntExpressionProxy {
         }
     }
 
+    /// Between expression
+    ///
+    /// In JSON/YAML: between
+    ///
+    /// Parameters
+    /// ----------
+    /// a: int
+    ///   Lower bound
+    /// b: int
+    ///   Upper bound
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     fn between(a: i64, b: i64) -> IntExpressionProxy {
         IntExpressionProxy {
@@ -168,6 +530,20 @@ impl IntExpressionProxy {
         }
     }
 
+    /// One of expression
+    ///
+    /// In JSON/YAML: one_of
+    ///
+    /// Parameters
+    /// ----------
+    /// \*list: \*list of int
+    ///   List of values to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`IntExpression`
+    ///   Int expression
+    ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
     fn one_of(list: &PyTuple) -> IntExpressionProxy {
@@ -184,6 +560,8 @@ impl IntExpressionProxy {
     }
 }
 
+/// A class allowing to define a string expression
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 #[pyo3(name = "StringExpression")]
@@ -204,6 +582,20 @@ impl StringExpressionProxy {
         self.__repr__()
     }
 
+    /// Eq expression
+    ///
+    /// In JSON/YAML: eq
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn eq(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -211,6 +603,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// Ne expression
+    ///
+    /// In JSON/YAML: ne
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn ne(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -218,6 +624,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// Contains expression
+    ///
+    /// In JSON/YAML: contains
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn contains(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -225,6 +645,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// Not contains expression
+    ///
+    /// In JSON/YAML: not_contains
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn not_contains(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -232,6 +666,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// Starts with expression
+    ///
+    /// In JSON/YAML: starts_with
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn starts_with(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -239,6 +687,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// Ends with expression
+    ///
+    /// In JSON/YAML: ends_with
+    ///
+    /// Parameters
+    /// ----------
+    /// v: str
+    ///   Value to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     fn ends_with(v: String) -> StringExpressionProxy {
         StringExpressionProxy {
@@ -246,6 +708,20 @@ impl StringExpressionProxy {
         }
     }
 
+    /// One of expression
+    ///
+    /// In JSON/YAML: one_of
+    ///
+    /// Parameters
+    /// ----------
+    /// \*list: \*list of str
+    ///   List of values to compare with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`StringExpression`
+    ///   String expression
+    ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
     fn one_of(list: &PyTuple) -> StringExpressionProxy {
@@ -262,6 +738,8 @@ impl StringExpressionProxy {
     }
 }
 
+/// A class allowing to define a Query based on expressions
+///
 #[pyclass]
 #[pyo3(name = "Query")]
 #[derive(Debug, Clone)]
@@ -282,6 +760,19 @@ impl QueryProxy {
         self.__repr__()
     }
 
+    /// And predicate
+    ///
+    /// In JSON/YAML: and
+    ///
+    /// Parameters
+    /// ----------
+    /// \*list: \*list of :py:class:`Query`
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
     fn and_(list: &PyTuple) -> QueryProxy {
@@ -297,6 +788,19 @@ impl QueryProxy {
         }
     }
 
+    /// Or predicate
+    ///
+    /// In JSON/YAML: or
+    ///
+    /// Parameters
+    /// ----------
+    /// \*list: \*list of :py:class:`Query`
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
     fn or_(list: &PyTuple) -> QueryProxy {
@@ -312,6 +816,20 @@ impl QueryProxy {
         }
     }
 
+    /// Not predicate
+    ///
+    /// In JSON/YAML: not
+    ///
+    /// Parameters
+    /// ----------
+    /// a: :py:class:`Query`
+    ///   Query
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn not_(a: QueryProxy) -> QueryProxy {
         QueryProxy {
@@ -319,6 +837,25 @@ impl QueryProxy {
         }
     }
 
+    /// True if query executed on children objects of an object returns a number of results
+    /// matching the given integer expression.
+    ///
+    /// E.g. If a person has at least one hand visible.
+    ///
+    /// In JSON/YAML: with_children
+    ///
+    /// Parameters
+    /// ----------
+    /// a: :py:class:`Query`
+    ///   Query to run on children objects to get the number of matching results
+    /// n: :py:class:`IntExpression`
+    ///   Integer expression to compare the number retrieved for children with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn with_children(a: QueryProxy, n: IntExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -329,6 +866,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's Id matches the given integer expression.
+    ///
+    /// In JSON/YAML: object.id
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`IntExpression`
+    ///   Integer expression to compare the object's Id with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn id(e: IntExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -336,6 +887,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's creator matches the given string expression.
+    ///
+    /// In JSON/YAML: creator
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`StringExpression`
+    ///   String expression to compare the object's creator with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn creator(e: StringExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -343,6 +908,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's label matches the given string expression.
+    ///
+    /// In JSON/YAML: label
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`StringExpression`
+    ///   String expression to compare the object's label with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn label(e: StringExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -350,6 +929,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's confidence matches the given float expression.
+    ///
+    /// In JSON/YAML: confidence
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`FloatExpression`
+    ///   Float expression to compare the object's confidence with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn confidence(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -357,6 +950,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track_id matches the given int expression.
+    ///
+    /// In JSON/YAML: track.id
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`IntExpression`
+    ///   Integer expression to compare the object's track_id with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn track_id(e: IntExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -364,6 +971,20 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox xc matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.xc
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`FloatExpression`
+    ///   Float expression to compare the object's track bbox xc with
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
     #[staticmethod]
     fn track_box_x_center(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -371,6 +992,15 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox yc matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.yc
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`FloatExpression`
+    ///   Float expression to compare the object's track bbox yc with
+    ///
     #[staticmethod]
     fn track_box_y_center(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -378,6 +1008,15 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox width matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.width
+    ///
+    /// Parameters
+    /// ----------
+    /// e: :py:class:`FloatExpression`
+    ///   Float expression to compare the object's track bbox width with
+    ///
     #[staticmethod]
     fn track_box_width(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -385,6 +1024,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox height matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.height
+    ///
     #[staticmethod]
     fn track_box_height(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -392,6 +1035,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox area (width x height) matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.area
+    ///
     #[staticmethod]
     fn track_box_area(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -399,6 +1046,21 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track bbox aspect ratio (width / height) matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.width_to_height_ratio
+    ///
+    #[staticmethod]
+    fn track_box_width_to_height_ratio(e: FloatExpressionProxy) -> QueryProxy {
+        QueryProxy {
+            inner: Arc::new(Query::TrackBoxWidthToHeightRatio(e.inner)),
+        }
+    }
+
+    /// True if object's track bbox angle matches the given float expression.
+    ///
+    /// In JSON/YAML: track.bbox.angle
+    ///
     #[staticmethod]
     fn track_box_angle(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -406,6 +1068,17 @@ impl QueryProxy {
         }
     }
 
+    /// True if an UDF predicate executed on object returned true.
+    ///
+    /// In JSON/YAML: user_defined_object_predicate
+    ///
+    /// Parameters
+    /// ----------
+    /// plugin: str
+    ///   Name of the plugin to execute
+    /// function: str
+    ///   Name of the function to execute
+    ///
     #[staticmethod]
     fn user_defined_rust_plugin_object_predicate(plugin: String, function: String) -> QueryProxy {
         QueryProxy {
@@ -413,6 +1086,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's parent id matches the given int expression.
+    ///
+    /// In JSON/YAML: parent.id
+    ///
     #[staticmethod]
     fn parent_id(e: IntExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -420,6 +1097,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's parent creator matches the given string expression.
+    ///
+    /// In JSON/YAML: parent.creator
+    ///
     #[staticmethod]
     fn parent_creator(e: StringExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -427,6 +1108,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's parent label matches the given string expression.
+    ///
+    /// In JSON/YAML: parent.label
+    ///
     #[staticmethod]
     fn parent_label(e: StringExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -434,6 +1119,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box xc matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.xc
+    ///
     #[staticmethod]
     fn box_x_center(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -441,6 +1130,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box yc matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.yc
+    ///
     #[staticmethod]
     fn box_y_center(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -448,6 +1141,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box width matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.width
+    ///
     #[staticmethod]
     fn box_width(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -455,6 +1152,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box height matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.height
+    ///
     #[staticmethod]
     fn box_height(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -462,6 +1163,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box area (width x height) matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.area
+    ///
     #[staticmethod]
     fn box_area(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -469,6 +1174,21 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box aspect ratio (width / height) matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.width_to_height_ratio
+    ///
+    #[staticmethod]
+    fn box_width_to_height_ratio(e: FloatExpressionProxy) -> QueryProxy {
+        QueryProxy {
+            inner: Arc::new(Query::BoxWidthToHeightRatio(e.inner)),
+        }
+    }
+
+    /// True if object's box angle matches the given float expression.
+    ///
+    /// In JSON/YAML: bbox.angle
+    ///
     #[staticmethod]
     fn box_angle(e: FloatExpressionProxy) -> QueryProxy {
         QueryProxy {
@@ -476,6 +1196,8 @@ impl QueryProxy {
         }
     }
 
+    /// Always true
+    ///
     #[staticmethod]
     fn idle() -> QueryProxy {
         QueryProxy {
@@ -483,6 +1205,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if JMES Query executed on attributes converted in JSON format returns True.
+    ///
+    /// In JSON/YAML: attributes.jmes_query
+    ///
     #[staticmethod]
     fn attributes_jmes_query(e: String) -> QueryProxy {
         QueryProxy {
@@ -490,6 +1216,9 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's parent is defined.
+    ///
+    /// In JSON/YAML: parent.defined
     #[staticmethod]
     fn parent_defined() -> QueryProxy {
         QueryProxy {
@@ -497,6 +1226,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's confidence is defined.
+    ///
+    /// In JSON/YAML: confidence.defined
+    ///
     #[staticmethod]
     fn confidence_defined() -> QueryProxy {
         QueryProxy {
@@ -504,6 +1237,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's track id is defined.
+    ///
+    /// In JSON/YAML: track.id.defined
+    ///
     #[staticmethod]
     fn track_id_defined() -> QueryProxy {
         QueryProxy {
@@ -511,6 +1248,10 @@ impl QueryProxy {
         }
     }
 
+    /// True if object's box has angle defined.
+    ///
+    /// In JSON/YAML: bbox.angle.defined
+    ///
     #[staticmethod]
     fn box_angle_defined() -> QueryProxy {
         QueryProxy {
@@ -518,6 +1259,8 @@ impl QueryProxy {
         }
     }
 
+    /// True if object doesn't have attributes
+    ///
     #[staticmethod]
     fn attributes_empty() -> QueryProxy {
         QueryProxy {
@@ -525,21 +1268,29 @@ impl QueryProxy {
         }
     }
 
+    /// Dumps query to JSON string.
+    ///
     #[getter]
     fn json(&self) -> String {
         self.inner.to_json()
     }
 
+    /// Dumps query to pretty JSON string.
+    ///
     #[getter]
     fn json_pretty(&self) -> String {
         self.inner.to_json_pretty()
     }
 
+    /// Dumps query to YAML string.
+    ///
     #[getter]
     fn yaml(&self) -> String {
         self.inner.to_yaml()
     }
 
+    /// Loads query from JSON string.
+    ///
     #[staticmethod]
     fn from_json(json: String) -> QueryProxy {
         QueryProxy {
@@ -551,6 +1302,8 @@ impl QueryProxy {
         }
     }
 
+    /// Loads query from YAML string.
+    ///
     #[staticmethod]
     fn from_yaml(yaml: String) -> QueryProxy {
         QueryProxy {
