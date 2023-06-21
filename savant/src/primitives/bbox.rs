@@ -126,6 +126,11 @@ impl RBBox {
     }
 
     #[getter]
+    pub fn get_width_to_height_ratio(&self) -> f64 {
+        self.width / self.height
+    }
+
+    #[getter]
     pub fn get_angle(&self) -> Option<f64> {
         self.angle
     }
