@@ -16,6 +16,8 @@ assert is_plugin_function_registered("sample.inplace_modifier")
 
 f = gen_frame()
 
+objects_x = f.access_objects(Q.idle()).filter(Q.eval("id % 2 == 1", [])).sorted_by_id()
+
 objects = f.access_objects(Q.idle()).filter(Q.id(IE.one_of(1, 2))).sorted_by_id()
 
 new_objects = objects.map_udf("sample.map_modifier")
