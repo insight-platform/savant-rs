@@ -349,8 +349,8 @@ impl ExecutableQuery<&VideoObjectProxy> for Query {
             }
             Query::EvalExpr(x, resolvers) => {
                 let expr = get_compiled_eval_expr(x).unwrap();
-                let context = ObjectContext::new(o, resolvers);
-                expr.eval_boolean_with_context(&context).unwrap()
+                let mut context = ObjectContext::new(o, resolvers);
+                expr.eval_boolean_with_context_mut(&mut context).unwrap()
             }
             Query::ParentId(x) => o
                 .get_parent()
@@ -468,6 +468,7 @@ mod tests {
     use crate::primitives::{AttributeBuilder, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
+    use crate::utils::eval_resolvers::{env_resolver_name, register_env_resolver};
 
     #[test]
     fn test_int() {
@@ -588,6 +589,13 @@ mod tests {
 
         let expr = EvalExpr("id == 2".to_string(), vec![]);
         assert!(!expr.execute(&gen_object(1)));
+
+        register_env_resolver();
+        let expr = EvalExpr(
+            "env(\"ABC\", \"X\") == \"X\"".to_string(),
+            vec![env_resolver_name()],
+        );
+        assert!(expr.execute(&gen_object(1)));
     }
 
     #[test]

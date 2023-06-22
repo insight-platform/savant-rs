@@ -6,6 +6,7 @@ use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::{VideoObjectBuilder, VideoObjectTrackingData};
 use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{AttributeBuilder, RBBox, VideoObjectProxy};
+use savant_rs::utils::eval_resolvers::{register_utility_resolver, utility_resolver_name};
 use test::Bencher;
 
 fn get_objects() -> Vec<VideoObjectProxy> {
@@ -59,6 +60,29 @@ fn bench_filtering(b: &mut Bencher) {
         attr_exp,
         or![Confidence(ge(0.6)), Confidence(le(0.4)),]
     ];
+
+    let objs = get_objects();
+    b.iter(|| {
+        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+    });
+}
+
+#[bench]
+fn bench_filtering_with_eval(b: &mut Bencher) {
+    use Query::*;
+
+    let attr_exp = AttributesJMESQuery("[?(name=='test' && creator=='test')]".into());
+    register_utility_resolver();
+
+    let expr = and![EvalExpr(r#"
+    (creator == "created_by_2" || creator == "created_by_4" || label == "2" || label == "4" || label == "6") && 
+    !is_empty(parent.id) && 
+    !is_empty(bbox.angle)"#
+        .to_string(),
+        vec![utility_resolver_name()],
+    ),
+    attr_exp,
+        or![Confidence(ge(0.6)), Confidence(le(0.4)),]];
 
     let objs = get_objects();
     b.iter(|| {

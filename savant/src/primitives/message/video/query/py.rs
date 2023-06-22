@@ -1,4 +1,5 @@
 use super::{FloatExpression, IntExpression, Query, StringExpression};
+use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
@@ -17,6 +18,15 @@ pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<IntExpressionProxy>()?;
     m.add_class::<StringExpressionProxy>()?;
     m.add_class::<QueryProxy>()?;
+    m.add_function(wrap_pyfunction!(utility_resolver_name, m)?)?;
+    m.add_function(wrap_pyfunction!(etcd_resolver_name, m)?)?;
+    m.add_function(wrap_pyfunction!(env_resolver_name, m)?)?;
+    m.add_function(wrap_pyfunction!(config_resolver_name, m)?)?;
+
+    m.add_function(wrap_pyfunction!(register_utility_resolver, m)?)?;
+    m.add_function(wrap_pyfunction!(register_env_resolver, m)?)?;
+    m.add_function(wrap_pyfunction!(register_config_resolver, m)?)?;
+    m.add_function(wrap_pyfunction!(register_etcd_resolver, m)?)?;
     Ok(())
 }
 
@@ -727,6 +737,29 @@ impl QueryProxy {
                 Box::new(a.inner.deref().clone()),
                 n.inner,
             )),
+        }
+    }
+
+    /// True, when expression defined by evalexpr is computed.
+    ///
+    /// In JSON/YAML: eval
+    ///
+    /// Parameters
+    /// ----------
+    /// exp: str
+    ///   Expression language format
+    /// resolvers: List[str]
+    ///   Resolvers enabled for evaluation
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
+    #[staticmethod]
+    fn eval(exp: String, resolvers: Vec<String>) -> QueryProxy {
+        QueryProxy {
+            inner: Arc::new(Query::EvalExpr(exp, resolvers)),
         }
     }
 

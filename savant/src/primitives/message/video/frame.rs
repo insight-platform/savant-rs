@@ -10,7 +10,7 @@ use crate::primitives::message::video::query::{
 };
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObjectProxy,
+    Attribute, Message, SetDrawLabelKind, SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::no_gil;
 use derive_builder::Builder;
@@ -1171,7 +1171,7 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: PySetDrawLabelKind) {
+    pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: SetDrawLabelKindProxy) {
         no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 

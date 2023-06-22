@@ -1,13 +1,12 @@
 use crate::primitives::VideoObjectProxy;
-use crate::utils::eval_resolvers::{get_symbol_resolver, SymbolResolver};
+use crate::utils::eval_resolvers::get_symbol_resolver;
 use evalexpr::*;
 use hashbrown::HashMap;
 use std::cell::OnceCell;
-use std::sync::Arc;
 
 pub struct ObjectContext<'a> {
     object: &'a VideoObjectProxy,
-    functions: HashMap<String, Arc<dyn SymbolResolver>>,
+    resolvers: &'a [String],
     temp_vars: HashMap<String, Value>,
     object_view: ObjectFieldsView,
 }
@@ -39,18 +38,9 @@ struct ObjectFieldsView {
 
 impl<'a> ObjectContext<'a> {
     pub fn new(object: &'a VideoObjectProxy, resolvers: &'a [String]) -> Self {
-        let mut functions = HashMap::new();
-        for r in resolvers {
-            let r = get_symbol_resolver(r).expect("Failed to get symbol resolver");
-            let funcs = r.exported_symbols();
-            for f in funcs {
-                functions.insert(f.to_string(), r.clone());
-            }
-        }
-
         ObjectContext {
             object,
-            functions,
+            resolvers,
             temp_vars: HashMap::new(),
             object_view: ObjectFieldsView::default(),
         }
@@ -201,10 +191,19 @@ impl<'a> Context for ObjectContext<'a> {
     }
 
     fn call_function(&self, identifier: &str, argument: &Value) -> EvalexprResult<Value> {
-        match self.functions.get(identifier) {
-            Some(r) => r
-                .resolve(identifier, argument)
-                .map_err(|e| EvalexprError::CustomMessage(e.to_string())),
+        let res = get_symbol_resolver(identifier);
+        match res {
+            Some((r, executor)) => {
+                if self.resolvers.contains(&r) {
+                    executor
+                        .resolve(identifier, argument)
+                        .map_err(|e| EvalexprError::CustomMessage(e.to_string()))
+                } else {
+                    Err(EvalexprError::FunctionIdentifierNotFound(
+                        identifier.to_string(),
+                    ))
+                }
+            }
             None => Err(EvalexprError::FunctionIdentifierNotFound(
                 identifier.to_string(),
             )),

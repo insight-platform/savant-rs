@@ -72,7 +72,7 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LabelPosition>()?;
     m.add_class::<PaddingDraw>()?;
     m.add_class::<ObjectDraw>()?;
-    m.add_class::<PySetDrawLabelKind>()?;
+    m.add_class::<SetDrawLabelKindProxy>()?;
     Ok(())
 }
 

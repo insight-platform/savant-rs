@@ -1,7 +1,8 @@
 from savant_rs.video_object_query import FloatExpression as FE, \
     IntExpression as IE, \
     StringExpression as SE, \
-    Query as Q
+    Query as Q, \
+    utility_resolver_name
 
 and_ = Q.and_
 or_ = Q.or_
@@ -14,6 +15,7 @@ eq = IE.eq
 fgt = FE.gt
 
 q = and_(
+    Q.eval("""id == 13 || label == "hello" || creator == "where" """, [utility_resolver_name()]),
     Q.creator(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
     and_(

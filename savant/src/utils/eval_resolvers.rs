@@ -13,33 +13,55 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 lazy_static! {
-    static ref RESOLVERS: Mutex<HashMap<String, Arc<dyn SymbolResolver>>> = {
-        let utility_resolver = Arc::new(UtilityResolver);
-        let name = utility_resolver.name().to_string();
-
-        Mutex::new(HashMap::from([(
-            name,
-            utility_resolver as Arc<dyn SymbolResolver>,
-        )]))
-    };
+    static ref RESOLVERS: Mutex<HashMap<String, (String, Arc<dyn SymbolResolver>)>> =
+        Mutex::new(HashMap::default());
 }
 
 pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
     let name = resolver.name().to_string();
-    RESOLVERS.lock().insert(name, resolver);
+    let symbols = resolver.exported_symbols();
+    let mut r = RESOLVERS.lock();
+    for s in symbols {
+        r.insert(s.to_string(), (name.clone(), resolver.clone()));
+    }
 }
 
-pub(crate) fn get_symbol_resolver(name: &str) -> Option<Arc<dyn SymbolResolver>> {
-    RESOLVERS.lock().get(name).cloned()
+pub(crate) fn get_symbol_resolver(symbol: &str) -> Option<(String, Arc<dyn SymbolResolver>)> {
+    RESOLVERS.lock().get(symbol).cloned()
 }
 
 #[pyfunction]
-pub fn register_env_symbol_resolver() {
+pub fn utility_resolver_name() -> String {
+    "utility-resolver".to_string()
+}
+
+#[pyfunction]
+pub fn etcd_resolver_name() -> String {
+    "etcd-resolver".to_string()
+}
+
+#[pyfunction]
+pub fn env_resolver_name() -> String {
+    "env-resolver".to_string()
+}
+
+#[pyfunction]
+pub fn config_resolver_name() -> String {
+    "config-resolver".to_string()
+}
+
+#[pyfunction]
+pub fn register_utility_resolver() {
+    register_symbol_resolver(Arc::new(UtilityResolver) as Arc<dyn SymbolResolver>);
+}
+
+#[pyfunction]
+pub fn register_env_resolver() {
     register_symbol_resolver(Arc::new(EnvSymbolResolver) as Arc<dyn SymbolResolver>);
 }
 
 #[pyfunction]
-pub fn register_config_symbol_resolver(symbols: std::collections::HashMap<String, String>) {
+pub fn register_config_resolver(symbols: std::collections::HashMap<String, String>) {
     let mut resolver = ConfigSymbolResolver::new();
     for (key, value) in symbols {
         resolver.add_symbol(key, value);
@@ -49,7 +71,7 @@ pub fn register_config_symbol_resolver(symbols: std::collections::HashMap<String
 
 #[pyfunction]
 #[pyo3(signature = (hosts = vec!["127.0.0.1:2379".to_string()], credentials = None, watch_path = "savant".to_string(), connect_timeout = 5, watch_path_wait_timeout = 5))]
-pub fn register_etcd_symbol_resolver(
+pub fn register_etcd_resolver(
     hosts: Vec<String>,
     credentials: Option<(String, String)>,
     watch_path: String,
@@ -89,7 +111,7 @@ fn cast_str_to_primitive_type(s: &str, value: &Value) -> Result<Value> {
 pub trait SymbolResolver: Send + Sync {
     fn resolve(&self, func: &str, expr: &Value) -> Result<Value>;
     fn exported_symbols(&self) -> Vec<&'static str>;
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 }
 
 struct EnvSymbolResolver;
@@ -117,8 +139,8 @@ impl SymbolResolver for EnvSymbolResolver {
         vec![ENV_FUNC]
     }
 
-    fn name(&self) -> &'static str {
-        "EnvSymbolResolver"
+    fn name(&self) -> String {
+        env_resolver_name()
     }
 }
 
@@ -228,8 +250,8 @@ impl SymbolResolver for EtcdSymbolResolver {
         vec![ETCD_FUNC]
     }
 
-    fn name(&self) -> &'static str {
-        "EtcdSymbolResolver"
+    fn name(&self) -> String {
+        etcd_resolver_name()
     }
 }
 
@@ -272,8 +294,8 @@ impl SymbolResolver for ConfigSymbolResolver {
         vec![CONFIG_FUNC]
     }
 
-    fn name(&self) -> &'static str {
-        "ConfigResolver"
+    fn name(&self) -> String {
+        config_resolver_name()
     }
 }
 
@@ -303,8 +325,8 @@ impl SymbolResolver for UtilityResolver {
         ]
     }
 
-    fn name(&self) -> &'static str {
-        "UtilityResolver"
+    fn name(&self) -> String {
+        utility_resolver_name()
     }
 }
 
