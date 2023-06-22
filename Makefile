@@ -46,7 +46,7 @@ clean:
 
 tests: sample_plugin
 	@echo "Running tests..."
-	cd savant && cargo test --no-default-features  -- --nocapture
+	cd savant && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
 
 bench: sample_plugin
 	@echo "Running benchmarks..."
