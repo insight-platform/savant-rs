@@ -15,6 +15,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod context;
 pub mod objects_view;
 
 /// Represents tracking data for a single object filled by a tracker.

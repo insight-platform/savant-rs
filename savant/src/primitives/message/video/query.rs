@@ -8,6 +8,7 @@ use parking_lot::{Mutex, RwLockReadGuard};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::primitives::message::video::object::context::ObjectContext;
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::VideoObjectProxy;
@@ -132,6 +133,8 @@ impl ExecutableQuery<&String> for StringExpression {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "query")]
 pub enum Query {
+    #[serde(rename = "eval")]
+    EvalExpr(String, Vec<String>),
     #[serde(rename = "object.id")]
     Id(IntExpression),
     #[serde(rename = "creator")]
@@ -343,6 +346,11 @@ impl ExecutableQuery<&VideoObjectProxy> for Query {
                 let children = o.get_children();
                 let v = filter(&children, q).len() as i64;
                 n.execute(&v)
+            }
+            Query::EvalExpr(x, resolvers) => {
+                let expr = get_compiled_eval_expr(x).unwrap();
+                let context = ObjectContext::new(o, resolvers);
+                expr.eval_boolean_with_context(&context).unwrap()
             }
             Query::ParentId(x) => o
                 .get_parent()
