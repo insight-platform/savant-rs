@@ -139,7 +139,7 @@ pub struct EtcdParameterStorage {
     runtime: Option<Arc<Runtime>>,
 }
 
-fn default_hosts() -> Vec<String> {
+pub fn default_hosts() -> Vec<String> {
     vec!["127.0.0.1:2379".to_string()]
 }
 

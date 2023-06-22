@@ -1,6 +1,7 @@
 pub mod bbox;
 pub mod byte_buffer;
 pub mod conversions;
+pub mod eval_resolvers;
 pub mod fps_meter;
 pub mod np;
 pub mod pluggable_udf_api;

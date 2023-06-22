@@ -40,9 +40,16 @@ num-traits = "0.2"
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 libloading = "0.8"
 crc32fast = "1"
+etcd_dynamic_state = { path = "../etcd_dynamic_state" }
+evalexpr = { version = "11", features = ["rand", "regex_support"] }
+
 
 [dependencies.pyo3]
 version = "0.18"
+
+[dependencies.tokio]
+version = "1.28"
+features = ["full"]
 
 [dev-dependencies]
 serial_test = "2.0"
