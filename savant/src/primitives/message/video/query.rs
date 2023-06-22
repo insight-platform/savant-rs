@@ -582,6 +582,15 @@ mod tests {
     }
 
     #[test]
+    fn test_eval() {
+        let expr = EvalExpr("id == 1".to_string(), vec![]);
+        assert!(expr.execute(&gen_object(1)));
+
+        let expr = EvalExpr("id == 2".to_string(), vec![]);
+        assert!(!expr.execute(&gen_object(1)));
+    }
+
+    #[test]
     fn test_query() {
         let expr = Id(eq(1));
         assert!(expr.execute(&gen_object(1)));
