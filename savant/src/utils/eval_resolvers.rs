@@ -384,7 +384,7 @@ mod tests {
     use crate::utils::eval_resolvers::{
         cast_str_to_primitive_type, config_resolver_name, get_symbol_resolver,
         register_config_resolver, unregister_resolver, update_config_resolver, EnvSymbolResolver,
-        SymbolResolver, CONFIG_FUNC,
+        SymbolResolver, CONFIG_FUNC, ENV_FUNC, ETCD_FUNC,
     };
     use evalexpr::Value;
     use std::env;
@@ -414,7 +414,7 @@ mod tests {
         let default = Value::String("".to_string());
         let value = resolver
             .resolve(
-                "env",
+                ENV_FUNC,
                 &Value::Tuple(vec![Value::String("PATH".to_string()), default]),
             )
             .unwrap();
@@ -424,7 +424,7 @@ mod tests {
         let default = Value::String("DEFAULT".to_string());
         let value = resolver
             .resolve(
-                "env",
+                ENV_FUNC,
                 &Value::Tuple(vec![Value::String("UNKNOWN".to_string()), default.clone()]),
             )
             .unwrap();
@@ -439,7 +439,7 @@ mod tests {
         let default = Value::String("".to_string());
         let value = resolver
             .resolve(
-                "config",
+                CONFIG_FUNC,
                 &Value::Tuple(vec![Value::String("config.key".to_string()), default]),
             )
             .unwrap();
@@ -449,7 +449,7 @@ mod tests {
         let default = Value::String("DEFAULT".to_string());
         let value = resolver
             .resolve(
-                "config",
+                CONFIG_FUNC,
                 &Value::Tuple(vec![Value::String("UNKNOWN".to_string()), default.clone()]),
             )
             .unwrap();
@@ -467,7 +467,7 @@ mod tests {
         let default = Value::String("".to_string());
         let value = res
             .resolve(
-                "config",
+                CONFIG_FUNC,
                 &Value::Tuple(vec![Value::String("key".to_string()), default]),
             )
             .unwrap();
@@ -484,7 +484,7 @@ mod tests {
 
         let value = res
             .resolve(
-                "config",
+                CONFIG_FUNC,
                 &Value::Tuple(vec![Value::String("key".to_string()), default]),
             )
             .unwrap();
@@ -544,7 +544,7 @@ mod tests {
         let default = Value::Int(0);
         let value = resolver
             .resolve(
-                "etcd",
+                ETCD_FUNC,
                 &Value::Tuple(vec![Value::String("abc".to_string()), default]),
             )
             .unwrap();
@@ -553,7 +553,7 @@ mod tests {
         let default = Value::Int(-1);
         let value = resolver
             .resolve(
-                "etcd",
+                ETCD_FUNC,
                 &Value::Tuple(vec![Value::String("xyz".to_string()), default]),
             )
             .unwrap();
