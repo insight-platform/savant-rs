@@ -2,11 +2,12 @@ use anyhow::{anyhow, bail, Result};
 use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
 use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
 use evalexpr::*;
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use std::any::Any;
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
     for s in symbols {
         r.insert(s.to_string(), (name.clone(), resolver.clone()));
     }
+    r.insert(name.clone(), (name, resolver));
 }
 
 pub(crate) fn get_symbol_resolver(symbol: &str) -> Option<(String, Arc<dyn SymbolResolver>)> {
@@ -61,12 +63,44 @@ pub fn register_env_resolver() {
 }
 
 #[pyfunction]
-pub fn register_config_resolver(symbols: std::collections::HashMap<String, String>) {
+pub fn register_config_resolver(symbols: HashMap<String, String>) {
     let mut resolver = ConfigSymbolResolver::new();
     for (key, value) in symbols {
         resolver.add_symbol(key, value);
     }
     register_symbol_resolver(Arc::new(resolver) as Arc<dyn SymbolResolver>);
+}
+
+#[pyfunction]
+pub fn unregister_resolver(name: String) {
+    let mut r = RESOLVERS.lock();
+    let resolver_opt = r.remove(&name);
+    if let Some((_, resolver)) = resolver_opt {
+        let symbols = resolver.exported_symbols();
+        for s in symbols {
+            r.remove(s);
+        }
+    }
+}
+
+#[pyfunction]
+pub fn update_config_resolver(mut symbols: HashMap<String, String>) {
+    let mut r = RESOLVERS.lock();
+    let resolver = r.remove(&config_resolver_name());
+    let symbols = if let Some((_, resolver)) = resolver {
+        let resolver = resolver
+            .as_any()
+            .downcast_ref::<ConfigSymbolResolver>()
+            .expect("Wrong downcast");
+
+        let mut old_symbols = resolver.symbols.clone();
+        old_symbols.extend(symbols.drain());
+        old_symbols
+    } else {
+        symbols
+    };
+    drop(r);
+    register_config_resolver(symbols);
 }
 
 #[pyfunction]
@@ -112,6 +146,7 @@ pub trait SymbolResolver: Send + Sync {
     fn resolve(&self, func: &str, expr: &Value) -> Result<Value>;
     fn exported_symbols(&self) -> Vec<&'static str>;
     fn name(&self) -> String;
+    fn as_any(&self) -> &dyn Any;
 }
 
 struct EnvSymbolResolver;
@@ -141,6 +176,10 @@ impl SymbolResolver for EnvSymbolResolver {
 
     fn name(&self) -> String {
         env_resolver_name()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -253,16 +292,20 @@ impl SymbolResolver for EtcdSymbolResolver {
     fn name(&self) -> String {
         etcd_resolver_name()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 struct ConfigSymbolResolver {
-    symbols: hashbrown::HashMap<String, String>,
+    symbols: HashMap<String, String>,
 }
 
 impl ConfigSymbolResolver {
     pub fn new() -> Self {
         Self {
-            symbols: hashbrown::HashMap::new(),
+            symbols: HashMap::new(),
         }
     }
 
@@ -297,6 +340,10 @@ impl SymbolResolver for ConfigSymbolResolver {
     fn name(&self) -> String {
         config_resolver_name()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 struct UtilityResolver;
@@ -328,12 +375,18 @@ impl SymbolResolver for UtilityResolver {
     fn name(&self) -> String {
         utility_resolver_name()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::utils::eval_resolvers::{
-        cast_str_to_primitive_type, EnvSymbolResolver, SymbolResolver,
+        cast_str_to_primitive_type, config_resolver_name, get_symbol_resolver,
+        register_config_resolver, unregister_resolver, update_config_resolver, EnvSymbolResolver,
+        SymbolResolver, CONFIG_FUNC,
     };
     use evalexpr::Value;
     use std::env;
@@ -404,6 +457,45 @@ mod tests {
             .unwrap();
 
         assert_eq!(value, default);
+    }
+
+    #[test]
+    fn test_update_config_resolver() {
+        register_config_resolver(std::collections::HashMap::from([(
+            String::from("key"),
+            String::from("value"),
+        )]));
+        let (_, res) = get_symbol_resolver(CONFIG_FUNC).unwrap();
+        let default = Value::String("".to_string());
+        let value = res
+            .resolve(
+                "config",
+                &Value::Tuple(vec![Value::String("key".to_string()), default]),
+            )
+            .unwrap();
+
+        assert_eq!(value, Value::String("value".to_string()));
+
+        update_config_resolver(std::collections::HashMap::from([(
+            String::from("key"),
+            String::from("value2"),
+        )]));
+
+        let (_, res) = get_symbol_resolver(CONFIG_FUNC).unwrap();
+        let default = Value::String("".to_string());
+
+        let value = res
+            .resolve(
+                "config",
+                &Value::Tuple(vec![Value::String("key".to_string()), default]),
+            )
+            .unwrap();
+
+        assert_eq!(value, Value::String("value2".to_string()));
+
+        unregister_resolver(config_resolver_name());
+        let resolver_opt = get_symbol_resolver(CONFIG_FUNC);
+        assert!(resolver_opt.is_none());
     }
 
     #[test]

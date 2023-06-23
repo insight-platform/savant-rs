@@ -1,7 +1,7 @@
 use crate::primitives::bbox::context::RBBoxFieldsView;
+use crate::primitives::eval_context::EvalWithResolvers;
 use crate::primitives::message::video::frame::context::FrameFieldsView;
 use crate::primitives::VideoObjectProxy;
-use crate::utils::eval_resolvers::get_symbol_resolver;
 use evalexpr::*;
 use hashbrown::HashMap;
 use std::cell::OnceCell;
@@ -20,8 +20,8 @@ pub(crate) struct ObjectFieldsView {
     pub label: OnceCell<Value>,
     pub confidence: OnceCell<Value>,
 
-    pub tracking_id: OnceCell<Value>,
-    pub tracking_bbox: RBBoxFieldsView,
+    pub tracking_info_id: OnceCell<Value>,
+    pub tracking_info_bbox: RBBoxFieldsView,
 
     pub bbox: RBBoxFieldsView,
 
@@ -40,6 +40,12 @@ impl<'a> ObjectContext<'a> {
             temp_vars: HashMap::new(),
             object_view: ObjectFieldsView::default(),
         }
+    }
+}
+
+impl<'a> EvalWithResolvers for ObjectContext<'a> {
+    fn get_resolvers(&self) -> &'a [String] {
+        self.resolvers
     }
 }
 
@@ -100,29 +106,33 @@ impl<'a> Context for ObjectContext<'a> {
                 ))
             }
 
-            "tracking_info.id" => Some(self.object_view.tracking_id.get_or_init(|| {
+            "tracking_info.id" => Some(self.object_view.tracking_info_id.get_or_init(|| {
                 match self.object.get_tracking_data() {
                     None => Value::Empty,
                     Some(info) => Value::from(info.id),
                 }
             })),
 
-            "tracking_info.bbox.xc" => Some(self.object_view.tracking_bbox.xc.get_or_init(|| {
-                match self.object.get_tracking_data() {
-                    None => Value::Empty,
-                    Some(info) => Value::from(info.bounding_box.get_xc()),
-                }
-            })),
+            "tracking_info.bbox.xc" => {
+                Some(self.object_view.tracking_info_bbox.xc.get_or_init(|| {
+                    match self.object.get_tracking_data() {
+                        None => Value::Empty,
+                        Some(info) => Value::from(info.bounding_box.get_xc()),
+                    }
+                }))
+            }
 
-            "tracking_info.bbox.yc" => Some(self.object_view.tracking_bbox.yc.get_or_init(|| {
-                match self.object.get_tracking_data() {
-                    None => Value::Empty,
-                    Some(info) => Value::from(info.bounding_box.get_yc()),
-                }
-            })),
+            "tracking_info.bbox.yc" => {
+                Some(self.object_view.tracking_info_bbox.yc.get_or_init(|| {
+                    match self.object.get_tracking_data() {
+                        None => Value::Empty,
+                        Some(info) => Value::from(info.bounding_box.get_yc()),
+                    }
+                }))
+            }
 
             "tracking_info.bbox.width" => {
-                Some(self.object_view.tracking_bbox.width.get_or_init(|| {
+                Some(self.object_view.tracking_info_bbox.width.get_or_init(|| {
                     match self.object.get_tracking_data() {
                         None => Value::Empty,
                         Some(info) => Value::from(info.bounding_box.get_width()),
@@ -131,7 +141,7 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "tracking_info.bbox.height" => {
-                Some(self.object_view.tracking_bbox.height.get_or_init(|| {
+                Some(self.object_view.tracking_info_bbox.height.get_or_init(|| {
                     match self.object.get_tracking_data() {
                         None => Value::Empty,
                         Some(info) => Value::from(info.bounding_box.get_height()),
@@ -140,7 +150,7 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "tracking_info.bbox.angle" => {
-                Some(self.object_view.tracking_bbox.angle.get_or_init(|| {
+                Some(self.object_view.tracking_info_bbox.angle.get_or_init(|| {
                     match self.object.get_tracking_data() {
                         None => Value::Empty,
                         Some(info) => match info.bounding_box.get_angle() {
@@ -292,23 +302,7 @@ impl<'a> Context for ObjectContext<'a> {
     }
 
     fn call_function(&self, identifier: &str, argument: &Value) -> EvalexprResult<Value> {
-        let res = get_symbol_resolver(identifier);
-        match res {
-            Some((r, executor)) => {
-                if self.resolvers.contains(&r) {
-                    executor
-                        .resolve(identifier, argument)
-                        .map_err(|e| EvalexprError::CustomMessage(e.to_string()))
-                } else {
-                    Err(EvalexprError::FunctionIdentifierNotFound(
-                        identifier.to_string(),
-                    ))
-                }
-            }
-            None => Err(EvalexprError::FunctionIdentifierNotFound(
-                identifier.to_string(),
-            )),
-        }
+        self.resolve(identifier, argument)
     }
 
     fn are_builtin_functions_disabled(&self) -> bool {
