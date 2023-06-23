@@ -25,9 +25,9 @@ pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_function(wrap_pyfunction!(register_utility_resolver, m)?)?;
     m.add_function(wrap_pyfunction!(register_env_resolver, m)?)?;
+    m.add_function(wrap_pyfunction!(register_etcd_resolver, m)?)?;
     m.add_function(wrap_pyfunction!(register_config_resolver, m)?)?;
     m.add_function(wrap_pyfunction!(update_config_resolver, m)?)?;
-    m.add_function(wrap_pyfunction!(register_etcd_resolver, m)?)?;
 
     m.add_function(wrap_pyfunction!(unregister_resolver, m)?)?;
     Ok(())

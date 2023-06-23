@@ -3,7 +3,7 @@ use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
 use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
 use evalexpr::*;
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use std::any::Any;
@@ -84,23 +84,21 @@ pub fn unregister_resolver(name: String) {
 }
 
 #[pyfunction]
-pub fn update_config_resolver(mut symbols: HashMap<String, String>) {
-    let mut r = RESOLVERS.lock();
-    let resolver = r.remove(&config_resolver_name());
-    let symbols = if let Some((_, resolver)) = resolver {
+pub fn update_config_resolver(symbols: HashMap<String, String>) {
+    let r = RESOLVERS.lock();
+    let resolver = r.get(&config_resolver_name());
+    if let Some((_, resolver)) = resolver {
         let resolver = resolver
             .as_any()
             .downcast_ref::<ConfigSymbolResolver>()
             .expect("Wrong downcast");
 
-        let mut old_symbols = resolver.symbols.clone();
-        old_symbols.extend(symbols.drain());
-        old_symbols
+        let mut old_symbols = resolver.symbols.write();
+        old_symbols.extend(symbols.into_iter());
     } else {
-        symbols
+        drop(r);
+        register_config_resolver(symbols);
     };
-    drop(r);
-    register_config_resolver(symbols);
 }
 
 #[pyfunction]
@@ -299,18 +297,18 @@ impl SymbolResolver for EtcdSymbolResolver {
 }
 
 struct ConfigSymbolResolver {
-    symbols: HashMap<String, String>,
+    symbols: RwLock<HashMap<String, String>>,
 }
 
 impl ConfigSymbolResolver {
     pub fn new() -> Self {
         Self {
-            symbols: HashMap::new(),
+            symbols: RwLock::new(HashMap::new()),
         }
     }
 
     pub fn add_symbol(&mut self, name: String, value: String) {
-        self.symbols.insert(name, value);
+        self.symbols.write().insert(name, value);
     }
 }
 
@@ -322,7 +320,7 @@ impl SymbolResolver for ConfigSymbolResolver {
                     bail!("The function must be called as config(key, default)");
                 }
                 match expr.as_tuple().unwrap().as_slice() {
-                    [Value::String(key), default] => match self.symbols.get(key) {
+                    [Value::String(key), default] => match self.symbols.read_recursive().get(key) {
                         Some(value) => cast_str_to_primitive_type(value, default),
                         None => Ok(default.clone()),
                     },
