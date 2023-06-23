@@ -1,3 +1,4 @@
+pub mod context;
 pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
@@ -351,12 +352,19 @@ pub struct VideoFrame {
     pub transcoding_method: VideoFrameTranscodingMethod,
     pub codec: Option<String>,
     pub keyframe: Option<bool>,
+    #[builder(setter(skip))]
+    pub time_base: (i32, i32),
     pub pts: i64,
+    #[builder(setter(skip))]
     pub dts: Option<i64>,
+    #[builder(setter(skip))]
     pub duration: Option<i64>,
     pub content: Arc<VideoFrameContent>,
+    #[builder(setter(skip))]
     pub transformations: Vec<FrameTransformation>,
+    #[builder(setter(skip))]
     pub attributes: HashMap<(String, String), Attribute>,
+    #[builder(setter(skip))]
     pub offline_objects: HashMap<i64, VideoObject>,
     #[with(Skip)]
     #[builder(setter(skip))]
@@ -373,6 +381,7 @@ impl Default for VideoFrame {
             transcoding_method: VideoFrameTranscodingMethod::Copy,
             codec: None,
             keyframe: None,
+            time_base: (1, 1000000),
             pts: 0,
             dts: None,
             duration: None,
@@ -399,6 +408,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "transcoding_method": self.transcoding_method.to_serde_json_value(),
                 "codec": self.codec,
                 "keyframe": self.keyframe,
+                "time_base": self.time_base,
                 "pts": self.pts,
                 "dts": self.dts,
                 "duration": self.duration,
@@ -917,7 +927,7 @@ impl VideoFrameProxy {
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
-        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, pts=0, dts=None, duration=None)
+        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, time_base=(1, 1000000), pts=0, dts=None, duration=None)
     )]
     pub fn new(
         source_id: String,
@@ -928,6 +938,7 @@ impl VideoFrameProxy {
         transcoding_method: VideoFrameTranscodingMethod,
         codec: Option<String>,
         keyframe: Option<bool>,
+        time_base: (i64, i64),
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
@@ -938,6 +949,7 @@ impl VideoFrameProxy {
             framerate,
             width,
             height,
+            time_base: (time_base.0 as i32, time_base.1 as i32),
             dts,
             duration,
             transcoding_method: transcoding_method.clone(),
@@ -978,6 +990,11 @@ impl VideoFrameProxy {
     #[getter]
     pub fn get_pts(&self) -> i64 {
         self.inner.read_recursive().pts
+    }
+
+    #[getter]
+    pub fn get_timebase(&self) -> (i32, i32) {
+        self.inner.read_recursive().time_base
     }
 
     #[setter]

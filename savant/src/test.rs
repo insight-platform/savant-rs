@@ -23,14 +23,9 @@ pub mod utils {
                 .width(0)
                 .height(0)
                 .content(VideoFrameContentProxy::none().inner)
-                .dts(None)
-                .transformations(Vec::default())
-                .duration(None)
                 .transcoding_method(VideoFrameTranscodingMethod::Copy)
                 .codec(None)
                 .keyframe(None)
-                .attributes(HashMap::default())
-                .offline_objects(Default::default())
                 .build()
                 .unwrap(),
         );

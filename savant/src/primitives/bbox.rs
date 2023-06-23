@@ -1,3 +1,5 @@
+pub mod context;
+
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
