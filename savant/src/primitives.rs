@@ -20,10 +20,7 @@ pub mod segment;
 pub mod to_json_value;
 
 use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
-use crate::primitives::message::video::object::objects_view::{
-    batch_filter_gil, batch_foreach_udf_gil, batch_map_udf_gil, batch_partition_gil, filter_gil,
-    foreach_udf_gil, map_udf_gil, partition_gil,
-};
+
 pub use crate::primitives::message::video::object::objects_view::{
     VideoObjectBBoxKind, VideoObjectsView,
 };
@@ -52,7 +49,7 @@ pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
 use pyo3::prelude::PyModule;
-use pyo3::{pymodule, wrap_pyfunction, PyResult, Python};
+use pyo3::{pymodule, PyResult, Python};
 pub use segment::{Intersection, IntersectionKind, Segment};
 
 #[pymodule]
@@ -108,16 +105,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoObjectTrackingData>()?;
     m.add_class::<VideoObjectRBBoxProxy>()?;
     m.add_class::<VideoObjectsView>()?;
-
-    m.add_function(wrap_pyfunction!(filter_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(partition_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(map_udf_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(foreach_udf_gil, m)?)?;
-
-    m.add_function(wrap_pyfunction!(batch_filter_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(batch_partition_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(batch_map_udf_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(batch_foreach_udf_gil, m)?)?;
 
     Ok(())
 }

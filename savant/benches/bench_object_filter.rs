@@ -84,7 +84,6 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
         !is_empty(bbox.angle) &&
         (confidence > 0.6 || confidence < 0.4)"#
             .to_string(),
-        vec![utility_resolver_name()],
     );
 
     let objs = get_objects();

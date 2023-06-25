@@ -164,132 +164,142 @@ impl VideoObjectsView {
     }
 }
 
-#[pyfunction]
-#[pyo3(name = "filter")]
-pub(crate) fn filter_gil(v: &VideoObjectsView, q: &QueryProxy) -> VideoObjectsView {
-    release_gil(|| VideoObjectsView {
-        inner: Arc::new(filter(v.inner.as_ref(), &q.inner)),
-    })
-}
+#[pyclass]
+#[derive(Clone, Debug)]
+pub(crate) struct QueryFunctions;
 
-#[pyfunction]
-#[pyo3(name = "batch_filter")]
-pub(crate) fn batch_filter_gil(v: VideoObjectsViewBatch, q: &QueryProxy) -> VideoObjectsViewBatch {
-    release_gil(|| {
-        let m = v
-            .iter()
-            .map(|(id, v)| (*id, v.inner.to_vec()))
-            .collect::<HashMap<_, _>>();
-        batch_filter(&m, &q.inner)
-            .into_iter()
-            .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
-            .collect()
-    })
-}
+#[pymethods]
+impl QueryFunctions {
+    #[staticmethod]
+    #[pyo3(name = "filter")]
+    pub(crate) fn filter_gil(v: &VideoObjectsView, q: &QueryProxy) -> VideoObjectsView {
+        release_gil(|| VideoObjectsView {
+            inner: Arc::new(filter(v.inner.as_ref(), &q.inner)),
+        })
+    }
 
-#[pyfunction]
-#[pyo3(name = "partition")]
-pub(crate) fn partition_gil(
-    v: &VideoObjectsView,
-    q: &QueryProxy,
-) -> (VideoObjectsView, VideoObjectsView) {
-    release_gil(|| {
-        let (a, b) = partition(v.inner.as_ref(), &q.inner);
-        (
-            VideoObjectsView { inner: Arc::new(a) },
-            VideoObjectsView { inner: Arc::new(b) },
-        )
-    })
-}
-
-#[pyfunction]
-#[pyo3(name = "batch_filter")]
-pub(crate) fn batch_partition_gil(
-    v: VideoObjectsViewBatch,
-    q: &QueryProxy,
-) -> (VideoObjectsViewBatch, VideoObjectsViewBatch) {
-    release_gil(|| {
-        let m = v
-            .iter()
-            .map(|(id, v)| (*id, v.inner.to_vec()))
-            .collect::<HashMap<_, _>>();
-        let (a, b) = batch_partition(m, &q.inner);
-
-        (
-            a.into_iter()
+    #[staticmethod]
+    #[pyo3(name = "batch_filter")]
+    pub(crate) fn batch_filter_gil(
+        v: VideoObjectsViewBatch,
+        q: &QueryProxy,
+    ) -> VideoObjectsViewBatch {
+        release_gil(|| {
+            let m = v
+                .iter()
+                .map(|(id, v)| (*id, v.inner.to_vec()))
+                .collect::<HashMap<_, _>>();
+            batch_filter(&m, &q.inner)
+                .into_iter()
                 .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
-                .collect(),
-            b.into_iter()
+                .collect()
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "partition")]
+    pub(crate) fn partition_gil(
+        v: &VideoObjectsView,
+        q: &QueryProxy,
+    ) -> (VideoObjectsView, VideoObjectsView) {
+        release_gil(|| {
+            let (a, b) = partition(v.inner.as_ref(), &q.inner);
+            (
+                VideoObjectsView { inner: Arc::new(a) },
+                VideoObjectsView { inner: Arc::new(b) },
+            )
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "batch_partition")]
+    pub(crate) fn batch_partition_gil(
+        v: VideoObjectsViewBatch,
+        q: &QueryProxy,
+    ) -> (VideoObjectsViewBatch, VideoObjectsViewBatch) {
+        release_gil(|| {
+            let m = v
+                .iter()
+                .map(|(id, v)| (*id, v.inner.to_vec()))
+                .collect::<HashMap<_, _>>();
+            let (a, b) = batch_partition(m, &q.inner);
+
+            (
+                a.into_iter()
+                    .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
+                    .collect(),
+                b.into_iter()
+                    .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
+                    .collect(),
+            )
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "map_udf")]
+    pub(crate) fn map_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<VideoObjectsView> {
+        release_gil(|| {
+            map_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf)
+                .map(|x| VideoObjectsView { inner: Arc::new(x) })
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "batch_map_udf")]
+    pub(crate) fn batch_map_udf_gil(
+        v: VideoObjectsViewBatch,
+        udf: String,
+    ) -> PyResult<VideoObjectsViewBatch> {
+        release_gil(|| {
+            let m = v
+                .iter()
+                .map(|(id, v)| (*id, v.inner.to_vec()))
+                .collect::<HashMap<_, _>>();
+
+            Ok(batch_map_udf(&m, &udf)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .into_iter()
                 .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
-                .collect(),
-        )
-    })
-}
+                .collect())
+        })
+    }
 
-#[pyfunction]
-#[pyo3(name = "map_udf")]
-pub(crate) fn map_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<VideoObjectsView> {
-    release_gil(|| {
-        map_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf)
-            .map(|x| VideoObjectsView { inner: Arc::new(x) })
-    })
-    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-}
+    #[staticmethod]
+    #[pyo3(name = "foreach_udf")]
+    pub(crate) fn foreach_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<()> {
+        release_gil(|| {
+            let res = foreach_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf);
 
-#[pyfunction]
-#[pyo3(name = "batch_filter")]
-pub(crate) fn batch_map_udf_gil(
-    v: VideoObjectsViewBatch,
-    udf: String,
-) -> PyResult<VideoObjectsViewBatch> {
-    release_gil(|| {
-        let m = v
-            .iter()
-            .map(|(id, v)| (*id, v.inner.to_vec()))
-            .collect::<HashMap<_, _>>();
-
-        Ok(batch_map_udf(&m, &udf)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
-            .into_iter()
-            .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
-            .collect())
-    })
-}
-
-#[pyfunction]
-#[pyo3(name = "foreach_udf")]
-pub(crate) fn foreach_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<()> {
-    release_gil(|| {
-        let res = foreach_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf);
-
-        for r in res {
-            r.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        }
-        Ok(())
-    })
-}
-
-#[pyfunction]
-#[pyo3(name = "batch_foreach_udf")]
-pub(crate) fn batch_foreach_udf_gil(v: VideoObjectsViewBatch, udf: String) -> PyResult<()> {
-    release_gil(|| {
-        let m = v
-            .iter()
-            .map(|(id, v)| (*id, v.inner.to_vec()))
-            .collect::<HashMap<_, _>>();
-
-        let res = batch_foreach_udf(&m, &udf);
-        for (i, r) in res {
-            for e in r {
-                e.map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Batch frame Id={}, Error: {}",
-                        i,
-                        e.to_string()
-                    ))
-                })?;
+            for r in res {
+                r.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             }
-        }
-        Ok(())
-    })
+            Ok(())
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "batch_foreach_udf")]
+    pub(crate) fn batch_foreach_udf_gil(v: VideoObjectsViewBatch, udf: String) -> PyResult<()> {
+        release_gil(|| {
+            let m = v
+                .iter()
+                .map(|(id, v)| (*id, v.inner.to_vec()))
+                .collect::<HashMap<_, _>>();
+
+            let res = batch_foreach_udf(&m, &udf);
+            for (i, r) in res {
+                for e in r {
+                    e.map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Batch frame Id={}, Error: {}",
+                            i,
+                            e.to_string()
+                        ))
+                    })?;
+                }
+            }
+            Ok(())
+        })
+    }
 }

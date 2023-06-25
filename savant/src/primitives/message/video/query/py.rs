@@ -1,4 +1,5 @@
 use super::{FloatExpression, IntExpression, Query, StringExpression};
+use crate::primitives::message::video::object::objects_view::QueryFunctions;
 use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -18,6 +19,8 @@ pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<IntExpressionProxy>()?;
     m.add_class::<StringExpressionProxy>()?;
     m.add_class::<QueryProxy>()?;
+    m.add_class::<QueryFunctions>()?;
+
     m.add_function(wrap_pyfunction!(utility_resolver_name, m)?)?;
     m.add_function(wrap_pyfunction!(etcd_resolver_name, m)?)?;
     m.add_function(wrap_pyfunction!(env_resolver_name, m)?)?;
