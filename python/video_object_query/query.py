@@ -15,7 +15,7 @@ eq = IE.eq
 fgt = FE.gt
 
 q = and_(
-    Q.eval("""id == 13 || label == "hello" || creator == "where" """, [utility_resolver_name()]),
+    Q.eval("""!is_empty(id) || id == 13 || label == "hello" || creator == "where" """, [utility_resolver_name()]),
     Q.creator(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
     and_(
@@ -53,3 +53,16 @@ assert q.json == q2.json
 q3 = Q.from_yaml(q.yaml)
 assert q3.yaml == q.yaml
 
+q4 = Q.from_yaml("""
+eval:
+- |
+  (id == 13 || id == 15) &&
+  etcd("var/name", 13) == 25 &&
+  config("var.name", "default") == "hello" &&
+  env("PATH", "default") == "hello" &&
+  label == "hello" ||
+  creator == "where"
+- - utility-resolver
+""")
+
+print(q4.yaml)

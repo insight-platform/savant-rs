@@ -8,7 +8,7 @@ use std::cell::OnceCell;
 
 pub(crate) struct ObjectContext<'a> {
     pub object: &'a VideoObjectProxy,
-    pub resolvers: &'a [String],
+    pub resolvers: Vec<String>,
     pub temp_vars: HashMap<String, Value>,
     pub object_view: ObjectFieldsView,
 }
@@ -33,10 +33,10 @@ pub(crate) struct ObjectFieldsView {
 }
 
 impl<'a> ObjectContext<'a> {
-    pub fn new(object: &'a VideoObjectProxy, resolvers: &'a [String]) -> Self {
+    pub fn new(object: &'a VideoObjectProxy, resolvers: &[String]) -> Self {
         ObjectContext {
             object,
-            resolvers,
+            resolvers: resolvers.to_vec(),
             temp_vars: HashMap::new(),
             object_view: ObjectFieldsView::default(),
         }
@@ -44,8 +44,8 @@ impl<'a> ObjectContext<'a> {
 }
 
 impl<'a> EvalWithResolvers for ObjectContext<'a> {
-    fn get_resolvers(&self) -> &'a [String] {
-        self.resolvers
+    fn get_resolvers(&self) -> &'_ [String] {
+        self.resolvers.as_slice()
     }
 }
 
@@ -310,7 +310,7 @@ impl<'a> Context for ObjectContext<'a> {
     }
 
     fn set_builtin_functions_disabled(&mut self, _: bool) -> EvalexprResult<()> {
-        Err(EvalexprError::BuiltinFunctionsCannotBeDisabled)
+        Ok(())
     }
 }
 
@@ -325,7 +325,7 @@ impl<'a> ContextWithMutableVariables for ObjectContext<'a> {
                 });
             }
         }
-        self.temp_vars.insert(identifier.to_string(), value);
+        self.temp_vars.insert(identifier, value);
         Ok(())
     }
 }

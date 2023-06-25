@@ -749,7 +749,7 @@ impl VideoObjectProxy {
 
     #[setter]
     pub fn set_id(&self, id: i64) -> PyResult<()> {
-        if matches!(self.get_frame(), Some(_)) {
+        if self.get_frame().is_some() {
             return Err(PyRuntimeError::new_err(
                 "When object is attached to a frame, it is impossible to change its ID",
             ));

@@ -148,14 +148,24 @@ pub mod utils {
     }
 
     pub fn gen_object(id: i64) -> VideoObjectProxy {
-        VideoObjectProxy::from_video_object(VideoObject {
+        let o = VideoObjectProxy::from_video_object(VideoObject {
             id,
             creator: s("peoplenet"),
             label: s("face"),
             confidence: Some(0.5),
             bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
             ..Default::default()
-        })
+        });
+
+        let attr = AttributeBuilder::default()
+            .creator("some".to_string())
+            .name("attribute".to_string())
+            .hint(Some("hint".to_string()))
+            .values(vec![])
+            .build()
+            .unwrap();
+        o.set_attribute(attr);
+        o
     }
 
     #[inline(always)]

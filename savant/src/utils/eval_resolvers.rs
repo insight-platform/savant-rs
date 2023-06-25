@@ -13,13 +13,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
+pub type ResolverValue = (String, Arc<dyn SymbolResolver>);
+
 lazy_static! {
-    static ref RESOLVERS: Mutex<HashMap<String, (String, Arc<dyn SymbolResolver>)>> =
-        Mutex::new(HashMap::default());
+    static ref RESOLVERS: Mutex<HashMap<String, ResolverValue>> = Mutex::new(HashMap::default());
 }
 
 pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
-    let name = resolver.name().to_string();
+    let name = resolver.name();
     let symbols = resolver.exported_symbols();
     let mut r = RESOLVERS.lock();
     for s in symbols {
@@ -28,7 +29,7 @@ pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
     r.insert(name.clone(), (name, resolver));
 }
 
-pub(crate) fn get_symbol_resolver(symbol: &str) -> Option<(String, Arc<dyn SymbolResolver>)> {
+pub(crate) fn get_symbol_resolver(symbol: &str) -> Option<ResolverValue> {
     RESOLVERS.lock().get(symbol).cloned()
 }
 
@@ -126,9 +127,9 @@ pub fn register_etcd_resolver(
     Ok(())
 }
 
-const ENV_FUNC: &'static str = "env";
-const ETCD_FUNC: &'static str = "etcd";
-const CONFIG_FUNC: &'static str = "config";
+const ENV_FUNC: &str = "env";
+const ETCD_FUNC: &str = "etcd";
+const CONFIG_FUNC: &str = "config";
 
 fn cast_str_to_primitive_type(s: &str, value: &Value) -> Result<Value> {
     match value {
@@ -355,6 +356,28 @@ impl SymbolResolver for UtilityResolver {
             "is_string" => Ok(Value::Boolean(expr.is_string())),
             "is_tuple" => Ok(Value::Boolean(expr.is_tuple())),
             "is_empty" => Ok(Value::Boolean(expr.is_empty())),
+            "ends_with" => {
+                if !expr.is_tuple() {
+                    bail!("The function must be called as ends_with(string, suffix)");
+                }
+                match expr.as_tuple().unwrap().as_slice() {
+                    [Value::String(string), Value::String(suffix)] => {
+                        Ok(Value::Boolean(string.ends_with(suffix)))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            "starts_with" => {
+                if !expr.is_tuple() {
+                    bail!("The function must be called as starts_with(string, prefix)");
+                }
+                match expr.as_tuple().unwrap().as_slice() {
+                    [Value::String(string), Value::String(prefix)] => {
+                        Ok(Value::Boolean(string.starts_with(prefix)))
+                    }
+                    _ => unreachable!(),
+                }
+            }
             _ => bail!("unknown function: {} called for {:?}", func, expr),
         }
     }
@@ -367,6 +390,8 @@ impl SymbolResolver for UtilityResolver {
             "is_string",
             "is_tuple",
             "is_empty",
+            "ends_with",
+            "starts_with",
         ]
     }
 

@@ -50,4 +50,4 @@ tests: sample_plugin
 
 bench: sample_plugin
 	@echo "Running benchmarks..."
-	cd savant && cargo bench --no-default-features -- --nocapture
+	cd savant && cargo bench --no-default-features -- --show-output --nocapture

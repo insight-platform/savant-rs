@@ -760,9 +760,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn eval(exp: String, resolvers: Vec<String>) -> QueryProxy {
+    fn eval(exp: String) -> QueryProxy {
         QueryProxy {
-            inner: Arc::new(Query::EvalExpr(exp, resolvers)),
+            inner: Arc::new(Query::EvalExpr(exp)),
         }
     }
 
@@ -1165,6 +1165,13 @@ impl QueryProxy {
     fn attributes_empty() -> QueryProxy {
         QueryProxy {
             inner: Arc::new(Query::AttributesEmpty),
+        }
+    }
+
+    #[staticmethod]
+    fn attribute_defined(creator: String, label: String) -> QueryProxy {
+        QueryProxy {
+            inner: Arc::new(Query::AttributeDefined(creator, label)),
         }
     }
 

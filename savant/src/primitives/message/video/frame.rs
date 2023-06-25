@@ -6,9 +6,7 @@ use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::message::video::query::py::QueryProxy;
-use crate::primitives::message::video::query::{
-    ExecutableQuery, IntExpression, Query, StringExpression,
-};
+use crate::primitives::message::video::query::{IntExpression, Query, StringExpression};
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, SetDrawLabelKind, SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
@@ -18,6 +16,7 @@ use derive_builder::Builder;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -469,6 +468,7 @@ impl VideoFrame {
 #[pyo3(name = "VideoFrame")]
 pub struct VideoFrameProxy {
     pub(crate) inner: Arc<RwLock<Box<VideoFrame>>>,
+    pub(crate) is_parallelized: bool,
 }
 
 #[pyclass]
@@ -504,6 +504,7 @@ impl From<BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
+            is_parallelized: false,
         }
     }
 }
@@ -515,6 +516,7 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
+            is_parallelized: false,
         }
     }
 }
@@ -593,6 +595,7 @@ impl VideoFrameProxy {
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
         VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
+            is_parallelized: false,
         }
     }
 
@@ -601,16 +604,31 @@ impl VideoFrameProxy {
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
 
-        resident_objects
-            .iter()
-            .filter_map(|(_id, o)| {
-                if q.execute(&VideoObjectProxy::from_arced_inner_object(o.clone())) {
-                    Some(VideoObjectProxy::from_arced_inner_object(o.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        if self.is_parallelized {
+            resident_objects
+                .par_iter()
+                .filter_map(|(_, o)| {
+                    let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
+                    if q.execute_with_new_context(&obj) {
+                        Some(obj)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            resident_objects
+                .iter()
+                .filter_map(|(_, o)| {
+                    let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
+                    if q.execute_with_new_context(&obj) {
+                        Some(obj)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
     }
 
     pub fn get_json(&self) -> String {
@@ -908,6 +926,16 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 
 #[pymethods]
 impl VideoFrameProxy {
+    #[setter]
+    pub fn set_parallelized(&mut self, is_parallelized: bool) {
+        self.is_parallelized = is_parallelized;
+    }
+
+    #[getter]
+    pub fn get_parallelized(&self) -> bool {
+        self.is_parallelized
+    }
+
     #[getter]
     fn memory_handle(&self) -> usize {
         self as *const Self as usize
@@ -952,7 +980,7 @@ impl VideoFrameProxy {
             time_base: (time_base.0 as i32, time_base.1 as i32),
             dts,
             duration,
-            transcoding_method: transcoding_method.clone(),
+            transcoding_method,
             codec,
             keyframe,
             content: content.inner,
@@ -1136,7 +1164,7 @@ impl VideoFrameProxy {
     #[setter]
     pub fn set_content(&mut self, content: VideoFrameContentProxy) {
         let mut inner = self.inner.write();
-        inner.content = content.inner.clone();
+        inner.content = content.inner;
     }
 
     #[getter]
@@ -1219,7 +1247,7 @@ impl VideoFrameProxy {
 
     #[pyo3(name = "set_parent")]
     pub fn set_parent_gil(&self, q: &QueryProxy, parent: &VideoObjectProxy) -> VideoObjectsView {
-        no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
+        no_gil(|| self.set_parent(q.inner.deref(), parent).into())
     }
 
     #[pyo3(name = "clear_parent")]

@@ -6,6 +6,7 @@ use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::{VideoObjectBuilder, VideoObjectTrackingData};
 use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{AttributeBuilder, RBBox, VideoObjectProxy};
+use savant_rs::test::utils::gen_frame;
 use savant_rs::utils::eval_resolvers::{register_utility_resolver, utility_resolver_name};
 use test::Bencher;
 
@@ -44,8 +45,6 @@ fn get_objects() -> Vec<VideoObjectProxy> {
 fn bench_filtering(b: &mut Bencher) {
     use Query::*;
 
-    let attr_exp = AttributesJMESQuery("[?(name=='test' && creator=='test')]".into());
-
     let expr = and![
         or![
             Creator(one_of(&["created_by_2", "created_by_4"])),
@@ -57,13 +56,17 @@ fn bench_filtering(b: &mut Bencher) {
         ],
         BoxAngleDefined,
         ParentDefined,
-        attr_exp,
         or![Confidence(ge(0.6)), Confidence(le(0.4)),]
     ];
 
     let objs = get_objects();
+    let frame = gen_frame();
+    frame.delete_objects(&Query::Idle);
+    for o in objs {
+        frame.add_object(&o);
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }
 
@@ -71,22 +74,28 @@ fn bench_filtering(b: &mut Bencher) {
 fn bench_filtering_with_eval(b: &mut Bencher) {
     use Query::*;
 
-    let attr_exp = AttributesJMESQuery("[?(name=='test' && creator=='test')]".into());
     register_utility_resolver();
 
-    let expr = and![EvalExpr(r#"
-    (creator == "created_by_2" || creator == "created_by_4" || label == "2" || label == "4" || label == "6") && 
-    !is_empty(parent.id) && 
-    !is_empty(bbox.angle)"#
-        .to_string(),
+    let expr = EvalExpr(
+        r#"
+        ((creator == "created_by_4" || creator == "created_by_2") ||
+         (label == "2" || label == "4" || label == "6")) &&
+        !is_empty(parent.id) &&
+        !is_empty(bbox.angle) &&
+        (confidence > 0.6 || confidence < 0.4)"#
+            .to_string(),
         vec![utility_resolver_name()],
-    ),
-    attr_exp,
-        or![Confidence(ge(0.6)), Confidence(le(0.4)),]];
+    );
 
     let objs = get_objects();
+    let mut frame = gen_frame();
+    frame.delete_objects(&Query::Idle);
+    frame.set_parallelized(true);
+    for o in objs {
+        frame.add_object(&o);
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }
 
@@ -94,8 +103,13 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 fn bench_empty_filtering(b: &mut Bencher) {
     let expr = Query::Idle;
     let objs = get_objects();
+    let frame = gen_frame();
+    frame.delete_objects(&Query::Idle);
+    for o in objs {
+        frame.add_object(&o);
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }
 
@@ -108,7 +122,12 @@ fn bench_simple_filtering(b: &mut Bencher) {
     ];
 
     let objs = get_objects();
+    let frame = gen_frame();
+    frame.delete_objects(&Query::Idle);
+    for o in objs {
+        frame.add_object(&o);
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }

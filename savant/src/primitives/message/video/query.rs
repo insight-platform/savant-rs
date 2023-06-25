@@ -15,14 +15,17 @@ use crate::primitives::VideoObjectProxy;
 pub use crate::query_and as and;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
+use crate::utils::eval_resolvers::{
+    config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
+};
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
     is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
 pub use functions::*;
 
-pub trait ExecutableQuery<T> {
-    fn execute(&self, o: T) -> bool;
+pub(crate) trait ExecutableQuery<T> {
+    fn execute(&self, o: T, ctx: &mut ObjectContext) -> bool;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +50,7 @@ pub enum FloatExpression {
 }
 
 impl ExecutableQuery<&f64> for FloatExpression {
-    fn execute(&self, o: &f64) -> bool {
+    fn execute(&self, o: &f64, _: &mut ObjectContext) -> bool {
         match self {
             FloatExpression::EQ(x) => x == o,
             FloatExpression::NE(x) => x != o,
@@ -83,7 +86,7 @@ pub enum IntExpression {
 }
 
 impl ExecutableQuery<&i64> for IntExpression {
-    fn execute(&self, o: &i64) -> bool {
+    fn execute(&self, o: &i64, _: &mut ObjectContext) -> bool {
         match self {
             IntExpression::EQ(x) => x == o,
             IntExpression::NE(x) => x != o,
@@ -117,7 +120,7 @@ pub enum StringExpression {
 }
 
 impl ExecutableQuery<&String> for StringExpression {
-    fn execute(&self, o: &String) -> bool {
+    fn execute(&self, o: &String, _: &mut ObjectContext) -> bool {
         match self {
             StringExpression::EQ(x) => x == o,
             StringExpression::NE(x) => x != o,
@@ -133,18 +136,16 @@ impl ExecutableQuery<&String> for StringExpression {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "query")]
 pub enum Query {
-    #[serde(rename = "eval")]
-    EvalExpr(String, Vec<String>),
     #[serde(rename = "object.id")]
     Id(IntExpression),
     #[serde(rename = "creator")]
     Creator(StringExpression),
     #[serde(rename = "label")]
     Label(StringExpression),
-    #[serde(rename = "confidence")]
-    Confidence(FloatExpression),
     #[serde(rename = "confidence.defined")]
     ConfidenceDefined,
+    #[serde(rename = "confidence")]
+    Confidence(FloatExpression),
 
     // track ops
     #[serde(rename = "track.id.defined")]
@@ -163,20 +164,20 @@ pub enum Query {
     TrackBoxArea(FloatExpression),
     #[serde(rename = "track.bbox.width_to_height_ratio")]
     TrackBoxWidthToHeightRatio(FloatExpression),
-    #[serde(rename = "track.bbox.angle")]
-    TrackBoxAngle(FloatExpression),
     #[serde(rename = "track.bbox.angle.defined")]
     TrackBoxAngleDefined,
+    #[serde(rename = "track.bbox.angle")]
+    TrackBoxAngle(FloatExpression),
 
     // parent
+    #[serde(rename = "parent.defined")]
+    ParentDefined,
     #[serde(rename = "parent.id")]
     ParentId(IntExpression),
     #[serde(rename = "parent.creator")]
     ParentCreator(StringExpression),
     #[serde(rename = "parent.label")]
     ParentLabel(StringExpression),
-    #[serde(rename = "parent.defined")]
-    ParentDefined,
 
     // children query
     #[serde(rename = "with_children")]
@@ -195,16 +196,18 @@ pub enum Query {
     BoxArea(FloatExpression),
     #[serde(rename = "bbox.width_to_height_ratio")]
     BoxWidthToHeightRatio(FloatExpression),
-    #[serde(rename = "bbox.angle")]
-    BoxAngle(FloatExpression),
     #[serde(rename = "bbox.angle.defined")]
     BoxAngleDefined,
+    #[serde(rename = "bbox.angle")]
+    BoxAngle(FloatExpression),
 
     // Attributes
-    #[serde(rename = "attributes.jmes_query")]
-    AttributesJMESQuery(String),
+    #[serde(rename = "attribute.defined")]
+    AttributeDefined(String, String),
     #[serde(rename = "attributes.empty")]
     AttributesEmpty,
+    #[serde(rename = "attributes.jmes_query")]
+    AttributesJMESQuery(String),
 
     // combinators
     #[serde(rename = "and")]
@@ -219,6 +222,8 @@ pub enum Query {
     // User-defined plugin function
     #[serde(rename = "user_defined_object_predicate")]
     UserDefinedObjectPredicate(String, String),
+    #[serde(rename = "eval")]
+    EvalExpr(String),
 }
 
 const MAX_JMES_CACHE_SIZE: usize = 1024;
@@ -254,68 +259,81 @@ fn get_compiled_eval_expr(query: &str) -> anyhow::Result<Arc<Node>> {
 }
 
 impl ExecutableQuery<&RwLockReadGuard<'_, VideoObject>> for Query {
-    fn execute(&self, o: &RwLockReadGuard<VideoObject>) -> bool {
+    fn execute(&self, o: &RwLockReadGuard<VideoObject>, ctx: &mut ObjectContext) -> bool {
         match self {
-            Query::Id(x) => x.execute(&o.id),
-            Query::Creator(x) => x.execute(&o.creator),
-            Query::Label(x) => x.execute(&o.label),
-            Query::Confidence(x) => o.confidence.map(|c| x.execute(&c)).unwrap_or(false),
+            Query::Id(x) => x.execute(&o.id, ctx),
+            Query::Creator(x) => x.execute(&o.creator, ctx),
+            Query::Label(x) => x.execute(&o.label, ctx),
+            Query::Confidence(x) => o.confidence.map(|c| x.execute(&c, ctx)).unwrap_or(false),
             Query::ConfidenceDefined => o.confidence.is_some(),
             Query::TrackDefined => o.track_info.is_some(),
             Query::TrackId(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.id))
+                .map(|t| x.execute(&t.id, ctx))
                 .unwrap_or(false),
             Query::TrackBoxXCenter(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_xc()))
+                .map(|t| x.execute(&t.bounding_box.get_xc(), ctx))
                 .unwrap_or(false),
             Query::TrackBoxYCenter(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_yc()))
+                .map(|t| x.execute(&t.bounding_box.get_yc(), ctx))
                 .unwrap_or(false),
             Query::TrackBoxWidth(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_width()))
+                .map(|t| x.execute(&t.bounding_box.get_width(), ctx))
                 .unwrap_or(false),
             Query::TrackBoxHeight(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_height()))
+                .map(|t| x.execute(&t.bounding_box.get_height(), ctx))
                 .unwrap_or(false),
             Query::TrackBoxWidthToHeightRatio(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_width_to_height_ratio()))
+                .map(|t| x.execute(&t.bounding_box.get_width_to_height_ratio(), ctx))
                 .unwrap_or(false),
             Query::TrackBoxArea(x) => o
                 .track_info
                 .as_ref()
-                .map(|t| x.execute(&(t.bounding_box.get_width() * t.bounding_box.get_height())))
+                .map(|t| {
+                    x.execute(
+                        &(t.bounding_box.get_width() * t.bounding_box.get_height()),
+                        ctx,
+                    )
+                })
                 .unwrap_or(false),
             Query::TrackBoxAngle(x) => o
                 .track_info
                 .as_ref()
-                .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a)))
+                .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a, ctx)))
                 .unwrap_or(false),
 
             // parent
             Query::ParentDefined => o.parent_id.is_some(),
             // box
-            Query::BoxWidth(x) => x.execute(&o.bbox.get_width()),
-            Query::BoxHeight(x) => x.execute(&o.bbox.get_height()),
-            Query::BoxXCenter(x) => x.execute(&o.bbox.get_xc()),
-            Query::BoxYCenter(x) => x.execute(&o.bbox.get_yc()),
+            Query::BoxWidth(x) => x.execute(&o.bbox.get_width(), ctx),
+            Query::BoxHeight(x) => x.execute(&o.bbox.get_height(), ctx),
+            Query::BoxXCenter(x) => x.execute(&o.bbox.get_xc(), ctx),
+            Query::BoxYCenter(x) => x.execute(&o.bbox.get_yc(), ctx),
             Query::BoxAngleDefined => o.bbox.get_angle().is_some(),
-            Query::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height())),
-            Query::BoxWidthToHeightRatio(x) => x.execute(&o.bbox.get_width_to_height_ratio()),
-            Query::BoxAngle(x) => o.bbox.get_angle().map(|a| x.execute(&a)).unwrap_or(false),
+            Query::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height()), ctx),
+            Query::BoxWidthToHeightRatio(x) => x.execute(&o.bbox.get_width_to_height_ratio(), ctx),
+            Query::BoxAngle(x) => o
+                .bbox
+                .get_angle()
+                .map(|a| x.execute(&a, ctx))
+                .unwrap_or(false),
 
             // attributes
+            Query::AttributeDefined(creator, label) => o
+                .attributes
+                .get(&(creator.to_string(), label.to_string()))
+                .is_some(),
             Query::AttributesEmpty => o.attributes.is_empty(),
             Query::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
@@ -337,35 +355,34 @@ impl ExecutableQuery<&RwLockReadGuard<'_, VideoObject>> for Query {
 }
 
 impl ExecutableQuery<&VideoObjectProxy> for Query {
-    fn execute(&self, o: &VideoObjectProxy) -> bool {
+    fn execute(&self, o: &VideoObjectProxy, ctx: &mut ObjectContext) -> bool {
         match self {
-            Query::And(v) => v.iter().all(|x| x.execute(o)),
-            Query::Or(v) => v.iter().any(|x| x.execute(o)),
-            Query::Not(x) => !x.execute(o),
+            Query::And(v) => v.iter().all(|x| x.execute(o, ctx)),
+            Query::Or(v) => v.iter().any(|x| x.execute(o, ctx)),
+            Query::Not(x) => !x.execute(o, ctx),
             Query::WithChildren(q, n) => {
                 let children = o.get_children();
                 let v = filter(&children, q).len() as i64;
-                n.execute(&v)
+                n.execute(&v, ctx)
             }
-            Query::EvalExpr(x, resolvers) => {
+            Query::EvalExpr(x) => {
                 let expr = get_compiled_eval_expr(x).unwrap();
-                let mut context = ObjectContext::new(o, resolvers);
-                expr.eval_boolean_with_context_mut(&mut context).unwrap()
+                expr.eval_boolean_with_context_mut(ctx).unwrap()
             }
             Query::ParentId(x) => o
                 .get_parent()
                 .as_ref()
-                .map(|p| x.execute(&p.get_id()))
+                .map(|p| x.execute(&p.get_id(), ctx))
                 .unwrap_or(false),
             Query::ParentCreator(x) => o
                 .get_parent()
                 .as_ref()
-                .map(|p| x.execute(&p.get_creator()))
+                .map(|p| x.execute(&p.get_creator(), ctx))
                 .unwrap_or(false),
             Query::ParentLabel(x) => o
                 .get_parent()
                 .as_ref()
-                .map(|p| x.execute(&p.get_label()))
+                .map(|p| x.execute(&p.get_label(), ctx))
                 .unwrap_or(false),
             Query::UserDefinedObjectPredicate(plugin, function) => {
                 let udf_name = format!("{}@{}", plugin, function);
@@ -392,13 +409,26 @@ impl ExecutableQuery<&VideoObjectProxy> for Query {
             }
             _ => {
                 let inner = o.get_inner_read();
-                self.execute(&inner)
+                self.execute(&inner, ctx)
             }
         }
     }
 }
 
 impl Query {
+    pub fn execute_with_new_context(&self, o: &VideoObjectProxy) -> bool {
+        let mut context = ObjectContext::new(
+            o,
+            &[
+                utility_resolver_name(),
+                etcd_resolver_name(),
+                config_resolver_name(),
+                env_resolver_name(),
+            ],
+        );
+        self.execute(o, &mut context)
+    }
+
     pub fn to_json_pretty(&self) -> String {
         serde_json::to_string_pretty(self).unwrap()
     }
@@ -423,7 +453,7 @@ impl Query {
 pub fn filter(objs: &[VideoObjectProxy], query: &Query) -> Vec<VideoObjectProxy> {
     objs.iter()
         .filter_map(|o| {
-            if query.execute(o) {
+            if query.execute_with_new_context(o) {
                 Some(o.clone())
             } else {
                 None
@@ -437,7 +467,7 @@ pub fn partition(
     query: &Query,
 ) -> (Vec<VideoObjectProxy>, Vec<VideoObjectProxy>) {
     objs.iter().fold((Vec::new(), Vec::new()), |mut acc, o| {
-        if query.execute(o) {
+        if query.execute_with_new_context(o) {
             acc.0.push(o.clone());
         } else {
             acc.1.push(o.clone());
@@ -468,104 +498,115 @@ mod tests {
     use crate::primitives::{AttributeBuilder, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
-    use crate::utils::eval_resolvers::{env_resolver_name, register_env_resolver};
+    use crate::utils::eval_resolvers::register_env_resolver;
 
     #[test]
     fn test_int() {
+        let o = gen_object(1);
+        let mut ctx = ObjectContext::new(&o, &[]);
+        let mut_ctx = &mut ctx;
         use IntExpression as IE;
         let eq_q: IE = eq(1);
-        assert!(eq_q.execute(&1));
+        assert!(eq_q.execute(&1, mut_ctx));
 
         let ne_q: IE = ne(1);
-        assert!(ne_q.execute(&2));
+        assert!(ne_q.execute(&2, mut_ctx));
 
         let gt_q: IE = gt(1);
-        assert!(gt_q.execute(&2));
+        assert!(gt_q.execute(&2, mut_ctx));
 
         let lt_q: IE = lt(1);
-        assert!(lt_q.execute(&0));
+        assert!(lt_q.execute(&0, mut_ctx));
 
         let ge_q: IE = ge(1);
-        assert!(ge_q.execute(&1));
-        assert!(ge_q.execute(&2));
+        assert!(ge_q.execute(&1, mut_ctx));
+        assert!(ge_q.execute(&2, mut_ctx));
 
         let le_q: IE = le(1);
-        assert!(le_q.execute(&1));
-        assert!(le_q.execute(&0));
+        assert!(le_q.execute(&1, mut_ctx));
+        assert!(le_q.execute(&0, mut_ctx));
 
         let between_q: IE = between(1, 5);
-        assert!(between_q.execute(&2));
-        assert!(between_q.execute(&1));
-        assert!(between_q.execute(&5));
-        assert!(!between_q.execute(&6));
+        assert!(between_q.execute(&2, mut_ctx));
+        assert!(between_q.execute(&1, mut_ctx));
+        assert!(between_q.execute(&5, mut_ctx));
+        assert!(!between_q.execute(&6, mut_ctx));
 
         let one_of_q: IE = one_of(&[1, 2, 3]);
-        assert!(one_of_q.execute(&2));
-        assert!(!one_of_q.execute(&4));
+        assert!(one_of_q.execute(&2, mut_ctx));
+        assert!(!one_of_q.execute(&4, mut_ctx));
     }
 
     #[test]
     fn test_float() {
+        let o = gen_object(1);
+        let mut ctx = ObjectContext::new(&o, &[]);
+        let mut_ctx = &mut ctx;
+
         use FloatExpression as FE;
         let eq_q: FE = eq(1.0);
-        assert!(eq_q.execute(&1.0));
+        assert!(eq_q.execute(&1.0, mut_ctx));
 
         let ne_q: FE = ne(1.0);
-        assert!(ne_q.execute(&2.0));
+        assert!(ne_q.execute(&2.0, mut_ctx));
 
         let gt_q: FE = gt(1.0);
-        assert!(gt_q.execute(&2.0));
+        assert!(gt_q.execute(&2.0, mut_ctx));
 
         let lt_q: FE = lt(1.0);
-        assert!(lt_q.execute(&0.0));
+        assert!(lt_q.execute(&0.0, mut_ctx));
 
         let ge_q: FE = ge(1.0);
-        assert!(ge_q.execute(&1.0));
-        assert!(ge_q.execute(&2.0));
+        assert!(ge_q.execute(&1.0, mut_ctx));
+        assert!(ge_q.execute(&2.0, mut_ctx));
 
         let le_q: FE = le(1.0);
-        assert!(le_q.execute(&1.0));
-        assert!(le_q.execute(&0.0));
+        assert!(le_q.execute(&1.0, mut_ctx));
+        assert!(le_q.execute(&0.0, mut_ctx));
 
         let between_q: FE = between(1.0, 5.0);
-        assert!(between_q.execute(&2.0));
-        assert!(between_q.execute(&1.0));
-        assert!(between_q.execute(&5.0));
-        assert!(!between_q.execute(&6.0));
+        assert!(between_q.execute(&2.0, mut_ctx));
+        assert!(between_q.execute(&1.0, mut_ctx));
+        assert!(between_q.execute(&5.0, mut_ctx));
+        assert!(!between_q.execute(&6.0, mut_ctx));
 
         let one_of_q: FE = one_of(&[1.0, 2.0, 3.0]);
-        assert!(one_of_q.execute(&2.0));
-        assert!(!one_of_q.execute(&4.0));
+        assert!(one_of_q.execute(&2.0, mut_ctx));
+        assert!(!one_of_q.execute(&4.0, mut_ctx));
     }
 
     #[test]
     fn test_string() {
+        let o = gen_object(1);
+        let mut ctx = ObjectContext::new(&o, &[]);
+        let mut_ctx = &mut ctx;
+
         use StringExpression as SE;
         let eq_q: SE = eq("test");
-        assert!(eq_q.execute(&"test".to_string()));
+        assert!(eq_q.execute(&"test".to_string(), mut_ctx));
 
         let ne_q: SE = ne("test");
-        assert!(ne_q.execute(&"test2".to_string()));
+        assert!(ne_q.execute(&"test2".to_string(), mut_ctx));
 
         let contains_q: SE = contains("test");
-        assert!(contains_q.execute(&"testimony".to_string()));
-        assert!(contains_q.execute(&"supertest".to_string()));
+        assert!(contains_q.execute(&"testimony".to_string(), mut_ctx));
+        assert!(contains_q.execute(&"supertest".to_string(), mut_ctx));
 
         let not_contains_q: SE = not_contains("test");
-        assert!(not_contains_q.execute(&"apple".to_string()));
+        assert!(not_contains_q.execute(&"apple".to_string(), mut_ctx));
 
         let starts_with_q: SE = starts_with("test");
-        assert!(starts_with_q.execute(&"testing".to_string()));
-        assert!(!starts_with_q.execute(&"tes".to_string()));
+        assert!(starts_with_q.execute(&"testing".to_string(), mut_ctx));
+        assert!(!starts_with_q.execute(&"tes".to_string(), mut_ctx));
 
         let ends_with_q: SE = ends_with("test");
-        assert!(ends_with_q.execute(&"gettest".to_string()));
-        assert!(!ends_with_q.execute(&"supertes".to_string()));
+        assert!(ends_with_q.execute(&"gettest".to_string(), mut_ctx));
+        assert!(!ends_with_q.execute(&"supertes".to_string(), mut_ctx));
 
         let one_of_q: SE = one_of(&["test", "me", "now"]);
-        assert!(one_of_q.execute(&"me".to_string()));
-        assert!(one_of_q.execute(&"now".to_string()));
-        assert!(!one_of_q.execute(&"random".to_string()));
+        assert!(one_of_q.execute(&"me".to_string(), mut_ctx));
+        assert!(one_of_q.execute(&"now".to_string(), mut_ctx));
+        assert!(!one_of_q.execute(&"random".to_string(), mut_ctx));
     }
 
     #[test]
@@ -584,42 +625,45 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let expr = EvalExpr("id == 1".to_string(), vec![]);
-        assert!(expr.execute(&gen_object(1)));
+        let expr = EvalExpr("id == 1".to_string());
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
-        let expr = EvalExpr("id == 2".to_string(), vec![]);
-        assert!(!expr.execute(&gen_object(1)));
+        let expr = EvalExpr("id == 2".to_string());
+        assert!(!expr.execute_with_new_context(&gen_object(1)));
 
         register_env_resolver();
-        let expr = EvalExpr(
-            "env(\"ABC\", \"X\") == \"X\"".to_string(),
-            vec![env_resolver_name()],
-        );
-        assert!(expr.execute(&gen_object(1)));
+        let expr = EvalExpr("env(\"ABC\", \"X\") == \"X\"".to_string());
+        assert!(expr.execute_with_new_context(&gen_object(1)));
     }
 
     #[test]
     fn test_query() {
         let expr = Id(eq(1));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = Creator(eq("peoplenet"));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = Label(starts_with("face"));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = Confidence(gt(0.4));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = ConfidenceDefined;
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = ParentDefined;
-        assert!(!expr.execute(&gen_object(1)));
+        assert!(!expr.execute_with_new_context(&gen_object(1)));
+
+        let expr = AttributeDefined("some".to_string(), "attribute".to_string());
+        let o = gen_object(1);
+        assert!(expr.execute_with_new_context(&o));
 
         let expr = AttributesEmpty;
-        assert!(expr.execute(&gen_object(1)));
+        let o = gen_object(1);
+        o.delete_attributes(Some("some".to_string()), vec![]);
+        assert!(expr.execute_with_new_context(&o));
 
         let object = gen_object(1);
         let parent_object = gen_object(13);
@@ -628,53 +672,52 @@ mod tests {
         f.add_object(&parent_object);
         f.add_object(&object);
         object.set_parent(Some(parent_object.get_id()));
-        assert!(expr.execute(&object));
 
         let expr = ParentId(eq(13));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = ParentCreator(eq("peoplenet"));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = ParentLabel(eq("face"));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = BoxXCenter(gt(0.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxYCenter(gt(1.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxWidth(gt(5.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxHeight(gt(10.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxArea(gt(150.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxArea(lt(250.0));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = BoxAngleDefined;
-        assert!(!expr.execute(&gen_object(1)));
+        assert!(!expr.execute_with_new_context(&gen_object(1)));
 
         let object = gen_object(1);
         object.set_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = BoxAngle(gt(20.0));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = TrackDefined;
-        assert!(!expr.execute(&gen_object(1)));
+        assert!(!expr.execute_with_new_context(&gen_object(1)));
 
         object.set_tracking_data(Some(VideoObjectTrackingData::new(
             1,
             RBBox::new(1.0, 2.0, 10.0, 20.0, None),
         )));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         object.set_attribute(
             AttributeBuilder::default()
@@ -693,24 +736,24 @@ mod tests {
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (creator == 'classifier')]",
         ));
-        assert!(expr.execute(&object));
+        assert!(expr.execute_with_new_context(&object));
 
         let expr = AttributesJMESQuery(s(
             "[? (hint != 'morphological-classifier') && (creator == 'classifier')]",
         ));
-        assert!(!expr.execute(&object));
+        assert!(!expr.execute_with_new_context(&object));
     }
 
     #[test]
     fn test_logical_functions() {
         let expr = and![Id(eq(1)), Creator(eq("peoplenet")), Confidence(gt(0.4))];
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = or![Id(eq(10)), Creator(eq("peoplenet")),];
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = not!(Id(eq(2)));
-        assert!(expr.execute(&gen_object(1)));
+        assert!(expr.execute_with_new_context(&gen_object(1)));
     }
 
     #[test]
