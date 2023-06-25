@@ -274,7 +274,7 @@ pub fn call_object_map_modifier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::message::video::query::Query;
+    use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::test::utils::{gen_frame, gen_object};
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
         )?);
 
         let f = gen_frame();
-        f.delete_objects(&Query::Idle);
+        f.delete_objects(&MatchQuery::Idle);
         let parent = gen_object(12);
         f.add_object(&parent);
         f.add_object(&o);

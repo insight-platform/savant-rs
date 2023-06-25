@@ -1,6 +1,6 @@
 use crate::primitives::message::video::frame::VideoFrame;
-use crate::primitives::message::video::query::py::QueryProxy;
-use crate::primitives::message::video::query::Query;
+use crate::primitives::message::video::query::match_query::MatchQuery;
+use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{VideoFrameProxy, VideoObjectProxy, VideoObjectsView};
 use crate::utils::python::release_gil;
 use pyo3::{pyclass, pymethods};
@@ -45,14 +45,14 @@ impl VideoFrameBatch {
         self.prepare_after_load();
     }
 
-    pub fn access_objects(&self, q: &Query) -> HashMap<i64, Vec<VideoObjectProxy>> {
+    pub fn access_objects(&self, q: &MatchQuery) -> HashMap<i64, Vec<VideoObjectProxy>> {
         self.frames
             .par_iter()
             .map(|(id, frame)| (*id, frame.access_objects(q)))
             .collect()
     }
 
-    pub fn delete_objects(&mut self, q: &Query) {
+    pub fn delete_objects(&mut self, q: &MatchQuery) {
         self.frames.par_iter_mut().for_each(|(_, frame)| {
             frame.delete_objects(q);
         });
@@ -89,7 +89,7 @@ impl VideoFrameBatch {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: QueryProxy) -> HashMap<i64, VideoObjectsView> {
+    pub fn access_objects_gil(&self, q: MatchQueryProxy) -> HashMap<i64, VideoObjectsView> {
         release_gil(|| {
             self.access_objects(q.inner.deref())
                 .into_iter()
@@ -99,7 +99,7 @@ impl VideoFrameBatch {
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&mut self, q: QueryProxy) {
+    pub fn delete_objects_gil(&mut self, q: MatchQueryProxy) {
         release_gil(|| self.delete_objects(q.inner.deref()))
     }
 }

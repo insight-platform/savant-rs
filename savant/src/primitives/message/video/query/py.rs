@@ -1,5 +1,7 @@
-use super::{FloatExpression, IntExpression, Query, StringExpression};
 use crate::primitives::message::video::object::objects_view::QueryFunctions;
+use crate::primitives::message::video::query::match_query::{
+    FloatExpression, IntExpression, MatchQuery, StringExpression,
+};
 use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -18,7 +20,7 @@ pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FloatExpressionProxy>()?;
     m.add_class::<IntExpressionProxy>()?;
     m.add_class::<StringExpressionProxy>()?;
-    m.add_class::<QueryProxy>()?;
+    m.add_class::<MatchQueryProxy>()?;
     m.add_class::<QueryFunctions>()?;
 
     m.add_function(wrap_pyfunction!(utility_resolver_name, m)?)?;
@@ -621,14 +623,14 @@ impl StringExpressionProxy {
 /// A class allowing to define a Query based on expressions
 ///
 #[pyclass]
-#[pyo3(name = "Query")]
+#[pyo3(name = "MatchQuery")]
 #[derive(Debug, Clone)]
-pub struct QueryProxy {
-    pub inner: Arc<Query>,
+pub struct MatchQueryProxy {
+    pub inner: Arc<MatchQuery>,
 }
 
 #[pymethods]
-impl QueryProxy {
+impl MatchQueryProxy {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -655,16 +657,16 @@ impl QueryProxy {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn and_(list: &PyTuple) -> QueryProxy {
+    fn and_(list: &PyTuple) -> MatchQueryProxy {
         let mut v = Vec::with_capacity(list.len());
         for arg in list {
             let q = arg
-                .extract::<QueryProxy>()
+                .extract::<MatchQueryProxy>()
                 .expect("Invalid argument. Only Query values are allowed.");
             v.push(q.inner.deref().clone());
         }
-        QueryProxy {
-            inner: Arc::new(Query::And(v)),
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::And(v)),
         }
     }
 
@@ -683,16 +685,16 @@ impl QueryProxy {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn or_(list: &PyTuple) -> QueryProxy {
+    fn or_(list: &PyTuple) -> MatchQueryProxy {
         let mut v = Vec::with_capacity(list.len());
         for arg in list {
             let q = arg
-                .extract::<QueryProxy>()
+                .extract::<MatchQueryProxy>()
                 .expect("Invalid argument. Only Query values are allowed.");
             v.push(q.inner.deref().clone());
         }
-        QueryProxy {
-            inner: Arc::new(Query::Or(v)),
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Or(v)),
         }
     }
 
@@ -711,9 +713,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn not_(a: QueryProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Not(Box::new(a.inner.deref().clone()))),
+    fn not_(a: MatchQueryProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Not(Box::new(a.inner.deref().clone()))),
         }
     }
 
@@ -737,9 +739,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn with_children(a: QueryProxy, n: IntExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::WithChildren(
+    fn with_children(a: MatchQueryProxy, n: IntExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::WithChildren(
                 Box::new(a.inner.deref().clone()),
                 n.inner,
             )),
@@ -763,9 +765,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn eval(exp: String) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::EvalExpr(exp)),
+    fn eval(exp: String) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::EvalExpr(exp)),
         }
     }
 
@@ -784,9 +786,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn id(e: IntExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Id(e.inner)),
+    fn id(e: IntExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Id(e.inner)),
         }
     }
 
@@ -805,9 +807,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn creator(e: StringExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Creator(e.inner)),
+    fn creator(e: StringExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Creator(e.inner)),
         }
     }
 
@@ -826,9 +828,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn label(e: StringExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Label(e.inner)),
+    fn label(e: StringExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Label(e.inner)),
         }
     }
 
@@ -847,9 +849,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn confidence(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Confidence(e.inner)),
+    fn confidence(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Confidence(e.inner)),
         }
     }
 
@@ -868,9 +870,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn track_id(e: IntExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackId(e.inner)),
+    fn track_id(e: IntExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackId(e.inner)),
         }
     }
 
@@ -889,9 +891,9 @@ impl QueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn track_box_x_center(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxXCenter(e.inner)),
+    fn track_box_x_center(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxXCenter(e.inner)),
         }
     }
 
@@ -905,9 +907,9 @@ impl QueryProxy {
     ///   Float expression to compare the object's track bbox yc with
     ///
     #[staticmethod]
-    fn track_box_y_center(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxYCenter(e.inner)),
+    fn track_box_y_center(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxYCenter(e.inner)),
         }
     }
 
@@ -921,9 +923,9 @@ impl QueryProxy {
     ///   Float expression to compare the object's track bbox width with
     ///
     #[staticmethod]
-    fn track_box_width(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxWidth(e.inner)),
+    fn track_box_width(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxWidth(e.inner)),
         }
     }
 
@@ -932,9 +934,9 @@ impl QueryProxy {
     /// In JSON/YAML: track.bbox.height
     ///
     #[staticmethod]
-    fn track_box_height(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxHeight(e.inner)),
+    fn track_box_height(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxHeight(e.inner)),
         }
     }
 
@@ -943,9 +945,9 @@ impl QueryProxy {
     /// In JSON/YAML: track.bbox.area
     ///
     #[staticmethod]
-    fn track_box_area(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxArea(e.inner)),
+    fn track_box_area(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxArea(e.inner)),
         }
     }
 
@@ -954,9 +956,9 @@ impl QueryProxy {
     /// In JSON/YAML: track.bbox.width_to_height_ratio
     ///
     #[staticmethod]
-    fn track_box_width_to_height_ratio(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxWidthToHeightRatio(e.inner)),
+    fn track_box_width_to_height_ratio(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxWidthToHeightRatio(e.inner)),
         }
     }
 
@@ -965,9 +967,9 @@ impl QueryProxy {
     /// In JSON/YAML: track.bbox.angle
     ///
     #[staticmethod]
-    fn track_box_angle(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackBoxAngle(e.inner)),
+    fn track_box_angle(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackBoxAngle(e.inner)),
         }
     }
 
@@ -983,9 +985,12 @@ impl QueryProxy {
     ///   Name of the function to execute
     ///
     #[staticmethod]
-    fn user_defined_rust_plugin_object_predicate(plugin: String, function: String) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::UserDefinedObjectPredicate(plugin, function)),
+    fn user_defined_rust_plugin_object_predicate(
+        plugin: String,
+        function: String,
+    ) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::UserDefinedObjectPredicate(plugin, function)),
         }
     }
 
@@ -994,9 +999,9 @@ impl QueryProxy {
     /// In JSON/YAML: parent.id
     ///
     #[staticmethod]
-    fn parent_id(e: IntExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::ParentId(e.inner)),
+    fn parent_id(e: IntExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::ParentId(e.inner)),
         }
     }
 
@@ -1005,9 +1010,9 @@ impl QueryProxy {
     /// In JSON/YAML: parent.creator
     ///
     #[staticmethod]
-    fn parent_creator(e: StringExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::ParentCreator(e.inner)),
+    fn parent_creator(e: StringExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::ParentCreator(e.inner)),
         }
     }
 
@@ -1016,9 +1021,9 @@ impl QueryProxy {
     /// In JSON/YAML: parent.label
     ///
     #[staticmethod]
-    fn parent_label(e: StringExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::ParentLabel(e.inner)),
+    fn parent_label(e: StringExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::ParentLabel(e.inner)),
         }
     }
 
@@ -1027,9 +1032,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.xc
     ///
     #[staticmethod]
-    fn box_x_center(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxXCenter(e.inner)),
+    fn box_x_center(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxXCenter(e.inner)),
         }
     }
 
@@ -1038,9 +1043,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.yc
     ///
     #[staticmethod]
-    fn box_y_center(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxYCenter(e.inner)),
+    fn box_y_center(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxYCenter(e.inner)),
         }
     }
 
@@ -1049,9 +1054,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.width
     ///
     #[staticmethod]
-    fn box_width(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxWidth(e.inner)),
+    fn box_width(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxWidth(e.inner)),
         }
     }
 
@@ -1060,9 +1065,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.height
     ///
     #[staticmethod]
-    fn box_height(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxHeight(e.inner)),
+    fn box_height(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxHeight(e.inner)),
         }
     }
 
@@ -1071,9 +1076,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.area
     ///
     #[staticmethod]
-    fn box_area(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxArea(e.inner)),
+    fn box_area(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxArea(e.inner)),
         }
     }
 
@@ -1082,9 +1087,9 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.width_to_height_ratio
     ///
     #[staticmethod]
-    fn box_width_to_height_ratio(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxWidthToHeightRatio(e.inner)),
+    fn box_width_to_height_ratio(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxWidthToHeightRatio(e.inner)),
         }
     }
 
@@ -1093,18 +1098,18 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.angle
     ///
     #[staticmethod]
-    fn box_angle(e: FloatExpressionProxy) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxAngle(e.inner)),
+    fn box_angle(e: FloatExpressionProxy) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxAngle(e.inner)),
         }
     }
 
     /// Always true
     ///
     #[staticmethod]
-    fn idle() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::Idle),
+    fn idle() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::Idle),
         }
     }
 
@@ -1113,9 +1118,9 @@ impl QueryProxy {
     /// In JSON/YAML: attributes.jmes_query
     ///
     #[staticmethod]
-    fn attributes_jmes_query(e: String) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::AttributesJMESQuery(e)),
+    fn attributes_jmes_query(e: String) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::AttributesJMESQuery(e)),
         }
     }
 
@@ -1123,9 +1128,9 @@ impl QueryProxy {
     ///
     /// In JSON/YAML: parent.defined
     #[staticmethod]
-    fn parent_defined() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::ParentDefined),
+    fn parent_defined() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::ParentDefined),
         }
     }
 
@@ -1134,9 +1139,9 @@ impl QueryProxy {
     /// In JSON/YAML: confidence.defined
     ///
     #[staticmethod]
-    fn confidence_defined() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::ConfidenceDefined),
+    fn confidence_defined() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::ConfidenceDefined),
         }
     }
 
@@ -1145,9 +1150,9 @@ impl QueryProxy {
     /// In JSON/YAML: track.id.defined
     ///
     #[staticmethod]
-    fn track_id_defined() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::TrackDefined),
+    fn track_id_defined() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::TrackDefined),
         }
     }
 
@@ -1156,25 +1161,25 @@ impl QueryProxy {
     /// In JSON/YAML: bbox.angle.defined
     ///
     #[staticmethod]
-    fn box_angle_defined() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::BoxAngleDefined),
+    fn box_angle_defined() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::BoxAngleDefined),
         }
     }
 
     /// True if object doesn't have attributes
     ///
     #[staticmethod]
-    fn attributes_empty() -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::AttributesEmpty),
+    fn attributes_empty() -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::AttributesEmpty),
         }
     }
 
     #[staticmethod]
-    fn attribute_defined(creator: String, label: String) -> QueryProxy {
-        QueryProxy {
-            inner: Arc::new(Query::AttributeDefined(creator, label)),
+    fn attribute_defined(creator: String, label: String) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(MatchQuery::AttributeDefined(creator, label)),
         }
     }
 
@@ -1202,10 +1207,10 @@ impl QueryProxy {
     /// Loads query from JSON string.
     ///
     #[staticmethod]
-    fn from_json(json: String) -> QueryProxy {
-        QueryProxy {
+    fn from_json(json: String) -> MatchQueryProxy {
+        MatchQueryProxy {
             inner: Arc::new(
-                Query::from_json(&json)
+                MatchQuery::from_json(&json)
                     .map_err(|e| PyValueError::new_err(format!("Invalid JSON: {}", e)))
                     .unwrap(),
             ),
@@ -1215,10 +1220,10 @@ impl QueryProxy {
     /// Loads query from YAML string.
     ///
     #[staticmethod]
-    fn from_yaml(yaml: String) -> QueryProxy {
-        QueryProxy {
+    fn from_yaml(yaml: String) -> MatchQueryProxy {
+        MatchQueryProxy {
             inner: Arc::new(
-                Query::from_yaml(&yaml)
+                MatchQuery::from_yaml(&yaml)
                     .map_err(|e| PyValueError::new_err(format!("Invalid YAML: {}", e)))
                     .unwrap(),
             ),

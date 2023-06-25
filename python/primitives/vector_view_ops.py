@@ -1,7 +1,7 @@
 from savant_rs.utils import gen_frame, VideoObjectBBoxKind
 from savant_rs.utils.numpy import BBoxFormat
 from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered, UserFunctionType
-from savant_rs.video_object_query import Query as Q, IntExpression as IE, QueryFunctions as QF
+from savant_rs.video_object_query import MatchQuery as Q, IntExpression as IE, QueryFunctions as QF
 
 register_plugin_function("../../target/debug/libsample_plugin.so", "map_modifier", UserFunctionType.ObjectMapModifier,
                          "sample.map_modifier")

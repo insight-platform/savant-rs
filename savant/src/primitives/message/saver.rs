@@ -3,7 +3,7 @@ use pyo3::types::PyBytes;
 use pyo3::{pyfunction, PyObject, Python};
 use std::collections::HashMap;
 
-use crate::primitives::message::video::query::Query;
+use crate::primitives::message::video::query::match_query::MatchQuery;
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
 use crate::utils::byte_buffer::ByteBuffer;
@@ -62,7 +62,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
             let frame_excluded_temp_attrs = frame.exclude_temporary_attributes();
 
             let objects_excluded_temp_attrs = frame
-                .access_objects(&Query::Idle)
+                .access_objects(&MatchQuery::Idle)
                 .iter()
                 .map(|o| (o.get_id(), o.exclude_temporary_attributes()))
                 .collect::<HashMap<_, _>>();

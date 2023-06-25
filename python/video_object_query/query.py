@@ -1,7 +1,7 @@
 from savant_rs.video_object_query import FloatExpression as FE, \
     IntExpression as IE, \
     StringExpression as SE, \
-    Query as Q, \
+    MatchQuery as Q, \
     utility_resolver_name
 
 and_ = Q.and_

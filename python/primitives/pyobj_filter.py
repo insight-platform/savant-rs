@@ -3,7 +3,7 @@ import threading
 from savant_rs.utils import gen_frame
 from savant_rs.primitives import VideoObject, VideoFrameBatch
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.video_object_query import Query as Q, StringExpression as SE, FloatExpression as FE, IntExpression as IE, utility_resolver_name, \
+from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, IntExpression as IE, utility_resolver_name, \
     register_utility_resolver
 from timeit import default_timer as timer
 from threading import Thread, Barrier
@@ -13,7 +13,7 @@ import random
 register_utility_resolver()
 
 T = 32
-N = 30000
+N = 3000
 
 
 def thread_python(barrier):

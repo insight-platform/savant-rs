@@ -6,7 +6,7 @@ from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, FrameTransformation
 from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
 from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.video_object_query import Query as Q, \
+from savant_rs.video_object_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
 import json

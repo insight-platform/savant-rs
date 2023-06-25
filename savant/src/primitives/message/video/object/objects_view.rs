@@ -1,9 +1,9 @@
 use crate::primitives::bbox::BBOX_UNDEFINED;
-use crate::primitives::message::video::query::py::QueryProxy;
-use crate::primitives::message::video::query::{
+use crate::primitives::message::video::query::match_query::{
     batch_filter, batch_foreach_udf, batch_map_udf, batch_partition, filter, foreach_udf, map_udf,
     partition,
 };
+use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{RBBox, VideoObjectProxy};
 use crate::utils::python::release_gil;
 use crate::utils::{
@@ -172,7 +172,7 @@ pub(crate) struct QueryFunctions;
 impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "filter")]
-    pub(crate) fn filter_gil(v: &VideoObjectsView, q: &QueryProxy) -> VideoObjectsView {
+    pub(crate) fn filter_gil(v: &VideoObjectsView, q: &MatchQueryProxy) -> VideoObjectsView {
         release_gil(|| VideoObjectsView {
             inner: Arc::new(filter(v.inner.as_ref(), &q.inner)),
         })
@@ -182,7 +182,7 @@ impl QueryFunctions {
     #[pyo3(name = "batch_filter")]
     pub(crate) fn batch_filter_gil(
         v: VideoObjectsViewBatch,
-        q: &QueryProxy,
+        q: &MatchQueryProxy,
     ) -> VideoObjectsViewBatch {
         release_gil(|| {
             let m = v
@@ -200,7 +200,7 @@ impl QueryFunctions {
     #[pyo3(name = "partition")]
     pub(crate) fn partition_gil(
         v: &VideoObjectsView,
-        q: &QueryProxy,
+        q: &MatchQueryProxy,
     ) -> (VideoObjectsView, VideoObjectsView) {
         release_gil(|| {
             let (a, b) = partition(v.inner.as_ref(), &q.inner);
@@ -215,7 +215,7 @@ impl QueryFunctions {
     #[pyo3(name = "batch_partition")]
     pub(crate) fn batch_partition_gil(
         v: VideoObjectsViewBatch,
-        q: &QueryProxy,
+        q: &MatchQueryProxy,
     ) -> (VideoObjectsViewBatch, VideoObjectsViewBatch) {
         release_gil(|| {
             let m = v

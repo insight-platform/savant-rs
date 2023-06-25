@@ -4,6 +4,7 @@ extern crate test;
 
 use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::{VideoObjectBuilder, VideoObjectTrackingData};
+use savant_rs::primitives::message::video::query::match_query::MatchQuery;
 use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{AttributeBuilder, RBBox, VideoObjectProxy};
 use savant_rs::test::utils::gen_frame;
@@ -43,7 +44,8 @@ fn get_objects() -> Vec<VideoObjectProxy> {
 
 #[bench]
 fn bench_filtering(b: &mut Bencher) {
-    use Query::*;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
 
     let expr = and![
         or![
@@ -61,7 +63,7 @@ fn bench_filtering(b: &mut Bencher) {
 
     let objs = get_objects();
     let frame = gen_frame();
-    frame.delete_objects(&Query::Idle);
+    frame.delete_objects(&MatchQuery::Idle);
     for o in objs {
         frame.add_object(&o);
     }
@@ -72,7 +74,8 @@ fn bench_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_filtering_with_eval(b: &mut Bencher) {
-    use Query::*;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
 
     register_utility_resolver();
 
@@ -88,7 +91,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 
     let objs = get_objects();
     let mut frame = gen_frame();
-    frame.delete_objects(&Query::Idle);
+    frame.delete_objects(&MatchQuery::Idle);
     frame.set_parallelized(true);
     for o in objs {
         frame.add_object(&o);
@@ -100,10 +103,10 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 
 #[bench]
 fn bench_empty_filtering(b: &mut Bencher) {
-    let expr = Query::Idle;
+    let expr = MatchQuery::Idle;
     let objs = get_objects();
     let frame = gen_frame();
-    frame.delete_objects(&Query::Idle);
+    frame.delete_objects(&MatchQuery::Idle);
     for o in objs {
         frame.add_object(&o);
     }
@@ -114,7 +117,7 @@ fn bench_empty_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_simple_filtering(b: &mut Bencher) {
-    use Query::*;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
     let expr = or![
         Creator(eq("created_by_20")),
         Creator(ends_with("created_by_10")),
@@ -122,7 +125,7 @@ fn bench_simple_filtering(b: &mut Bencher) {
 
     let objs = get_objects();
     let frame = gen_frame();
-    frame.delete_objects(&Query::Idle);
+    frame.delete_objects(&MatchQuery::Idle);
     for o in objs {
         frame.add_object(&o);
     }

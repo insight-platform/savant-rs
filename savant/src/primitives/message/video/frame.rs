@@ -5,8 +5,10 @@ use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
-use crate::primitives::message::video::query::py::QueryProxy;
-use crate::primitives::message::video::query::{IntExpression, Query, StringExpression};
+use crate::primitives::message::video::query::match_query::{
+    IntExpression, MatchQuery, StringExpression,
+};
+use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, SetDrawLabelKind, SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
@@ -599,7 +601,7 @@ impl VideoFrameProxy {
         }
     }
 
-    pub fn access_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
@@ -655,7 +657,7 @@ impl VideoFrameProxy {
     }
 
     pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
-        self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
+        self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
         let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
@@ -676,7 +678,7 @@ impl VideoFrameProxy {
         inner.resident_objects.contains_key(&id)
     }
 
-    pub fn delete_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
@@ -696,7 +698,7 @@ impl VideoFrameProxy {
     }
 
     fn fix_object_owned_frame(&self) {
-        self.access_objects(&Query::Idle)
+        self.access_objects(&MatchQuery::Idle)
             .iter()
             .for_each(|o| o.attach_to_video_frame(self.clone()));
     }
@@ -730,7 +732,7 @@ impl VideoFrameProxy {
             .collect()
     }
 
-    pub fn set_draw_label(&self, q: &Query, label: SetDrawLabelKind) {
+    pub fn set_draw_label(&self, q: &MatchQuery, label: SetDrawLabelKind) {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| match &label {
             SetDrawLabelKind::OwnLabel(l) => {
@@ -744,7 +746,7 @@ impl VideoFrameProxy {
         });
     }
 
-    pub fn set_parent(&self, q: &Query, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
+    pub fn set_parent(&self, q: &MatchQuery, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
         let frame = parent.get_frame();
         assert!(
             frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
@@ -758,7 +760,7 @@ impl VideoFrameProxy {
         objects
     }
 
-    pub fn clear_parent(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
             o.set_parent(None);
@@ -767,7 +769,7 @@ impl VideoFrameProxy {
     }
 
     pub fn get_children(&self, id: i64) -> Vec<VideoObjectProxy> {
-        self.access_objects(&Query::ParentId(IntExpression::EQ(id)))
+        self.access_objects(&MatchQuery::ParentId(IntExpression::EQ(id)))
     }
 
     pub fn add_object(&self, object: &VideoObjectProxy) {
@@ -813,8 +815,8 @@ impl VideoFrameProxy {
         let other_inner = update.objects.clone();
         let object_query = |o: &VideoObject| {
             crate::primitives::message::video::query::and![
-                Query::Label(StringExpression::EQ(o.label.clone())),
-                Query::Creator(StringExpression::EQ(o.creator.clone()))
+                MatchQuery::Label(StringExpression::EQ(o.label.clone())),
+                MatchQuery::Creator(StringExpression::EQ(o.creator.clone()))
             ]
         };
 
@@ -1216,7 +1218,7 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: SetDrawLabelKindProxy) {
+    pub fn set_draw_label_gil(&self, q: &MatchQueryProxy, draw_label: SetDrawLabelKindProxy) {
         release_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
@@ -1226,7 +1228,7 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: &QueryProxy) -> VideoObjectsView {
+    pub fn access_objects_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
         release_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
@@ -1241,17 +1243,21 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: &QueryProxy) -> VideoObjectsView {
+    pub fn delete_objects_gil(&self, query: &MatchQueryProxy) -> VideoObjectsView {
         release_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: &QueryProxy, parent: &VideoObjectProxy) -> VideoObjectsView {
+    pub fn set_parent_gil(
+        &self,
+        q: &MatchQueryProxy,
+        parent: &VideoObjectProxy,
+    ) -> VideoObjectsView {
         release_gil(|| self.set_parent(q.inner.deref(), parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: &QueryProxy) -> VideoObjectsView {
+    pub fn clear_parent_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
         release_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
@@ -1306,7 +1312,8 @@ impl VideoFrameProxy {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectBuilder;
-    use crate::primitives::message::video::query::{eq, one_of, Query};
+    use crate::primitives::message::video::query::match_query::MatchQuery;
+    use crate::primitives::message::video::query::{eq, one_of};
     use crate::primitives::{RBBox, SetDrawLabelKind, VideoObjectModification, VideoObjectProxy};
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
@@ -1378,7 +1385,7 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let f = gen_frame();
         f.delete_objects_by_ids(&[0, 1]);
-        let objects = f.access_objects(&Query::Idle);
+        let objects = f.access_objects(&MatchQuery::Idle);
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
     }
@@ -1405,7 +1412,7 @@ mod tests {
         let o = f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
 
-        let removed = f.delete_objects(&Query::Id(eq(0)));
+        let removed = f.delete_objects(&MatchQuery::Id(eq(0)));
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].get_id(), 0);
         assert!(removed[0].get_frame().is_none());
@@ -1421,9 +1428,9 @@ mod tests {
     fn test_delete_all_objects() {
         pyo3::prepare_freethreaded_python();
         let f = gen_frame();
-        let objs = f.delete_objects(&Query::Idle);
+        let objs = f.delete_objects(&MatchQuery::Idle);
         assert_eq!(objs.len(), 3);
-        let objects = f.access_objects(&Query::Idle);
+        let objects = f.access_objects(&MatchQuery::Idle);
         assert!(objects.is_empty());
     }
 
@@ -1514,7 +1521,7 @@ mod tests {
     #[test]
     fn set_parent_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1525,7 +1532,7 @@ mod tests {
     #[test]
     fn set_own_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1540,13 +1547,13 @@ mod tests {
     fn test_set_clear_parent_ops() {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
-        frame.clear_parent(&Query::Id(one_of(&[1, 2])));
+        frame.clear_parent(&MatchQuery::Id(one_of(&[1, 2])));
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_none());
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_none());
 
-        frame.set_parent(&Query::Id(one_of(&[1, 2])), &parent);
+        frame.set_parent(&MatchQuery::Id(one_of(&[1, 2])), &parent);
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_some());
 
@@ -1604,7 +1611,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        f.set_parent(&Query::Id(eq(0)), &o);
+        f.set_parent(&MatchQuery::Id(eq(0)), &o);
     }
 
     #[test]
@@ -1613,7 +1620,7 @@ mod tests {
         let f1 = gen_frame();
         let f2 = gen_frame();
         let f1o = f1.get_object(0).unwrap();
-        f2.set_parent(&Query::Id(eq(1)), &f1o);
+        f2.set_parent(&MatchQuery::Id(eq(1)), &f1o);
     }
 
     #[test]
@@ -1625,7 +1632,7 @@ mod tests {
         _ = o.set_id(33);
         f2.add_object(&o);
         o = f2.get_object(33).unwrap();
-        f2.set_parent(&Query::Id(eq(1)), &o);
+        f2.set_parent(&MatchQuery::Id(eq(1)), &o);
     }
 
     #[test]

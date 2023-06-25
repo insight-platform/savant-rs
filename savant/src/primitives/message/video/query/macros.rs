@@ -1,16 +1,16 @@
 #[macro_export]
 macro_rules! query_not {
     ($arg:expr) => {{
-        Query::Not(Box::new($arg))
+        MatchQuery::Not(Box::new($arg))
     }};
 }
 
 #[macro_export]
 macro_rules! query_or {
-    ($($x:expr),+ $(,)?) => ( Query::Or(vec![$($x),+]) );
+    ($($x:expr),+ $(,)?) => ( MatchQuery::Or(vec![$($x),+]) );
 }
 
 #[macro_export]
 macro_rules! query_and {
-    ($($x:expr),+ $(,)?) => ( Query::And(vec![$($x),+]) );
+    ($($x:expr),+ $(,)?) => ( MatchQuery::And(vec![$($x),+]) );
 }
