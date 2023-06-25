@@ -5,7 +5,7 @@ use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxKind};
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
@@ -407,7 +407,7 @@ impl VideoObjectProxy {
     #[getter]
     #[pyo3(name = "attributes")]
     pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
-        no_gil(|| self.get_attributes())
+        release_gil(|| self.get_attributes())
     }
 
     /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
@@ -523,7 +523,7 @@ impl VideoObjectProxy {
     #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
     pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        no_gil(move || {
+        release_gil(move || {
             {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
@@ -587,7 +587,7 @@ impl VideoObjectProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(creator, names, hint))
     }
 
     /// Fetches attribute by creator and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,

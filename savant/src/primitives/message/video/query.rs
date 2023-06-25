@@ -5,7 +5,9 @@ pub mod py;
 use evalexpr::*;
 use lazy_static::lazy_static;
 use parking_lot::{Mutex, RwLockReadGuard};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::primitives::message::video::object::context::ObjectContext;
@@ -23,6 +25,8 @@ use crate::utils::pluggable_udf_api::{
     is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
 pub use functions::*;
+
+pub type VideoObjectsProxyBatch = HashMap<i64, Vec<VideoObjectProxy>>;
 
 pub(crate) trait ExecutableQuery<T> {
     fn execute(&self, o: T, ctx: &mut ObjectContext) -> bool;
@@ -462,6 +466,14 @@ pub fn filter(objs: &[VideoObjectProxy], query: &Query) -> Vec<VideoObjectProxy>
         .collect()
 }
 
+pub fn batch_filter(batch_objects: &VideoObjectsProxyBatch, q: &Query) -> VideoObjectsProxyBatch {
+    batch_objects
+        .par_iter()
+        .map(|(k, v)| (*k, filter(v, q)))
+        .filter(|(_, v)| !v.is_empty())
+        .collect()
+}
+
 pub fn partition(
     objs: &[VideoObjectProxy],
     query: &Query,
@@ -476,15 +488,60 @@ pub fn partition(
     })
 }
 
+pub fn batch_partition(
+    batch_objects: VideoObjectsProxyBatch,
+    q: &Query,
+) -> (VideoObjectsProxyBatch, VideoObjectsProxyBatch) {
+    let partitions: Vec<(i64, Vec<VideoObjectProxy>, Vec<VideoObjectProxy>)> = batch_objects
+        .into_par_iter()
+        .map(|(k, v)| {
+            let (first, second) = partition(&v, q);
+            (k, first, second)
+        })
+        .collect();
+
+    partitions.into_iter().fold(
+        (HashMap::new(), HashMap::new()),
+        |mut acc, (k, first, second)| {
+            acc.0.insert(k, first);
+            acc.1.insert(k, second);
+            acc
+        },
+    )
+}
+
 pub fn map_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<VideoObjectProxy>> {
     objs.iter()
         .map(|o| call_object_map_modifier(udf, o))
         .collect()
 }
 
-pub fn foreach_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<()>> {
+pub fn batch_map_udf(
+    batch_objects: &VideoObjectsProxyBatch,
+    udf: &str,
+) -> anyhow::Result<VideoObjectsProxyBatch> {
+    batch_objects
+        .par_iter()
+        .map(|(k, v)| {
+            let mapped = map_udf(v.iter().collect::<Vec<_>>().as_ref(), udf)?;
+            Ok((*k, mapped))
+        })
+        .collect()
+}
+
+pub fn foreach_udf(objs: &[&VideoObjectProxy], udf: &str) -> Vec<anyhow::Result<()>> {
     objs.iter()
         .map(|o| call_object_inplace_modifier(udf, &[o]))
+        .collect()
+}
+
+pub fn batch_foreach_udf(
+    batch_objects: &VideoObjectsProxyBatch,
+    udf: &str,
+) -> HashMap<i64, Vec<anyhow::Result<()>>> {
+    batch_objects
+        .par_iter()
+        .map(|(k, v)| (*k, foreach_udf(v.iter().collect::<Vec<_>>().as_ref(), udf)))
         .collect()
 }
 
@@ -840,8 +897,7 @@ mod tests {
         foreach_udf(
             &objects.iter().collect::<Vec<_>>().as_slice(),
             "sample.inplace_modifier",
-        )
-        .unwrap();
+        );
 
         for o in objects {
             assert!(

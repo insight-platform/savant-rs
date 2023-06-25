@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use savant_rs::utils::byte_buffer::ByteBuffer;
-use savant_rs::utils::python::no_gil;
+use savant_rs::utils::python::release_gil;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 
@@ -199,7 +199,7 @@ impl EtcdParameterStorage {
     ///   If there are more than one references to the runtime.
     ///
     fn shutdown(&mut self) -> PyResult<()> {
-        no_gil(|| {
+        release_gil(|| {
             let rt = self.runtime.take().ok_or_else(|| {
                 PyRuntimeError::new_err("EtcdParameterStorage has already been stopped")
             })?;
@@ -258,7 +258,7 @@ impl EtcdParameterStorage {
         if timeout < 0 {
             return Err(PyValueError::new_err("Timeout cannot be negative"));
         }
-        no_gil(|| {
+        release_gil(|| {
             self.inner
                 .lock()
                 .wait_for_key(&key, timeout as u64)
@@ -289,7 +289,7 @@ impl EtcdParameterStorage {
     ///
     ///
     fn get_data_checksum(&self, key: String) -> PyResult<Option<u32>> {
-        no_gil(|| {
+        release_gil(|| {
             self.inner
                 .lock()
                 .get_data_checksum(&key)
@@ -317,7 +317,7 @@ impl EtcdParameterStorage {
     ///   If the storage is not active.
     ///
     fn order_data_update(&self, spec: VarPathSpec) -> PyResult<()> {
-        no_gil(|| {
+        release_gil(|| {
             self.inner
                 .lock()
                 .order_data_update(spec.into())
@@ -345,7 +345,7 @@ impl EtcdParameterStorage {
     ///   If the storage is not active.
     ///
     fn get_data(&self, key: String) -> PyResult<Option<ByteBuffer>> {
-        let data_opt = no_gil(|| {
+        let data_opt = release_gil(|| {
             self.inner
                 .lock()
                 .get_data(&key)
@@ -380,7 +380,7 @@ impl EtcdParameterStorage {
     ///   If the storage is not active.
     ///
     pub fn set_raw(&self, key: String, value: Vec<u8>) -> PyResult<()> {
-        no_gil(|| {
+        release_gil(|| {
             self.inner
                 .lock()
                 .set(&key, value)
@@ -410,7 +410,7 @@ impl EtcdParameterStorage {
     ///   If the storage is not active.
     ///
     pub fn set_byte_buffer(&self, key: String, value: ByteBuffer) -> PyResult<()> {
-        no_gil(|| {
+        release_gil(|| {
             self.inner
                 .lock()
                 .set(&key, value.bytes().to_vec())
@@ -438,7 +438,7 @@ impl EtcdParameterStorage {
     ///   If the storage is not active.
     ///
     pub fn is_key_present(&self, key: String) -> PyResult<bool> {
-        no_gil(|| {
+        release_gil(|| {
             self.inner.lock().is_key_present(&key).map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to check key presence: {}", e))
             })

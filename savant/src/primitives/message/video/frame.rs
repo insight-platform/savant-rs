@@ -11,7 +11,7 @@ use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, Message, SetDrawLabelKind, SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use derive_builder::Builder;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
@@ -1000,13 +1000,13 @@ impl VideoFrameProxy {
     #[getter]
     #[pyo3(name = "json")]
     pub fn json_gil(&self) -> String {
-        no_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
+        release_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
     fn json_pretty_gil(&self) -> String {
-        no_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
+        release_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
     }
 
     #[setter]
@@ -1170,7 +1170,7 @@ impl VideoFrameProxy {
     #[getter]
     #[pyo3(name = "attributes")]
     pub fn attributes_gil(&self) -> Vec<(String, String)> {
-        no_gil(|| self.get_attributes())
+        release_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "find_attributes")]
@@ -1181,28 +1181,28 @@ impl VideoFrameProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(creator, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
     pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        no_gil(|| self.get_attribute(creator, name))
+        release_gil(|| self.get_attribute(creator, name))
     }
 
     #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
     pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        no_gil(|| self.delete_attributes(creator, names))
+        release_gil(|| self.delete_attributes(creator, names))
     }
 
     #[pyo3(name = "add_object")]
     pub fn add_object_py(&self, o: VideoObjectProxy) {
-        no_gil(|| self.add_object(&o))
+        release_gil(|| self.add_object(&o))
     }
 
     #[pyo3(name = "delete_attribute")]
     pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        no_gil(|| self.delete_attribute(creator, name))
+        release_gil(|| self.delete_attribute(creator, name))
     }
 
     #[pyo3(name = "set_attribute")]
@@ -1212,47 +1212,47 @@ impl VideoFrameProxy {
 
     #[pyo3(name = "clear_attributes")]
     pub fn clear_attributes_gil(&mut self) {
-        no_gil(|| self.clear_attributes())
+        release_gil(|| self.clear_attributes())
     }
 
     #[pyo3(name = "set_draw_label")]
     pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: SetDrawLabelKindProxy) {
-        no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
+        release_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "get_object")]
     pub fn get_object_gil(&self, id: i64) -> Option<VideoObjectProxy> {
-        no_gil(|| self.get_object(id))
+        release_gil(|| self.get_object(id))
     }
 
     #[pyo3(name = "access_objects")]
     pub fn access_objects_gil(&self, q: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.access_objects(q.inner.deref()).into())
+        release_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
     pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        no_gil(|| self.access_objects_by_id(&ids).into())
+        release_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
     pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        no_gil(|| self.delete_objects_by_ids(&ids).into())
+        release_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
     pub fn delete_objects_gil(&self, query: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.delete_objects(&query.inner).into())
+        release_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
     pub fn set_parent_gil(&self, q: &QueryProxy, parent: &VideoObjectProxy) -> VideoObjectsView {
-        no_gil(|| self.set_parent(q.inner.deref(), parent).into())
+        release_gil(|| self.set_parent(q.inner.deref(), parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
     pub fn clear_parent_gil(&self, q: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.clear_parent(q.inner.deref()).into())
+        release_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
     pub fn clear_objects(&self) {
@@ -1262,42 +1262,43 @@ impl VideoFrameProxy {
 
     #[pyo3(name = "make_snapshot")]
     pub fn make_snapshot_gil(&self) {
-        no_gil(|| self.make_snapshot())
+        release_gil(|| self.make_snapshot())
     }
 
     #[pyo3(name = "restore_from_snapshot")]
     pub fn restore_from_snapshot_gil(&self) {
-        no_gil(|| self.restore_from_snapshot())
+        release_gil(|| self.restore_from_snapshot())
     }
 
     #[pyo3(name = "get_modified_objects")]
     pub fn get_modified_objects_gil(&self) -> VideoObjectsView {
-        no_gil(|| self.get_modified_objects().into())
+        release_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
     pub fn get_children_gil(&self, id: i64) -> VideoObjectsView {
-        no_gil(|| self.get_children(id).into())
+        release_gil(|| self.get_children(id).into())
     }
 
     #[pyo3(name = "copy")]
     pub fn copy_gil(&self) -> VideoFrameProxy {
-        no_gil(|| self.deep_copy())
+        release_gil(|| self.deep_copy())
     }
 
     #[pyo3(name = "update_attributes")]
     pub fn update_attributes_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_attributes(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update_attributes(other))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update_objects")]
     pub fn update_objects_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_objects(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update_objects(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update")]
     pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 

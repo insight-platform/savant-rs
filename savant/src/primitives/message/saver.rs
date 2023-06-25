@@ -7,7 +7,7 @@ use crate::primitives::message::video::query::Query;
 use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
 use crate::primitives::Message;
 use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use crate::version_to_bytes_le;
 
 /// Save a message to a byte array
@@ -25,7 +25,7 @@ use crate::version_to_bytes_le;
 #[pyfunction]
 #[pyo3(name = "save_message")]
 pub fn save_message_gil(message: &Message) -> Vec<u8> {
-    no_gil(|| save_message(message.clone()))
+    release_gil(|| save_message(message.clone()))
 }
 
 pub fn save_message(m: Message) -> Vec<u8> {
@@ -132,7 +132,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
 #[pyo3(name = "save_message_to_bytebuffer")]
 #[pyo3(signature = (message, with_hash=true))]
 pub fn save_message_to_bytebuffer_gil(message: Message, with_hash: bool) -> ByteBuffer {
-    no_gil(|| {
+    release_gil(|| {
         let m = save_message(message);
         let hash_opt = if with_hash {
             Some(crc32fast::hash(&m))
@@ -158,7 +158,7 @@ pub fn save_message_to_bytebuffer_gil(message: Message, with_hash: bool) -> Byte
 #[pyfunction]
 #[pyo3(name = "save_message_to_bytes")]
 pub fn save_message_to_bytes_gil(message: Message) -> PyObject {
-    let bytes = no_gil(|| save_message(message));
+    let bytes = release_gil(|| save_message(message));
     Python::with_gil(|py| {
         let bytes = PyBytes::new(py, &bytes);
         PyObject::from(bytes)

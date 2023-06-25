@@ -1,4 +1,4 @@
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use parking_lot::const_mutex;
@@ -64,7 +64,7 @@ pub enum Errors {
 #[pyfunction]
 #[pyo3(name = "get_model_id")]
 pub fn get_model_id_gil(model_name: String) -> PyResult<i64> {
-    no_gil(|| {
+    release_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
         mapper
             .get_model_id(&model_name)
@@ -101,7 +101,7 @@ pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
 #[pyfunction]
 #[pyo3(name = "get_object_id")]
 pub fn get_object_id_gil(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
-    no_gil(|| {
+    release_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
         mapper
             .get_object_id(&model_name, &object_label)
@@ -144,7 +144,7 @@ pub fn register_model_objects_gil(
     elements: StdHashMap<i64, String>,
     policy: RegistrationPolicy,
 ) -> PyResult<i64> {
-    no_gil(|| {
+    release_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
         mapper
             .register_model_objects(&model_name, &elements, &policy)
@@ -171,7 +171,7 @@ pub fn register_model_objects_gil(
 #[pyfunction]
 #[pyo3(name = "get_model_name")]
 pub fn get_model_name_gil(model_id: i64) -> Option<String> {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.get_model_name(model_id)
     })
@@ -198,7 +198,7 @@ pub fn get_model_name_gil(model_id: i64) -> Option<String> {
 #[pyfunction]
 #[pyo3(name = "get_object_label")]
 pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.get_object_label(model_id, object_id)
     })
@@ -223,7 +223,7 @@ pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
 #[pyfunction]
 #[pyo3(name = "get_object_labels")]
 pub fn get_object_labels_gil(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         object_ids
             .iter()
@@ -258,7 +258,7 @@ pub fn get_object_ids_gil(
     model_name: String,
     object_labels: Vec<String>,
 ) -> Vec<(String, Option<i64>)> {
-    no_gil(|| {
+    release_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
         object_labels
             .iter()
@@ -280,7 +280,7 @@ pub fn get_object_ids_gil(
 #[pyfunction]
 #[pyo3(name = "clear_symbol_maps")]
 pub fn clear_symbol_maps_gil() {
-    no_gil(|| {
+    release_gil(|| {
         let mut mapper = SYMBOL_MAPPER.lock();
         mapper.clear();
     })
@@ -305,7 +305,7 @@ pub fn clear_symbol_maps_gil() {
 #[pyfunction]
 #[pyo3(name = "build_model_object_key")]
 pub fn build_model_object_key_gil(model_name: String, object_label: String) -> String {
-    no_gil(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
+    release_gil(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
 }
 
 /// The function allows parsing a model object key into model name and object label.
@@ -330,7 +330,7 @@ pub fn build_model_object_key_gil(model_name: String, object_label: String) -> S
 #[pyfunction]
 #[pyo3(name = "parse_compound_key")]
 pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
-    no_gil(|| {
+    release_gil(|| {
         SymbolMapper::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
@@ -357,7 +357,7 @@ pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
 #[pyfunction]
 #[pyo3(name = "validate_base_key")]
 pub fn validate_base_key_gil(key: String) -> PyResult<String> {
-    no_gil(|| {
+    release_gil(|| {
         SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
@@ -379,7 +379,7 @@ pub fn validate_base_key_gil(key: String) -> PyResult<String> {
 #[pyfunction]
 #[pyo3(name = "is_model_registered")]
 pub fn is_model_registered_gil(model_name: String) -> bool {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.is_model_registered(&model_name)
     })
@@ -404,7 +404,7 @@ pub fn is_model_registered_gil(model_name: String) -> bool {
 #[pyfunction]
 #[pyo3(name = "is_object_registered")]
 pub fn is_object_registered_gil(model_name: String, object_label: String) -> bool {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.is_object_registered(&model_name, &object_label)
     })
@@ -421,7 +421,7 @@ pub fn is_object_registered_gil(model_name: String, object_label: String) -> boo
 #[pyfunction]
 #[pyo3(name = "dump_registry")]
 pub fn dump_registry_gil() -> Vec<String> {
-    no_gil(|| {
+    release_gil(|| {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.dump_registry()
     })
@@ -649,7 +649,7 @@ impl SymbolMapper {
         elements: StdHashMap<i64, String>,
         policy: RegistrationPolicy,
     ) -> PyResult<i64> {
-        no_gil(|| self.register_model_objects(&model_name, &elements, &policy))
+        release_gil(|| self.register_model_objects(&model_name, &elements, &policy))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -682,7 +682,7 @@ impl SymbolMapper {
         model_name: String,
         object_label: String,
     ) -> PyResult<(i64, i64)> {
-        no_gil(|| self.get_object_id(&model_name, &object_label))
+        release_gil(|| self.get_object_id(&model_name, &object_label))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
