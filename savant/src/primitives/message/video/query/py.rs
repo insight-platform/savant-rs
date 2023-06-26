@@ -1,7 +1,10 @@
+use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::message::video::object::objects_view::QueryFunctions;
 use crate::primitives::message::video::query::match_query::{
     FloatExpression, IntExpression, MatchQuery, StringExpression,
 };
+use crate::primitives::message::video::query::MatchQuery::{BoxMetric, TrackBoxMetric};
+use crate::primitives::RBBox;
 use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -789,6 +792,48 @@ impl MatchQueryProxy {
     fn id(e: IntExpressionProxy) -> MatchQueryProxy {
         MatchQueryProxy {
             inner: Arc::new(MatchQuery::Id(e.inner)),
+        }
+    }
+
+    #[staticmethod]
+    fn box_metric(
+        bbox: &RBBox,
+        metric_type: BBoxMetricType,
+        e: FloatExpressionProxy,
+    ) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(BoxMetric {
+                other: (
+                    bbox.get_xc(),
+                    bbox.get_yc(),
+                    bbox.get_width(),
+                    bbox.get_height(),
+                    bbox.get_angle(),
+                ),
+                metric_type,
+                threshold_expr: e.inner,
+            }),
+        }
+    }
+
+    #[staticmethod]
+    fn track_box_metric(
+        bbox: &RBBox,
+        metric_type: BBoxMetricType,
+        e: FloatExpressionProxy,
+    ) -> MatchQueryProxy {
+        MatchQueryProxy {
+            inner: Arc::new(TrackBoxMetric {
+                other: (
+                    bbox.get_xc(),
+                    bbox.get_yc(),
+                    bbox.get_width(),
+                    bbox.get_height(),
+                    bbox.get_angle(),
+                ),
+                metric_type,
+                threshold_expr: e.inner,
+            }),
         }
     }
 

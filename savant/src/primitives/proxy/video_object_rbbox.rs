@@ -1,6 +1,6 @@
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
-use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxKind};
+use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxType};
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
 
@@ -8,11 +8,11 @@ use pyo3::pyclass::CompareOp;
 #[derive(Clone, Debug)]
 pub struct VideoObjectRBBoxProxy {
     object: WeakInner<VideoObject>,
-    kind: VideoObjectBBoxKind,
+    kind: VideoObjectBBoxType,
 }
 
 impl VideoObjectRBBoxProxy {
-    pub fn new(object: StrongInnerType<VideoObject>, kind: VideoObjectBBoxKind) -> Self {
+    pub fn new(object: StrongInnerType<VideoObject>, kind: VideoObjectBBoxType) -> Self {
         Self {
             object: WeakInner::new(object),
             kind,

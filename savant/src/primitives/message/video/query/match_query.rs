@@ -200,7 +200,7 @@ pub enum MatchQuery {
     BoxAngleDefined,
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
-    #[serde(rename = "bbox.iou")]
+    #[serde(rename = "bbox.metric")]
     BoxMetric {
         other: (f64, f64, f64, f64, Option<f64>),
         metric_type: BBoxMetricType,

@@ -1,7 +1,7 @@
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
-use crate::primitives::{VideoObjectBBoxKind, VideoObjectModification};
+use crate::primitives::{VideoObjectBBoxType, VideoObjectModification};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -65,7 +65,7 @@ impl VideoObjectTrackingDataProxy {
         if self.is_defined() {
             Ok(VideoObjectRBBoxProxy::new(
                 self.get_object(),
-                VideoObjectBBoxKind::TrackingInfo,
+                VideoObjectBBoxType::TrackingInfo,
             ))
         } else {
             Err(pyo3::exceptions::PyAttributeError::new_err(

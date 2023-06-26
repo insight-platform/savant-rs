@@ -23,7 +23,7 @@ pub type VideoObjectsViewBatch = HashMap<i64, VideoObjectsView>;
 ///
 #[pyclass]
 #[derive(Clone, Debug)]
-pub enum VideoObjectBBoxKind {
+pub enum VideoObjectBBoxType {
     Detection,
     TrackingInfo,
 }
@@ -44,12 +44,12 @@ impl From<Vec<VideoObjectProxy>> for VideoObjectsView {
 }
 
 impl VideoObjectsView {
-    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxKind) {
+    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
         release_gil(|| {
             let it = zip(self.inner.iter(), boxes);
             match kind {
-                VideoObjectBBoxKind::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
-                VideoObjectBBoxKind::TrackingInfo => it.for_each(|(o, b)| o.update_track_bbox(b)),
+                VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
+                VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.update_track_bbox(b)),
             }
         })
     }
@@ -98,12 +98,12 @@ impl VideoObjectsView {
     }
 
     #[pyo3(name = "rotated_boxes_as_numpy")]
-    fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxKind) -> Py<PyArray<f64, IxDyn>> {
+    fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
         let boxes = release_gil(|| match kind {
-            VideoObjectBBoxKind::Detection => {
+            VideoObjectBBoxType::Detection => {
                 self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>()
             }
-            VideoObjectBBoxKind::TrackingInfo => self
+            VideoObjectBBoxType::TrackingInfo => self
                 .inner
                 .iter()
                 .flat_map(|o| {
@@ -143,7 +143,7 @@ impl VideoObjectsView {
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
         format: &BBoxFormat,
-        kind: &VideoObjectBBoxKind,
+        kind: &VideoObjectBBoxType,
     ) {
         let boxes = ndarray_to_bboxes(&np_boxes, format)
             .into_iter()
@@ -157,7 +157,7 @@ impl VideoObjectsView {
     pub fn update_from_numpy_rotated_boxes_gil(
         &mut self,
         np_boxes: PyReadonlyArrayDyn<f64>,
-        kind: &VideoObjectBBoxKind,
+        kind: &VideoObjectBBoxType,
     ) {
         let boxes = ndarray_to_rotated_bboxes(&np_boxes);
         self.fill_boxes_gil(boxes, kind);

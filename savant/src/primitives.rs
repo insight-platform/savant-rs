@@ -22,7 +22,7 @@ pub mod to_json_value;
 use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
 
 pub use crate::primitives::message::video::object::objects_view::{
-    VideoObjectBBoxKind, VideoObjectsView,
+    VideoObjectBBoxType, VideoObjectsView,
 };
 pub use crate::primitives::message::video::object::VideoObjectTrackingData;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;

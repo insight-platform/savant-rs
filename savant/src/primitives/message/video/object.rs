@@ -4,7 +4,7 @@ use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxKind};
+use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxType};
 use crate::utils::python::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -165,10 +165,10 @@ impl VideoObject {
         })
     }
 
-    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxKind) -> &RBBox {
+    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxType) -> &RBBox {
         match kind {
-            VideoObjectBBoxKind::Detection => &self.bbox,
-            VideoObjectBBoxKind::TrackingInfo => self
+            VideoObjectBBoxType::Detection => &self.bbox,
+            VideoObjectBBoxType::TrackingInfo => self
                 .track_info
                 .as_ref()
                 .map(|t| &t.bounding_box)
@@ -176,10 +176,10 @@ impl VideoObject {
         }
     }
 
-    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxKind) -> &mut RBBox {
+    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxType) -> &mut RBBox {
         match kind {
-            VideoObjectBBoxKind::Detection => &mut self.bbox,
-            VideoObjectBBoxKind::TrackingInfo => self
+            VideoObjectBBoxType::Detection => &mut self.bbox,
+            VideoObjectBBoxType::TrackingInfo => self
                 .track_info
                 .as_mut()
                 .map(|t| &mut t.bounding_box)
@@ -440,7 +440,7 @@ impl VideoObjectProxy {
     ///
     #[getter]
     pub fn bbox_ref(&self) -> VideoObjectRBBoxProxy {
-        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxKind::Detection)
+        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxType::Detection)
     }
 
     /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
