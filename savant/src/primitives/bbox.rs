@@ -1,7 +1,9 @@
+pub mod context;
+
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use crate::utils::round_2_digits;
 use anyhow::bail;
 use geo::{Area, BooleanOps};
@@ -22,6 +24,15 @@ lazy_static! {
         BBOX_ELEMENT_UNDEFINED,
         None,
     );
+}
+
+#[pyclass]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "bbox.metric.type")]
+pub enum BBoxMetricType {
+    IoU,
+    IoSelf,
+    IoOther,
 }
 
 #[pyclass]
@@ -187,7 +198,7 @@ impl RBBox {
 
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
-        no_gil(|| {
+        release_gil(|| {
             self.scale(scale_x, scale_y);
         })
     }
@@ -195,35 +206,35 @@ impl RBBox {
     #[getter]
     #[pyo3(name = "vertices")]
     pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.vertices())
+        release_gil(|| self.vertices())
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.vertices_rounded())
+        release_gil(|| self.vertices_rounded())
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        no_gil(|| self.vertices_int())
+        release_gil(|| self.vertices_int())
     }
 
     #[pyo3(name = "as_polygonal_area")]
     pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
-        no_gil(|| self.as_polygonal_area())
+        release_gil(|| self.as_polygonal_area())
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn wrapping_box_gil(&self) -> PythonBBox {
-        no_gil(|| self.wrapping_bbox())
+        release_gil(|| self.wrapping_bbox())
     }
 
     #[pyo3(name = "visual_box")]
     pub fn visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
-        no_gil(|| self.visual_bbox(padding, border_width))
+        release_gil(|| self.visual_bbox(padding, border_width))
     }
 
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
@@ -271,14 +282,58 @@ impl RBBox {
 
     #[pyo3(name = "iou")]
     pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
-        no_gil(|| {
+        release_gil(|| {
             self.iou(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    #[pyo3(name = "ios")]
+    pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ios(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    #[pyo3(name = "ioo")]
+    pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ioo(other)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
 }
 
 impl RBBox {
+    pub fn ios(&self, other: &Self) -> anyhow::Result<f64> {
+        if self.area() < EPS || other.area() < EPS {
+            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
+        }
+
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        Ok(intersection / self.area())
+    }
+
+    pub fn ioo(&self, other: &Self) -> anyhow::Result<f64> {
+        if self.area() < EPS || other.area() < EPS {
+            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
+        }
+
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        Ok(intersection / other.area())
+    }
+
     pub fn iou(&self, other: &Self) -> anyhow::Result<f64> {
         if self.area() < EPS || other.area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
@@ -484,6 +539,16 @@ impl PythonBBox {
         self.inner.iou_gil(&other.inner)
     }
 
+    #[pyo3(name = "ios")]
+    fn ios_gil(&self, other: &Self) -> PyResult<f64> {
+        self.inner.ios_gil(&other.inner)
+    }
+
+    #[pyo3(name = "ioo")]
+    fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
+        self.inner.ioo_gil(&other.inner)
+    }
+
     fn __str__(&self) -> String {
         self.__repr__()
     }
@@ -595,25 +660,25 @@ impl PythonBBox {
     #[getter]
     #[pyo3(name = "vertices")]
     pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.inner.vertices())
+        release_gil(|| self.inner.vertices())
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        no_gil(|| self.inner.vertices_rounded())
+        release_gil(|| self.inner.vertices_rounded())
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        no_gil(|| self.inner.vertices_int())
+        release_gil(|| self.inner.vertices_int())
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn wrapping_box_gil(&self) -> PythonBBox {
-        no_gil(|| self.inner.wrapping_bbox())
+        release_gil(|| self.inner.wrapping_bbox())
     }
 
     #[pyo3(name = "visual_box")]
@@ -624,7 +689,7 @@ impl PythonBBox {
         max_x: f64,
         max_y: f64,
     ) -> PythonBBox {
-        no_gil(|| self.visual_bbox(padding, border_width, max_x, max_y))
+        release_gil(|| self.visual_bbox(padding, border_width, max_x, max_y))
     }
 
     pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
@@ -681,14 +746,14 @@ impl PythonBBox {
 
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
-        no_gil(|| {
+        release_gil(|| {
             self.inner.scale(scale_x, scale_y);
         })
     }
 
     #[pyo3(name = "as_polygonal_area")]
     pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
-        no_gil(|| self.inner.as_polygonal_area())
+        release_gil(|| self.inner.as_polygonal_area())
     }
 
     /// Returns a copy of the BBox object

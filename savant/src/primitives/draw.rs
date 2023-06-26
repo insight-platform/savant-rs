@@ -736,12 +736,12 @@ pub enum SetDrawLabelKind {
 #[pyclass]
 #[derive(Clone, Debug)]
 #[pyo3(name = "SetDrawLabelKind")]
-pub struct PySetDrawLabelKind {
+pub struct SetDrawLabelKindProxy {
     pub(crate) inner: SetDrawLabelKind,
 }
 
 #[pymethods]
-impl PySetDrawLabelKind {
+impl SetDrawLabelKindProxy {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 

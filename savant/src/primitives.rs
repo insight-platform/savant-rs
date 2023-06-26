@@ -6,6 +6,7 @@ pub mod attribute;
 pub mod bbox;
 /// The draw specification used to draw objects on the frame when they are visualized.
 pub mod draw;
+pub mod eval_context;
 /// The protocol message wrapping various objects to serialize an deserialize them.
 pub mod message;
 /// Simple point structure.
@@ -19,8 +20,9 @@ pub mod segment;
 pub mod to_json_value;
 
 use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
+
 pub use crate::primitives::message::video::object::objects_view::{
-    VideoObjectBBoxKind, VideoObjectsView,
+    VideoObjectBBoxType, VideoObjectsView,
 };
 pub use crate::primitives::message::video::object::VideoObjectTrackingData;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
@@ -42,7 +44,9 @@ pub use message::video::frame::frame_update::{
 pub use message::video::frame::{
     VideoFrameContentProxy, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
-pub use message::video::object::{VideoObjectModification, VideoObjectProxy};
+pub use message::video::object::{
+    IdCollisionResolutionPolicy, VideoObjectModification, VideoObjectProxy,
+};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
@@ -72,7 +76,7 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LabelPosition>()?;
     m.add_class::<PaddingDraw>()?;
     m.add_class::<ObjectDraw>()?;
-    m.add_class::<PySetDrawLabelKind>()?;
+    m.add_class::<SetDrawLabelKindProxy>()?;
     Ok(())
 }
 
@@ -103,6 +107,8 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoObjectTrackingData>()?;
     m.add_class::<VideoObjectRBBoxProxy>()?;
     m.add_class::<VideoObjectsView>()?;
+
+    m.add_class::<IdCollisionResolutionPolicy>()?;
 
     Ok(())
 }

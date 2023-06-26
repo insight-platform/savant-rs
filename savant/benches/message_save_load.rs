@@ -3,7 +3,7 @@
 extern crate test;
 
 use savant_rs::primitives::attribute::AttributeMethods;
-use savant_rs::primitives::message::video::query::Query;
+use savant_rs::primitives::message::video::query::match_query::MatchQuery;
 use savant_rs::primitives::{load_message, save_message, Message, VideoFrameBatch};
 use savant_rs::test::utils::gen_frame;
 use test::Bencher;
@@ -50,7 +50,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     pyo3::prepare_freethreaded_python();
     let f = gen_frame();
     let mut update = savant_rs::primitives::VideoFrameUpdate::new();
-    for o in f.access_objects(&Query::Idle) {
+    for o in f.access_objects(&MatchQuery::Idle) {
         update.add_object(&o);
     }
     let attrs = f.get_attributes();

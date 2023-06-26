@@ -311,7 +311,7 @@ impl VideoFrameUpdate {
 mod tests {
     use crate::primitives::attribute::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::message::video::query::Query;
+    use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::primitives::{
         Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
         ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
@@ -434,10 +434,10 @@ mod tests {
         );
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
-        assert_eq!(f.get_min_object_id(), -2);
-        let o = f.get_object(-2).unwrap();
+        assert_eq!(f.get_max_object_id(), 4);
+        let o = f.get_object(4).unwrap();
         assert_eq!(o.get_creator(), s("peoplenet"));
-        assert_eq!(f.access_objects(&Query::Idle).len(), 5);
+        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 5);
     }
 
     #[test]
@@ -451,7 +451,7 @@ mod tests {
         );
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
-        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
@@ -461,7 +461,7 @@ mod tests {
         );
         let res = f.update_objects(&upd);
         assert!(res.is_err());
-        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
     }
 
     #[test]
@@ -475,8 +475,8 @@ mod tests {
         );
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
-        assert_eq!(f.get_min_object_id(), -1);
-        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+        assert_eq!(f.get_max_object_id(), 3);
+        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
@@ -486,7 +486,7 @@ mod tests {
         );
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
-        assert_eq!(f.get_min_object_id(), -1);
-        assert_eq!(f.access_objects(&Query::Idle).len(), 4);
+        assert_eq!(f.get_max_object_id(), 4);
+        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
     }
 }

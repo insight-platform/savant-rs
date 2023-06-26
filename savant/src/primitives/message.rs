@@ -6,7 +6,7 @@ pub mod video;
 use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 
 #[derive(Debug, Clone)]
@@ -81,7 +81,7 @@ impl Message {
     }
 
     pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
-        no_gil(|| Self {
+        release_gil(|| Self {
             payload: NativeMessage::VideoFrameUpdate(update),
         })
     }
@@ -134,7 +134,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame")]
     fn video_frame_gil(frame: &VideoFrameProxy) -> Self {
-        no_gil(|| Self {
+        release_gil(|| Self {
             payload: NativeMessage::VideoFrame(frame.clone()),
         })
     }
@@ -154,7 +154,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame_batch")]
     fn video_frame_batch_gil(batch: &VideoFrameBatch) -> Self {
-        no_gil(|| Self {
+        release_gil(|| Self {
             payload: NativeMessage::VideoFrameBatch(batch.clone()),
         })
     }
@@ -174,7 +174,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "end_of_stream")]
     fn end_of_stream_gil(eos: &EndOfStream) -> Self {
-        no_gil(|| Self {
+        release_gil(|| Self {
             payload: NativeMessage::EndOfStream(eos.clone()),
         })
     }

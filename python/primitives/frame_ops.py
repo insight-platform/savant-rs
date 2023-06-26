@@ -3,11 +3,12 @@ import ctypes
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.primitives import VideoObject, AttributeValue, \
-    Attribute, VideoFrame, VideoFrameContent, FrameTransformation
+    Attribute, VideoFrame, VideoFrameContent, FrameTransformation, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
 from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.video_object_query import Query as Q, \
-    IntExpression as IE
+from savant_rs.video_object_query import MatchQuery as Q, \
+    IntExpression as IE, QueryFunctions as QF
+
 import json
 from timeit import default_timer as timer
 from ctypes import *
@@ -72,8 +73,9 @@ frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
     AttributeValue.bboxes([BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()], confidence=0.5),
     AttributeValue.point(Point(0.1, 0.2), confidence=0.5),
     AttributeValue.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
-    AttributeValue.polygon(PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
-                  confidence=0.5),
+    AttributeValue.polygon(
+        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
+        confidence=0.5),
     AttributeValue.polygons([
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])],
@@ -104,7 +106,7 @@ frame.add_object(VideoObject(
     confidence=0.5,
     attributes={},
     track=None,
-))
+), IdCollisionResolutionPolicy.Error)
 
 f = gen_frame()
 print("Raw address to pass to C-funcs: ", f.memory_handle)
@@ -114,9 +116,7 @@ print("Object with two children:", vec[0])
 # demonstrates chained filtering on ObjectsView object
 #
 f = gen_frame()
-one, two = f.access_objects(Q.idle()) \
-    .filter(Q.id(IE.one_of(1, 2))) \
-    .partition(Q.id(IE.eq(1)))
+one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))), Q.id(IE.eq(1)))
 
 print("One", one)
 print("Two", two)

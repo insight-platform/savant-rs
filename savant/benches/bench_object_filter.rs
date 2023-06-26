@@ -4,8 +4,13 @@ extern crate test;
 
 use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::{VideoObjectBuilder, VideoObjectTrackingData};
+use savant_rs::primitives::message::video::query::match_query::MatchQuery;
 use savant_rs::primitives::message::video::query::*;
-use savant_rs::primitives::{AttributeBuilder, RBBox, VideoObjectProxy};
+use savant_rs::primitives::{
+    AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectProxy,
+};
+use savant_rs::test::utils::gen_empty_frame;
+use savant_rs::utils::eval_resolvers::register_utility_resolver;
 use test::Bencher;
 
 fn get_objects() -> Vec<VideoObjectProxy> {
@@ -41,9 +46,8 @@ fn get_objects() -> Vec<VideoObjectProxy> {
 
 #[bench]
 fn bench_filtering(b: &mut Bencher) {
-    use Query::*;
-
-    let attr_exp = AttributesJMESQuery("[?(name=='test' && creator=='test')]".into());
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
 
     let expr = and![
         or![
@@ -56,35 +60,82 @@ fn bench_filtering(b: &mut Bencher) {
         ],
         BoxAngleDefined,
         ParentDefined,
-        attr_exp,
         or![Confidence(ge(0.6)), Confidence(le(0.4)),]
     ];
 
     let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
+    });
+}
+
+#[bench]
+fn bench_filtering_with_eval(b: &mut Bencher) {
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
+
+    register_utility_resolver();
+
+    let expr = EvalExpr(
+        r#"
+        ((creator == "created_by_4" || creator == "created_by_2") ||
+         (label == "2" || label == "4" || label == "6")) &&
+        !is_empty(parent.id) &&
+        !is_empty(bbox.angle) &&
+        (confidence > 0.6 || confidence < 0.4)"#
+            .to_string(),
+    );
+
+    let objs = get_objects();
+    let mut frame = gen_empty_frame();
+    frame.set_parallelized(true);
+    for o in objs {
+        frame
+            .add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+    }
+    b.iter(|| {
+        let _ = frame.access_objects(&expr);
     });
 }
 
 #[bench]
 fn bench_empty_filtering(b: &mut Bencher) {
-    let expr = Query::Idle;
+    let expr = MatchQuery::Idle;
     let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }
 
 #[bench]
 fn bench_simple_filtering(b: &mut Bencher) {
-    use Query::*;
+    use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
     let expr = or![
         Creator(eq("created_by_20")),
         Creator(ends_with("created_by_10")),
     ];
 
     let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+    }
     b.iter(|| {
-        let _ = objs.iter().map(|o| expr.execute(o)).collect::<Vec<_>>();
+        let _ = frame.access_objects(&expr);
     });
 }

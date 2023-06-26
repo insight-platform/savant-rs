@@ -3,7 +3,7 @@ from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
-from savant_rs.video_object_query import Query as Q
+from savant_rs.video_object_query import MatchQuery as Q
 
 frame = gen_frame()
 update = VideoFrameUpdate()

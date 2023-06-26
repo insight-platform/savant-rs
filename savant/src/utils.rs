@@ -1,6 +1,7 @@
 pub mod bbox;
 pub mod byte_buffer;
 pub mod conversions;
+pub mod eval_resolvers;
 pub mod fps_meter;
 pub mod np;
 pub mod pluggable_udf_api;
@@ -16,7 +17,7 @@ use crate::primitives::message::saver::{
     save_message_gil, save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
 };
 
-use crate::test::utils::gen_frame;
+use crate::test::utils::{gen_empty_frame, gen_frame};
 use crate::utils::np::np_nalgebra;
 use crate::utils::np::np_ndarray;
 use crate::utils::symbol_mapper::RegistrationPolicy;
@@ -28,7 +29,8 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
-use crate::primitives::{Message, VideoObjectBBoxKind};
+use crate::primitives::bbox::BBoxMetricType;
+use crate::primitives::{Message, VideoObjectBBoxType};
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
@@ -120,12 +122,14 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
-    m.add_class::<VideoObjectBBoxKind>()?;
+    m.add_class::<VideoObjectBBoxType>()?;
+    m.add_class::<BBoxMetricType>()?;
 
     Ok(())
 }

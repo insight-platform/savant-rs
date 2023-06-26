@@ -1,5 +1,5 @@
 use crate::primitives::VideoObjectProxy;
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use libloading::os::unix::Symbol;
@@ -60,7 +60,7 @@ lazy_static! {
 #[pyfunction]
 #[pyo3(name = "is_plugin_function_registered")]
 pub fn is_plugin_function_registered_gil(alias: String) -> bool {
-    no_gil(|| is_plugin_function_registered(&alias))
+    release_gil(|| is_plugin_function_registered(&alias))
 }
 
 pub fn is_plugin_function_registered(alias: &str) -> bool {
@@ -96,7 +96,7 @@ pub fn register_plugin_function_gil(
     function_type: &UserFunctionType,
     alias: String,
 ) -> PyResult<()> {
-    no_gil(|| {
+    release_gil(|| {
         register_plugin_function(&plugin, &function, function_type, &alias)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -162,7 +162,7 @@ pub fn register_plugin_function(
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
 pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObjectProxy>) -> PyResult<bool> {
-    no_gil(|| {
+    release_gil(|| {
         call_object_predicate(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -203,7 +203,7 @@ pub fn call_object_inplace_modifier_gil(
     alias: String,
     args: Vec<VideoObjectProxy>,
 ) -> PyResult<()> {
-    no_gil(|| {
+    release_gil(|| {
         call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -249,7 +249,7 @@ pub fn call_object_map_modifier_gil(
     alias: String,
     arg: &VideoObjectProxy,
 ) -> PyResult<VideoObjectProxy> {
-    no_gil(|| {
+    release_gil(|| {
         call_object_map_modifier(&alias, arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -274,34 +274,34 @@ pub fn call_object_map_modifier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::message::video::query::Query;
-    use crate::test::utils::{gen_frame, gen_object};
+    use crate::primitives::IdCollisionResolutionPolicy;
+    use crate::test::utils::{gen_empty_frame, gen_object};
 
     #[test]
     fn pluggable_udf_api() -> anyhow::Result<()> {
         pyo3::prepare_freethreaded_python();
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "unary_op_even",
             &UserFunctionType::ObjectPredicate,
             "sample.unary_op_even",
         )?;
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "binary_op_parent",
             &UserFunctionType::ObjectPredicate,
             "sample.binary_op_parent",
         )?;
 
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "inplace_modifier",
             &UserFunctionType::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "map_modifier",
             &UserFunctionType::ObjectMapModifier,
             "sample.map_modifier",
@@ -318,11 +318,12 @@ mod tests {
             &[&o, &o]
         )?);
 
-        let f = gen_frame();
-        f.delete_objects(&Query::Idle);
+        let f = gen_empty_frame();
         let parent = gen_object(12);
-        f.add_object(&parent);
-        f.add_object(&o);
+        f.add_object(&parent, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         o.set_parent(Some(parent.get_id()));
 
         assert!(call_object_predicate(

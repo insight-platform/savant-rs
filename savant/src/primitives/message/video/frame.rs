@@ -1,22 +1,26 @@
+pub mod context;
 pub mod frame_update;
 
 use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
-use crate::primitives::message::video::query::py::QueryProxy;
-use crate::primitives::message::video::query::{
-    ExecutableQuery, IntExpression, Query, StringExpression,
+use crate::primitives::message::video::query::match_query::{
+    IntExpression, MatchQuery, StringExpression,
 };
+use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, Message, PySetDrawLabelKind, SetDrawLabelKind, VideoFrameUpdate, VideoObjectProxy,
+    Attribute, IdCollisionResolutionPolicy, Message, SetDrawLabelKind, SetDrawLabelKindProxy,
+    VideoFrameUpdate, VideoObjectProxy,
 };
-use crate::utils::python::no_gil;
+use crate::utils::python::release_gil;
+use anyhow::bail;
 use derive_builder::Builder;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -351,16 +355,26 @@ pub struct VideoFrame {
     pub transcoding_method: VideoFrameTranscodingMethod,
     pub codec: Option<String>,
     pub keyframe: Option<bool>,
+    #[builder(setter(skip))]
+    pub time_base: (i32, i32),
     pub pts: i64,
+    #[builder(setter(skip))]
     pub dts: Option<i64>,
+    #[builder(setter(skip))]
     pub duration: Option<i64>,
     pub content: Arc<VideoFrameContent>,
+    #[builder(setter(skip))]
     pub transformations: Vec<FrameTransformation>,
+    #[builder(setter(skip))]
     pub attributes: HashMap<(String, String), Attribute>,
+    #[builder(setter(skip))]
     pub offline_objects: HashMap<i64, VideoObject>,
     #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) resident_objects: HashMap<i64, Arc<RwLock<VideoObject>>>,
+    #[with(Skip)]
+    #[builder(setter(skip))]
+    pub(crate) max_object_id: i64,
 }
 
 impl Default for VideoFrame {
@@ -373,6 +387,7 @@ impl Default for VideoFrame {
             transcoding_method: VideoFrameTranscodingMethod::Copy,
             codec: None,
             keyframe: None,
+            time_base: (1, 1000000),
             pts: 0,
             dts: None,
             duration: None,
@@ -381,6 +396,7 @@ impl Default for VideoFrame {
             attributes: HashMap::new(),
             offline_objects: HashMap::new(),
             resident_objects: HashMap::new(),
+            max_object_id: 0,
         }
     }
 }
@@ -399,6 +415,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "transcoding_method": self.transcoding_method.to_serde_json_value(),
                 "codec": self.codec,
                 "keyframe": self.keyframe,
+                "time_base": self.time_base,
                 "pts": self.pts,
                 "dts": self.dts,
                 "duration": self.duration,
@@ -459,6 +476,7 @@ impl VideoFrame {
 #[pyo3(name = "VideoFrame")]
 pub struct VideoFrameProxy {
     pub(crate) inner: Arc<RwLock<Box<VideoFrame>>>,
+    pub(crate) is_parallelized: bool,
 }
 
 #[pyclass]
@@ -494,6 +512,7 @@ impl From<BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
+            is_parallelized: false,
         }
     }
 }
@@ -505,6 +524,7 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
+            is_parallelized: false,
         }
     }
 }
@@ -583,24 +603,40 @@ impl VideoFrameProxy {
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
         VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
+            is_parallelized: false,
         }
     }
 
-    pub fn access_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let inner = self.inner.read_recursive();
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
 
-        resident_objects
-            .iter()
-            .filter_map(|(_id, o)| {
-                if q.execute(&VideoObjectProxy::from_arced_inner_object(o.clone())) {
-                    Some(VideoObjectProxy::from_arced_inner_object(o.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        if self.is_parallelized {
+            resident_objects
+                .par_iter()
+                .filter_map(|(_, o)| {
+                    let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
+                    if q.execute_with_new_context(&obj) {
+                        Some(obj)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            resident_objects
+                .iter()
+                .filter_map(|(_, o)| {
+                    let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
+                    if q.execute_with_new_context(&obj) {
+                        Some(obj)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
     }
 
     pub fn get_json(&self) -> String {
@@ -627,7 +663,7 @@ impl VideoFrameProxy {
     }
 
     pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
-        self.clear_parent(&Query::ParentId(IntExpression::OneOf(ids.to_vec())));
+        self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = self.inner.write();
         let objects = mem::take(&mut inner.resident_objects);
         let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
@@ -648,7 +684,7 @@ impl VideoFrameProxy {
         inner.resident_objects.contains_key(&id)
     }
 
-    pub fn delete_objects(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
@@ -668,7 +704,7 @@ impl VideoFrameProxy {
     }
 
     fn fix_object_owned_frame(&self) {
-        self.access_objects(&Query::Idle)
+        self.access_objects(&MatchQuery::Idle)
             .iter()
             .for_each(|o| o.attach_to_video_frame(self.clone()));
     }
@@ -702,7 +738,7 @@ impl VideoFrameProxy {
             .collect()
     }
 
-    pub fn set_draw_label(&self, q: &Query, label: SetDrawLabelKind) {
+    pub fn set_draw_label(&self, q: &MatchQuery, label: SetDrawLabelKind) {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| match &label {
             SetDrawLabelKind::OwnLabel(l) => {
@@ -716,7 +752,7 @@ impl VideoFrameProxy {
         });
     }
 
-    pub fn set_parent(&self, q: &Query, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
+    pub fn set_parent(&self, q: &MatchQuery, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
         let frame = parent.get_frame();
         assert!(
             frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
@@ -730,7 +766,7 @@ impl VideoFrameProxy {
         objects
     }
 
-    pub fn clear_parent(&self, q: &Query) -> Vec<VideoObjectProxy> {
+    pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
             o.set_parent(None);
@@ -739,89 +775,122 @@ impl VideoFrameProxy {
     }
 
     pub fn get_children(&self, id: i64) -> Vec<VideoObjectProxy> {
-        self.access_objects(&Query::ParentId(IntExpression::EQ(id)))
+        self.access_objects(&MatchQuery::ParentId(IntExpression::EQ(id)))
     }
 
-    pub fn add_object(&self, object: &VideoObjectProxy) {
+    pub fn add_object(
+        &self,
+        object: &VideoObjectProxy,
+        policy: IdCollisionResolutionPolicy,
+    ) -> anyhow::Result<()> {
         let parent_id_opt = object.get_parent_id();
         if let Some(parent_id) = parent_id_opt {
-            assert!(
-                self.object_exists(parent_id),
-                "Parent object with ID {} does not exist in the frame.",
-                parent_id
-            );
+            if !self.object_exists(parent_id) {
+                bail!(
+                    "Parent object with ID {} does not exist in the frame.",
+                    parent_id
+                );
+            }
         }
 
-        let mut inner = self.inner.write();
-        assert!(
-            object.is_detached(),
-            "Only detached objects can be attached to a frame."
-        );
+        if !object.is_detached() {
+            bail!("Only detached objects can be attached to a frame.");
+        }
 
         let object_id = object.get_id();
+        let new_id = self.get_max_object_id() + 1;
+        let mut inner = self.inner.write();
         if inner.resident_objects.contains_key(&object_id) {
-            panic!("Object with ID {} already exists in the frame.", object_id);
+            match policy {
+                IdCollisionResolutionPolicy::GenerateNewId => {
+                    object.set_id(new_id)?;
+                    inner.resident_objects.insert(new_id, object.inner.clone());
+                }
+                IdCollisionResolutionPolicy::Overwrite => {
+                    let old = inner.resident_objects.remove(&object_id).unwrap();
+                    old.write().frame = None;
+                    old.write().parent_id = None;
+                    inner
+                        .resident_objects
+                        .insert(object_id, object.inner.clone());
+                }
+                IdCollisionResolutionPolicy::Error => {
+                    bail!("Object with ID {} already exists in the frame.", object_id);
+                }
+            }
+        } else {
+            inner
+                .resident_objects
+                .insert(object_id, object.inner.clone());
         }
 
         object.attach_to_video_frame(self.clone());
-        inner
-            .resident_objects
-            .insert(object_id, object.inner.clone());
-    }
-
-    pub fn get_min_object_id(&self) -> i64 {
-        let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().min().copied().unwrap_or(0)
+        let object_id = object.get_id();
+        if object_id > inner.max_object_id {
+            inner.max_object_id = object_id;
+        }
+        Ok(())
     }
 
     pub fn get_max_object_id(&self) -> i64 {
         let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().max().copied().unwrap_or(0)
+        inner.max_object_id
     }
 
     pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use frame_update::ObjectUpdateCollisionResolutionPolicy::*;
-        let mut min_id = self.get_min_object_id();
         let other_inner = update.objects.clone();
+
         let object_query = |o: &VideoObject| {
             crate::primitives::message::video::query::and![
-                Query::Label(StringExpression::EQ(o.label.clone())),
-                Query::Creator(StringExpression::EQ(o.creator.clone()))
+                MatchQuery::Label(StringExpression::EQ(o.label.clone())),
+                MatchQuery::Creator(StringExpression::EQ(o.creator.clone()))
             ]
         };
 
         match &update.object_collision_resolution_policy {
             AddForeignObjects => {
                 for mut obj in other_inner {
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
             ErrorIfLabelsCollide => {
                 for mut obj in other_inner {
                     let objs = self.access_objects(&object_query(&obj));
                     if !objs.is_empty() {
-                        anyhow::bail!(
+                        bail!(
                             "Objects with label '{}' and creator '{}' already exists in the frame.",
                             obj.label,
                             obj.creator
                         )
                     }
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
             ReplaceSameLabelObjects => {
                 for mut obj in other_inner {
-                    let objs = self.delete_objects(&object_query(&obj));
-                    if !objs.is_empty() {
-                        min_id = self.get_min_object_id();
-                    }
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+                    self.delete_objects(&object_query(&obj));
+
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
         }
@@ -898,6 +967,16 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 
 #[pymethods]
 impl VideoFrameProxy {
+    #[setter]
+    pub fn set_parallelized(&mut self, is_parallelized: bool) {
+        self.is_parallelized = is_parallelized;
+    }
+
+    #[getter]
+    pub fn get_parallelized(&self) -> bool {
+        self.is_parallelized
+    }
+
     #[getter]
     fn memory_handle(&self) -> usize {
         self as *const Self as usize
@@ -917,7 +996,7 @@ impl VideoFrameProxy {
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
-        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, pts=0, dts=None, duration=None)
+        signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, time_base=(1, 1000000), pts=0, dts=None, duration=None)
     )]
     pub fn new(
         source_id: String,
@@ -928,6 +1007,7 @@ impl VideoFrameProxy {
         transcoding_method: VideoFrameTranscodingMethod,
         codec: Option<String>,
         keyframe: Option<bool>,
+        time_base: (i64, i64),
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
@@ -938,9 +1018,10 @@ impl VideoFrameProxy {
             framerate,
             width,
             height,
+            time_base: (time_base.0 as i32, time_base.1 as i32),
             dts,
             duration,
-            transcoding_method: transcoding_method.clone(),
+            transcoding_method,
             codec,
             keyframe,
             content: content.inner,
@@ -960,13 +1041,13 @@ impl VideoFrameProxy {
     #[getter]
     #[pyo3(name = "json")]
     pub fn json_gil(&self) -> String {
-        no_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
+        release_gil(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
     fn json_pretty_gil(&self) -> String {
-        no_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
+        release_gil(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
     }
 
     #[setter]
@@ -978,6 +1059,11 @@ impl VideoFrameProxy {
     #[getter]
     pub fn get_pts(&self) -> i64 {
         self.inner.read_recursive().pts
+    }
+
+    #[getter]
+    pub fn get_timebase(&self) -> (i32, i32) {
+        self.inner.read_recursive().time_base
     }
 
     #[setter]
@@ -1119,13 +1205,13 @@ impl VideoFrameProxy {
     #[setter]
     pub fn set_content(&mut self, content: VideoFrameContentProxy) {
         let mut inner = self.inner.write();
-        inner.content = content.inner.clone();
+        inner.content = content.inner;
     }
 
     #[getter]
     #[pyo3(name = "attributes")]
     pub fn attributes_gil(&self) -> Vec<(String, String)> {
-        no_gil(|| self.get_attributes())
+        release_gil(|| self.get_attributes())
     }
 
     #[pyo3(name = "find_attributes")]
@@ -1136,28 +1222,33 @@ impl VideoFrameProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(creator, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
     pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        no_gil(|| self.get_attribute(creator, name))
+        release_gil(|| self.get_attribute(creator, name))
     }
 
     #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
     pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        no_gil(|| self.delete_attributes(creator, names))
+        release_gil(|| self.delete_attributes(creator, names))
     }
 
     #[pyo3(name = "add_object")]
-    pub fn add_object_py(&self, o: VideoObjectProxy) {
-        no_gil(|| self.add_object(&o))
+    pub fn add_object_py(
+        &self,
+        o: VideoObjectProxy,
+        policy: IdCollisionResolutionPolicy,
+    ) -> PyResult<()> {
+        release_gil(|| self.add_object(&o, policy))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "delete_attribute")]
     pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        no_gil(|| self.delete_attribute(creator, name))
+        release_gil(|| self.delete_attribute(creator, name))
     }
 
     #[pyo3(name = "set_attribute")]
@@ -1167,47 +1258,51 @@ impl VideoFrameProxy {
 
     #[pyo3(name = "clear_attributes")]
     pub fn clear_attributes_gil(&mut self) {
-        no_gil(|| self.clear_attributes())
+        release_gil(|| self.clear_attributes())
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: &QueryProxy, draw_label: PySetDrawLabelKind) {
-        no_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
+    pub fn set_draw_label_gil(&self, q: &MatchQueryProxy, draw_label: SetDrawLabelKindProxy) {
+        release_gil(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "get_object")]
     pub fn get_object_gil(&self, id: i64) -> Option<VideoObjectProxy> {
-        no_gil(|| self.get_object(id))
+        release_gil(|| self.get_object(id))
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.access_objects(q.inner.deref()).into())
+    pub fn access_objects_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
+        release_gil(|| self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
     pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        no_gil(|| self.access_objects_by_id(&ids).into())
+        release_gil(|| self.access_objects_by_id(&ids).into())
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
     pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        no_gil(|| self.delete_objects_by_ids(&ids).into())
+        release_gil(|| self.delete_objects_by_ids(&ids).into())
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.delete_objects(&query.inner).into())
+    pub fn delete_objects_gil(&self, query: &MatchQueryProxy) -> VideoObjectsView {
+        release_gil(|| self.delete_objects(&query.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
-    pub fn set_parent_gil(&self, q: &QueryProxy, parent: &VideoObjectProxy) -> VideoObjectsView {
-        no_gil(|| self.set_parent(q.inner.deref(), &parent).into())
+    pub fn set_parent_gil(
+        &self,
+        q: &MatchQueryProxy,
+        parent: &VideoObjectProxy,
+    ) -> VideoObjectsView {
+        release_gil(|| self.set_parent(q.inner.deref(), parent).into())
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: &QueryProxy) -> VideoObjectsView {
-        no_gil(|| self.clear_parent(q.inner.deref()).into())
+    pub fn clear_parent_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
+        release_gil(|| self.clear_parent(q.inner.deref()).into())
     }
 
     pub fn clear_objects(&self) {
@@ -1217,42 +1312,43 @@ impl VideoFrameProxy {
 
     #[pyo3(name = "make_snapshot")]
     pub fn make_snapshot_gil(&self) {
-        no_gil(|| self.make_snapshot())
+        release_gil(|| self.make_snapshot())
     }
 
     #[pyo3(name = "restore_from_snapshot")]
     pub fn restore_from_snapshot_gil(&self) {
-        no_gil(|| self.restore_from_snapshot())
+        release_gil(|| self.restore_from_snapshot())
     }
 
     #[pyo3(name = "get_modified_objects")]
     pub fn get_modified_objects_gil(&self) -> VideoObjectsView {
-        no_gil(|| self.get_modified_objects().into())
+        release_gil(|| self.get_modified_objects().into())
     }
 
     #[pyo3(name = "get_children")]
     pub fn get_children_gil(&self, id: i64) -> VideoObjectsView {
-        no_gil(|| self.get_children(id).into())
+        release_gil(|| self.get_children(id).into())
     }
 
     #[pyo3(name = "copy")]
     pub fn copy_gil(&self) -> VideoFrameProxy {
-        no_gil(|| self.deep_copy())
+        release_gil(|| self.deep_copy())
     }
 
     #[pyo3(name = "update_attributes")]
     pub fn update_attributes_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_attributes(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update_attributes(other))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update_objects")]
     pub fn update_objects_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update_objects(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update_objects(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update")]
     pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        no_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+        release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
@@ -1260,9 +1356,13 @@ impl VideoFrameProxy {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectBuilder;
-    use crate::primitives::message::video::query::{eq, one_of, Query};
-    use crate::primitives::{RBBox, SetDrawLabelKind, VideoObjectModification, VideoObjectProxy};
-    use crate::test::utils::{gen_frame, gen_object, s};
+    use crate::primitives::message::video::query::match_query::MatchQuery;
+    use crate::primitives::message::video::query::{eq, one_of};
+    use crate::primitives::{
+        IdCollisionResolutionPolicy, RBBox, SetDrawLabelKind, VideoObjectModification,
+        VideoObjectProxy,
+    };
+    use crate::test::utils::{gen_empty_frame, gen_frame, gen_object, s};
     use std::sync::Arc;
 
     #[test]
@@ -1332,7 +1432,7 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let f = gen_frame();
         f.delete_objects_by_ids(&[0, 1]);
-        let objects = f.access_objects(&Query::Idle);
+        let objects = f.access_objects(&MatchQuery::Idle);
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
     }
@@ -1359,7 +1459,7 @@ mod tests {
         let o = f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
 
-        let removed = f.delete_objects(&Query::Id(eq(0)));
+        let removed = f.delete_objects(&MatchQuery::Id(eq(0)));
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].get_id(), 0);
         assert!(removed[0].get_frame().is_none());
@@ -1375,9 +1475,9 @@ mod tests {
     fn test_delete_all_objects() {
         pyo3::prepare_freethreaded_python();
         let f = gen_frame();
-        let objs = f.delete_objects(&Query::Idle);
+        let objs = f.delete_objects(&MatchQuery::Idle);
         assert_eq!(objs.len(), 3);
-        let objects = f.access_objects(&Query::Idle);
+        let objects = f.access_objects(&MatchQuery::Idle);
         assert!(objects.is_empty());
     }
 
@@ -1442,7 +1542,9 @@ mod tests {
                 .unwrap(),
         );
         let frame = gen_frame();
-        frame.add_object(&parent);
+        frame
+            .add_object(&parent, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         let obj = frame.get_object(0).unwrap();
         obj.set_parent(Some(parent.get_id()));
         frame.make_snapshot();
@@ -1468,7 +1570,7 @@ mod tests {
     #[test]
     fn set_parent_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1479,7 +1581,7 @@ mod tests {
     #[test]
     fn set_own_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&Query::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1494,13 +1596,13 @@ mod tests {
     fn test_set_clear_parent_ops() {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
-        frame.clear_parent(&Query::Id(one_of(&[1, 2])));
+        frame.clear_parent(&MatchQuery::Id(one_of(&[1, 2])));
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_none());
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_none());
 
-        frame.set_parent(&Query::Id(one_of(&[1, 2])), &parent);
+        frame.set_parent(&MatchQuery::Id(one_of(&[1, 2])), &parent);
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_some());
 
@@ -1542,7 +1644,8 @@ mod tests {
         );
 
         let f = gen_frame();
-        f.add_object(&o);
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]
@@ -1558,7 +1661,7 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        f.set_parent(&Query::Id(eq(0)), &o);
+        f.set_parent(&MatchQuery::Id(eq(0)), &o);
     }
 
     #[test]
@@ -1567,7 +1670,7 @@ mod tests {
         let f1 = gen_frame();
         let f2 = gen_frame();
         let f1o = f1.get_object(0).unwrap();
-        f2.set_parent(&Query::Id(eq(1)), &f1o);
+        f2.set_parent(&MatchQuery::Id(eq(1)), &f1o);
     }
 
     #[test]
@@ -1577,9 +1680,10 @@ mod tests {
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(o.get_frame().is_none());
         _ = o.set_id(33);
-        f2.add_object(&o);
+        f2.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         o = f2.get_object(33).unwrap();
-        f2.set_parent(&Query::Id(eq(1)), &o);
+        f2.set_parent(&MatchQuery::Id(eq(1)), &o);
     }
 
     #[test]
@@ -1596,7 +1700,9 @@ mod tests {
     #[test]
     fn ensure_owned_objects_detached_after_snapshot() {
         let frame = gen_frame();
-        frame.add_object(&gen_object(111));
+        frame
+            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
+            .unwrap();
         frame.make_snapshot();
         let object = frame.get_object(111).unwrap();
         assert!(!object.is_detached(), "Object is expected to be attached");
@@ -1624,12 +1730,16 @@ mod tests {
     #[should_panic(expected = "Only detached objects can be attached to a frame.")]
     fn ensure_spoiled_object_cannot_be_added() {
         let frame = gen_frame();
-        frame.add_object(&gen_object(111));
+        frame
+            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
+            .unwrap();
         let old_object = frame.get_object(111).unwrap();
         drop(frame);
         let frame = gen_frame();
         assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
-        frame.add_object(&old_object);
+        frame
+            .add_object(&old_object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]
@@ -1656,5 +1766,57 @@ mod tests {
         f.clear_attributes();
         assert!(f.get_attributes().is_empty());
         assert!(!new_f.get_attributes().is_empty());
+    }
+
+    #[test]
+    fn add_objects_test_policy_error() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+
+        let object = gen_object(0);
+        assert!(frame
+            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .is_err());
+    }
+
+    #[test]
+    fn add_objects_test_policy_generate_new_id() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .unwrap();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .unwrap();
+        assert_eq!(frame.get_max_object_id(), 1);
+        let objs = frame.access_objects(&MatchQuery::Idle);
+        assert_eq!(objs.len(), 2);
+    }
+
+    #[test]
+    fn add_objects_test_policy_overwrite() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .unwrap();
+
+        let object = gen_object(0);
+        assert!(frame
+            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .is_ok());
+
+        assert_eq!(frame.get_max_object_id(), 0);
+        let objs = frame.access_objects(&MatchQuery::Idle);
+        assert_eq!(objs.len(), 1);
     }
 }

@@ -6,12 +6,30 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Point, VideoFrameContentProxy,
-        VideoObjectProxy,
+        AttributeBuilder, IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point,
+        VideoFrameContentProxy, VideoObjectProxy, VideoObjectTrackingData,
     };
     use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
     use std::collections::HashMap;
+
+    #[pyfunction]
+    pub fn gen_empty_frame() -> VideoFrameProxy {
+        VideoFrameProxy::from_inner(
+            VideoFrameBuilder::default()
+                .source_id("test".to_string())
+                .pts(0)
+                .framerate("test".to_string())
+                .width(0)
+                .height(0)
+                .content(VideoFrameContentProxy::none().inner)
+                .transcoding_method(VideoFrameTranscodingMethod::Copy)
+                .codec(None)
+                .keyframe(None)
+                .build()
+                .unwrap(),
+        )
+    }
 
     #[pyfunction]
     pub fn gen_frame() -> VideoFrameProxy {
@@ -23,14 +41,9 @@ pub mod utils {
                 .width(0)
                 .height(0)
                 .content(VideoFrameContentProxy::none().inner)
-                .dts(None)
-                .transformations(Vec::default())
-                .duration(None)
                 .transcoding_method(VideoFrameTranscodingMethod::Copy)
                 .codec(None)
                 .keyframe(None)
-                .attributes(HashMap::default())
-                .offline_objects(Default::default())
                 .build()
                 .unwrap(),
         );
@@ -79,9 +92,12 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.add_object(&parent_object);
-        f.add_object(&c1);
-        f.add_object(&c2);
+        f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&c1, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&c2, IdCollisionResolutionPolicy::Error)
+            .unwrap();
 
         f.set_attribute(
             AttributeBuilder::default()
@@ -153,14 +169,28 @@ pub mod utils {
     }
 
     pub fn gen_object(id: i64) -> VideoObjectProxy {
-        VideoObjectProxy::from_video_object(VideoObject {
+        let o = VideoObjectProxy::from_video_object(VideoObject {
             id,
             creator: s("peoplenet"),
             label: s("face"),
             confidence: Some(0.5),
             bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+            track_info: Some(VideoObjectTrackingData {
+                id,
+                bounding_box: RBBox::new(100.0, 200.0, 10.0, 20.0, None),
+            }),
             ..Default::default()
-        })
+        });
+
+        let attr = AttributeBuilder::default()
+            .creator("some".to_string())
+            .name("attribute".to_string())
+            .hint(Some("hint".to_string()))
+            .values(vec![])
+            .build()
+            .unwrap();
+        o.set_attribute(attr);
+        o
     }
 
     #[inline(always)]

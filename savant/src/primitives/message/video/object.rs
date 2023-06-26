@@ -4,8 +4,8 @@ use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxKind};
-use crate::utils::python::no_gil;
+use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxType};
+use crate::utils::python::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
@@ -15,7 +15,16 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub mod context;
 pub mod objects_view;
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub enum IdCollisionResolutionPolicy {
+    GenerateNewId,
+    Overwrite,
+    Error,
+}
 
 /// Represents tracking data for a single object filled by a tracker.
 /// This is a readonly object, you cannot change fields inplace. If you need to change tracking data for
@@ -156,10 +165,10 @@ impl VideoObject {
         })
     }
 
-    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxKind) -> &RBBox {
+    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxType) -> &RBBox {
         match kind {
-            VideoObjectBBoxKind::Detection => &self.bbox,
-            VideoObjectBBoxKind::TrackingInfo => self
+            VideoObjectBBoxType::Detection => &self.bbox,
+            VideoObjectBBoxType::TrackingInfo => self
                 .track_info
                 .as_ref()
                 .map(|t| &t.bounding_box)
@@ -167,10 +176,10 @@ impl VideoObject {
         }
     }
 
-    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxKind) -> &mut RBBox {
+    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxType) -> &mut RBBox {
         match kind {
-            VideoObjectBBoxKind::Detection => &mut self.bbox,
-            VideoObjectBBoxKind::TrackingInfo => self
+            VideoObjectBBoxType::Detection => &mut self.bbox,
+            VideoObjectBBoxType::TrackingInfo => self
                 .track_info
                 .as_mut()
                 .map(|t| &mut t.bounding_box)
@@ -406,7 +415,7 @@ impl VideoObjectProxy {
     #[getter]
     #[pyo3(name = "attributes")]
     pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
-        no_gil(|| self.get_attributes())
+        release_gil(|| self.get_attributes())
     }
 
     /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
@@ -431,7 +440,7 @@ impl VideoObjectProxy {
     ///
     #[getter]
     pub fn bbox_ref(&self) -> VideoObjectRBBoxProxy {
-        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxKind::Detection)
+        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxType::Detection)
     }
 
     /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
@@ -522,7 +531,7 @@ impl VideoObjectProxy {
     #[pyo3(signature = (creator=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
     pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        no_gil(move || {
+        release_gil(move || {
             {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
@@ -586,7 +595,7 @@ impl VideoObjectProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        no_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(creator, names, hint))
     }
 
     /// Fetches attribute by creator and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
@@ -748,7 +757,7 @@ impl VideoObjectProxy {
 
     #[setter]
     pub fn set_id(&self, id: i64) -> PyResult<()> {
-        if matches!(self.get_frame(), Some(_)) {
+        if self.get_frame().is_some() {
             return Err(PyRuntimeError::new_err(
                 "When object is attached to a frame, it is impossible to change its ID",
             ));
@@ -787,7 +796,10 @@ mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectBuilder;
-    use crate::primitives::{AttributeBuilder, RBBox, VideoObjectModification, VideoObjectProxy};
+    use crate::primitives::{
+        AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectModification,
+        VideoObjectProxy,
+    };
     use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> VideoObjectProxy {
@@ -907,7 +919,8 @@ mod tests {
         drop(f);
         let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
-        f.add_object(&o);
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]
@@ -924,6 +937,7 @@ mod tests {
             copy.get_parent().is_none(),
             "Clean copy must have no parent"
         );
-        f.add_object(&o.detached_copy());
+        f.add_object(&o.detached_copy(), IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 }

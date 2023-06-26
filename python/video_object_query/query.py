@@ -1,7 +1,10 @@
+from savant_rs.primitives.geometry import RBBox
+from savant_rs.utils import BBoxMetricType
 from savant_rs.video_object_query import FloatExpression as FE, \
     IntExpression as IE, \
     StringExpression as SE, \
-    Query as Q
+    MatchQuery as Q, \
+    utility_resolver_name
 
 and_ = Q.and_
 or_ = Q.or_
@@ -14,8 +17,10 @@ eq = IE.eq
 fgt = FE.gt
 
 q = and_(
+    Q.eval("""!is_empty(id) || id == 13 || label == "hello" || creator == "where" """),
     Q.creator(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
+    Q.box_metric(RBBox(100.0, 50.0, 20.0, 30.0, 50), BBoxMetricType.IoU, FE.gt(0.5)),
     and_(
         or_(
             not_(Q.parent_defined()),
@@ -50,4 +55,3 @@ assert q.json == q2.json
 
 q3 = Q.from_yaml(q.yaml)
 assert q3.yaml == q.yaml
-
