@@ -22,7 +22,8 @@ pub type VideoObjectsViewBatch = HashMap<i64, VideoObjectsView>;
 /// Determines which object bbox is a subject of the operation
 ///
 #[pyclass]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
+#[repr(C)]
 pub enum VideoObjectBBoxType {
     Detection,
     TrackingInfo,

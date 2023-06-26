@@ -42,6 +42,7 @@ libloading = "0.8"
 crc32fast = "1"
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
+log = "0.4"
 
 
 [dependencies.pyo3]

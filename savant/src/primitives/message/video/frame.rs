@@ -1,7 +1,6 @@
 pub mod context;
 pub mod frame_update;
 
-use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
@@ -591,13 +590,6 @@ impl VideoFrameProxy {
 
     pub fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
         self.inner.clone()
-    }
-
-    pub(crate) fn update_from_inference_meta(
-        &self,
-        _meta: &InferenceObjectMeta,
-    ) -> anyhow::Result<()> {
-        todo!("To implement the function");
     }
 
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {

@@ -3,7 +3,13 @@
 /// This API is used to interface with the Savant Rust library from C.
 ///
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
-use crate::primitives::{VideoFrameProxy, VideoObjectProxy};
+use crate::primitives::{
+    IdCollisionResolutionPolicy, RBBox, VideoFrameProxy, VideoObjectBBoxType, VideoObjectProxy,
+    VideoObjectTrackingData,
+};
+use crate::utils::symbol_mapper::{get_model_name, get_object_label};
+use anyhow::bail;
+use std::collections::HashMap;
 use std::slice::from_raw_parts;
 
 /// When BBox is not defined, its elements are set to this value.
@@ -11,58 +17,52 @@ pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
 
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct InferenceObjectMeta {
+pub struct VideoObjectInferenceMeta {
     pub id: i64,
     pub creator_id: i64,
     pub label_id: i64,
     pub confidence: f64,
-    pub parent_id: i64,
-    pub box_xc: f64,
-    pub box_yx: f64,
-    pub box_width: f64,
-    pub box_height: f64,
-    pub box_angle: f64,
     pub track_id: i64,
-    pub track_box_xc: f64,
-    pub track_box_yx: f64,
-    pub track_box_width: f64,
-    pub track_box_height: f64,
-    pub track_box_angle: f64,
+    pub xc: f64,
+    pub yc: f64,
+    pub width: f64,
+    pub height: f64,
+    pub angle: f64,
 }
 
-impl From<&VideoObjectProxy> for InferenceObjectMeta {
-    fn from(o: &VideoObjectProxy) -> Self {
-        let o = o.inner.read_recursive();
-        let track_info = o.track_info.as_ref();
-        Self {
-            id: o.id,
-            creator_id: o.creator_id.unwrap_or(i64::MAX),
-            label_id: o.label_id.unwrap_or(i64::MAX),
-            confidence: o.confidence.unwrap_or(f64::MAX),
-            parent_id: o.parent_id.unwrap_or(i64::MAX),
-            box_xc: o.bbox.get_xc(),
-            box_yx: o.bbox.get_yc(),
-            box_width: o.bbox.get_width(),
-            box_height: o.bbox.get_height(),
-            box_angle: o.bbox.get_angle().unwrap_or(0.0),
-            track_id: track_info.map(|ti| ti.id).unwrap_or(i64::MAX),
-            track_box_xc: track_info
-                .map(|ti| ti.bounding_box.get_xc())
-                .unwrap_or(f64::MAX),
-            track_box_yx: track_info
-                .map(|ti| ti.bounding_box.get_yc())
-                .unwrap_or(f64::MAX),
-            track_box_width: track_info
-                .map(|ti| ti.bounding_box.get_width())
-                .unwrap_or(f64::MAX),
-            track_box_height: track_info
-                .map(|ti| ti.bounding_box.get_height())
-                .unwrap_or(f64::MAX),
-            track_box_angle: track_info
-                .map(|ti| ti.bounding_box.get_angle().unwrap_or(0.0))
-                .unwrap_or(0.0),
-        }
+pub fn from_object(
+    o: &VideoObjectProxy,
+    t: VideoObjectBBoxType,
+) -> anyhow::Result<VideoObjectInferenceMeta> {
+    let o = o.inner.read_recursive();
+    let track_info = o.track_info.as_ref();
+
+    let bind = match t {
+        VideoObjectBBoxType::Detection => Some(&o.bbox),
+        VideoObjectBBoxType::TrackingInfo => track_info.map(|ti| &ti.bounding_box),
+    };
+
+    if bind.is_none() {
+        bail!("Requested BBox is not defined for object with id {}", o.id)
     }
+    let bb = bind.unwrap();
+
+    if bb.get_angle().unwrap_or(0.0) != 0.0 {
+        bail!("Rotated bounding boxes cannot be passed to inference engine. You must orient them first.")
+    }
+
+    Ok(VideoObjectInferenceMeta {
+        id: o.id,
+        creator_id: o.creator_id.unwrap_or(i64::MAX),
+        label_id: o.label_id.unwrap_or(i64::MAX),
+        confidence: o.confidence.unwrap_or(0.0),
+        track_id: track_info.map(|ti| ti.id).unwrap_or(i64::MAX),
+        xc: bb.get_xc(),
+        yc: bb.get_yc(),
+        width: bb.get_width(),
+        height: bb.get_height(),
+        angle: BBOX_ELEMENT_UNDEFINED,
+    })
 }
 
 /// Returns the object vector length
@@ -84,9 +84,24 @@ pub unsafe extern "C" fn object_vector_len(handle: usize) -> usize {
 /// This function is unsafe because it dereferences a raw pointer
 ///
 #[no_mangle]
-pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> InferenceObjectMeta {
+pub unsafe extern "C" fn get_inference_meta(
+    handle: usize,
+    pos: usize,
+    t: VideoObjectBBoxType,
+) -> VideoObjectInferenceMeta {
     let this = unsafe { &*(handle as *const VideoObjectsView) };
-    (&this.inner[pos]).into()
+    from_object(&this.inner[pos], t).unwrap_or(VideoObjectInferenceMeta {
+        id: i64::MAX,
+        creator_id: i64::MAX,
+        label_id: i64::MAX,
+        confidence: 0.0,
+        track_id: i64::MAX,
+        xc: BBOX_ELEMENT_UNDEFINED,
+        yc: BBOX_ELEMENT_UNDEFINED,
+        width: BBOX_ELEMENT_UNDEFINED,
+        height: BBOX_ELEMENT_UNDEFINED,
+        angle: BBOX_ELEMENT_UNDEFINED,
+    })
 }
 
 /// Updates frame meta from inference meta
@@ -98,14 +113,86 @@ pub unsafe extern "C" fn get_inference_meta(handle: usize, pos: usize) -> Infere
 #[no_mangle]
 pub unsafe extern "C" fn update_frame_meta(
     frame_handle: usize,
-    ffi_inference_meta: *const InferenceObjectMeta,
+    ffi_inference_meta: *const VideoObjectInferenceMeta,
     count: usize,
+    t: VideoObjectBBoxType,
 ) {
     let inference_meta = unsafe { from_raw_parts(ffi_inference_meta, count) };
     let frame = unsafe { &*(frame_handle as *const VideoFrameProxy) };
     for m in inference_meta {
-        frame
-            .update_from_inference_meta(m)
-            .expect("Unable to update frame meta from inference meta.");
+        let angle = if m.angle == BBOX_ELEMENT_UNDEFINED {
+            None
+        } else {
+            Some(m.angle)
+        };
+
+        assert!(
+            m.xc != BBOX_ELEMENT_UNDEFINED
+                && m.yc != BBOX_ELEMENT_UNDEFINED
+                && m.width != BBOX_ELEMENT_UNDEFINED
+                && m.height != BBOX_ELEMENT_UNDEFINED,
+            "Bounding box elements must be defined"
+        );
+
+        let bounding_box = RBBox::new(m.xc, m.yc, m.width, m.height, angle);
+
+        match t {
+            VideoObjectBBoxType::Detection => {
+                let creator = get_model_name(m.creator_id);
+                let label = get_object_label(m.creator_id, m.label_id);
+
+                if creator.is_none() {
+                    log::warn!(
+                        "Model with id={} not found. Object {} will be ignored.",
+                        m.creator_id,
+                        m.id
+                    );
+                    continue;
+                }
+
+                if label.is_none() {
+                    log::warn!(
+                        "Label with id={} not found. Object {} will be ignored.",
+                        m.label_id,
+                        m.id
+                    );
+                    continue;
+                }
+
+                frame
+                    .add_object(
+                        &VideoObjectProxy::new(
+                            m.id,
+                            creator.unwrap(),
+                            label.unwrap(),
+                            bounding_box,
+                            HashMap::default(),
+                            Some(m.confidence),
+                            None,
+                        ),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )
+                    .expect(&format!(
+                        "Failed to add object with id={} to frame '{}'.",
+                        m.id,
+                        frame.get_source_id()
+                    ));
+            }
+            VideoObjectBBoxType::TrackingInfo => {
+                // update currently existing objects
+                assert!(
+                    m.track_id != i64::MAX,
+                    "When updating tracking information track id must be set"
+                );
+
+                let o = frame.get_object(m.id).expect(&format!(
+                    "Object with Id={} not found on frame '{}'.",
+                    m.id,
+                    frame.get_source_id()
+                ));
+
+                o.set_tracking_data(Some(VideoObjectTrackingData::new(m.track_id, bounding_box)));
+            }
+        }
     }
 }
