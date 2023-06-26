@@ -164,7 +164,7 @@ pub enum MatchQuery {
     TrackBoxAngle(FloatExpression),
     #[serde(rename = "track.bbox.metric")]
     TrackBoxMetric {
-        bbox: (f64, f64, f64, f64, Option<f64>),
+        other: (f64, f64, f64, f64, Option<f64>),
         metric_type: BBoxMetricType,
         threshold_expr: FloatExpression,
     },
@@ -202,7 +202,7 @@ pub enum MatchQuery {
     BoxAngle(FloatExpression),
     #[serde(rename = "bbox.iou")]
     BoxMetric {
-        bbox: (f64, f64, f64, f64, Option<f64>),
+        other: (f64, f64, f64, f64, Option<f64>),
         metric_type: BBoxMetricType,
         threshold_expr: FloatExpression,
     },
@@ -286,11 +286,11 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                 .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a, ctx)))
                 .unwrap_or(false),
             MatchQuery::TrackBoxMetric {
-                bbox,
+                other,
                 metric_type,
                 threshold_expr,
             } => o.track_info.as_ref().map_or(false, |t| {
-                let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
+                let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
                 let metric = match metric_type {
                     BBoxMetricType::IoU => t.bounding_box.iou(&other).unwrap_or(0.0),
                     BBoxMetricType::IoSelf => t.bounding_box.ios(&o.bbox).unwrap_or(0.0),
@@ -317,7 +317,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                 .map(|a| x.execute(&a, ctx))
                 .unwrap_or(false),
             MatchQuery::BoxMetric {
-                bbox,
+                other: bbox,
                 metric_type,
                 threshold_expr,
             } => {
@@ -549,8 +549,8 @@ pub fn batch_foreach_udf(
 mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::bbox::BBoxMetricType;
     use crate::primitives::message::video::object::context::ObjectContext;
-    use crate::primitives::message::video::object::VideoObjectTrackingData;
     use crate::primitives::message::video::query::match_query::MatchQuery::*;
     use crate::primitives::message::video::query::match_query::{
         filter, foreach_udf, map_udf, partition, MatchQuery,
@@ -776,12 +776,6 @@ mod tests {
         assert!(expr.execute_with_new_context(&object));
 
         let expr = TrackDefined;
-        assert!(!expr.execute_with_new_context(&gen_object(1)));
-
-        object.set_tracking_data(Some(VideoObjectTrackingData::new(
-            1,
-            RBBox::new(1.0, 2.0, 10.0, 20.0, None),
-        )));
         assert!(expr.execute_with_new_context(&object));
 
         object.set_attribute(
@@ -916,9 +910,62 @@ mod tests {
     }
 
     #[test]
-    fn test_bbox_metric() {
-        // add min id, max id to frame
-        // make update_any_matching, update_best_matching
-        //todo!();
+    fn test_bbox_metric_iou() {
+        let expr = BoxMetric {
+            other: (1.0, 2.0, 10.0, 20.0, None), // matches to the box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoU,
+            threshold_expr: FloatExpression::GE(0.99),
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
+    }
+
+    #[test]
+    fn test_bbox_metric_ios() {
+        let expr = BoxMetric {
+            other: (1.0, 2.0, 2.0, 4.0, None), // matches to the box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoSelf,
+            threshold_expr: FloatExpression::GE(0.99),
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
+    }
+
+    #[test]
+    fn test_bbox_metric_ioo() {
+        let expr = BoxMetric {
+            other: (1.0, 2.0, 100.0, 200.0, None), // matches to the box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoOther,
+            threshold_expr: FloatExpression::LE(0.05), // < 10 * 20 / (100 * 200)
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
+    }
+
+    #[test]
+    fn test_track_bbox_metric_iou() {
+        let expr = TrackBoxMetric {
+            other: (100.0, 200.0, 10.0, 20.0, None), // matches to the tracking box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoU,
+            threshold_expr: FloatExpression::GE(0.99),
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
+    }
+
+    #[test]
+    fn test_track_bbox_metric_ios() {
+        let expr = BoxMetric {
+            other: (100.0, 200.0, 2.0, 4.0, None), // matches to the tracking box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoSelf,
+            threshold_expr: FloatExpression::GE(0.99),
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
+    }
+
+    #[test]
+    fn test_track_bbox_metric_ioo() {
+        let expr = BoxMetric {
+            other: (100.0, 200.0, 100.0, 200.0, None), // matches to the tracking box defined in gen_object(1)
+            metric_type: BBoxMetricType::IoOther,
+            threshold_expr: FloatExpression::LE(0.05), // < 10 * 20 / (100 * 200)
+        };
+        assert!(expr.execute_with_new_context(&gen_object(1)));
     }
 }

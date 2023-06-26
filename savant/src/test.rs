@@ -7,7 +7,7 @@ pub mod utils {
     use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
         AttributeBuilder, IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point,
-        VideoFrameContentProxy, VideoObjectProxy,
+        VideoFrameContentProxy, VideoObjectProxy, VideoObjectTrackingData,
     };
     use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
@@ -175,6 +175,10 @@ pub mod utils {
             label: s("face"),
             confidence: Some(0.5),
             bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
+            track_info: Some(VideoObjectTrackingData {
+                id,
+                bounding_box: RBBox::new(100.0, 200.0, 10.0, 20.0, None),
+            }),
             ..Default::default()
         });
 
