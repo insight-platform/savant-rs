@@ -27,6 +27,15 @@ lazy_static! {
 }
 
 #[pyclass]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "bbox.metric.type")]
+pub enum BBoxMetricType {
+    IoU,
+    IoSelf,
+    IoOther,
+}
+
+#[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
 pub struct RBBox {
@@ -278,9 +287,53 @@ impl RBBox {
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
+
+    #[pyo3(name = "ios")]
+    pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ios(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    #[pyo3(name = "ioo")]
+    pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ioo(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
 }
 
 impl RBBox {
+    pub fn ios(&self, other: &Self) -> anyhow::Result<f64> {
+        if self.area() < EPS || other.area() < EPS {
+            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
+        }
+
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        Ok(intersection / self.area())
+    }
+
+    pub fn ioo(&self, other: &Self) -> anyhow::Result<f64> {
+        if self.area() < EPS || other.area() < EPS {
+            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
+        }
+
+        let mut area1 = self.as_polygonal_area();
+        let poly1 = area1.get_polygon();
+        let mut area2 = other.as_polygonal_area();
+        let poly2 = area2.get_polygon();
+
+        let intersection = poly1.intersection(&poly2).unsigned_area();
+        Ok(intersection / other.area())
+    }
+
     pub fn iou(&self, other: &Self) -> anyhow::Result<f64> {
         if self.area() < EPS || other.area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
@@ -484,6 +537,16 @@ impl PythonBBox {
     #[pyo3(name = "iou")]
     fn iou_gil(&self, other: &Self) -> PyResult<f64> {
         self.inner.iou_gil(&other.inner)
+    }
+
+    #[pyo3(name = "ios")]
+    fn ios_gil(&self, other: &Self) -> PyResult<f64> {
+        self.inner.ios_gil(&other.inner)
+    }
+
+    #[pyo3(name = "ioo")]
+    fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
+        self.inner.ioo_gil(&other.inner)
     }
 
     fn __str__(&self) -> String {

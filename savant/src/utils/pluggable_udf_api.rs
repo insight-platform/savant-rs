@@ -275,33 +275,34 @@ pub fn call_object_map_modifier(
 mod tests {
     use super::*;
     use crate::primitives::message::video::query::match_query::MatchQuery;
+    use crate::primitives::IdCollisionResolutionPolicy;
     use crate::test::utils::{gen_frame, gen_object};
 
     #[test]
     fn pluggable_udf_api() -> anyhow::Result<()> {
         pyo3::prepare_freethreaded_python();
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "unary_op_even",
             &UserFunctionType::ObjectPredicate,
             "sample.unary_op_even",
         )?;
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "binary_op_parent",
             &UserFunctionType::ObjectPredicate,
             "sample.binary_op_parent",
         )?;
 
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "inplace_modifier",
             &UserFunctionType::ObjectInplaceModifier,
             "sample.inplace_modifier",
         )?;
 
         register_plugin_function(
-            "../target/debug/libsample_plugin.so",
+            "../target/debug/libsavant_rs.so",
             "map_modifier",
             &UserFunctionType::ObjectMapModifier,
             "sample.map_modifier",
@@ -321,8 +322,10 @@ mod tests {
         let f = gen_frame();
         f.delete_objects(&MatchQuery::Idle);
         let parent = gen_object(12);
-        f.add_object(&parent);
-        f.add_object(&o);
+        f.add_object(&parent, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         o.set_parent(Some(parent.get_id()));
 
         assert!(call_object_predicate(

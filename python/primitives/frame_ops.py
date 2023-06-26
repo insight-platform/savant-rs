@@ -3,7 +3,7 @@ import ctypes
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.primitives import VideoObject, AttributeValue, \
-    Attribute, VideoFrame, VideoFrameContent, FrameTransformation
+    Attribute, VideoFrame, VideoFrameContent, FrameTransformation, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.video_object_query import MatchQuery as Q, \
@@ -106,7 +106,7 @@ frame.add_object(VideoObject(
     confidence=0.5,
     attributes={},
     track=None,
-))
+), IdCollisionResolutionPolicy.Error)
 
 f = gen_frame()
 print("Raw address to pass to C-funcs: ", f.memory_handle)

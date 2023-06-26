@@ -3,8 +3,9 @@ use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::message::video::query;
 use crate::primitives::message::video::query::VideoObjectsProxyBatch;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::VideoObjectProxy;
+use crate::primitives::{RBBox, VideoObjectProxy};
 
+use crate::primitives::bbox::BBoxMetricType;
 use crate::utils::eval_resolvers::{
     config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
 };
@@ -161,6 +162,12 @@ pub enum MatchQuery {
     TrackBoxAngleDefined,
     #[serde(rename = "track.bbox.angle")]
     TrackBoxAngle(FloatExpression),
+    #[serde(rename = "track.bbox.metric")]
+    TrackBoxMetric {
+        bbox: (f64, f64, f64, f64, Option<f64>),
+        metric_type: BBoxMetricType,
+        threshold_expr: FloatExpression,
+    },
 
     // parent
     #[serde(rename = "parent.defined")]
@@ -193,7 +200,12 @@ pub enum MatchQuery {
     BoxAngleDefined,
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
-
+    #[serde(rename = "bbox.iou")]
+    BoxMetric {
+        bbox: (f64, f64, f64, f64, Option<f64>),
+        metric_type: BBoxMetricType,
+        threshold_expr: FloatExpression,
+    },
     // Attributes
     #[serde(rename = "attribute.defined")]
     AttributeDefined(String, String),
@@ -273,6 +285,19 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                 .as_ref()
                 .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a, ctx)))
                 .unwrap_or(false),
+            MatchQuery::TrackBoxMetric {
+                bbox,
+                metric_type,
+                threshold_expr,
+            } => o.track_info.as_ref().map_or(false, |t| {
+                let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
+                let metric = match metric_type {
+                    BBoxMetricType::IoU => t.bounding_box.iou(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoSelf => t.bounding_box.ios(&o.bbox).unwrap_or(0.0),
+                    BBoxMetricType::IoOther => t.bounding_box.ioo(&other).unwrap_or(0.0),
+                };
+                threshold_expr.execute(&metric, ctx)
+            }),
 
             // parent
             MatchQuery::ParentDefined => o.parent_id.is_some(),
@@ -291,6 +316,19 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                 .get_angle()
                 .map(|a| x.execute(&a, ctx))
                 .unwrap_or(false),
+            MatchQuery::BoxMetric {
+                bbox,
+                metric_type,
+                threshold_expr,
+            } => {
+                let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
+                let metric = match metric_type {
+                    BBoxMetricType::IoU => o.bbox.iou(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoSelf => o.bbox.ios(&o.bbox).unwrap_or(0.0),
+                    BBoxMetricType::IoOther => o.bbox.ioo(&other).unwrap_or(0.0),
+                };
+                threshold_expr.execute(&metric, ctx)
+            }
 
             // attributes
             MatchQuery::AttributeDefined(creator, label) => o
@@ -518,7 +556,7 @@ mod tests {
         filter, foreach_udf, map_udf, partition, MatchQuery,
     };
     use crate::primitives::message::video::query::*;
-    use crate::primitives::{AttributeBuilder, RBBox};
+    use crate::primitives::{AttributeBuilder, IdCollisionResolutionPolicy, RBBox};
     use crate::query_and;
     use crate::test::utils::{gen_frame, gen_object, s};
     use crate::utils::eval_resolvers::register_env_resolver;
@@ -695,8 +733,10 @@ mod tests {
         let parent_object = gen_object(13);
         let f = gen_frame();
         f.delete_objects(&MatchQuery::Idle);
-        f.add_object(&parent_object);
-        f.add_object(&object);
+        f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         object.set_parent(Some(parent_object.get_id()));
 
         let expr = ParentId(eq(13));
@@ -811,7 +851,7 @@ mod tests {
     fn test_udf() {
         let f = gen_frame();
         let objects = f.access_objects(&UserDefinedObjectPredicate(
-            "../target/debug/libsample_plugin.so".to_string(),
+            "../target/debug/libsavant_rs.so".to_string(),
             "unary_op_even".to_string(),
         ));
         assert_eq!(objects.len(), 2, "Only even objects must be returned");
@@ -825,7 +865,7 @@ mod tests {
         let udf_name = "sample.map_modifier";
         if !is_plugin_function_registered(&udf_name) {
             register_plugin_function(
-                "../target/debug/libsample_plugin.so",
+                "../target/debug/libsavant_rs.so",
                 "map_modifier",
                 &UserFunctionType::ObjectMapModifier,
                 udf_name,
@@ -855,7 +895,7 @@ mod tests {
         let udf_name = "sample.inplace_modifier";
         if !is_plugin_function_registered(&udf_name) {
             register_plugin_function(
-                "../target/debug/libsample_plugin.so",
+                "../target/debug/libsavant_rs.so",
                 "inplace_modifier",
                 &UserFunctionType::ObjectInplaceModifier,
                 udf_name,
@@ -874,5 +914,13 @@ mod tests {
                 "Label must be modified"
             );
         }
+    }
+
+    #[test]
+    fn test_bbox_metric() {
+        // add IdCollisionResolutionPolicy to object additon
+        // add min id, max id to frame
+        // make update_any_matching, update_best_matching
+        //todo!();
     }
 }

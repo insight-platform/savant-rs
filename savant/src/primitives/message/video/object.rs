@@ -18,6 +18,14 @@ use std::sync::Arc;
 pub mod context;
 pub mod objects_view;
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub enum IdCollisionResolutionPolicy {
+    GenerateNewId,
+    Overwrite,
+    Error,
+}
+
 /// Represents tracking data for a single object filled by a tracker.
 /// This is a readonly object, you cannot change fields inplace. If you need to change tracking data for
 /// an object, you need to create a new instance and fill it. However, if you have requested the access with
@@ -788,7 +796,10 @@ mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectBuilder;
-    use crate::primitives::{AttributeBuilder, RBBox, VideoObjectModification, VideoObjectProxy};
+    use crate::primitives::{
+        AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectModification,
+        VideoObjectProxy,
+    };
     use crate::test::utils::{gen_frame, s};
 
     fn get_object() -> VideoObjectProxy {
@@ -908,7 +919,8 @@ mod tests {
         drop(f);
         let f = gen_frame();
         f.delete_objects_by_ids(&[0]);
-        f.add_object(&o);
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]
@@ -925,6 +937,7 @@ mod tests {
             copy.get_parent().is_none(),
             "Clean copy must have no parent"
         );
-        f.add_object(&o.detached_copy());
+        f.add_object(&o.detached_copy(), IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 }

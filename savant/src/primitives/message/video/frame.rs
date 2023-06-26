@@ -11,9 +11,11 @@ use crate::primitives::message::video::query::match_query::{
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, Message, SetDrawLabelKind, SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
+    Attribute, IdCollisionResolutionPolicy, Message, SetDrawLabelKind, SetDrawLabelKindProxy,
+    VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::release_gil;
+use anyhow::bail;
 use derive_builder::Builder;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
@@ -370,6 +372,9 @@ pub struct VideoFrame {
     #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) resident_objects: HashMap<i64, Arc<RwLock<VideoObject>>>,
+    #[with(Skip)]
+    #[builder(setter(skip))]
+    pub(crate) max_object_id: i64,
 }
 
 impl Default for VideoFrame {
@@ -391,6 +396,7 @@ impl Default for VideoFrame {
             attributes: HashMap::new(),
             offline_objects: HashMap::new(),
             resident_objects: HashMap::new(),
+            max_object_id: 0,
         }
     }
 }
@@ -772,47 +778,73 @@ impl VideoFrameProxy {
         self.access_objects(&MatchQuery::ParentId(IntExpression::EQ(id)))
     }
 
-    pub fn add_object(&self, object: &VideoObjectProxy) {
+    pub fn add_object(
+        &self,
+        object: &VideoObjectProxy,
+        policy: IdCollisionResolutionPolicy,
+    ) -> anyhow::Result<()> {
         let parent_id_opt = object.get_parent_id();
         if let Some(parent_id) = parent_id_opt {
-            assert!(
-                self.object_exists(parent_id),
-                "Parent object with ID {} does not exist in the frame.",
-                parent_id
-            );
+            if !self.object_exists(parent_id) {
+                bail!(
+                    "Parent object with ID {} does not exist in the frame.",
+                    parent_id
+                );
+            }
         }
 
-        let mut inner = self.inner.write();
-        assert!(
-            object.is_detached(),
-            "Only detached objects can be attached to a frame."
-        );
+        if !object.is_detached() {
+            bail!("Only detached objects can be attached to a frame.");
+        }
 
         let object_id = object.get_id();
+
+        let mut inner = self.inner.write();
         if inner.resident_objects.contains_key(&object_id) {
-            panic!("Object with ID {} already exists in the frame.", object_id);
+            match policy {
+                IdCollisionResolutionPolicy::GenerateNewId => {
+                    let id = self.get_max_object_id() + 1;
+                    object.set_id(id)?;
+                    inner
+                        .resident_objects
+                        .insert(object_id, object.inner.clone());
+                }
+                IdCollisionResolutionPolicy::Overwrite => {
+                    let old = inner.resident_objects.remove(&object_id).unwrap();
+                    old.write().frame = None;
+                    old.write().parent_id = None;
+                    inner
+                        .resident_objects
+                        .insert(object_id, object.inner.clone());
+                }
+                IdCollisionResolutionPolicy::Error => {
+                    bail!("Object with ID {} already exists in the frame.", object_id);
+                }
+            }
+        } else {
+            inner
+                .resident_objects
+                .insert(object_id, object.inner.clone());
         }
 
         object.attach_to_video_frame(self.clone());
-        inner
-            .resident_objects
-            .insert(object_id, object.inner.clone());
-    }
+        let object_id = object.get_id();
+        if object_id > inner.max_object_id {
+            inner.max_object_id = object_id;
+        }
 
-    pub fn get_min_object_id(&self) -> i64 {
-        let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().min().copied().unwrap_or(0)
+        Ok(())
     }
 
     pub fn get_max_object_id(&self) -> i64 {
         let inner = self.inner.read_recursive();
-        inner.resident_objects.keys().max().copied().unwrap_or(0)
+        inner.max_object_id
     }
 
     pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use frame_update::ObjectUpdateCollisionResolutionPolicy::*;
-        let mut min_id = self.get_min_object_id();
         let other_inner = update.objects.clone();
+
         let object_query = |o: &VideoObject| {
             crate::primitives::message::video::query::and![
                 MatchQuery::Label(StringExpression::EQ(o.label.clone())),
@@ -823,35 +855,46 @@ impl VideoFrameProxy {
         match &update.object_collision_resolution_policy {
             AddForeignObjects => {
                 for mut obj in other_inner {
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
             ErrorIfLabelsCollide => {
                 for mut obj in other_inner {
                     let objs = self.access_objects(&object_query(&obj));
                     if !objs.is_empty() {
-                        anyhow::bail!(
+                        bail!(
                             "Objects with label '{}' and creator '{}' already exists in the frame.",
                             obj.label,
                             obj.creator
                         )
                     }
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
             ReplaceSameLabelObjects => {
                 for mut obj in other_inner {
-                    let objs = self.delete_objects(&object_query(&obj));
-                    if !objs.is_empty() {
-                        min_id = self.get_min_object_id();
-                    }
-                    min_id -= 1;
-                    obj.id = min_id;
-                    self.add_object(&VideoObjectProxy::from_video_object(obj));
+                    self.delete_objects(&object_query(&obj));
+
+                    let object_id = self.get_max_object_id() + 1;
+                    obj.id = object_id;
+
+                    self.add_object(
+                        &VideoObjectProxy::from_video_object(obj),
+                        IdCollisionResolutionPolicy::GenerateNewId,
+                    )?;
                 }
             }
         }
@@ -1198,8 +1241,13 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "add_object")]
-    pub fn add_object_py(&self, o: VideoObjectProxy) {
-        release_gil(|| self.add_object(&o))
+    pub fn add_object_py(
+        &self,
+        o: VideoObjectProxy,
+        policy: IdCollisionResolutionPolicy,
+    ) -> PyResult<()> {
+        release_gil(|| self.add_object(&o, policy))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "delete_attribute")]
@@ -1314,7 +1362,10 @@ mod tests {
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::primitives::message::video::query::{eq, one_of};
-    use crate::primitives::{RBBox, SetDrawLabelKind, VideoObjectModification, VideoObjectProxy};
+    use crate::primitives::{
+        IdCollisionResolutionPolicy, RBBox, SetDrawLabelKind, VideoObjectModification,
+        VideoObjectProxy,
+    };
     use crate::test::utils::{gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1495,7 +1546,9 @@ mod tests {
                 .unwrap(),
         );
         let frame = gen_frame();
-        frame.add_object(&parent);
+        frame
+            .add_object(&parent, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         let obj = frame.get_object(0).unwrap();
         obj.set_parent(Some(parent.get_id()));
         frame.make_snapshot();
@@ -1595,7 +1648,8 @@ mod tests {
         );
 
         let f = gen_frame();
-        f.add_object(&o);
+        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]
@@ -1630,7 +1684,8 @@ mod tests {
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(o.get_frame().is_none());
         _ = o.set_id(33);
-        f2.add_object(&o);
+        f2.add_object(&o, IdCollisionResolutionPolicy::Error)
+            .unwrap();
         o = f2.get_object(33).unwrap();
         f2.set_parent(&MatchQuery::Id(eq(1)), &o);
     }
@@ -1649,7 +1704,9 @@ mod tests {
     #[test]
     fn ensure_owned_objects_detached_after_snapshot() {
         let frame = gen_frame();
-        frame.add_object(&gen_object(111));
+        frame
+            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
+            .unwrap();
         frame.make_snapshot();
         let object = frame.get_object(111).unwrap();
         assert!(!object.is_detached(), "Object is expected to be attached");
@@ -1677,12 +1734,16 @@ mod tests {
     #[should_panic(expected = "Only detached objects can be attached to a frame.")]
     fn ensure_spoiled_object_cannot_be_added() {
         let frame = gen_frame();
-        frame.add_object(&gen_object(111));
+        frame
+            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
+            .unwrap();
         let old_object = frame.get_object(111).unwrap();
         drop(frame);
         let frame = gen_frame();
         assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
-        frame.add_object(&old_object);
+        frame
+            .add_object(&old_object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
     }
 
     #[test]

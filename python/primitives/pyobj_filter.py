@@ -1,10 +1,10 @@
 import threading
 
 from savant_rs.utils import gen_frame
-from savant_rs.primitives import VideoObject, VideoFrameBatch
+from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, IntExpression as IE, utility_resolver_name, \
-    register_utility_resolver
+from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
+    utility_resolver_name, register_utility_resolver
 from timeit import default_timer as timer
 from threading import Thread, Barrier
 
@@ -13,11 +13,12 @@ import random
 register_utility_resolver()
 
 T = 32
-N = 3000
+N = 100
 
 
 def thread_python(barrier):
     global results
+
     def and_(*l):
         return lambda o: all(f(o) for f in l)
 
@@ -84,6 +85,7 @@ for t in threads:
 
 print("Python Query\t\t", (timer() - tim) * 1000_000)
 
+
 def thread_full(barrier):
     global results
     f = gen_frame()
@@ -97,7 +99,7 @@ def thread_full(barrier):
             confidence=random.random(),
             attributes={},
             track=None,
-        ))
+        ), IdCollisionResolutionPolicy.Error)
 
     full_expr = Q.eval(""" 
     (contains(("created_by_4", "created_by_2"), creator) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
@@ -110,7 +112,8 @@ def thread_full(barrier):
     f.access_objects(full_expr)
     results.append((timer() - t) * 1000_000)
 
-b = Barrier(T+1)
+
+b = Barrier(T + 1)
 threads = []
 results = []
 
@@ -141,7 +144,7 @@ def thread_decomposed(barrier):
             confidence=random.random(),
             attributes={},
             track=None,
-        ))
+        ), IdCollisionResolutionPolicy.Error)
 
     decomposed_expr = Q.and_(
         Q.or_(
@@ -159,7 +162,7 @@ def thread_decomposed(barrier):
     results.append((timer() - t) * 1000_000)
 
 
-b = Barrier(T+1)
+b = Barrier(T + 1)
 threads = []
 results = []
 
@@ -176,6 +179,7 @@ for t in threads:
 
 print("Decomposed Query\t", (timer() - tim) * 1000_000)
 
+
 def measure_batch_full():
     batch = VideoFrameBatch()
     for id in range(0, T):
@@ -191,7 +195,7 @@ def measure_batch_full():
                 confidence=random.random(),
                 attributes={},
                 track=None,
-            ))
+            ), IdCollisionResolutionPolicy.Error)
         batch.add(id, f)
 
     full_expr = Q.eval(""" 
@@ -204,7 +208,9 @@ def measure_batch_full():
     res = batch.access_objects(full_expr)
     print("Batch Full Query\t", (timer() - t) * 1000_000)
 
+
 measure_batch_full()
+
 
 def measure_batch_full_dsl():
     batch = VideoFrameBatch()
@@ -221,23 +227,24 @@ def measure_batch_full_dsl():
                 confidence=random.random(),
                 attributes={},
                 track=None,
-            ))
+            ), IdCollisionResolutionPolicy.Error)
         batch.add(id, f)
 
     optimized_expr = Q.and_(
-            Q.or_(
-                Q.creator(SE.eq("created_by_4")),
-                Q.creator(SE.eq("created_by_2")),
-                Q.creator(SE.ends_with("2")),
-                Q.creator(SE.ends_with("4")),
-                Q.creator(SE.ends_with("6"))),
-            Q.box_angle_defined(),
-            Q.or_(
-                Q.confidence(FE.gt(0.5)),
-                Q.confidence(FE.lt(0.3))))
+        Q.or_(
+            Q.creator(SE.eq("created_by_4")),
+            Q.creator(SE.eq("created_by_2")),
+            Q.creator(SE.ends_with("2")),
+            Q.creator(SE.ends_with("4")),
+            Q.creator(SE.ends_with("6"))),
+        Q.box_angle_defined(),
+        Q.or_(
+            Q.confidence(FE.gt(0.5)),
+            Q.confidence(FE.lt(0.3))))
 
     t = timer()
     res = batch.access_objects(optimized_expr)
     print("Batch Full Optimized Query\t", (timer() - t) * 1000_000)
+
 
 measure_batch_full_dsl()

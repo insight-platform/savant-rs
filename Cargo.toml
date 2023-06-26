@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "sample_plugin",
     "savant",
     "etcd_dynamic_state",
     "savant_etcd_dynamic_state"

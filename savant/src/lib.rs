@@ -1,6 +1,7 @@
 /// # C API for Savant Rust Library
 ///
 pub mod capi;
+pub mod cplugin;
 /// # Basic objects
 ///
 pub mod primitives;

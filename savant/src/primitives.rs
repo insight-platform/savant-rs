@@ -44,7 +44,9 @@ pub use message::video::frame::frame_update::{
 pub use message::video::frame::{
     VideoFrameContentProxy, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
-pub use message::video::object::{VideoObjectModification, VideoObjectProxy};
+pub use message::video::object::{
+    IdCollisionResolutionPolicy, VideoObjectModification, VideoObjectProxy,
+};
 pub use message::Message;
 pub use point::Point;
 pub use polygonal_area::PolygonalArea;
@@ -105,6 +107,8 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoObjectTrackingData>()?;
     m.add_class::<VideoObjectRBBoxProxy>()?;
     m.add_class::<VideoObjectsView>()?;
+
+    m.add_class::<IdCollisionResolutionPolicy>()?;
 
     Ok(())
 }

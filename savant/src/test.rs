@@ -6,8 +6,8 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, Intersection, IntersectionKind, Point, VideoFrameContentProxy,
-        VideoObjectProxy,
+        AttributeBuilder, IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point,
+        VideoFrameContentProxy, VideoObjectProxy,
     };
     use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
@@ -74,9 +74,12 @@ pub mod utils {
                 .unwrap(),
         );
 
-        f.add_object(&parent_object);
-        f.add_object(&c1);
-        f.add_object(&c2);
+        f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&c1, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        f.add_object(&c2, IdCollisionResolutionPolicy::Error)
+            .unwrap();
 
         f.set_attribute(
             AttributeBuilder::default()

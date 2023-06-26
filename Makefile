@@ -11,10 +11,6 @@ clippy:
 	@echo "Running clippy..."
 	cargo clippy
 
-sample_plugin:
-	@echo "Building sample plugin..."
-	cd sample_plugin && cargo build
-
 build_savant:
 	@echo "Building..."
 	cd savant && CARGO_INCREMENTAL=true maturin build -o dist
@@ -44,10 +40,10 @@ clean:
 	cd savant && rm -rf dist/*.whl
 	cd savant_etcd_dynamic_state && rm -rf dist/*.whl
 
-tests: sample_plugin
+tests:
 	@echo "Running tests..."
-	cd savant && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
+	cd savant && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
 
-bench: sample_plugin
+bench:
 	@echo "Running benchmarks..."
 	cd savant && cargo bench --no-default-features -- --show-output --nocapture
