@@ -14,6 +14,24 @@ pub mod utils {
     use std::collections::HashMap;
 
     #[pyfunction]
+    pub fn gen_empty_frame() -> VideoFrameProxy {
+        VideoFrameProxy::from_inner(
+            VideoFrameBuilder::default()
+                .source_id("test".to_string())
+                .pts(0)
+                .framerate("test".to_string())
+                .width(0)
+                .height(0)
+                .content(VideoFrameContentProxy::none().inner)
+                .transcoding_method(VideoFrameTranscodingMethod::Copy)
+                .codec(None)
+                .keyframe(None)
+                .build()
+                .unwrap(),
+        )
+    }
+
+    #[pyfunction]
     pub fn gen_frame() -> VideoFrameProxy {
         let f = VideoFrameProxy::from_inner(
             VideoFrameBuilder::default()

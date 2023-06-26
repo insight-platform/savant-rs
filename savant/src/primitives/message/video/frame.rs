@@ -798,16 +798,13 @@ impl VideoFrameProxy {
         }
 
         let object_id = object.get_id();
-
+        let new_id = self.get_max_object_id() + 1;
         let mut inner = self.inner.write();
         if inner.resident_objects.contains_key(&object_id) {
             match policy {
                 IdCollisionResolutionPolicy::GenerateNewId => {
-                    let id = self.get_max_object_id() + 1;
-                    object.set_id(id)?;
-                    inner
-                        .resident_objects
-                        .insert(object_id, object.inner.clone());
+                    object.set_id(new_id)?;
+                    inner.resident_objects.insert(new_id, object.inner.clone());
                 }
                 IdCollisionResolutionPolicy::Overwrite => {
                     let old = inner.resident_objects.remove(&object_id).unwrap();
@@ -832,7 +829,6 @@ impl VideoFrameProxy {
         if object_id > inner.max_object_id {
             inner.max_object_id = object_id;
         }
-
         Ok(())
     }
 
@@ -1366,7 +1362,7 @@ mod tests {
         IdCollisionResolutionPolicy, RBBox, SetDrawLabelKind, VideoObjectModification,
         VideoObjectProxy,
     };
-    use crate::test::utils::{gen_frame, gen_object, s};
+    use crate::test::utils::{gen_empty_frame, gen_frame, gen_object, s};
     use std::sync::Arc;
 
     #[test]
@@ -1770,5 +1766,57 @@ mod tests {
         f.clear_attributes();
         assert!(f.get_attributes().is_empty());
         assert!(!new_f.get_attributes().is_empty());
+    }
+
+    #[test]
+    fn add_objects_test_policy_error() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+
+        let object = gen_object(0);
+        assert!(frame
+            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .is_err());
+    }
+
+    #[test]
+    fn add_objects_test_policy_generate_new_id() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .unwrap();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .unwrap();
+        assert_eq!(frame.get_max_object_id(), 1);
+        let objs = frame.access_objects(&MatchQuery::Idle);
+        assert_eq!(objs.len(), 2);
+    }
+
+    #[test]
+    fn add_objects_test_policy_overwrite() {
+        let frame = gen_empty_frame();
+
+        let object = gen_object(0);
+        frame
+            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .unwrap();
+
+        let object = gen_object(0);
+        assert!(frame
+            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .is_ok());
+
+        assert_eq!(frame.get_max_object_id(), 0);
+        let objs = frame.access_objects(&MatchQuery::Idle);
+        assert_eq!(objs.len(), 1);
     }
 }

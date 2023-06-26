@@ -274,9 +274,8 @@ pub fn call_object_map_modifier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::primitives::IdCollisionResolutionPolicy;
-    use crate::test::utils::{gen_frame, gen_object};
+    use crate::test::utils::{gen_empty_frame, gen_object};
 
     #[test]
     fn pluggable_udf_api() -> anyhow::Result<()> {
@@ -319,8 +318,7 @@ mod tests {
             &[&o, &o]
         )?);
 
-        let f = gen_frame();
-        f.delete_objects(&MatchQuery::Idle);
+        let f = gen_empty_frame();
         let parent = gen_object(12);
         f.add_object(&parent, IdCollisionResolutionPolicy::Error)
             .unwrap();

@@ -9,7 +9,7 @@ use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{
     AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectProxy,
 };
-use savant_rs::test::utils::gen_frame;
+use savant_rs::test::utils::gen_empty_frame;
 use savant_rs::utils::eval_resolvers::register_utility_resolver;
 use test::Bencher;
 
@@ -64,8 +64,7 @@ fn bench_filtering(b: &mut Bencher) {
     ];
 
     let objs = get_objects();
-    let frame = gen_frame();
-    frame.delete_objects(&MatchQuery::Idle);
+    let frame = gen_empty_frame();
     for o in objs {
         frame
             .add_object(&o, IdCollisionResolutionPolicy::Error)
@@ -94,8 +93,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
     );
 
     let objs = get_objects();
-    let mut frame = gen_frame();
-    frame.delete_objects(&MatchQuery::Idle);
+    let mut frame = gen_empty_frame();
     frame.set_parallelized(true);
     for o in objs {
         frame
@@ -111,8 +109,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 fn bench_empty_filtering(b: &mut Bencher) {
     let expr = MatchQuery::Idle;
     let objs = get_objects();
-    let frame = gen_frame();
-    frame.delete_objects(&MatchQuery::Idle);
+    let frame = gen_empty_frame();
     for o in objs {
         frame
             .add_object(&o, IdCollisionResolutionPolicy::Error)
@@ -132,8 +129,7 @@ fn bench_simple_filtering(b: &mut Bencher) {
     ];
 
     let objs = get_objects();
-    let frame = gen_frame();
-    frame.delete_objects(&MatchQuery::Idle);
+    let frame = gen_empty_frame();
     for o in objs {
         frame
             .add_object(&o, IdCollisionResolutionPolicy::Error)

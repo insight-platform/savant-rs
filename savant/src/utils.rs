@@ -17,7 +17,7 @@ use crate::primitives::message::saver::{
     save_message_gil, save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
 };
 
-use crate::test::utils::gen_frame;
+use crate::test::utils::{gen_empty_frame, gen_frame};
 use crate::utils::np::np_nalgebra;
 use crate::utils::np::np_ndarray;
 use crate::utils::symbol_mapper::RegistrationPolicy;
@@ -121,6 +121,7 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 

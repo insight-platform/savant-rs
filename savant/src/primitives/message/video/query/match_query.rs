@@ -558,7 +558,7 @@ mod tests {
     use crate::primitives::message::video::query::*;
     use crate::primitives::{AttributeBuilder, IdCollisionResolutionPolicy, RBBox};
     use crate::query_and;
-    use crate::test::utils::{gen_frame, gen_object, s};
+    use crate::test::utils::{gen_empty_frame, gen_frame, gen_object, s};
     use crate::utils::eval_resolvers::register_env_resolver;
     use crate::utils::pluggable_udf_api::{
         is_plugin_function_registered, register_plugin_function, UserFunctionType,
@@ -731,8 +731,7 @@ mod tests {
 
         let object = gen_object(1);
         let parent_object = gen_object(13);
-        let f = gen_frame();
-        f.delete_objects(&MatchQuery::Idle);
+        let f = gen_empty_frame();
         f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
             .unwrap();
         f.add_object(&object, IdCollisionResolutionPolicy::Error)
@@ -918,7 +917,6 @@ mod tests {
 
     #[test]
     fn test_bbox_metric() {
-        // add IdCollisionResolutionPolicy to object additon
         // add min id, max id to frame
         // make update_any_matching, update_best_matching
         //todo!();
