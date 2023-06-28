@@ -1,4 +1,5 @@
 pub mod context;
+pub mod transformations;
 
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
@@ -302,6 +303,12 @@ impl RBBox {
             self.ioo(other)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
+    }
+
+    pub fn shift(&mut self, dx: f64, dy: f64) {
+        self.has_modifications = true;
+        self.xc += dx;
+        self.yc += dy;
     }
 }
 
@@ -749,6 +756,10 @@ impl PythonBBox {
         })
     }
 
+    pub fn shift(&mut self, dx: f64, dy: f64) {
+        self.inner.shift(dx, dy);
+    }
+
     #[pyo3(name = "as_polygonal_area")]
     pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
         release_gil(|| self.inner.as_polygonal_area())
@@ -959,5 +970,13 @@ mod tests {
         assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Le), Err(_)));
         assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Gt), Err(_)));
         assert!(matches!(bb1.__richcmp__(&bb2, CompareOp::Ge), Err(_)));
+    }
+
+    #[test]
+    fn test_shift() {
+        let mut bb = get_bbox(Some(45.0));
+        bb.shift(10.0, 20.0);
+        assert_eq!(bb.get_xc(), 10.0);
+        assert_eq!(bb.get_yc(), 20.0);
     }
 }

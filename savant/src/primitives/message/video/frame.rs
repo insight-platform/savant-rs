@@ -2,6 +2,9 @@ pub mod context;
 pub mod frame_update;
 
 use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::bbox::transformations::{
+    VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
+};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::message::video::query::match_query::{
@@ -584,6 +587,13 @@ impl AttributeMethods for VideoFrameProxy {
 }
 
 impl VideoFrameProxy {
+    fn transform_geometry(&self, ops: &Vec<&VideoObjectBBoxTransformation>) {
+        let objs = self.access_objects(&MatchQuery::Idle);
+        for obj in objs {
+            obj.transform_geometry(ops);
+        }
+    }
+
     pub fn deep_copy(&self) -> Self {
         let inner = self.inner.read_recursive();
         let inner_copy = inner.deep_copy();
@@ -962,6 +972,14 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 
 #[pymethods]
 impl VideoFrameProxy {
+    #[pyo3(name = "transform_geometry")]
+    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>) {
+        release_gil(|| {
+            let ops_ref = ops.iter().map(|op| op.get_ref()).collect();
+            self.transform_geometry(&ops_ref);
+        })
+    }
+
     #[setter]
     pub fn set_parallelized(&mut self, is_parallelized: bool) {
         self.is_parallelized = is_parallelized;

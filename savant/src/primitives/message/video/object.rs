@@ -1,4 +1,7 @@
 use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::bbox::transformations::{
+    VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
+};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
@@ -61,6 +64,16 @@ impl VideoObjectTrackingData {
             id: track_id,
             bounding_box,
         }
+    }
+
+    #[getter]
+    pub fn get_id(&self) -> i64 {
+        self.id
+    }
+
+    #[getter]
+    pub fn get_bounding_box(&self) -> RBBox {
+        self.bounding_box.clone()
     }
 }
 
@@ -358,6 +371,27 @@ impl VideoObjectProxy {
     pub(crate) fn attach_to_video_frame(&self, frame: VideoFrameProxy) {
         let mut inner = self.inner.write();
         inner.frame = Some(frame.into());
+    }
+
+    pub fn transform_geometry(&self, ops: &Vec<&VideoObjectBBoxTransformation>) {
+        for o in ops {
+            match o {
+                VideoObjectBBoxTransformation::Scale(kx, ky) => {
+                    let mut inner = self.inner.write();
+                    inner.bbox.scale(*kx, *ky);
+                    if let Some(t) = inner.track_info.as_mut() {
+                        t.bounding_box.scale(*kx, *ky);
+                    }
+                }
+                VideoObjectBBoxTransformation::Shift(dx, dy) => {
+                    let mut inner = self.inner.write();
+                    inner.bbox.shift(*dx, *dy);
+                    if let Some(t) = inner.track_info.as_mut() {
+                        t.bounding_box.shift(*dx, *dy);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -789,16 +823,25 @@ impl VideoObjectProxy {
         inner.confidence = confidence;
         inner.add_modification(VideoObjectModification::Confidence);
     }
+
+    #[pyo3(name = "transform_geometry")]
+    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>) {
+        release_gil(|| {
+            let inner_ops = ops.iter().map(|op| op.get_ref()).collect::<Vec<_>>();
+            self.transform_geometry(&inner_ops);
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::bbox::transformations::VideoObjectBBoxTransformation;
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::{
         AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectModification,
-        VideoObjectProxy,
+        VideoObjectProxy, VideoObjectTrackingData,
     };
     use crate::test::utils::{gen_frame, s};
 
@@ -939,5 +982,43 @@ mod tests {
         );
         f.add_object(&o.detached_copy(), IdCollisionResolutionPolicy::Error)
             .unwrap();
+    }
+
+    #[test]
+    fn test_transform_geometry() {
+        let o = get_object();
+        o.set_tracking_data(Some(VideoObjectTrackingData::new(
+            13,
+            RBBox::new(0.0, 0.0, 10.0, 20.0, None),
+        )));
+        let ops = vec![VideoObjectBBoxTransformation::Shift(10.0, 20.0)];
+        let ref_ops = ops.iter().map(|op| op).collect();
+        o.transform_geometry(&ref_ops);
+        let new_bb = o.get_bbox();
+        assert_eq!(new_bb.get_xc(), 10.0);
+        assert_eq!(new_bb.get_yc(), 20.0);
+        assert_eq!(new_bb.get_width(), 1.0);
+        assert_eq!(new_bb.get_height(), 1.0);
+
+        let new_track_bb = o.get_tracking_data().unwrap().get_bounding_box();
+        assert_eq!(new_track_bb.get_xc(), 10.0);
+        assert_eq!(new_track_bb.get_yc(), 20.0);
+        assert_eq!(new_track_bb.get_width(), 10.0);
+        assert_eq!(new_track_bb.get_height(), 20.0);
+
+        let ops = vec![VideoObjectBBoxTransformation::Scale(2.0, 4.0)];
+        let ref_ops = ops.iter().map(|op| op).collect();
+        o.transform_geometry(&ref_ops);
+        let new_bb = o.get_bbox();
+        assert_eq!(new_bb.get_xc(), 20.0);
+        assert_eq!(new_bb.get_yc(), 80.0);
+        assert_eq!(new_bb.get_width(), 2.0);
+        assert_eq!(new_bb.get_height(), 4.0);
+
+        let new_track_bb = o.get_tracking_data().unwrap().get_bounding_box();
+        assert_eq!(new_track_bb.get_xc(), 20.0);
+        assert_eq!(new_track_bb.get_yc(), 80.0);
+        assert_eq!(new_track_bb.get_width(), 20.0);
+        assert_eq!(new_track_bb.get_height(), 80.0);
     }
 }
