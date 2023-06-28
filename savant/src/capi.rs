@@ -172,11 +172,14 @@ pub unsafe extern "C" fn update_frame_meta(
                         ),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )
-                    .expect(&format!(
-                        "Failed to add object with id={} to frame '{}'.",
-                        m.id,
-                        frame.get_source_id()
-                    ));
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to add object with id={} to frame '{}'. Error is {}",
+                            m.id,
+                            frame.get_source_id(),
+                            e.to_string()
+                        )
+                    });
             }
             VideoObjectBBoxType::TrackingInfo => {
                 // update currently existing objects
@@ -185,11 +188,13 @@ pub unsafe extern "C" fn update_frame_meta(
                     "When updating tracking information track id must be set"
                 );
 
-                let o = frame.get_object(m.id).expect(&format!(
-                    "Object with Id={} not found on frame '{}'.",
-                    m.id,
-                    frame.get_source_id()
-                ));
+                let o = frame.get_object(m.id).unwrap_or_else(|| {
+                    panic!(
+                        "Object with Id={} not found on frame '{}'.",
+                        m.id,
+                        frame.get_source_id()
+                    )
+                });
 
                 o.set_tracking_data(Some(VideoObjectTrackingData::new(m.track_id, bounding_box)));
             }

@@ -1402,42 +1402,43 @@ impl VideoFrameProxy {
             return Err(PyValueError::new_err("Array must be of type f32 or f64"));
         };
 
-        let model_id = get_model_id(&creator).map_err(|e| {
-            PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
-        })?;
+        release_gil(|| {
+            let model_id = get_model_id(&creator).map_err(|e| {
+                PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
+            })?;
 
-        boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
-            let label = get_object_label(model_id, cls_id);
+            boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
+                let label = get_object_label(model_id, cls_id);
 
-            match label {
-                None => Err(PyValueError::new_err(format!(
-                    "Failed to get object label for model={} (id={}): cls_id={}",
-                    &creator, model_id, cls_id
-                ))),
+                match label {
+                    None => Err(PyValueError::new_err(format!(
+                        "Failed to get object label for model={} (id={}): cls_id={}",
+                        &creator, model_id, cls_id
+                    ))),
 
-                Some(l) => {
-                    let object = VideoObjectProxy::new(
-                        0,
-                        creator.clone(),
-                        l,
-                        b,
-                        HashMap::default(),
-                        Some(conf),
-                        None,
-                    );
-
-                    self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
-                        .map_err(|e| {
-                            PyValueError::new_err(format!(
-                                "Failed to add object: {}",
-                                e.to_string()
-                            ))
-                        })
+                    Some(l) => {
+                        let object = VideoObjectProxy::new(
+                            0,
+                            creator.clone(),
+                            l,
+                            b,
+                            HashMap::default(),
+                            Some(conf),
+                            None,
+                        );
+                        self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+                            .map_err(|e| {
+                                PyValueError::new_err(format!(
+                                    "Failed to add object: {}",
+                                    e.to_string()
+                                ))
+                            })
+                    }
                 }
-            }
-        })?;
+            })?;
 
-        Ok(())
+            Ok(())
+        })
     }
 }
 

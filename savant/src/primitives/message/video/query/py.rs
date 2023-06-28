@@ -1152,7 +1152,7 @@ impl MatchQueryProxy {
     /// Always true
     ///
     #[staticmethod]
-    fn idle() -> MatchQueryProxy {
+    pub fn idle() -> MatchQueryProxy {
         MatchQueryProxy {
             inner: Arc::new(MatchQuery::Idle),
         }
