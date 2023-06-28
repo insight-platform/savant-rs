@@ -152,6 +152,11 @@ pub fn register_model_objects_gil(
     })
 }
 
+pub fn get_model_name(model_id: i64) -> Option<String> {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.get_model_name(model_id)
+}
+
 /// The function allows the fetch a model name by its id.
 ///
 /// GIL management: the function is GIL-free.
@@ -171,10 +176,12 @@ pub fn register_model_objects_gil(
 #[pyfunction]
 #[pyo3(name = "get_model_name")]
 pub fn get_model_name_gil(model_id: i64) -> Option<String> {
-    release_gil(|| {
-        let mapper = SYMBOL_MAPPER.lock();
-        mapper.get_model_name(model_id)
-    })
+    release_gil(|| get_model_name(model_id))
+}
+
+pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.get_object_label(model_id, object_id)
 }
 
 /// The function allows getting the object label by its id.
@@ -198,10 +205,7 @@ pub fn get_model_name_gil(model_id: i64) -> Option<String> {
 #[pyfunction]
 #[pyo3(name = "get_object_label")]
 pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
-    release_gil(|| {
-        let mapper = SYMBOL_MAPPER.lock();
-        mapper.get_object_label(model_id, object_id)
-    })
+    release_gil(|| get_object_label(model_id, object_id))
 }
 
 /// The function allows getting the object labels by their ids (bulk operation).

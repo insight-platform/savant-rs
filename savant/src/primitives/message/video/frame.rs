@@ -1,7 +1,6 @@
 pub mod context;
 pub mod frame_update;
 
-use crate::capi::InferenceObjectMeta;
 use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
@@ -11,12 +10,15 @@ use crate::primitives::message::video::query::match_query::{
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, IdCollisionResolutionPolicy, Message, SetDrawLabelKind, SetDrawLabelKindProxy,
-    VideoFrameUpdate, VideoObjectProxy,
+    Attribute, IdCollisionResolutionPolicy, Message, RBBox, SetDrawLabelKind,
+    SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::release_gil;
+use crate::utils::symbol_mapper::{get_model_id, get_object_label};
 use anyhow::bail;
 use derive_builder::Builder;
+use ndarray::IxDyn;
+use numpy::PyArray;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
@@ -591,13 +593,6 @@ impl VideoFrameProxy {
 
     pub fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
         self.inner.clone()
-    }
-
-    pub(crate) fn update_from_inference_meta(
-        &self,
-        _meta: &InferenceObjectMeta,
-    ) -> anyhow::Result<()> {
-        todo!("To implement the function");
     }
 
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
@@ -1349,6 +1344,101 @@ impl VideoFrameProxy {
     #[pyo3(name = "update")]
     pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
         release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn create_objects_from_numpy(&self, creator: String, boxes: &PyAny) -> PyResult<()> {
+        fn check_shape(shape: &[usize]) -> PyResult<Option<usize>> {
+            if shape.len() != 2 {
+                return Err(PyValueError::new_err("Array must have 2 dimensions"));
+            }
+
+            let col_number = shape[1];
+
+            if col_number == 7 {
+                Ok(Some(6))
+            } else if col_number == 6 {
+                Ok(None)
+            } else {
+                Err(PyValueError::new_err(
+                    "Array must have 6 or 7 columns (class_id, conf, xc, yc, width, height [, angle])",
+                ))
+            }
+        }
+
+        let boxes: Vec<_> = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
+            let shape = arr.shape();
+            let angle_col = check_shape(shape)?;
+            let ro_binding = arr.readonly();
+            let ro_array = ro_binding.as_array();
+            ro_array
+                .rows()
+                .into_iter()
+                .map(|r| {
+                    let class_id = r[0] as i64;
+                    let conf = r[1] as f64;
+                    let angle = angle_col.map(|c| r[c] as f64);
+                    let bbox =
+                        RBBox::new(r[2] as f64, r[3] as f64, r[4] as f64, r[5] as f64, angle);
+                    (class_id, conf, bbox)
+                })
+                .collect()
+        } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
+            let shape = arr.shape();
+            let angle_col = check_shape(shape)?;
+            let ro_binding = arr.readonly();
+            let ro_array = ro_binding.as_array();
+            ro_array
+                .rows()
+                .into_iter()
+                .map(|r| {
+                    let class_id = r[0] as i64;
+                    let conf = r[1];
+                    let angle = angle_col.map(|c| r[c]);
+                    let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
+                    (class_id, conf, bbox)
+                })
+                .collect()
+        } else {
+            return Err(PyValueError::new_err("Array must be of type f32 or f64"));
+        };
+
+        release_gil(|| {
+            let model_id = get_model_id(&creator).map_err(|e| {
+                PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
+            })?;
+
+            boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
+                let label = get_object_label(model_id, cls_id);
+
+                match label {
+                    None => Err(PyValueError::new_err(format!(
+                        "Failed to get object label for model={} (id={}): cls_id={}",
+                        &creator, model_id, cls_id
+                    ))),
+
+                    Some(l) => {
+                        let object = VideoObjectProxy::new(
+                            0,
+                            creator.clone(),
+                            l,
+                            b,
+                            HashMap::default(),
+                            Some(conf),
+                            None,
+                        );
+                        self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+                            .map_err(|e| {
+                                PyValueError::new_err(format!(
+                                    "Failed to add object: {}",
+                                    e.to_string()
+                                ))
+                            })
+                    }
+                }
+            })?;
+
+            Ok(())
+        })
     }
 }
 
