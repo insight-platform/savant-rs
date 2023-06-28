@@ -14,10 +14,11 @@ use crate::primitives::{
     SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::release_gil;
+use crate::utils::symbol_mapper::{get_model_id, get_object_label};
 use anyhow::bail;
 use derive_builder::Builder;
 use ndarray::IxDyn;
-use numpy::{NotContiguousError, PyArray, PyReadonlyArrayDyn};
+use numpy::PyArray;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
@@ -1345,96 +1346,97 @@ impl VideoFrameProxy {
         release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn create_objects_from_numpy(
-        creator: String,
-        label: String,
-        boxes: &PyAny,
-        with_confidence: bool,
-    ) -> PyResult<()> {
-        fn check_shape(
-            shape: &[usize],
-            with_confidence: bool,
-        ) -> PyResult<(Option<usize>, Option<usize>)> {
-            let shape = arr.shape();
-            let additional_col = if with_confidence { 1 } else { 0 };
+    pub fn create_objects_from_numpy(&self, creator: String, boxes: &PyAny) -> PyResult<()> {
+        fn check_shape(shape: &[usize]) -> PyResult<Option<usize>> {
             if shape.len() != 2 {
                 return Err(PyValueError::new_err("Array must have 2 dimensions"));
             }
+
             let col_number = shape[1];
 
-            match (with_confidence, col_number) {
-                (true, 5) => Ok((Some(4), None)),    //conf [4], angle None
-                (true, 6) => Ok((Some(5), Some(4))), //conf [5], angle [4]
-                (false, 4) => Ok((None, None)),      //conf None, angle None
-                (false, 5) => Ok((None, Some(4))),   //conf None, angle [4]
-                _ => Err(PyValueError::new_err(format!(
-                    "Array must have shape (N, {}) or (N, {}), received {:?}",
-                    4 + additional_col,
-                    5 + additional_col,
-                    shape
-                ))),
+            if col_number == 7 {
+                Ok(Some(6))
+            } else if col_number == 6 {
+                Ok(None)
+            } else {
+                Err(PyValueError::new_err(
+                    "Array must have 6 or 7 columns (class_id, conf, xc, yc, width, height [, angle])",
+                ))
             }
         }
 
-        let boxes = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
+        let boxes: Vec<_> = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
             let shape = arr.shape();
-            let (conf_col, angle_col) = check_shape(shape, with_confidence)?;
+            let angle_col = check_shape(shape)?;
+            let ro_binding = arr.readonly();
+            let ro_array = ro_binding.as_array();
+            ro_array
+                .rows()
+                .into_iter()
+                .map(|r| {
+                    let class_id = r[0] as i64;
+                    let conf = r[1] as f64;
+                    let angle = angle_col.map(|c| r[c] as f64);
+                    let bbox =
+                        RBBox::new(r[2] as f64, r[3] as f64, r[4] as f64, r[5] as f64, angle);
+                    (class_id, conf, bbox)
+                })
+                .collect()
+        } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
+            let shape = arr.shape();
+            let angle_col = check_shape(shape)?;
+            let ro_binding = arr.readonly();
+            let ro_array = ro_binding.as_array();
+            ro_array
+                .rows()
+                .into_iter()
+                .map(|r| {
+                    let class_id = r[0] as i64;
+                    let conf = r[1];
+                    let angle = angle_col.map(|c| r[c]);
+                    let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
+                    (class_id, conf, bbox)
+                })
+                .collect()
+        } else {
+            return Err(PyValueError::new_err("Array must be of type f32 or f64"));
         };
 
-        //     if col_number != 4 + additional_col || col_number != 5 + additional_col {
-        //         return Err(PyValueError::new_err(format!(
-        //             "Array must have shape (N, {}) or (N, {}), received {:?}",
-        //             4 + additional_col,
-        //             5 + additional_col,
-        //             shape
-        //         )));
-        //     }
-        //
-        //     let ro_binding = arr.readonly();
-        //     let ro_array = ro_binding.as_array();
-        //
-        //     ro_array.rows().into_iter().map(|r| {
-        //         if additional_col == 1 {
-        //
-        //         }
-        //
-        //
-        //         let angle = if shape[1] == 4 + additional_col {
-        //             None
-        //         } else {
-        //             Some(r[4] as f64)
-        //         };
-        //
-        //         let conf = if with_confidence {
-        //             r[5 + additional_col] as f64
-        //         } else {
-        //             None
-        //         };
-        //         RBBox::new(r[0] as f64, r[1] as f64, r[2] as f64, r[3] as f64, angle)
-        //     })
-        //
-        // } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
-        //     let shape = arr.shape();
-        //     if shape.len() != 2 && (shape[1] != 5 || shape[1] != 6) {
-        //         return Err(PyValueError::new_err(format!(
-        //             "Array must have shape (N, 5) or (N, 6), received {:?}",
-        //             shape
-        //         )));
-        //     }
-        //     let ro_binding = arr.readonly();
-        //     let ro_array = ro_binding.as_array();
-        //     ro_array.rows().into_iter().map(|r| {
-        //         let angle = if shape[1] == 5 { None } else { Some(r[4]) };
-        //         RBBox::new(r[0], r[1], r[2], r[3], angle)
-        //     })
-        // } else {
-        //     return Err(PyValueError::new_err(
-        //         "Expected numpy array of float32 or float64",
-        //     ));
-        // };
+        let model_id = get_model_id(&creator).map_err(|e| {
+            PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
+        })?;
 
-        // boxes.for_each(|b| {
-        //     let object = VideoObjectProxy::new(0, creator.clone(), label.clone(), b, HashMap::default(), None);
+        boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
+            let label = get_object_label(model_id, cls_id);
+
+            match label {
+                None => Err(PyValueError::new_err(format!(
+                    "Failed to get object label for model={} (id={}): cls_id={}",
+                    &creator, model_id, cls_id
+                ))),
+
+                Some(l) => {
+                    let object = VideoObjectProxy::new(
+                        0,
+                        creator.clone(),
+                        l,
+                        b,
+                        HashMap::default(),
+                        Some(conf),
+                        None,
+                    );
+
+                    self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+                        .map_err(|e| {
+                            PyValueError::new_err(format!(
+                                "Failed to add object: {}",
+                                e.to_string()
+                            ))
+                        })
+                }
+            }
+        })?;
+
         Ok(())
     }
 }
