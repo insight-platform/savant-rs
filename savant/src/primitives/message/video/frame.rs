@@ -10,12 +10,14 @@ use crate::primitives::message::video::query::match_query::{
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, IdCollisionResolutionPolicy, Message, SetDrawLabelKind, SetDrawLabelKindProxy,
-    VideoFrameUpdate, VideoObjectProxy,
+    Attribute, IdCollisionResolutionPolicy, Message, RBBox, SetDrawLabelKind,
+    SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::utils::python::release_gil;
 use anyhow::bail;
 use derive_builder::Builder;
+use ndarray::IxDyn;
+use numpy::{NotContiguousError, PyArray, PyReadonlyArrayDyn};
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
@@ -1341,6 +1343,99 @@ impl VideoFrameProxy {
     #[pyo3(name = "update")]
     pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
         release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn create_objects_from_numpy(
+        creator: String,
+        label: String,
+        boxes: &PyAny,
+        with_confidence: bool,
+    ) -> PyResult<()> {
+        fn check_shape(
+            shape: &[usize],
+            with_confidence: bool,
+        ) -> PyResult<(Option<usize>, Option<usize>)> {
+            let shape = arr.shape();
+            let additional_col = if with_confidence { 1 } else { 0 };
+            if shape.len() != 2 {
+                return Err(PyValueError::new_err("Array must have 2 dimensions"));
+            }
+            let col_number = shape[1];
+
+            match (with_confidence, col_number) {
+                (true, 5) => Ok((Some(4), None)),    //conf [4], angle None
+                (true, 6) => Ok((Some(5), Some(4))), //conf [5], angle [4]
+                (false, 4) => Ok((None, None)),      //conf None, angle None
+                (false, 5) => Ok((None, Some(4))),   //conf None, angle [4]
+                _ => Err(PyValueError::new_err(format!(
+                    "Array must have shape (N, {}) or (N, {}), received {:?}",
+                    4 + additional_col,
+                    5 + additional_col,
+                    shape
+                ))),
+            }
+        }
+
+        let boxes = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
+            let shape = arr.shape();
+            let (conf_col, angle_col) = check_shape(shape, with_confidence)?;
+        };
+
+        //     if col_number != 4 + additional_col || col_number != 5 + additional_col {
+        //         return Err(PyValueError::new_err(format!(
+        //             "Array must have shape (N, {}) or (N, {}), received {:?}",
+        //             4 + additional_col,
+        //             5 + additional_col,
+        //             shape
+        //         )));
+        //     }
+        //
+        //     let ro_binding = arr.readonly();
+        //     let ro_array = ro_binding.as_array();
+        //
+        //     ro_array.rows().into_iter().map(|r| {
+        //         if additional_col == 1 {
+        //
+        //         }
+        //
+        //
+        //         let angle = if shape[1] == 4 + additional_col {
+        //             None
+        //         } else {
+        //             Some(r[4] as f64)
+        //         };
+        //
+        //         let conf = if with_confidence {
+        //             r[5 + additional_col] as f64
+        //         } else {
+        //             None
+        //         };
+        //         RBBox::new(r[0] as f64, r[1] as f64, r[2] as f64, r[3] as f64, angle)
+        //     })
+        //
+        // } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
+        //     let shape = arr.shape();
+        //     if shape.len() != 2 && (shape[1] != 5 || shape[1] != 6) {
+        //         return Err(PyValueError::new_err(format!(
+        //             "Array must have shape (N, 5) or (N, 6), received {:?}",
+        //             shape
+        //         )));
+        //     }
+        //     let ro_binding = arr.readonly();
+        //     let ro_array = ro_binding.as_array();
+        //     ro_array.rows().into_iter().map(|r| {
+        //         let angle = if shape[1] == 5 { None } else { Some(r[4]) };
+        //         RBBox::new(r[0], r[1], r[2], r[3], angle)
+        //     })
+        // } else {
+        //     return Err(PyValueError::new_err(
+        //         "Expected numpy array of float32 or float64",
+        //     ));
+        // };
+
+        // boxes.for_each(|b| {
+        //     let object = VideoObjectProxy::new(0, creator.clone(), label.clone(), b, HashMap::default(), None);
+        Ok(())
     }
 }
 
