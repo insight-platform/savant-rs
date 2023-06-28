@@ -354,30 +354,28 @@ impl RBBox {
 
     pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
         self.has_modifications = true;
-        match self.angle {
-            None => {
-                self.xc *= scale_x;
-                self.yc *= scale_y;
-                self.width *= scale_x;
-                self.height *= scale_y;
-            }
-            Some(angle) => {
-                let scale_x2 = scale_x * scale_x;
-                let scale_y2 = scale_y * scale_y;
-                let cotan = (angle * PI / 180.0).tan().powi(-1);
-                let cotan_2 = cotan * cotan;
-                let scale_angle =
-                    (scale_x * angle.signum() / (scale_x2 + scale_y2 * cotan_2).sqrt()).acos();
-                let nscale_height = ((scale_x2 + scale_y2 * cotan_2) / (1.0 + cotan_2)).sqrt();
-                let ayh = 1.0 / ((90.0 - angle) / 180.0 * std::f64::consts::PI).tan();
-                let nscale_width = ((scale_x2 + scale_y2 * ayh * ayh) / (1.0 + ayh * ayh)).sqrt();
+        let angle = self.angle.unwrap_or(0.0);
+        if angle % 90.0 == 0.0 {
+            self.xc *= scale_x;
+            self.yc *= scale_y;
+            self.width *= scale_x;
+            self.height *= scale_y;
+        } else {
+            let scale_x2 = scale_x * scale_x;
+            let scale_y2 = scale_y * scale_y;
+            let cotan = (angle * PI / 180.0).tan().powi(-1);
+            let cotan_2 = cotan * cotan;
+            let scale_angle =
+                (scale_x * angle.signum() / (scale_x2 + scale_y2 * cotan_2).sqrt()).acos();
+            let nscale_height = ((scale_x2 + scale_y2 * cotan_2) / (1.0 + cotan_2)).sqrt();
+            let ayh = 1.0 / ((90.0 - angle) / 180.0 * PI).tan();
+            let nscale_width = ((scale_x2 + scale_y2 * ayh * ayh) / (1.0 + ayh * ayh)).sqrt();
 
-                self.angle = Some(90.0 - (scale_angle * 180.0 / std::f64::consts::PI));
-                self.xc *= scale_x;
-                self.yc *= scale_y;
-                self.width *= nscale_width;
-                self.height *= nscale_height;
-            }
+            self.angle = Some(90.0 - (scale_angle * 180.0 / PI));
+            self.xc *= scale_x;
+            self.yc *= scale_y;
+            self.width *= nscale_width;
+            self.height *= nscale_height;
         }
     }
 
