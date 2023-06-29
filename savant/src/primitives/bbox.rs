@@ -482,6 +482,180 @@ impl RBBox {
         self.xc += dx;
         self.yc += dy;
     }
+
+    /// Creates a new object from (left, top, right, bottom) coordinates.
+    ///
+    #[staticmethod]
+    pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
+        let width = right - left;
+        let height = bottom - top;
+
+        let xc = (left + right) / 2.0;
+        let yc = (top + bottom) / 2.0;
+
+        Self::new(xc, yc, width, height, None)
+    }
+
+    /// Creates a new object from (left, top, width, height) coordinates.
+    ///
+    #[staticmethod]
+    pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
+        let xc = left + width / 2.0;
+        let yc = top + height / 2.0;
+        RBBox::new(xc, yc, width, height, None)
+    }
+
+    #[getter]
+    pub fn get_top(&self) -> PyResult<f64> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            Ok(self.get_yc() - self.get_height() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get top for rotated bounding box",
+            ))
+        }
+    }
+
+    #[setter]
+    pub fn set_top(&mut self, top: f64) -> PyResult<()> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            self.has_modifications = true;
+            self.set_yc(top + self.get_height() / 2.0);
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot set top for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_left(&self) -> PyResult<f64> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            Ok(self.get_xc() - self.get_width() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get left for rotated bounding box",
+            ))
+        }
+    }
+
+    #[setter]
+    pub fn set_left(&mut self, left: f64) -> PyResult<()> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            self.has_modifications = true;
+            self.set_xc(left + self.get_width() / 2.0);
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot set left for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_right(&self) -> PyResult<f64> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            Ok(self.get_xc() + self.get_width() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get right for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_bottom(&self) -> PyResult<f64> {
+        if self.angle.unwrap_or(0.0) == 0.0 {
+            Ok(self.get_yc() + self.get_height() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get bottom for rotated bounding box",
+            ))
+        }
+    }
+
+    /// Returns (left, top, right, bottom) coordinates.
+    ///
+    pub fn as_ltrb(&self) -> PyResult<(f64, f64, f64, f64)> {
+        if self.angle.unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?;
+        let left = self.get_left()?;
+        let bottom = self.get_bottom()?;
+        let right = self.get_right()?;
+
+        Ok((left, top, right, bottom))
+    }
+
+    /// Returns (left, top, right, bottom) coordinates rounded to integers.
+    ///
+    pub fn as_ltrb_int(&self) -> PyResult<(i64, i64, i64, i64)> {
+        if self.angle.unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?.floor();
+        let left = self.get_left()?.floor();
+        let bottom = self.get_bottom()?.ceil();
+        let right = self.get_right()?.ceil();
+
+        Ok((left as i64, top as i64, right as i64, bottom as i64))
+    }
+
+    /// Returns (left, top, width, height) coordinates.
+    ///
+    pub fn as_ltwh(&self) -> PyResult<(f64, f64, f64, f64)> {
+        if self.angle.unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?;
+        let left = self.get_left()?;
+        let width = self.get_width();
+        let height = self.get_height();
+        Ok((left, top, width, height))
+    }
+
+    /// Returns (left, top, width, height) coordinates rounded to integers.
+    ///
+    pub fn as_ltwh_int(&self) -> PyResult<(i64, i64, i64, i64)> {
+        if self.angle.unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?.floor();
+        let left = self.get_left()?.floor();
+        let width = self.get_width().ceil();
+        let height = self.get_height().ceil();
+        Ok((left as i64, top as i64, width as i64, height as i64))
+    }
+
+    /// Returns (xc, yc, width, height) coordinates.
+    ///
+    pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc, yc, width, height)
+    }
+
+    /// Returns (xc, yc, width, height) coordinates rounded to integers.
+    ///
+    pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc as i64, yc as i64, width as i64, height as i64)
+    }
 }
 
 impl RBBox {
@@ -686,7 +860,7 @@ impl PythonBBox {
         border_width: i64,
         max_x: f64,
         max_y: f64,
-    ) -> PythonBBox {
+    ) -> PyResult<PythonBBox> {
         assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
 
         let padding_with_border = PaddingDraw::new(
@@ -713,7 +887,12 @@ impl PythonBBox {
             height += 1.0;
         }
 
-        PythonBBox::new(left + width / 2.0, top + height / 2.0, width, height)
+        Ok(PythonBBox::new(
+            left + width / 2.0,
+            top + height / 2.0,
+            width,
+            height,
+        ))
     }
 }
 
@@ -782,14 +961,8 @@ impl PythonBBox {
     ///
     #[staticmethod]
     pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
-        let width = right - left;
-        let height = bottom - top;
-
-        let xc = (left + right) / 2.0;
-        let yc = (top + bottom) / 2.0;
-
         Self {
-            inner: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::ltrb(left, top, right, bottom),
         }
     }
 
@@ -797,11 +970,8 @@ impl PythonBBox {
     ///
     #[staticmethod]
     pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
-        let xc = left + width / 2.0;
-        let yc = top + height / 2.0;
-
         Self {
-            inner: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::ltwh(left, top, width, height),
         }
     }
 
@@ -847,32 +1017,32 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_top(&self) -> f64 {
-        self.inner.get_yc() - self.inner.get_height() / 2.0
+        self.inner.get_top().unwrap()
     }
 
     #[setter]
-    pub fn set_top(&mut self, top: f64) {
-        self.inner.set_yc(top + self.inner.get_height() / 2.0);
+    pub fn set_top(&mut self, top: f64) -> PyResult<()> {
+        self.inner.set_top(top)
     }
 
     #[getter]
     pub fn get_left(&self) -> f64 {
-        self.inner.get_xc() - self.inner.get_width() / 2.0
+        self.inner.get_left().unwrap()
     }
 
     #[setter]
-    pub fn set_left(&mut self, left: f64) {
-        self.inner.set_xc(left + self.inner.get_width() / 2.0);
+    pub fn set_left(&mut self, left: f64) -> PyResult<()> {
+        self.inner.set_left(left)
     }
 
     #[getter]
     pub fn get_right(&self) -> f64 {
-        self.inner.get_xc() + self.inner.get_width() / 2.0
+        self.inner.get_right().unwrap()
     }
 
     #[getter]
     pub fn get_bottom(&self) -> f64 {
-        self.inner.get_yc() + self.inner.get_height() / 2.0
+        self.inner.get_bottom().unwrap()
     }
 
     #[getter]
@@ -906,68 +1076,44 @@ impl PythonBBox {
         border_width: i64,
         max_x: f64,
         max_y: f64,
-    ) -> PythonBBox {
+    ) -> PyResult<PythonBBox> {
         release_gil(|| self.get_visual_bbox(padding, border_width, max_x, max_y))
     }
 
     /// Returns (left, top, right, bottom) coordinates.
     ///
     pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let bottom = self.get_bottom();
-        let right = self.get_right();
-        (left, top, right, bottom)
+        self.inner.as_ltrb().unwrap()
     }
 
     /// Returns (left, top, right, bottom) coordinates rounded to integers.
     ///
     pub fn as_ltrb_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let bottom = self.get_bottom().ceil();
-        let right = self.get_right().ceil();
-        (left as i64, top as i64, right as i64, bottom as i64)
+        self.inner.as_ltrb_int().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates.
     ///
     pub fn as_ltwh(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let width = self.get_width();
-        let height = self.get_height();
-        (left, top, width, height)
+        self.inner.as_ltwh().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates rounded to integers.
     ///
     pub fn as_ltwh_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let width = self.get_width().ceil();
-        let height = self.get_height().ceil();
-        (left as i64, top as i64, width as i64, height as i64)
+        self.inner.as_ltwh_int().unwrap()
     }
 
     /// Returns (xc, yc, width, height) coordinates.
     ///
     pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
-        let xc = self.get_xc();
-        let yc = self.get_yc();
-        let width = self.get_width();
-        let height = self.get_height();
-        (xc, yc, width, height)
+        self.inner.as_xcycwh()
     }
 
     /// Returns (xc, yc, width, height) coordinates rounded to integers.
     ///
     pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
-        let xc = self.get_xc();
-        let yc = self.get_yc();
-        let width = self.get_width();
-        let height = self.get_height();
-        (xc as i64, yc as i64, width as i64, height as i64)
+        self.inner.as_xcycwh_int()
     }
 
     /// Converts the :py:class:`BBox` to a :py:class:`RBBox`.
@@ -1205,5 +1351,37 @@ mod tests {
         bb.shift(10.0, 20.0);
         assert_eq!(bb.get_xc(), 10.0);
         assert_eq!(bb.get_yc(), 20.0);
+    }
+
+    #[test]
+    fn test_various_reprs_non_zero_angle() {
+        let mut bb = get_bbox(Some(45.0));
+        assert!(bb.as_ltrb().is_err());
+        assert!(bb.as_ltrb_int().is_err());
+        assert!(bb.as_ltwh().is_err());
+        assert!(bb.as_ltwh_int().is_err());
+        assert!(bb.get_top().is_err());
+        assert!(bb.get_left().is_err());
+        assert!(bb.get_bottom().is_err());
+        assert!(bb.get_right().is_err());
+        assert!(bb.set_top(11.0).is_err());
+        assert!(bb.set_left(12.0).is_err());
+        assert!(!bb.is_modified());
+    }
+
+    #[test]
+    fn test_various_reprs_zero_angle() {
+        let mut bb = get_bbox(Some(0.0));
+        assert!(bb.as_ltrb().is_ok());
+        assert!(bb.as_ltrb_int().is_ok());
+        assert!(bb.as_ltwh().is_ok());
+        assert!(bb.as_ltwh_int().is_ok());
+        assert!(bb.get_top().is_ok());
+        assert!(bb.get_left().is_ok());
+        assert!(bb.get_bottom().is_ok());
+        assert!(bb.get_right().is_ok());
+        assert!(bb.set_top(11.0).is_ok());
+        assert!(bb.set_left(12.0).is_ok());
+        assert!(bb.is_modified());
     }
 }
