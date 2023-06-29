@@ -27,6 +27,12 @@ lazy_static! {
     );
 }
 
+/// Allows configuring what kind of Intersection over Something to use.
+///
+/// IoU - Intersection over Union
+/// IoSelf - Intersection over Self (Intersection / Area of Self)
+/// IoOther - Intersection over Other (Intersection / Area of Other)
+///
 #[pyclass]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename = "bbox.metric.type")]
@@ -36,6 +42,8 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
+/// Represents a bounding box with an optional rotation angle in degrees.
+///
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
@@ -86,10 +94,30 @@ impl RBBox {
         self.__repr__()
     }
 
-    pub fn area(&self) -> f64 {
+    /// Computes the area of bbox
+    ///
+    /// Returns
+    /// -------
+    /// float
+    ///   area of bbox
+    ///
+    #[getter]
+    pub fn get_area(&self) -> f64 {
         self.width * self.height
     }
 
+    /// Compares boxes geometrically.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other bbox to compare with
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if boxes are geometrically equal, False otherwise.
+    ///
     #[pyo3(name = "eq")]
     pub fn geometric_eq(&self, other: &Self) -> bool {
         self.xc == other.xc
@@ -99,6 +127,20 @@ impl RBBox {
             && self.angle == other.angle
     }
 
+    /// Compares boxes geometrically with given precision.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other bbox to compare with
+    /// eps : float
+    ///   precision
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if boxes are geometrically equal, False otherwise.
+    ///
     pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
         (self.xc - other.xc).abs() < eps
             && (self.yc - other.yc).abs() < eps
@@ -117,40 +159,56 @@ impl RBBox {
         }
     }
 
+    /// Access and change the x center of the bbox.
+    ///
     #[getter]
     pub fn get_xc(&self) -> f64 {
         self.xc
     }
 
+    /// Access and change the y center of the bbox.
+    ///
     #[getter]
     pub fn get_yc(&self) -> f64 {
         self.yc
     }
 
+    /// Access and change the width of the bbox.
+    ///
     #[getter]
     pub fn get_width(&self) -> f64 {
         self.width
     }
 
+    /// Access and change the height of the bbox.
+    ///
     #[getter]
     pub fn get_height(&self) -> f64 {
         self.height
     }
 
+    /// Access the ratio between width and height.
+    ///
     #[getter]
     pub fn get_width_to_height_ratio(&self) -> f64 {
         self.width / self.height
     }
 
+    /// Access and change the angle of the bbox. To unset the angle use None as a value.
+    ///
     #[getter]
     pub fn get_angle(&self) -> Option<f64> {
         self.angle
     }
 
+    /// Flag indicating if the bbox has been modified.
+    ///
     pub fn is_modified(&self) -> bool {
         self.has_modifications
     }
 
+    /// Resets the modification flag.
+    ///
     pub fn reset_modifications(&mut self) {
         self.has_modifications = false;
     }
@@ -185,6 +243,31 @@ impl RBBox {
         self.has_modifications = true;
     }
 
+    /// Alias to the ``__init__`` method.
+    ///
+    /// Parameters
+    /// ----------
+    /// xc : float
+    ///   x center of bbox
+    /// yc : float
+    ///   y center of bbox
+    /// width : float
+    ///   width of bbox
+    /// height : float
+    ///   height of bbox
+    /// angle : float, optional
+    ///   angle of bbox
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`RBBox`
+    ///  new bbox
+    ///
+    #[staticmethod]
+    fn constructor(xc: f64, yc: f64, width: f64, height: f64, angle: Option<f64>) -> Self {
+        Self::new(xc, yc, width, height, angle)
+    }
+
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64, angle: Option<f64>) -> Self {
         Self {
@@ -197,6 +280,8 @@ impl RBBox {
         }
     }
 
+    /// Scales the bbox by given factors. The function is GIL-free. Scaling happens in-place.
+    ///
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
         release_gil(|| {
@@ -204,40 +289,202 @@ impl RBBox {
         })
     }
 
+    /// Returns vertices of the bbox. The property is GIL-free.
+    ///
+    /// Returns
+    /// -------
+    /// list of tuples (float, float)
+    ///   vertices of the bbox
+    ///
     #[getter]
     #[pyo3(name = "vertices")]
-    pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.vertices())
+    pub fn get_vertices_gil(&self) -> Vec<(f64, f64)> {
+        release_gil(|| self.get_vertices())
     }
 
+    /// Returns vertices of the bbox rounded to 2 decimal digits. The property is GIL-free.
+    ///
+    /// Returns
+    /// -------
+    /// list of tuples (float, float)
+    ///   vertices of the bbox rounded to 2 decimal digits
+    ///
     #[getter]
     #[pyo3(name = "vertices_rounded")]
-    pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.vertices_rounded())
+    pub fn get_vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
+        release_gil(|| self.get_vertices_rounded())
     }
 
+    /// Returns vertices of the bbox rounded to integers. The property is GIL-free.
+    ///
+    /// Returns
+    /// -------
+    /// list of tuples (int, int)
+    ///   vertices of the bbox rounded to integers
+    ///
     #[getter]
     #[pyo3(name = "vertices_int")]
-    pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        release_gil(|| self.vertices_int())
+    pub fn get_vertices_int_gil(&self) -> Vec<(i64, i64)> {
+        release_gil(|| self.get_vertices_int())
     }
 
+    /// Returns bbox as a polygonal area. The property is GIL-free.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`PolygonalArea`
+    ///   polygonal area of the bbox
+    ///
     #[pyo3(name = "as_polygonal_area")]
-    pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
-        release_gil(|| self.as_polygonal_area())
+    pub fn get_as_polygonal_area_gil(&self) -> PolygonalArea {
+        release_gil(|| self.get_as_polygonal_area())
     }
 
+    /// Returns axis-aligned bounding box wrapping the bbox. The property is GIL-free.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`BBox`
+    ///   axis-aligned bounding box wrapping the bbox
+    ///
     #[getter]
     #[pyo3(name = "wrapping_box")]
-    pub fn wrapping_box_gil(&self) -> PythonBBox {
-        release_gil(|| self.wrapping_bbox())
+    pub fn get_wrapping_box_gil(&self) -> PythonBBox {
+        release_gil(|| self.get_wrapping_bbox())
     }
 
+    /// Returns rotated bounding box wrapping the bbox with geometry corrected with respect to the padding and border width. The property is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// padding : :py:class:`savant_rs.draw_spec.PaddingDraw`
+    ///   padding of the bbox
+    /// border_width : int
+    ///   border width of the bbox
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`RBBox`
+    ///   wrapping bbox
+    ///
     #[pyo3(name = "visual_box")]
-    pub fn visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
-        release_gil(|| self.visual_bbox(padding, border_width))
+    pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+        release_gil(|| self.get_visual_bbox(padding, border_width))
     }
 
+    /// Returns rotated bounding box wrapping the bbox. The property is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// padding : :py:class:`savant_rs.draw_spec.PaddingDraw`
+    ///   padding of the bbox
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`RBBox`
+    ///   wrapping bbox
+    ///
+    #[pyo3(name = "new_padded")]
+    pub fn new_padded_gil(&self, padding: &PaddingDraw) -> Self {
+        release_gil(|| self.new_padded(padding))
+    }
+
+    /// Returns a copy of the RBBox object. Modification flag is reset.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`RBBox`
+    ///    A copy of the RBBox object
+    ///
+    ///
+    #[pyo3(name = "copy")]
+    pub fn copy_py(&self) -> Self {
+        let mut new_self = self.clone();
+        new_self.has_modifications = false;
+        new_self
+    }
+
+    /// Calculates the intersection over union (IoU) of two rotated bounding boxes. The function is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other rotated bounding box
+    ///
+    /// Returns
+    /// -------
+    /// float
+    ///   intersection over union (IoU) of two rotated bounding boxes
+    ///
+    #[pyo3(name = "iou")]
+    pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.iou(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    /// Calculates the intersection over self (IoS) of two rotated bounding boxes. The function is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other rotated bounding box
+    ///
+    /// Returns
+    /// -------
+    /// float
+    ///   intersection over self (IoS) of two rotated bounding boxes
+    ///
+    #[pyo3(name = "ios")]
+    pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ios(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    /// Calculates the intersection over other (IoO) of two rotated bounding boxes. The function is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other rotated bounding box
+    ///
+    /// Returns
+    /// -------
+    /// float
+    ///   intersection over other (IoO) of two rotated bounding boxes
+    ///
+    #[pyo3(name = "ioo")]
+    pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
+        release_gil(|| {
+            self.ioo(other)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    /// Shifts the center of the rotated bounding box by the given amount.
+    ///
+    /// Parameters
+    /// ----------
+    /// dx : float
+    ///   amount to shift the center of the rotated bounding box in the x-direction
+    /// dy : float
+    ///   amount to shift the center of the rotated bounding box in the y-direction
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///
+    pub fn shift(&mut self, dx: f64, dy: f64) {
+        self.has_modifications = true;
+        self.xc += dx;
+        self.yc += dy;
+    }
+}
+
+impl RBBox {
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let (left, right, top, bottom) = (
             padding.left as f64,
@@ -266,89 +513,42 @@ impl RBBox {
         }
     }
 
-    /// Returns a copy of the RBBox object
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`RBBox`
-    ///    A copy of the RBBox object
-    ///
-    ///
-    #[pyo3(name = "copy")]
-    pub fn copy_py(&self) -> Self {
-        let mut new_self = self.clone();
-        new_self.has_modifications = false;
-        new_self
-    }
-
-    #[pyo3(name = "iou")]
-    pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
-            self.iou(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
-    }
-
-    #[pyo3(name = "ios")]
-    pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
-            self.ios(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
-    }
-
-    #[pyo3(name = "ioo")]
-    pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
-            self.ioo(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
-    }
-
-    pub fn shift(&mut self, dx: f64, dy: f64) {
-        self.has_modifications = true;
-        self.xc += dx;
-        self.yc += dy;
-    }
-}
-
-impl RBBox {
     pub fn ios(&self, other: &Self) -> anyhow::Result<f64> {
-        if self.area() < EPS || other.area() < EPS {
+        if self.get_area() < EPS || other.get_area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
         }
 
-        let mut area1 = self.as_polygonal_area();
+        let mut area1 = self.get_as_polygonal_area();
         let poly1 = area1.get_polygon();
-        let mut area2 = other.as_polygonal_area();
+        let mut area2 = other.get_as_polygonal_area();
         let poly2 = area2.get_polygon();
 
         let intersection = poly1.intersection(&poly2).unsigned_area();
-        Ok(intersection / self.area())
+        Ok(intersection / self.get_area())
     }
 
     pub fn ioo(&self, other: &Self) -> anyhow::Result<f64> {
-        if self.area() < EPS || other.area() < EPS {
+        if self.get_area() < EPS || other.get_area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
         }
 
-        let mut area1 = self.as_polygonal_area();
+        let mut area1 = self.get_as_polygonal_area();
         let poly1 = area1.get_polygon();
-        let mut area2 = other.as_polygonal_area();
+        let mut area2 = other.get_as_polygonal_area();
         let poly2 = area2.get_polygon();
 
         let intersection = poly1.intersection(&poly2).unsigned_area();
-        Ok(intersection / other.area())
+        Ok(intersection / other.get_area())
     }
 
     pub fn iou(&self, other: &Self) -> anyhow::Result<f64> {
-        if self.area() < EPS || other.area() < EPS {
+        if self.get_area() < EPS || other.get_area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
         }
 
-        let mut area1 = self.as_polygonal_area();
+        let mut area1 = self.get_as_polygonal_area();
         let poly1 = area1.get_polygon();
-        let mut area2 = other.as_polygonal_area();
+        let mut area2 = other.get_as_polygonal_area();
         let poly2 = area2.get_polygon();
         let union = poly1.union(&poly2).unsigned_area();
         if union < EPS {
@@ -386,7 +586,7 @@ impl RBBox {
         }
     }
 
-    pub fn vertices(&self) -> Vec<(f64, f64)> {
+    pub fn get_vertices(&self) -> Vec<(f64, f64)> {
         let angle = self.angle.unwrap_or(0.0);
         let angle = angle * std::f64::consts::PI / 180.0;
         let cos = angle.cos();
@@ -403,23 +603,23 @@ impl RBBox {
         ]
     }
 
-    pub fn vertices_rounded(&self) -> Vec<(f64, f64)> {
-        self.vertices()
+    pub fn get_vertices_rounded(&self) -> Vec<(f64, f64)> {
+        self.get_vertices()
             .into_iter()
             .map(|(x, y)| (round_2_digits(x), round_2_digits(y)))
             .collect::<Vec<_>>()
     }
 
-    pub fn vertices_int(&self) -> Vec<(i64, i64)> {
-        self.vertices()
+    pub fn get_vertices_int(&self) -> Vec<(i64, i64)> {
+        self.get_vertices()
             .into_iter()
             .map(|(x, y)| (x as i64, y as i64))
             .collect::<Vec<_>>()
     }
 
-    pub fn as_polygonal_area(&self) -> PolygonalArea {
+    pub fn get_as_polygonal_area(&self) -> PolygonalArea {
         PolygonalArea::new(
-            self.vertices()
+            self.get_vertices()
                 .into_iter()
                 .map(|(x, y)| Point::new(x, y))
                 .collect::<Vec<_>>(),
@@ -427,11 +627,11 @@ impl RBBox {
         )
     }
 
-    pub fn wrapping_bbox(&self) -> PythonBBox {
+    pub fn get_wrapping_bbox(&self) -> PythonBBox {
         if self.angle.is_none() {
             PythonBBox::new(self.xc, self.yc, self.width, self.height)
         } else {
-            let mut vertices = self.vertices();
+            let mut vertices = self.get_vertices();
             let (initial_vtx_x, initial_vtx_y) = vertices.pop().unwrap();
             let (mut min_x, mut min_y, mut max_x, mut max_y) =
                 (initial_vtx_x, initial_vtx_y, initial_vtx_x, initial_vtx_y);
@@ -459,7 +659,7 @@ impl RBBox {
         }
     }
 
-    pub fn visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+    pub fn get_visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
         assert!(border_width >= 0);
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
@@ -480,7 +680,7 @@ pub struct PythonBBox {
 }
 
 impl PythonBBox {
-    pub fn visual_bbox(
+    pub fn get_visual_bbox(
         &self,
         padding: &PaddingDraw,
         border_width: i64,
@@ -517,6 +717,8 @@ impl PythonBBox {
     }
 }
 
+/// Auxiliary class representing :py:class:`RBBox` without an angle.
+///
 #[pymethods]
 impl PythonBBox {
     #[classattr]
@@ -562,6 +764,13 @@ impl PythonBBox {
         self.inner.has_modifications
     }
 
+    /// Creates a new object. Alias to the ``__init__`` method.
+    ///
+    #[staticmethod]
+    fn constructor(xc: f64, yc: f64, width: f64, height: f64) -> Self {
+        Self::new(xc, yc, width, height)
+    }
+
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64) -> Self {
         Self {
@@ -569,6 +778,8 @@ impl PythonBBox {
         }
     }
 
+    /// Creates a new object from (left, top, right, bottom) coordinates.
+    ///
     #[staticmethod]
     pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
         let width = right - left;
@@ -582,6 +793,8 @@ impl PythonBBox {
         }
     }
 
+    /// Creates a new object from (left, top, width, height) coordinates.
+    ///
     #[staticmethod]
     pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
         let xc = left + width / 2.0;
@@ -664,39 +877,41 @@ impl PythonBBox {
 
     #[getter]
     #[pyo3(name = "vertices")]
-    pub fn vertices_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.inner.vertices())
+    pub fn get_vertices_gil(&self) -> Vec<(f64, f64)> {
+        release_gil(|| self.inner.get_vertices())
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
-    pub fn vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.inner.vertices_rounded())
+    pub fn get_vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
+        release_gil(|| self.inner.get_vertices_rounded())
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
-    pub fn vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        release_gil(|| self.inner.vertices_int())
+    pub fn get_vertices_int_gil(&self) -> Vec<(i64, i64)> {
+        release_gil(|| self.inner.get_vertices_int())
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
-    pub fn wrapping_box_gil(&self) -> PythonBBox {
-        release_gil(|| self.inner.wrapping_bbox())
+    pub fn get_wrapping_box_gil(&self) -> PythonBBox {
+        release_gil(|| self.inner.get_wrapping_bbox())
     }
 
     #[pyo3(name = "visual_box")]
-    pub fn visual_box_gil(
+    pub fn get_visual_box_gil(
         &self,
         padding: &PaddingDraw,
         border_width: i64,
         max_x: f64,
         max_y: f64,
     ) -> PythonBBox {
-        release_gil(|| self.visual_bbox(padding, border_width, max_x, max_y))
+        release_gil(|| self.get_visual_bbox(padding, border_width, max_x, max_y))
     }
 
+    /// Returns (left, top, right, bottom) coordinates.
+    ///
     pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
         let top = self.get_top();
         let left = self.get_left();
@@ -705,6 +920,8 @@ impl PythonBBox {
         (left, top, right, bottom)
     }
 
+    /// Returns (left, top, right, bottom) coordinates rounded to integers.
+    ///
     pub fn as_ltrb_int(&self) -> (i64, i64, i64, i64) {
         let top = self.get_top().floor();
         let left = self.get_left().floor();
@@ -713,6 +930,8 @@ impl PythonBBox {
         (left as i64, top as i64, right as i64, bottom as i64)
     }
 
+    /// Returns (left, top, width, height) coordinates.
+    ///
     pub fn as_ltwh(&self) -> (f64, f64, f64, f64) {
         let top = self.get_top();
         let left = self.get_left();
@@ -721,6 +940,8 @@ impl PythonBBox {
         (left, top, width, height)
     }
 
+    /// Returns (left, top, width, height) coordinates rounded to integers.
+    ///
     pub fn as_ltwh_int(&self) -> (i64, i64, i64, i64) {
         let top = self.get_top().floor();
         let left = self.get_left().floor();
@@ -729,6 +950,8 @@ impl PythonBBox {
         (left as i64, top as i64, width as i64, height as i64)
     }
 
+    /// Returns (xc, yc, width, height) coordinates.
+    ///
     pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
         let xc = self.get_xc();
         let yc = self.get_yc();
@@ -737,6 +960,8 @@ impl PythonBBox {
         (xc, yc, width, height)
     }
 
+    /// Returns (xc, yc, width, height) coordinates rounded to integers.
+    ///
     pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
         let xc = self.get_xc();
         let yc = self.get_yc();
@@ -745,6 +970,8 @@ impl PythonBBox {
         (xc as i64, yc as i64, width as i64, height as i64)
     }
 
+    /// Converts the :py:class:`BBox` to a :py:class:`RBBox`.
+    ///
     pub fn as_rbbox(&self) -> RBBox {
         self.inner.clone()
     }
@@ -761,8 +988,8 @@ impl PythonBBox {
     }
 
     #[pyo3(name = "as_polygonal_area")]
-    pub fn as_polygonal_area_gil(&self) -> PolygonalArea {
-        release_gil(|| self.inner.as_polygonal_area())
+    pub fn get_as_polygonal_area_gil(&self) -> PolygonalArea {
+        release_gil(|| self.inner.get_as_polygonal_area())
     }
 
     /// Returns a copy of the BBox object
@@ -819,7 +1046,7 @@ mod tests {
     #[test]
     fn test_vertices() {
         let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
-        let vertices = bbox.vertices_rounded();
+        let vertices = bbox.get_vertices_rounded();
         assert_eq!(vertices.len(), 4);
         assert_eq!(vertices[0], (0.0, 70.71));
         assert_eq!(vertices[1], (70.71, 0.0));
@@ -830,7 +1057,7 @@ mod tests {
     #[test]
     fn test_wrapping_bbox() {
         let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
-        let wrapped = bbox.wrapping_bbox();
+        let wrapped = bbox.get_wrapping_bbox();
         assert_eq!(wrapped.inner.xc, 0.0);
         assert_eq!(wrapped.inner.yc, 0.0);
         assert_eq!(round_2_digits(wrapped.inner.width), 141.42);
@@ -838,7 +1065,7 @@ mod tests {
         assert_eq!(wrapped.inner.angle, None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, None);
-        let wrapped = bbox.wrapping_bbox();
+        let wrapped = bbox.get_wrapping_bbox();
         assert_eq!(wrapped.inner.xc, 0.0);
         assert_eq!(wrapped.inner.yc, 0.0);
         assert_eq!(round_2_digits(wrapped.inner.width), 50.0);
@@ -846,7 +1073,7 @@ mod tests {
         assert_eq!(wrapped.inner.angle, None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, Some(90.0));
-        let wrapped = bbox.wrapping_bbox();
+        let wrapped = bbox.get_wrapping_bbox();
         assert_eq!(wrapped.inner.xc, 0.0);
         assert_eq!(wrapped.inner.yc, 0.0);
         assert_eq!(round_2_digits(wrapped.inner.width), 100.0);

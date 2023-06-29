@@ -1,9 +1,12 @@
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::proxy::{StrongInnerType, UpgradeableWeakInner, WeakInner};
 use crate::primitives::{PaddingDraw, PolygonalArea, PythonBBox, RBBox, VideoObjectBBoxType};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pyclass::CompareOp;
 
+/// See the documentation of :py:class:`savant_rs.primitives.geometry.RBBox` for meaning of the properties and methods.
+///
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct VideoObjectRBBoxProxy {
@@ -39,9 +42,46 @@ impl VideoObjectRBBoxProxy {
         self.__repr__()
     }
 
+    #[getter]
+    fn get_area(&self) -> f64 {
+        let kind = self.kind;
+        self.get_object().read().bbox_ref(kind).get_area()
+    }
+
+    #[pyo3(name = "copy")]
+    fn copy_py(&self) -> RBBox {
+        let kind = self.kind;
+        self.get_object().read().bbox_ref(kind).copy_py()
+    }
+
+    fn new_padded(&self, padding: &PaddingDraw) -> RBBox {
+        let kind = self.kind;
+        self.get_object().read().bbox_ref(kind).new_padded(padding)
+    }
+
     fn is_modified(&self) -> bool {
         let kind = self.kind;
         self.get_object().read().bbox_ref(kind).is_modified()
+    }
+
+    #[pyo3(name = "visual_box")]
+    pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+        let kind = self.kind;
+        self.get_object()
+            .read()
+            .bbox_ref(kind)
+            .get_visual_box_gil(padding, border_width)
+    }
+
+    /// Access the ratio between width and height.
+    ///
+    #[getter]
+    pub fn get_width_to_height_ratio(&self) -> f64 {
+        let kind = self.kind;
+        self.get_object()
+            .read()
+            .bbox_ref(kind)
+            .get_width_to_height_ratio()
     }
 
     #[getter]
@@ -120,99 +160,173 @@ impl VideoObjectRBBoxProxy {
             .shift(shift_x, shift_y);
     }
 
-    pub fn vertices(&self) -> Vec<(f64, f64)> {
+    #[getter]
+    pub fn get_vertices(&self) -> Vec<(f64, f64)> {
         let kind = self.kind;
-        self.get_object().read().bbox_ref(kind).vertices_gil()
+        self.get_object().read().bbox_ref(kind).get_vertices_gil()
     }
 
-    pub fn vertices_rounded(&self) -> Vec<(f64, f64)> {
+    #[getter]
+    pub fn get_vertices_rounded(&self) -> Vec<(f64, f64)> {
         let kind = self.kind;
         self.get_object()
             .read()
             .bbox_ref(kind)
-            .vertices_rounded_gil()
+            .get_vertices_rounded_gil()
     }
 
-    pub fn vertices_int(&self) -> Vec<(i64, i64)> {
-        let kind = self.kind;
-        self.get_object().read().bbox_ref(kind).vertices_int_gil()
-    }
-
-    pub fn as_polygonal_area(&self) -> PolygonalArea {
+    #[getter]
+    pub fn get_vertices_int(&self) -> Vec<(i64, i64)> {
         let kind = self.kind;
         self.get_object()
             .read()
             .bbox_ref(kind)
-            .as_polygonal_area_gil()
+            .get_vertices_int_gil()
     }
 
-    pub fn wrapping_box(&self) -> PythonBBox {
-        let kind = self.kind;
-        self.get_object().read().bbox_ref(kind).wrapping_box_gil()
-    }
-
-    pub fn visual_box(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+    #[getter]
+    pub fn get_as_polygonal_area(&self) -> PolygonalArea {
         let kind = self.kind;
         self.get_object()
             .read()
             .bbox_ref(kind)
-            .visual_box_gil(padding, border_width)
+            .get_as_polygonal_area_gil()
+    }
+
+    #[getter]
+    pub fn get_wrapping_box(&self) -> PythonBBox {
+        let kind = self.kind;
+        self.get_object()
+            .read()
+            .bbox_ref(kind)
+            .get_wrapping_box_gil()
+    }
+
+    pub fn get_visual_box(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+        let kind = self.kind;
+        self.get_object()
+            .read()
+            .bbox_ref(kind)
+            .get_visual_box_gil(padding, border_width)
     }
 
     #[pyo3(name = "eq")]
-    pub fn geometric_eq(&self, other: &Self) -> bool {
+    pub fn geometric_eq(&self, other: &PyAny) -> PyResult<bool> {
         let kind = self.kind;
         let ob1 = self.get_object();
-        let ob2 = other.get_object();
-
         let br1 = ob1.read();
-        let br2 = ob2.read();
-
         let o1 = br1.bbox_ref(kind);
-        let o2 = br2.bbox_ref(kind);
 
-        o1.geometric_eq(o2)
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            Ok(o1.geometric_eq(o2))
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            Ok(o1.geometric_eq(&other))
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
     }
 
-    pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
+    pub fn almost_eq(&self, other: &PyAny, eps: f64) -> PyResult<bool> {
         let kind = self.kind;
         let ob1 = self.get_object();
-        let ob2 = other.get_object();
-
         let br1 = ob1.read();
-        let br2 = ob2.read();
-
         let o1 = br1.bbox_ref(kind);
-        let o2 = br2.bbox_ref(kind);
 
-        o1.almost_eq(o2, eps)
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            Ok(o1.almost_eq(o2, eps))
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            Ok(o1.almost_eq(&other, eps))
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
     }
 
-    pub fn iou(&self, other: &Self) -> PyResult<f64> {
+    pub fn iou(&self, other: &PyAny) -> PyResult<f64> {
         let kind = self.kind;
         let ob1 = self.get_object();
-        let ob2 = other.get_object();
-
         let br1 = ob1.read();
-        let br2 = ob2.read();
-
         let o1 = br1.bbox_ref(kind);
-        let o2 = br2.bbox_ref(kind);
 
-        o1.iou_gil(o2)
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            o1.iou_gil(o2)
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            o1.iou_gil(&other)
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
     }
 
-    fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
+    pub fn ios(&self, other: &PyAny) -> PyResult<f64> {
         let kind = self.kind;
         let ob1 = self.get_object();
-        let ob2 = other.get_object();
-
         let br1 = ob1.read();
-        let br2 = ob2.read();
-
         let o1 = br1.bbox_ref(kind);
-        let o2 = br2.bbox_ref(kind);
 
-        o1.__richcmp__(o2, op)
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            o1.ios_gil(o2)
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            o1.ios_gil(&other)
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
+    }
+
+    pub fn ioo(&self, other: &PyAny) -> PyResult<f64> {
+        let kind = self.kind;
+        let ob1 = self.get_object();
+        let br1 = ob1.read();
+        let o1 = br1.bbox_ref(kind);
+
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            o1.ioo_gil(o2)
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            o1.ioo_gil(&other)
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
+    }
+
+    fn __richcmp__(&self, other: &PyAny, op: CompareOp) -> PyResult<bool> {
+        let kind = self.kind;
+        let ob1 = self.get_object();
+        let br1 = ob1.read();
+        let o1 = br1.bbox_ref(kind);
+        if let Ok(other) = other.extract::<Self>() {
+            let ob2 = other.get_object();
+            let br2 = ob2.read();
+            let o2 = br2.bbox_ref(kind);
+            o1.__richcmp__(o2, op)
+        } else if let Ok(other) = other.extract::<RBBox>() {
+            o1.__richcmp__(&other, op)
+        } else {
+            Err(PyValueError::new_err(
+                "Not a VideoObjectRBBoxProxy or RBBox",
+            ))
+        }
     }
 }
