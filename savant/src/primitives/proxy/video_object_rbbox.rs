@@ -112,6 +112,14 @@ impl VideoObjectRBBoxProxy {
             .scale_gil(scale_x, scale_y);
     }
 
+    pub fn shift(&self, shift_x: f64, shift_y: f64) {
+        let kind = self.kind;
+        self.get_object()
+            .write()
+            .bbox_mut(kind)
+            .shift(shift_x, shift_y);
+    }
+
     pub fn vertices(&self) -> Vec<(f64, f64)> {
         let kind = self.kind;
         self.get_object().read().bbox_ref(kind).vertices_gil()

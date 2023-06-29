@@ -29,6 +29,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
+use crate::primitives::bbox::transformations::VideoObjectBBoxTransformationProxy;
 use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::{Message, VideoObjectBBoxType};
 use crate::utils::byte_buffer::ByteBuffer;
@@ -129,6 +130,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
     m.add_class::<VideoObjectBBoxType>()?;
+    m.add_class::<VideoObjectBBoxTransformationProxy>()?;
     m.add_class::<BBoxMetricType>()?;
 
     Ok(())
