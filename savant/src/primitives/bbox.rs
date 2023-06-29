@@ -1384,4 +1384,64 @@ mod tests {
         assert!(bb.set_left(12.0).is_ok());
         assert!(bb.is_modified());
     }
+
+    #[test]
+    fn test_various_reprs_none_angle() {
+        let mut bb = get_bbox(None);
+        assert!(bb.as_ltrb().is_ok());
+        assert!(bb.as_ltrb_int().is_ok());
+        assert!(bb.as_ltwh().is_ok());
+        assert!(bb.as_ltwh_int().is_ok());
+        assert!(bb.get_top().is_ok());
+        assert!(bb.get_left().is_ok());
+        assert!(bb.get_bottom().is_ok());
+        assert!(bb.get_right().is_ok());
+        assert!(bb.set_top(11.0).is_ok());
+        assert!(bb.set_left(12.0).is_ok());
+        assert!(bb.is_modified());
+    }
+
+    #[test]
+    fn test_reprs_correct_values() {
+        let mut bb = get_bbox(None);
+        bb.set_xc(10.0);
+        bb.set_yc(20.0);
+        bb.set_width(30.0);
+        bb.set_height(40.0);
+        let left = bb.get_left().unwrap();
+        assert_eq!(left, 10.0 - 30.0 / 2.0);
+        let top = bb.get_top().unwrap();
+        assert_eq!(top, 20.0 - 40.0 / 2.0);
+        let right = bb.get_right().unwrap();
+        assert_eq!(right, 10.0 + 30.0 / 2.0);
+        let bottom = bb.get_bottom().unwrap();
+        assert_eq!(bottom, 20.0 + 40.0 / 2.0);
+        let width = bb.get_width();
+        let height = bb.get_height();
+        let ltrb = bb.as_ltrb().unwrap();
+        assert_eq!(ltrb, (left, top, right, bottom));
+        let ltrb_int = bb.as_ltrb_int().unwrap();
+        assert_eq!(
+            ltrb_int,
+            (
+                left.floor() as i64,
+                top.floor() as i64,
+                right.ceil() as i64,
+                bottom.ceil() as i64
+            )
+        );
+
+        let ltwh = bb.as_ltwh().unwrap();
+        assert_eq!(ltwh, (left, top, width, height));
+        let ltwh_int = bb.as_ltwh_int().unwrap();
+        assert_eq!(
+            ltwh_int,
+            (
+                left.floor() as i64,
+                top.floor() as i64,
+                width.ceil() as i64,
+                height.ceil() as i64
+            )
+        );
+    }
 }
