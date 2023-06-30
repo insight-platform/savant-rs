@@ -276,7 +276,8 @@ fn test_setters_borrowed_track_box() {
 }
 
 #[test]
-fn test_scale_owned_box_no_angle() {
+fn test_scale_box_no_angle() {
+    // universally works for owned, borrowed detection and borrowed track boxes
     let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
     bbox.scale(2.0, 2.0);
     assert_eq!(bbox.get_xc(), 0.0);
@@ -287,7 +288,8 @@ fn test_scale_owned_box_no_angle() {
 }
 
 #[test]
-fn test_scale_owned_box_with_angle() {
+fn test_scale_box_with_angle() {
+    // universally works for owned, borrowed detection and borrowed track boxes
     let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
     bbox.scale(2.0, 3.0);
     //dbg!(&bbox);
