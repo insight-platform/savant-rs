@@ -233,68 +233,61 @@ pub enum MatchQuery {
 
 impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
     fn execute(&self, o: &RwLockReadGuard<VideoObject>, ctx: &mut ObjectContext) -> bool {
+        let detection_box = RBBox::new_from_data(o.detection_box.clone());
+        let tracking_box = o.track_box.clone().map(RBBox::new_from_data);
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, ctx),
             MatchQuery::Creator(x) => x.execute(&o.creator, ctx),
             MatchQuery::Label(x) => x.execute(&o.label, ctx),
             MatchQuery::Confidence(x) => o.confidence.map(|c| x.execute(&c, ctx)).unwrap_or(false),
             MatchQuery::ConfidenceDefined => o.confidence.is_some(),
-            MatchQuery::TrackDefined => o.track_info.is_some(),
+            MatchQuery::TrackDefined => o.track_id.is_some(),
             MatchQuery::TrackId(x) => o
-                .track_info
+                .track_id
                 .as_ref()
-                .map(|t| x.execute(&t.id, ctx))
+                .map(|id| x.execute(id, ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxXCenter(x) => o
-                .track_info
+            MatchQuery::TrackBoxXCenter(x) => tracking_box
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_xc(), ctx))
+                .map(|t| x.execute(&t.get_xc(), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxYCenter(x) => o
-                .track_info
+            MatchQuery::TrackBoxYCenter(x) => tracking_box
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_yc(), ctx))
+                .map(|t| x.execute(&t.get_yc(), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxWidth(x) => o
-                .track_info
+            MatchQuery::TrackBoxWidth(x) => tracking_box
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_width(), ctx))
+                .map(|t| x.execute(&t.get_width(), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxHeight(x) => o
-                .track_info
+            MatchQuery::TrackBoxHeight(x) => tracking_box
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_height(), ctx))
+                .map(|t| x.execute(&t.get_height(), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxWidthToHeightRatio(x) => o
-                .track_info
+            MatchQuery::TrackBoxWidthToHeightRatio(x) => tracking_box
                 .as_ref()
-                .map(|t| x.execute(&t.bounding_box.get_width_to_height_ratio(), ctx))
+                .map(|t| x.execute(&t.get_width_to_height_ratio(), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxArea(x) => o
-                .track_info
+            MatchQuery::TrackBoxArea(x) => tracking_box
                 .as_ref()
-                .map(|t| {
-                    x.execute(
-                        &(t.bounding_box.get_width() * t.bounding_box.get_height()),
-                        ctx,
-                    )
-                })
+                .map(|t| x.execute(&(t.get_width() * t.get_height()), ctx))
                 .unwrap_or(false),
-            MatchQuery::TrackBoxAngle(x) => o
-                .track_info
+            MatchQuery::TrackBoxAngle(x) => tracking_box
                 .as_ref()
-                .and_then(|t| t.bounding_box.get_angle().map(|a| x.execute(&a, ctx)))
+                .and_then(|t| t.get_angle().map(|a| x.execute(&a, ctx)))
                 .unwrap_or(false),
             MatchQuery::TrackBoxMetric {
                 other,
                 metric_type,
                 threshold_expr,
-            } => o.track_info.as_ref().map_or(false, |t| {
+            } => tracking_box.as_ref().map_or(false, |t| {
                 let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
                 let metric = match metric_type {
-                    BBoxMetricType::IoU => t.bounding_box.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => t.bounding_box.ios(&o.bbox).unwrap_or(0.0),
-                    BBoxMetricType::IoOther => t.bounding_box.ioo(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoU => t.iou(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoSelf => {
+                        dbg!(&t, &other);
+                        t.ios(&other).unwrap_or(0.0)
+                    }
+                    BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, ctx)
             }),
@@ -302,17 +295,19 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
             // parent
             MatchQuery::ParentDefined => o.parent_id.is_some(),
             // box
-            MatchQuery::BoxWidth(x) => x.execute(&o.bbox.get_width(), ctx),
-            MatchQuery::BoxHeight(x) => x.execute(&o.bbox.get_height(), ctx),
-            MatchQuery::BoxXCenter(x) => x.execute(&o.bbox.get_xc(), ctx),
-            MatchQuery::BoxYCenter(x) => x.execute(&o.bbox.get_yc(), ctx),
-            MatchQuery::BoxAngleDefined => o.bbox.get_angle().is_some(),
-            MatchQuery::BoxArea(x) => x.execute(&(o.bbox.get_width() * o.bbox.get_height()), ctx),
+            MatchQuery::BoxWidth(x) => x.execute(&detection_box.get_width(), ctx),
+            MatchQuery::BoxHeight(x) => x.execute(&detection_box.get_height(), ctx),
+            MatchQuery::BoxXCenter(x) => x.execute(&detection_box.get_xc(), ctx),
+            MatchQuery::BoxYCenter(x) => x.execute(&detection_box.get_yc(), ctx),
+            MatchQuery::BoxAngleDefined => detection_box.get_angle().is_some(),
+            MatchQuery::BoxArea(x) => x.execute(
+                &(detection_box.get_width() * detection_box.get_height()),
+                ctx,
+            ),
             MatchQuery::BoxWidthToHeightRatio(x) => {
-                x.execute(&o.bbox.get_width_to_height_ratio(), ctx)
+                x.execute(&detection_box.get_width_to_height_ratio(), ctx)
             }
-            MatchQuery::BoxAngle(x) => o
-                .bbox
+            MatchQuery::BoxAngle(x) => detection_box
                 .get_angle()
                 .map(|a| x.execute(&a, ctx))
                 .unwrap_or(false),
@@ -323,9 +318,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
             } => {
                 let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
                 let metric = match metric_type {
-                    BBoxMetricType::IoU => o.bbox.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => o.bbox.ios(&o.bbox).unwrap_or(0.0),
-                    BBoxMetricType::IoOther => o.bbox.ioo(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoU => detection_box.iou(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, ctx)
             }
@@ -769,7 +764,7 @@ mod tests {
         assert!(!expr.execute_with_new_context(&gen_object(1)));
 
         let object = gen_object(1);
-        object.set_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
+        object.set_detection_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         assert!(expr.execute_with_new_context(&object));
 
         let expr = BoxAngle(gt(20.0));
@@ -922,7 +917,7 @@ mod tests {
     #[test]
     fn test_bbox_metric_ios() {
         let expr = BoxMetric {
-            other: (1.0, 2.0, 2.0, 4.0, None), // matches to the box defined in gen_object(1)
+            other: (1.0, 2.0, 20.0, 40.0, None), // matches to the box defined in gen_object(1)
             metric_type: BBoxMetricType::IoSelf,
             threshold_expr: FloatExpression::GE(0.99),
         };
@@ -951,8 +946,8 @@ mod tests {
 
     #[test]
     fn test_track_bbox_metric_ios() {
-        let expr = BoxMetric {
-            other: (100.0, 200.0, 2.0, 4.0, None), // matches to the tracking box defined in gen_object(1)
+        let expr = TrackBoxMetric {
+            other: (100.0, 200.0, 20.0, 40.0, None), // matches to the tracking box defined in gen_object(1)
             metric_type: BBoxMetricType::IoSelf,
             threshold_expr: FloatExpression::GE(0.99),
         };
@@ -961,7 +956,7 @@ mod tests {
 
     #[test]
     fn test_track_bbox_metric_ioo() {
-        let expr = BoxMetric {
+        let expr = TrackBoxMetric {
             other: (100.0, 200.0, 100.0, 200.0, None), // matches to the tracking box defined in gen_object(1)
             metric_type: BBoxMetricType::IoOther,
             threshold_expr: FloatExpression::LE(0.05), // < 10 * 20 / (100 * 200)

@@ -13,7 +13,6 @@ pub mod message;
 pub mod point;
 /// A structure representing polygonal areas and functions.
 pub mod polygonal_area;
-pub mod proxy;
 /// A line consisting of two points.
 pub mod segment;
 /// A trait to serialize various objects to json.
@@ -24,8 +23,6 @@ use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
 pub use crate::primitives::message::video::object::objects_view::{
     VideoObjectBBoxType, VideoObjectsView,
 };
-pub use crate::primitives::message::video::object::VideoObjectTrackingData;
-use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
 pub use attribute::attribute_value::{
     AttributeValue, AttributeValueType, AttributeValueVariant, AttributeValuesView,
 };
@@ -104,8 +101,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<VideoObjectProxy>()?;
     m.add_class::<VideoObjectModification>()?;
-    m.add_class::<VideoObjectTrackingData>()?;
-    m.add_class::<VideoObjectRBBoxProxy>()?;
     m.add_class::<VideoObjectsView>()?;
 
     m.add_class::<IdCollisionResolutionPolicy>()?;

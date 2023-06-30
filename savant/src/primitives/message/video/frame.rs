@@ -1443,6 +1443,7 @@ impl VideoFrameProxy {
                             HashMap::default(),
                             Some(conf),
                             None,
+                            None,
                         );
                         self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
                             .map_err(|e| {
@@ -1627,7 +1628,7 @@ mod tests {
                 .creator(s("some-model"))
                 .label(s("some-label"))
                 .id(155)
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .build()
                 .unwrap(),
         );
@@ -1645,7 +1646,7 @@ mod tests {
                 .creator(s("some-model"))
                 .label(s("some-label"))
                 .id(155)
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .build()
                 .unwrap(),
         );
@@ -1735,7 +1736,7 @@ mod tests {
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))
-                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .build()
                 .unwrap(),
         );
@@ -1745,7 +1746,7 @@ mod tests {
                 .id(23)
                 .creator(s("random"))
                 .label(s("something"))
-                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .parent_id(Some(p.get_id()))
                 .build()
                 .unwrap(),
@@ -1765,7 +1766,7 @@ mod tests {
                 .id(11)
                 .creator(s("random"))
                 .label(s("something"))
-                .bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
+                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .build()
                 .unwrap(),
         );
