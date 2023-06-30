@@ -186,7 +186,7 @@ impl RBBox {
             BBoxVariant::Owned(d) => d.width * d.height,
             BBoxVariant::BorrowedDetectionBox(d) => {
                 let lock = d.read_recursive();
-                lock.detection_box.xc * lock.detection_box.yc
+                lock.detection_box.width * lock.detection_box.height
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
                 let lock = d.read_recursive();
@@ -356,7 +356,7 @@ impl RBBox {
 
     /// Resets the modification flag.
     ///
-    pub fn set_modifications(&mut self, value: bool) {
+    pub fn set_modification_status(&mut self, value: bool) {
         match &mut self.data {
             BBoxVariant::Owned(d) => d.has_modifications = value,
             BBoxVariant::BorrowedDetectionBox(d) => {
@@ -648,7 +648,7 @@ impl RBBox {
             data: BBoxVariant::Owned(data),
         };
 
-        new_self.set_modifications(false);
+        new_self.set_modification_status(false);
         new_self
     }
 
@@ -785,7 +785,7 @@ impl RBBox {
     #[setter]
     pub fn set_top(&mut self, top: f64) -> PyResult<()> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
-            self.set_modifications(true);
+            self.set_modification_status(true);
             let h = self.get_height();
             self.set_yc(top + h / 2.0);
             Ok(())
@@ -810,7 +810,7 @@ impl RBBox {
     #[setter]
     pub fn set_left(&mut self, left: f64) -> PyResult<()> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
-            self.set_modifications(true);
+            self.set_modification_status(true);
             let w = self.get_width();
             self.set_xc(left + w / 2.0);
             Ok(())
@@ -1425,7 +1425,7 @@ impl PythonBBox {
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
         let mut new_self = self.clone();
-        new_self.inner.set_modifications(false);
+        new_self.inner.set_modification_status(false);
         new_self
     }
 

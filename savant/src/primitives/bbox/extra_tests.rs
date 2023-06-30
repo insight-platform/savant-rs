@@ -9,6 +9,7 @@ fn test_owned_getters() {
     assert_eq!(rbbox.get_width(), 3.0);
     assert_eq!(rbbox.get_height(), 4.0);
     assert_eq!(rbbox.get_angle(), Some(30.0));
+    assert_eq!(rbbox.get_area(), 12.0);
 }
 
 #[test]
@@ -20,6 +21,7 @@ fn test_borrowed_detection_getters() {
     assert_eq!(detection_box.get_width(), 10.0);
     assert_eq!(detection_box.get_height(), 20.0);
     assert_eq!(detection_box.get_angle(), None);
+    assert_eq!(detection_box.get_area(), 200.0);
 }
 
 #[test]
@@ -31,6 +33,7 @@ fn test_borrowed_track_getters() {
     assert_eq!(track_box.get_width(), 10.0);
     assert_eq!(track_box.get_height(), 20.0);
     assert_eq!(track_box.get_angle(), None);
+    assert_eq!(track_box.get_area(), 200.0);
 }
 
 #[test]
@@ -102,8 +105,10 @@ fn test_borrowed_track_setters() {
 fn compare_owned_boxes() {
     let b1 = RBBox::new(1.0, 2.0, 3.0, 4.0, Some(30.0));
     assert!(b1.geometric_eq(&b1));
+    assert!(b1.almost_eq(&b1, 1e-6));
     let b2 = RBBox::new(1.0, 2.0, 3.0, 4.0, Some(30.0));
     assert!(b1.geometric_eq(&b2));
+    assert!(b1.almost_eq(&b2, 1e-6));
 }
 
 #[test]
@@ -113,6 +118,7 @@ fn compare_borrowed_detection_boxes() {
     let b1 = o1.get_detection_box();
     let b2 = o2.get_detection_box();
     assert!(b1.geometric_eq(&b2));
+    assert!(b1.almost_eq(&b2, 1e-6));
 }
 
 #[test]
@@ -122,6 +128,7 @@ fn compare_borrowed_track_boxes() {
     let b1 = o1.get_track_box().unwrap();
     let b2 = o2.get_track_box().unwrap();
     assert!(b1.geometric_eq(&b2));
+    assert!(b1.almost_eq(&b2, 1e-6));
 }
 
 #[test]
@@ -141,6 +148,7 @@ fn compare_mixed_detection_track_boxes() {
     b2.set_height(20.0);
     b2.set_angle(Some(300.0));
     assert!(b1.geometric_eq(&b2));
+    assert!(b1.almost_eq(&b2, 1e-6));
 }
 
 #[test]
@@ -154,4 +162,114 @@ fn compare_mixed_owned_detection_boxes() {
     b2.set_height(20.0);
     b2.set_angle(Some(300.0));
     assert!(b1.geometric_eq(&b2));
+    assert!(b1.almost_eq(&b2, 1e-6));
+}
+
+#[test]
+fn test_bbox_width_to_height_ratio() {
+    let b1 = RBBox::new(100.0, 200.0, 10.0, 20.0, Some(300.0));
+    assert_eq!(b1.get_width_to_height_ratio(), 0.5);
+}
+
+#[test]
+fn test_modification_owned_box() {
+    let mut b = RBBox::new(100.0, 200.0, 10.0, 20.0, Some(300.0));
+    assert_eq!(b.is_modified(), false);
+    b.set_modification_status(true);
+    assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_modification_borrowed_detection_box() {
+    let o = gen_object(1);
+    let mut b = o.get_detection_box();
+    assert_eq!(b.is_modified(), false);
+    b.set_modification_status(true);
+    assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_modification_borrowed_track_box() {
+    let o = gen_object(1);
+    let mut b = o.get_track_box().unwrap();
+    assert_eq!(b.is_modified(), false);
+    b.set_modification_status(true);
+    assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_setters_modify_owned_box() {
+    let mut b = RBBox::new(100.0, 200.0, 10.0, 20.0, Some(300.0));
+    assert_eq!(b.is_modified(), false);
+
+    b.set_xc(100.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_yc(200.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_width(10.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_height(20.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_angle(Some(300.0));
+    assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_setters_borrowed_detection_box() {
+    let o = gen_object(1);
+    let mut b = o.get_detection_box();
+    assert_eq!(b.is_modified(), false);
+
+    b.set_xc(100.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_yc(200.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_width(10.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_height(20.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_angle(Some(300.0));
+    assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_setters_borrowed_track_box() {
+    let o = gen_object(1);
+    let mut b = o.get_track_box().unwrap();
+    assert_eq!(b.is_modified(), false);
+
+    b.set_xc(100.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_yc(200.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_width(10.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_height(20.0);
+    assert_eq!(b.is_modified(), true);
+
+    b.set_modification_status(false);
+    b.set_angle(Some(300.0));
+    assert_eq!(b.is_modified(), true);
 }
