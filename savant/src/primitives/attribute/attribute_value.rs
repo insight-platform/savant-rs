@@ -1,3 +1,4 @@
+use crate::primitives::bbox::OwnedRBBoxData;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
 use pyo3::exceptions::PyIndexError;
@@ -18,8 +19,8 @@ pub enum AttributeValueVariant {
     FloatVector(Vec<f64>),
     Boolean(bool),
     BooleanVector(Vec<bool>),
-    BBox(RBBox),
-    BBoxVector(Vec<RBBox>),
+    BBox(OwnedRBBoxData),
+    BBoxVector(Vec<OwnedRBBoxData>),
     Point(Point),
     PointVector(Vec<Point>),
     Polygon(PolygonalArea),
@@ -438,7 +439,10 @@ impl AttributeValue {
     pub fn bbox(bbox: RBBox, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::BBox(bbox),
+            v: AttributeValueVariant::BBox(
+                bbox.try_into()
+                    .expect("Unable to convert RBBox to RBBoxData."),
+            ),
         }
     }
 
@@ -460,7 +464,12 @@ impl AttributeValue {
     pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f64>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::BBoxVector(bboxes),
+            v: AttributeValueVariant::BBoxVector(
+                bboxes
+                    .into_iter()
+                    .map(|b| b.try_into().expect("Unable to convert RBBox to RBBoxData"))
+                    .collect(),
+            ),
         }
     }
 
@@ -711,7 +720,7 @@ impl AttributeValue {
     ///
     pub fn as_bbox(&self) -> Option<RBBox> {
         match &self.v {
-            AttributeValueVariant::BBox(bbox) => Some(bbox.clone()),
+            AttributeValueVariant::BBox(bbox) => Some(RBBox::new_from_data(bbox.clone())),
             _ => None,
         }
     }
@@ -725,7 +734,12 @@ impl AttributeValue {
     ///
     pub fn as_bboxes(&self) -> Option<Vec<RBBox>> {
         match &self.v {
-            AttributeValueVariant::BBoxVector(bbox) => Some(bbox.clone()),
+            AttributeValueVariant::BBoxVector(bboxes) => Some(
+                bboxes
+                    .iter()
+                    .map(|bbox| RBBox::new_from_data(bbox.clone()))
+                    .collect(),
+            ),
             _ => None,
         }
     }

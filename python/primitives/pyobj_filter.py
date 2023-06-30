@@ -33,7 +33,7 @@ def thread_python(barrier):
 
     def angle():
         def angle_helper(o):
-            return o.bbox.angle is not None
+            return o.detection_box.angle is not None
 
         return angle_helper
 
@@ -55,10 +55,11 @@ def thread_python(barrier):
         id=1,
         creator="created_by_{}".format(i),
         label="person_{}".format(i),
-        bbox=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+        detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
         confidence=random.random(),
         attributes={},
-        track=None,
+        track_id=None,
+        track_box=None
     ) for i in range(N)]
 
     barrier.wait()
@@ -95,10 +96,12 @@ def thread_full(barrier):
             id=i,
             creator="created_by_{}".format(i),
             label="person_{}".format(i),
-            bbox=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+            detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
             attributes={},
-            track=None,
+            track_id=None,
+            track_box=None
+
         ), IdCollisionResolutionPolicy.Error)
 
     full_expr = Q.eval(""" 
@@ -140,10 +143,11 @@ def thread_decomposed(barrier):
             id=i,
             creator="created_by_{}".format(i),
             label="person_{}".format(i),
-            bbox=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+            detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
             attributes={},
-            track=None,
+            track_id=None,
+            track_box=None
         ), IdCollisionResolutionPolicy.Error)
 
     decomposed_expr = Q.and_(
@@ -191,10 +195,11 @@ def measure_batch_full():
                 id=i,
                 creator="created_by_{}".format(i),
                 label="person_{}".format(i),
-                bbox=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
                 attributes={},
-                track=None,
+                track_id=None,
+                track_box=None
             ), IdCollisionResolutionPolicy.Error)
         batch.add(id, f)
 
@@ -223,10 +228,11 @@ def measure_batch_full_dsl():
                 id=i,
                 creator="created_by_{}".format(i),
                 label="person_{}".format(i),
-                bbox=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
                 attributes={},
-                track=None,
+                track_id=None,
+                track_box=None
             ), IdCollisionResolutionPolicy.Error)
         batch.add(id, f)
 

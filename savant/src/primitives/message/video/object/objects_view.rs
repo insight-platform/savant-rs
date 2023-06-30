@@ -49,8 +49,8 @@ impl VideoObjectsView {
         release_gil(|| {
             let it = zip(self.inner.iter(), boxes);
             match kind {
-                VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_bbox(b)),
-                VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.update_track_bbox(b)),
+                VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_bbox(b)),
+                VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.set_track_box(b)),
             }
         })
     }
@@ -101,17 +101,15 @@ impl VideoObjectsView {
     #[pyo3(name = "rotated_boxes_as_numpy")]
     fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
         let boxes = release_gil(|| match kind {
-            VideoObjectBBoxType::Detection => {
-                self.inner.iter().map(|x| x.get_bbox()).collect::<Vec<_>>()
-            }
+            VideoObjectBBoxType::Detection => self
+                .inner
+                .iter()
+                .map(|x| x.get_detection_box())
+                .collect::<Vec<_>>(),
             VideoObjectBBoxType::TrackingInfo => self
                 .inner
                 .iter()
-                .flat_map(|o| {
-                    o.get_tracking_data()
-                        .map(|t| t.bounding_box)
-                        .or(Some(BBOX_UNDEFINED.clone()))
-                })
+                .flat_map(|o| o.get_track_box().or(Some(BBOX_UNDEFINED.clone())))
                 .collect::<Vec<_>>(),
         });
         rotated_bboxes_to_ndarray(boxes)
@@ -123,7 +121,7 @@ impl VideoObjectsView {
         release_gil(|| {
             self.inner
                 .iter()
-                .map(|o| o.get_tracking_data().map(|t| t.id))
+                .map(|o| o.get_track_id())
                 .collect::<Vec<_>>()
         })
     }

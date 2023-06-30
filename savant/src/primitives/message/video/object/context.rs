@@ -107,53 +107,53 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "tracking_info.id" => Some(self.object_view.tracking_info_id.get_or_init(|| {
-                match self.object.get_tracking_data() {
+                match self.object.get_track_id() {
                     None => Value::Empty,
-                    Some(info) => Value::from(info.id),
+                    Some(id) => Value::from(id),
                 }
             })),
 
             "tracking_info.bbox.xc" => {
                 Some(self.object_view.tracking_info_bbox.xc.get_or_init(|| {
-                    match self.object.get_tracking_data() {
+                    match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.bounding_box.get_xc()),
+                        Some(info) => Value::from(info.get_xc()),
                     }
                 }))
             }
 
             "tracking_info.bbox.yc" => {
                 Some(self.object_view.tracking_info_bbox.yc.get_or_init(|| {
-                    match self.object.get_tracking_data() {
+                    match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.bounding_box.get_yc()),
+                        Some(info) => Value::from(info.get_yc()),
                     }
                 }))
             }
 
             "tracking_info.bbox.width" => {
                 Some(self.object_view.tracking_info_bbox.width.get_or_init(|| {
-                    match self.object.get_tracking_data() {
+                    match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.bounding_box.get_width()),
+                        Some(info) => Value::from(info.get_width()),
                     }
                 }))
             }
 
             "tracking_info.bbox.height" => {
                 Some(self.object_view.tracking_info_bbox.height.get_or_init(|| {
-                    match self.object.get_tracking_data() {
+                    match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.bounding_box.get_height()),
+                        Some(info) => Value::from(info.get_height()),
                     }
                 }))
             }
 
             "tracking_info.bbox.angle" => {
                 Some(self.object_view.tracking_info_bbox.angle.get_or_init(|| {
-                    match self.object.get_tracking_data() {
+                    match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => match info.bounding_box.get_angle() {
+                        Some(info) => match info.get_angle() {
                             None => Value::Empty,
                             Some(angle) => Value::from(angle),
                         },
@@ -165,32 +165,32 @@ impl<'a> Context for ObjectContext<'a> {
                 self.object_view
                     .bbox
                     .xc
-                    .get_or_init(|| Value::from(self.object.get_bbox().get_xc())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_xc())),
             ),
 
             "bbox.yc" => Some(
                 self.object_view
                     .bbox
                     .yc
-                    .get_or_init(|| Value::from(self.object.get_bbox().get_yc())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_yc())),
             ),
 
             "bbox.width" => Some(
                 self.object_view
                     .bbox
                     .width
-                    .get_or_init(|| Value::from(self.object.get_bbox().get_width())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_width())),
             ),
 
             "bbox.height" => Some(
                 self.object_view
                     .bbox
                     .height
-                    .get_or_init(|| Value::from(self.object.get_bbox().get_height())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_height())),
             ),
 
             "bbox.angle" => Some(self.object_view.bbox.angle.get_or_init(|| {
-                match self.object.get_bbox().get_angle() {
+                match self.object.get_detection_box().get_angle() {
                     None => Value::Empty,
                     Some(a) => Value::from(a),
                 }

@@ -102,10 +102,11 @@ frame.add_object(VideoObject(
     id=1,
     creator="some",
     label="person",
-    bbox=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
+    detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
     attributes={},
-    track=None,
+    track_id=None,
+    track_box=None
 ), IdCollisionResolutionPolicy.Error)
 
 f = gen_frame()

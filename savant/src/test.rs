@@ -7,7 +7,7 @@ pub mod utils {
     use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
         AttributeBuilder, IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point,
-        VideoFrameContentProxy, VideoObjectProxy, VideoObjectTrackingData,
+        VideoFrameContentProxy, VideoObjectProxy,
     };
     use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
@@ -51,9 +51,8 @@ pub mod utils {
         let parent_object = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(0)
-                .track_info(None)
                 .modifications(Vec::default())
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .attributes(HashMap::default())
                 .confidence(None)
                 .creator("test".to_string())
@@ -65,9 +64,8 @@ pub mod utils {
         let c1 = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(1)
-                .track_info(None)
                 .modifications(Vec::default())
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
@@ -80,9 +78,8 @@ pub mod utils {
         let c2 = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(2)
-                .track_info(None)
                 .modifications(Vec::default())
-                .bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
@@ -174,11 +171,9 @@ pub mod utils {
             creator: s("peoplenet"),
             label: s("face"),
             confidence: Some(0.5),
-            bbox: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
-            track_info: Some(VideoObjectTrackingData {
-                id,
-                bounding_box: RBBox::new(100.0, 200.0, 10.0, 20.0, None),
-            }),
+            detection_box: RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap(),
+            track_id: Some(id),
+            track_box: RBBox::new(100.0, 200.0, 10.0, 20.0, None).try_into().ok(),
             ..Default::default()
         });
 

@@ -2,6 +2,7 @@ pub mod context;
 pub mod transformations;
 
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
+use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
 use crate::utils::python::release_gil;
@@ -9,11 +10,13 @@ use crate::utils::round_2_digits;
 use anyhow::bail;
 use geo::{Area, BooleanOps};
 use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
 use std::f64::consts::PI;
+use std::sync::Arc;
 
 pub const EPS: f64 = 0.00001;
 
@@ -42,21 +45,41 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-/// Represents a bounding box with an optional rotation angle in degrees.
-///
-#[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub struct RBBox {
-    xc: f64,
-    yc: f64,
-    width: f64,
-    height: f64,
-    angle: Option<f64>,
-    has_modifications: bool,
+pub struct OwnedRBBoxData {
+    pub xc: f64,
+    pub yc: f64,
+    pub width: f64,
+    pub height: f64,
+    pub angle: Option<f64>,
+    pub has_modifications: bool,
 }
 
-impl Default for RBBox {
+impl TryFrom<RBBox> for OwnedRBBoxData {
+    type Error = anyhow::Error;
+
+    fn try_from(value: RBBox) -> Result<Self, Self::Error> {
+        OwnedRBBoxData::try_from(&value)
+    }
+}
+
+impl TryFrom<&RBBox> for OwnedRBBoxData {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &RBBox) -> Result<Self, Self::Error> {
+        match &value.data {
+            BBoxVariant::Owned(d) => Ok(d.clone()),
+            BBoxVariant::BorrowedDetectionBox(d) => Ok(d.read().detection_box.clone()),
+            BBoxVariant::BorrowedTrackingBox(d) => d.read().track_box.as_ref().map_or_else(
+                || Err(anyhow::anyhow!("Cannot convert tracking box to RBBoxData")),
+                |t| Ok(t.clone()),
+            ),
+        }
+    }
+}
+
+impl Default for OwnedRBBoxData {
     fn default() -> Self {
         Self {
             xc: 0.0,
@@ -69,7 +92,7 @@ impl Default for RBBox {
     }
 }
 
-impl ToSerdeJsonValue for RBBox {
+impl ToSerdeJsonValue for OwnedRBBoxData {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "xc": self.xc,
@@ -78,6 +101,59 @@ impl ToSerdeJsonValue for RBBox {
             "height": self.height,
             "angle": self.angle,
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+enum BBoxVariant {
+    Owned(OwnedRBBoxData),
+    BorrowedDetectionBox(Arc<RwLock<VideoObject>>),
+    BorrowedTrackingBox(Arc<RwLock<VideoObject>>),
+}
+
+/// Represents a bounding box with an optional rotation angle in degrees.
+///
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct RBBox {
+    data: BBoxVariant,
+}
+
+impl PartialEq for RBBox {
+    fn eq(&self, other: &Self) -> bool {
+        self.geometric_eq(other)
+    }
+}
+
+impl ToSerdeJsonValue for RBBox {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "xc": self.get_xc(),
+            "yc": self.get_yc(),
+            "width": self.get_width(),
+            "height": self.get_height(),
+            "angle": self.get_angle(),
+        })
+    }
+}
+
+impl RBBox {
+    pub fn new_from_data(data: OwnedRBBoxData) -> Self {
+        Self {
+            data: BBoxVariant::Owned(data),
+        }
+    }
+
+    pub fn borrowed_detection_box(object: Arc<RwLock<VideoObject>>) -> Self {
+        Self {
+            data: BBoxVariant::BorrowedDetectionBox(object),
+        }
+    }
+
+    pub fn borrowed_track_box(object: Arc<RwLock<VideoObject>>) -> Self {
+        Self {
+            data: BBoxVariant::BorrowedTrackingBox(object),
+        }
     }
 }
 
@@ -103,7 +179,19 @@ impl RBBox {
     ///
     #[getter]
     pub fn get_area(&self) -> f64 {
-        self.width * self.height
+        match &self.data {
+            BBoxVariant::Owned(d) => d.width * d.height,
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let lock = d.read_recursive();
+                lock.detection_box.xc * lock.detection_box.yc
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let lock = d.read_recursive();
+                lock.track_box
+                    .as_ref()
+                    .map_or_else(|| BBOX_ELEMENT_UNDEFINED, |t| t.width * t.height)
+            }
+        }
     }
 
     /// Compares boxes geometrically.
@@ -120,11 +208,11 @@ impl RBBox {
     ///
     #[pyo3(name = "eq")]
     pub fn geometric_eq(&self, other: &Self) -> bool {
-        self.xc == other.xc
-            && self.yc == other.yc
-            && self.width == other.width
-            && self.height == other.height
-            && self.angle == other.angle
+        self.get_xc() == other.get_xc()
+            && self.get_yc() == other.get_yc()
+            && self.get_width() == other.get_width()
+            && self.get_height() == other.get_height()
+            && self.get_angle() == other.get_angle()
     }
 
     /// Compares boxes geometrically with given precision.
@@ -142,11 +230,11 @@ impl RBBox {
     ///   True if boxes are geometrically equal, False otherwise.
     ///
     pub fn almost_eq(&self, other: &Self, eps: f64) -> bool {
-        (self.xc - other.xc).abs() < eps
-            && (self.yc - other.yc).abs() < eps
-            && (self.width - other.width).abs() < eps
-            && (self.height - other.height).abs() < eps
-            && (self.angle.unwrap_or(0.0) - other.angle.unwrap_or(0.0)).abs() < eps
+        (self.get_xc() - other.get_xc()).abs() < eps
+            && (self.get_yc() - other.get_yc()).abs() < eps
+            && (self.get_width() - other.get_width()).abs() < eps
+            && (self.get_height() - other.get_height()).abs() < eps
+            && (self.get_angle().unwrap_or(0.0) - other.get_angle().unwrap_or(0.0)).abs() < eps
     }
 
     pub(crate) fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
@@ -163,84 +251,232 @@ impl RBBox {
     ///
     #[getter]
     pub fn get_xc(&self) -> f64 {
-        self.xc
+        match &self.data {
+            BBoxVariant::Owned(d) => d.xc,
+            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.xc,
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.xc)
+                .unwrap_or(BBOX_ELEMENT_UNDEFINED),
+        }
     }
 
     /// Access and change the y center of the bbox.
     ///
     #[getter]
     pub fn get_yc(&self) -> f64 {
-        self.yc
+        match &self.data {
+            BBoxVariant::Owned(d) => d.yc,
+            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.yc,
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.yc)
+                .unwrap_or(BBOX_ELEMENT_UNDEFINED),
+        }
     }
 
     /// Access and change the width of the bbox.
     ///
     #[getter]
     pub fn get_width(&self) -> f64 {
-        self.width
+        match &self.data {
+            BBoxVariant::Owned(d) => d.width,
+            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.width,
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.width)
+                .unwrap_or(BBOX_ELEMENT_UNDEFINED),
+        }
     }
 
     /// Access and change the height of the bbox.
     ///
     #[getter]
     pub fn get_height(&self) -> f64 {
-        self.height
-    }
-
-    /// Access the ratio between width and height.
-    ///
-    #[getter]
-    pub fn get_width_to_height_ratio(&self) -> f64 {
-        self.width / self.height
+        match &self.data {
+            BBoxVariant::Owned(d) => d.height,
+            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.height,
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.height)
+                .unwrap_or(BBOX_ELEMENT_UNDEFINED),
+        }
     }
 
     /// Access and change the angle of the bbox. To unset the angle use None as a value.
     ///
     #[getter]
     pub fn get_angle(&self) -> Option<f64> {
-        self.angle
+        match &self.data {
+            BBoxVariant::Owned(d) => d.angle,
+            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.angle,
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.angle)
+                .unwrap_or(None),
+        }
+    }
+
+    /// Access the ratio between width and height.
+    ///
+    #[getter]
+    pub fn get_width_to_height_ratio(&self) -> f64 {
+        self.get_width() / self.get_height()
     }
 
     /// Flag indicating if the bbox has been modified.
     ///
     pub fn is_modified(&self) -> bool {
-        self.has_modifications
+        match &self.data {
+            BBoxVariant::Owned(d) => d.has_modifications,
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                d.read_recursive().detection_box.has_modifications
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => d
+                .read_recursive()
+                .track_box
+                .as_ref()
+                .map(|t| t.has_modifications)
+                .unwrap_or(false),
+        }
     }
 
     /// Resets the modification flag.
     ///
-    pub fn reset_modifications(&mut self) {
-        self.has_modifications = false;
+    pub fn set_modifications(&mut self, value: bool) {
+        match &mut self.data {
+            BBoxVariant::Owned(d) => d.has_modifications = value,
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.has_modifications = value;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.has_modifications = value;
+                }
+            }
+        }
     }
 
     #[setter]
     pub fn set_xc(&mut self, xc: f64) {
-        self.xc = xc;
-        self.has_modifications = true;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.xc = xc;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.xc = xc;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.xc = xc;
+                    b.has_modifications = true;
+                }
+            }
+        }
     }
 
     #[setter]
     pub fn set_yc(&mut self, yc: f64) {
-        self.yc = yc;
-        self.has_modifications = true;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.yc = yc;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.yc = yc;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.yc = yc;
+                    b.has_modifications = true;
+                }
+            }
+        }
     }
 
     #[setter]
     pub fn set_width(&mut self, width: f64) {
-        self.width = width;
-        self.has_modifications = true;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.width = width;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.width = width;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.width = width;
+                    b.has_modifications = true;
+                }
+            }
+        }
     }
 
     #[setter]
     pub fn set_height(&mut self, height: f64) {
-        self.height = height;
-        self.has_modifications = true;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.height = height;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.height = height;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.height = height;
+                    b.has_modifications = true;
+                }
+            }
+        }
     }
 
     #[setter]
     pub fn set_angle(&mut self, angle: Option<f64>) {
-        self.angle = angle;
-        self.has_modifications = true;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.angle = angle;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.angle = angle;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(b) = &mut lock.track_box {
+                    b.angle = angle;
+                    b.has_modifications = true;
+                }
+            }
+        }
     }
 
     /// Alias to the ``__init__`` method.
@@ -271,12 +507,14 @@ impl RBBox {
     #[new]
     pub fn new(xc: f64, yc: f64, width: f64, height: f64, angle: Option<f64>) -> Self {
         Self {
-            xc,
-            yc,
-            width,
-            height,
-            angle,
-            has_modifications: false,
+            data: BBoxVariant::Owned(OwnedRBBoxData {
+                xc,
+                yc,
+                width,
+                height,
+                angle,
+                has_modifications: false,
+            }),
         }
     }
 
@@ -399,8 +637,15 @@ impl RBBox {
     ///
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
-        let mut new_self = self.clone();
-        new_self.has_modifications = false;
+        let data = self
+            .try_into()
+            .expect("Failed to convert RBBox to RBBoxData");
+
+        let mut new_self = Self {
+            data: BBoxVariant::Owned(data),
+        };
+
+        new_self.set_modifications(false);
         new_self
     }
 
@@ -478,9 +723,203 @@ impl RBBox {
     /// None
     ///
     pub fn shift(&mut self, dx: f64, dy: f64) {
-        self.has_modifications = true;
-        self.xc += dx;
-        self.yc += dy;
+        match &mut self.data {
+            BBoxVariant::Owned(d) => {
+                d.xc += dx;
+                d.yc += dy;
+                d.has_modifications = true;
+            }
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let mut lock = d.write();
+                lock.detection_box.xc += dx;
+                lock.detection_box.yc += dy;
+                lock.detection_box.has_modifications = true;
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let mut lock = d.write();
+                if let Some(track_box) = &mut lock.track_box {
+                    track_box.xc += dx;
+                    track_box.yc += dy;
+                    track_box.has_modifications = true;
+                }
+            }
+        }
+    }
+
+    /// Creates a new object from (left, top, right, bottom) coordinates.
+    ///
+    #[staticmethod]
+    pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
+        let width = right - left;
+        let height = bottom - top;
+
+        let xc = (left + right) / 2.0;
+        let yc = (top + bottom) / 2.0;
+
+        Self::new(xc, yc, width, height, None)
+    }
+
+    /// Creates a new object from (left, top, width, height) coordinates.
+    ///
+    #[staticmethod]
+    pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
+        let xc = left + width / 2.0;
+        let yc = top + height / 2.0;
+        RBBox::new(xc, yc, width, height, None)
+    }
+
+    #[getter]
+    pub fn get_top(&self) -> PyResult<f64> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            Ok(self.get_yc() - self.get_height() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get top for rotated bounding box",
+            ))
+        }
+    }
+
+    #[setter]
+    pub fn set_top(&mut self, top: f64) -> PyResult<()> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            self.set_modifications(true);
+            let h = self.get_height();
+            self.set_yc(top + h / 2.0);
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot set top for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_left(&self) -> PyResult<f64> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            Ok(self.get_xc() - self.get_width() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get left for rotated bounding box",
+            ))
+        }
+    }
+
+    #[setter]
+    pub fn set_left(&mut self, left: f64) -> PyResult<()> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            self.set_modifications(true);
+            let w = self.get_width();
+            self.set_xc(left + w / 2.0);
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot set left for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_right(&self) -> PyResult<f64> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            Ok(self.get_xc() + self.get_width() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get right for rotated bounding box",
+            ))
+        }
+    }
+
+    #[getter]
+    pub fn get_bottom(&self) -> PyResult<f64> {
+        if self.get_angle().unwrap_or(0.0) == 0.0 {
+            Ok(self.get_yc() + self.get_height() / 2.0)
+        } else {
+            Err(PyValueError::new_err(
+                "Cannot get bottom for rotated bounding box",
+            ))
+        }
+    }
+
+    /// Returns (left, top, right, bottom) coordinates.
+    ///
+    pub fn as_ltrb(&self) -> PyResult<(f64, f64, f64, f64)> {
+        if self.get_angle().unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?;
+        let left = self.get_left()?;
+        let bottom = self.get_bottom()?;
+        let right = self.get_right()?;
+
+        Ok((left, top, right, bottom))
+    }
+
+    /// Returns (left, top, right, bottom) coordinates rounded to integers.
+    ///
+    pub fn as_ltrb_int(&self) -> PyResult<(i64, i64, i64, i64)> {
+        if self.get_angle().unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?.floor();
+        let left = self.get_left()?.floor();
+        let bottom = self.get_bottom()?.ceil();
+        let right = self.get_right()?.ceil();
+
+        Ok((left as i64, top as i64, right as i64, bottom as i64))
+    }
+
+    /// Returns (left, top, width, height) coordinates.
+    ///
+    pub fn as_ltwh(&self) -> PyResult<(f64, f64, f64, f64)> {
+        if self.get_angle().unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?;
+        let left = self.get_left()?;
+        let width = self.get_width();
+        let height = self.get_height();
+        Ok((left, top, width, height))
+    }
+
+    /// Returns (left, top, width, height) coordinates rounded to integers.
+    ///
+    pub fn as_ltwh_int(&self) -> PyResult<(i64, i64, i64, i64)> {
+        if self.get_angle().unwrap_or(0.0) != 0.0 {
+            return Err(PyValueError::new_err(
+                "Cannot get left, top, width, height for rotated bounding box",
+            ));
+        }
+        let top = self.get_top()?.floor();
+        let left = self.get_left()?.floor();
+        let width = self.get_width().ceil();
+        let height = self.get_height().ceil();
+        Ok((left as i64, top as i64, width as i64, height as i64))
+    }
+
+    /// Returns (xc, yc, width, height) coordinates.
+    ///
+    pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc, yc, width, height)
+    }
+
+    /// Returns (xc, yc, width, height) coordinates rounded to integers.
+    ///
+    pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        (xc as i64, yc as i64, width as i64, height as i64)
     }
 }
 
@@ -493,24 +932,22 @@ impl RBBox {
             padding.bottom as f64,
         );
 
-        let angle_rad = self.angle.unwrap_or(0.0) * PI / 180.0;
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+        let angle = self.get_angle();
+
+        let angle_rad = angle.unwrap_or(0.0) * PI / 180.0;
         let cos_theta = angle_rad.cos();
         let sin_theta = angle_rad.sin();
 
-        let xc = self.xc + ((right - left) * cos_theta - (bottom - top) * sin_theta) / 2.0;
-        let yc = self.yc + ((right - left) * sin_theta + (bottom - top) * cos_theta) / 2.0;
-        let height = self.height + top + bottom;
-        let width = self.width + left + right;
-        let angle = self.angle;
+        let xc = xc + ((right - left) * cos_theta - (bottom - top) * sin_theta) / 2.0;
+        let yc = yc + ((right - left) * sin_theta + (bottom - top) * cos_theta) / 2.0;
+        let height = height + top + bottom;
+        let width = width + left + right;
 
-        Self {
-            xc,
-            yc,
-            width,
-            height,
-            angle,
-            has_modifications: false,
-        }
+        Self::new(xc, yc, width, height, angle)
     }
 
     pub fn ios(&self, other: &Self) -> anyhow::Result<f64> {
@@ -560,13 +997,17 @@ impl RBBox {
     }
 
     pub fn scale(&mut self, scale_x: f64, scale_y: f64) {
-        self.has_modifications = true;
-        let angle = self.angle.unwrap_or(0.0);
+        let angle = self.get_angle().unwrap_or(0.0);
+        let xc = self.get_xc();
+        let yc = self.get_yc();
+        let width = self.get_width();
+        let height = self.get_height();
+
         if angle % 90.0 == 0.0 {
-            self.xc *= scale_x;
-            self.yc *= scale_y;
-            self.width *= scale_x;
-            self.height *= scale_y;
+            self.set_xc(xc * scale_x);
+            self.set_yc(yc * scale_y);
+            self.set_width(width * scale_x);
+            self.set_height(height * scale_y);
         } else {
             let scale_x2 = scale_x * scale_x;
             let scale_y2 = scale_y * scale_y;
@@ -578,23 +1019,24 @@ impl RBBox {
             let ayh = 1.0 / ((90.0 - angle) / 180.0 * PI).tan();
             let nscale_width = ((scale_x2 + scale_y2 * ayh * ayh) / (1.0 + ayh * ayh)).sqrt();
 
-            self.angle = Some(90.0 - (scale_angle * 180.0 / PI));
-            self.xc *= scale_x;
-            self.yc *= scale_y;
-            self.width *= nscale_width;
-            self.height *= nscale_height;
+            self.set_angle(Some(90.0 - (scale_angle * 180.0 / PI)));
+            self.set_xc(xc * scale_x);
+            self.set_yc(yc * scale_y);
+            self.set_width(width * nscale_width);
+            self.set_height(height * nscale_height);
         }
     }
 
     pub fn get_vertices(&self) -> Vec<(f64, f64)> {
-        let angle = self.angle.unwrap_or(0.0);
-        let angle = angle * std::f64::consts::PI / 180.0;
+        let angle = self.get_angle().unwrap_or(0.0);
+        let angle = angle * PI / 180.0;
         let cos = angle.cos();
         let sin = angle.sin();
-        let x = self.xc;
-        let y = self.yc;
-        let w = self.width / 2.0;
-        let h = self.height / 2.0;
+        let x = self.get_xc();
+        let y = self.get_yc();
+        let w = self.get_width() / 2.0;
+        let h = self.get_height() / 2.0;
+
         vec![
             (x + w * cos - h * sin, y + w * sin + h * cos),
             (x + w * cos + h * sin, y + w * sin - h * cos),
@@ -628,8 +1070,13 @@ impl RBBox {
     }
 
     pub fn get_wrapping_bbox(&self) -> PythonBBox {
-        if self.angle.is_none() {
-            PythonBBox::new(self.xc, self.yc, self.width, self.height)
+        if self.get_angle().is_none() {
+            PythonBBox::new(
+                self.get_xc(),
+                self.get_yc(),
+                self.get_width(),
+                self.get_height(),
+            )
         } else {
             let mut vertices = self.get_vertices();
             let (initial_vtx_x, initial_vtx_y) = vertices.pop().unwrap();
@@ -686,7 +1133,7 @@ impl PythonBBox {
         border_width: i64,
         max_x: f64,
         max_y: f64,
-    ) -> PythonBBox {
+    ) -> PyResult<PythonBBox> {
         assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
 
         let padding_with_border = PaddingDraw::new(
@@ -713,7 +1160,12 @@ impl PythonBBox {
             height += 1.0;
         }
 
-        PythonBBox::new(left + width / 2.0, top + height / 2.0, width, height)
+        Ok(PythonBBox::new(
+            left + width / 2.0,
+            top + height / 2.0,
+            width,
+            height,
+        ))
     }
 }
 
@@ -761,7 +1213,7 @@ impl PythonBBox {
     }
 
     fn is_modified(&self) -> bool {
-        self.inner.has_modifications
+        self.inner.is_modified()
     }
 
     /// Creates a new object. Alias to the ``__init__`` method.
@@ -782,14 +1234,8 @@ impl PythonBBox {
     ///
     #[staticmethod]
     pub fn ltrb(left: f64, top: f64, right: f64, bottom: f64) -> Self {
-        let width = right - left;
-        let height = bottom - top;
-
-        let xc = (left + right) / 2.0;
-        let yc = (top + bottom) / 2.0;
-
         Self {
-            inner: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::ltrb(left, top, right, bottom),
         }
     }
 
@@ -797,11 +1243,8 @@ impl PythonBBox {
     ///
     #[staticmethod]
     pub fn ltwh(left: f64, top: f64, width: f64, height: f64) -> Self {
-        let xc = left + width / 2.0;
-        let yc = top + height / 2.0;
-
         Self {
-            inner: RBBox::new(xc, yc, width, height, None),
+            inner: RBBox::ltwh(left, top, width, height),
         }
     }
 
@@ -847,32 +1290,32 @@ impl PythonBBox {
 
     #[getter]
     pub fn get_top(&self) -> f64 {
-        self.inner.get_yc() - self.inner.get_height() / 2.0
+        self.inner.get_top().unwrap()
     }
 
     #[setter]
-    pub fn set_top(&mut self, top: f64) {
-        self.inner.set_yc(top + self.inner.get_height() / 2.0);
+    pub fn set_top(&mut self, top: f64) -> PyResult<()> {
+        self.inner.set_top(top)
     }
 
     #[getter]
     pub fn get_left(&self) -> f64 {
-        self.inner.get_xc() - self.inner.get_width() / 2.0
+        self.inner.get_left().unwrap()
     }
 
     #[setter]
-    pub fn set_left(&mut self, left: f64) {
-        self.inner.set_xc(left + self.inner.get_width() / 2.0);
+    pub fn set_left(&mut self, left: f64) -> PyResult<()> {
+        self.inner.set_left(left)
     }
 
     #[getter]
     pub fn get_right(&self) -> f64 {
-        self.inner.get_xc() + self.inner.get_width() / 2.0
+        self.inner.get_right().unwrap()
     }
 
     #[getter]
     pub fn get_bottom(&self) -> f64 {
-        self.inner.get_yc() + self.inner.get_height() / 2.0
+        self.inner.get_bottom().unwrap()
     }
 
     #[getter]
@@ -906,68 +1349,44 @@ impl PythonBBox {
         border_width: i64,
         max_x: f64,
         max_y: f64,
-    ) -> PythonBBox {
+    ) -> PyResult<PythonBBox> {
         release_gil(|| self.get_visual_bbox(padding, border_width, max_x, max_y))
     }
 
     /// Returns (left, top, right, bottom) coordinates.
     ///
     pub fn as_ltrb(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let bottom = self.get_bottom();
-        let right = self.get_right();
-        (left, top, right, bottom)
+        self.inner.as_ltrb().unwrap()
     }
 
     /// Returns (left, top, right, bottom) coordinates rounded to integers.
     ///
     pub fn as_ltrb_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let bottom = self.get_bottom().ceil();
-        let right = self.get_right().ceil();
-        (left as i64, top as i64, right as i64, bottom as i64)
+        self.inner.as_ltrb_int().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates.
     ///
     pub fn as_ltwh(&self) -> (f64, f64, f64, f64) {
-        let top = self.get_top();
-        let left = self.get_left();
-        let width = self.get_width();
-        let height = self.get_height();
-        (left, top, width, height)
+        self.inner.as_ltwh().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates rounded to integers.
     ///
     pub fn as_ltwh_int(&self) -> (i64, i64, i64, i64) {
-        let top = self.get_top().floor();
-        let left = self.get_left().floor();
-        let width = self.get_width().ceil();
-        let height = self.get_height().ceil();
-        (left as i64, top as i64, width as i64, height as i64)
+        self.inner.as_ltwh_int().unwrap()
     }
 
     /// Returns (xc, yc, width, height) coordinates.
     ///
     pub fn as_xcycwh(&self) -> (f64, f64, f64, f64) {
-        let xc = self.get_xc();
-        let yc = self.get_yc();
-        let width = self.get_width();
-        let height = self.get_height();
-        (xc, yc, width, height)
+        self.inner.as_xcycwh()
     }
 
     /// Returns (xc, yc, width, height) coordinates rounded to integers.
     ///
     pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
-        let xc = self.get_xc();
-        let yc = self.get_yc();
-        let width = self.get_width();
-        let height = self.get_height();
-        (xc as i64, yc as i64, width as i64, height as i64)
+        self.inner.as_xcycwh_int()
     }
 
     /// Converts the :py:class:`BBox` to a :py:class:`RBBox`.
@@ -1003,7 +1422,7 @@ impl PythonBBox {
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
         let mut new_self = self.clone();
-        new_self.inner.reset_modifications();
+        new_self.inner.set_modifications(false);
         new_self
     }
 
@@ -1024,11 +1443,11 @@ mod tests {
     fn test_scale_no_angle() {
         let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
         bbox.scale(2.0, 2.0);
-        assert_eq!(bbox.xc, 0.0);
-        assert_eq!(bbox.yc, 0.0);
-        assert_eq!(bbox.width, 200.0);
-        assert_eq!(bbox.height, 200.0);
-        assert_eq!(bbox.angle, None);
+        assert_eq!(bbox.get_xc(), 0.0);
+        assert_eq!(bbox.get_yc(), 0.0);
+        assert_eq!(bbox.get_width(), 200.0);
+        assert_eq!(bbox.get_height(), 200.0);
+        assert_eq!(bbox.get_angle(), None);
     }
 
     #[test]
@@ -1036,11 +1455,11 @@ mod tests {
         let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
         bbox.scale(2.0, 3.0);
         //dbg!(&bbox);
-        assert_eq!(bbox.xc, 0.0);
-        assert_eq!(bbox.yc, 0.0);
-        assert_eq!(round_2_digits(bbox.width), 254.95);
-        assert_eq!(round_2_digits(bbox.height), 254.95);
-        assert_eq!(bbox.angle.map(round_2_digits), Some(33.69));
+        assert_eq!(bbox.get_xc(), 0.0);
+        assert_eq!(bbox.get_yc(), 0.0);
+        assert_eq!(round_2_digits(bbox.get_width()), 254.95);
+        assert_eq!(round_2_digits(bbox.get_height()), 254.95);
+        assert_eq!(bbox.get_angle().map(round_2_digits), Some(33.69));
     }
 
     #[test]
@@ -1058,27 +1477,27 @@ mod tests {
     fn test_wrapping_bbox() {
         let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
         let wrapped = bbox.get_wrapping_bbox();
-        assert_eq!(wrapped.inner.xc, 0.0);
-        assert_eq!(wrapped.inner.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 141.42);
-        assert_eq!(round_2_digits(wrapped.inner.height), 141.42);
-        assert_eq!(wrapped.inner.angle, None);
+        assert_eq!(wrapped.inner.get_xc(), 0.0);
+        assert_eq!(wrapped.inner.get_yc(), 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.get_width()), 141.42);
+        assert_eq!(round_2_digits(wrapped.inner.get_height()), 141.42);
+        assert_eq!(wrapped.inner.get_angle(), None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, None);
         let wrapped = bbox.get_wrapping_bbox();
-        assert_eq!(wrapped.inner.xc, 0.0);
-        assert_eq!(wrapped.inner.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 50.0);
-        assert_eq!(round_2_digits(wrapped.inner.height), 100.0);
-        assert_eq!(wrapped.inner.angle, None);
+        assert_eq!(wrapped.inner.get_xc(), 0.0);
+        assert_eq!(wrapped.inner.get_yc(), 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.get_width()), 50.0);
+        assert_eq!(round_2_digits(wrapped.inner.get_height()), 100.0);
+        assert_eq!(wrapped.inner.get_angle(), None);
 
         let bbox = RBBox::new(0.0, 0.0, 50.0, 100.0, Some(90.0));
         let wrapped = bbox.get_wrapping_bbox();
-        assert_eq!(wrapped.inner.xc, 0.0);
-        assert_eq!(wrapped.inner.yc, 0.0);
-        assert_eq!(round_2_digits(wrapped.inner.width), 100.0);
-        assert_eq!(round_2_digits(wrapped.inner.height), 50.0);
-        assert_eq!(wrapped.inner.angle, None);
+        assert_eq!(wrapped.inner.get_xc(), 0.0);
+        assert_eq!(wrapped.inner.get_yc(), 0.0);
+        assert_eq!(round_2_digits(wrapped.inner.get_width()), 100.0);
+        assert_eq!(round_2_digits(wrapped.inner.get_height()), 50.0);
+        assert_eq!(wrapped.inner.get_angle(), None);
     }
 
     fn get_bbox(angle: Option<f64>) -> RBBox {
@@ -1205,5 +1624,97 @@ mod tests {
         bb.shift(10.0, 20.0);
         assert_eq!(bb.get_xc(), 10.0);
         assert_eq!(bb.get_yc(), 20.0);
+    }
+
+    #[test]
+    fn test_various_reprs_non_zero_angle() {
+        let mut bb = get_bbox(Some(45.0));
+        assert!(bb.as_ltrb().is_err());
+        assert!(bb.as_ltrb_int().is_err());
+        assert!(bb.as_ltwh().is_err());
+        assert!(bb.as_ltwh_int().is_err());
+        assert!(bb.get_top().is_err());
+        assert!(bb.get_left().is_err());
+        assert!(bb.get_bottom().is_err());
+        assert!(bb.get_right().is_err());
+        assert!(bb.set_top(11.0).is_err());
+        assert!(bb.set_left(12.0).is_err());
+        assert!(!bb.is_modified());
+    }
+
+    #[test]
+    fn test_various_reprs_zero_angle() {
+        let mut bb = get_bbox(Some(0.0));
+        assert!(bb.as_ltrb().is_ok());
+        assert!(bb.as_ltrb_int().is_ok());
+        assert!(bb.as_ltwh().is_ok());
+        assert!(bb.as_ltwh_int().is_ok());
+        assert!(bb.get_top().is_ok());
+        assert!(bb.get_left().is_ok());
+        assert!(bb.get_bottom().is_ok());
+        assert!(bb.get_right().is_ok());
+        assert!(bb.set_top(11.0).is_ok());
+        assert!(bb.set_left(12.0).is_ok());
+        assert!(bb.is_modified());
+    }
+
+    #[test]
+    fn test_various_reprs_none_angle() {
+        let mut bb = get_bbox(None);
+        assert!(bb.as_ltrb().is_ok());
+        assert!(bb.as_ltrb_int().is_ok());
+        assert!(bb.as_ltwh().is_ok());
+        assert!(bb.as_ltwh_int().is_ok());
+        assert!(bb.get_top().is_ok());
+        assert!(bb.get_left().is_ok());
+        assert!(bb.get_bottom().is_ok());
+        assert!(bb.get_right().is_ok());
+        assert!(bb.set_top(11.0).is_ok());
+        assert!(bb.set_left(12.0).is_ok());
+        assert!(bb.is_modified());
+    }
+
+    #[test]
+    fn test_reprs_correct_values() {
+        let mut bb = get_bbox(None);
+        bb.set_xc(10.0);
+        bb.set_yc(20.0);
+        bb.set_width(30.0);
+        bb.set_height(40.0);
+        let left = bb.get_left().unwrap();
+        assert_eq!(left, 10.0 - 30.0 / 2.0);
+        let top = bb.get_top().unwrap();
+        assert_eq!(top, 20.0 - 40.0 / 2.0);
+        let right = bb.get_right().unwrap();
+        assert_eq!(right, 10.0 + 30.0 / 2.0);
+        let bottom = bb.get_bottom().unwrap();
+        assert_eq!(bottom, 20.0 + 40.0 / 2.0);
+        let width = bb.get_width();
+        let height = bb.get_height();
+        let ltrb = bb.as_ltrb().unwrap();
+        assert_eq!(ltrb, (left, top, right, bottom));
+        let ltrb_int = bb.as_ltrb_int().unwrap();
+        assert_eq!(
+            ltrb_int,
+            (
+                left.floor() as i64,
+                top.floor() as i64,
+                right.ceil() as i64,
+                bottom.ceil() as i64
+            )
+        );
+
+        let ltwh = bb.as_ltwh().unwrap();
+        assert_eq!(ltwh, (left, top, width, height));
+        let ltwh_int = bb.as_ltwh_int().unwrap();
+        assert_eq!(
+            ltwh_int,
+            (
+                left.floor() as i64,
+                top.floor() as i64,
+                width.ceil() as i64,
+                height.ceil() as i64
+            )
+        );
     }
 }

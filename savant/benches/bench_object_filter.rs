@@ -3,8 +3,7 @@
 extern crate test;
 
 use savant_rs::primitives::attribute::attribute_value::AttributeValue;
-use savant_rs::primitives::message::video::object::{VideoObjectBuilder, VideoObjectTrackingData};
-use savant_rs::primitives::message::video::query::match_query::MatchQuery;
+use savant_rs::primitives::message::video::object::VideoObjectBuilder;
 use savant_rs::primitives::message::video::query::*;
 use savant_rs::primitives::{
     AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectProxy,
@@ -22,11 +21,13 @@ fn get_objects() -> Vec<VideoObjectProxy> {
                 .label(format!("label_{i}"))
                 .id(i)
                 .confidence(Some(0.53))
-                .bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
-                .track_info(Some(VideoObjectTrackingData::new(
-                    i,
-                    RBBox::new(10.0, 20.0, 21.0, 231.0, None),
-                )))
+                .detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None).try_into().unwrap())
+                .track_id(Some(i))
+                .track_box(Some(
+                    RBBox::new(10.0, 20.0, 21.0, 231.0, None)
+                        .try_into()
+                        .unwrap(),
+                ))
                 .build()
                 .unwrap();
             o.attributes.insert(
@@ -77,7 +78,6 @@ fn bench_filtering(b: &mut Bencher) {
 
 #[bench]
 fn bench_filtering_with_eval(b: &mut Bencher) {
-    use savant_rs::primitives::message::video::query::match_query::MatchQuery;
     use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
 
     register_utility_resolver();

@@ -2,12 +2,11 @@ use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::bbox::transformations::{
     VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
 };
+use crate::primitives::bbox::{OwnedRBBoxData, BBOX_UNDEFINED};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
-use crate::primitives::proxy::video_object_rbbox::VideoObjectRBBoxProxy;
-use crate::primitives::proxy::video_object_tracking_data::VideoObjectTrackingDataProxy;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Attribute, RBBox, VideoFrameProxy, VideoObjectBBoxType};
+use crate::primitives::{Attribute, RBBox, VideoFrameProxy};
 use crate::utils::python::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -27,54 +26,6 @@ pub enum IdCollisionResolutionPolicy {
     GenerateNewId,
     Overwrite,
     Error,
-}
-
-/// Represents tracking data for a single object filled by a tracker.
-/// This is a readonly object, you cannot change fields inplace. If you need to change tracking data for
-/// an object, you need to create a new instance and fill it. However, if you have requested the access with
-/// :py:attr:`VideoObject.tracking_data_ref`, you can change the fields of the returned object inplace (if it is defined).
-///
-/// The property :py:attr:`VideoObject.tracking_data` operates by value. If you change the fields of the returned object,
-/// the changes will not be applied to the original object.
-///
-#[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
-#[archive(check_bytes)]
-pub struct VideoObjectTrackingData {
-    #[pyo3(get)]
-    pub id: i64,
-    #[pyo3(get)]
-    pub bounding_box: RBBox,
-}
-
-impl ToSerdeJsonValue for VideoObjectTrackingData {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "track_id": self.id,
-            "track_bounding_box": self.bounding_box.to_serde_json_value(),
-        })
-    }
-}
-
-#[pymethods]
-impl VideoObjectTrackingData {
-    #[new]
-    pub fn new(track_id: i64, bounding_box: RBBox) -> Self {
-        Self {
-            id: track_id,
-            bounding_box,
-        }
-    }
-
-    #[getter]
-    pub fn get_id(&self) -> i64 {
-        self.id
-    }
-
-    #[getter]
-    pub fn get_bounding_box(&self) -> RBBox {
-        self.bounding_box.clone()
-    }
 }
 
 /// Represents operations happened with a video object. The operations are used to determine which fields of the object
@@ -108,7 +59,7 @@ pub struct VideoObject {
     pub label: String,
     #[builder(default)]
     pub draw_label: Option<String>,
-    pub bbox: RBBox,
+    pub detection_box: OwnedRBBoxData,
     #[builder(default)]
     pub attributes: HashMap<(String, String), Attribute>,
     #[builder(default)]
@@ -116,7 +67,9 @@ pub struct VideoObject {
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
-    pub track_info: Option<VideoObjectTrackingData>,
+    pub(crate) track_box: Option<OwnedRBBoxData>,
+    #[builder(default)]
+    pub track_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
     pub modifications: Vec<VideoObjectModification>,
@@ -138,11 +91,12 @@ impl Default for VideoObject {
             creator: "".to_string(),
             label: "".to_string(),
             draw_label: None,
-            bbox: RBBox::default(),
+            detection_box: BBOX_UNDEFINED.clone().try_into().unwrap(),
             attributes: HashMap::new(),
             confidence: None,
             parent_id: None,
-            track_info: None,
+            track_id: None,
+            track_box: None,
             modifications: Vec::new(),
             creator_id: None,
             label_id: None,
@@ -158,11 +112,12 @@ impl ToSerdeJsonValue for VideoObject {
             "creator": self.creator,
             "label": self.label,
             "draw_label": self.draw_label,
-            "bbox": self.bbox.to_serde_json_value(),
+            "bbox": self.detection_box.to_serde_json_value(),
             "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent_id,
-            "track": self.track_info.as_ref().map(|t| t.to_serde_json_value()),
+            "track_id": self.track_id,
+            "track_box": self.track_box.as_ref().map(|x| x.to_serde_json_value()),
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
             "frame": self.get_parent_frame_source(),
         })
@@ -176,28 +131,6 @@ impl VideoObject {
                 .upgrade()
                 .map(|f| f.read_recursive().source_id.clone())
         })
-    }
-
-    pub(crate) fn bbox_ref(&self, kind: VideoObjectBBoxType) -> &RBBox {
-        match kind {
-            VideoObjectBBoxType::Detection => &self.bbox,
-            VideoObjectBBoxType::TrackingInfo => self
-                .track_info
-                .as_ref()
-                .map(|t| &t.bounding_box)
-                .unwrap_or(&self.bbox),
-        }
-    }
-
-    pub(crate) fn bbox_mut(&mut self, kind: VideoObjectBBoxType) -> &mut RBBox {
-        match kind {
-            VideoObjectBBoxType::Detection => &mut self.bbox,
-            VideoObjectBBoxType::TrackingInfo => self
-                .track_info
-                .as_mut()
-                .map(|t| &mut t.bounding_box)
-                .unwrap_or(&mut self.bbox),
-        }
     }
 
     pub(crate) fn add_modification(&mut self, modification: VideoObjectModification) {
@@ -295,13 +228,6 @@ impl AttributeMethods for VideoObjectProxy {
 }
 
 impl VideoObjectProxy {
-    pub fn update_track_bbox(&self, bbox: RBBox) {
-        let mut inner = self.inner.write();
-        if let Some(t) = inner.track_info.as_mut() {
-            t.bounding_box = bbox;
-        }
-    }
-
     pub fn get_parent_id(&self) -> Option<i64> {
         let inner = self.inner.read_recursive();
         inner.parent_id
@@ -377,17 +303,15 @@ impl VideoObjectProxy {
         for o in ops {
             match o {
                 VideoObjectBBoxTransformation::Scale(kx, ky) => {
-                    let mut inner = self.inner.write();
-                    inner.bbox.scale(*kx, *ky);
-                    if let Some(t) = inner.track_info.as_mut() {
-                        t.bounding_box.scale(*kx, *ky);
+                    self.get_detection_box().scale(*kx, *ky);
+                    if let Some(mut t) = self.get_track_box() {
+                        t.scale(*kx, *ky);
                     }
                 }
                 VideoObjectBBoxTransformation::Shift(dx, dy) => {
-                    let mut inner = self.inner.write();
-                    inner.bbox.shift(*dx, *dy);
-                    if let Some(t) = inner.track_info.as_mut() {
-                        t.bounding_box.shift(*dx, *dy);
+                    self.get_detection_box().shift(*dx, *dy);
+                    if let Some(mut t) = self.get_track_box() {
+                        t.shift(*dx, *dy);
                     }
                 }
             }
@@ -408,16 +332,22 @@ impl VideoObjectProxy {
         self.__repr__()
     }
 
+    pub fn get_track_id(&self) -> Option<i64> {
+        let inner = self.inner.read_recursive();
+        inner.track_id
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[new]
     pub fn new(
         id: i64,
         creator: String,
         label: String,
-        bbox: RBBox,
+        detection_box: RBBox,
         attributes: HashMap<(String, String), Attribute>,
         confidence: Option<f64>,
-        track: Option<VideoObjectTrackingData>,
+        track_id: Option<i64>,
+        track_box: Option<RBBox>,
     ) -> Self {
         let (creator_id, label_id) =
             get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
@@ -426,10 +356,14 @@ impl VideoObjectProxy {
             id,
             creator,
             label,
-            bbox,
+            detection_box: detection_box
+                .try_into()
+                .expect("Failed to convert RBBox to RBBoxData"),
             attributes,
             confidence,
-            track_info: track,
+            track_id,
+            track_box: track_box
+                .map(|b| b.try_into().expect("Failed to convert RBBox to RBBoxData")),
             creator_id,
             label_id,
             ..Default::default()
@@ -461,20 +395,17 @@ impl VideoObjectProxy {
     ///   Object's bounding box.
     ///
     #[getter]
-    pub fn get_bbox(&self) -> RBBox {
-        self.inner.read_recursive().bbox.clone()
+    pub fn get_detection_box(&self) -> RBBox {
+        RBBox::borrowed_detection_box(self.inner.clone())
     }
 
-    /// Accesses object's bbox by reference. The object returned by the method is a special proxy object.
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`VideoObjectRBBoxProxy`
-    ///   A proxy object for the object's bbox.
-    ///
     #[getter]
-    pub fn bbox_ref(&self) -> VideoObjectRBBoxProxy {
-        VideoObjectRBBoxProxy::new(self.inner.clone(), VideoObjectBBoxType::Detection)
+    pub fn get_track_box(&self) -> Option<RBBox> {
+        if self.get_track_id().is_some() {
+            Some(RBBox::borrowed_track_box(self.inner.clone()))
+        } else {
+            None
+        }
     }
 
     /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
@@ -750,29 +681,39 @@ impl VideoObjectProxy {
         std::mem::take(&mut object.modifications)
     }
 
-    /// Returns object tracking data if it is available. The data returned by value, not reference.
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`VideoObjectTrackingData` or None
-    ///   Object tracking data.
-    ///
-    #[getter]
-    pub fn get_tracking_data(&self) -> Option<VideoObjectTrackingData> {
-        let inner = self.inner.read_recursive();
-        inner.track_info.clone()
-    }
-
-    #[getter]
-    pub fn tracking_data_ref(&self) -> VideoObjectTrackingDataProxy {
-        VideoObjectTrackingDataProxy::new(self.inner.clone())
-    }
-
     #[setter]
-    pub fn set_bbox(&self, bbox: RBBox) {
+    pub fn set_detection_bbox(&self, bbox: RBBox) {
         let mut inner = self.inner.write();
-        inner.bbox = bbox;
+        inner.detection_box = bbox
+            .try_into()
+            .expect("Failed to convert RBBox to RBBoxData");
         inner.add_modification(VideoObjectModification::BoundingBox);
+    }
+
+    pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
+        let mut inner = self.inner.write();
+        inner.track_box = Some(
+            bbox.try_into()
+                .expect("Failed to convert RBBox to RBBoxData"),
+        );
+        inner.track_id = Some(track_id);
+        inner.add_modification(VideoObjectModification::TrackInfo);
+    }
+
+    pub fn set_track_box(&self, bbox: RBBox) {
+        let mut inner = self.inner.write();
+        inner.track_box = Some(
+            bbox.try_into()
+                .expect("Failed to convert RBBox to RBBoxData"),
+        );
+        inner.add_modification(VideoObjectModification::TrackInfo);
+    }
+
+    pub fn clear_track_info(&self) {
+        let mut inner = self.inner.write();
+        inner.track_box = None;
+        inner.track_id = None;
+        inner.add_modification(VideoObjectModification::TrackInfo);
     }
 
     #[setter]
@@ -780,13 +721,6 @@ impl VideoObjectProxy {
         let mut inner = self.inner.write();
         inner.draw_label = draw_label;
         inner.add_modification(VideoObjectModification::DrawLabel);
-    }
-
-    #[setter]
-    pub fn set_tracking_data(&self, track: Option<VideoObjectTrackingData>) {
-        let mut inner = self.inner.write();
-        inner.track_info = track;
-        inner.add_modification(VideoObjectModification::TrackInfo);
     }
 
     #[setter]
@@ -841,7 +775,7 @@ mod tests {
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::{
         AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectModification,
-        VideoObjectProxy, VideoObjectTrackingData,
+        VideoObjectProxy,
     };
     use crate::test::utils::{gen_frame, s};
 
@@ -849,11 +783,14 @@ mod tests {
         VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(1)
-                .track_info(None)
                 .modifications(vec![])
                 .creator("model".to_string())
                 .label("label".to_string())
-                .bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
+                .detection_box(
+                    RBBox::new(0.0, 0.0, 1.0, 1.0, None)
+                        .try_into()
+                        .expect("Failed to convert RBBox to RBBoxData"),
+                )
                 .confidence(Some(0.5))
                 .attributes(
                     vec![
@@ -917,7 +854,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![VideoObjectModification::Label]);
         assert_eq!(t.take_modifications(), vec![]);
 
-        t.set_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
+        t.set_detection_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
         t.clear_attributes_gil();
         assert_eq!(
             t.take_modifications(),
@@ -987,20 +924,17 @@ mod tests {
     #[test]
     fn test_transform_geometry() {
         let o = get_object();
-        o.set_tracking_data(Some(VideoObjectTrackingData::new(
-            13,
-            RBBox::new(0.0, 0.0, 10.0, 20.0, None),
-        )));
+        o.set_track_info(13, RBBox::new(0.0, 0.0, 10.0, 20.0, None));
         let ops = vec![VideoObjectBBoxTransformation::Shift(10.0, 20.0)];
         let ref_ops = ops.iter().map(|op| op).collect();
         o.transform_geometry(&ref_ops);
-        let new_bb = o.get_bbox();
+        let new_bb = o.get_detection_box();
         assert_eq!(new_bb.get_xc(), 10.0);
         assert_eq!(new_bb.get_yc(), 20.0);
         assert_eq!(new_bb.get_width(), 1.0);
         assert_eq!(new_bb.get_height(), 1.0);
 
-        let new_track_bb = o.get_tracking_data().unwrap().get_bounding_box();
+        let new_track_bb = o.get_track_box().unwrap();
         assert_eq!(new_track_bb.get_xc(), 10.0);
         assert_eq!(new_track_bb.get_yc(), 20.0);
         assert_eq!(new_track_bb.get_width(), 10.0);
@@ -1009,13 +943,13 @@ mod tests {
         let ops = vec![VideoObjectBBoxTransformation::Scale(2.0, 4.0)];
         let ref_ops = ops.iter().map(|op| op).collect();
         o.transform_geometry(&ref_ops);
-        let new_bb = o.get_bbox();
+        let new_bb = o.get_detection_box();
         assert_eq!(new_bb.get_xc(), 20.0);
         assert_eq!(new_bb.get_yc(), 80.0);
         assert_eq!(new_bb.get_width(), 2.0);
         assert_eq!(new_bb.get_height(), 4.0);
 
-        let new_track_bb = o.get_tracking_data().unwrap().get_bounding_box();
+        let new_track_bb = o.get_track_box().unwrap();
         assert_eq!(new_track_bb.get_xc(), 20.0);
         assert_eq!(new_track_bb.get_yc(), 80.0);
         assert_eq!(new_track_bb.get_width(), 20.0);

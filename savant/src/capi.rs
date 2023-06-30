@@ -5,7 +5,6 @@
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::{
     IdCollisionResolutionPolicy, RBBox, VideoFrameProxy, VideoObjectBBoxType, VideoObjectProxy,
-    VideoObjectTrackingData,
 };
 use crate::utils::symbol_mapper::{get_model_name, get_object_label};
 use anyhow::bail;
@@ -35,11 +34,12 @@ pub fn from_object(
     t: VideoObjectBBoxType,
 ) -> anyhow::Result<VideoObjectInferenceMeta> {
     let o = o.inner.read_recursive();
-    let track_info = o.track_info.as_ref();
+    let track_id = o.track_id;
+    let track_box = o.track_box.as_ref();
 
     let bind = match t {
-        VideoObjectBBoxType::Detection => Some(&o.bbox),
-        VideoObjectBBoxType::TrackingInfo => track_info.map(|ti| &ti.bounding_box),
+        VideoObjectBBoxType::Detection => Some(&o.detection_box),
+        VideoObjectBBoxType::TrackingInfo => track_box,
     };
 
     if bind.is_none() {
@@ -47,7 +47,7 @@ pub fn from_object(
     }
     let bb = bind.unwrap();
 
-    if bb.get_angle().unwrap_or(0.0) != 0.0 {
+    if bb.angle.unwrap_or(0.0) != 0.0 {
         bail!("Rotated bounding boxes cannot be passed to inference engine. You must orient them first.")
     }
 
@@ -56,11 +56,11 @@ pub fn from_object(
         creator_id: o.creator_id.unwrap_or(i64::MAX),
         label_id: o.label_id.unwrap_or(i64::MAX),
         confidence: o.confidence.unwrap_or(0.0),
-        track_id: track_info.map(|ti| ti.id).unwrap_or(i64::MAX),
-        xc: bb.get_xc(),
-        yc: bb.get_yc(),
-        width: bb.get_width(),
-        height: bb.get_height(),
+        track_id: track_id.unwrap_or(i64::MAX),
+        xc: bb.xc,
+        yc: bb.yc,
+        width: bb.width,
+        height: bb.height,
         angle: BBOX_ELEMENT_UNDEFINED,
     })
 }
@@ -169,6 +169,7 @@ pub unsafe extern "C" fn update_frame_meta(
                             HashMap::default(),
                             Some(m.confidence),
                             None,
+                            None,
                         ),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )
@@ -196,7 +197,7 @@ pub unsafe extern "C" fn update_frame_meta(
                     )
                 });
 
-                o.set_tracking_data(Some(VideoObjectTrackingData::new(m.track_id, bounding_box)));
+                o.set_track_info(m.track_id, bounding_box);
             }
         }
     }
