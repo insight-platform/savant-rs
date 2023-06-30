@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod extra_tests;
+
 pub mod context;
 pub mod transformations;
 
