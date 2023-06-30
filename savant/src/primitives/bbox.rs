@@ -1443,29 +1443,6 @@ mod tests {
     use pyo3::basic::CompareOp;
 
     #[test]
-    fn test_scale_no_angle() {
-        let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
-        bbox.scale(2.0, 2.0);
-        assert_eq!(bbox.get_xc(), 0.0);
-        assert_eq!(bbox.get_yc(), 0.0);
-        assert_eq!(bbox.get_width(), 200.0);
-        assert_eq!(bbox.get_height(), 200.0);
-        assert_eq!(bbox.get_angle(), None);
-    }
-
-    #[test]
-    fn test_scale_with_angle() {
-        let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
-        bbox.scale(2.0, 3.0);
-        //dbg!(&bbox);
-        assert_eq!(bbox.get_xc(), 0.0);
-        assert_eq!(bbox.get_yc(), 0.0);
-        assert_eq!(round_2_digits(bbox.get_width()), 254.95);
-        assert_eq!(round_2_digits(bbox.get_height()), 254.95);
-        assert_eq!(bbox.get_angle().map(round_2_digits), Some(33.69));
-    }
-
-    #[test]
     fn test_vertices() {
         let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
         let vertices = bbox.get_vertices_rounded();

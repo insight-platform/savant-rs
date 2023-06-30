@@ -1,5 +1,6 @@
 use crate::primitives::RBBox;
 use crate::test::utils::gen_object;
+use crate::utils::round_2_digits;
 
 #[test]
 fn test_owned_getters() {
@@ -272,4 +273,27 @@ fn test_setters_borrowed_track_box() {
     b.set_modification_status(false);
     b.set_angle(Some(300.0));
     assert_eq!(b.is_modified(), true);
+}
+
+#[test]
+fn test_scale_owned_box_no_angle() {
+    let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+    bbox.scale(2.0, 2.0);
+    assert_eq!(bbox.get_xc(), 0.0);
+    assert_eq!(bbox.get_yc(), 0.0);
+    assert_eq!(bbox.get_width(), 200.0);
+    assert_eq!(bbox.get_height(), 200.0);
+    assert_eq!(bbox.get_angle(), None);
+}
+
+#[test]
+fn test_scale_owned_box_with_angle() {
+    let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
+    bbox.scale(2.0, 3.0);
+    //dbg!(&bbox);
+    assert_eq!(bbox.get_xc(), 0.0);
+    assert_eq!(bbox.get_yc(), 0.0);
+    assert_eq!(round_2_digits(bbox.get_width()), 254.95);
+    assert_eq!(round_2_digits(bbox.get_height()), 254.95);
+    assert_eq!(bbox.get_angle().map(round_2_digits), Some(33.69));
 }
