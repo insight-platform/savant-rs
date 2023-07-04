@@ -1,4 +1,4 @@
-use crate::primitives::attribute::AttributeMethods;
+use crate::primitives::attribute::{AttributeMethods, Attributive};
 use pyo3::types::PyBytes;
 use pyo3::{pyfunction, PyObject, Python};
 use std::collections::HashMap;
@@ -38,6 +38,20 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .as_ref(),
             );
             let t: NativeMessageMarkerType = NativeMessageTypeConsts::EndOfStream.into();
+            buf.extend_from_slice(t.as_ref());
+            buf.extend_from_slice(&version_to_bytes_le());
+            buf
+        }
+
+        NativeMessage::Telemetry(mut t) => {
+            t.exclude_temporary_attributes();
+            let mut buf = Vec::with_capacity(32);
+            buf.extend_from_slice(
+                rkyv::to_bytes::<_, 32>(&t)
+                    .expect("Failed to serialize Telemetry")
+                    .as_ref(),
+            );
+            let t: NativeMessageMarkerType = NativeMessageTypeConsts::Telemetry.into();
             buf.extend_from_slice(t.as_ref());
             buf.extend_from_slice(&version_to_bytes_le());
             buf
