@@ -99,6 +99,14 @@ impl Telemetry {
     pub fn clear_attributes_gil(&mut self) {
         release_gil(|| self.clear_attributes())
     }
+
+    pub fn json(&self) -> String {
+        serde_json::to_string(&self.to_serde_json_value()).unwrap()
+    }
+
+    pub fn json_pretty(&self) -> String {
+        serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
+    }
 }
 
 impl Attributive for Telemetry {
