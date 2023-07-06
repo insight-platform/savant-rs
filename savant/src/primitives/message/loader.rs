@@ -3,7 +3,9 @@ use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::{
     NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
 };
-use crate::primitives::{EndOfStream, Message, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
+use crate::primitives::{
+    EndOfStream, Message, Telemetry, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate,
+};
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::release_gil;
 use pyo3::pyfunction;
@@ -67,6 +69,14 @@ pub fn load_message(bytes: &[u8]) -> Message {
             let eos: Result<EndOfStream, _> = rkyv::from_bytes(bytes);
             match eos {
                 Ok(eos) => Message::end_of_stream(eos),
+                Err(e) => Message::unknown(format!("{:?}", e)),
+            }
+        }
+
+        NativeMessageTypeConsts::Telemetry => {
+            let eos: Result<Telemetry, _> = rkyv::from_bytes(bytes);
+            match eos {
+                Ok(t) => Message::telemetry(t),
                 Err(e) => Message::unknown(format!("{:?}", e)),
             }
         }

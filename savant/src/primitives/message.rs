@@ -1,8 +1,10 @@
 pub mod eos;
 pub mod loader;
 pub mod saver;
+pub mod telemetry;
 pub mod video;
 
+use crate::primitives::message::telemetry::Telemetry;
 use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
@@ -15,6 +17,7 @@ pub enum NativeMessage {
     VideoFrame(VideoFrameProxy),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
+    Telemetry(Telemetry),
     Unknown(String),
 }
 
@@ -25,6 +28,7 @@ enum NativeMessageTypeConsts {
     VideoFrame,
     VideoFrameBatch,
     VideFrameUpdate,
+    Telemetry,
     Unknown,
 }
 
@@ -39,6 +43,7 @@ impl From<NativeMessageTypeConsts> for NativeMessageMarkerType {
             NativeMessageTypeConsts::VideoFrame => [1, 0, 0, 0],
             NativeMessageTypeConsts::VideoFrameBatch => [2, 0, 0, 0],
             NativeMessageTypeConsts::VideFrameUpdate => [3, 0, 0, 0],
+            NativeMessageTypeConsts::Telemetry => [4, 0, 0, 0],
             NativeMessageTypeConsts::Unknown => [255, 255, 255, 255],
         }
     }
@@ -51,6 +56,7 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
             [1, 0, 0, 0] => NativeMessageTypeConsts::VideoFrame,
             [2, 0, 0, 0] => NativeMessageTypeConsts::VideoFrameBatch,
             [3, 0, 0, 0] => NativeMessageTypeConsts::VideFrameUpdate,
+            [4, 0, 0, 0] => NativeMessageTypeConsts::Telemetry,
             _ => NativeMessageTypeConsts::Unknown,
         }
     }
@@ -63,6 +69,12 @@ pub struct Message {
 }
 
 impl Message {
+    pub fn telemetry(t: Telemetry) -> Self {
+        Self {
+            payload: NativeMessage::Telemetry(t),
+        }
+    }
+
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
             payload: NativeMessage::EndOfStream(eos),
@@ -179,6 +191,26 @@ impl Message {
         })
     }
 
+    /// Create a new telemetry message
+    ///
+    /// Parameters
+    /// ----------
+    /// t : savant_rs.primitives.Telemetry
+    ///   The telemetry message
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.utils.serialization.Message`
+    ///   The message of EndOfStream type
+    ///
+    #[staticmethod]
+    #[pyo3(name = "telemetry")]
+    fn telemetry_gil(t: &Telemetry) -> Self {
+        release_gil(|| Self {
+            payload: NativeMessage::Telemetry(t.clone()),
+        })
+    }
+
     /// Create a new video frame update message
     ///
     /// Parameters
@@ -219,6 +251,17 @@ impl Message {
     ///
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.payload, NativeMessage::EndOfStream(_))
+    }
+
+    /// Checks if the message is of Telemetry type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of Telemetry type, False otherwise
+    ///
+    pub fn is_telemetry(&self) -> bool {
+        matches!(self.payload, NativeMessage::Telemetry(_))
     }
 
     /// Checks if the message is of VideoFrame type
@@ -286,6 +329,22 @@ impl Message {
         }
     }
 
+    /// Returns the message as Telemetry type
+    ///
+    /// Returns
+    /// -------
+    /// :class:`savant_rs.primitives.Telemetry`
+    ///   The message as Telemetry type
+    /// None
+    ///   If the message is not of Telemetry type
+    ///
+    pub fn as_telemetry(&self) -> Option<Telemetry> {
+        match &self.payload {
+            NativeMessage::Telemetry(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
     /// Returns the message as VideoFrame type
     ///
     /// Returns
@@ -342,7 +401,9 @@ mod tests {
     use crate::primitives::message::{
         NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
     };
-    use crate::primitives::{save_message, Attribute, EndOfStream, Message, VideoFrameBatch};
+    use crate::primitives::{
+        save_message, Attribute, EndOfStream, Message, Telemetry, VideoFrameBatch,
+    };
     use crate::test::utils::gen_frame;
     use std::ops::AddAssign;
 
@@ -361,6 +422,23 @@ mod tests {
         );
         let m = load_message(&res);
         assert!(m.is_end_of_stream());
+    }
+
+    #[test]
+    fn test_save_load_telemetry() {
+        pyo3::prepare_freethreaded_python();
+        let t = Telemetry::new("test".to_string());
+        let m = Message::telemetry(t);
+        let res = save_message(m);
+        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
+        let type_end = type_start + VERSION_LEN;
+
+        assert_eq!(
+            res[type_start..type_end].as_ref(),
+            NativeMessageMarkerType::from(NativeMessageTypeConsts::Telemetry).as_ref()
+        );
+        let m = load_message(&res);
+        assert!(m.is_telemetry());
     }
 
     #[test]
