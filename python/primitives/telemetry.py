@@ -13,5 +13,7 @@ new_m = load_message_from_bytes(s)
 assert new_m.is_telemetry()
 
 t = new_m.as_telemetry()
+assert t.source_id == "abc"
+
 print("After")
 print(t.json_pretty())
