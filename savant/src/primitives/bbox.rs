@@ -1107,7 +1107,11 @@ impl RBBox {
     }
 
     pub fn get_visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
-        assert!(border_width >= 0);
+        if border_width < 0 {
+            return Err(PyValueError::new_err(
+                "border_width must be greater than or equal to 0",
+            ));
+        }
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
             padding.top + border_width,
@@ -1134,7 +1138,11 @@ impl PythonBBox {
         max_x: f64,
         max_y: f64,
     ) -> PyResult<PythonBBox> {
-        assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
+        if !(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0) {
+            return Err(PyValueError::new_err(
+                "border_width, max_x and max_y must be greater than or equal to 0",
+            ));
+        }
 
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
