@@ -1,3 +1,4 @@
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Defines the padding for a draw operation.
@@ -62,18 +63,19 @@ impl PaddingDraw {
 
     #[new]
     #[pyo3(signature = (left=0, top=0, right=0, bottom=0))]
-    pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> Self {
-        assert!(left >= 0);
-        assert!(top >= 0);
-        assert!(right >= 0);
-        assert!(bottom >= 0);
+    pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> PyResult<Self> {
+        if left < 0 || top < 0 || right < 0 || bottom < 0 {
+            return Err(PyValueError::new_err(
+                "Padding values must be greater than or equal to 0",
+            ));
+        }
 
-        Self {
+        Ok(Self {
             left,
             top,
             right,
             bottom,
-        }
+        })
     }
 
     /// Creates a new padding object with all fields set to 0
@@ -188,18 +190,23 @@ impl ColorDraw {
     ///
     #[new]
     #[pyo3(signature = (red=0, green=255, blue=0, alpha=255))]
-    pub fn new(red: i64, green: i64, blue: i64, alpha: i64) -> Self {
-        assert!((0..=255).contains(&red));
-        assert!((0..=255).contains(&green));
-        assert!((0..=255).contains(&blue));
-        assert!((0..=255).contains(&alpha));
+    pub fn new(red: i64, green: i64, blue: i64, alpha: i64) -> PyResult<Self> {
+        if !((0..=255).contains(&red)
+            && (0..=255).contains(&green)
+            && (0..=255).contains(&blue)
+            && (0..=255).contains(&alpha))
+        {
+            return Err(PyValueError::new_err(
+                "Color values must be greater than or equal to 0",
+            ));
+        }
 
-        Self {
+        Ok(Self {
             red,
             green,
             blue,
             alpha,
-        }
+        })
     }
 
     /// The color as a BGRA tuple
@@ -262,7 +269,7 @@ impl ColorDraw {
     ///
     #[staticmethod]
     pub fn transparent() -> Self {
-        Self::new(0, 0, 0, 0)
+        Self::new(0, 0, 0, 0).unwrap()
     }
 }
 
@@ -307,7 +314,7 @@ impl BoundingBoxDraw {
     #[pyo3(signature = (
         border_color = ColorDraw::transparent(),
         background_color = ColorDraw::transparent(),
-        thickness = 1,
+        thickness = 2,
         padding = PaddingDraw::default_padding())
     )]
     pub fn new(
@@ -315,15 +322,17 @@ impl BoundingBoxDraw {
         background_color: ColorDraw,
         thickness: i64,
         padding: PaddingDraw,
-    ) -> Self {
-        assert!((0..=100).contains(&thickness));
+    ) -> PyResult<Self> {
+        if !(0..=500).contains(&thickness) {
+            return Err(PyValueError::new_err("thickness must be >= 0 and <= 500"));
+        }
 
-        Self {
+        Ok(Self {
             border_color,
             background_color,
             thickness,
             padding,
-        }
+        })
     }
 
     /// Returns the border color of the bounding box
@@ -403,10 +412,11 @@ impl DotDraw {
     ///
     #[new]
     #[pyo3(signature = (color, radius = 2))]
-    pub fn new(color: ColorDraw, radius: i64) -> Self {
-        assert!((0..=100).contains(&radius));
-
-        Self { color, radius }
+    pub fn new(color: ColorDraw, radius: i64) -> PyResult<Self> {
+        if !(0..=100).contains(&radius) {
+            return Err(PyValueError::new_err("radius must be >= 0 and <= 100"));
+        }
+        Ok(Self { color, radius })
     }
 
     /// Returns the color of the central body
@@ -479,22 +489,25 @@ impl LabelPosition {
     ///
     #[new]
     #[pyo3(signature = (position = LabelPositionKind::TopLeftOutside, margin_x = 0, margin_y = -10))]
-    pub fn new(position: LabelPositionKind, margin_x: i64, margin_y: i64) -> Self {
-        assert!((-100..=100).contains(&margin_x));
-        assert!((-100..=100).contains(&margin_y));
+    pub fn new(position: LabelPositionKind, margin_x: i64, margin_y: i64) -> PyResult<Self> {
+        if !((-100..=100).contains(&margin_x) && (-100..=100).contains(&margin_y)) {
+            return Err(PyValueError::new_err(
+                "margin_x must be >= -100 and <= 100 and margin_y must be >= -100 and <= 100",
+            ));
+        }
 
-        Self {
+        Ok(Self {
             position,
             margin_x,
             margin_y,
-        }
+        })
     }
 
     /// Returns the default label position specification
     ///
     #[staticmethod]
     pub fn default_position() -> Self {
-        Self::new(LabelPositionKind::TopLeftOutside, 0, -10)
+        Self::new(LabelPositionKind::TopLeftOutside, 0, -10).unwrap()
     }
 
     /// Returns the position of the label
@@ -577,11 +590,14 @@ impl LabelDraw {
         position: LabelPosition,
         padding: PaddingDraw,
         format: Vec<String>,
-    ) -> Self {
-        assert!((0.0..=200.0).contains(&font_scale));
-        assert!((0..=100).contains(&thickness));
+    ) -> PyResult<Self> {
+        if !((0.0..=200.0).contains(&font_scale) && (0..=100).contains(&thickness)) {
+            return Err(PyValueError::new_err(
+                "font_scale must be >= 0.0 and <= 200.0",
+            ));
+        }
 
-        Self {
+        Ok(Self {
             font_color,
             background_color,
             border_color,
@@ -590,7 +606,7 @@ impl LabelDraw {
             position,
             padding,
             format,
-        }
+        })
     }
 
     /// Returns the label font color

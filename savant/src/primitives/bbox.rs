@@ -606,7 +606,7 @@ impl RBBox {
     ///   wrapping bbox
     ///
     #[pyo3(name = "visual_box")]
-    pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
+    pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
         release_gil(|| self.get_visual_bbox(padding, border_width))
     }
 
@@ -1106,16 +1106,20 @@ impl RBBox {
         }
     }
 
-    pub fn get_visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> RBBox {
-        assert!(border_width >= 0);
+    pub fn get_visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
+        if border_width < 0 {
+            return Err(PyValueError::new_err(
+                "border_width must be greater than or equal to 0",
+            ));
+        }
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
             padding.top + border_width,
             padding.right + border_width,
             padding.bottom + border_width,
-        );
+        )?;
 
-        self.new_padded(&padding_with_border)
+        Ok(self.new_padded(&padding_with_border))
     }
 }
 
@@ -1134,14 +1138,18 @@ impl PythonBBox {
         max_x: f64,
         max_y: f64,
     ) -> PyResult<PythonBBox> {
-        assert!(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0);
+        if !(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0) {
+            return Err(PyValueError::new_err(
+                "border_width, max_x and max_y must be greater than or equal to 0",
+            ));
+        }
 
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
             padding.top + border_width,
             padding.right + border_width,
             padding.bottom + border_width,
-        );
+        )?;
 
         let bbox = self.new_padded(&padding_with_border);
 
@@ -1538,28 +1546,28 @@ mod tests {
     #[test]
     fn test_padded_axis_aligned() {
         let bb = get_bbox(None);
-        let padded = bb.new_padded(&PaddingDraw::new(0, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(0, 0, 0, 0).unwrap());
         assert_eq!(padded.get_xc(), bb.get_xc());
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width());
         assert_eq!(padded.get_height(), bb.get_height());
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0).unwrap());
         assert_eq!(padded.get_xc(), bb.get_xc() - 1.0);
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width() + 2.0);
         assert_eq!(padded.get_height(), bb.get_height());
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(&PaddingDraw::new(0, 2, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(0, 2, 0, 0).unwrap());
         assert_eq!(padded.get_xc(), bb.get_xc());
         assert_eq!(padded.get_yc(), bb.get_yc() - 1.0);
         assert_eq!(padded.get_width(), bb.get_width());
         assert_eq!(padded.get_height(), bb.get_height() + 2.0);
 
         let bb = get_bbox(None);
-        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 4, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 4, 0).unwrap());
         assert_eq!(padded.get_xc(), bb.get_xc() + 1.0);
         assert_eq!(padded.get_yc(), bb.get_yc());
         assert_eq!(padded.get_width(), bb.get_width() + 6.0);
@@ -1569,7 +1577,7 @@ mod tests {
     #[test]
     fn test_padded_rotated() {
         let bb = get_bbox(Some(90.0));
-        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0));
+        let padded = bb.new_padded(&PaddingDraw::new(2, 0, 0, 0).unwrap());
         assert_eq!(round_2_digits(padded.get_xc()), bb.get_xc());
         assert_eq!(round_2_digits(padded.get_yc()), bb.get_yc() - 1.0);
         assert_eq!(padded.get_width(), bb.get_width() + 2.0);
