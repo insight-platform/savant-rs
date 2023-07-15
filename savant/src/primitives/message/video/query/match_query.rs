@@ -132,8 +132,8 @@ impl ExecutableMatchQuery<&String> for StringExpression {
 pub enum MatchQuery {
     #[serde(rename = "object.id")]
     Id(IntExpression),
-    #[serde(rename = "creator")]
-    Creator(StringExpression),
+    #[serde(rename = "namespace")]
+    Namespace(StringExpression),
     #[serde(rename = "label")]
     Label(StringExpression),
     #[serde(rename = "confidence.defined")]
@@ -174,8 +174,8 @@ pub enum MatchQuery {
     ParentDefined,
     #[serde(rename = "parent.id")]
     ParentId(IntExpression),
-    #[serde(rename = "parent.creator")]
-    ParentCreator(StringExpression),
+    #[serde(rename = "parent.namespace")]
+    ParentNamespace(StringExpression),
     #[serde(rename = "parent.label")]
     ParentLabel(StringExpression),
 
@@ -237,7 +237,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
         let tracking_box = o.track_box.clone().map(RBBox::new_from_data);
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, ctx),
-            MatchQuery::Creator(x) => x.execute(&o.creator, ctx),
+            MatchQuery::Namespace(x) => x.execute(&o.namespace, ctx),
             MatchQuery::Label(x) => x.execute(&o.label, ctx),
             MatchQuery::Confidence(x) => o.confidence.map(|c| x.execute(&c, ctx)).unwrap_or(false),
             MatchQuery::ConfidenceDefined => o.confidence.is_some(),
@@ -326,9 +326,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
             }
 
             // attributes
-            MatchQuery::AttributeDefined(creator, label) => o
+            MatchQuery::AttributeDefined(namespace, label) => o
                 .attributes
-                .get(&(creator.to_string(), label.to_string()))
+                .get(&(namespace.to_string(), label.to_string()))
                 .is_some(),
             MatchQuery::AttributesEmpty => o.attributes.is_empty(),
             MatchQuery::AttributesJMESQuery(x) => {
@@ -370,10 +370,10 @@ impl ExecutableMatchQuery<&VideoObjectProxy> for MatchQuery {
                 .as_ref()
                 .map(|p| x.execute(&p.get_id(), ctx))
                 .unwrap_or(false),
-            MatchQuery::ParentCreator(x) => o
+            MatchQuery::ParentNamespace(x) => o
                 .get_parent()
                 .as_ref()
-                .map(|p| x.execute(&p.get_creator(), ctx))
+                .map(|p| x.execute(&p.get_namespace(), ctx))
                 .unwrap_or(false),
             MatchQuery::ParentLabel(x) => o
                 .get_parent()
@@ -672,7 +672,7 @@ mod tests {
     fn query() {
         let expr = query_and![
             Id(eq(1)),
-            Creator(one_of(&["test", "test2"])),
+            Namespace(one_of(&["test", "test2"])),
             Confidence(gt(0.5))
         ];
 
@@ -700,7 +700,7 @@ mod tests {
         let expr = Id(eq(1));
         assert!(expr.execute_with_new_context(&gen_object(1)));
 
-        let expr = Creator(eq("peoplenet"));
+        let expr = Namespace(eq("peoplenet"));
         assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = Label(starts_with("face"));
@@ -736,7 +736,7 @@ mod tests {
         let expr = ParentId(eq(13));
         assert!(expr.execute_with_new_context(&object));
 
-        let expr = ParentCreator(eq("peoplenet"));
+        let expr = ParentNamespace(eq("peoplenet"));
         assert!(expr.execute_with_new_context(&object));
 
         let expr = ParentLabel(eq("face"));
@@ -776,7 +776,7 @@ mod tests {
         object.set_attribute(
             AttributeBuilder::default()
                 .name(s("age-min-max-avg"))
-                .creator(s("classifier"))
+                .namespace(s("classifier"))
                 .hint(Some(s("morphological-classifier")))
                 .values(vec![
                     AttributeValue::float(10.0, Some(0.7)),
@@ -788,22 +788,22 @@ mod tests {
         );
 
         let expr = AttributesJMESQuery(s(
-            "[? (hint == 'morphological-classifier') && (creator == 'classifier')]",
+            "[? (hint == 'morphological-classifier') && (namespace == 'classifier')]",
         ));
         assert!(expr.execute_with_new_context(&object));
 
         let expr = AttributesJMESQuery(s(
-            "[? (hint != 'morphological-classifier') && (creator == 'classifier')]",
+            "[? (hint != 'morphological-classifier') && (namespace == 'classifier')]",
         ));
         assert!(!expr.execute_with_new_context(&object));
     }
 
     #[test]
     fn test_logical_functions() {
-        let expr = and![Id(eq(1)), Creator(eq("peoplenet")), Confidence(gt(0.4))];
+        let expr = and![Id(eq(1)), Namespace(eq("peoplenet")), Confidence(gt(0.4))];
         assert!(expr.execute_with_new_context(&gen_object(1)));
 
-        let expr = or![Id(eq(10)), Creator(eq("peoplenet")),];
+        let expr = or![Id(eq(10)), Namespace(eq("peoplenet")),];
         assert!(expr.execute_with_new_context(&gen_object(1)));
 
         let expr = not!(Id(eq(2)));

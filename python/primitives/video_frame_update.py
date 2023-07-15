@@ -17,8 +17,8 @@ for o in objects:
 
 attributes = frame.attributes
 
-for (creator, label) in attributes:
-    attr = frame.get_attribute(creator, label)
+for (namespace, label) in attributes:
+    attr = frame.get_attribute(namespace, label)
     update.add_attribute(attr)
 
 m = Message.video_frame_update(update)

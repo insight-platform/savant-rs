@@ -35,7 +35,7 @@ pub enum IdCollisionResolutionPolicy {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VideoObjectModification {
     Id,
-    Creator,
+    Namespace,
     Label,
     BoundingBox,
     Attributes,
@@ -55,7 +55,7 @@ impl ToSerdeJsonValue for VideoObjectModification {
 #[archive(check_bytes)]
 pub struct VideoObject {
     pub id: i64,
-    pub creator: String,
+    pub namespace: String,
     pub label: String,
     #[builder(default)]
     pub draw_label: Option<String>,
@@ -75,7 +75,7 @@ pub struct VideoObject {
     pub modifications: Vec<VideoObjectModification>,
     #[with(Skip)]
     #[builder(default)]
-    pub creator_id: Option<i64>,
+    pub namespace_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
     pub label_id: Option<i64>,
@@ -88,7 +88,7 @@ impl Default for VideoObject {
     fn default() -> Self {
         Self {
             id: 0,
-            creator: "".to_string(),
+            namespace: "".to_string(),
             label: "".to_string(),
             draw_label: None,
             detection_box: BBOX_UNDEFINED.clone().try_into().unwrap(),
@@ -98,7 +98,7 @@ impl Default for VideoObject {
             track_id: None,
             track_box: None,
             modifications: Vec::new(),
-            creator_id: None,
+            namespace_id: None,
             label_id: None,
             frame: None,
         }
@@ -109,7 +109,7 @@ impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
             "id": self.id,
-            "creator": self.creator,
+            "namespace": self.namespace,
             "label": self.label,
             "draw_label": self.draw_label,
             "bbox": self.detection_box.to_serde_json_value(),
@@ -139,7 +139,7 @@ impl VideoObject {
 }
 
 /// Represents a video object. The object is a part of a video frame, it includes bounding
-/// box, attributes, label, creator label, etc. The objects are always accessible by reference. The only way to
+/// box, attributes, label, namespace label, etc. The objects are always accessible by reference. The only way to
 /// copy the object by value is to call :py:meth:`VideoObject.detached_copy`.
 ///
 /// :py:class:`VideoObject` is a part of :py:class:`VideoFrame` and may outlive it if there are references.
@@ -191,14 +191,14 @@ impl AttributeMethods for VideoObjectProxy {
         inner.get_attributes()
     }
 
-    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let inner = self.inner.read_recursive();
-        inner.get_attribute(creator, name)
+        inner.get_attribute(namespace, name)
     }
 
-    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.delete_attribute(creator, name)
+        inner.delete_attribute(namespace, name)
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
@@ -211,19 +211,19 @@ impl AttributeMethods for VideoObjectProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
         let mut inner = self.inner.write();
-        inner.delete_attributes(creator, names)
+        inner.delete_attributes(namespace, names)
     }
 
     fn find_attributes(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         let inner = self.inner.read_recursive();
-        inner.find_attributes(creator, names, hint)
+        inner.find_attributes(namespace, names, hint)
     }
 }
 
@@ -341,7 +341,7 @@ impl VideoObjectProxy {
     #[new]
     pub fn new(
         id: i64,
-        creator: String,
+        namespace: String,
         label: String,
         detection_box: RBBox,
         attributes: HashMap<(String, String), Attribute>,
@@ -349,12 +349,12 @@ impl VideoObjectProxy {
         track_id: Option<i64>,
         track_box: Option<RBBox>,
     ) -> Self {
-        let (creator_id, label_id) =
-            get_object_id(&creator, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
+        let (namespace_id, label_id) =
+            get_object_id(&namespace, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
         let object = VideoObject {
             id,
-            creator,
+            namespace,
             label,
             detection_box: detection_box
                 .try_into()
@@ -364,7 +364,7 @@ impl VideoObjectProxy {
             track_id,
             track_box: track_box
                 .map(|b| b.try_into().expect("Failed to convert RBBox to RBBoxData")),
-            creator_id,
+            namespace_id,
             label_id,
             ..Default::default()
         };
@@ -373,12 +373,12 @@ impl VideoObjectProxy {
         }
     }
 
-    /// Returns object's attributes as a list of tuples ``(creator, name)``.
+    /// Returns object's attributes as a list of tuples ``(namespace, name)``.
     ///
     /// Returns
     /// -------
     /// List[Tuple[str, str]]
-    ///   List of attribute identifiers as ``(creator, name)``.
+    ///   List of attribute identifiers as ``(namespace, name)``.
     ///
     #[getter]
     #[pyo3(name = "attributes")]
@@ -445,16 +445,16 @@ impl VideoObjectProxy {
         inner.confidence
     }
 
-    /// Returns object's creator. When used as setter, allows setting object's creator.
+    /// Returns object's namespace. When used as setter, allows setting object's namespace.
     ///
     /// Returns
     /// -------
     /// str
-    ///   Object's creator.
+    ///   Object's namespace.
     ///
     #[getter]
-    pub fn get_creator(&self) -> String {
-        self.inner.read_recursive().creator.clone()
+    pub fn get_namespace(&self) -> String {
+        self.inner.read_recursive().namespace.clone()
     }
 
     /// Deletes an attribute from the object.
@@ -462,8 +462,8 @@ impl VideoObjectProxy {
     ///
     /// Parameters
     /// ----------
-    /// creator : str
-    ///   Attribute creator.
+    /// namespace : str
+    ///   Attribute namespace.
     /// name : str
     ///   Attribute name.
     ///
@@ -473,8 +473,8 @@ impl VideoObjectProxy {
     ///   Deleted attribute or None if the attribute is not found.
     ///
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        match self.delete_attribute(creator, name) {
+    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
+        match self.delete_attribute(namespace, name) {
             Some(attribute) => {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
@@ -488,20 +488,20 @@ impl VideoObjectProxy {
     ///
     /// Parameters
     /// ----------
-    /// creator : str or None
-    ///   Attribute creator. If None, it is ignored when candidates are selected for removal.
+    /// namespace : str or None
+    ///   Attribute namespace. If None, it is ignored when candidates are selected for removal.
     /// names : List[str]
     ///   Attribute names. If empty, it is ignored when candidates are selected for removal.
     ///
-    #[pyo3(signature = (creator=None, names=vec![]))]
+    #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
+    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
         release_gil(move || {
             {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
             }
-            self.delete_attributes(creator, names)
+            self.delete_attributes(namespace, names)
         })
     }
 
@@ -536,12 +536,12 @@ impl VideoObjectProxy {
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
-    /// finds and returns names of attributes by expression based on creator, names and hint.
+    /// finds and returns names of attributes by expression based on namespace, names and hint.
     ///
     /// Parameters
     /// ----------
-    /// creator : str or None
-    ///   Attribute creator. If None, it is ignored when candidates are selected.
+    /// namespace : str or None
+    ///   Attribute namespace. If None, it is ignored when candidates are selected.
     /// names : List[str]
     ///   Attribute names. If empty, it is ignored when candidates are selected.
     /// hint : str or None
@@ -550,20 +550,20 @@ impl VideoObjectProxy {
     /// Returns
     /// -------
     /// List[Tuple[str, str]]
-    ///   List of tuples with attribute creators and names.
+    ///   List of tuples with attribute namespaces and names.
     ///
     #[pyo3(name = "find_attributes")]
-    #[pyo3(signature = (creator=None, names=vec![], hint=None))]
+    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        release_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(namespace, names, hint))
     }
 
-    /// Fetches attribute by creator and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
+    /// Fetches attribute by namespace and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
     /// until the modification the values are shared. If the attribute is not found, returns None.
     ///
     /// Remember, because the attribute is fetched as a copy,
@@ -571,8 +571,8 @@ impl VideoObjectProxy {
     ///
     /// Parameters
     /// ----------
-    /// creator : str
-    ///   Attribute creator.
+    /// namespace : str
+    ///   Attribute namespace.
     /// name : str
     ///   Attribute name.
     ///
@@ -582,8 +582,8 @@ impl VideoObjectProxy {
     ///   Attribute or None if the attribute is not found.
     ///
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        self.get_attribute(creator, name)
+    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
+        self.get_attribute(namespace, name)
     }
 
     /// Returns the :py:class:`VideoFrame` reference to a frame the object belongs to.
@@ -738,10 +738,10 @@ impl VideoObjectProxy {
     }
 
     #[setter]
-    pub fn set_creator(&self, creator: String) {
+    pub fn set_namespace(&self, namespace: String) {
         let mut inner = self.inner.write();
-        inner.creator = creator;
-        inner.add_modification(VideoObjectModification::Creator);
+        inner.namespace = namespace;
+        inner.add_modification(VideoObjectModification::Namespace);
     }
 
     #[setter]
@@ -784,7 +784,7 @@ mod tests {
             VideoObjectBuilder::default()
                 .id(1)
                 .modifications(vec![])
-                .creator("model".to_string())
+                .namespace("model".to_string())
                 .label("label".to_string())
                 .detection_box(
                     RBBox::new(0.0, 0.0, 1.0, 1.0, None)
@@ -795,21 +795,21 @@ mod tests {
                 .attributes(
                     vec![
                         AttributeBuilder::default()
-                            .creator("creator".to_string())
+                            .namespace("namespace".to_string())
                             .name("name".to_string())
                             .values(vec![AttributeValue::string("value".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
-                            .creator("creator".to_string())
+                            .namespace("namespace".to_string())
                             .name("name2".to_string())
                             .values(vec![AttributeValue::string("value2".to_string(), None)])
                             .hint(None)
                             .build()
                             .unwrap(),
                         AttributeBuilder::default()
-                            .creator("creator2".to_string())
+                            .namespace("namespace2".to_string())
                             .name("name".to_string())
                             .values(vec![AttributeValue::string("value".to_string(), None)])
                             .hint(None)
@@ -817,7 +817,7 @@ mod tests {
                             .unwrap(),
                     ]
                     .into_iter()
-                    .map(|a| ((a.creator.clone(), a.name.clone()), a))
+                    .map(|a| ((a.namespace.clone(), a.name.clone()), a))
                     .collect(),
                 )
                 .parent_id(None)
@@ -835,7 +835,7 @@ mod tests {
         assert_eq!(obj.get_inner_read().attributes.len(), 0);
 
         let obj = get_object();
-        obj.delete_attributes(Some(s("creator")), vec![]);
+        obj.delete_attributes(Some(s("namespace")), vec![]);
         assert_eq!(obj.get_attributes().len(), 1);
 
         let obj = get_object();

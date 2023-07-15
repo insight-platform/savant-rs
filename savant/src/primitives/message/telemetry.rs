@@ -64,30 +64,30 @@ impl Telemetry {
     }
 
     #[pyo3(name = "find_attributes")]
-    #[pyo3(signature = (creator=None, names=vec![], hint=None))]
+    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        release_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(namespace, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        release_gil(|| self.get_attribute(creator, name))
+    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
+        release_gil(|| self.get_attribute(namespace, name))
     }
 
-    #[pyo3(signature = (creator=None, names=vec![]))]
+    #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        release_gil(|| self.delete_attributes(creator, names))
+    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
+        release_gil(|| self.delete_attributes(namespace, names))
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        release_gil(|| self.delete_attribute(creator, name))
+    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
+        release_gil(|| self.delete_attribute(namespace, name))
     }
 
     #[pyo3(name = "set_attribute")]

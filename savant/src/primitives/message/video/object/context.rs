@@ -16,7 +16,7 @@ pub(crate) struct ObjectContext<'a> {
 #[derive(Default)]
 pub(crate) struct ObjectFieldsView {
     pub id: OnceCell<Value>,
-    pub creator: OnceCell<Value>,
+    pub namespace: OnceCell<Value>,
     pub label: OnceCell<Value>,
     pub confidence: OnceCell<Value>,
 
@@ -26,7 +26,7 @@ pub(crate) struct ObjectFieldsView {
     pub bbox: RBBoxFieldsView,
 
     pub parent_id: OnceCell<Value>,
-    pub parent_creator: OnceCell<Value>,
+    pub parent_namespace: OnceCell<Value>,
     pub parent_label: OnceCell<Value>,
 
     pub frame: FrameFieldsView,
@@ -61,10 +61,10 @@ impl<'a> Context for ObjectContext<'a> {
                     .id
                     .get_or_init(|| Value::from(self.object.get_id())),
             ),
-            "creator" => Some(
+            "namespace" => Some(
                 self.object_view
-                    .creator
-                    .get_or_init(|| Value::from(self.object.get_creator())),
+                    .namespace
+                    .get_or_init(|| Value::from(self.object.get_namespace())),
             ),
             "label" => Some(
                 self.object_view
@@ -89,14 +89,12 @@ impl<'a> Context for ObjectContext<'a> {
                         }),
                 )
             }
-            "parent.creator" => {
-                Some(self.object_view.parent_creator.get_or_init(
-                    || match &self.object.get_parent() {
-                        None => Value::Empty,
-                        Some(parent) => Value::from(parent.get_creator()),
-                    },
-                ))
-            }
+            "parent.namespace" => Some(self.object_view.parent_namespace.get_or_init(|| {
+                match &self.object.get_parent() {
+                    None => Value::Empty,
+                    Some(parent) => Value::from(parent.get_namespace()),
+                }
+            })),
             "parent.label" => {
                 Some(self.object_view.parent_label.get_or_init(
                     || match &self.object.get_parent() {

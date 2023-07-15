@@ -23,7 +23,7 @@ use std::sync::Arc;
 #[archive(check_bytes)]
 pub struct Attribute {
     #[pyo3(get)]
-    pub creator: String,
+    pub namespace: String,
     #[pyo3(get)]
     pub name: String,
     #[builder(setter(custom))]
@@ -45,7 +45,7 @@ impl AttributeBuilder {
 impl ToSerdeJsonValue for Attribute {
     fn to_serde_json_value(&self) -> serde_json::Value {
         serde_json::json!({
-            "creator": self.creator,
+            "namespace": self.namespace,
             "name": self.name,
             "values": self.values.iter().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
             "hint": self.hint,
@@ -67,9 +67,9 @@ impl Attribute {
     }
 
     #[new]
-    #[pyo3(signature = (creator, name , values, hint = None, is_persistent = true))]
+    #[pyo3(signature = (namespace, name , values, hint = None, is_persistent = true))]
     pub fn new(
-        creator: String,
+        namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
@@ -77,7 +77,7 @@ impl Attribute {
     ) -> Self {
         Self {
             is_persistent,
-            creator,
+            namespace,
             name,
             values: Arc::new(values),
             hint,
@@ -88,8 +88,8 @@ impl Attribute {
     ///
     /// Parameters
     /// ----------
-    /// creator : str
-    ///   The creator of the attribute.
+    /// namespace : str
+    ///   The namespace of the attribute.
     /// name : str
     ///   The name of the attribute.
     /// values : List[:class:`AttributeValue`]
@@ -104,14 +104,14 @@ impl Attribute {
     ///
     #[staticmethod]
     pub fn persistent(
-        creator: String,
+        namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
     ) -> Self {
         Self {
             is_persistent: true,
-            creator,
+            namespace,
             name,
             values: Arc::new(values),
             hint,
@@ -122,8 +122,8 @@ impl Attribute {
     ///
     /// Parameters
     /// ----------
-    /// creator : str
-    ///   The creator of the attribute.
+    /// namespace : str
+    ///   The namespace of the attribute.
     /// name : str
     ///   The name of the attribute.
     /// values : List[:class:`AttributeValue`]
@@ -138,14 +138,14 @@ impl Attribute {
     ///
     #[staticmethod]
     pub fn temporary(
-        creator: String,
+        namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
     ) -> Self {
         Self {
             is_persistent: false,
-            creator,
+            namespace,
             name,
             values: Arc::new(values),
             hint,
@@ -185,16 +185,16 @@ impl Attribute {
         self.is_persistent = false;
     }
 
-    /// Returns the creator of the attribute.
+    /// Returns the namespace of the attribute.
     ///
     /// Returns
     /// -------
     /// str
-    ///   The creator of the attribute.
+    ///   The namespace of the attribute.
     ///
     #[getter]
-    pub fn get_creator(&self) -> String {
-        self.creator.clone()
+    pub fn get_namespace(&self) -> String {
+        self.namespace.clone()
     }
 
     /// Returns the name of the attribute.
@@ -275,14 +275,14 @@ pub trait AttributeMethods {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
     fn restore_attributes(&self, attributes: Vec<Attribute>);
     fn get_attributes(&self) -> Vec<(String, String)>;
-    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute>;
-    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute>;
+    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
+    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
     fn clear_attributes(&self);
-    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>);
+    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>);
     fn find_attributes(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)>;
@@ -302,7 +302,7 @@ pub trait Attributive: Send {
         self.place_attributes(
             retained
                 .into_iter()
-                .map(|a| ((a.creator.clone(), a.name.clone()), a))
+                .map(|a| ((a.namespace.clone(), a.name.clone()), a))
                 .collect(),
         );
 
@@ -312,28 +312,28 @@ pub trait Attributive: Send {
     fn restore_attributes(&mut self, attributes: Vec<Attribute>) {
         let attrs = self.get_attributes_ref_mut();
         attributes.into_iter().for_each(|a| {
-            attrs.insert((a.creator.clone(), a.name.clone()), a);
+            attrs.insert((a.namespace.clone(), a.name.clone()), a);
         })
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
         self.get_attributes_ref()
             .iter()
-            .map(|((creator, name), _)| (creator.clone(), name.clone()))
+            .map(|((namespace, name), _)| (namespace.clone(), name.clone()))
             .collect()
     }
 
-    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref().get(&(creator, name)).cloned()
+    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+        self.get_attributes_ref().get(&(namespace, name)).cloned()
     }
 
-    fn delete_attribute(&mut self, creator: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref_mut().remove(&(creator, name))
+    fn delete_attribute(&mut self, namespace: String, name: String) -> Option<Attribute> {
+        self.get_attributes_ref_mut().remove(&(namespace, name))
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.get_attributes_ref_mut().insert(
-            (attribute.creator.clone(), attribute.name.clone()),
+            (attribute.namespace.clone(), attribute.name.clone()),
             attribute,
         )
     }
@@ -342,10 +342,10 @@ pub trait Attributive: Send {
         self.get_attributes_ref_mut().clear();
     }
 
-    fn delete_attributes(&mut self, creator: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&mut self, namespace: Option<String>, names: Vec<String>) {
         self.get_attributes_ref_mut().retain(|(c, label), _| {
-            if let Some(creator) = &creator {
-                if c != creator {
+            if let Some(namespace) = &namespace {
+                if c != namespace {
                     return true;
                 }
             }
@@ -360,15 +360,15 @@ pub trait Attributive: Send {
 
     fn find_attributes(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         self.get_attributes_ref()
             .iter()
             .filter(|((_, _), a)| {
-                if let Some(creator) = &creator {
-                    if a.creator != *creator {
+                if let Some(namespace) = &namespace {
+                    if a.namespace != *namespace {
                         return false;
                     }
                 }

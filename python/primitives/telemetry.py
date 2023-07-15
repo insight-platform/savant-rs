@@ -3,7 +3,7 @@ from savant_rs.utils.serialization import save_message_to_bytes, load_message_fr
 
 
 t = Telemetry("abc")
-t.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[AttributeValue.float(1.0, confidence=0.5)]))
+t.set_attribute(Attribute(namespace="some", name="attr", hint="x", values=[AttributeValue.float(1.0, confidence=0.5)]))
 print("Before")
 print(t.json_pretty())
 

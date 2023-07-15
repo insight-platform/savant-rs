@@ -4,7 +4,7 @@ from timeit import default_timer as timer
 
 o = VideoObject(
     id=1,
-    creator="some",
+    namespace="some",
     label="person",
     detection_box=RBBox(0.1, 0.2, 0.3, 0.4, None),
     confidence=0.5,
@@ -17,7 +17,7 @@ t = timer()
 
 bts = bytes(256)
 
-a = Attribute(creator="other", name="attr", values=[
+a = Attribute(namespace="other", name="attr", values=[
     # Value.bytes(dims=[8, 3, 8, 8], blob=bts, confidence=None),
     AttributeValue.integer(1, confidence=0.5),
     AttributeValue.integer(2, confidence=0.5),
@@ -27,7 +27,7 @@ a = Attribute(creator="other", name="attr", values=[
 
 for _ in range(1_000):
     o.set_attribute(a)
-    a = o.get_attribute(creator="other", name="attr")
+    a = o.get_attribute(namespace="other", name="attr")
     # x = a.name
 
 print(timer() - t)
