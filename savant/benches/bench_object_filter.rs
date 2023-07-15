@@ -17,7 +17,7 @@ fn get_objects() -> Vec<VideoObjectProxy> {
         .into_iter()
         .map(|i| {
             let mut o = VideoObjectBuilder::default()
-                .creator(format!("created_by_{i}"))
+                .namespace(format!("created_by_{i}"))
                 .label(format!("label_{i}"))
                 .id(i)
                 .confidence(Some(0.53))
@@ -33,7 +33,7 @@ fn get_objects() -> Vec<VideoObjectProxy> {
             o.attributes.insert(
                 ("test".to_string(), "test".to_string()),
                 AttributeBuilder::default()
-                    .creator("test".to_string())
+                    .namespace("test".to_string())
                     .name("test".to_string())
                     .hint(Some("hint".to_string()))
                     .values(vec![AttributeValue::integer(1, None)])
@@ -52,7 +52,7 @@ fn bench_filtering(b: &mut Bencher) {
 
     let expr = and![
         or![
-            Creator(one_of(&["created_by_2", "created_by_4"])),
+            Namespace(one_of(&["created_by_2", "created_by_4"])),
             or![
                 Label(ends_with("2")),
                 Label(ends_with("4")),
@@ -84,7 +84,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 
     let expr = EvalExpr(
         r#"
-        ((creator == "created_by_4" || creator == "created_by_2") ||
+        ((namespace == "created_by_4" || namespace == "created_by_2") ||
          (label == "2" || label == "4" || label == "6")) &&
         !is_empty(parent.id) &&
         !is_empty(bbox.angle) &&
@@ -124,8 +124,8 @@ fn bench_empty_filtering(b: &mut Bencher) {
 fn bench_simple_filtering(b: &mut Bencher) {
     use savant_rs::primitives::message::video::query::match_query::MatchQuery::*;
     let expr = or![
-        Creator(eq("created_by_20")),
-        Creator(ends_with("created_by_10")),
+        Namespace(eq("created_by_20")),
+        Namespace(ends_with("created_by_10")),
     ];
 
     let objs = get_objects();

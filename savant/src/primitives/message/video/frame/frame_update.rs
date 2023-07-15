@@ -337,7 +337,7 @@ mod tests {
     fn get_attributes() -> (Attribute, Attribute) {
         (
             AttributeBuilder::default()
-                .creator("system".into())
+                .namespace("system".into())
                 .name("test".into())
                 .hint(None)
                 .hint(Some("test".into()))
@@ -345,7 +345,7 @@ mod tests {
                 .build()
                 .unwrap(),
             AttributeBuilder::default()
-                .creator("system".into())
+                .namespace("system".into())
                 .name("test".into())
                 .hint(None)
                 .hint(Some("test".into()))
@@ -436,7 +436,7 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 4);
         let o = f.get_object(4).unwrap();
-        assert_eq!(o.get_creator(), s("peoplenet"));
+        assert_eq!(o.get_namespace(), s("peoplenet"));
         assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 5);
     }
 

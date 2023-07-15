@@ -17,8 +17,8 @@ eq = IE.eq
 fgt = FE.gt
 
 q = and_(
-    Q.eval("""!is_empty(id) || id == 13 || label == "hello" || creator == "where" """),
-    Q.creator(SE.one_of('savant', 'deepstream')),
+    Q.eval("""!is_empty(id) || id == 13 || label == "hello" || namespace == "where" """),
+    Q.namespace(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
     Q.box_metric(RBBox(100.0, 50.0, 20.0, 30.0, 50), BBoxMetricType.IoU, FE.gt(0.5)),
     and_(
@@ -30,7 +30,7 @@ q = and_(
             )
         )
     ),
-    Q.attributes_jmes_query("[?(name=='test' && creator=='test')]"),
+    Q.attributes_jmes_query("[?(name=='test' && namespace=='test')]"),
     Q.confidence(FE.gt(0.5)),
     Q.box_height(FE.gt(100)),
 )

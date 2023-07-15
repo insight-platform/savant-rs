@@ -40,7 +40,7 @@ def thread_python(barrier):
     def expr():
         return and_(
             or_(
-                lambda o: o.creator in ["created_by_2", "created_by_4"],
+                lambda o: o.namespace in ["created_by_2", "created_by_4"],
                 or_(label_endswith("2"),
                     label_endswith("4"),
                     label_endswith("6"))),
@@ -53,7 +53,7 @@ def thread_python(barrier):
 
     objects = [VideoObject(
         id=1,
-        creator="created_by_{}".format(i),
+        namespace="created_by_{}".format(i),
         label="person_{}".format(i),
         detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
         confidence=random.random(),
@@ -94,7 +94,7 @@ def thread_full(barrier):
     for i in range(0, N):
         f.add_object(VideoObject(
             id=i,
-            creator="created_by_{}".format(i),
+            namespace="created_by_{}".format(i),
             label="person_{}".format(i),
             detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
@@ -105,7 +105,7 @@ def thread_full(barrier):
         ), IdCollisionResolutionPolicy.Error)
 
     full_expr = Q.eval(""" 
-    (contains(("created_by_4", "created_by_2"), creator) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
+    (contains(("created_by_4", "created_by_2"), namespace) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
     !is_empty(bbox.angle) &&
     (confidence > 0.5 || confidence < 0.3)
     """)
@@ -141,7 +141,7 @@ def thread_decomposed(barrier):
     for i in range(0, N):
         f.add_object(VideoObject(
             id=i,
-            creator="created_by_{}".format(i),
+            namespace="created_by_{}".format(i),
             label="person_{}".format(i),
             detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
@@ -152,8 +152,8 @@ def thread_decomposed(barrier):
 
     decomposed_expr = Q.and_(
         Q.or_(
-            Q.eval("""creator == "created_by_4" """),
-            Q.eval("""creator == "created_by_2" """),
+            Q.eval("""namespace == "created_by_4" """),
+            Q.eval("""namespace == "created_by_2" """),
             Q.eval("""ends_with(label,"2")"""),
             Q.eval("""ends_with(label,"4")"""),
             Q.eval("""ends_with(label,"6")""")),
@@ -193,7 +193,7 @@ def measure_batch_full():
         for i in range(0, N):
             f.add_object(VideoObject(
                 id=i,
-                creator="created_by_{}".format(i),
+                namespace="created_by_{}".format(i),
                 label="person_{}".format(i),
                 detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
@@ -204,7 +204,7 @@ def measure_batch_full():
         batch.add(id, f)
 
     full_expr = Q.eval(""" 
-        (contains(("created_by_4", "created_by_2"), creator) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
+        (contains(("created_by_4", "created_by_2"), namespace) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
         !is_empty(bbox.angle) &&
         (confidence > 0.5 || confidence < 0.3)
         """)
@@ -226,7 +226,7 @@ def measure_batch_full_dsl():
         for i in range(0, N):
             f.add_object(VideoObject(
                 id=i,
-                creator="created_by_{}".format(i),
+                namespace="created_by_{}".format(i),
                 label="person_{}".format(i),
                 detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
@@ -238,11 +238,11 @@ def measure_batch_full_dsl():
 
     optimized_expr = Q.and_(
         Q.or_(
-            Q.creator(SE.eq("created_by_4")),
-            Q.creator(SE.eq("created_by_2")),
-            Q.creator(SE.ends_with("2")),
-            Q.creator(SE.ends_with("4")),
-            Q.creator(SE.ends_with("6"))),
+            Q.namespace(SE.eq("created_by_4")),
+            Q.namespace(SE.eq("created_by_2")),
+            Q.namespace(SE.ends_with("2")),
+            Q.namespace(SE.ends_with("4")),
+            Q.namespace(SE.ends_with("6"))),
         Q.box_angle_defined(),
         Q.or_(
             Q.confidence(FE.gt(0.5)),

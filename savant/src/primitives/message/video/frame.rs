@@ -550,14 +550,14 @@ impl AttributeMethods for VideoFrameProxy {
         inner.get_attributes()
     }
 
-    fn get_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let inner = self.inner.read_recursive();
-        inner.get_attribute(creator, name)
+        inner.get_attribute(namespace, name)
     }
 
-    fn delete_attribute(&self, creator: String, name: String) -> Option<Attribute> {
+    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.delete_attribute(creator, name)
+        inner.delete_attribute(namespace, name)
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
@@ -570,19 +570,19 @@ impl AttributeMethods for VideoFrameProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, creator: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
         let mut inner = self.inner.write();
-        inner.delete_attributes(creator, names)
+        inner.delete_attributes(namespace, names)
     }
 
     fn find_attributes(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
         let inner = self.inner.read_recursive();
-        inner.find_attributes(creator, names, hint)
+        inner.find_attributes(namespace, names, hint)
     }
 }
 
@@ -849,7 +849,7 @@ impl VideoFrameProxy {
         let object_query = |o: &VideoObject| {
             crate::primitives::message::video::query::and![
                 MatchQuery::Label(StringExpression::EQ(o.label.clone())),
-                MatchQuery::Creator(StringExpression::EQ(o.creator.clone()))
+                MatchQuery::Namespace(StringExpression::EQ(o.namespace.clone()))
             ]
         };
 
@@ -870,9 +870,9 @@ impl VideoFrameProxy {
                     let objs = self.access_objects(&object_query(&obj));
                     if !objs.is_empty() {
                         bail!(
-                            "Objects with label '{}' and creator '{}' already exists in the frame.",
+                            "Objects with label '{}' and namespace '{}' already exists in the frame.",
                             obj.label,
-                            obj.creator
+                            obj.namespace
                         )
                     }
 
@@ -911,14 +911,14 @@ impl VideoFrameProxy {
                 inner.attributes.extend(
                     other_inner
                         .into_iter()
-                        .map(|a| ((a.creator.clone(), a.name.clone()), a)),
+                        .map(|a| ((a.namespace.clone(), a.name.clone()), a)),
                 );
             }
             KeepOwnWhenDuplicate => {
                 let mut inner = self.inner.write();
                 let other_inner = update.attributes.clone();
                 for attr in other_inner {
-                    let key = (attr.creator.clone(), attr.name.clone());
+                    let key = (attr.namespace.clone(), attr.name.clone());
                     inner.attributes.entry(key).or_insert(attr);
                 }
             }
@@ -926,7 +926,7 @@ impl VideoFrameProxy {
                 let mut inner = self.inner.write();
                 let other_inner = update.attributes.clone();
                 for attr in other_inner {
-                    let key = (attr.creator.clone(), attr.name.clone());
+                    let key = (attr.namespace.clone(), attr.name.clone());
                     if inner.attributes.contains_key(&key) {
                         anyhow::bail!(
                             "Attribute with name '{}' created by '{}' already exists in the frame.",
@@ -941,7 +941,7 @@ impl VideoFrameProxy {
                 let mut inner = self.inner.write();
                 let other_inner = update.attributes.clone();
                 for attr in other_inner {
-                    let key = (attr.creator.clone(), attr.name.clone());
+                    let key = (attr.namespace.clone(), attr.name.clone());
                     if inner.attributes.contains_key(&key) {
                         let mut new_key = key.clone();
                         new_key.1 = format!("{}{}", prefix, new_key.1);
@@ -1228,25 +1228,25 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "find_attributes")]
-    #[pyo3(signature = (creator=None, names=vec![], hint=None))]
+    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
     pub fn find_attributes_gil(
         &self,
-        creator: Option<String>,
+        namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        release_gil(|| self.find_attributes(creator, names, hint))
+        release_gil(|| self.find_attributes(namespace, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, creator: String, name: String) -> Option<Attribute> {
-        release_gil(|| self.get_attribute(creator, name))
+    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
+        release_gil(|| self.get_attribute(namespace, name))
     }
 
-    #[pyo3(signature = (creator=None, names=vec![]))]
+    #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, creator: Option<String>, names: Vec<String>) {
-        release_gil(|| self.delete_attributes(creator, names))
+    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
+        release_gil(|| self.delete_attributes(namespace, names))
     }
 
     #[pyo3(name = "add_object")]
@@ -1260,8 +1260,8 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, creator: String, name: String) -> Option<Attribute> {
-        release_gil(|| self.delete_attribute(creator, name))
+    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
+        release_gil(|| self.delete_attribute(namespace, name))
     }
 
     #[pyo3(name = "set_attribute")]
@@ -1364,7 +1364,7 @@ impl VideoFrameProxy {
         release_gil(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn create_objects_from_numpy(&self, creator: String, boxes: &PyAny) -> PyResult<()> {
+    pub fn create_objects_from_numpy(&self, namespace: String, boxes: &PyAny) -> PyResult<()> {
         fn check_shape(shape: &[usize]) -> PyResult<Option<usize>> {
             if shape.len() != 2 {
                 return Err(PyValueError::new_err("Array must have 2 dimensions"));
@@ -1421,7 +1421,7 @@ impl VideoFrameProxy {
         };
 
         release_gil(|| {
-            let model_id = get_model_id(&creator).map_err(|e| {
+            let model_id = get_model_id(&namespace).map_err(|e| {
                 PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
             })?;
 
@@ -1431,13 +1431,13 @@ impl VideoFrameProxy {
                 match label {
                     None => Err(PyValueError::new_err(format!(
                         "Failed to get object label for model={} (id={}): cls_id={}",
-                        &creator, model_id, cls_id
+                        &namespace, model_id, cls_id
                     ))),
 
                     Some(l) => {
                         let object = VideoObjectProxy::new(
                             0,
-                            creator.clone(),
+                            namespace.clone(),
                             l,
                             b,
                             HashMap::default(),
@@ -1595,25 +1595,25 @@ mod tests {
         let f = gen_frame();
         f.make_snapshot_gil();
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        o.set_creator(s("modified"));
+        o.set_namespace(s("modified"));
         f.restore_from_snapshot_gil();
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        assert_eq!(o.get_creator(), s("test"));
+        assert_eq!(o.get_namespace(), s("test"));
     }
 
     #[test]
     fn test_modified_objects() {
         let t = gen_frame();
         let o = t.access_objects_by_id(&vec![0]).pop().unwrap();
-        o.set_creator(s("modified"));
+        o.set_namespace(s("modified"));
         let mut modified = t.get_modified_objects();
         assert_eq!(modified.len(), 1);
         let modified = modified.pop().unwrap();
-        assert_eq!(modified.get_creator(), s("modified"));
+        assert_eq!(modified.get_namespace(), s("modified"));
 
         let mods = modified.take_modifications();
         assert_eq!(mods.len(), 1);
-        assert_eq!(mods, vec![VideoObjectModification::Creator]);
+        assert_eq!(mods, vec![VideoObjectModification::Namespace]);
 
         let modified = t.get_modified_objects();
         assert!(modified.is_empty());
@@ -1625,7 +1625,7 @@ mod tests {
         let parent = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .parent_id(None)
-                .creator(s("some-model"))
+                .namespace(s("some-model"))
                 .label(s("some-label"))
                 .id(155)
                 .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
@@ -1643,7 +1643,7 @@ mod tests {
         let parent = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .parent_id(None)
-                .creator(s("some-model"))
+                .namespace(s("some-model"))
                 .label(s("some-label"))
                 .id(155)
                 .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
@@ -1734,7 +1734,7 @@ mod tests {
         let p = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(11)
-                .creator(s("random"))
+                .namespace(s("random"))
                 .label(s("something"))
                 .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .build()
@@ -1744,7 +1744,7 @@ mod tests {
         let o = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(23)
-                .creator(s("random"))
+                .namespace(s("random"))
                 .label(s("something"))
                 .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .parent_id(Some(p.get_id()))
@@ -1764,7 +1764,7 @@ mod tests {
         let o = VideoObjectProxy::from_video_object(
             VideoObjectBuilder::default()
                 .id(11)
-                .creator(s("random"))
+                .namespace(s("random"))
                 .label(s("something"))
                 .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
                 .build()

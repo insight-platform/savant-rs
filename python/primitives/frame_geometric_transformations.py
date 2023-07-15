@@ -2,10 +2,10 @@ from savant_rs.utils import gen_frame, VideoObjectBBoxTransformation
 
 f = gen_frame()
 obj = f.get_object(0)
-obj.bbox_ref.xc = 25
-obj.bbox_ref.yc = 50
-obj.bbox_ref.height = 10
-obj.bbox_ref.width = 20
+obj.detection_box.xc = 25
+obj.detection_box.yc = 50
+obj.detection_box.height = 10
+obj.detection_box.width = 20
 print(obj)
 
 transformations = [

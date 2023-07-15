@@ -55,7 +55,7 @@ pub mod utils {
                 .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
                 .attributes(HashMap::default())
                 .confidence(None)
-                .creator("test".to_string())
+                .namespace("test".to_string())
                 .label("test2".to_string())
                 .build()
                 .unwrap(),
@@ -69,7 +69,7 @@ pub mod utils {
                 .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
-                .creator("test2".to_string())
+                .namespace("test2".to_string())
                 .label("test".to_string())
                 .build()
                 .unwrap(),
@@ -83,7 +83,7 @@ pub mod utils {
                 .parent_id(Some(parent_object.get_id()))
                 .attributes(HashMap::default())
                 .confidence(None)
-                .creator("test2".to_string())
+                .namespace("test2".to_string())
                 .label("test2".to_string())
                 .build()
                 .unwrap(),
@@ -98,7 +98,7 @@ pub mod utils {
 
         f.set_attribute(
             AttributeBuilder::default()
-                .creator("system".into())
+                .namespace("system".into())
                 .name("test".into())
                 .hint(None)
                 .hint(Some("test".into()))
@@ -109,7 +109,7 @@ pub mod utils {
 
         f.set_attribute(
             AttributeBuilder::default()
-                .creator("system2".into())
+                .namespace("system2".into())
                 .name("test2".into())
                 .hint(None)
                 .values(vec![AttributeValue::string("2".into(), None)])
@@ -119,7 +119,7 @@ pub mod utils {
 
         f.set_attribute(
             AttributeBuilder::default()
-                .creator("system".into())
+                .namespace("system".into())
                 .name("test2".into())
                 .hint(Some("test".into()))
                 .values(vec![AttributeValue::string("3".into(), None)])
@@ -129,7 +129,7 @@ pub mod utils {
 
         f.set_attribute(
             AttributeBuilder::default()
-                .creator("test".to_string())
+                .namespace("test".to_string())
                 .name("test".to_string())
                 .hint(Some("hint".to_string()))
                 .values(vec![
@@ -168,7 +168,7 @@ pub mod utils {
     pub fn gen_object(id: i64) -> VideoObjectProxy {
         let o = VideoObjectProxy::from_video_object(VideoObject {
             id,
-            creator: s("peoplenet"),
+            namespace: s("peoplenet"),
             label: s("face"),
             confidence: Some(0.5),
             detection_box: RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap(),
@@ -178,7 +178,7 @@ pub mod utils {
         });
 
         let attr = AttributeBuilder::default()
-            .creator("some".to_string())
+            .namespace("some".to_string())
             .name("attribute".to_string())
             .hint(Some("hint".to_string()))
             .values(vec![])

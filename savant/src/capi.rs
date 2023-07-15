@@ -18,7 +18,7 @@ pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
 #[repr(C)]
 pub struct VideoObjectInferenceMeta {
     pub id: i64,
-    pub creator_id: i64,
+    pub namespace_id: i64,
     pub label_id: i64,
     pub confidence: f64,
     pub track_id: i64,
@@ -53,7 +53,7 @@ pub fn from_object(
 
     Ok(VideoObjectInferenceMeta {
         id: o.id,
-        creator_id: o.creator_id.unwrap_or(i64::MAX),
+        namespace_id: o.namespace_id.unwrap_or(i64::MAX),
         label_id: o.label_id.unwrap_or(i64::MAX),
         confidence: o.confidence.unwrap_or(0.0),
         track_id: track_id.unwrap_or(i64::MAX),
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn get_inference_meta(
     let this = unsafe { &*(handle as *const VideoObjectsView) };
     from_object(&this.inner[pos], t).unwrap_or(VideoObjectInferenceMeta {
         id: i64::MAX,
-        creator_id: i64::MAX,
+        namespace_id: i64::MAX,
         label_id: i64::MAX,
         confidence: 0.0,
         track_id: i64::MAX,
@@ -138,13 +138,13 @@ pub unsafe extern "C" fn update_frame_meta(
 
         match t {
             VideoObjectBBoxType::Detection => {
-                let creator = get_model_name(m.creator_id);
-                let label = get_object_label(m.creator_id, m.label_id);
+                let namespace = get_model_name(m.namespace_id);
+                let label = get_object_label(m.namespace_id, m.label_id);
 
-                if creator.is_none() {
+                if namespace.is_none() {
                     log::warn!(
                         "Model with id={} not found. Object {} will be ignored.",
-                        m.creator_id,
+                        m.namespace_id,
                         m.id
                     );
                     continue;
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn update_frame_meta(
                     .add_object(
                         &VideoObjectProxy::new(
                             m.id,
-                            creator.unwrap(),
+                            namespace.unwrap(),
                             label.unwrap(),
                             bounding_box,
                             HashMap::default(),

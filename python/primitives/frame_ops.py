@@ -57,7 +57,7 @@ print(frame.transformations[0].is_scale)
 
 frame.clear_transformations()
 
-frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
+frame.set_attribute(Attribute(namespace="some", name="attr", hint="x", values=[
     AttributeValue.none(),
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
     AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
@@ -82,25 +82,25 @@ frame.set_attribute(Attribute(creator="some", name="attr", hint="x", values=[
         confidence=0.5),
 ]))
 
-frame.set_attribute(Attribute(creator="other", name="attr", values=[
+frame.set_attribute(Attribute(namespace="other", name="attr", values=[
     AttributeValue.integer(1, confidence=0.5),
 ]))
 
 print(frame.attributes)
 
 print(frame.find_attributes(names=["attr"]))
-print(frame.find_attributes(creator="other"))
-print(frame.find_attributes(creator="other", names=["attr"]))
+print(frame.find_attributes(namespace="other"))
+print(frame.find_attributes(namespace="other", names=["attr"]))
 print(frame.find_attributes(hint="x"))
-print(frame.find_attributes(creator="some", hint="x"))
+print(frame.find_attributes(namespace="some", hint="x"))
 
-print(frame.get_attribute(creator="other", name="attr"))
-deleted = frame.delete_attribute(creator="some", name="attr")
+print(frame.get_attribute(namespace="other", name="attr"))
+deleted = frame.delete_attribute(namespace="some", name="attr")
 print(deleted)
 
 frame.add_object(VideoObject(
     id=1,
-    creator="some",
+    namespace="some",
     label="person",
     detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
@@ -134,7 +134,7 @@ print("Length:", lib.object_vector_len(vec.memory_handle))
 # Return complex object from C-compatible Rust-function
 #
 #     pub id: i64,
-#     pub creator_id: i64,
+#     pub namespace_id: i64,
 #     pub label_id: i64,
 #     pub confidence: f64,
 #     pub parent_id: i64,
@@ -153,7 +153,7 @@ print("Length:", lib.object_vector_len(vec.memory_handle))
 class InferenceMeta(Structure):
     _fields_ = [
         ("id", c_int64),
-        ("creator_id", c_int64),
+        ("namespace_id", c_int64),
         ("label_id", c_int64),
         ("confidence", c_double),
         ("parent_id", c_int64),
@@ -186,11 +186,11 @@ print("ObjectsView len() op", len(vec))
 vec = vec[0]
 print("Object", vec)
 
-vec.set_attribute(Attribute(creator="other", name="attr", values=[
+vec.set_attribute(Attribute(namespace="other", name="attr", values=[
     AttributeValue.integer(1, confidence=0.5),
 ]))
 
-vec.set_attribute(Attribute(creator="some", name="attr", values=[
+vec.set_attribute(Attribute(namespace="some", name="attr", values=[
     AttributeValue.integers([1, 2, 3], confidence=0.5),
 ]))
 

@@ -837,14 +837,14 @@ impl MatchQueryProxy {
         }
     }
 
-    /// True if object's creator matches the given string expression.
+    /// True if object's namespace matches the given string expression.
     ///
-    /// In JSON/YAML: creator
+    /// In JSON/YAML: namespace
     ///
     /// Parameters
     /// ----------
     /// e: :py:class:`StringExpression`
-    ///   String expression to compare the object's creator with
+    ///   String expression to compare the object's namespace with
     ///
     /// Returns
     /// -------
@@ -852,9 +852,9 @@ impl MatchQueryProxy {
     ///   Query
     ///
     #[staticmethod]
-    fn creator(e: StringExpressionProxy) -> MatchQueryProxy {
+    fn namespace(e: StringExpressionProxy) -> MatchQueryProxy {
         MatchQueryProxy {
-            inner: Arc::new(MatchQuery::Creator(e.inner)),
+            inner: Arc::new(MatchQuery::Namespace(e.inner)),
         }
     }
 
@@ -1050,14 +1050,14 @@ impl MatchQueryProxy {
         }
     }
 
-    /// True if object's parent creator matches the given string expression.
+    /// True if object's parent namespace matches the given string expression.
     ///
-    /// In JSON/YAML: parent.creator
+    /// In JSON/YAML: parent.namespace
     ///
     #[staticmethod]
-    fn parent_creator(e: StringExpressionProxy) -> MatchQueryProxy {
+    fn parent_namespace(e: StringExpressionProxy) -> MatchQueryProxy {
         MatchQueryProxy {
-            inner: Arc::new(MatchQuery::ParentCreator(e.inner)),
+            inner: Arc::new(MatchQuery::ParentNamespace(e.inner)),
         }
     }
 
@@ -1222,9 +1222,9 @@ impl MatchQueryProxy {
     }
 
     #[staticmethod]
-    fn attribute_defined(creator: String, label: String) -> MatchQueryProxy {
+    fn attribute_defined(namespace: String, label: String) -> MatchQueryProxy {
         MatchQueryProxy {
-            inner: Arc::new(MatchQuery::AttributeDefined(creator, label)),
+            inner: Arc::new(MatchQuery::AttributeDefined(namespace, label)),
         }
     }
 
