@@ -14,6 +14,10 @@
 
 #define VERSION_LEN 4
 
+#define LABELS_LEN 8
+
+#define TRACE_ID_LEN 16
+
 /**
  * Determines which object bbox is a subject of the operation
  *

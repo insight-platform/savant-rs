@@ -1,8 +1,5 @@
-use crate::bytes_le_to_version;
 use crate::primitives::message::video::frame::VideoFrame;
-use crate::primitives::message::{
-    NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
-};
+use crate::primitives::message::{MessageHeader, NativeMessageTypeConsts};
 use crate::primitives::{
     EndOfStream, Message, Telemetry, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate,
 };
@@ -30,41 +27,31 @@ pub fn load_message_gil(bytes: Vec<u8>) -> Message {
 }
 
 pub fn load_message(bytes: &[u8]) -> Message {
-    if bytes.len() < NATIVE_MESSAGE_MARKER_LEN + VERSION_LEN {
+    let header_size = std::mem::size_of::<MessageHeader>();
+    if bytes.len() < header_size {
         return Message::unknown(format!(
             "Message is too short: {} < {}",
             bytes.len(),
-            NATIVE_MESSAGE_MARKER_LEN
+            header_size
         ));
     }
-    let final_length = bytes
-        .len()
-        .saturating_sub(NATIVE_MESSAGE_MARKER_LEN + VERSION_LEN);
+    let final_length = bytes.len().saturating_sub(header_size);
 
-    let version_begin_offset = final_length + NATIVE_MESSAGE_MARKER_LEN;
-    let version_bytes: [u8; 4] = bytes[version_begin_offset..version_begin_offset + VERSION_LEN]
-        .try_into()
-        .unwrap();
+    let header: MessageHeader = *bytemuck::from_bytes::<MessageHeader>(&bytes[final_length..]);
 
-    let received_version = bytes_le_to_version(version_bytes);
-
-    if received_version != crate::version_crc32() {
+    if header.lib_version != crate::version_to_bytes_le() {
         return Message::unknown(format!(
             "Message CRC32 version mismatch: {:?} != {:?}. Expected version: {}",
-            received_version,
+            header.lib_version,
             crate::version_crc32(),
             crate::version()
         ));
     }
 
-    let typ = NativeMessageTypeConsts::from(
-        <&NativeMessageMarkerType>::try_from(
-            &bytes[final_length..final_length + NATIVE_MESSAGE_MARKER_LEN],
-        )
-        .unwrap(),
-    );
+    let typ = NativeMessageTypeConsts::from(&header.native_message_type);
+
     let bytes = &bytes[..final_length];
-    match typ {
+    let mut m = match typ {
         NativeMessageTypeConsts::EndOfStream => {
             let eos: Result<EndOfStream, _> = rkyv::from_bytes(bytes);
             match eos {
@@ -113,7 +100,12 @@ pub fn load_message(bytes: &[u8]) -> Message {
         NativeMessageTypeConsts::Unknown => {
             Message::unknown(format!("Unknown message type: {:?}", typ))
         }
-    }
+    };
+
+    m.header.labels = header.labels;
+    m.header.trace_id = header.trace_id;
+
+    m
 }
 
 /// Loads a message from a :class:`savant_rs.utils.ByteBuffer`. The function is GIL-free.

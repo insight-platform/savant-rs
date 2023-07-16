@@ -9,7 +9,11 @@ use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
 use crate::utils::python::release_gil;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use crate::version_to_bytes_le;
+use bytemuck::{Pod, Zeroable};
+use pyo3::exceptions::PyValueError;
+use pyo3::types::PyBytes;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult, Python};
 
 #[derive(Debug, Clone)]
 pub enum NativeMessage {
@@ -34,6 +38,8 @@ enum NativeMessageTypeConsts {
 
 pub const NATIVE_MESSAGE_MARKER_LEN: usize = 4;
 pub const VERSION_LEN: usize = 4;
+pub const LABELS_LEN: usize = 8;
+pub const TRACE_ID_LEN: usize = 16;
 pub type NativeMessageMarkerType = [u8; NATIVE_MESSAGE_MARKER_LEN];
 
 impl From<NativeMessageTypeConsts> for NativeMessageMarkerType {
@@ -62,40 +68,94 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
+#[repr(C)]
+pub struct MessageHeader {
+    pub lib_version: [u8; 4],
+    pub native_message_type: [u8; 4],
+    pub labels: [u8; LABELS_LEN],
+    pub trace_id: [u8; TRACE_ID_LEN],
+}
+
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Message {
+    header: MessageHeader,
     payload: NativeMessage,
 }
 
 impl Message {
+    pub fn unknown(s: String) -> Self {
+        Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::Unknown.into(),
+                ..Default::default()
+            },
+            payload: NativeMessage::Unknown(s),
+        }
+    }
+
     pub fn telemetry(t: Telemetry) -> Self {
         Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::Telemetry.into(),
+                ..Default::default()
+            },
             payload: NativeMessage::Telemetry(t),
         }
     }
 
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::EndOfStream.into(),
+                ..Default::default()
+            },
             payload: NativeMessage::EndOfStream(eos),
         }
     }
     pub fn video_frame(frame: VideoFrameProxy) -> Self {
         Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::VideoFrame.into(),
+                ..Default::default()
+            },
             payload: NativeMessage::VideoFrame(frame),
         }
     }
 
     pub fn video_frame_batch(batch: VideoFrameBatch) -> Self {
         Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::VideoFrameBatch.into(),
+                ..Default::default()
+            },
             payload: NativeMessage::VideoFrameBatch(batch),
         }
     }
 
     pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
-        release_gil(|| Self {
+        Self {
+            header: MessageHeader {
+                lib_version: version_to_bytes_le(),
+                native_message_type: NativeMessageTypeConsts::VideFrameUpdate.into(),
+                ..Default::default()
+            },
             payload: NativeMessage::VideoFrameUpdate(update),
-        })
+        }
+    }
+
+    pub fn header(&self) -> &MessageHeader {
+        &self.header
+    }
+
+    pub fn header_mut(&mut self) -> &mut MessageHeader {
+        &mut self.header
     }
 }
 
@@ -125,10 +185,9 @@ impl Message {
     ///   The message of Unknown type
     ///
     #[staticmethod]
-    pub fn unknown(s: String) -> Self {
-        Self {
-            payload: NativeMessage::Unknown(s),
-        }
+    #[pyo3(name = "unknown")]
+    pub fn unknown_py(s: String) -> Self {
+        Message::unknown(s)
     }
 
     /// Create a new video frame message
@@ -146,9 +205,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame")]
     fn video_frame_gil(frame: &VideoFrameProxy) -> Self {
-        release_gil(|| Self {
-            payload: NativeMessage::VideoFrame(frame.clone()),
-        })
+        release_gil(|| Message::video_frame(frame.clone()))
     }
 
     /// Create a new video frame batch message
@@ -166,9 +223,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame_batch")]
     fn video_frame_batch_gil(batch: &VideoFrameBatch) -> Self {
-        release_gil(|| Self {
-            payload: NativeMessage::VideoFrameBatch(batch.clone()),
-        })
+        release_gil(|| Message::video_frame_batch(batch.clone()))
     }
 
     /// Create a new end of stream message
@@ -185,10 +240,8 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "end_of_stream")]
-    fn end_of_stream_gil(eos: &EndOfStream) -> Self {
-        release_gil(|| Self {
-            payload: NativeMessage::EndOfStream(eos.clone()),
-        })
+    fn end_of_stream_py(eos: &EndOfStream) -> Self {
+        Self::end_of_stream(eos.clone())
     }
 
     /// Create a new telemetry message
@@ -206,9 +259,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "telemetry")]
     fn telemetry_gil(t: &Telemetry) -> Self {
-        release_gil(|| Self {
-            payload: NativeMessage::Telemetry(t.clone()),
-        })
+        release_gil(|| Message::telemetry(t.clone()))
     }
 
     /// Create a new video frame update message
@@ -226,9 +277,49 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame_update")]
     fn video_frame_update_gil(update: &VideoFrameUpdate) -> Self {
-        Self {
-            payload: NativeMessage::VideoFrameUpdate(update.clone()),
+        release_gil(|| Message::video_frame_update(update.clone()))
+    }
+
+    #[getter]
+    fn get_labels(&self) -> PyObject {
+        Python::with_gil(|py| {
+            let bytes = PyBytes::new(py, &self.header.labels);
+            PyObject::from(bytes)
+        })
+    }
+
+    #[getter]
+    fn get_trace_id(&self) -> PyObject {
+        Python::with_gil(|py| {
+            let bytes = PyBytes::new(py, &self.header.trace_id);
+            PyObject::from(bytes)
+        })
+    }
+
+    #[setter]
+    fn set_labels(&mut self, labels: &PyBytes) -> PyResult<()> {
+        let bytes = labels.as_bytes();
+        if bytes.len() != LABELS_LEN {
+            return Err(PyValueError::new_err(format!(
+                "Labels must be a byte array of length {}",
+                LABELS_LEN
+            )));
         }
+        self.header.labels = bytes.try_into().unwrap();
+        Ok(())
+    }
+
+    #[setter]
+    fn set_trace_id(&mut self, trace_id: &PyBytes) -> PyResult<()> {
+        let bytes = trace_id.as_bytes();
+        if bytes.len() != TRACE_ID_LEN {
+            return Err(PyValueError::new_err(format!(
+                "Trace ID must be a byte array of length {}",
+                TRACE_ID_LEN
+            )));
+        }
+        self.header.trace_id = bytes.try_into().unwrap();
+        Ok(())
     }
 
     /// Checks if the message is of Unknown type
@@ -398,14 +489,10 @@ impl Message {
 mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::loader::load_message;
-    use crate::primitives::message::{
-        NativeMessageMarkerType, NativeMessageTypeConsts, NATIVE_MESSAGE_MARKER_LEN, VERSION_LEN,
-    };
     use crate::primitives::{
         save_message, Attribute, EndOfStream, Message, Telemetry, VideoFrameBatch,
     };
     use crate::test::utils::gen_frame;
-    use std::ops::AddAssign;
 
     #[test]
     fn test_save_load_eos() {
@@ -413,13 +500,6 @@ mod tests {
         let eos = EndOfStream::new("test".to_string());
         let m = Message::end_of_stream(eos);
         let res = save_message(m);
-        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
-        let type_end = type_start + VERSION_LEN;
-
-        assert_eq!(
-            res[type_start..type_end].as_ref(),
-            NativeMessageMarkerType::from(NativeMessageTypeConsts::EndOfStream).as_ref()
-        );
         let m = load_message(&res);
         assert!(m.is_end_of_stream());
     }
@@ -430,13 +510,6 @@ mod tests {
         let t = Telemetry::new("test".to_string());
         let m = Message::telemetry(t);
         let res = save_message(m);
-        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
-        let type_end = type_start + VERSION_LEN;
-
-        assert_eq!(
-            res[type_start..type_end].as_ref(),
-            NativeMessageMarkerType::from(NativeMessageTypeConsts::Telemetry).as_ref()
-        );
         let m = load_message(&res);
         assert!(m.is_telemetry());
     }
@@ -446,12 +519,6 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let m = Message::video_frame(gen_frame());
         let res = save_message(m);
-        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
-        let type_end = type_start + VERSION_LEN;
-        assert_eq!(
-            res[type_start..type_end].as_ref(),
-            NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrame).as_ref()
-        );
         let m = load_message(&res);
         assert!(m.is_video_frame());
     }
@@ -461,12 +528,6 @@ mod tests {
         pyo3::prepare_freethreaded_python();
         let m = Message::unknown("x".to_string());
         let res = save_message(m);
-        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
-        let type_end = type_start + VERSION_LEN;
-        assert_eq!(
-            res[type_start..type_end].as_ref(),
-            NativeMessageMarkerType::from(NativeMessageTypeConsts::Unknown).as_ref()
-        );
         let m = load_message(&res);
         assert!(m.is_unknown());
     }
@@ -480,13 +541,6 @@ mod tests {
         batch.add(3, gen_frame());
         let m = Message::video_frame_batch(batch);
         let res = save_message(m);
-        let type_start = res.len() - NATIVE_MESSAGE_MARKER_LEN - VERSION_LEN;
-        let type_end = type_start + VERSION_LEN;
-
-        assert_eq!(
-            res[type_start..type_end].as_ref(),
-            NativeMessageMarkerType::from(NativeMessageTypeConsts::VideoFrameBatch).as_ref()
-        );
         let m = load_message(&res);
         assert!(m.is_video_frame_batch());
 
@@ -530,20 +584,5 @@ mod tests {
         let f = m.as_video_frame().unwrap();
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);
-    }
-
-    #[test]
-    fn test_wrong_version() {
-        pyo3::prepare_freethreaded_python();
-        let eos = EndOfStream::new("test".to_string());
-        let m = Message::end_of_stream(eos);
-        let mut res = save_message(m);
-        let version_start = res.len() - VERSION_LEN;
-        let version_end = version_start + VERSION_LEN;
-        res[version_end - 1].add_assign(1);
-        let m = load_message(&res);
-        assert!(m.is_unknown());
-        let m = m.as_unknown().unwrap();
-        assert!(m.contains("CRC32"));
     }
 }

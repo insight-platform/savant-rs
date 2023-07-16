@@ -4,11 +4,10 @@ use pyo3::{pyfunction, PyObject, Python};
 use std::collections::HashMap;
 
 use crate::primitives::message::video::query::match_query::MatchQuery;
-use crate::primitives::message::{NativeMessage, NativeMessageMarkerType, NativeMessageTypeConsts};
+use crate::primitives::message::NativeMessage;
 use crate::primitives::Message;
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::release_gil;
-use crate::version_to_bytes_le;
 
 /// Save a message to a byte array
 ///
@@ -37,9 +36,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .expect("Failed to serialize EndOfStream")
                     .as_ref(),
             );
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::EndOfStream.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             buf
         }
 
@@ -51,9 +48,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .expect("Failed to serialize Telemetry")
                     .as_ref(),
             );
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::Telemetry.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             buf
         }
 
@@ -64,9 +59,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .expect("Failed to serialize VideoFrameUpdate")
                     .as_ref(),
             );
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideFrameUpdate.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             buf
         }
 
@@ -87,9 +80,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .expect("Failed to serialize VideoFrame")
                     .as_ref(),
             );
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrame.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             drop(inner);
 
             frame.restore_attributes(frame_excluded_temp_attrs);
@@ -113,16 +104,12 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .expect("Failed to serialize VideoFrame")
                     .as_ref(),
             );
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::VideoFrameBatch.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             buf
         }
         _ => {
-            let mut buf = Vec::with_capacity(4);
-            let t: NativeMessageMarkerType = NativeMessageTypeConsts::Unknown.into();
-            buf.extend_from_slice(t.as_ref());
-            buf.extend_from_slice(&version_to_bytes_le());
+            let mut buf = Vec::new();
+            buf.extend_from_slice(bytemuck::bytes_of(&m.header));
             buf
         }
     }
