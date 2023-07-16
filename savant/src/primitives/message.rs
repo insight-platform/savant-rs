@@ -71,8 +71,8 @@ impl From<&NativeMessageMarkerType> for NativeMessageTypeConsts {
 #[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct MessageHeader {
-    pub lib_version: [u8; 4],
-    pub native_message_type: [u8; 4],
+    pub lib_version: [u8; VERSION_LEN],
+    pub native_message_type: [u8; NATIVE_MESSAGE_MARKER_LEN],
     pub labels: [u8; LABELS_LEN],
     pub trace_id: [u8; TRACE_ID_LEN],
 }
