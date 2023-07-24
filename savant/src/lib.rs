@@ -25,6 +25,7 @@ lazy_static! {
 ///
 #[pyfunction]
 pub fn version() -> String {
+    log::debug!("Savant-rs version is {}", env!("CARGO_PKG_VERSION"));
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
@@ -32,6 +33,7 @@ pub fn version() -> String {
 ///
 #[pyfunction]
 pub fn version_crc32() -> u32 {
+    log::debug!("Savant-rs version CRC32 is {}", *VERSION_CRC32);
     *VERSION_CRC32
 }
 
