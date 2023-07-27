@@ -24,7 +24,8 @@ use ndarray::IxDyn;
 use numpy::PyArray;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::types::PyBytes;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult, Python};
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -158,6 +159,18 @@ impl VideoFrameContentProxy {
     pub fn get_data(&self) -> PyResult<Vec<u8>> {
         match &*self.inner {
             VideoFrameContent::Internal(data) => Ok(data.clone()),
+            _ => Err(pyo3::exceptions::PyTypeError::new_err(
+                "Video data is not stored internally",
+            )),
+        }
+    }
+
+    pub fn get_data_as_bytes(&self) -> PyResult<PyObject> {
+        match &*self.inner {
+            VideoFrameContent::Internal(data) => Ok(Python::with_gil(|py| {
+                let bytes = PyBytes::new(py, &data);
+                PyObject::from(bytes)
+            })),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
             )),
