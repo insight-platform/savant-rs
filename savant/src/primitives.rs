@@ -13,6 +13,8 @@ pub mod message;
 pub mod point;
 /// A structure representing polygonal areas and functions.
 pub mod polygonal_area;
+/// Implementation for Python attributes in VideoObject and VideoFrame.
+pub mod pyobject;
 /// A line consisting of two points.
 pub mod segment;
 /// A trait to serialize various objects to json.

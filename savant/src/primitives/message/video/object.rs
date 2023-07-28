@@ -5,13 +5,14 @@ use crate::primitives::bbox::transformations::{
 use crate::primitives::bbox::{OwnedRBBoxData, BBOX_UNDEFINED};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
+use crate::primitives::pyobject::PyObjectMeta;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrameProxy};
 use crate::utils::python::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -82,6 +83,9 @@ pub struct VideoObject {
     #[with(Skip)]
     #[builder(default)]
     pub(crate) frame: Option<BelongingVideoFrame>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub(crate) pyobjects: HashMap<(String, String), PyObject>,
 }
 
 impl Default for VideoObject {
@@ -101,12 +105,13 @@ impl Default for VideoObject {
             namespace_id: None,
             label_id: None,
             frame: None,
+            pyobjects: HashMap::new(),
         }
     }
 }
 
 impl ToSerdeJsonValue for VideoObject {
-    fn to_serde_json_value(&self) -> serde_json::Value {
+    fn to_serde_json_value(&self) -> Value {
         serde_json::json!({
             "id": self.id,
             "namespace": self.namespace,
@@ -120,6 +125,7 @@ impl ToSerdeJsonValue for VideoObject {
             "track_box": self.track_box.as_ref().map(|x| x.to_serde_json_value()),
             "modifications": self.modifications.iter().map(|m| m.to_serde_json_value()).collect::<Vec<serde_json::Value>>(),
             "frame": self.get_parent_frame_source(),
+            "pyobjects": "not_implemented",
         })
     }
 }
@@ -154,6 +160,16 @@ pub struct VideoObjectProxy {
 impl ToSerdeJsonValue for VideoObjectProxy {
     fn to_serde_json_value(&self) -> serde_json::Value {
         self.inner.read_recursive().to_serde_json_value()
+    }
+}
+
+impl PyObjectMeta for VideoObjectProxy {
+    fn get_py_objects_ref(&self) -> &HashMap<(String, String), PyObject> {
+        &self.inner.read_recursive().pyobjects
+    }
+
+    fn get_py_objects_ref_mut(&mut self) -> &mut HashMap<(String, String), PyObject> {
+        &mut self.inner.write().pyobjects
     }
 }
 
