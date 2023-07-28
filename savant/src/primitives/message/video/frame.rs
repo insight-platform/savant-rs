@@ -11,6 +11,7 @@ use crate::primitives::message::video::query::match_query::{
     IntExpression, MatchQuery, StringExpression,
 };
 use crate::primitives::message::video::query::py::MatchQueryProxy;
+use crate::primitives::pyobject::PyObjectMeta;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
     Attribute, IdCollisionResolutionPolicy, Message, RBBox, SetDrawLabelKind,
@@ -393,6 +394,9 @@ pub struct VideoFrame {
     #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) max_object_id: i64,
+    #[with(Skip)]
+    #[builder(default)]
+    pub(crate) pyobjects: HashMap<(String, String), PyObject>,
 }
 
 impl Default for VideoFrame {
@@ -415,6 +419,7 @@ impl Default for VideoFrame {
             offline_objects: HashMap::new(),
             resident_objects: HashMap::new(),
             max_object_id: 0,
+            pyobjects: HashMap::new(),
         }
     }
 }
@@ -441,8 +446,19 @@ impl ToSerdeJsonValue for VideoFrame {
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
                 "objects": self.resident_objects.values().map(|o| o.read_recursive().to_serde_json_value()).collect::<Vec<_>>(),
+                "pyobjects": "not_implemented"
             }
         )
+    }
+}
+
+impl PyObjectMeta for Box<VideoFrame> {
+    fn get_py_objects_ref(&self) -> &HashMap<(String, String), PyObject> {
+        &self.pyobjects
+    }
+
+    fn get_py_objects_ref_mut(&mut self) -> &mut HashMap<(String, String), PyObject> {
+        &mut self.pyobjects
     }
 }
 
@@ -1471,6 +1487,36 @@ impl VideoFrameProxy {
 
             Ok(())
         })
+    }
+
+    fn get_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {
+        let inner = self.inner.read_recursive();
+        inner.get_py_object_by_ref(&namespace, &name)
+    }
+
+    fn set_pyobject(
+        &self,
+        namespace: String,
+        name: String,
+        pyobject: PyObject,
+    ) -> Option<PyObject> {
+        let mut inner = self.inner.write();
+        inner.set_py_object(&namespace, &name, pyobject)
+    }
+
+    fn delete_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {
+        let mut inner = self.inner.write();
+        inner.del_py_object(&namespace, &name)
+    }
+
+    fn list_pyobjects(&self) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.list_py_objects()
+    }
+
+    fn clear_pyobjects(&self) {
+        let mut inner = self.inner.write();
+        inner.clear_py_objects()
     }
 }
 

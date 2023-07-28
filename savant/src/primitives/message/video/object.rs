@@ -163,13 +163,13 @@ impl ToSerdeJsonValue for VideoObjectProxy {
     }
 }
 
-impl PyObjectMeta for VideoObjectProxy {
+impl PyObjectMeta for VideoObject {
     fn get_py_objects_ref(&self) -> &HashMap<(String, String), PyObject> {
-        &self.inner.read_recursive().pyobjects
+        &self.pyobjects
     }
 
     fn get_py_objects_ref_mut(&mut self) -> &mut HashMap<(String, String), PyObject> {
-        &mut self.inner.write().pyobjects
+        &mut self.pyobjects
     }
 }
 
@@ -780,6 +780,36 @@ impl VideoObjectProxy {
             let inner_ops = ops.iter().map(|op| op.get_ref()).collect::<Vec<_>>();
             self.transform_geometry(&inner_ops);
         })
+    }
+
+    fn get_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {
+        let inner = self.inner.read_recursive();
+        inner.get_py_object_by_ref(&namespace, &name)
+    }
+
+    fn set_pyobject(
+        &self,
+        namespace: String,
+        name: String,
+        pyobject: PyObject,
+    ) -> Option<PyObject> {
+        let mut inner = self.inner.write();
+        inner.set_py_object(&namespace, &name, pyobject)
+    }
+
+    fn delete_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {
+        let mut inner = self.inner.write();
+        inner.del_py_object(&namespace, &name)
+    }
+
+    fn list_pyobjects(&self) -> Vec<(String, String)> {
+        let inner = self.inner.read_recursive();
+        inner.list_py_objects()
+    }
+
+    fn clear_pyobjects(&self) {
+        let mut inner = self.inner.write();
+        inner.clear_py_objects()
     }
 }
 
