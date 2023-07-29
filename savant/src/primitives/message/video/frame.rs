@@ -882,9 +882,27 @@ impl VideoFrameProxy {
             ]
         };
 
+        fn assign_parent(
+            f: &VideoFrameProxy,
+            object_id: i64,
+            p: Option<i64>,
+        ) -> anyhow::Result<()> {
+            if let Some(parent_id) = p {
+                let parent = f.get_object(parent_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Parent object with ID {} does not exist in the frame.",
+                        parent_id
+                    )
+                })?;
+                let q = MatchQuery::Id(IntExpression::EQ(object_id));
+                f.set_parent(&q, &parent);
+            }
+            Ok(())
+        }
+
         match &update.object_collision_resolution_policy {
             AddForeignObjects => {
-                for mut obj in other_inner {
+                for (mut obj, p) in other_inner {
                     let object_id = self.get_max_object_id() + 1;
                     obj.id = object_id;
 
@@ -892,10 +910,11 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
+                    assign_parent(self, object_id, p)?;
                 }
             }
             ErrorIfLabelsCollide => {
-                for mut obj in other_inner {
+                for (mut obj, p) in other_inner {
                     let objs = self.access_objects(&object_query(&obj));
                     if !objs.is_empty() {
                         bail!(
@@ -912,10 +931,11 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
+                    assign_parent(self, object_id, p)?;
                 }
             }
             ReplaceSameLabelObjects => {
-                for mut obj in other_inner {
+                for (mut obj, p) in other_inner {
                     self.delete_objects(&object_query(&obj));
 
                     let object_id = self.get_max_object_id() + 1;
@@ -925,6 +945,7 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
+                    assign_parent(self, object_id, p)?;
                 }
             }
         }

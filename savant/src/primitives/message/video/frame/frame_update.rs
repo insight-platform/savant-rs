@@ -146,7 +146,7 @@ impl From<AttributeUpdateCollisionResolutionPolicyProxy>
 pub struct VideoFrameUpdate {
     #[pyo3(get, set)]
     pub(crate) attributes: Vec<Attribute>,
-    pub(crate) objects: Vec<VideoObject>,
+    pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
     pub(crate) attribute_collision_resolution_policy: AttributeUpdateCollisionResolutionPolicy,
     pub(crate) object_collision_resolution_policy: ObjectUpdateCollisionResolutionPolicy,
 }
@@ -282,27 +282,30 @@ impl VideoFrameUpdate {
     /// ----------
     /// object: savant_rs.primitives.VideoObject
     ///   The object to add
+    /// parent_id: Optional[int]
+    ///   The parent object id
     ///
     /// Returns
     /// -------
     /// None
     ///
-    pub fn add_object(&mut self, object: &VideoObjectProxy) {
-        self.objects.push(object.inner.read().clone());
+    #[pyo3(signature = (object, parent_id=None))]
+    pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
+        self.objects.push((object.inner.read().clone(), parent_id));
     }
 
     /// Returns the list of objects
     ///
     /// Returns
     /// -------
-    /// List[savant_rs.primitives.VideoObject]
-    ///   The list of objects
+    /// List[(savant_rs.primitives.VideoObject, Optional[int])]
+    ///   The list of objects and their parents
     ///
     #[getter]
-    pub fn get_objects(&self) -> Vec<VideoObjectProxy> {
+    pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {
         self.objects
             .iter()
-            .map(|o| VideoObjectProxy::from_video_object(o.clone()))
+            .map(|(o, p)| (VideoObjectProxy::from_video_object(o.clone()), p.clone()))
             .collect()
     }
 }
@@ -312,6 +315,7 @@ mod tests {
     use crate::primitives::attribute::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::query::match_query::MatchQuery;
+    use crate::primitives::message::video::query::IntExpression;
     use crate::primitives::{
         Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
         ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
@@ -427,8 +431,8 @@ mod tests {
         let o1 = gen_object(1);
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(&o1);
-        upd.add_object(&o2);
+        upd.add_object(&o1, None);
+        upd.add_object(&o2, None);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
         );
@@ -445,7 +449,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(&o1);
+        upd.add_object(&o1, None);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
         );
@@ -455,7 +459,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(&o2);
+        upd.add_object(&o2, None);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
         );
@@ -469,7 +473,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(&o1);
+        upd.add_object(&o1, None);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
         );
@@ -480,7 +484,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::new();
-        upd.add_object(&o2);
+        upd.add_object(&o2, None);
         upd.set_object_collision_resolution_policy(
             ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
         );
@@ -488,5 +492,23 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 4);
         assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
+    }
+
+    #[test]
+    fn update_objects_with_parent() {
+        let f = gen_frame();
+        let p = f.get_object(1).unwrap();
+        let o = gen_object(100);
+        let mut upd = VideoFrameUpdate::new();
+        upd.add_object(&o, Some(p.get_id()));
+        upd.set_object_collision_resolution_policy(
+            ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
+        );
+        let res = f.update_objects(&upd);
+        assert!(res.is_ok());
+
+        let o = f.access_objects(&MatchQuery::ParentId(IntExpression::EQ(1)));
+        dbg!(&o);
+        assert_eq!(o[0].get_parent().unwrap().get_id(), 1);
     }
 }
