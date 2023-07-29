@@ -5,6 +5,8 @@ use pyo3::exceptions::PyIndexError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
@@ -804,7 +806,7 @@ impl AttributeValue {
 /// Represents attribute value types for matching
 ///
 #[pyclass]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum AttributeValueType {
     Bytes,
     String,
@@ -823,6 +825,23 @@ pub enum AttributeValueType {
     PolygonList,
     Intersection,
     None,
+}
+
+#[pymethods]
+impl AttributeValueType {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }
 
 /// Helper class allowing access attribute values without copying them from the object to a requesting party. The class suits well if you

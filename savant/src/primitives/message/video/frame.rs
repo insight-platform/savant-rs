@@ -800,6 +800,22 @@ impl VideoFrameProxy {
         objects
     }
 
+    pub fn set_parent_by_id(&self, object_id: i64, parent_id: i64) -> anyhow::Result<()> {
+        self.get_object(parent_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Parent object with ID {} does not exist in the frame.",
+                parent_id
+            )
+        })?;
+
+        let object = self.get_object(object_id).ok_or_else(|| {
+            anyhow::anyhow!("Object with ID {} does not exist in the frame.", object_id)
+        })?;
+
+        object.set_parent(Some(parent_id));
+        Ok(())
+    }
+
     pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
@@ -882,24 +898,6 @@ impl VideoFrameProxy {
             ]
         };
 
-        fn assign_parent(
-            f: &VideoFrameProxy,
-            object_id: i64,
-            p: Option<i64>,
-        ) -> anyhow::Result<()> {
-            if let Some(parent_id) = p {
-                let parent = f.get_object(parent_id).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Parent object with ID {} does not exist in the frame.",
-                        parent_id
-                    )
-                })?;
-                let q = MatchQuery::Id(IntExpression::EQ(object_id));
-                f.set_parent(&q, &parent);
-            }
-            Ok(())
-        }
-
         match &update.object_collision_resolution_policy {
             AddForeignObjects => {
                 for (mut obj, p) in other_inner {
@@ -910,7 +908,9 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
-                    assign_parent(self, object_id, p)?;
+                    if let Some(p) = p {
+                        self.set_parent_by_id(object_id, p)?;
+                    }
                 }
             }
             ErrorIfLabelsCollide => {
@@ -931,7 +931,9 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
-                    assign_parent(self, object_id, p)?;
+                    if let Some(p) = p {
+                        self.set_parent_by_id(object_id, p)?;
+                    }
                 }
             }
             ReplaceSameLabelObjects => {
@@ -945,7 +947,10 @@ impl VideoFrameProxy {
                         &VideoObjectProxy::from_video_object(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
-                    assign_parent(self, object_id, p)?;
+
+                    if let Some(p) = p {
+                        self.set_parent_by_id(object_id, p)?;
+                    }
                 }
             }
         }
@@ -1361,6 +1366,12 @@ impl VideoFrameProxy {
         parent: &VideoObjectProxy,
     ) -> VideoObjectsView {
         release_gil(|| self.set_parent(q.inner.deref(), parent).into())
+    }
+
+    #[pyo3(name = "set_parent_by_id")]
+    pub fn set_parent_by_id_gil(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
+        release_gil(|| self.set_parent_by_id(object_id, parent_id))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "clear_parent")]
