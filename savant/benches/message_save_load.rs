@@ -51,7 +51,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     let f = gen_frame();
     let mut update = savant_rs::primitives::VideoFrameUpdate::new();
     for o in f.access_objects(&MatchQuery::Idle) {
-        update.add_object(&o);
+        update.add_object(&o, None);
     }
     let attrs = f.get_attributes();
     for (namespace, label) in attrs {
