@@ -13,7 +13,7 @@ update.attribute_collision_resolution_policy = AttributeUpdateCollisionResolutio
 objects = frame.access_objects(Q.idle())
 
 for o in objects:
-    update.add_object(o)
+    update.add_object(o, None)
 
 attributes = frame.attributes
 

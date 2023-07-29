@@ -283,10 +283,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                 let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
                 let metric = match metric_type {
                     BBoxMetricType::IoU => t.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => {
-                        dbg!(&t, &other);
-                        t.ios(&other).unwrap_or(0.0)
-                    }
+                    BBoxMetricType::IoSelf => t.ios(&other).unwrap_or(0.0),
                     BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, ctx)
