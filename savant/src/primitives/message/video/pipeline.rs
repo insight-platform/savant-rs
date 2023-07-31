@@ -20,7 +20,7 @@ pub enum PipelinePayload {
     Batch(VideoFrameBatch, Vec<(i64, VideoFrameUpdate)>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VideoPipeline {
     pub id_counter: i64,
     pub stages: HashMap<String, PipelineStage>,
@@ -29,11 +29,7 @@ pub struct VideoPipeline {
 
 impl VideoPipeline {
     pub fn new() -> Self {
-        Self {
-            id_counter: 0,
-            stages: HashMap::new(),
-            stage_types: HashMap::new(),
-        }
+        Self::default()
     }
 
     pub fn add_stage(
