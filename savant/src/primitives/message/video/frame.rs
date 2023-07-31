@@ -11,6 +11,7 @@ use crate::primitives::message::video::query::match_query::{
     IntExpression, MatchQuery, StringExpression,
 };
 use crate::primitives::message::video::query::py::MatchQueryProxy;
+use crate::primitives::message::TRACE_ID_LEN;
 use crate::primitives::pyobject::PyObjectMeta;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
@@ -397,6 +398,9 @@ pub struct VideoFrame {
     #[with(Skip)]
     #[builder(default)]
     pub(crate) pyobjects: HashMap<(String, String), PyObject>,
+    #[with(Skip)]
+    #[builder(default)]
+    pub(crate) trace_id: [u8; TRACE_ID_LEN],
 }
 
 impl Default for VideoFrame {
@@ -420,6 +424,7 @@ impl Default for VideoFrame {
             resident_objects: HashMap::new(),
             max_object_id: 0,
             pyobjects: HashMap::new(),
+            trace_id: [0; TRACE_ID_LEN],
         }
     }
 }
@@ -481,6 +486,14 @@ impl Attributive for Box<VideoFrame> {
 }
 
 impl VideoFrame {
+    pub(crate) fn set_trace_id(&mut self, trace_id: [u8; TRACE_ID_LEN]) {
+        self.trace_id = trace_id;
+    }
+
+    pub(crate) fn get_trace_id(&self) -> [u8; TRACE_ID_LEN] {
+        self.trace_id
+    }
+
     fn preserve(&mut self) {
         self.offline_objects = self
             .resident_objects
@@ -621,6 +634,16 @@ impl VideoFrameProxy {
         for obj in objs {
             obj.transform_geometry(ops);
         }
+    }
+
+    pub fn get_trace_id(&self) -> [u8; TRACE_ID_LEN] {
+        let inner = self.inner.read_recursive();
+        inner.get_trace_id()
+    }
+
+    pub fn set_trace_id(&self, trace_id: [u8; TRACE_ID_LEN]) {
+        let mut inner = self.inner.write();
+        inner.set_trace_id(trace_id);
     }
 
     pub fn deep_copy(&self) -> Self {

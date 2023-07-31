@@ -113,15 +113,16 @@ impl VideoPipeline {
             anyhow::bail!("Stage does not accept batched frames")
         }
 
+        let id_counter = self.id_counter + 1;
         if let Some(stage) = self.get_stage_mut(stage) {
-            self.id_counter += 1;
             stage
                 .payload
-                .insert(stage.id_counter, PipelinePayload::Frame(frame, Vec::new()));
-            Ok(stage.id_counter)
+                .insert(id_counter, PipelinePayload::Frame(frame, Vec::new()));
         } else {
             anyhow::bail!("Stage not found")
         }
+        self.id_counter = id_counter;
+        Ok(self.id_counter)
     }
 
     pub fn add_batch(&mut self, stage: &str, batch: VideoFrameBatch) -> anyhow::Result<i64> {
@@ -131,16 +132,16 @@ impl VideoPipeline {
         ) {
             anyhow::bail!("Stage does not accept independent frames")
         }
-
+        let id_counter = self.id_counter + 1;
         if let Some(stage) = self.get_stage_mut(stage) {
-            self.id_counter += 1;
             stage
                 .payload
-                .insert(stage.id_counter, PipelinePayload::Batch(batch, Vec::new()));
-            Ok(stage.id_counter)
+                .insert(id_counter, PipelinePayload::Batch(batch, Vec::new()));
         } else {
             anyhow::bail!("Stage not found")
         }
+        self.id_counter = id_counter;
+        Ok(self.id_counter)
     }
 
     pub fn del(&mut self, stage: &str, id: i64) -> anyhow::Result<()> {
@@ -248,22 +249,34 @@ impl VideoPipeline {
             anyhow::bail!("The source stage type must be the same as the destination stage type")
         }
 
-        if let Some(source_stage) = self.get_stage_mut(source_stage) {
-            if let Some(dest_stage) = self.get_stage_mut(dest_stage) {
-                for id in object_ids {
-                    if let Some(payload) = source_stage.payload.remove(&id) {
-                        dest_stage.payload.insert(id, payload);
-                    } else {
-                        anyhow::bail!("Object not found in source stage")
-                    }
-                }
-                Ok(())
-            } else {
-                anyhow::bail!("Destination stage not found")
-            }
-        } else {
+        let source_stage_opt = self.get_stage_mut(source_stage);
+        if !source_stage_opt.is_some() {
             anyhow::bail!("Source stage not found")
         }
+        drop(source_stage_opt);
+
+        let dest_stage_opt = self.get_stage_mut(dest_stage);
+        if !dest_stage_opt.is_some() {
+            anyhow::bail!("Destination stage not found")
+        }
+        drop(dest_stage_opt);
+
+        let source_stage = self.get_stage_mut(source_stage).unwrap();
+        let mut removed_objects = Vec::new();
+        for id in object_ids {
+            if let Some(payload) = source_stage.payload.remove(&id) {
+                removed_objects.push((id, payload));
+            } else {
+                anyhow::bail!("Object not found in source stage")
+            }
+        }
+
+        let dest_stage = self.get_stage_mut(dest_stage).unwrap();
+        for o in removed_objects {
+            dest_stage.payload.insert(o.0, o.1);
+        }
+
+        Ok(())
     }
 
     pub fn move_and_pack_frames(
@@ -282,34 +295,44 @@ impl VideoPipeline {
             anyhow::bail!("Source stage must contain independent frames and destination stage must contain batched frames")
         }
 
-        if let Some(source_stage) = self.get_stage_mut(source_stage) {
-            if let Some(dest_stage) = self.get_stage_mut(dest_stage) {
-                let mut batch = VideoFrameBatch::new();
-                let mut batch_updates = Vec::new();
-                for id in frame_ids {
-                    if let Some(payload) = source_stage.payload.remove(&id) {
-                        match payload {
-                            PipelinePayload::Frame(frame, updates) => {
-                                batch.add(id, frame);
-                                for update in updates {
-                                    batch_updates.push((id, update));
-                                }
-                            }
-                            _ => anyhow::bail!("Source stage must contain independent frames"),
-                        }
-                    }
-                }
-                let batch_id = self.id_counter + 1;
-                dest_stage
-                    .payload
-                    .insert(batch_id, PipelinePayload::Batch(batch, batch_updates));
-                Ok(batch_id)
-            } else {
-                anyhow::bail!("Destination stage not found")
-            }
-        } else {
+        let batch_id = self.id_counter + 1;
+        let source_stage_opt = self.get_stage_mut(source_stage);
+        if !source_stage_opt.is_some() {
             anyhow::bail!("Source stage not found")
         }
+        drop(source_stage_opt);
+
+        let dest_stage_opt = self.get_stage_mut(dest_stage);
+        if !dest_stage_opt.is_some() {
+            anyhow::bail!("Destination stage not found")
+        }
+        drop(dest_stage_opt);
+
+        let source_stage = self.get_stage_mut(source_stage).unwrap();
+
+        let mut batch = VideoFrameBatch::new();
+        let mut batch_updates = Vec::new();
+        for id in frame_ids {
+            if let Some(payload) = source_stage.payload.remove(&id) {
+                match payload {
+                    PipelinePayload::Frame(frame, updates) => {
+                        batch.add(id, frame);
+                        for update in updates {
+                            batch_updates.push((id, update));
+                        }
+                    }
+                    _ => anyhow::bail!("Source stage must contain independent frames"),
+                }
+            }
+        }
+
+        let dest_stage = self.get_stage_mut(dest_stage).unwrap();
+        dest_stage
+            .payload
+            .insert(batch_id, PipelinePayload::Batch(batch, batch_updates));
+
+        self.id_counter = batch_id;
+        Ok(self.id_counter)
     }
 
     pub fn move_and_unpack_batch(
@@ -328,44 +351,49 @@ impl VideoPipeline {
             anyhow::bail!("Source stage must contain batched frames and destination stage must contain independent frames")
         }
 
-        if let Some(source_stage) = self.get_stage_mut(source_stage) {
-            if let Some(dest_stage) = self.get_stage_mut(dest_stage) {
-                if let Some(payload) = source_stage.payload.remove(&batch_id) {
-                    match payload {
-                        PipelinePayload::Batch(batch, updates) => {
-                            for (frame_id, frame) in batch.into_iter() {
-                                dest_stage
-                                    .payload
-                                    .insert(frame_id, PipelinePayload::Frame(frame, Vec::new()));
-                            }
-
-                            for (frame_id, update) in updates {
-                                if let Some(frame) = dest_stage.payload.get_mut(&frame_id) {
-                                    match frame {
-                                        PipelinePayload::Frame(_, updates) => {
-                                            updates.push(update);
-                                        }
-                                        _ => anyhow::bail!(
-                                            "Destination stage must contain independent frames"
-                                        ),
-                                    }
-                                } else {
-                                    anyhow::bail!("Frame not found in destination stage")
-                                }
-                            }
-                            Ok(())
-                        }
-                        _ => anyhow::bail!("Source stage must contain batch"),
-                    }
-                } else {
-                    anyhow::bail!("Batch not found in source stage")
-                }
-            } else {
-                anyhow::bail!("Destination stage not found")
-            }
-        } else {
+        let source_stage_opt = self.get_stage_mut(source_stage);
+        if !source_stage_opt.is_some() {
             anyhow::bail!("Source stage not found")
         }
+        drop(source_stage_opt);
+
+        let dest_stage_opt = self.get_stage_mut(dest_stage);
+        if !dest_stage_opt.is_some() {
+            anyhow::bail!("Destination stage not found")
+        }
+        drop(dest_stage_opt);
+
+        let source_stage = self.get_stage_mut(source_stage).unwrap();
+        let (batch, updates) = if let Some(payload) = source_stage.payload.remove(&batch_id) {
+            match payload {
+                PipelinePayload::Batch(batch, updates) => (batch, updates),
+                _ => anyhow::bail!("Source stage must contain batch"),
+            }
+        } else {
+            anyhow::bail!("Batch not found in source stage")
+        };
+
+        let dest_stage = self.get_stage_mut(dest_stage).unwrap();
+        for (frame_id, frame) in batch.frames {
+            dest_stage
+                .payload
+                .insert(frame_id, PipelinePayload::Frame(frame, Vec::new()));
+        }
+
+        for (frame_id, update) in updates {
+            if let Some(frame) = dest_stage.payload.get_mut(&frame_id) {
+                match frame {
+                    PipelinePayload::Frame(_, updates) => {
+                        updates.push(update);
+                    }
+                    _ => anyhow::bail!("Destination stage must contain independent frames"),
+                }
+            } else {
+                anyhow::bail!("Frame not found in destination stage")
+            }
+        }
+
+        Ok(())
     }
 }
 
