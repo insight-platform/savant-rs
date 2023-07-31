@@ -305,7 +305,7 @@ impl VideoFrameUpdate {
     pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {
         self.objects
             .iter()
-            .map(|(o, p)| (VideoObjectProxy::from_video_object(o.clone()), p.clone()))
+            .map(|(o, p)| (VideoObjectProxy::from_video_object(o.clone()), *p))
             .collect()
     }
 }

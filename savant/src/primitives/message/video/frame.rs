@@ -169,7 +169,7 @@ impl VideoFrameContentProxy {
     pub fn get_data_as_bytes(&self) -> PyResult<PyObject> {
         match &*self.inner {
             VideoFrameContent::Internal(data) => Ok(Python::with_gil(|py| {
-                let bytes = PyBytes::new(py, &data);
+                let bytes = PyBytes::new(py, data);
                 PyObject::from(bytes)
             })),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(

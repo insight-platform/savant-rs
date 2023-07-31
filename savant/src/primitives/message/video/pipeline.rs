@@ -7,7 +7,7 @@ pub enum PipelineStage {
     Batch(HashMap<i64, VideoFrameBatch>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VideoPipeline {
     pub stages: HashMap<String, PipelineStage>,
     pub stage_order: Vec<String>,
@@ -15,10 +15,7 @@ pub struct VideoPipeline {
 
 impl VideoPipeline {
     pub fn new() -> Self {
-        Self {
-            stages: HashMap::new(),
-            stage_order: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn add_stage(&mut self, name: &str, stage: PipelineStage) {
