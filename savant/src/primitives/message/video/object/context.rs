@@ -282,7 +282,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.frame.time_base_nominator.get_or_init(|| {
                     match self.object.get_frame() {
                         None => Value::Empty,
-                        Some(f) => Value::from(f.get_timebase().0 as i64),
+                        Some(f) => Value::from(f.get_time_base().0 as i64),
                     }
                 }))
             }
@@ -292,7 +292,7 @@ impl<'a> Context for ObjectContext<'a> {
                     .time_base_denominator
                     .get_or_init(|| match self.object.get_frame() {
                         None => Value::Empty,
-                        Some(f) => Value::from(f.get_timebase().1 as i64),
+                        Some(f) => Value::from(f.get_time_base().1 as i64),
                     }),
             ),
             _ => None,

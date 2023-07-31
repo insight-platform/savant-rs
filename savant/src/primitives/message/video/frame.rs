@@ -1147,14 +1147,20 @@ impl VideoFrameProxy {
         inner.source_id = source_id;
     }
 
-    #[getter]
-    pub fn get_pts(&self) -> i64 {
-        self.inner.read_recursive().pts
+    #[setter]
+    pub fn set_time_base(&mut self, time_base: (i32, i32)) {
+        let mut inner = self.inner.write();
+        inner.time_base = time_base;
     }
 
     #[getter]
-    pub fn get_timebase(&self) -> (i32, i32) {
+    pub fn get_time_base(&self) -> (i32, i32) {
         self.inner.read_recursive().time_base
+    }
+
+    #[getter]
+    pub fn get_pts(&self) -> i64 {
+        self.inner.read_recursive().pts
     }
 
     #[setter]
