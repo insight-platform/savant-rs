@@ -2,6 +2,7 @@ use super::VideoPipeline;
 use crate::primitives::message::video::pipeline::{
     VideoPipelineStagePayloadType, VideoPipelineTelemetryMessage,
 };
+use crate::primitives::message::TRACE_ID_LEN;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
 use crate::utils::python::release_gil;
 use lazy_static::lazy_static;
@@ -35,6 +36,32 @@ lazy_static! {
 fn add_stage_gil(name: String, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
     release_gil(|| PIPELINE.lock().add_stage(&name, stage_type))
         .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Adds a custom telemetry message to the pipeline.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// trace_id : bytes
+///   The trace id of the message.
+/// stage : str
+///   The name of the stage.
+/// user_value : str
+///   The user value of the message.
+///   The user value is a string that can be used to store any information.
+///
+#[pyfunction]
+#[pyo3(name = "add_user_telemetry")]
+fn add_user_telemetry_gil(trace_id: Vec<u8>, stage: String, user_value: String) {
+    release_gil(|| {
+        let mut trace_id_arr = [0; TRACE_ID_LEN];
+        trace_id_arr.copy_from_slice(&trace_id);
+        PIPELINE
+            .lock()
+            .add_user_telemetry(trace_id_arr, &stage, &user_value)
+    });
 }
 
 /// Retrieves the pipeline telemetry.
@@ -521,6 +548,7 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(move_as_is_gil, m)?)?;
     m.add_function(wrap_pyfunction!(move_and_pack_frames_gil, m)?)?;
     m.add_function(wrap_pyfunction!(move_and_unpack_batch_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(add_user_telemetry_gil, m)?)?;
 
     Ok(())
 }

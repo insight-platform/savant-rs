@@ -12,6 +12,7 @@ pub enum VideoPipelineTelemetryMessageType {
     Add,
     Move,
     Delete,
+    User,
 }
 
 #[pymethods]
@@ -21,6 +22,7 @@ impl VideoPipelineTelemetryMessageType {
             Add => "Add".to_owned(),
             Move => "Move".to_owned(),
             Delete => "Delete".to_owned(),
+            User => "User".to_owned(),
         }
     }
 
@@ -41,17 +43,22 @@ pub struct VideoPipelineTelemetryMessage {
     pub timestamp_micro: u128,
     pub stage: String,
     pub message_type: VideoPipelineTelemetryMessageType,
+    pub user_value: Option<String>,
 }
 
 #[pymethods]
 impl VideoPipelineTelemetryMessage {
     fn __repr__(&self) -> String {
         format!(
-            "VideoPipelineTelemetryMessage(trace_id={}, timestamp_micro={}, stage={}, message_type={})",
+            "VideoPipelineTelemetryMessage(trace_id={}, timestamp_micro={}, stage={}, message_type={}, user_value={})",
             self.trace_id.to_vec().iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join(""),
             self.timestamp_micro,
             self.stage,
-            self.message_type.__repr__()
+            self.message_type.__repr__(),
+            match &self.user_value {
+                Some(value) => format!("Some({})", value),
+                None => "None".to_owned(),
+            },
         )
     }
 
@@ -76,6 +83,7 @@ impl VideoPipelineTelemetryMessage {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_micros(),
+            user_value: None,
         }
     }
 
@@ -92,6 +100,11 @@ impl VideoPipelineTelemetryMessage {
     #[getter]
     pub fn get_stage(&self) -> String {
         self.stage.clone()
+    }
+
+    #[getter]
+    pub fn get_user_value(&self) -> Option<String> {
+        self.user_value.clone()
     }
 }
 
@@ -147,6 +160,12 @@ impl VideoPipeline {
             stage,
             message_type,
         ));
+    }
+
+    fn add_user_telemetry(&mut self, trace_id: [u8; TRACE_ID_LEN], stage: &str, user_value: &str) {
+        let mut m = VideoPipelineTelemetryMessage::new(trace_id, stage, User);
+        m.user_value = Some(user_value.to_owned());
+        self.telemetry.push(m);
     }
 
     fn build_telemetry(
