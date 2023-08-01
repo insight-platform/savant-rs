@@ -14,6 +14,22 @@ lazy_static! {
     static ref PIPELINE: Mutex<VideoPipeline> = const_mutex(VideoPipeline::default());
 }
 
+/// Adds a stage to the pipeline.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// name : str
+///   The name of the stage.
+/// stage_type : :py:class:`VideoPipelineStagePayloadType`
+///   The type of the stage. Either independent frames or batches.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage name is already in use.
+///
 #[pyfunction]
 #[pyo3(name = "add_stage")]
 fn add_stage_gil(name: String, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
@@ -21,18 +37,61 @@ fn add_stage_gil(name: String, stage_type: VideoPipelineStagePayloadType) -> PyR
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// Retrieves the pipeline telemetry.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Returns
+/// -------
+/// List[:py:class:`VideoPipelineTelemetryMessage`]
+///  The pipeline telemetry. Telemetry messages cover adding, moving and removal frames and batches.
+///
 #[pyfunction]
 #[pyo3(name = "retrieve_telemetry")]
 fn retrieve_telemetry_gil() -> Vec<VideoPipelineTelemetryMessage> {
     release_gil(|| PIPELINE.lock().retrieve_telemetry())
 }
 
+/// Retrieves the type of a stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// name : str
+///  The name of the stage.
+///
+/// Returns
+/// -------
+/// :py:class:`VideoPipelineStagePayloadType`
+///   The type of the stage. Either independent frames or batches.
+/// None
+///  If the stage does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "get_stage_type")]
 fn get_stage_type_gil(name: String) -> Option<VideoPipelineStagePayloadType> {
     release_gil(|| PIPELINE.lock().get_stage_type(&name).cloned())
 }
 
+/// Adds a frame update to the independent frame.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage. Must be a stage of type independent frames.
+/// frame_id : int
+///   The id of the frame.
+/// update : :py:class:`savant_rs.primitives.VideoFrameUpdate`
+///   The update to enqueue for the frame. The updates are not applied immediately, but when requested with :py:func:`apply_updates`.
+///
+/// Raises
+/// ------
+/// ValueError
+///  If the stage does not exist or is not of type independent frames. If the frame does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "add_frame_update")]
 fn add_frame_update_gil(stage: String, frame_id: i64, update: VideoFrameUpdate) -> PyResult<()> {
@@ -44,6 +103,26 @@ fn add_frame_update_gil(stage: String, frame_id: i64, update: VideoFrameUpdate) 
     })
 }
 
+/// Adds a frame update to the batched frame.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage. Must be a stage of type batches.
+/// batch_id : int
+///   The id of the batch.
+/// frame_id : int
+///   The id of the frame.
+/// update : :py:class:`savant_rs.primitives.VideoFrameUpdate`
+///   The update to enqueue for the frame. The updates are not applied immediately, but when requested with :py:func:`apply_updates`.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type batches. If the batch or the frame do not exist.
+///
 #[pyfunction]
 #[pyo3(name = "add_batched_frame_update")]
 fn add_batched_frame_update_gil(
@@ -60,6 +139,27 @@ fn add_batched_frame_update_gil(
     })
 }
 
+/// Adds a frame to the stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage_name : str
+///   The name of the stage. Must be a stage of type independent frames.
+/// frame : :py:class:`savant_rs.primitives.VideoFrameProxy`
+///   The frame to add.
+///
+/// Returns
+/// -------
+/// int
+///   The id of the frame.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type independent frames.
+///
 #[pyfunction]
 #[pyo3(name = "add_frame")]
 fn add_frame_gil(stage_name: String, frame: VideoFrameProxy) -> PyResult<i64> {
@@ -71,6 +171,27 @@ fn add_frame_gil(stage_name: String, frame: VideoFrameProxy) -> PyResult<i64> {
     })
 }
 
+/// Adds a batch to the stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage_name : str
+///   The name of the stage. Must be a stage of type batches.
+/// batch : :py:class:`savant_rs.primitives.VideoFrameBatch`
+///   The batch to add.
+///
+/// Returns
+/// -------
+/// int
+///   The id of the batch.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type batches.
+///
 #[pyfunction]
 #[pyo3(name = "add_batch")]
 fn add_batch_gil(stage_name: String, batch: VideoFrameBatch) -> PyResult<i64> {
@@ -82,6 +203,22 @@ fn add_batch_gil(stage_name: String, batch: VideoFrameBatch) -> PyResult<i64> {
     })
 }
 
+/// Deletes a frame or a batch from the stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage_name : str
+///   The name of the stage.
+/// id : int
+///   The id of the frame or batch to delete.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist. If the frame or batch does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "delete")]
 fn delete_gil(stage_name: String, id: i64) -> PyResult<()> {
@@ -93,6 +230,25 @@ fn delete_gil(stage_name: String, id: i64) -> PyResult<()> {
     })
 }
 
+/// Retrieves the length of the queue of a stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage_name : str
+///   The name of the stage.
+///
+/// Returns
+/// -------
+/// int
+///   The length of the queue of the stage.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "get_stage_queue_len")]
 fn get_stage_queue_len_gil(stage_name: String) -> PyResult<usize> {
@@ -104,6 +260,27 @@ fn get_stage_queue_len_gil(stage_name: String) -> PyResult<usize> {
     })
 }
 
+/// Retrieves an independent frame from a specified stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage.
+/// frame_id : int
+///   The id of the frame.
+///
+/// Returns
+/// -------
+/// :py:class:`savant_rs.primitives.VideoFrameProxy`
+///   The frame.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type independent frames. If the frame does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "get_independent_frame")]
 fn get_independent_frame_gil(stage: String, frame_id: i64) -> PyResult<VideoFrameProxy> {
@@ -115,6 +292,29 @@ fn get_independent_frame_gil(stage: String, frame_id: i64) -> PyResult<VideoFram
     })
 }
 
+/// Retrieves a batched frame from a specified stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage.
+/// batch_id : int
+///   The id of the batch.
+/// frame_id : int
+///   The id of the frame.
+///
+/// Returns
+/// -------
+/// :py:class:`savant_rs.primitives.VideoFrameProxy`
+///   The frame.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type batches. If the batch or the frame do not exist.
+///
 #[pyfunction]
 #[pyo3(name = "get_batched_frame")]
 fn get_batched_frame_gil(stage: String, batch_id: i64, frame_id: i64) -> PyResult<VideoFrameProxy> {
@@ -126,6 +326,27 @@ fn get_batched_frame_gil(stage: String, batch_id: i64, frame_id: i64) -> PyResul
     })
 }
 
+/// Retrieves a batch from a specified stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage.
+/// batch_id : int
+///   The id of the batch.
+///
+/// Returns
+/// -------
+/// :py:class:`savant_rs.primitives.VideoFrameBatch`
+///   The batch.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist or is not of type batches. If the batch does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "get_batch")]
 fn get_batch_gil(stage: String, batch_id: i64) -> PyResult<VideoFrameBatch> {
@@ -137,6 +358,22 @@ fn get_batch_gil(stage: String, batch_id: i64) -> PyResult<VideoFrameBatch> {
     })
 }
 
+/// Applies the updates to the frames and batches of a stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// stage : str
+///   The name of the stage.
+/// id : int
+///   The id of the frame or batch to apply updates for.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the stage does not exist. If the frame or batch does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "apply_updates")]
 fn apply_updates_gil(stage: String, id: i64) -> PyResult<()> {
@@ -148,6 +385,26 @@ fn apply_updates_gil(stage: String, id: i64) -> PyResult<()> {
     })
 }
 
+/// Moves frames or batches from a stage to another. The dest stage must be the same time as the source stage.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// source_stage_name : str
+///   The name of the source stage.
+/// dest_stage_name : str
+///   The name of the destination stage.
+/// object_ids : List[int]
+///   The ids of the frames or batches to move.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the source stage does not exist. If the destination stage does not exist.
+///   If the source stage and the destination stage are not of the same type.
+///   If the frame or batch does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "move_as_is")]
 fn move_as_is_gil(
@@ -163,6 +420,31 @@ fn move_as_is_gil(
     })
 }
 
+/// Moves frames from the stage with independent frames to the stage with batches.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// source_stage_name : str
+///   The name of the source stage.
+/// dest_stage_name : str
+///   The name of the destination stage.
+/// frame_ids : List[int]
+///   The ids of the frames to move.
+///
+/// Returns
+/// -------
+/// int
+///   The id of the batch.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the source stage does not exist or destination stage does not exist.
+///   If the source stage is not of type independent frames or the destination stage is not of type batches.
+///   If the frame does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "move_and_pack_frames")]
 fn move_and_pack_frames_gil(
@@ -178,6 +460,31 @@ fn move_and_pack_frames_gil(
     })
 }
 
+/// Moves a batch from the stage with batches to the stage with independent frames.
+///
+/// GIL management: the function is GIL-free.
+///
+/// Parameters
+/// ----------
+/// source_stage_name : str
+///   The name of the source stage.
+/// dest_stage_name : str
+///   The name of the destination stage.
+/// batch_id : int
+///   The id of the batch to move.
+///
+/// Returns
+/// -------
+/// Dict[str, int]
+///   The map of stream_id: id for the frames unpacked from the batch.
+///
+/// Raises
+/// ------
+/// ValueError
+///   If the source stage does not exist or destination stage does not exist.
+///   If the source stage is not of type batches or the destination stage is not of type independent frames.
+///   If the batch does not exist.
+///
 #[pyfunction]
 #[pyo3(name = "move_and_unpack_batch")]
 fn move_and_unpack_batch_gil(
