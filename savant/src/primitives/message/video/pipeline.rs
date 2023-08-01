@@ -283,7 +283,7 @@ impl VideoPipeline {
         Ok(())
     }
 
-    pub fn get_stage_len(&self, stage: &str) -> anyhow::Result<usize> {
+    pub fn get_stage_queue_len(&self, stage: &str) -> anyhow::Result<usize> {
         if let Some(stage) = self.get_stage(stage) {
             Ok(stage.payload.len())
         } else {
@@ -408,7 +408,7 @@ impl VideoPipeline {
         }
 
         for o in removed_objects.iter() {
-            self.build_telemetry(source_stage_name, Move, &o.1);
+            self.build_telemetry(dest_stage_name, Move, &o.1);
         }
 
         let dest_stage = self.get_stage_mut(dest_stage_name).unwrap();
@@ -506,6 +506,14 @@ impl VideoPipeline {
             }
         } else {
             anyhow::bail!("Batch not found in source stage")
+        };
+
+        let payload = VideoPipelinePayload::Batch(batch, Vec::new());
+        self.build_telemetry(dest_stage, Move, &payload);
+
+        let batch = match payload {
+            VideoPipelinePayload::Batch(batch, _) => batch,
+            _ => anyhow::bail!("Payload must be a batch"),
         };
 
         let dest_stage = self.get_stage_mut(dest_stage).unwrap();
@@ -610,13 +618,13 @@ mod tests {
     fn test_add_del_frame() -> anyhow::Result<()> {
         let mut pipeline = create_pipeline()?;
         let id = pipeline.add_frame("input", gen_frame())?;
-        assert_eq!(pipeline.get_stage_len("input")?, 1);
+        assert_eq!(pipeline.get_stage_queue_len("input")?, 1);
         assert!(pipeline.add_frame("proc1", gen_frame()).is_err());
-        assert_eq!(pipeline.get_stage_len("proc1")?, 0);
+        assert_eq!(pipeline.get_stage_queue_len("proc1")?, 0);
 
         assert!(pipeline.delete("proc1", id).is_err());
         pipeline.delete("input", id)?;
-        assert_eq!(pipeline.get_stage_len("input")?, 0);
+        assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
 
         Ok(())
     }

@@ -1058,6 +1058,21 @@ impl VideoFrameProxy {
         })
     }
 
+    #[getter]
+    #[pyo3(name = "trace_id")]
+    pub fn get_trace_id_py(&self) -> Vec<u8> {
+        self.get_trace_id().to_vec()
+    }
+
+    #[setter]
+    #[pyo3(name = "trace_id")]
+    pub fn set_trace_id_py(&mut self, trace_id: Vec<u8>) {
+        let mut inner = self.inner.write();
+        let mut trace_id_arr = [0; TRACE_ID_LEN];
+        trace_id_arr.copy_from_slice(&trace_id);
+        inner.set_trace_id(trace_id_arr);
+    }
+
     #[setter]
     pub fn set_parallelized(&mut self, is_parallelized: bool) {
         self.is_parallelized = is_parallelized;
