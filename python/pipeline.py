@@ -7,7 +7,7 @@ from savant_rs.pipeline import VideoPipelineStagePayloadType, \
     delete, \
     get_independent_frame, \
     get_batched_frame, get_batch, apply_updates, \
-    move_as_is, move_and_pack_frames, move_and_unpack_batch, get_stage_queue_len
+    move_as_is, move_and_pack_frames, move_and_unpack_batch, get_stage_queue_len, add_user_telemetry
 
 from savant_rs.utils import gen_frame
 from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
@@ -78,3 +78,7 @@ if __name__ == "__main__":
     assert get_stage_queue_len("input") == 0 and get_stage_queue_len("proc1") == 0 and get_stage_queue_len(
         "proc2") == 0 and get_stage_queue_len("output") == 0
 
+    add_user_telemetry(frame.trace_id, "custom.stage", '{"value": 10}')
+    telemetry = retrieve_telemetry()
+    assert len(telemetry) == 1
+    print(telemetry[0])
