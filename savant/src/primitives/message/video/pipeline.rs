@@ -2,8 +2,8 @@ pub mod pipeline_py;
 
 use crate::primitives::message::TRACE_ID_LEN;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
-use hashbrown::HashMap;
 use pyo3::prelude::*;
+use std::collections::HashMap;
 use std::time::SystemTime;
 
 #[pyclass]
@@ -60,17 +60,9 @@ impl VideoPipelineTelemetryMessage {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VideoPipelineStage {
     payload: HashMap<i64, VideoPipelinePayload>,
-}
-
-impl Default for VideoPipelineStage {
-    fn default() -> Self {
-        Self {
-            payload: HashMap::new(),
-        }
-    }
 }
 
 #[pyclass]
@@ -245,11 +237,10 @@ impl VideoPipeline {
     pub fn del(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
         if let Some(stage) = self.get_stage_mut(stage_name) {
             let removed = stage.payload.remove(&id);
-            if removed.is_none() {
-                anyhow::bail!("Object not found in stage")
-            } else {
-                let removed = removed.unwrap();
+            if let Some(removed) = removed {
                 self.build_telemetry(stage_name, Delete, &removed);
+            } else {
+                anyhow::bail!("Object not found in stage")
             }
         } else {
             anyhow::bail!("Stage not found")
@@ -354,16 +345,14 @@ impl VideoPipeline {
         }
 
         let source_stage_opt = self.get_stage_mut(source_stage_name);
-        if !source_stage_opt.is_some() {
+        if source_stage_opt.is_none() {
             anyhow::bail!("Source stage not found")
         }
-        drop(source_stage_opt);
 
         let dest_stage_opt = self.get_stage_mut(dest_stage_name);
-        if !dest_stage_opt.is_some() {
+        if dest_stage_opt.is_none() {
             anyhow::bail!("Destination stage not found")
         }
-        drop(dest_stage_opt);
 
         let source_stage = self.get_stage_mut(source_stage_name).unwrap();
         let mut removed_objects = Vec::new();
@@ -405,16 +394,14 @@ impl VideoPipeline {
 
         let batch_id = self.id_counter + 1;
         let source_stage_opt = self.get_stage_mut(source_stage_name);
-        if !source_stage_opt.is_some() {
+        if source_stage_opt.is_none() {
             anyhow::bail!("Source stage not found")
         }
-        drop(source_stage_opt);
 
         let dest_stage_opt = self.get_stage_mut(dest_stage_name);
-        if !dest_stage_opt.is_some() {
+        if dest_stage_opt.is_none() {
             anyhow::bail!("Destination stage not found")
         }
-        drop(dest_stage_opt);
 
         let source_stage = self.get_stage_mut(source_stage_name).unwrap();
 
@@ -447,7 +434,7 @@ impl VideoPipeline {
         source_stage: &str,
         dest_stage: &str,
         batch_id: i64,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<HashMap<String, i64>> {
         if matches!(
             self.get_stage_type(source_stage),
             Some(VideoPipelineStagePayloadType::Frame)
@@ -459,16 +446,14 @@ impl VideoPipeline {
         }
 
         let source_stage_opt = self.get_stage_mut(source_stage);
-        if !source_stage_opt.is_some() {
+        if source_stage_opt.is_none() {
             anyhow::bail!("Source stage not found")
         }
-        drop(source_stage_opt);
 
         let dest_stage_opt = self.get_stage_mut(dest_stage);
-        if !dest_stage_opt.is_some() {
+        if dest_stage_opt.is_none() {
             anyhow::bail!("Destination stage not found")
         }
-        drop(dest_stage_opt);
 
         let source_stage = self.get_stage_mut(source_stage).unwrap();
         let (batch, updates) = if let Some(payload) = source_stage.payload.remove(&batch_id) {
@@ -481,7 +466,9 @@ impl VideoPipeline {
         };
 
         let dest_stage = self.get_stage_mut(dest_stage).unwrap();
+        let mut frame_mapping = HashMap::new();
         for (frame_id, frame) in batch.frames {
+            frame_mapping.insert(frame.get_source_id(), frame_id);
             dest_stage
                 .payload
                 .insert(frame_id, VideoPipelinePayload::Frame(frame, Vec::new()));
@@ -500,7 +487,7 @@ impl VideoPipeline {
             }
         }
 
-        Ok(())
+        Ok(frame_mapping)
     }
 }
 

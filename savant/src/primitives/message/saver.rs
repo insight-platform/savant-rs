@@ -81,7 +81,7 @@ pub fn save_message(m: Message) -> Vec<u8> {
                     .as_ref(),
             );
             if m.header.trace_id == [0; TRACE_ID_LEN] {
-                let mut h = m.header.clone();
+                let mut h = m.header;
                 h.trace_id = frame.get_trace_id();
                 buf.extend_from_slice(bytemuck::bytes_of(&h));
             } else {
