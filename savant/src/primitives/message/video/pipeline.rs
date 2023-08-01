@@ -14,6 +14,24 @@ pub enum VideoPipelineTelemetryMessageType {
     Delete,
 }
 
+#[pymethods]
+impl VideoPipelineTelemetryMessageType {
+    fn __repr__(&self) -> String {
+        match self {
+            Add => "Add".to_owned(),
+            Move => "Move".to_owned(),
+            Delete => "Delete".to_owned(),
+        }
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+}
+
 use VideoPipelineTelemetryMessageType::*;
 
 #[pyclass]
@@ -27,6 +45,23 @@ pub struct VideoPipelineTelemetryMessage {
 
 #[pymethods]
 impl VideoPipelineTelemetryMessage {
+    fn __repr__(&self) -> String {
+        format!(
+            "VideoPipelineTelemetryMessage(trace_id={}, timestamp_micro={}, stage={}, message_type={})",
+            self.trace_id.to_vec().iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join(""),
+            self.timestamp_micro,
+            self.stage,
+            self.message_type.__repr__()
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
     #[new]
     pub fn new(
         trace_id: [u8; TRACE_ID_LEN],
@@ -234,7 +269,7 @@ impl VideoPipeline {
         Ok(self.id_counter)
     }
 
-    pub fn del(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
+    pub fn delete(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
         if let Some(stage) = self.get_stage_mut(stage_name) {
             let removed = stage.payload.remove(&id);
             if let Some(removed) = removed {
@@ -246,6 +281,14 @@ impl VideoPipeline {
             anyhow::bail!("Stage not found")
         }
         Ok(())
+    }
+
+    pub fn get_stage_len(&self, stage: &str) -> anyhow::Result<usize> {
+        if let Some(stage) = self.get_stage(stage) {
+            Ok(stage.payload.len())
+        } else {
+            anyhow::bail!("Stage not found")
+        }
     }
 
     pub fn get_independent_frame(
@@ -567,10 +610,13 @@ mod tests {
     fn test_add_del_frame() -> anyhow::Result<()> {
         let mut pipeline = create_pipeline()?;
         let id = pipeline.add_frame("input", gen_frame())?;
+        assert_eq!(pipeline.get_stage_len("input")?, 1);
         assert!(pipeline.add_frame("proc1", gen_frame()).is_err());
+        assert_eq!(pipeline.get_stage_len("proc1")?, 0);
 
-        assert!(pipeline.del("proc1", id).is_err());
-        pipeline.del("input", id)?;
+        assert!(pipeline.delete("proc1", id).is_err());
+        pipeline.delete("input", id)?;
+        assert_eq!(pipeline.get_stage_len("input")?, 0);
 
         Ok(())
     }
@@ -581,8 +627,8 @@ mod tests {
         let id = pipeline.add_batch("proc1", VideoFrameBatch::new())?;
         assert!(pipeline.add_batch("input", VideoFrameBatch::new()).is_err());
 
-        assert!(pipeline.del("input", id).is_err());
-        pipeline.del("proc1", id)?;
+        assert!(pipeline.delete("input", id).is_err());
+        pipeline.delete("proc1", id)?;
 
         Ok(())
     }

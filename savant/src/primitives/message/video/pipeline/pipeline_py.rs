@@ -88,7 +88,18 @@ fn delete_gil(stage_name: String, id: i64) -> PyResult<()> {
     release_gil(|| {
         PIPELINE
             .lock()
-            .del(&stage_name, id)
+            .delete(&stage_name, id)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    })
+}
+
+#[pyfunction]
+#[pyo3(name = "get_stage_len")]
+fn get_stage_len_gil(stage_name: String) -> PyResult<usize> {
+    release_gil(|| {
+        PIPELINE
+            .lock()
+            .get_stage_len(&stage_name)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     })
 }
@@ -195,6 +206,7 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_frame_gil, m)?)?;
     m.add_function(wrap_pyfunction!(add_batch_gil, m)?)?;
     m.add_function(wrap_pyfunction!(delete_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(get_stage_len_gil, m)?)?;
     m.add_function(wrap_pyfunction!(get_independent_frame_gil, m)?)?;
     m.add_function(wrap_pyfunction!(get_batched_frame_gil, m)?)?;
     m.add_function(wrap_pyfunction!(get_batch_gil, m)?)?;
