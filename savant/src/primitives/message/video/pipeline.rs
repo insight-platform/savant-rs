@@ -1,112 +1,8 @@
 pub mod pipeline_py;
 
-use crate::primitives::message::TRACE_ID_LEN;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::time::SystemTime;
-
-#[pyclass]
-#[derive(Clone, Debug, Copy)]
-pub enum VideoPipelineTelemetryMessageType {
-    Add,
-    Move,
-    Delete,
-    User,
-}
-
-#[pymethods]
-impl VideoPipelineTelemetryMessageType {
-    fn __repr__(&self) -> String {
-        match self {
-            Add => "Add".to_owned(),
-            Move => "Move".to_owned(),
-            Delete => "Delete".to_owned(),
-            User => "User".to_owned(),
-        }
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-}
-
-use VideoPipelineTelemetryMessageType::*;
-
-#[pyclass]
-#[derive(Clone, Debug)]
-pub struct VideoPipelineTelemetryMessage {
-    pub trace_id: [u8; TRACE_ID_LEN],
-    pub timestamp_micro: u128,
-    pub stage: String,
-    pub message_type: VideoPipelineTelemetryMessageType,
-    pub user_value: Option<String>,
-}
-
-#[pymethods]
-impl VideoPipelineTelemetryMessage {
-    fn __repr__(&self) -> String {
-        format!(
-            "VideoPipelineTelemetryMessage(trace_id={}, timestamp_micro={}, stage={}, message_type={}, user_value={})",
-            self.trace_id.to_vec().iter().map(|b| format!("{:02x}", b)).collect::<Vec<String>>().join(""),
-            self.timestamp_micro,
-            self.stage,
-            self.message_type.__repr__(),
-            match &self.user_value {
-                Some(value) => format!("Some({})", value),
-                None => "None".to_owned(),
-            },
-        )
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-
-    #[new]
-    pub fn new(
-        trace_id: [u8; TRACE_ID_LEN],
-        stage: &str,
-        message_type: VideoPipelineTelemetryMessageType,
-    ) -> Self {
-        Self {
-            trace_id,
-            message_type,
-            stage: stage.to_owned(),
-            timestamp_micro: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_micros(),
-            user_value: None,
-        }
-    }
-
-    #[getter]
-    pub fn get_trace_id(&self) -> Vec<u8> {
-        self.trace_id.to_vec()
-    }
-
-    #[getter]
-    pub fn get_timestamp_micro(&self) -> u128 {
-        self.timestamp_micro
-    }
-
-    #[getter]
-    pub fn get_stage(&self) -> String {
-        self.stage.clone()
-    }
-
-    #[getter]
-    pub fn get_user_value(&self) -> Option<String> {
-        self.user_value.clone()
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct VideoPipelineStage {
@@ -131,7 +27,6 @@ pub struct VideoPipeline {
     pub id_counter: i64,
     pub stages: HashMap<String, VideoPipelineStage>,
     pub stage_types: HashMap<String, VideoPipelineStagePayloadType>,
-    pub telemetry: Vec<VideoPipelineTelemetryMessage>,
 }
 
 impl VideoPipeline {
@@ -147,47 +42,6 @@ impl VideoPipeline {
             .insert(name.to_owned(), VideoPipelineStage::default());
         self.stage_types.insert(name.to_owned(), stage_type);
         Ok(())
-    }
-
-    fn add_telemetry(
-        &mut self,
-        trace_id: [u8; TRACE_ID_LEN],
-        stage: &str,
-        message_type: VideoPipelineTelemetryMessageType,
-    ) {
-        self.telemetry.push(VideoPipelineTelemetryMessage::new(
-            trace_id,
-            stage,
-            message_type,
-        ));
-    }
-
-    fn add_user_telemetry(&mut self, trace_id: [u8; TRACE_ID_LEN], stage: &str, user_value: &str) {
-        let mut m = VideoPipelineTelemetryMessage::new(trace_id, stage, User);
-        m.user_value = Some(user_value.to_owned());
-        self.telemetry.push(m);
-    }
-
-    fn build_telemetry(
-        &mut self,
-        stage_name: &str,
-        telemetry_type: VideoPipelineTelemetryMessageType,
-        payload: &VideoPipelinePayload,
-    ) {
-        match payload {
-            VideoPipelinePayload::Frame(frame, _) => {
-                self.add_telemetry(frame.get_trace_id(), stage_name, telemetry_type);
-            }
-            VideoPipelinePayload::Batch(batch, _) => {
-                for frame in batch.frames.values() {
-                    self.add_telemetry(frame.get_trace_id(), stage_name, telemetry_type);
-                }
-            }
-        }
-    }
-
-    pub fn retrieve_telemetry(&mut self) -> Vec<VideoPipelineTelemetryMessage> {
-        self.telemetry.drain(..).collect()
     }
 
     pub fn get_stage(&self, name: &str) -> Option<&VideoPipelineStage> {
@@ -258,7 +112,6 @@ impl VideoPipeline {
         }
 
         let id_counter = self.id_counter + 1;
-        self.add_telemetry(frame.get_trace_id(), stage_name, Add);
         let frame_payload = VideoPipelinePayload::Frame(frame, Vec::new());
         if let Some(stage) = self.get_stage_mut(stage_name) {
             stage.payload.insert(id_counter, frame_payload);
@@ -278,7 +131,6 @@ impl VideoPipeline {
         }
         let id_counter = self.id_counter + 1;
         let batch_payload = VideoPipelinePayload::Batch(batch, Vec::new());
-        self.build_telemetry(stage_name, Add, &batch_payload);
         if let Some(stage) = self.get_stage_mut(stage_name) {
             stage.payload.insert(id_counter, batch_payload);
         } else {
@@ -291,9 +143,7 @@ impl VideoPipeline {
     pub fn delete(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
         if let Some(stage) = self.get_stage_mut(stage_name) {
             let removed = stage.payload.remove(&id);
-            if let Some(removed) = removed {
-                self.build_telemetry(stage_name, Delete, &removed);
-            } else {
+            if removed.is_none() {
                 anyhow::bail!("Object not found in stage")
             }
         } else {
@@ -426,10 +276,6 @@ impl VideoPipeline {
             }
         }
 
-        for o in removed_objects.iter() {
-            self.build_telemetry(dest_stage_name, Move, &o.1);
-        }
-
         let dest_stage = self.get_stage_mut(dest_stage_name).unwrap();
         for o in removed_objects {
             dest_stage.payload.insert(o.0, o.1);
@@ -484,7 +330,6 @@ impl VideoPipeline {
         }
 
         let payload = VideoPipelinePayload::Batch(batch, batch_updates);
-        self.build_telemetry(dest_stage_name, Move, &payload);
         let dest_stage = self.get_stage_mut(dest_stage_name).unwrap();
         dest_stage.payload.insert(batch_id, payload);
         self.id_counter = batch_id;
@@ -528,7 +373,6 @@ impl VideoPipeline {
         };
 
         let payload = VideoPipelinePayload::Batch(batch, Vec::new());
-        self.build_telemetry(dest_stage, Move, &payload);
 
         let batch = match payload {
             VideoPipelinePayload::Batch(batch, _) => batch,

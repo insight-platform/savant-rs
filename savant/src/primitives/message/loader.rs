@@ -1,5 +1,5 @@
 use crate::primitives::message::video::frame::VideoFrame;
-use crate::primitives::message::{MessageHeader, NativeMessageTypeConsts, TRACE_ID_LEN};
+use crate::primitives::message::{MessageHeader, NativeMessageTypeConsts};
 use crate::primitives::{
     EndOfStream, Message, Telemetry, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate,
 };
@@ -82,9 +82,6 @@ pub fn load_message(bytes: &[u8]) -> Message {
                 Ok(f) => {
                     let f = VideoFrameProxy::from_inner(f);
                     f.restore_from_snapshot();
-                    if f.get_trace_id() == [0; TRACE_ID_LEN] {
-                        f.set_trace_id(header.trace_id);
-                    }
                     Message::video_frame(f)
                 }
                 Err(e) => Message::unknown(format!("{:?}", e)),
