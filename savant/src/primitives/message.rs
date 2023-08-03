@@ -21,7 +21,7 @@ use std::collections::HashMap;
 #[archive(check_bytes)]
 pub enum MessageEnvelope {
     EndOfStream(EndOfStream),
-    VideoFrame(VideoFrame),
+    VideoFrame(Box<VideoFrame>),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
     Telemetry(Telemetry),
@@ -36,6 +36,12 @@ pub struct MessageMeta {
     pub(crate) lib_version: [u8; VERSION_LEN],
     pub(crate) routing_labels: Vec<String>,
     pub(crate) otlp_span_context: HashMap<String, String>,
+}
+
+impl Default for MessageMeta {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MessageMeta {
@@ -64,13 +70,12 @@ impl Message {
         }
     }
 
-    pub fn telemetry(t: Telemetry) -> Self {
-        let mut telemetry_copy = t.clone();
-        telemetry_copy.exclude_temporary_attributes();
+    pub fn telemetry(mut t: Telemetry) -> Self {
+        t.exclude_temporary_attributes();
 
         Self {
             meta: MessageMeta::new(),
-            payload: MessageEnvelope::Telemetry(telemetry_copy),
+            payload: MessageEnvelope::Telemetry(t),
         }
     }
 
@@ -92,11 +97,11 @@ impl Message {
             });
         frame_copy.make_snapshot();
 
-        let inner_unboxed = frame_copy.inner.read().clone();
+        let inner = frame_copy.inner.read().clone();
 
         Self {
             meta: MessageMeta::new(),
-            payload: MessageEnvelope::VideoFrame(*inner_unboxed),
+            payload: MessageEnvelope::VideoFrame(inner),
         }
     }
 
@@ -391,7 +396,7 @@ impl Message {
     ///
     pub fn as_video_frame(&self) -> Option<VideoFrameProxy> {
         match &self.payload {
-            MessageEnvelope::VideoFrame(frame) => Some(VideoFrameProxy::from_inner(frame.clone())),
+            MessageEnvelope::VideoFrame(frame) => Some(VideoFrameProxy::from_inner(*frame.clone())),
             _ => None,
         }
     }
