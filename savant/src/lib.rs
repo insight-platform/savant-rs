@@ -11,6 +11,7 @@ pub mod test;
 pub mod utils;
 
 use lazy_static::lazy_static;
+use opentelemetry::global;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
@@ -19,6 +20,23 @@ use primitives::message::video::query::py::video_object_query;
 
 lazy_static! {
     static ref VERSION_CRC32: u32 = crc32fast::hash(env!("CARGO_PKG_VERSION").as_bytes());
+}
+
+#[pyfunction]
+fn init_jaeger_tracer(service_name: String, endpoint: String) {
+    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+    opentelemetry_jaeger::new_agent_pipeline()
+        .with_endpoint(endpoint)
+        .with_service_name(service_name)
+        .with_trace_config(opentelemetry::sdk::trace::config().with_resource(
+            opentelemetry::sdk::Resource::new(vec![
+                opentelemetry::KeyValue::new("service.name", "savant"), // this will not override the trace-udp-demo
+                opentelemetry::KeyValue::new("service.namespace", "savant-rs"),
+                opentelemetry::KeyValue::new("exporter", "jaeger"),
+            ]),
+        ))
+        .install_simple()
+        .expect("Failed to install Jaeger tracer globally");
 }
 
 /// Returns the version of the package set in Cargo.toml
@@ -49,6 +67,7 @@ pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
 
+    m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(version_crc32, m)?)?;
 

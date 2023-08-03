@@ -1,6 +1,7 @@
 use super::VideoPipeline;
 use crate::primitives::message::video::pipeline::VideoPipelineStagePayloadType;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
+use crate::utils::propagation_context::PropagationContext;
 use crate::utils::python::release_gil;
 use lazy_static::lazy_static;
 use parking_lot::{const_mutex, Mutex};
@@ -154,38 +155,6 @@ fn add_frame_gil(stage_name: String, frame: VideoFrameProxy) -> PyResult<i64> {
     })
 }
 
-/// Adds a batch to the stage.
-///
-/// GIL management: the function is GIL-free.
-///
-/// Parameters
-/// ----------
-/// stage_name : str
-///   The name of the stage. Must be a stage of type batches.
-/// batch : :py:class:`savant_rs.primitives.VideoFrameBatch`
-///   The batch to add.
-///
-/// Returns
-/// -------
-/// int
-///   The id of the batch.
-///
-/// Raises
-/// ------
-/// ValueError
-///   If the stage does not exist or is not of type batches.
-///
-#[pyfunction]
-#[pyo3(name = "add_batch")]
-fn add_batch_gil(stage_name: String, batch: VideoFrameBatch) -> PyResult<i64> {
-    release_gil(|| {
-        PIPELINE
-            .lock()
-            .add_batch(&stage_name, batch)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    })
-}
-
 /// Deletes a frame or a batch from the stage.
 ///
 /// GIL management: the function is GIL-free.
@@ -266,7 +235,10 @@ fn get_stage_queue_len_gil(stage_name: String) -> PyResult<usize> {
 ///
 #[pyfunction]
 #[pyo3(name = "get_independent_frame")]
-fn get_independent_frame_gil(stage: String, frame_id: i64) -> PyResult<VideoFrameProxy> {
+fn get_independent_frame_gil(
+    stage: String,
+    frame_id: i64,
+) -> PyResult<(VideoFrameProxy, PropagationContext)> {
     release_gil(|| {
         PIPELINE
             .lock()
@@ -300,7 +272,11 @@ fn get_independent_frame_gil(stage: String, frame_id: i64) -> PyResult<VideoFram
 ///
 #[pyfunction]
 #[pyo3(name = "get_batched_frame")]
-fn get_batched_frame_gil(stage: String, batch_id: i64, frame_id: i64) -> PyResult<VideoFrameProxy> {
+fn get_batched_frame_gil(
+    stage: String,
+    batch_id: i64,
+    frame_id: i64,
+) -> PyResult<(VideoFrameProxy, PropagationContext)> {
     release_gil(|| {
         PIPELINE
             .lock()
@@ -332,7 +308,10 @@ fn get_batched_frame_gil(stage: String, batch_id: i64, frame_id: i64) -> PyResul
 ///
 #[pyfunction]
 #[pyo3(name = "get_batch")]
-fn get_batch_gil(stage: String, batch_id: i64) -> PyResult<VideoFrameBatch> {
+fn get_batch_gil(
+    stage: String,
+    batch_id: i64,
+) -> PyResult<(VideoFrameBatch, HashMap<i64, PropagationContext>)> {
     release_gil(|| {
         PIPELINE
             .lock()
@@ -492,7 +471,6 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(add_frame_update_gil, m)?)?;
     m.add_function(wrap_pyfunction!(add_batched_frame_update_gil, m)?)?;
     m.add_function(wrap_pyfunction!(add_frame_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(add_batch_gil, m)?)?;
     m.add_function(wrap_pyfunction!(delete_gil, m)?)?;
     m.add_function(wrap_pyfunction!(get_stage_queue_len_gil, m)?)?;
     m.add_function(wrap_pyfunction!(get_independent_frame_gil, m)?)?;

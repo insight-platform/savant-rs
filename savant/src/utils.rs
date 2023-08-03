@@ -5,6 +5,7 @@ pub mod eval_resolvers;
 pub mod fps_meter;
 pub mod np;
 pub mod pluggable_udf_api;
+pub mod propagation_context;
 pub mod python;
 pub mod symbol_mapper;
 
