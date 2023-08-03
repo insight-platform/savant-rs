@@ -481,7 +481,7 @@ impl Attributive for Box<VideoFrame> {
 }
 
 impl VideoFrame {
-    fn preserve(&mut self) {
+    pub(crate) fn preserve(&mut self) {
         self.offline_objects = self
             .resident_objects
             .iter()
@@ -489,7 +489,7 @@ impl VideoFrame {
             .collect();
     }
 
-    fn restore(&mut self) {
+    pub(crate) fn restore(&mut self) {
         self.resident_objects = mem::take(&mut self.offline_objects)
             .into_iter()
             .map(|(id, o)| (id, Arc::new(RwLock::new(o))))
@@ -1098,7 +1098,7 @@ impl VideoFrameProxy {
     }
 
     pub fn to_message(&self) -> Message {
-        Message::video_frame(self.clone())
+        Message::video_frame(self)
     }
 
     #[getter]
