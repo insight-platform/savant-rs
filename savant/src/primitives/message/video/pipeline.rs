@@ -1,12 +1,13 @@
-pub mod pipeline_py;
-
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
-use crate::utils::propagation_context::PropagationContext;
-use opentelemetry::global::{BoxedSpan, BoxedTracer};
+use crate::utils::get_tracer;
+use crate::utils::otlp::PropagatedContext;
+use opentelemetry::global::BoxedSpan;
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, ContextGuard};
 use pyo3::prelude::*;
 use std::collections::HashMap;
+
+const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 
 #[derive(Debug, Default)]
 pub struct VideoPipelineStage {
@@ -36,22 +37,28 @@ pub struct VideoPipeline {
     pub root_spans: HashMap<i64, Context>,
     pub stages: HashMap<String, VideoPipelineStage>,
     pub stage_types: HashMap<String, VideoPipelineStagePayloadType>,
+    pub root_span_name: Option<String>,
 }
 
 impl VideoPipeline {
-    fn get_tracer() -> BoxedTracer {
-        global::tracer("video_pipeline")
+    pub fn set_root_span_name(&mut self, name: String) {
+        self.root_span_name = Some(name);
+    }
+
+    pub fn get_root_span_name(&self) -> String {
+        self.root_span_name
+            .clone()
+            .unwrap_or_else(|| DEFAULT_ROOT_SPAN_NAME.to_owned())
     }
 
     fn get_stage_span(&self, id: i64, span_name: String) -> Context {
         let ctx = self.root_spans.get(&id).unwrap();
-        let span = Self::get_tracer().build_with_context(SpanBuilder::from_name(span_name), ctx);
+        let span = get_tracer().build_with_context(SpanBuilder::from_name(span_name), ctx);
         Context::current_with_span(span)
     }
 
     fn get_child_span(span_name: String, parent_ctx: &Context) -> ContextGuard {
-        let span =
-            Self::get_tracer().build_with_context(SpanBuilder::from_name(span_name), parent_ctx);
+        let span = get_tracer().build_with_context(SpanBuilder::from_name(span_name), parent_ctx);
         let ctx = Context::current_with_span(span);
         ctx.attach()
     }
@@ -131,18 +138,19 @@ impl VideoPipeline {
 
     pub fn add_frame(&mut self, stage_name: &str, frame: VideoFrameProxy) -> anyhow::Result<i64> {
         let tracer = global::tracer("video-pipeline");
-        let span = tracer.start("video-pipeline");
+        let span = tracer.build(SpanBuilder::from_name(self.get_root_span_name()));
         self.add_frame_with_otlp_span(stage_name, frame, span)
     }
 
-    pub fn add_frame_with_otlp_external_parent_ctx(
+    pub fn add_frame_with_remote_telemetry(
         &mut self,
         stage_name: &str,
         frame: VideoFrameProxy,
-        external_parent_ctx: PropagationContext,
+        external_parent_ctx: PropagatedContext,
     ) -> anyhow::Result<i64> {
         let parent_ctx = external_parent_ctx.extract();
-        let span = Self::get_tracer().start_with_context("video-pipeline", &parent_ctx);
+        let span =
+            get_tracer().build_with_context(SpanBuilder::from_name("video-pipeline"), &parent_ctx);
         self.add_frame_with_otlp_span(stage_name, frame, span)
     }
 
@@ -175,7 +183,7 @@ impl VideoPipeline {
         Ok(self.id_counter)
     }
 
-    pub fn delete(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
+    pub fn delete(&mut self, stage_name: &str, id: i64) -> anyhow::Result<HashMap<i64, Context>> {
         if let Some(stage) = self.get_stage_mut(stage_name) {
             let removed = stage.payload.remove(&id);
             if removed.is_none() {
@@ -185,20 +193,20 @@ impl VideoPipeline {
                 VideoPipelinePayload::Frame(_, _, ctx) => {
                     ctx.span().end();
                     let root_ctx = self.root_spans.remove(&id).unwrap();
-                    root_ctx.span().end()
+                    Ok(HashMap::from([(id, root_ctx)]))
                 }
-                VideoPipelinePayload::Batch(_, _, spans) => {
-                    spans.into_iter().for_each(|(id, ctx)| {
+                VideoPipelinePayload::Batch(_, _, ctxts) => Ok(ctxts
+                    .into_iter()
+                    .map(|(id, ctx)| {
                         ctx.span().end();
                         let root_ctx = self.root_spans.remove(&id).unwrap();
-                        root_ctx.span().end();
-                    });
-                }
+                        (id, root_ctx)
+                    })
+                    .collect()),
             }
         } else {
             anyhow::bail!("Stage not found")
         }
-        Ok(())
     }
 
     pub fn get_stage_queue_len(&self, stage: &str) -> anyhow::Result<usize> {
@@ -213,12 +221,12 @@ impl VideoPipeline {
         &self,
         stage: &str,
         frame_id: i64,
-    ) -> anyhow::Result<(VideoFrameProxy, PropagationContext)> {
+    ) -> anyhow::Result<(VideoFrameProxy, PropagatedContext)> {
         if let Some(stage) = self.get_stage(stage) {
             if let Some(payload) = stage.payload.get(&frame_id) {
                 match payload {
                     VideoPipelinePayload::Frame(frame, _, ctx) => {
-                        let pc = PropagationContext::inject(ctx);
+                        let pc = PropagatedContext::inject(ctx);
                         Ok((frame.clone(), pc))
                     }
                     _ => anyhow::bail!("Payload must be a frame"),
@@ -236,14 +244,14 @@ impl VideoPipeline {
         stage: &str,
         batch_id: i64,
         frame_id: i64,
-    ) -> anyhow::Result<(VideoFrameProxy, PropagationContext)> {
+    ) -> anyhow::Result<(VideoFrameProxy, PropagatedContext)> {
         if let Some(stage) = self.get_stage(stage) {
             if let Some(payload) = stage.payload.get(&batch_id) {
                 match payload {
                     VideoPipelinePayload::Batch(batch, _, ctxts) => {
                         if let Some(frame) = batch.get(frame_id) {
                             let ctx = ctxts.get(&frame_id).unwrap();
-                            Ok((frame, PropagationContext::inject(ctx)))
+                            Ok((frame, PropagatedContext::inject(ctx)))
                         } else {
                             anyhow::bail!("Frame not found in batch")
                         }
@@ -262,14 +270,14 @@ impl VideoPipeline {
         &self,
         stage: &str,
         batch_id: i64,
-    ) -> anyhow::Result<(VideoFrameBatch, HashMap<i64, PropagationContext>)> {
+    ) -> anyhow::Result<(VideoFrameBatch, HashMap<i64, PropagatedContext>)> {
         if let Some(stage) = self.get_stage(stage) {
             if let Some(payload) = stage.payload.get(&batch_id) {
                 match payload {
                     VideoPipelinePayload::Batch(batch, _, ctxts) => {
                         let mut ctxs = HashMap::new();
                         for (frame_id, ctx) in ctxts.iter() {
-                            ctxs.insert(*frame_id, PropagationContext::inject(ctx));
+                            ctxs.insert(*frame_id, PropagatedContext::inject(ctx));
                         }
                         Ok((batch.clone(), ctxs))
                     }

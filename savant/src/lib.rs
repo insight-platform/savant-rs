@@ -73,7 +73,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(
-        primitives::message::video::pipeline::pipeline_py::pipeline
+        primitives::message::video::pipeline_py::pipeline
     ))?;
     m.add_wrapped(wrap_pymodule!(primitives::geometry))?;
     m.add_wrapped(wrap_pymodule!(primitives::draw_spec))?;

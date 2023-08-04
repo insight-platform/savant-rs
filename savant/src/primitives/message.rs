@@ -11,7 +11,7 @@ use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::video::query::MatchQuery;
 use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
-use crate::utils::propagation_context::PropagationContext;
+use crate::utils::otlp::PropagatedContext;
 use crate::utils::python::release_gil;
 use crate::version_to_bytes_le;
 use pyo3::{pyclass, pymethods, Py, PyAny};
@@ -35,7 +35,7 @@ pub const VERSION_LEN: usize = 4;
 pub struct MessageMeta {
     pub(crate) lib_version: [u8; VERSION_LEN],
     pub(crate) routing_labels: Vec<String>,
-    pub(crate) otlp_span_context: PropagationContext,
+    pub(crate) otlp_span_context: PropagatedContext,
 }
 
 impl Default for MessageMeta {
@@ -49,7 +49,7 @@ impl MessageMeta {
         Self {
             lib_version: version_to_bytes_le(),
             routing_labels: Vec::default(),
-            otlp_span_context: PropagationContext::default(),
+            otlp_span_context: PropagatedContext::default(),
         }
     }
 }
@@ -262,12 +262,12 @@ impl Message {
     }
 
     #[setter]
-    fn set_otlp_span_context(&mut self, context: PropagationContext) {
+    fn set_otlp_span_context(&mut self, context: PropagatedContext) {
         self.meta.otlp_span_context = context;
     }
 
     #[getter]
-    fn get_otlp_span_context(&self) -> PropagationContext {
+    fn get_otlp_span_context(&self) -> PropagatedContext {
         self.meta.otlp_span_context.clone()
     }
 
