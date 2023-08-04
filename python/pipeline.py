@@ -56,37 +56,33 @@ if __name__ == "__main__":
     assert frame_map == {"test1": frame_id1, "test2": frame_id2}
 
     frame1, ctxt1 = p.get_independent_frame("output", frame_id1)
-    s = ctxt1.nested_span("print")
-    print("ctx1", ctxt1.as_dict())
-    del s
+    with ctxt1.nested_span("print"):
+        print("ctx1", ctxt1.as_dict())
 
     frame2, ctxt2 = p.get_independent_frame("output", frame_id2)
     print("ctx2", ctxt2.as_dict())
 
-    root_spans1 = p.delete("output", frame_id1)
-    print("root_spans 1", root_spans1)
-    root_span1_propagated = root_spans1[1].propagate()
+    root_spans_1 = p.delete("output", frame_id1)
+    root_spans_1 = root_spans_1[1]
+    print("root_spans 1", root_spans_1)
 
-    root_spans2 = p.delete("output", frame_id2)
-    print("root_spans 2", root_spans2)
+    root_spans_2 = p.delete("output", frame_id2)
+    root_spans_2 = root_spans_2[2]
+    print("root_spans 2", root_spans_2)
 
-    ns = root_spans1[1].nested_span("queue_len")
+    with root_spans_1.nested_span("queue_len") as ns:
+        assert p.get_stage_queue_len("input") == 0
+        assert p.get_stage_queue_len("proc1") == 0
+        assert p.get_stage_queue_len("proc2") == 0
+        assert p.get_stage_queue_len("output") == 0
+        time.sleep(0.1)
+        with ns.nested_span("sleep") as s:
+            s.set_float_attribute("seconds", 0.01)
+            time.sleep(0.01)
 
-    assert p.get_stage_queue_len("input") == 0
-    assert p.get_stage_queue_len("proc1") == 0
-    assert p.get_stage_queue_len("proc2") == 0
-    assert p.get_stage_queue_len("output") == 0
-    sleep_span = ns.nested_span("sleep", dict(seconds="0.01"))
-    time.sleep(0.01)
-    del sleep_span
-
-    del ns
-
-    time.sleep(0.1)
-
-    ns = root_span1_propagated.nested_span("sleep-1", dict(seconds="1"))
-    time.sleep(0.2)
-    del ns
+    with root_spans_1.nested_span("sleep-1") as s:
+        s.set_float_attribute("seconds", 0.2)
+        time.sleep(0.2)
 
     time.sleep(0.3)
-    del root_spans1
+    del root_spans_1

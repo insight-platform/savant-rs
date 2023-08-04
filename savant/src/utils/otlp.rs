@@ -1,7 +1,7 @@
 use crate::utils::get_tracer;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
-use opentelemetry::{global, Context, KeyValue};
+use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
@@ -12,15 +12,9 @@ pub struct OTLPSpan(pub(crate) Context);
 
 #[pymethods]
 impl OTLPSpan {
-    #[pyo3(signature=(name, attrs=None))]
-    fn nested_span(&self, name: String, attrs: Option<HashMap<String, String>>) -> OTLPSpan {
+    fn nested_span(&self, name: String) -> OTLPSpan {
         let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &self.0);
         let ctx = Context::current_with_span(span);
-        if let Some(attrs) = attrs {
-            for (k, v) in attrs {
-                ctx.span().set_attribute(KeyValue::new(k, v));
-            }
-        }
         OTLPSpan(ctx)
     }
 
@@ -41,6 +35,71 @@ impl OTLPSpan {
     fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    fn __enter__<'p>(slf: PyRef<'p, Self>, _py: Python<'p>) -> PyResult<PyRef<'p, Self>> {
+        Ok(slf)
+    }
+
+    fn trace_id(&self) -> String {
+        format!("{:?}", self.0.span().span_context().trace_id())
+    }
+
+    fn span_id(&self) -> String {
+        format!("{:?}", self.0.span().span_context().span_id())
+    }
+
+    fn set_string_attribute(&self, key: String, value: String) {
+        self.0.span().set_attribute(KeyValue::new(key, value));
+    }
+
+    fn set_string_vec_attribute(&self, key: String, value: Vec<String>) {
+        self.0.span().set_attribute(KeyValue::new(
+            key,
+            Value::Array(Array::String(
+                value.into_iter().map(StringValue::from).collect(),
+            )),
+        ));
+    }
+
+    fn set_bool_attribute(&self, key: String, value: bool) {
+        self.0.span().set_attribute(KeyValue::new(key, value));
+    }
+
+    fn set_bool_vec_attribute(&self, key: String, value: Vec<bool>) {
+        self.0
+            .span()
+            .set_attribute(KeyValue::new(key, Value::Array(Array::Bool(value))));
+    }
+
+    fn set_int_attribute(&self, key: String, value: i64) {
+        self.0.span().set_attribute(KeyValue::new(key, value));
+    }
+
+    fn set_int_vec_attribute(&self, key: String, value: Vec<i64>) {
+        self.0
+            .span()
+            .set_attribute(KeyValue::new(key, Value::Array(Array::I64(value))));
+    }
+
+    fn set_float_attribute(&self, key: String, value: f64) {
+        self.0.span().set_attribute(KeyValue::new(key, value));
+    }
+
+    fn set_float_vec_attribute(&self, key: String, value: Vec<f64>) {
+        self.0
+            .span()
+            .set_attribute(KeyValue::new(key, Value::Array(Array::F64(value))));
+    }
+
+    fn __exit__(
+        &self,
+        _exc_type: Option<&PyAny>,
+        _exc_value: Option<&PyAny>,
+        _traceback: Option<&PyAny>,
+    ) -> PyResult<()> {
+        self.0.span().end();
+        Ok(())
+    }
 }
 
 #[pyclass]
@@ -50,16 +109,10 @@ pub struct PropagatedContext(HashMap<String, String>);
 
 #[pymethods]
 impl PropagatedContext {
-    #[pyo3(signature=(name, attrs=None))]
-    fn nested_span(&self, name: String, attrs: Option<HashMap<String, String>>) -> OTLPSpan {
+    fn nested_span(&self, name: String) -> OTLPSpan {
         let context = self.extract();
         let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &context);
         let ctx = Context::current_with_span(span);
-        if let Some(attrs) = attrs {
-            for (k, v) in attrs {
-                ctx.span().set_attribute(KeyValue::new(k, v));
-            }
-        }
         OTLPSpan(ctx)
     }
 
