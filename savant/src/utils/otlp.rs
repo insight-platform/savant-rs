@@ -3,7 +3,9 @@ use crate::utils::python::release_gil;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
+use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use pyo3::types::PyTraceback;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -219,10 +221,40 @@ impl OTLPSpan {
 
     fn __exit__(
         &self,
-        _exc_type: Option<&PyAny>,
-        _exc_value: Option<&PyAny>,
-        _traceback: Option<&PyAny>,
+        exc_type: Option<&PyAny>,
+        exc_value: Option<&PyAny>,
+        traceback: Option<&PyAny>,
     ) -> PyResult<()> {
+        Python::with_gil(|py| {
+            if let Some(e) = exc_type {
+                let mut attrs = HashMap::new();
+
+                self.0.span().set_status(Status::Error {
+                    description: "python.exception".into(),
+                });
+
+                attrs.insert("python.exception.type".to_string(), format!("{:?}", e));
+
+                if let Some(v) = exc_value {
+                    if let Ok(e) = PyAny::downcast::<PyException>(v) {
+                        attrs.insert("python.exception.value".to_string(), e.to_string());
+                    }
+                }
+
+                if let Some(t) = traceback {
+                    let traceback = PyAny::downcast::<PyTraceback>(t).unwrap();
+                    if let Ok(formatted) = traceback.format() {
+                        attrs.insert("python.exception.traceback".to_string(), formatted);
+                    }
+                }
+
+                attrs.insert("python.version".into(), py.version().to_string());
+
+                self.add_event("python.exception".to_string(), attrs);
+            } else {
+                self.0.span().set_status(Status::Ok);
+            }
+        });
         release_gil(|| self.0.span().end());
         Ok(())
     }

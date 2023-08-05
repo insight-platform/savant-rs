@@ -20,10 +20,10 @@ if __name__ == "__main__":
     assert p.get_stage_type("input") == VideoPipelineStagePayloadType.Frame
     assert p.get_stage_type("proc1") == VideoPipelineStagePayloadType.Batch
 
-    external_span = OTLPSpan("new-telemetry")
-    print(external_span.trace_id())
-    external_span_propagation = external_span.propagate()
-    del external_span
+    s = OTLPSpan("new-telemetry")
+    print(s.trace_id())
+    external_span_propagation = s.propagate()
+    del s
 
     frame1 = gen_frame()
     frame1.source_id = "test1"
@@ -83,8 +83,8 @@ if __name__ == "__main__":
         assert p.get_stage_queue_len("proc2") == 0
         assert p.get_stage_queue_len("output") == 0
         time.sleep(0.1)
-        with ns.nested_span("sleep") as external_span:
-            external_span.set_float_attribute("seconds", 0.01)
+        with ns.nested_span("sleep") as s:
+            s.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
 
     def f(span):
@@ -113,12 +113,15 @@ if __name__ == "__main__":
     thr2.join()
     print("time", time.time() - t)
 
-    with root_spans_1.nested_span("sleep-1") as external_span:
-        external_span.set_float_attribute("seconds", 0.2)
-        time.sleep(0.2)
+    try:
+        with root_spans_1.nested_span("sleep-1") as s:
+            s.set_float_attribute("seconds", 0.2)
+            time.sleep(0.2)
+            raise Exception("test")
+    except Exception as e:
+        print("exception", e)
 
     time.sleep(0.3)
-
 
 
     del root_spans_1
