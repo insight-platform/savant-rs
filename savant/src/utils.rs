@@ -73,8 +73,6 @@ pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(register_model_objects_gil, m)?)?;
     m.add_function(wrap_pyfunction!(validate_base_key_gil, m)?)?;
 
-    m.add_class::<PropagatedContext>()?;
-    m.add_class::<OTLPSpan>()?;
     m.add_class::<RegistrationPolicy>()?;
     m.add_class::<SymbolMapper>()?;
 
@@ -137,6 +135,8 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
+    m.add_class::<PropagatedContext>()?;
+    m.add_class::<OTLPSpan>()?;
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
     m.add_class::<VideoObjectBBoxType>()?;

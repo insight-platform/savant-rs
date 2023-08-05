@@ -1,6 +1,7 @@
 use crate::utils::get_tracer;
+use crate::utils::python::release_gil;
 use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
+use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
@@ -10,16 +11,34 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct OTLPSpan(pub(crate) Context);
 
+impl OTLPSpan {
+    fn build_attributes(attributes: HashMap<String, String>) -> Vec<KeyValue> {
+        attributes
+            .into_iter()
+            .map(|(k, v)| KeyValue::new(k, v))
+            .collect()
+    }
+}
+
 #[pymethods]
 impl OTLPSpan {
-    fn nested_span(&self, name: String) -> OTLPSpan {
-        let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &self.0);
+    #[new]
+    fn new(name: String) -> OTLPSpan {
+        let span = get_tracer().build(SpanBuilder::from_name(name));
         let ctx = Context::current_with_span(span);
         OTLPSpan(ctx)
     }
 
+    fn nested_span(&self, name: String) -> OTLPSpan {
+        release_gil(|| {
+            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &self.0);
+            let ctx = Context::current_with_span(span);
+            OTLPSpan(ctx)
+        })
+    }
+
     fn propagate(&self) -> PropagatedContext {
-        PropagatedContext::inject(&self.0)
+        release_gil(|| PropagatedContext::inject(&self.0))
     }
 
     #[classattr]
@@ -91,13 +110,36 @@ impl OTLPSpan {
             .set_attribute(KeyValue::new(key, Value::Array(Array::F64(value))));
     }
 
+    #[pyo3(signature = (name, attributes = HashMap::default()))]
+    fn add_event(&self, name: String, attributes: HashMap<String, String>) {
+        release_gil(|| {
+            self.0
+                .span()
+                .add_event(name, OTLPSpan::build_attributes(attributes))
+        });
+    }
+
+    fn set_status_error(&self, message: String) {
+        self.0.span().set_status(Status::Error {
+            description: message.into(),
+        });
+    }
+
+    fn set_status_ok(&self) {
+        self.0.span().set_status(Status::Ok);
+    }
+
+    fn set_status_unset(&self) {
+        self.0.span().set_status(Status::Unset);
+    }
+
     fn __exit__(
         &self,
         _exc_type: Option<&PyAny>,
         _exc_value: Option<&PyAny>,
         _traceback: Option<&PyAny>,
     ) -> PyResult<()> {
-        self.0.span().end();
+        release_gil(|| self.0.span().end());
         Ok(())
     }
 }
@@ -110,10 +152,12 @@ pub struct PropagatedContext(HashMap<String, String>);
 #[pymethods]
 impl PropagatedContext {
     fn nested_span(&self, name: String) -> OTLPSpan {
-        let context = self.extract();
-        let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &context);
-        let ctx = Context::current_with_span(span);
-        OTLPSpan(ctx)
+        release_gil(|| {
+            let context = self.extract();
+            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &context);
+            let ctx = Context::current_with_span(span);
+            OTLPSpan(ctx)
+        })
     }
 
     fn as_dict(&self) -> HashMap<String, String> {
