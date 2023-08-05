@@ -89,6 +89,7 @@ if __name__ == "__main__":
             s.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
 
+
     def f(span):
         with span.nested_span("func") as s:
             s.set_float_attribute("seconds", 0.1)
@@ -104,6 +105,7 @@ if __name__ == "__main__":
                     s1.set_string_attribute("res", str(res))
                     s1.add_event("End computation", {"res": str(res)})
                     time.sleep(0.1)
+
 
     thr1 = Thread(target=f, args=(root_spans_1,))
     thr2 = Thread(target=f, args=(root_spans_1,))
@@ -131,7 +133,4 @@ if __name__ == "__main__":
 
     time.sleep(0.3)
 
-
     del root_spans_1
-
-
