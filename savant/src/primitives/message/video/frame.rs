@@ -11,7 +11,6 @@ use crate::primitives::message::video::query::match_query::{
     IntExpression, MatchQuery, StringExpression,
 };
 use crate::primitives::message::video::query::py::MatchQueryProxy;
-use crate::primitives::message::TRACE_ID_LEN;
 use crate::primitives::pyobject::PyObjectMeta;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
@@ -398,9 +397,6 @@ pub struct VideoFrame {
     #[with(Skip)]
     #[builder(default)]
     pub(crate) pyobjects: HashMap<(String, String), PyObject>,
-    #[with(Skip)]
-    #[builder(default)]
-    pub(crate) trace_id: [u8; TRACE_ID_LEN],
 }
 
 impl Default for VideoFrame {
@@ -424,7 +420,6 @@ impl Default for VideoFrame {
             resident_objects: HashMap::new(),
             max_object_id: 0,
             pyobjects: HashMap::new(),
-            trace_id: [0; TRACE_ID_LEN],
         }
     }
 }
@@ -486,15 +481,7 @@ impl Attributive for Box<VideoFrame> {
 }
 
 impl VideoFrame {
-    pub(crate) fn set_trace_id(&mut self, trace_id: [u8; TRACE_ID_LEN]) {
-        self.trace_id = trace_id;
-    }
-
-    pub(crate) fn get_trace_id(&self) -> [u8; TRACE_ID_LEN] {
-        self.trace_id
-    }
-
-    fn preserve(&mut self) {
+    pub(crate) fn preserve(&mut self) {
         self.offline_objects = self
             .resident_objects
             .iter()
@@ -502,7 +489,7 @@ impl VideoFrame {
             .collect();
     }
 
-    fn restore(&mut self) {
+    pub(crate) fn restore(&mut self) {
         self.resident_objects = mem::take(&mut self.offline_objects)
             .into_iter()
             .map(|(id, o)| (id, Arc::new(RwLock::new(o))))
@@ -634,16 +621,6 @@ impl VideoFrameProxy {
         for obj in objs {
             obj.transform_geometry(ops);
         }
-    }
-
-    pub fn get_trace_id(&self) -> [u8; TRACE_ID_LEN] {
-        let inner = self.inner.read_recursive();
-        inner.get_trace_id()
-    }
-
-    pub fn set_trace_id(&self, trace_id: [u8; TRACE_ID_LEN]) {
-        let mut inner = self.inner.write();
-        inner.set_trace_id(trace_id);
     }
 
     pub fn deep_copy(&self) -> Self {
@@ -1058,21 +1035,6 @@ impl VideoFrameProxy {
         })
     }
 
-    #[getter]
-    #[pyo3(name = "trace_id")]
-    pub fn get_trace_id_py(&self) -> Vec<u8> {
-        self.get_trace_id().to_vec()
-    }
-
-    #[setter]
-    #[pyo3(name = "trace_id")]
-    pub fn set_trace_id_py(&mut self, trace_id: Vec<u8>) {
-        let mut inner = self.inner.write();
-        let mut trace_id_arr = [0; TRACE_ID_LEN];
-        trace_id_arr.copy_from_slice(&trace_id);
-        inner.set_trace_id(trace_id_arr);
-    }
-
     #[setter]
     pub fn set_parallelized(&mut self, is_parallelized: bool) {
         self.is_parallelized = is_parallelized;
@@ -1136,7 +1098,7 @@ impl VideoFrameProxy {
     }
 
     pub fn to_message(&self) -> Message {
-        Message::video_frame(self.clone())
+        Message::video_frame(self)
     }
 
     #[getter]

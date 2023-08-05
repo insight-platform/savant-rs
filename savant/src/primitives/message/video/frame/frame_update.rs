@@ -508,7 +508,6 @@ mod tests {
         assert!(res.is_ok());
 
         let o = f.access_objects(&MatchQuery::ParentId(IntExpression::EQ(1)));
-        dbg!(&o);
         assert_eq!(o[0].get_parent().unwrap().get_id(), 1);
     }
 }

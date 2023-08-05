@@ -4,10 +4,13 @@ pub mod conversions;
 pub mod eval_resolvers;
 pub mod fps_meter;
 pub mod np;
+pub mod otlp;
 pub mod pluggable_udf_api;
 pub mod python;
 pub mod symbol_mapper;
 
+use opentelemetry::global;
+use opentelemetry::global::BoxedTracer;
 use pyo3::prelude::*;
 
 use crate::primitives::message::loader::{
@@ -33,6 +36,7 @@ use crate::primitives::bbox::transformations::VideoObjectBBoxTransformationProxy
 use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::{Message, VideoObjectBBoxType};
 use crate::utils::byte_buffer::ByteBuffer;
+use crate::utils::otlp::{OTLPSpan, PropagatedContext};
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
@@ -46,6 +50,10 @@ pub use np_ndarray::*;
 #[inline]
 pub fn round_2_digits(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
+}
+
+pub fn get_tracer() -> BoxedTracer {
+    global::tracer("video_pipeline")
 }
 
 #[pymodule]
@@ -127,6 +135,8 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
 
+    m.add_class::<PropagatedContext>()?;
+    m.add_class::<OTLPSpan>()?;
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
     m.add_class::<VideoObjectBBoxType>()?;

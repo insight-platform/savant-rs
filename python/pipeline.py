@@ -1,80 +1,129 @@
-from savant_rs.pipeline import VideoPipelineStagePayloadType, \
-    add_stage, \
-    retrieve_telemetry, \
-    get_stage_type, \
-    add_frame_update, add_batched_frame_update, \
-    add_frame, \
-    delete, \
-    get_independent_frame, \
-    get_batched_frame, get_batch, apply_updates, \
-    move_as_is, move_and_pack_frames, move_and_unpack_batch, get_stage_queue_len
+import time
+from threading import Thread, current_thread
 
-from savant_rs.utils import gen_frame
+from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
+
+from savant_rs.utils import gen_frame, OTLPSpan
 from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
+from savant_rs import init_jaeger_tracer
 
 if __name__ == "__main__":
-    add_stage("input", VideoPipelineStagePayloadType.Frame)
-    add_stage("proc1", VideoPipelineStagePayloadType.Batch)
-    add_stage("proc2", VideoPipelineStagePayloadType.Batch)
-    add_stage("output", VideoPipelineStagePayloadType.Frame)
+    init_jaeger_tracer("demo-pipeline", "localhost:6831")
+    p = VideoPipeline("demo-pipeline")
 
-    telemetry = retrieve_telemetry()  # list(VideoPipelineTelemetryMessage, ...)
-    assert len(telemetry) == 0
+    p.add_stage("input", VideoPipelineStagePayloadType.Frame)
+    p.add_stage("proc1", VideoPipelineStagePayloadType.Batch)
+    p.add_stage("proc2", VideoPipelineStagePayloadType.Batch)
+    p.add_stage("output", VideoPipelineStagePayloadType.Frame)
 
-    assert get_stage_type("input") == VideoPipelineStagePayloadType.Frame
-    assert get_stage_type("proc1") == VideoPipelineStagePayloadType.Batch
+    assert p.get_stage_type("input") == VideoPipelineStagePayloadType.Frame
+    assert p.get_stage_type("proc1") == VideoPipelineStagePayloadType.Batch
 
-    frame = gen_frame()
-    frame.trace_id = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f]
-    frame_id = add_frame("input", frame)
-    assert frame_id == 1
+    s = OTLPSpan("new-telemetry")
+    print(s.trace_id())
+    external_span_propagation = s.propagate()
+    del s
 
-    telemetry = retrieve_telemetry()
-    assert len(telemetry) == 1
-    print(telemetry[0])
+    frame1 = gen_frame()
+    frame1.source_id = "test1"
+    frame_id1 = p.add_frame_with_remote_telemetry("input", frame1, external_span_propagation)
+    assert frame_id1 == 1
+
+    frame2 = gen_frame()
+    frame2.source_id = "test2"
+
+    frame_id2 = p.add_frame("input", frame2)
+    assert frame_id2 == 2
 
     update = VideoFrameUpdate()
 
     update.object_collision_resolution_policy = VideoObjectUpdateCollisionResolutionPolicy.add_foreign_objects()
     update.attribute_collision_resolution_policy = AttributeUpdateCollisionResolutionPolicy.replace_with_foreign()
 
-    add_frame_update("input", frame_id, update)
+    p.add_frame_update("input", frame_id1, update)
 
-    frame = get_independent_frame("input", frame_id)
-    print("Frame trace_id: ", "".join([f"{x:02x}" for x in frame.trace_id]))
+    frame1, ctxt1 = p.get_independent_frame("input", frame_id1)
+    print("ctx1", ctxt1.as_dict())
 
-    batch_id = move_and_pack_frames("input", "proc1", [frame_id])
-    assert batch_id == 2
-    assert get_stage_queue_len("input") == 0
-    assert get_stage_queue_len("proc1") == 1
+    frame2, ctxt2 = p.get_independent_frame("input", frame_id2)
+    print("ctx2", ctxt2.as_dict())
 
-    telemetry = retrieve_telemetry()
-    assert len(telemetry) == 1
-    print(telemetry[0])
+    batch_id = p.move_and_pack_frames("input", "proc1", [frame_id1, frame_id2])
+    assert batch_id == 3
+    assert p.get_stage_queue_len("input") == 0
+    assert p.get_stage_queue_len("proc1") == 1
 
-    apply_updates("proc1", batch_id)
+    p.apply_updates("proc1", batch_id)
 
-    move_as_is("proc1", "proc2", [batch_id])
+    p.move_as_is("proc1", "proc2", [batch_id])
 
-    telemetry = retrieve_telemetry()
-    assert len(telemetry) == 1
-    print(telemetry[0])
+    frame_map = p.move_and_unpack_batch("proc2", "output", batch_id)
+    assert len(frame_map) == 2
+    assert frame_map == {"test1": frame_id1, "test2": frame_id2}
 
-    frame_map = move_and_unpack_batch("proc2", "output", batch_id)
-    assert len(frame_map) == 1
-    assert frame_map == {frame.source_id: frame_id}
+    frame1, ctxt1 = p.get_independent_frame("output", frame_id1)
+    with ctxt1.nested_span("print"):
+        print("ctx1", ctxt1.as_dict())
 
-    telemetry = retrieve_telemetry()
-    assert len(telemetry) == 1
-    print(telemetry[0])
+    frame2, ctxt2 = p.get_independent_frame("output", frame_id2)
+    print("ctx2", ctxt2.as_dict())
 
-    delete("output", frame_id)
+    root_spans_1 = p.delete("output", frame_id1)
+    root_spans_1 = root_spans_1[1]
+    print("root_spans 1", root_spans_1.trace_id())
 
-    telemetry = retrieve_telemetry()
-    assert len(telemetry) == 1
-    print(telemetry[0])
+    root_spans_2 = p.delete("output", frame_id2)
+    root_spans_2 = root_spans_2[2]
+    print("root_spans 2", root_spans_2.trace_id())
 
-    assert get_stage_queue_len("input") == 0 and get_stage_queue_len("proc1") == 0 and get_stage_queue_len(
-        "proc2") == 0 and get_stage_queue_len("output") == 0
+    with root_spans_1.nested_span("queue_len") as ns:
+        assert p.get_stage_queue_len("input") == 0
+        assert p.get_stage_queue_len("proc1") == 0
+        assert p.get_stage_queue_len("proc2") == 0
+        assert p.get_stage_queue_len("output") == 0
+        time.sleep(0.1)
+        with ns.nested_span("sleep") as s:
+            s.set_float_attribute("seconds", 0.01)
+            time.sleep(0.01)
+
+    def f(span):
+        with span.nested_span("func") as s:
+            s.set_float_attribute("seconds", 0.1)
+            s.set_string_attribute("thread_name", current_thread().name)
+            for i in range(10):
+                with s.nested_span("loop") as s1:
+                    s1.set_status_ok()
+                    s1.set_int_attribute("i", i)
+                    s1.add_event("Begin computation", {"res": str(1)})
+                    res = 1
+                    for i in range(1, 1000):
+                        res += i
+                    s1.set_string_attribute("res", str(res))
+                    s1.add_event("End computation", {"res": str(res)})
+                    time.sleep(0.1)
+
+    thr1 = Thread(target=f, args=(root_spans_1,))
+    thr2 = Thread(target=f, args=(root_spans_1,))
+    t = time.time()
+    thr1.start()
+    thr2.start()
+
+    thr1.join()
+    thr2.join()
+    print("time", time.time() - t)
+
+    try:
+        with root_spans_1.nested_span("sleep-1") as s:
+            s.set_float_attribute("seconds", 0.2)
+            time.sleep(0.2)
+            raise Exception("test")
+    except Exception as e:
+        print("exception", e)
+
+    time.sleep(0.3)
+
+
+    del root_spans_1
+
 

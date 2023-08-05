@@ -1,8 +1,5 @@
-use crate::primitives::message::video::frame::VideoFrame;
-use crate::primitives::message::{MessageHeader, NativeMessageTypeConsts, TRACE_ID_LEN};
-use crate::primitives::{
-    EndOfStream, Message, Telemetry, VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate,
-};
+use crate::primitives::message::MessageEnvelope;
+use crate::primitives::Message;
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::python::release_gil;
 use pyo3::pyfunction;
@@ -27,86 +24,32 @@ pub fn load_message_gil(bytes: Vec<u8>) -> Message {
 }
 
 pub fn load_message(bytes: &[u8]) -> Message {
-    let header_size = std::mem::size_of::<MessageHeader>();
-    if bytes.len() < header_size {
-        return Message::unknown(format!(
-            "Message is too short: {} < {}",
-            bytes.len(),
-            header_size
-        ));
+    let m: Result<Message, _> = rkyv::from_bytes(bytes);
+
+    if m.is_err() {
+        return Message::unknown(format!("{:?}", m.err().unwrap()));
     }
-    let final_length = bytes.len().saturating_sub(header_size);
 
-    let header: MessageHeader = *bytemuck::from_bytes::<MessageHeader>(&bytes[final_length..]);
+    let mut m = m.unwrap();
 
-    if header.lib_version != crate::version_to_bytes_le() {
+    if m.meta.lib_version != crate::version_to_bytes_le() {
         return Message::unknown(format!(
             "Message CRC32 version mismatch: {:?} != {:?}. Expected version: {}",
-            header.lib_version,
+            m.meta.lib_version,
             crate::version_crc32(),
             crate::version()
         ));
     }
 
-    let typ = NativeMessageTypeConsts::from(&header.native_message_type);
-
-    let bytes = &bytes[..final_length];
-    let mut m = match typ {
-        NativeMessageTypeConsts::EndOfStream => {
-            let eos: Result<EndOfStream, _> = rkyv::from_bytes(bytes);
-            match eos {
-                Ok(eos) => Message::end_of_stream(eos),
-                Err(e) => Message::unknown(format!("{:?}", e)),
-            }
+    match &mut m.payload {
+        MessageEnvelope::VideoFrame(f) => {
+            f.restore();
         }
-
-        NativeMessageTypeConsts::Telemetry => {
-            let eos: Result<Telemetry, _> = rkyv::from_bytes(bytes);
-            match eos {
-                Ok(t) => Message::telemetry(t),
-                Err(e) => Message::unknown(format!("{:?}", e)),
-            }
+        MessageEnvelope::VideoFrameBatch(b) => {
+            b.prepare_after_load();
         }
-
-        NativeMessageTypeConsts::VideFrameUpdate => {
-            let update: Result<VideoFrameUpdate, _> = rkyv::from_bytes(bytes);
-            match update {
-                Ok(upd) => Message::video_frame_update(upd),
-                Err(e) => Message::unknown(format!("{:?}", e)),
-            }
-        }
-
-        NativeMessageTypeConsts::VideoFrame => {
-            let f: Result<VideoFrame, _> = rkyv::from_bytes(bytes);
-            match f {
-                Ok(f) => {
-                    let f = VideoFrameProxy::from_inner(f);
-                    f.restore_from_snapshot();
-                    if f.get_trace_id() == [0; TRACE_ID_LEN] {
-                        f.set_trace_id(header.trace_id);
-                    }
-                    Message::video_frame(f)
-                }
-                Err(e) => Message::unknown(format!("{:?}", e)),
-            }
-        }
-        NativeMessageTypeConsts::VideoFrameBatch => {
-            let b: Result<VideoFrameBatch, _> = rkyv::from_bytes(bytes);
-            match b {
-                Ok(mut b) => {
-                    b.prepare_after_load();
-                    Message::video_frame_batch(b)
-                }
-                Err(e) => Message::unknown(format!("{:?}", e)),
-            }
-        }
-        NativeMessageTypeConsts::Unknown => {
-            Message::unknown(format!("Unknown message type: {:?}", typ))
-        }
-    };
-
-    m.header.labels = header.labels;
-    m.header.trace_id = header.trace_id;
+        _ => {}
+    }
 
     m
 }

@@ -1,3 +1,4 @@
+use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::video::query::match_query::MatchQuery;
 use crate::primitives::message::video::query::py::MatchQueryProxy;
@@ -8,6 +9,7 @@ use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::sync::Arc;
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
@@ -19,6 +21,19 @@ pub struct VideoFrameBatch {
 }
 
 impl VideoFrameBatch {
+    pub fn deep_copy(&self) -> Self {
+        let frames = self
+            .frames
+            .iter()
+            .map(|(id, frame)| (*id, frame.deep_copy()))
+            .collect();
+
+        Self {
+            offline_frames: Default::default(),
+            frames,
+        }
+    }
+
     pub(crate) fn prepare_after_load(&mut self) {
         let offline_frames = std::mem::take(&mut self.offline_frames);
         for (id, inner) in offline_frames.into_iter() {
@@ -30,10 +45,18 @@ impl VideoFrameBatch {
 
     pub(crate) fn prepare_before_save(&mut self) {
         self.offline_frames.clear();
-        for (id, frame) in self.frames.iter_mut() {
+        for (id, frame) in self.frames.iter() {
+            let frame = frame.deep_copy();
+            frame.exclude_temporary_attributes();
+            frame
+                .access_objects(&MatchQuery::Idle)
+                .iter()
+                .for_each(|o| {
+                    o.exclude_temporary_attributes();
+                });
             frame.make_snapshot();
-            let inner = frame.inner.read_recursive();
-            self.offline_frames.insert(*id, inner.as_ref().clone());
+            let inner = Arc::try_unwrap(frame.inner).unwrap().into_inner(); //..into_inner();
+            self.offline_frames.insert(*id, *inner);
         }
     }
 
