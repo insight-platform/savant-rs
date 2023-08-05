@@ -117,8 +117,14 @@ if __name__ == "__main__":
 
     try:
         with root_spans_1.nested_span("sleep-1") as s:
+            if s.is_debug_active():
+                s.debug("I'm debugging: {}".format(1))
             s.set_float_attribute("seconds", 0.2)
             time.sleep(0.2)
+            if s.is_debug_active():
+                s.debug("I'm debugging: {}".format(2))
+            if s.is_warn_active():
+                s.warn("I'm warning: {}".format(1))
             raise Exception("test")
     except Exception as e:
         print("exception", e)
