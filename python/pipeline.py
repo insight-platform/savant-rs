@@ -1,6 +1,7 @@
 import time
 from threading import Thread, current_thread
 
+import savant_rs
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
 from savant_rs.utils import gen_frame, OTLPSpan
@@ -9,6 +10,7 @@ from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionRes
 from savant_rs import init_jaeger_tracer
 
 if __name__ == "__main__":
+    savant_rs.version()
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
     p = VideoPipeline("demo-pipeline")
 

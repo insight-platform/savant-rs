@@ -12,6 +12,7 @@ pub mod utils;
 
 use lazy_static::lazy_static;
 use opentelemetry::global;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
@@ -65,7 +66,8 @@ pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
 
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
-    pyo3_log::init();
+    pretty_env_logger::try_init()
+        .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
 
     m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
