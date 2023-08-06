@@ -18,6 +18,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
+use crate::logging::{set_log_level, LogLevel};
 use primitives::message::video::query::py::video_object_query;
 
 lazy_static! {
@@ -67,8 +68,14 @@ pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
 
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
+    let log_env_var_name = "RUST_LOG";
+    let log_env_var_level = "trace";
+    if std::env::var(log_env_var_name).is_err() {
+        std::env::set_var(log_env_var_name, log_env_var_level);
+    }
     pretty_env_logger::try_init()
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
+    set_log_level(LogLevel::Error);
 
     m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;

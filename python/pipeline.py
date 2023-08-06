@@ -2,7 +2,7 @@ import time
 from threading import Thread, current_thread
 
 import savant_rs
-from savant_rs.logging import log, LogLevel, set_log_level
+from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
 from savant_rs.utils import gen_frame, TelemetrySpan
@@ -12,7 +12,7 @@ from savant_rs import init_jaeger_tracer
 
 if __name__ == "__main__":
     savant_rs.version()
-    set_log_level(LogLevel.Debug)
+    set_log_level(LogLevel.Info)
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
     p = VideoPipeline("demo-pipeline")
 
@@ -125,14 +125,14 @@ if __name__ == "__main__":
 
     try:
         with root_spans_1.nested_span("sleep-1") as s:
-            if s.is_debug_active():
-                s.debug("I'm debugging: {}".format(1))
+            if log_level_enabled(LogLevel.Debug):
+                log(LogLevel.Debug, __file__, "I'm debugging: {}".format(1))
             s.set_float_attribute("seconds", 0.2)
             time.sleep(0.2)
-            if s.is_debug_active():
-                s.debug("I'm debugging: {}".format(2))
-            if s.is_warn_active():
-                s.warn("I'm warning: {}".format(1))
+            if log_level_enabled(LogLevel.Debug):
+                log(LogLevel.Debug, __file__,"I'm debugging: {}".format(2))
+            if log_level_enabled(LogLevel.Warning):
+                log(LogLevel.Warning, __file__,"I'm warning: {}".format(1))
             raise Exception("test")
     except Exception as e:
         print("exception", e)

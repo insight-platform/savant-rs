@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 #[pyclass]
 #[derive(Debug, Clone, Copy)]
-enum LogLevel {
+pub(crate) enum LogLevel {
     Trace,
     Debug,
     Info,
@@ -20,7 +20,7 @@ impl LogLevel {
         LogLevel::Info
     }
 
-    fn __str__(&self) -> String {
+    pub(crate) fn __str__(&self) -> String {
         format!("{:?}", self)
     }
 
@@ -56,8 +56,8 @@ impl From<log::LevelFilter> for LogLevel {
 }
 
 #[pyfunction]
-fn set_log_level(level: LogLevel) {
-    pretty_env_logger::try_init().unwrap_or_default();
+pub(crate) fn set_log_level(level: LogLevel) {
+    // set environment variable to enable logging
     log::set_max_level(level.into());
 }
 
@@ -67,22 +67,23 @@ fn get_log_level() -> LogLevel {
 }
 
 #[pyfunction]
-fn level_enabled(level: LogLevel) -> bool {
+fn log_level_enabled(level: LogLevel) -> bool {
     log::max_level().ge(&log::LevelFilter::from(level))
 }
 
 #[pyfunction]
 #[pyo3(name = "log")]
 fn log_message(level: LogLevel, target: String, message: String) {
-    match level {
-        LogLevel::Trace => log::trace!(target: &target, "{}", &message),
-        LogLevel::Debug => log::debug!(target: &target, "{}", &message),
-        LogLevel::Info => log::info!(target: &target, "{}", &message),
-        LogLevel::Warning => log::warn!(target: &target, "{}", &message),
-        LogLevel::Error => log::error!(target: &target, "{}", &message),
-        LogLevel::Off => {}
-    }
-    if level_enabled(level) {
+    if log_level_enabled(level) {
+        match level {
+            LogLevel::Trace => log::trace!(target: &target, "{}", &message),
+            LogLevel::Debug => log::debug!(target: &target, "{}", &message),
+            LogLevel::Info => log::info!(target: &target, "{}", &message),
+            LogLevel::Warning => log::warn!(target: &target, "{}", &message),
+            LogLevel::Error => log::error!(target: &target, "{}", &message),
+            LogLevel::Off => {}
+        }
+
         with_current_context(|cx| {
             cx.span().add_event(
                 format!("{}: {}", level.__str__().to_uppercase(), message),
@@ -97,7 +98,7 @@ pub(crate) fn logging(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<LogLevel>()?;
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
-    m.add_function(wrap_pyfunction!(level_enabled, m)?)?;
+    m.add_function(wrap_pyfunction!(log_level_enabled, m)?)?;
     m.add_function(wrap_pyfunction!(log_message, m)?)?;
     Ok(())
 }

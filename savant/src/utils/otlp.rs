@@ -1,6 +1,5 @@
 use crate::utils::get_tracer;
 use crate::utils::python::release_gil;
-use log::{debug, error, info, trace, warn};
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
@@ -340,91 +339,6 @@ impl TelemetrySpan {
     fn set_status_unset(&self) {
         self.ensure_same_thread();
         self.0.span().set_status(Status::Unset);
-    }
-
-    fn is_debug_active(&self) -> bool {
-        let level = log::max_level();
-        level >= log::LevelFilter::Debug
-    }
-
-    fn debug(&self, message: String) {
-        let level = log::max_level();
-        if level < log::LevelFilter::Debug {
-            return;
-        }
-        debug!("{}", message);
-        self.0.span().add_event(
-            "DEBUG".to_string(),
-            vec![KeyValue::new("message".to_string(), message)],
-        );
-    }
-
-    fn is_trace_active(&self) -> bool {
-        let level = log::max_level();
-        level >= log::LevelFilter::Trace
-    }
-
-    fn trace(&self, message: String) {
-        let level = log::max_level();
-        if level < log::LevelFilter::Trace {
-            return;
-        }
-        trace!("{}", message);
-        self.0.span().add_event(
-            "TRACE".to_string(),
-            vec![KeyValue::new("message".to_string(), message)],
-        );
-    }
-
-    fn is_info_active(&self) -> bool {
-        let level = log::max_level();
-        level >= log::LevelFilter::Info
-    }
-
-    fn info(&self, message: String) {
-        let level = log::max_level();
-        if level < log::LevelFilter::Info {
-            return;
-        }
-        info!("{}", message);
-        self.0.span().add_event(
-            "INFO".to_string(),
-            vec![KeyValue::new("message".to_string(), message)],
-        );
-    }
-
-    fn is_warn_active(&self) -> bool {
-        let level = log::max_level();
-        level >= log::LevelFilter::Warn
-    }
-
-    fn warn(&self, message: String) {
-        let level = log::max_level();
-        if level < log::LevelFilter::Warn {
-            return;
-        }
-        warn!("{}", message);
-        self.0.span().add_event(
-            "WARN".to_string(),
-            vec![KeyValue::new("message".to_string(), message)],
-        );
-    }
-
-    fn is_error_active(&self) -> bool {
-        let level = log::max_level();
-        level >= log::LevelFilter::Error
-    }
-
-    fn error(&self, message: String) {
-        let level = log::max_level();
-        if level < log::LevelFilter::Error {
-            return;
-        }
-        error!("{}", message);
-        self.0.span().add_event(
-            "ERROR".to_string(),
-            vec![KeyValue::new("message".to_string(), message)],
-        );
     }
 }
 
