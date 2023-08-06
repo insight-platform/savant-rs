@@ -57,6 +57,7 @@ impl From<log::LevelFilter> for LogLevel {
 
 #[pyfunction]
 fn set_log_level(level: LogLevel) {
+    pretty_env_logger::try_init().unwrap_or_default();
     log::set_max_level(level.into());
 }
 
@@ -72,13 +73,13 @@ fn level_enabled(level: LogLevel) -> bool {
 
 #[pyfunction]
 #[pyo3(name = "log")]
-fn log_message(level: LogLevel, message: String) {
+fn log_message(level: LogLevel, target: String, message: String) {
     match level {
-        LogLevel::Trace => log::trace!("{}", &message),
-        LogLevel::Debug => log::debug!("{}", &message),
-        LogLevel::Info => log::info!("{}", &message),
-        LogLevel::Warning => log::warn!("{}", &message),
-        LogLevel::Error => log::error!("{}", &message),
+        LogLevel::Trace => log::trace!(target: &target, "{}", &message),
+        LogLevel::Debug => log::debug!(target: &target, "{}", &message),
+        LogLevel::Info => log::info!(target: &target, "{}", &message),
+        LogLevel::Warning => log::warn!(target: &target, "{}", &message),
+        LogLevel::Error => log::error!(target: &target, "{}", &message),
         LogLevel::Off => {}
     }
     if level_enabled(level) {

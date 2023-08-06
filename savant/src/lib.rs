@@ -2,7 +2,7 @@
 ///
 pub mod capi;
 pub mod cplugin;
-pub mod log_py;
+pub mod logging;
 /// # Basic objects
 ///
 pub mod primitives;
@@ -86,7 +86,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::numpy_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
-    m.add_wrapped(wrap_pymodule!(log_py::logging))?;
+    m.add_wrapped(wrap_pymodule!(logging::logging))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;

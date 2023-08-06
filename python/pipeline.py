@@ -94,12 +94,12 @@ if __name__ == "__main__":
 
     def f(span):
         with span.nested_span("func") as s:
-            log(LogLevel.Info, "Context Depth: {}".format(TelemetrySpan.context_depth()))
+            log(LogLevel.Info, __file__, "Context Depth: {}".format(TelemetrySpan.context_depth()))
             s.set_float_attribute("seconds", 0.1)
             s.set_string_attribute("thread_name", current_thread().name)
             for i in range(10):
                 with s.nested_span("loop") as s1:
-                    log(LogLevel.Warning, "Context Depth: {}".format(TelemetrySpan.context_depth()))
+                    log(LogLevel.Warning, __file__, "Context Depth: {}".format(TelemetrySpan.context_depth()))
                     s1.set_status_ok()
                     s1.set_int_attribute("i", i)
                     s1.add_event("Begin computation", {"res": str(1)})
@@ -109,8 +109,9 @@ if __name__ == "__main__":
                     s1.set_string_attribute("res", str(res))
                     s1.add_event("End computation", {"res": str(res)})
                     time.sleep(0.1)
-                log(LogLevel.Warning, "Context Depth: {}".format(TelemetrySpan.context_depth()))
-        log(LogLevel.Warning, "Context Depth: {}".format(TelemetrySpan.context_depth()))
+                log(LogLevel.Warning, __file__, "Context Depth: {}".format(TelemetrySpan.context_depth()))
+        log(LogLevel.Warning, __file__, "Context Depth: {}".format(TelemetrySpan.context_depth()))
+
 
     thr1 = Thread(target=f, args=(root_spans_1,))
     thr2 = Thread(target=f, args=(root_spans_1,))
