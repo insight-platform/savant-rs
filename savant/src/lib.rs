@@ -2,6 +2,7 @@
 ///
 pub mod capi;
 pub mod cplugin;
+pub mod log_py;
 /// # Basic objects
 ///
 pub mod primitives;
@@ -85,6 +86,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::numpy_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
+    m.add_wrapped(wrap_pymodule!(log_py::logging))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
@@ -95,6 +97,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
+    sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.symbol_mapper",
