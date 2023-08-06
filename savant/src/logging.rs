@@ -86,7 +86,7 @@ fn log_message(level: LogLevel, target: String, message: String) {
 
         with_current_context(|cx| {
             cx.span().add_event(
-                format!("{}: {}", level.__str__().to_uppercase(), message),
+                format!("{} {} {}", level.__str__().to_uppercase(), target, message,),
                 vec![],
             );
         });
