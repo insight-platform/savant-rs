@@ -1,7 +1,7 @@
 use crate::primitives::message::video::pipeline::VideoPipeline as VideoPipelineRs;
 use crate::primitives::message::video::pipeline::VideoPipelineStagePayloadType;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
-use crate::utils::otlp::{OTLPSpan, PropagatedContext};
+use crate::utils::otlp::{PropagatedContext, TelemetrySpan};
 use crate::utils::python::release_gil;
 use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
@@ -235,11 +235,14 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn delete(&self, stage_name: String, id: i64) -> PyResult<HashMap<i64, OTLPSpan>> {
+    fn delete(&self, stage_name: String, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
         release_gil(|| {
             let res = self.0.lock().delete(&stage_name, id);
             match res {
-                Ok(h) => Ok(h.into_iter().map(|(k, v)| (k, OTLPSpan(v))).collect()),
+                Ok(h) => Ok(h
+                    .into_iter()
+                    .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
+                    .collect()),
                 Err(e) => Err(PyValueError::new_err(e.to_string())),
             }
         })

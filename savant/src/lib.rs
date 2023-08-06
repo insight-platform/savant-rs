@@ -2,6 +2,7 @@
 ///
 pub mod capi;
 pub mod cplugin;
+pub mod logging;
 /// # Basic objects
 ///
 pub mod primitives;
@@ -17,6 +18,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
+use crate::logging::{set_log_level, LogLevel};
 use primitives::message::video::query::py::video_object_query;
 
 lazy_static! {
@@ -66,8 +68,14 @@ pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
 
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
+    let log_env_var_name = "RUST_LOG";
+    let log_env_var_level = "trace";
+    if std::env::var(log_env_var_name).is_err() {
+        std::env::set_var(log_env_var_name, log_env_var_level);
+    }
     pretty_env_logger::try_init()
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
+    set_log_level(LogLevel::Error);
 
     m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
@@ -85,6 +93,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::numpy_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
+    m.add_wrapped(wrap_pymodule!(logging::logging))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
@@ -95,6 +104,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
+    sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.symbol_mapper",
