@@ -1,7 +1,7 @@
 use crate::primitives::message::video::pipeline::VideoPipeline as VideoPipelineRs;
 use crate::primitives::message::video::pipeline::VideoPipelineStagePayloadType;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
-use crate::utils::otlp::{PropagatedContext, TelemetrySpan};
+use crate::utils::otlp::TelemetrySpan;
 use crate::utils::python::release_gil;
 use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
@@ -205,16 +205,16 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist or is not of type independent frames.
     ///
-    pub fn add_frame_with_remote_telemetry(
+    pub fn add_frame_with_telemetry(
         &self,
         stage_name: &str,
         frame: VideoFrameProxy,
-        remote_telemetry_ctx: PropagatedContext,
+        parent_span: &TelemetrySpan,
     ) -> PyResult<i64> {
         release_gil(|| {
             self.0
                 .lock()
-                .add_frame_with_remote_telemetry(stage_name, frame, remote_telemetry_ctx)
+                .add_frame_with_telemetry(stage_name, frame, parent_span.0.clone())
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -287,7 +287,7 @@ impl VideoPipeline {
     ///
     /// Returns
     /// -------
-    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.PropagationContext`)
+    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.TelemetrySpan`)
     ///   The frame.
     ///
     /// Raises
@@ -299,11 +299,12 @@ impl VideoPipeline {
         &self,
         stage: String,
         frame_id: i64,
-    ) -> PyResult<(VideoFrameProxy, PropagatedContext)> {
+    ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
                 .lock()
                 .get_independent_frame(&stage, frame_id)
+                .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -322,7 +323,7 @@ impl VideoPipeline {
     ///
     /// Returns
     /// -------
-    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.PropagationContext`)
+    /// (:py:class:`savant_rs.primitives.VideoFrameProxy`, :py:class:`savant_rs.utils.TelemetrySpan`)
     ///   The frame and the OTLP propagation context corresponding to the current phase of processing.
     ///
     /// Raises
@@ -335,11 +336,12 @@ impl VideoPipeline {
         stage: String,
         batch_id: i64,
         frame_id: i64,
-    ) -> PyResult<(VideoFrameProxy, PropagatedContext)> {
+    ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
                 .lock()
                 .get_batched_frame(&stage, batch_id, frame_id)
+                .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -356,7 +358,7 @@ impl VideoPipeline {
     ///
     /// Returns
     /// -------
-    /// (:py:class:`savant_rs.primitives.VideoFrameBatch`, Dict[int, :py:class:`savant_rs.utils.PropagationContext])
+    /// (:py:class:`savant_rs.primitives.VideoFrameBatch`, Dict[int, :py:class:`savant_rs.utils.TelemetrySpan`])
     ///   The batch and propagation contexts for every frame.
     ///
     /// Raises
@@ -368,11 +370,19 @@ impl VideoPipeline {
         &self,
         stage: String,
         batch_id: i64,
-    ) -> PyResult<(VideoFrameBatch, HashMap<i64, PropagatedContext>)> {
+    ) -> PyResult<(VideoFrameBatch, HashMap<i64, TelemetrySpan>)> {
         release_gil(|| {
             self.0
                 .lock()
                 .get_batch(&stage, batch_id)
+                .map(|(b, c)| {
+                    (
+                        b,
+                        c.into_iter()
+                            .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
+                            .collect(),
+                    )
+                })
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }

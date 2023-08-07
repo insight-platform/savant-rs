@@ -10,11 +10,12 @@ from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionRes
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs import init_jaeger_tracer
 
-# RUST_LOG=a=error,a::b=debug,c=trace
+# RUST_LOG=root=info,a=error,a::b=debug python python/pipeline.py
 
 if __name__ == "__main__":
     savant_rs.version()
     set_log_level(LogLevel.Debug)
+    log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
     p = VideoPipeline("demo-pipeline")
 
@@ -26,14 +27,14 @@ if __name__ == "__main__":
     assert p.get_stage_type("input") == VideoPipelineStagePayloadType.Frame
     assert p.get_stage_type("proc1") == VideoPipelineStagePayloadType.Batch
 
-    s = TelemetrySpan("new-telemetry")
-    print(s.trace_id())
-    external_span_propagation = s.propagate()
-    del s
+    root_span = TelemetrySpan("new-telemetry")
+    log(LogLevel.Info, target="root", message="TraceID={}".format(root_span.trace_id()), params=None)
+    external_span_propagation = root_span.propagate()
 
     frame1 = gen_frame()
     frame1.source_id = "test1"
-    frame_id1 = p.add_frame_with_remote_telemetry("input", frame1, external_span_propagation)
+    frame_id1 = p.add_frame_with_telemetry("input", frame1, root_span)
+    del root_span
     assert frame_id1 == 1
 
     frame2 = gen_frame()
@@ -50,10 +51,10 @@ if __name__ == "__main__":
     p.add_frame_update("input", frame_id1, update)
 
     frame1, ctxt1 = p.get_independent_frame("input", frame_id1)
-    print("ctx1", ctxt1.as_dict())
+    log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
 
     frame2, ctxt2 = p.get_independent_frame("input", frame_id2)
-    print("ctx2", ctxt2.as_dict())
+    log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
 
     batch_id = p.move_and_pack_frames("input", "proc1", [frame_id1, frame_id2])
     assert batch_id == 3
@@ -70,18 +71,16 @@ if __name__ == "__main__":
 
     frame1, ctxt1 = p.get_independent_frame("output", frame_id1)
     with ctxt1.nested_span("print"):
-        print("ctx1", ctxt1.as_dict())
+        log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
 
     frame2, ctxt2 = p.get_independent_frame("output", frame_id2)
-    print("ctx2", ctxt2.as_dict())
+    log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
 
     root_spans_1 = p.delete("output", frame_id1)
     root_spans_1 = root_spans_1[1]
-    print("root_spans 1", root_spans_1.trace_id())
 
     root_spans_2 = p.delete("output", frame_id2)
-    root_spans_2 = root_spans_2[2]
-    print("root_spans 2", root_spans_2.trace_id())
+    del root_spans_2
 
     with root_spans_1.nested_span("queue_len") as ns:
         assert p.get_stage_queue_len("input") == 0
@@ -89,14 +88,15 @@ if __name__ == "__main__":
         assert p.get_stage_queue_len("proc2") == 0
         assert p.get_stage_queue_len("output") == 0
         time.sleep(0.1)
-        with ns.nested_span("sleep") as s:
-            s.set_float_attribute("seconds", 0.01)
+        with ns.nested_span("sleep") as root_span:
+            root_span.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
 
 
     def f(span):
         with span.nested_span("func") as s:
-            log(LogLevel.Error, "a", "Context Depth: {}".format(TelemetrySpan.context_depth()))
+            log(LogLevel.Error, "a", "Context Depth: {}".format(TelemetrySpan.context_depth()),
+                dict(context_depth=TelemetrySpan.context_depth()))
             s.set_float_attribute("seconds", 0.1)
             s.set_string_attribute("thread_name", current_thread().name)
             for i in range(10):
@@ -123,21 +123,22 @@ if __name__ == "__main__":
 
     thr1.join()
     thr2.join()
-    print("time", time.time() - t)
+    delta = time.time() - t
+    log(LogLevel.Info, "root", "Time: {}".format(delta), params=dict(time_spent=delta))
 
     try:
-        with root_spans_1.nested_span("sleep-1") as s:
+        with root_spans_1.nested_span("sleep-1") as root_span:
             if log_level_enabled(LogLevel.Debug):
                 log(LogLevel.Debug, "a::b", "I'm debugging: {}".format(1))
-            s.set_float_attribute("seconds", 0.2)
+            root_span.set_float_attribute("seconds", 0.2)
             time.sleep(0.2)
             if log_level_enabled(LogLevel.Debug):
-                log(LogLevel.Debug, "a::b","I'm debugging: {}".format(2))
+                log(LogLevel.Debug, "a::b", "I'm debugging: {}".format(2))
             if log_level_enabled(LogLevel.Warning):
-                log(LogLevel.Warning, "a::b","I'm warning: {}".format(1))
+                log(LogLevel.Warning, "a::b", "I'm warning: {}".format(1))
             raise Exception("test")
     except Exception as e:
-        print("exception", e)
+        log(LogLevel.Error, "root", "Exception: {}".format(e))
 
     time.sleep(0.3)
 
