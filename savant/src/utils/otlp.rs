@@ -105,7 +105,7 @@ impl TelemetrySpan {
     #[new]
     fn new(name: String) -> TelemetrySpan {
         TelemetrySpan(
-            get_tracer().in_span(name, |ctx| ctx.clone()),
+            get_tracer().in_span(name, |ctx| ctx),
             TelemetrySpan::thread_id(),
         )
     }

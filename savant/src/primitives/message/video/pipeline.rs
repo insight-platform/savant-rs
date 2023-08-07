@@ -158,7 +158,7 @@ impl VideoPipeline {
             if self.sampling_period <= 0 || (self.frame_counter + 1) % self.sampling_period != 0 {
                 Context::default()
             } else {
-                get_tracer().in_span(self.get_root_span_name(), |cx| cx.clone())
+                get_tracer().in_span(self.get_root_span_name(), |cx| cx)
             };
         self.add_frame_with_telemetry(stage_name, frame, ctx)
     }
