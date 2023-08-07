@@ -31,16 +31,26 @@ pub enum VideoPipelinePayload {
 
 #[derive(Debug, Default)]
 pub struct VideoPipeline {
-    pub id_counter: i64,
-    pub root_spans: HashMap<i64, Context>,
-    pub stages: HashMap<String, VideoPipelineStage>,
-    pub stage_types: HashMap<String, VideoPipelineStagePayloadType>,
-    pub root_span_name: Option<String>,
+    id_counter: i64,
+    sampling_period: i64,
+    frame_counter: i64,
+    root_spans: HashMap<i64, Context>,
+    stages: HashMap<String, VideoPipelineStage>,
+    stage_types: HashMap<String, VideoPipelineStagePayloadType>,
+    root_span_name: Option<String>,
 }
 
 impl VideoPipeline {
     pub fn set_root_span_name(&mut self, name: String) {
         self.root_span_name = Some(name);
+    }
+
+    pub fn set_sampling_period(&mut self, period: i64) {
+        self.sampling_period = period;
+    }
+
+    pub fn get_sampling_period(&self) -> i64 {
+        self.sampling_period
     }
 
     pub fn get_root_span_name(&self) -> String {
@@ -144,7 +154,12 @@ impl VideoPipeline {
     }
 
     pub fn add_frame(&mut self, stage_name: &str, frame: VideoFrameProxy) -> anyhow::Result<i64> {
-        let ctx = Context::default();
+        let ctx =
+            if self.sampling_period <= 0 || (self.frame_counter + 1) % self.sampling_period != 0 {
+                Context::default()
+            } else {
+                get_tracer().in_span(self.get_root_span_name(), |cx| cx)
+            };
         self.add_frame_with_telemetry(stage_name, frame, ctx)
     }
 
@@ -161,6 +176,7 @@ impl VideoPipeline {
             anyhow::bail!("Stage does not accept batched frames")
         }
 
+        self.frame_counter += 1;
         let id_counter = self.id_counter + 1;
 
         if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
@@ -523,6 +539,11 @@ mod tests {
     };
     use crate::primitives::{AttributeBuilder, AttributeValue, VideoFrameUpdate};
     use crate::test::utils::gen_frame;
+    use opentelemetry::global;
+    use opentelemetry::sdk::export::trace::stdout;
+    use opentelemetry::sdk::propagation::TraceContextPropagator;
+    use opentelemetry::trace::{TraceContextExt, TraceId};
+    use std::io::sink;
 
     fn create_pipeline() -> anyhow::Result<VideoPipeline> {
         let mut pipeline = VideoPipeline::default();
@@ -687,6 +708,71 @@ mod tests {
         frame
             .get_attribute("update".to_string(), "attribute".to_string())
             .unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn test_sampling() -> anyhow::Result<()> {
+        stdout::new_pipeline().with_writer(sink()).install_simple();
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let mut pipeline = create_pipeline()?;
+        pipeline.set_sampling_period(2);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_tracing() -> anyhow::Result<()> {
+        stdout::new_pipeline().with_writer(sink()).install_simple();
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let mut pipeline = create_pipeline()?;
+        pipeline.set_sampling_period(0);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tracing_every() -> anyhow::Result<()> {
+        stdout::new_pipeline().with_writer(sink()).install_simple();
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let mut pipeline = create_pipeline()?;
+        pipeline.set_sampling_period(1);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
         Ok(())
     }
 }

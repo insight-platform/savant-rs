@@ -104,9 +104,10 @@ impl TelemetrySpan {
 
     #[new]
     fn new(name: String) -> TelemetrySpan {
-        let span = get_tracer().build(SpanBuilder::from_name(name));
-        let ctx = Context::current_with_span(span);
-        TelemetrySpan(ctx, TelemetrySpan::thread_id())
+        TelemetrySpan(
+            get_tracer().in_span(name, |ctx| ctx),
+            TelemetrySpan::thread_id(),
+        )
     }
 
     #[staticmethod]
