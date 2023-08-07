@@ -1,7 +1,7 @@
 use crate::utils::get_tracer;
 use crate::utils::python::release_gil;
 use opentelemetry::propagation::{Extractor, Injector};
-use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
+use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, TraceId, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -109,6 +109,11 @@ impl TelemetrySpan {
         TelemetrySpan(ctx, TelemetrySpan::thread_id())
     }
 
+    #[staticmethod]
+    fn default() -> TelemetrySpan {
+        TelemetrySpan::from_context(Context::default())
+    }
+
     /// Create a child span with the given name.
     ///
     /// GIL Management: This method releases the GIL.
@@ -120,7 +125,13 @@ impl TelemetrySpan {
     ///
     fn nested_span(&self, name: String) -> TelemetrySpan {
         release_gil(|| {
-            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &self.0);
+            let parent_ctx = &self.0;
+
+            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+                return TelemetrySpan::default();
+            }
+
+            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), parent_ctx);
             let ctx = Context::current_with_span(span);
             TelemetrySpan(ctx, TelemetrySpan::thread_id())
         })
@@ -368,8 +379,11 @@ impl PropagatedContext {
     ///
     fn nested_span(&self, name: String) -> TelemetrySpan {
         release_gil(|| {
-            let context = self.extract();
-            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &context);
+            let parent_ctx = self.extract();
+            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+                return TelemetrySpan::default();
+            }
+            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &parent_ctx);
             let ctx = Context::current_with_span(span);
             TelemetrySpan(ctx, TelemetrySpan::thread_id())
         })
