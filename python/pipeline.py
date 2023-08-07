@@ -17,7 +17,10 @@ if __name__ == "__main__":
     set_log_level(LogLevel.Debug)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
+
     p = VideoPipeline("demo-pipeline")
+    p.sampling_period = 10
+    p.root_span_name = "video-pipeline-root"
 
     p.add_stage("input", VideoPipelineStagePayloadType.Frame)
     p.add_stage("proc1", VideoPipelineStagePayloadType.Batch)

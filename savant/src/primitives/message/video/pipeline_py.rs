@@ -38,14 +38,30 @@ impl VideoPipeline {
     /// name : str
     ///   The name of the root span.
     ///
+    #[setter]
     fn set_root_span_name(&self, name: String) {
         release_gil(|| self.0.lock().set_root_span_name(name));
     }
 
     /// Returns the root span name.
     ///
+    #[getter]
     fn get_root_span_name(&self) -> String {
         self.0.lock().get_root_span_name()
+    }
+
+    /// Set sampling
+    ///
+    #[setter]
+    fn set_sampling_period(&self, period: i64) {
+        release_gil(|| self.0.lock().set_sampling_period(period));
+    }
+
+    /// Get sampling
+    ///
+    #[getter]
+    fn get_sampling_period(&self) -> i64 {
+        self.0.lock().get_sampling_period()
     }
 
     /// Adds a stage to the pipeline.
