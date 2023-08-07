@@ -192,7 +192,7 @@ impl VideoPipeline {
     ///   The name of the stage. Must be a stage of type independent frames.
     /// frame : :py:class:`savant_rs.primitives.VideoFrameProxy`
     ///   The frame to add.
-    /// parent_ctx : :py:class:`savant_rs.primitives.PropagatedContext`
+    /// parent_ctx : :py:class:`savant_rs.utils.TelemetrySpan`
     ///   The parent context to add to the frame.
     ///
     /// Returns
@@ -229,6 +229,11 @@ impl VideoPipeline {
     ///   The name of the stage.
     /// id : int
     ///   The id of the frame or batch to delete.
+    ///
+    /// Returns
+    /// -------
+    /// dict[int, :py:class:`savant_rs.utils.TelemetrySpan`]
+    ///   The ids of the frames and their telemetry contexts.
     ///
     /// Raises
     /// ------

@@ -59,22 +59,70 @@ impl From<log::LevelFilter> for LogLevel {
     }
 }
 
+/// Set the log level for the logger.
+///
+/// Params
+/// ------
+/// level: :py:class:`LogLevel`
+///   The log level to set.
+///
+/// Returns
+/// -------
+/// :py:class:`LogLevel`
+///   The previous log level.
+///
 #[pyfunction]
-pub(crate) fn set_log_level(level: LogLevel) {
+pub(crate) fn set_log_level(level: LogLevel) -> LogLevel {
     // set environment variable to enable logging
+    let last_level = get_log_level();
     log::set_max_level(level.into());
+    last_level
 }
 
+/// Get the current log level for the logger.
+///
+/// Returns
+/// -------
+/// :py:class:`LogLevel`
+///   The current log level.
+///
 #[pyfunction]
 fn get_log_level() -> LogLevel {
     log::max_level().into()
 }
 
+/// Check if the given log level is enabled.
+///
+/// Params
+/// ------
+/// level: :py:class:`LogLevel`
+///   The log level to check.
+///
+/// Returns
+/// -------
+/// bool
+///   True if the log level is enabled, False otherwise.
+///
 #[pyfunction]
 fn log_level_enabled(level: LogLevel) -> bool {
     log::max_level().ge(&log::LevelFilter::from(level))
 }
 
+/// Log a message.
+///
+/// GIL Management: This function releases the GIL.
+///
+/// Params
+/// ------
+/// level: :py:class:`LogLevel`
+///   The log level to use.
+/// target: str
+///   The code initiated the log message. The target is defined as ``a::b::c`
+/// message: str
+///   The log message.
+/// params: dict
+///   The log message parameters.
+///
 #[pyfunction]
 #[pyo3(name = "log")]
 #[pyo3(signature = (level, target, message, params=None))]
