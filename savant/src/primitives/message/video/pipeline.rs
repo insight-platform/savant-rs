@@ -540,8 +540,10 @@ mod tests {
     use crate::primitives::{AttributeBuilder, AttributeValue, VideoFrameUpdate};
     use crate::test::utils::gen_frame;
     use opentelemetry::global;
+    use opentelemetry::sdk::export::trace::stdout;
     use opentelemetry::sdk::propagation::TraceContextPropagator;
     use opentelemetry::trace::{TraceContextExt, TraceId};
+    use std::io::sink;
 
     fn create_pipeline() -> anyhow::Result<VideoPipeline> {
         let mut pipeline = VideoPipeline::default();
@@ -711,8 +713,7 @@ mod tests {
 
     #[test]
     fn test_sampling() -> anyhow::Result<()> {
-        use opentelemetry::sdk::export::trace::stdout;
-        stdout::new_pipeline().install_simple();
+        stdout::new_pipeline().with_writer(sink()).install_simple();
         global::set_text_map_propagator(TraceContextPropagator::new());
 
         let mut pipeline = create_pipeline()?;
@@ -739,8 +740,7 @@ mod tests {
 
     #[test]
     fn test_no_tracing() -> anyhow::Result<()> {
-        use opentelemetry::sdk::export::trace::stdout;
-        stdout::new_pipeline().install_simple();
+        stdout::new_pipeline().with_writer(sink()).install_simple();
         global::set_text_map_propagator(TraceContextPropagator::new());
 
         let mut pipeline = create_pipeline()?;
@@ -759,8 +759,7 @@ mod tests {
 
     #[test]
     fn test_tracing_every() -> anyhow::Result<()> {
-        use opentelemetry::sdk::export::trace::stdout;
-        stdout::new_pipeline().install_simple();
+        stdout::new_pipeline().with_writer(sink()).install_simple();
         global::set_text_map_propagator(TraceContextPropagator::new());
 
         let mut pipeline = create_pipeline()?;
