@@ -178,7 +178,7 @@ fn log_message(level: LogLevel, target: String, message: String, params: Option<
 
                 let mut params = params.unwrap_or_default();
                 params.extend(vec![
-                    KeyValue::new("log.level".to_string(), level.__str__().to_string()),
+                    KeyValue::new("log.level".to_string(), level.__str__()),
                     KeyValue::new("log.target".to_string(), target.clone()),
                     KeyValue::new("event.name".to_string(), "log-record".to_string()),
                     KeyValue::new("event.domain".to_string(), "savant"),
