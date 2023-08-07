@@ -155,7 +155,7 @@ impl VideoPipeline {
 
     pub fn add_frame(&mut self, stage_name: &str, frame: VideoFrameProxy) -> anyhow::Result<i64> {
         let ctx =
-            if self.sampling_period > 0 && (self.frame_counter + 1) % self.sampling_period != 0 {
+            if self.sampling_period <= 0 || (self.frame_counter + 1) % self.sampling_period != 0 {
                 Context::default()
             } else {
                 get_tracer().in_span(self.get_root_span_name(), |cx| cx.clone())
@@ -729,6 +729,46 @@ mod tests {
         let id = pipeline.add_frame("input", gen_frame())?;
         let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
         assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_tracing() -> anyhow::Result<()> {
+        use opentelemetry::sdk::export::trace::stdout;
+        stdout::new_pipeline().install_simple();
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let mut pipeline = create_pipeline()?;
+        pipeline.set_sampling_period(0);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_tracing_every() -> anyhow::Result<()> {
+        use opentelemetry::sdk::export::trace::stdout;
+        stdout::new_pipeline().install_simple();
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        let mut pipeline = create_pipeline()?;
+        pipeline.set_sampling_period(1);
+
+        let id = pipeline.add_frame("input", gen_frame())?;
+        let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
+        assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
 
         let id = pipeline.add_frame("input", gen_frame())?;
         let (_frame, ctx) = pipeline.get_independent_frame("input", id)?;
