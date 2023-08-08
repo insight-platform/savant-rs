@@ -1,7 +1,8 @@
-use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
+use crate::primitives::message::video::query::MatchQuery;
+use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectProxy};
 use crate::utils::get_tracer;
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
-use opentelemetry::{Context, ContextGuard};
+use opentelemetry::Context;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 
@@ -70,14 +71,13 @@ impl VideoPipeline {
         Context::current_with_span(span)
     }
 
-    fn get_nested_span(span_name: String, parent_ctx: &Context) -> ContextGuard {
+    fn get_nested_span(span_name: String, parent_ctx: &Context) -> Context {
         if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
-            return Context::default().attach();
+            return Context::default();
         }
 
         let span = get_tracer().build_with_context(SpanBuilder::from_name(span_name), parent_ctx);
-        let ctx = Context::current_with_span(span);
-        ctx.attach()
+        Context::current_with_span(span)
     }
 
     pub fn add_stage(
@@ -306,7 +306,7 @@ impl VideoPipeline {
             if let Some(payload) = stage.payload.get_mut(&id) {
                 match payload {
                     VideoPipelinePayload::Frame(frame, updates, ctx) => {
-                        let _span = Self::get_nested_span("apply_updates".into(), ctx);
+                        let _span = Self::get_nested_span("apply-updates".into(), ctx).attach();
                         for update in updates.drain(..) {
                             frame.update(&update)?;
                         }
@@ -315,9 +315,10 @@ impl VideoPipeline {
                         for (frame_id, update) in updates.drain(..) {
                             if let Some(frame) = batch.get(frame_id) {
                                 let _context_guard = Self::get_nested_span(
-                                    "apply_updates".into(),
+                                    "apply-updates".into(),
                                     contexts.get(&frame_id).unwrap(),
-                                );
+                                )
+                                .attach();
                                 frame.update(&update)?;
                             }
                         }
@@ -368,7 +369,7 @@ impl VideoPipeline {
                     ctx.span().end();
                     let ctx = self.get_stage_span(
                         id,
-                        format!("move-{}-{}", source_stage_name, dest_stage_name),
+                        format!("move/{}-{}", source_stage_name, dest_stage_name),
                     );
                     VideoPipelinePayload::Frame(frame, updates, ctx)
                 }
@@ -378,7 +379,7 @@ impl VideoPipeline {
                         ctx.span().end();
                         let ctx = self.get_stage_span(
                             *id,
-                            format!("move-{}-{}", source_stage_name, dest_stage_name),
+                            format!("move/{}-{}", source_stage_name, dest_stage_name),
                         );
                         new_contexts.insert(*id, ctx);
                     }
@@ -445,7 +446,7 @@ impl VideoPipeline {
                 ctx.span().end();
                 let ctx = self.get_stage_span(
                     id,
-                    format!("move-{}-{}", source_stage_name, dest_stage_name),
+                    format!("move/pack/{}-{}", source_stage_name, dest_stage_name),
                 );
                 (id, ctx)
             })
@@ -502,7 +503,7 @@ impl VideoPipeline {
             ctx.span().end();
             let ctx = self.get_stage_span(
                 frame_id,
-                format!("move&unpack-{}-{}", source_stage_name, dest_stage_name),
+                format!("move/unpack/{}-{}", source_stage_name, dest_stage_name),
             );
             frame_mapping.insert(frame.get_source_id(), frame_id);
 
@@ -528,6 +529,40 @@ impl VideoPipeline {
         }
 
         Ok(frame_mapping)
+    }
+
+    pub fn access_objects(
+        &self,
+        stage_name: &str,
+        frame_id: i64,
+        query: &MatchQuery,
+    ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
+        if let Some(stage) = self.get_stage(stage_name) {
+            if let Some(payload) = stage.payload.get(&frame_id) {
+                match payload {
+                    VideoPipelinePayload::Frame(frame, _, ctx) => {
+                        let _span =
+                            Self::get_nested_span("access-objects".to_string(), ctx).attach();
+                        Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
+                    }
+                    VideoPipelinePayload::Batch(batch, _, contexts) => {
+                        let contexts = contexts
+                            .iter()
+                            .map(|(_, ctx)| {
+                                Self::get_nested_span("access-objects".to_string(), ctx)
+                            })
+                            .collect::<Vec<_>>();
+                        let res = Ok(batch.access_objects(query));
+                        contexts.into_iter().for_each(|ctx| ctx.span().end());
+                        res
+                    }
+                }
+            } else {
+                anyhow::bail!("Frame not found in stage")
+            }
+        } else {
+            anyhow::bail!("Stage not found")
+        }
     }
 }
 

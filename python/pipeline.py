@@ -9,6 +9,7 @@ from savant_rs.utils import gen_frame, TelemetrySpan
 from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs import init_jaeger_tracer
+from savant_rs.video_object_query import MatchQuery as Q
 
 # RUST_LOG=root=info,a=error,a::b=debug python python/pipeline.py
 
@@ -67,6 +68,7 @@ if __name__ == "__main__":
     p.apply_updates("proc1", batch_id)
 
     p.move_as_is("proc1", "proc2", [batch_id])
+    objects = p.access_objects("proc2", batch_id, Q.idle())
 
     frame_map = p.move_and_unpack_batch("proc2", "output", batch_id)
     assert len(frame_map) == 2
