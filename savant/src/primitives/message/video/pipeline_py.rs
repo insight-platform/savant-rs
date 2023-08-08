@@ -1,6 +1,7 @@
 use crate::primitives::message::video::pipeline::VideoPipeline as VideoPipelineRs;
 use crate::primitives::message::video::pipeline::VideoPipelineStagePayloadType;
-use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
+use crate::primitives::message::video::query::py::MatchQueryProxy;
+use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectsView};
 use crate::utils::otlp::TelemetrySpan;
 use crate::utils::python::release_gil;
 use parking_lot::Mutex;
@@ -80,8 +81,8 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage name is already in use.
     ///
-    fn add_stage(&self, name: String, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
-        release_gil(|| self.0.lock().add_stage(&name, stage_type))
+    fn add_stage(&self, name: &str, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
+        release_gil(|| self.0.lock().add_stage(name, stage_type))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Retrieves the type of a stage.
@@ -100,8 +101,8 @@ impl VideoPipeline {
     /// None
     ///  If the stage does not exist.
     ///
-    fn get_stage_type(&self, name: String) -> Option<VideoPipelineStagePayloadType> {
-        self.0.lock().get_stage_type(&name).cloned()
+    fn get_stage_type(&self, name: &str) -> Option<VideoPipelineStagePayloadType> {
+        self.0.lock().get_stage_type(name).cloned()
     }
     /// Adds a frame update to the independent frame.
     ///
@@ -123,14 +124,14 @@ impl VideoPipeline {
     ///
     fn add_frame_update(
         &self,
-        stage: String,
+        stage: &str,
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> PyResult<()> {
         release_gil(|| {
             self.0
                 .lock()
-                .add_frame_update(&stage, frame_id, update)
+                .add_frame_update(stage, frame_id, update)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -156,7 +157,7 @@ impl VideoPipeline {
     ///
     fn add_batched_frame_update(
         &self,
-        stage: String,
+        stage: &str,
         batch_id: i64,
         frame_id: i64,
         update: VideoFrameUpdate,
@@ -164,7 +165,7 @@ impl VideoPipeline {
         release_gil(|| {
             self.0
                 .lock()
-                .add_batched_frame_update(&stage, batch_id, frame_id, update)
+                .add_batched_frame_update(stage, batch_id, frame_id, update)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -189,11 +190,11 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist or is not of type independent frames.
     ///
-    fn add_frame(&self, stage_name: String, frame: VideoFrameProxy) -> PyResult<i64> {
+    fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> PyResult<i64> {
         release_gil(|| {
             self.0
                 .lock()
-                .add_frame(&stage_name, frame)
+                .add_frame(stage_name, frame)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -256,9 +257,9 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn delete(&self, stage_name: String, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
+    fn delete(&self, stage_name: &str, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
         release_gil(|| {
-            let res = self.0.lock().delete(&stage_name, id);
+            let res = self.0.lock().delete(stage_name, id);
             match res {
                 Ok(h) => Ok(h
                     .into_iter()
@@ -287,11 +288,11 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist.
     ///
-    fn get_stage_queue_len(&self, stage_name: String) -> PyResult<usize> {
+    fn get_stage_queue_len(&self, stage_name: &str) -> PyResult<usize> {
         release_gil(|| {
             self.0
                 .lock()
-                .get_stage_queue_len(&stage_name)
+                .get_stage_queue_len(stage_name)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -318,13 +319,13 @@ impl VideoPipeline {
     ///
     fn get_independent_frame(
         &self,
-        stage: String,
+        stage: &str,
         frame_id: i64,
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
                 .lock()
-                .get_independent_frame(&stage, frame_id)
+                .get_independent_frame(stage, frame_id)
                 .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -354,14 +355,14 @@ impl VideoPipeline {
     ///
     fn get_batched_frame(
         &self,
-        stage: String,
+        stage: &str,
         batch_id: i64,
         frame_id: i64,
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
                 .lock()
-                .get_batched_frame(&stage, batch_id, frame_id)
+                .get_batched_frame(stage, batch_id, frame_id)
                 .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -389,13 +390,13 @@ impl VideoPipeline {
     ///
     fn get_batch(
         &self,
-        stage: String,
+        stage: &str,
         batch_id: i64,
     ) -> PyResult<(VideoFrameBatch, HashMap<i64, TelemetrySpan>)> {
         release_gil(|| {
             self.0
                 .lock()
-                .get_batch(&stage, batch_id)
+                .get_batch(stage, batch_id)
                 .map(|(b, c)| {
                     (
                         b,
@@ -423,11 +424,11 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn apply_updates(&self, stage: String, id: i64) -> PyResult<()> {
+    fn apply_updates(&self, stage: &str, id: i64) -> PyResult<()> {
         release_gil(|| {
             self.0
                 .lock()
-                .apply_updates(&stage, id)
+                .apply_updates(stage, id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -453,14 +454,14 @@ impl VideoPipeline {
     ///
     fn move_as_is(
         &self,
-        source_stage_name: String,
-        dest_stage_name: String,
+        source_stage_name: &str,
+        dest_stage_name: &str,
         object_ids: Vec<i64>,
     ) -> PyResult<()> {
         release_gil(|| {
             self.0
                 .lock()
-                .move_as_is(&source_stage_name, &dest_stage_name, object_ids)
+                .move_as_is(source_stage_name, dest_stage_name, object_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -491,14 +492,14 @@ impl VideoPipeline {
     ///
     fn move_and_pack_frames(
         &self,
-        source_stage_name: String,
-        dest_stage_name: String,
+        source_stage_name: &str,
+        dest_stage_name: &str,
         frame_ids: Vec<i64>,
     ) -> PyResult<i64> {
         release_gil(|| {
             self.0
                 .lock()
-                .move_and_pack_frames(&source_stage_name, &dest_stage_name, frame_ids)
+                .move_and_pack_frames(source_stage_name, dest_stage_name, frame_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
@@ -529,14 +530,34 @@ impl VideoPipeline {
     ///
     fn move_and_unpack_batch(
         &self,
-        source_stage_name: String,
-        dest_stage_name: String,
+        source_stage_name: &str,
+        dest_stage_name: &str,
         batch_id: i64,
     ) -> PyResult<HashMap<String, i64>> {
         release_gil(|| {
             self.0
                 .lock()
-                .move_and_unpack_batch(&source_stage_name, &dest_stage_name, batch_id)
+                .move_and_unpack_batch(source_stage_name, dest_stage_name, batch_id)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
+    pub fn access_objects(
+        &self,
+        stage_name: &str,
+        frame_id: i64,
+        query: &MatchQueryProxy,
+    ) -> PyResult<HashMap<i64, VideoObjectsView>> {
+        release_gil(|| {
+            self.0
+                .lock()
+                .access_objects(stage_name, frame_id, &query.inner)
+                .map(|result| {
+                    result
+                        .into_iter()
+                        .map(|(k, v)| (k, VideoObjectsView::from(v)))
+                        .collect()
+                })
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }

@@ -1,4 +1,5 @@
-use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate};
+use crate::primitives::message::video::query::MatchQuery;
+use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectProxy};
 use crate::utils::get_tracer;
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
 use opentelemetry::{Context, ContextGuard};
@@ -528,6 +529,28 @@ impl VideoPipeline {
         }
 
         Ok(frame_mapping)
+    }
+
+    pub fn access_objects(
+        &self,
+        stage_name: &str,
+        frame_id: i64,
+        query: &MatchQuery,
+    ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
+        if let Some(stage) = self.get_stage(stage_name) {
+            if let Some(payload) = stage.payload.get(&frame_id) {
+                match payload {
+                    VideoPipelinePayload::Frame(frame, _, _) => {
+                        Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
+                    }
+                    VideoPipelinePayload::Batch(batch, _, _) => Ok(batch.access_objects(query)),
+                }
+            } else {
+                anyhow::bail!("Frame not found in stage")
+            }
+        } else {
+            anyhow::bail!("Stage not found")
+        }
     }
 }
 
