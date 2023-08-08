@@ -8,7 +8,7 @@ use pyo3::types::PyDict;
 
 #[pyclass]
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum LogLevel {
+pub enum LogLevel {
     Trace,
     Debug,
     Info,
@@ -126,7 +126,7 @@ fn log_level_enabled(level: LogLevel) -> bool {
 #[pyfunction]
 #[pyo3(name = "log")]
 #[pyo3(signature = (level, target, message, params=None))]
-fn log_message(level: LogLevel, target: String, message: String, params: Option<&PyDict>) {
+fn log_message_py(level: LogLevel, target: String, message: String, params: Option<&PyDict>) {
     let params: Option<_> = params.map(|params| {
         params
             .iter()
@@ -135,58 +135,67 @@ fn log_message(level: LogLevel, target: String, message: String, params: Option<
     });
 
     release_gil(|| {
-        if log_level_enabled(level) {
-            with_current_context(|cx| {
-                let trace_id = cx.span().span_context().trace_id();
-                let mut params_display = Vec::new();
-
-                if trace_id != TraceId::INVALID {
-                    params_display.push(format!("trace_id={}", trace_id));
-                }
-
-                if let Some(p) = &params {
-                    params_display.extend(
-                        p.iter()
-                            .map(|p| format!("{}={}", p.key.as_str(), p.value.as_str())),
-                    );
-                }
-
-                let mut params_display = params_display.join(", ");
-                if !params_display.is_empty() {
-                    params_display = format!("[{}] ", params_display);
-                }
-
-                let params_str = &params_display.purple();
-                match level {
-                    LogLevel::Trace => {
-                        log::trace!(target: &target, "{}{}", params_str, &message)
-                    }
-                    LogLevel::Debug => {
-                        log::debug!(target: &target, "{}{}", params_str, &message)
-                    }
-                    LogLevel::Info => {
-                        log::info!(target: &target, "{}{}", params_str, &message)
-                    }
-                    LogLevel::Warning => {
-                        log::warn!(target: &target, "{}{}", params_str, &message)
-                    }
-                    LogLevel::Error => {
-                        log::error!(target: &target, "{}{}", params_str, &message)
-                    }
-                    LogLevel::Off => {}
-                }
-
-                let mut params = params.unwrap_or_default();
-                params.extend(vec![
-                    KeyValue::new("log.level".to_string(), level.__str__()),
-                    KeyValue::new("log.target".to_string(), target.clone()),
-                    KeyValue::new("event.name".to_string(), "log-record".to_string()),
-                    KeyValue::new("event.domain".to_string(), "savant"),
-                ]);
-                cx.span().add_event(format!("{}", message,), params);
-            });
-        }
+        log_message(level, target, message, params);
     });
+}
+
+pub fn log_message(
+    level: LogLevel,
+    target: String,
+    message: String,
+    params: Option<Vec<KeyValue>>,
+) {
+    if log_level_enabled(level) {
+        with_current_context(|cx| {
+            let trace_id = cx.span().span_context().trace_id();
+            let mut params_display = Vec::new();
+
+            if trace_id != TraceId::INVALID {
+                params_display.push(format!("trace_id={}", trace_id));
+            }
+
+            if let Some(p) = &params {
+                params_display.extend(
+                    p.iter()
+                        .map(|p| format!("{}={}", p.key.as_str(), p.value.as_str())),
+                );
+            }
+
+            let mut params_display = params_display.join(", ");
+            if !params_display.is_empty() {
+                params_display = format!("[{}] ", params_display);
+            }
+
+            let params_str = &params_display.purple();
+            match level {
+                LogLevel::Trace => {
+                    log::trace!(target: &target, "{}{}", params_str, &message)
+                }
+                LogLevel::Debug => {
+                    log::debug!(target: &target, "{}{}", params_str, &message)
+                }
+                LogLevel::Info => {
+                    log::info!(target: &target, "{}{}", params_str, &message)
+                }
+                LogLevel::Warning => {
+                    log::warn!(target: &target, "{}{}", params_str, &message)
+                }
+                LogLevel::Error => {
+                    log::error!(target: &target, "{}{}", params_str, &message)
+                }
+                LogLevel::Off => {}
+            }
+
+            let mut params = params.unwrap_or_default();
+            params.extend(vec![
+                KeyValue::new("log.level".to_string(), level.__str__()),
+                KeyValue::new("log.target".to_string(), target.clone()),
+                KeyValue::new("event.name".to_string(), "log-record".to_string()),
+                KeyValue::new("event.domain".to_string(), "savant"),
+            ]);
+            cx.span().add_event(format!("{}", message,), params);
+        });
+    }
 }
 
 #[pymodule]
@@ -195,6 +204,6 @@ pub(crate) fn logging(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(log_level_enabled, m)?)?;
-    m.add_function(wrap_pyfunction!(log_message, m)?)?;
+    m.add_function(wrap_pyfunction!(log_message_py, m)?)?;
     Ok(())
 }

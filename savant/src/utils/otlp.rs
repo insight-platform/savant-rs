@@ -1,3 +1,4 @@
+use crate::logging::{log_message, LogLevel};
 use crate::utils::get_tracer;
 use crate::utils::python::release_gil;
 use opentelemetry::propagation::{Extractor, Injector};
@@ -203,8 +204,21 @@ impl TelemetrySpan {
                 }
 
                 attrs.insert("python.version".into(), py.version().to_string());
+                release_gil(|| {
+                    log_message(
+                        LogLevel::Error,
+                        "python::exception".to_string(),
+                        "Exception occurred".to_string(),
+                        Some(
+                            attrs
+                                .iter()
+                                .map(|(k, v)| KeyValue::new(k.clone(), v.clone()))
+                                .collect(),
+                        ),
+                    );
 
-                self.add_event("python.exception".to_string(), attrs);
+                    self.add_event("python.exception".to_string(), attrs);
+                });
             } else {
                 self.0.span().set_status(Status::Ok);
             }
