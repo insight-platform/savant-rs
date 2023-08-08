@@ -306,7 +306,7 @@ impl VideoPipeline {
             if let Some(payload) = stage.payload.get_mut(&id) {
                 match payload {
                     VideoPipelinePayload::Frame(frame, updates, ctx) => {
-                        let _span = Self::get_nested_span("apply_updates".into(), ctx).attach();
+                        let _span = Self::get_nested_span("apply-updates".into(), ctx).attach();
                         for update in updates.drain(..) {
                             frame.update(&update)?;
                         }
@@ -315,7 +315,7 @@ impl VideoPipeline {
                         for (frame_id, update) in updates.drain(..) {
                             if let Some(frame) = batch.get(frame_id) {
                                 let _context_guard = Self::get_nested_span(
-                                    "apply_updates".into(),
+                                    "apply-updates".into(),
                                     contexts.get(&frame_id).unwrap(),
                                 )
                                 .attach();
@@ -369,7 +369,7 @@ impl VideoPipeline {
                     ctx.span().end();
                     let ctx = self.get_stage_span(
                         id,
-                        format!("move-{}-{}", source_stage_name, dest_stage_name),
+                        format!("move/{}-{}", source_stage_name, dest_stage_name),
                     );
                     VideoPipelinePayload::Frame(frame, updates, ctx)
                 }
@@ -379,7 +379,7 @@ impl VideoPipeline {
                         ctx.span().end();
                         let ctx = self.get_stage_span(
                             *id,
-                            format!("move-{}-{}", source_stage_name, dest_stage_name),
+                            format!("move/{}-{}", source_stage_name, dest_stage_name),
                         );
                         new_contexts.insert(*id, ctx);
                     }
@@ -446,7 +446,7 @@ impl VideoPipeline {
                 ctx.span().end();
                 let ctx = self.get_stage_span(
                     id,
-                    format!("move-{}-{}", source_stage_name, dest_stage_name),
+                    format!("move/pack/{}-{}", source_stage_name, dest_stage_name),
                 );
                 (id, ctx)
             })
@@ -503,7 +503,7 @@ impl VideoPipeline {
             ctx.span().end();
             let ctx = self.get_stage_span(
                 frame_id,
-                format!("move&unpack-{}-{}", source_stage_name, dest_stage_name),
+                format!("move/unpack/{}-{}", source_stage_name, dest_stage_name),
             );
             frame_mapping.insert(frame.get_source_id(), frame_id);
 
@@ -542,14 +542,14 @@ impl VideoPipeline {
                 match payload {
                     VideoPipelinePayload::Frame(frame, _, ctx) => {
                         let _span =
-                            Self::get_nested_span("access_objects".to_string(), ctx).attach();
+                            Self::get_nested_span("access-objects".to_string(), ctx).attach();
                         Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
                     }
                     VideoPipelinePayload::Batch(batch, _, contexts) => {
                         let contexts = contexts
                             .iter()
                             .map(|(_, ctx)| {
-                                Self::get_nested_span("access_objects".to_string(), ctx)
+                                Self::get_nested_span("access-objects".to_string(), ctx)
                             })
                             .collect::<Vec<_>>();
                         let res = Ok(batch.access_objects(query));
