@@ -301,27 +301,47 @@ impl VideoPipeline {
         }
     }
 
-    pub fn apply_updates(&mut self, stage: &str, id: i64) -> anyhow::Result<()> {
-        if let Some(stage) = self.get_stage_mut(stage) {
-            if let Some(payload) = stage.payload.get_mut(&id) {
+    pub fn apply_updates(&self, stage: &str, id: i64) -> anyhow::Result<()> {
+        if let Some(stage) = self.get_stage(stage) {
+            if let Some(payload) = stage.payload.get(&id) {
                 match payload {
                     VideoPipelinePayload::Frame(frame, updates, ctx) => {
                         let _span = Self::get_nested_span("apply-updates".into(), ctx).attach();
-                        for update in updates.drain(..) {
-                            frame.update(&update)?;
+                        for update in updates {
+                            frame.update(update)?;
                         }
                     }
                     VideoPipelinePayload::Batch(batch, updates, contexts) => {
-                        for (frame_id, update) in updates.drain(..) {
-                            if let Some(frame) = batch.get(frame_id) {
+                        for (frame_id, update) in updates {
+                            if let Some(frame) = batch.get(*frame_id) {
                                 let _context_guard = Self::get_nested_span(
                                     "apply-updates".into(),
-                                    contexts.get(&frame_id).unwrap(),
+                                    contexts.get(frame_id).unwrap(),
                                 )
                                 .attach();
-                                frame.update(&update)?;
+                                frame.update(update)?;
                             }
                         }
+                    }
+                }
+            } else {
+                anyhow::bail!("Payload not found in stage")
+            }
+        } else {
+            anyhow::bail!("Stage not found")
+        }
+        Ok(())
+    }
+
+    pub fn clear_updates(&mut self, stage: &str, id: i64) -> anyhow::Result<()> {
+        if let Some(stage) = self.get_stage_mut(stage) {
+            if let Some(payload) = stage.payload.get_mut(&id) {
+                match payload {
+                    VideoPipelinePayload::Frame(_, updates, _) => {
+                        updates.clear();
+                    }
+                    VideoPipelinePayload::Batch(_, updates, _) => {
+                        updates.clear();
                     }
                 }
             } else {
@@ -367,20 +387,14 @@ impl VideoPipeline {
             let payload = match payload {
                 VideoPipelinePayload::Frame(frame, updates, ctx) => {
                     ctx.span().end();
-                    let ctx = self.get_stage_span(
-                        id,
-                        format!("move/{}-{}", source_stage_name, dest_stage_name),
-                    );
+                    let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
                     VideoPipelinePayload::Frame(frame, updates, ctx)
                 }
                 VideoPipelinePayload::Batch(batch, updates, contexts) => {
                     let mut new_contexts = HashMap::new();
                     for (id, ctx) in contexts.iter() {
                         ctx.span().end();
-                        let ctx = self.get_stage_span(
-                            *id,
-                            format!("move/{}-{}", source_stage_name, dest_stage_name),
-                        );
+                        let ctx = self.get_stage_span(*id, format!("stage/{}", dest_stage_name));
                         new_contexts.insert(*id, ctx);
                     }
                     VideoPipelinePayload::Batch(batch, updates, new_contexts)
@@ -444,10 +458,7 @@ impl VideoPipeline {
             .into_iter()
             .map(|(id, ctx)| {
                 ctx.span().end();
-                let ctx = self.get_stage_span(
-                    id,
-                    format!("move/pack/{}-{}", source_stage_name, dest_stage_name),
-                );
+                let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
                 (id, ctx)
             })
             .collect();
@@ -501,10 +512,7 @@ impl VideoPipeline {
         for (frame_id, frame) in batch.frames {
             let ctx = contexts.remove(&frame_id).unwrap();
             ctx.span().end();
-            let ctx = self.get_stage_span(
-                frame_id,
-                format!("move/unpack/{}-{}", source_stage_name, dest_stage_name),
-            );
+            let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
             frame_mapping.insert(frame.get_source_id(), frame_id);
 
             let dest_stage = self.get_stage_mut(dest_stage_name).unwrap();
@@ -542,14 +550,15 @@ impl VideoPipeline {
                 match payload {
                     VideoPipelinePayload::Frame(frame, _, ctx) => {
                         let _span =
-                            Self::get_nested_span("access-objects".to_string(), ctx).attach();
+                            Self::get_nested_span(format!("{}/access-objects", stage_name), ctx)
+                                .attach();
                         Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
                     }
                     VideoPipelinePayload::Batch(batch, _, contexts) => {
                         let contexts = contexts
                             .iter()
                             .map(|(_, ctx)| {
-                                Self::get_nested_span("access-objects".to_string(), ctx)
+                                Self::get_nested_span(format!("{}/access-objects", stage_name), ctx)
                             })
                             .collect::<Vec<_>>();
                         let res = Ok(batch.access_objects(query));
@@ -739,6 +748,7 @@ mod tests {
         let update = get_update();
         pipeline.add_batched_frame_update("proc1", batch_id, id, update)?;
         pipeline.apply_updates("proc1", batch_id)?;
+        pipeline.clear_updates("proc1", batch_id)?;
         let (frame, _) = pipeline.get_batched_frame("proc1", batch_id, id)?;
         frame
             .get_attribute("update".to_string(), "attribute".to_string())
