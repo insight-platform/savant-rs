@@ -183,14 +183,16 @@ impl VideoPipeline {
         if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
             self.root_spans.insert(id_counter, Context::default());
         } else {
-            let span = get_tracer()
-                .build_with_context(SpanBuilder::from_name("video-pipeline"), &parent_ctx);
+            let span = get_tracer().build_with_context(
+                SpanBuilder::from_name(self.get_root_span_name()),
+                &parent_ctx,
+            );
 
             self.root_spans
                 .insert(id_counter, Context::current_with_span(span));
         }
 
-        let ctx = self.get_stage_span(id_counter, format!("add-{}", stage_name));
+        let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
         let frame_payload = VideoPipelinePayload::Frame(frame, Vec::new(), ctx);
         if let Some(stage) = self.get_stage_mut(stage_name) {
             stage.payload.insert(id_counter, frame_payload);
