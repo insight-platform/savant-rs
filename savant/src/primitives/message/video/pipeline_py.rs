@@ -427,11 +427,37 @@ impl VideoPipeline {
     fn apply_updates(&self, stage: &str, id: i64) -> PyResult<()> {
         release_gil(|| {
             self.0
-                .write()
+                .read()
                 .apply_updates(stage, id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }
+
+    /// Clears the updates to the frames and batches of a stage.
+    ///
+    /// GIL management: the function is GIL-free.
+    ///
+    /// Parameters
+    /// ----------
+    /// stage : str
+    ///   The name of the stage.
+    /// id : int
+    ///   The id of the frame or batch to clear updates for.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the stage does not exist. If the frame or batch does not exist.
+    ///
+    fn clear_updates(&self, stage: &str, id: i64) -> PyResult<()> {
+        release_gil(|| {
+            self.0
+                .write()
+                .clear_updates(stage, id)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+    }
+
     /// Moves frames or batches from a stage to another. The dest stage must be the same time as the source stage.
     ///
     /// GIL management: the function is GIL-free.

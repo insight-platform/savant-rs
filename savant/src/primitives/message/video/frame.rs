@@ -1488,9 +1488,8 @@ impl VideoFrameProxy {
         };
 
         release_gil(|| {
-            let model_id = get_model_id(&namespace).map_err(|e| {
-                PyValueError::new_err(format!("Failed to get model id: {}", e.to_string()))
-            })?;
+            let model_id = get_model_id(&namespace)
+                .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
 
             boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
                 let label = get_object_label(model_id, cls_id);
@@ -1514,10 +1513,7 @@ impl VideoFrameProxy {
                         );
                         self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
                             .map_err(|e| {
-                                PyValueError::new_err(format!(
-                                    "Failed to add object: {}",
-                                    e.to_string()
-                                ))
+                                PyValueError::new_err(format!("Failed to add object: {}", e))
                             })
                     }
                 }

@@ -193,7 +193,7 @@ pub fn log_message(
                 KeyValue::new("event.name".to_string(), "log-record".to_string()),
                 KeyValue::new("event.domain".to_string(), "savant"),
             ]);
-            cx.span().add_event(format!("{}", message,), params);
+            cx.span().add_event(message, params);
         });
     }
 }

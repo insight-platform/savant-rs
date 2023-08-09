@@ -178,7 +178,7 @@ pub unsafe extern "C" fn update_frame_meta(
                             "Failed to add object with id={} to frame '{}'. Error is {}",
                             m.id,
                             frame.get_source_id(),
-                            e.to_string()
+                            e
                         )
                     });
             }

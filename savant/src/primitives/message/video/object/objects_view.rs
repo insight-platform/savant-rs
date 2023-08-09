@@ -290,11 +290,7 @@ impl QueryFunctions {
             for (i, r) in res {
                 for e in r {
                     e.map_err(|e| {
-                        PyRuntimeError::new_err(format!(
-                            "Batch frame Id={}, Error: {}",
-                            i,
-                            e.to_string()
-                        ))
+                        PyRuntimeError::new_err(format!("Batch frame Id={}, Error: {}", i, e))
                     })?;
                 }
             }
