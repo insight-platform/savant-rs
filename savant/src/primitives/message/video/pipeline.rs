@@ -183,14 +183,16 @@ impl VideoPipeline {
         if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
             self.root_spans.insert(id_counter, Context::default());
         } else {
-            let span = get_tracer()
-                .build_with_context(SpanBuilder::from_name("video-pipeline"), &parent_ctx);
+            let span = get_tracer().build_with_context(
+                SpanBuilder::from_name(self.get_root_span_name()),
+                &parent_ctx,
+            );
 
             self.root_spans
                 .insert(id_counter, Context::current_with_span(span));
         }
 
-        let ctx = self.get_stage_span(id_counter, format!("add-{}", stage_name));
+        let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
         let frame_payload = VideoPipelinePayload::Frame(frame, Vec::new(), ctx);
         if let Some(stage) = self.get_stage_mut(stage_name) {
             stage.payload.insert(id_counter, frame_payload);
@@ -302,12 +304,14 @@ impl VideoPipeline {
         }
     }
 
-    pub fn apply_updates(&self, stage: &str, id: i64) -> anyhow::Result<()> {
-        if let Some(stage) = self.get_stage(stage) {
+    pub fn apply_updates(&self, stage_name: &str, id: i64) -> anyhow::Result<()> {
+        if let Some(stage) = self.get_stage(stage_name) {
             if let Some(payload) = stage.payload.get(&id) {
                 match payload {
                     VideoPipelinePayload::Frame(frame, updates, ctx) => {
-                        let _span = Self::get_nested_span("apply-updates".into(), ctx).attach();
+                        let _span =
+                            Self::get_nested_span(format!("{}/apply-updates", stage_name), ctx)
+                                .attach();
                         for update in updates {
                             frame.update(update)?;
                         }
@@ -316,7 +320,7 @@ impl VideoPipeline {
                         for (frame_id, update) in updates {
                             if let Some(frame) = batch.get(*frame_id) {
                                 let _context_guard = Self::get_nested_span(
-                                    "apply-updates".into(),
+                                    format!("{}/apply-updates", stage_name),
                                     contexts.get(frame_id).unwrap(),
                                 )
                                 .attach();
@@ -334,12 +338,14 @@ impl VideoPipeline {
         Ok(())
     }
 
-    pub fn clear_updates(&mut self, stage: &str, id: i64) -> anyhow::Result<()> {
-        if let Some(stage) = self.get_stage_mut(stage) {
+    pub fn clear_updates(&mut self, stage_name: &str, id: i64) -> anyhow::Result<()> {
+        if let Some(stage) = self.get_stage_mut(stage_name) {
             if let Some(payload) = stage.payload.get_mut(&id) {
                 match payload {
                     VideoPipelinePayload::Frame(_, updates, ctx) => {
-                        let _guard = Self::get_nested_span("clear-updates".into(), ctx).attach();
+                        let _guard =
+                            Self::get_nested_span(format!("{}/clear-updates", stage_name), ctx)
+                                .attach();
                         updates.clear();
                     }
                     VideoPipelinePayload::Batch(_, updates, ctxts) => {
@@ -348,7 +354,7 @@ impl VideoPipeline {
                             .iter()
                             .map(|id| {
                                 Self::get_nested_span(
-                                    "clear-updates".into(),
+                                    format!("{}/clear-updates", stage_name),
                                     ctxts.get(id).unwrap(),
                                 )
                             })
