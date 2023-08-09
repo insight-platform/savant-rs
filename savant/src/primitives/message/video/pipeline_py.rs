@@ -4,7 +4,7 @@ use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectsView};
 use crate::utils::otlp::TelemetrySpan;
 use crate::utils::python::release_gil;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -19,13 +19,13 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-struct VideoPipeline(Arc<Mutex<VideoPipelineRs>>);
+struct VideoPipeline(Arc<RwLock<VideoPipelineRs>>);
 
 #[pymethods]
 impl VideoPipeline {
     #[new]
     fn new(name: String) -> Self {
-        let p = VideoPipeline(Arc::new(Mutex::new(VideoPipelineRs::default())));
+        let p = VideoPipeline(Arc::new(RwLock::new(VideoPipelineRs::default())));
         p.set_root_span_name(name);
         p
     }
@@ -41,28 +41,28 @@ impl VideoPipeline {
     ///
     #[setter]
     fn set_root_span_name(&self, name: String) {
-        release_gil(|| self.0.lock().set_root_span_name(name));
+        release_gil(|| self.0.write().set_root_span_name(name));
     }
 
     /// Returns the root span name.
     ///
     #[getter]
     fn get_root_span_name(&self) -> String {
-        self.0.lock().get_root_span_name()
+        self.0.read().get_root_span_name()
     }
 
     /// Set sampling
     ///
     #[setter]
     fn set_sampling_period(&self, period: i64) {
-        release_gil(|| self.0.lock().set_sampling_period(period));
+        release_gil(|| self.0.write().set_sampling_period(period));
     }
 
     /// Get sampling
     ///
     #[getter]
     fn get_sampling_period(&self) -> i64 {
-        self.0.lock().get_sampling_period()
+        self.0.read().get_sampling_period()
     }
 
     /// Adds a stage to the pipeline.
@@ -82,7 +82,7 @@ impl VideoPipeline {
     ///   If the stage name is already in use.
     ///
     fn add_stage(&self, name: &str, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
-        release_gil(|| self.0.lock().add_stage(name, stage_type))
+        release_gil(|| self.0.write().add_stage(name, stage_type))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Retrieves the type of a stage.
@@ -102,7 +102,7 @@ impl VideoPipeline {
     ///  If the stage does not exist.
     ///
     fn get_stage_type(&self, name: &str) -> Option<VideoPipelineStagePayloadType> {
-        self.0.lock().get_stage_type(name).cloned()
+        self.0.read().get_stage_type(name).cloned()
     }
     /// Adds a frame update to the independent frame.
     ///
@@ -130,7 +130,7 @@ impl VideoPipeline {
     ) -> PyResult<()> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .add_frame_update(stage, frame_id, update)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -164,7 +164,7 @@ impl VideoPipeline {
     ) -> PyResult<()> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .add_batched_frame_update(stage, batch_id, frame_id, update)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -193,7 +193,7 @@ impl VideoPipeline {
     fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> PyResult<i64> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .add_frame(stage_name, frame)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -230,7 +230,7 @@ impl VideoPipeline {
     ) -> PyResult<i64> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .add_frame_with_telemetry(stage_name, frame, parent_span.0.clone())
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -259,7 +259,7 @@ impl VideoPipeline {
     ///
     fn delete(&self, stage_name: &str, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
         release_gil(|| {
-            let res = self.0.lock().delete(stage_name, id);
+            let res = self.0.write().delete(stage_name, id);
             match res {
                 Ok(h) => Ok(h
                     .into_iter()
@@ -291,7 +291,7 @@ impl VideoPipeline {
     fn get_stage_queue_len(&self, stage_name: &str) -> PyResult<usize> {
         release_gil(|| {
             self.0
-                .lock()
+                .read()
                 .get_stage_queue_len(stage_name)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -324,7 +324,7 @@ impl VideoPipeline {
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
-                .lock()
+                .read()
                 .get_independent_frame(stage, frame_id)
                 .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -361,7 +361,7 @@ impl VideoPipeline {
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
         release_gil(|| {
             self.0
-                .lock()
+                .read()
                 .get_batched_frame(stage, batch_id, frame_id)
                 .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -395,7 +395,7 @@ impl VideoPipeline {
     ) -> PyResult<(VideoFrameBatch, HashMap<i64, TelemetrySpan>)> {
         release_gil(|| {
             self.0
-                .lock()
+                .read()
                 .get_batch(stage, batch_id)
                 .map(|(b, c)| {
                     (
@@ -427,7 +427,7 @@ impl VideoPipeline {
     fn apply_updates(&self, stage: &str, id: i64) -> PyResult<()> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .apply_updates(stage, id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -460,7 +460,7 @@ impl VideoPipeline {
     ) -> PyResult<()> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .move_as_is(source_stage_name, dest_stage_name, object_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -498,7 +498,7 @@ impl VideoPipeline {
     ) -> PyResult<i64> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .move_and_pack_frames(source_stage_name, dest_stage_name, frame_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -536,7 +536,7 @@ impl VideoPipeline {
     ) -> PyResult<HashMap<String, i64>> {
         release_gil(|| {
             self.0
-                .lock()
+                .write()
                 .move_and_unpack_batch(source_stage_name, dest_stage_name, batch_id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -550,7 +550,7 @@ impl VideoPipeline {
     ) -> PyResult<HashMap<i64, VideoObjectsView>> {
         release_gil(|| {
             self.0
-                .lock()
+                .read()
                 .access_objects(stage_name, frame_id, &query.inner)
                 .map(|result| {
                     result
