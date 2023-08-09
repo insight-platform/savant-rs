@@ -1,6 +1,7 @@
 use crate::primitives::message::video::query::MatchQuery;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectProxy};
 use crate::utils::get_tracer;
+use hashbrown::HashSet;
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
 use opentelemetry::Context;
 use pyo3::prelude::*;
@@ -337,11 +338,23 @@ impl VideoPipeline {
         if let Some(stage) = self.get_stage_mut(stage) {
             if let Some(payload) = stage.payload.get_mut(&id) {
                 match payload {
-                    VideoPipelinePayload::Frame(_, updates, _) => {
+                    VideoPipelinePayload::Frame(_, updates, ctx) => {
+                        let _guard = Self::get_nested_span("clear-updates".into(), ctx).attach();
                         updates.clear();
                     }
-                    VideoPipelinePayload::Batch(_, updates, _) => {
+                    VideoPipelinePayload::Batch(_, updates, ctxts) => {
+                        let ids = updates.iter().map(|(id, _)| *id).collect::<HashSet<_>>();
+                        let contexts = ids
+                            .iter()
+                            .map(|id| {
+                                Self::get_nested_span(
+                                    "clear-updates".into(),
+                                    ctxts.get(id).unwrap(),
+                                )
+                            })
+                            .collect::<Vec<_>>();
                         updates.clear();
+                        contexts.iter().for_each(|cx| cx.span().end());
                     }
                 }
             } else {

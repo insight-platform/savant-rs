@@ -66,6 +66,7 @@ if __name__ == "__main__":
     assert p.get_stage_queue_len("proc1") == 1
 
     p.apply_updates("proc1", batch_id)
+    p.clear_updates("proc1", batch_id)
 
     p.move_as_is("proc1", "proc2", [batch_id])
     objects = p.access_objects("proc2", batch_id, Q.idle())
