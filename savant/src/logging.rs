@@ -72,7 +72,7 @@ impl From<log::LevelFilter> for LogLevel {
 ///   The previous log level.
 ///
 #[pyfunction]
-pub(crate) fn set_log_level(level: LogLevel) -> LogLevel {
+pub fn set_log_level(level: LogLevel) -> LogLevel {
     // set environment variable to enable logging
     let last_level = get_log_level();
     log::set_max_level(level.into());
@@ -87,7 +87,7 @@ pub(crate) fn set_log_level(level: LogLevel) -> LogLevel {
 ///   The current log level.
 ///
 #[pyfunction]
-fn get_log_level() -> LogLevel {
+pub fn get_log_level() -> LogLevel {
     log::max_level().into()
 }
 
@@ -104,7 +104,7 @@ fn get_log_level() -> LogLevel {
 ///   True if the log level is enabled, False otherwise.
 ///
 #[pyfunction]
-fn log_level_enabled(level: LogLevel) -> bool {
+pub fn log_level_enabled(level: LogLevel) -> bool {
     log::max_level().ge(&log::LevelFilter::from(level))
 }
 

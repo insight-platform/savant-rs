@@ -1,4 +1,4 @@
-use crate::logging::{log_message, LogLevel};
+use crate::logging::{log_level_enabled, log_message, LogLevel};
 use crate::utils::get_tracer;
 use crate::utils::python::release_gil;
 use opentelemetry::propagation::{Extractor, Injector};
@@ -10,6 +10,7 @@ use pyo3::types::PyTraceback;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::thread::ThreadId;
 
 thread_local! {
@@ -89,7 +90,7 @@ impl TelemetrySpan {
     ///   The created span.
     ///
     #[staticmethod]
-    fn constructor(name: String) -> TelemetrySpan {
+    fn constructor(name: &str) -> TelemetrySpan {
         TelemetrySpan::new(name)
     }
 
@@ -104,9 +105,9 @@ impl TelemetrySpan {
     }
 
     #[new]
-    fn new(name: String) -> TelemetrySpan {
+    fn new(name: &str) -> TelemetrySpan {
         TelemetrySpan(
-            get_tracer().in_span(name, |ctx| ctx),
+            get_tracer().in_span(name.to_string(), |ctx| ctx),
             TelemetrySpan::thread_id(),
         )
     }
@@ -125,7 +126,12 @@ impl TelemetrySpan {
     /// name : str
     ///   The name of the span.
     ///
-    fn nested_span(&self, name: String) -> TelemetrySpan {
+    /// Returns
+    /// --------
+    /// :py:class:`TelemetrySpan`
+    ///   new span
+    ///
+    fn nested_span(&self, name: &str) -> TelemetrySpan {
         release_gil(|| {
             let parent_ctx = &self.0;
 
@@ -133,9 +139,36 @@ impl TelemetrySpan {
                 return TelemetrySpan::default();
             }
 
-            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), parent_ctx);
+            let span = get_tracer()
+                .build_with_context(SpanBuilder::from_name(name.to_string()), parent_ctx);
             let ctx = Context::current_with_span(span);
             TelemetrySpan(ctx, TelemetrySpan::thread_id())
+        })
+    }
+
+    /// Creates a nested span only when log level is enabled
+    ///
+    /// GIL Management: This method releases the GIL.
+    ///
+    /// Parameters
+    /// ----------
+    /// name : str
+    ///   The name of the span.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`MaybeTelemetrySpan`
+    ///   a span that maybe a nested if the log level is enabled
+    ///
+    fn nested_span_when_loglevel_active(
+        &self,
+        name: &str,
+        log_level: LogLevel,
+    ) -> MaybeTelemetrySpan {
+        MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+            Some(self.nested_span(name))
+        } else {
+            None
         })
     }
 
@@ -169,9 +202,14 @@ impl TelemetrySpan {
     }
 
     fn __enter__<'p>(slf: PyRef<'p, Self>, _py: Python<'p>) -> PyResult<PyRef<'p, Self>> {
-        slf.ensure_same_thread();
-        push_context(slf.0.clone());
+        let o = slf.deref();
+        o.enter();
         Ok(slf)
+    }
+
+    pub(crate) fn enter(&self) {
+        self.ensure_same_thread();
+        push_context(self.0.clone());
     }
 
     fn __exit__(
@@ -368,6 +406,68 @@ impl TelemetrySpan {
     }
 }
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct MaybeTelemetrySpan {
+    span: Option<TelemetrySpan>,
+}
+
+#[pymethods]
+impl MaybeTelemetrySpan {
+    #[new]
+    fn new(span: Option<TelemetrySpan>) -> MaybeTelemetrySpan {
+        MaybeTelemetrySpan { span }
+    }
+
+    fn nested_span(&self, name: &str) -> MaybeTelemetrySpan {
+        if let Some(span) = &self.span {
+            MaybeTelemetrySpan {
+                span: Some(span.nested_span(name)),
+            }
+        } else {
+            MaybeTelemetrySpan { span: None }
+        }
+    }
+
+    fn nested_span_when_loglevel_active(
+        &self,
+        name: &str,
+        log_level: LogLevel,
+    ) -> MaybeTelemetrySpan {
+        match &self.span {
+            None => MaybeTelemetrySpan::new(None),
+            Some(span) => MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+                Some(span.nested_span(name))
+            } else {
+                None
+            }),
+        }
+    }
+
+    fn __enter__<'p>(slf: PyRef<'p, Self>, _py: Python<'p>) {
+        if let Some(span) = &slf.span {
+            span.enter();
+        }
+    }
+
+    fn __exit__(
+        &self,
+        exc_type: Option<&PyAny>,
+        exc_value: Option<&PyAny>,
+        traceback: Option<&PyAny>,
+    ) -> PyResult<()> {
+        if let Some(span) = &self.span {
+            span.__exit__(exc_type, exc_value, traceback)?;
+        }
+        Ok(())
+    }
+
+    #[staticmethod]
+    fn current() -> TelemetrySpan {
+        TelemetrySpan::from_context(current_context())
+    }
+}
+
 /// Represents a context that can be propagated to remote system like Python code
 ///
 ///
@@ -392,15 +492,42 @@ impl PropagatedContext {
     /// OTLPSpan
     ///   A new span
     ///
-    fn nested_span(&self, name: String) -> TelemetrySpan {
+    fn nested_span(&self, name: &str) -> TelemetrySpan {
         release_gil(|| {
             let parent_ctx = self.extract();
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
                 return TelemetrySpan::default();
             }
-            let span = get_tracer().build_with_context(SpanBuilder::from_name(name), &parent_ctx);
+            let span = get_tracer()
+                .build_with_context(SpanBuilder::from_name(name.to_string()), &parent_ctx);
             let ctx = Context::current_with_span(span);
             TelemetrySpan(ctx, TelemetrySpan::thread_id())
+        })
+    }
+
+    /// Creates a nested span only when log level is enabled
+    ///
+    /// GIL Management: This method releases the GIL.
+    ///
+    /// Parameters
+    /// ----------
+    /// name : str
+    ///   The name of the span.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`MaybeTelemetrySpan`
+    ///   a span that maybe a nested if the log level is enabled
+    ///
+    fn nested_span_when_loglevel_active(
+        &self,
+        name: &str,
+        log_level: LogLevel,
+    ) -> MaybeTelemetrySpan {
+        MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+            Some(self.nested_span(name))
+        } else {
+            None
         })
     }
 

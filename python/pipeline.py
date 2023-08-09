@@ -134,6 +134,8 @@ if __name__ == "__main__":
 
     try:
         with root_spans_1.nested_span("sleep-1") as root_span:
+            with root_span.nested_span_when_loglevel_active('sleep-debugging', LogLevel.Debug) as sds:
+                log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):
                 log(LogLevel.Debug, "a::b", "I'm debugging: {}".format(1))
             root_span.set_float_attribute("seconds", 0.2)

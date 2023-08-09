@@ -36,7 +36,7 @@ use crate::primitives::bbox::transformations::VideoObjectBBoxTransformationProxy
 use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::{Message, VideoObjectBBoxType};
 use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::otlp::{PropagatedContext, TelemetrySpan};
+use crate::utils::otlp::{MaybeTelemetrySpan, PropagatedContext, TelemetrySpan};
 use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
@@ -137,6 +137,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;
+    m.add_class::<MaybeTelemetrySpan>()?;
     m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
     m.add_class::<VideoObjectBBoxType>()?;
