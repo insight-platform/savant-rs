@@ -1,4 +1,4 @@
-use crate::logging::{log_level_enabled, log_message, LogLevel};
+use crate::logging::{log_message, LogLevel};
 use crate::utils::get_tracer;
 use crate::utils::python::{release_gil, with_gil};
 use opentelemetry::propagation::{Extractor, Injector};
@@ -160,12 +160,8 @@ impl TelemetrySpan {
     /// :py:class:`MaybeTelemetrySpan`
     ///   a span that maybe a nested if the log level is enabled
     ///
-    fn nested_span_when_loglevel_active(
-        &self,
-        name: &str,
-        log_level: LogLevel,
-    ) -> MaybeTelemetrySpan {
-        MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+    fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
+        MaybeTelemetrySpan::new(if predicate {
             Some(self.nested_span(name))
         } else {
             None
@@ -429,14 +425,10 @@ impl MaybeTelemetrySpan {
         }
     }
 
-    fn nested_span_when_loglevel_active(
-        &self,
-        name: &str,
-        log_level: LogLevel,
-    ) -> MaybeTelemetrySpan {
+    fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
         match &self.span {
             None => MaybeTelemetrySpan::new(None),
-            Some(span) => MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+            Some(span) => MaybeTelemetrySpan::new(if predicate {
                 Some(span.nested_span(name))
             } else {
                 None
@@ -519,12 +511,8 @@ impl PropagatedContext {
     /// :py:class:`MaybeTelemetrySpan`
     ///   a span that maybe a nested if the log level is enabled
     ///
-    fn nested_span_when_loglevel_active(
-        &self,
-        name: &str,
-        log_level: LogLevel,
-    ) -> MaybeTelemetrySpan {
-        MaybeTelemetrySpan::new(if log_level_enabled(log_level) {
+    fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
+        MaybeTelemetrySpan::new(if predicate {
             Some(self.nested_span(name))
         } else {
             None

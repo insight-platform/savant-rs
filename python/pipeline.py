@@ -1,11 +1,12 @@
 import time
 from threading import Thread, current_thread
+from pprint import pprint
 
 import savant_rs
 from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
-from savant_rs.utils import gen_frame, TelemetrySpan
+from savant_rs.utils import gen_frame, TelemetrySpan, configure_thread_gil_contention_collector, gil_contention_report
 from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs import init_jaeger_tracer
@@ -100,6 +101,7 @@ if __name__ == "__main__":
 
 
     def f(span):
+        configure_thread_gil_contention_collector(1000, [100, 500, 5000, 25000, 100000, 500000, 1000000])
         with span.nested_span("func") as s:
             log(LogLevel.Error, "a", "Context Depth: {}".format(TelemetrySpan.context_depth()),
                 dict(context_depth=TelemetrySpan.context_depth()))
@@ -119,6 +121,7 @@ if __name__ == "__main__":
                     time.sleep(0.1)
                 log(LogLevel.Warning, "a::b", "Context Depth: {}".format(TelemetrySpan.context_depth()))
         log(LogLevel.Warning, "c", "Context Depth: {}".format(TelemetrySpan.context_depth()))
+        pprint(gil_contention_report())
 
 
     thr1 = Thread(target=f, args=(root_spans_1,))
@@ -134,7 +137,7 @@ if __name__ == "__main__":
 
     try:
         with root_spans_1.nested_span("sleep-1") as root_span:
-            with root_span.nested_span_when_loglevel_active('sleep-debugging', LogLevel.Debug) as sds:
+            with root_span.nested_span_when('sleep-debugging', log_level_enabled(LogLevel.Debug)) as sds:
                 log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):
                 log(LogLevel.Debug, "a::b", "I'm debugging: {}".format(1))
