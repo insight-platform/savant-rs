@@ -17,7 +17,7 @@ use crate::primitives::{
     Attribute, IdCollisionResolutionPolicy, Message, RBBox, SetDrawLabelKind,
     SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
-use crate::utils::python::release_gil;
+use crate::utils::python::{release_gil, with_gil};
 use crate::utils::symbol_mapper::{get_model_id, get_object_label};
 use anyhow::bail;
 use derive_builder::Builder;
@@ -26,7 +26,7 @@ use numpy::PyArray;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult, Python};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -168,10 +168,12 @@ impl VideoFrameContentProxy {
 
     pub fn get_data_as_bytes(&self) -> PyResult<PyObject> {
         match &*self.inner {
-            VideoFrameContent::Internal(data) => Ok(Python::with_gil(|py| {
-                let bytes = PyBytes::new(py, data);
-                PyObject::from(bytes)
-            })),
+            VideoFrameContent::Internal(data) => Ok({
+                with_gil(|py| {
+                    let bytes = PyBytes::new(py, data);
+                    PyObject::from(bytes)
+                })
+            }),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
             )),

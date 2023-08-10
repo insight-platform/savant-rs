@@ -15,7 +15,7 @@ from savant_rs.video_object_query import MatchQuery as Q
 
 if __name__ == "__main__":
     savant_rs.version()
-    set_log_level(LogLevel.Debug)
+    set_log_level(LogLevel.Trace)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 

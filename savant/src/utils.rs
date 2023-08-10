@@ -32,6 +32,7 @@ use crate::utils::symbol_mapper::{
     parse_compound_key_gil, register_model_objects_gil, validate_base_key_gil,
 };
 
+use crate::logging::{log_level_enabled, LogLevel};
 use crate::primitives::bbox::transformations::VideoObjectBBoxTransformationProxy;
 use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::{Message, VideoObjectBBoxType};
@@ -41,6 +42,7 @@ use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
 };
+use crate::utils::python::with_gil;
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
 pub use np_nalgebra::*;
@@ -54,6 +56,16 @@ pub fn round_2_digits(v: f64) -> f64 {
 
 pub fn get_tracer() -> BoxedTracer {
     global::tracer("video_pipeline")
+}
+
+/// When loglevel is set to Trace reports the number of nanoseconds spent waiting for the GIL
+/// The report is sent to the current telemetry span
+///
+#[pyfunction]
+pub fn estimate_gil_contention() {
+    if log_level_enabled(LogLevel::Trace) {
+        with_gil(|_| {});
+    }
 }
 
 #[pymodule]
@@ -134,6 +146,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
+    m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
 
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;
