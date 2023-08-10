@@ -1,6 +1,6 @@
 use crate::logging::{log_level_enabled, log_message, LogLevel};
 use crate::utils::get_tracer;
-use crate::utils::python::release_gil;
+use crate::utils::python::{release_gil, with_gil};
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, TraceId, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
@@ -218,7 +218,7 @@ impl TelemetrySpan {
         exc_value: Option<&PyAny>,
         traceback: Option<&PyAny>,
     ) -> PyResult<()> {
-        Python::with_gil(|py| {
+        with_gil(|py| {
             if let Some(e) = exc_type {
                 let mut attrs = HashMap::new();
 

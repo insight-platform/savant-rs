@@ -1,9 +1,9 @@
 use pyo3::types::PyBytes;
-use pyo3::{pyfunction, PyObject, Python};
+use pyo3::{pyfunction, PyObject};
 
 use crate::primitives::Message;
 use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::python::release_gil;
+use crate::utils::python::{release_gil, with_gil};
 
 /// Save a message to a byte array
 ///
@@ -78,7 +78,7 @@ pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> Byt
 #[pyo3(name = "save_message_to_bytes")]
 pub fn save_message_to_bytes_gil(message: &Message) -> PyObject {
     let bytes = release_gil(|| save_message(message));
-    Python::with_gil(|py| {
+    with_gil(|py| {
         let bytes = PyBytes::new(py, &bytes);
         PyObject::from(bytes)
     })
