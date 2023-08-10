@@ -47,7 +47,7 @@ where
     F: FnOnce(Python<'_>) -> T,
 {
     if log_level_enabled(LogLevel::Trace) {
-        let start_wait = Python::with_gil(|py| py.allow_threads(|| Instant::now()));
+        let start_wait = Python::with_gil(|py| py.allow_threads(Instant::now));
         Python::with_gil(|py| report_gil_wait(&start_wait, py));
     }
     Python::with_gil(f)

@@ -95,7 +95,7 @@ pub fn update_config_resolver(symbols: HashMap<String, String>) {
             .expect("Wrong downcast");
 
         let mut old_symbols = resolver.symbols.write();
-        old_symbols.extend(symbols.into_iter());
+        old_symbols.extend(symbols);
     } else {
         drop(r);
         register_config_resolver(symbols);
