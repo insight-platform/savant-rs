@@ -46,9 +46,9 @@ pub fn with_gil<F, T>(f: F) -> T
 where
     F: FnOnce(Python<'_>) -> T,
 {
-    let start_wait = Instant::now();
-    Python::with_gil(|py| {
-        report_gil_wait(&start_wait, py);
-        f(py)
-    })
+    if log_level_enabled(LogLevel::Trace) {
+        let start_wait = Python::with_gil(|py| py.allow_threads(|| Instant::now()));
+        Python::with_gil(|py| report_gil_wait(&start_wait, py));
+    }
+    Python::with_gil(f)
 }
