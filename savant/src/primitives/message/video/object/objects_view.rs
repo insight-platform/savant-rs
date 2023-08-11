@@ -48,7 +48,7 @@ impl VideoObjectsView {
     fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
         let it = zip(self.inner.iter(), boxes);
         match kind {
-            VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_bbox(b)),
+            VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_box(b)),
             VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.set_track_box(b)),
         }
     }

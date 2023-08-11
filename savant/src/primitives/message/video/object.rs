@@ -698,7 +698,7 @@ impl VideoObjectProxy {
     }
 
     #[setter]
-    pub fn set_detection_bbox(&self, bbox: RBBox) {
+    pub fn set_detection_box(&self, bbox: RBBox) {
         let mut inner = self.inner.write();
         inner.detection_box = bbox
             .try_into()
@@ -900,7 +900,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![VideoObjectModification::Label]);
         assert_eq!(t.take_modifications(), vec![]);
 
-        t.set_detection_bbox(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
+        t.set_detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
         t.clear_attributes_gil();
         assert_eq!(
             t.take_modifications(),
