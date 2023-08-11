@@ -9,6 +9,10 @@ from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.video_object_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
+
 import json
 from timeit import default_timer as timer
 from ctypes import *
@@ -16,7 +20,7 @@ from ctypes import *
 f = gen_frame()
 
 t = timer()
-for _ in range(1_000):
+for _ in range(1_00):
     r = f.json
 print(timer() - t)
 

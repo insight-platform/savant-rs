@@ -5,6 +5,9 @@ from savant_rs.primitives import VideoObject, AttributeValue, \
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs.video_object_query import MatchQuery as Q
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 frame = gen_frame()
 update = VideoFrameUpdate()
 

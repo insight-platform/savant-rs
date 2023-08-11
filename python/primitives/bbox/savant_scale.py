@@ -2,6 +2,8 @@
 import numpy as np
 from savant_rs.primitives.geometry import BBox
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
 
 def scale_rbbox(
     bboxes: np.ndarray, scale_factor_x: float, scale_factor_y: float

@@ -2,6 +2,9 @@ from savant_rs.primitives import VideoObject, AttributeValue, Attribute
 from savant_rs.primitives.geometry import RBBox
 from timeit import default_timer as timer
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 o = VideoObject(
     id=1,
     namespace="some",

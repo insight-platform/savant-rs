@@ -11,8 +11,8 @@ use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::video::query::MatchQuery;
 use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
+use crate::release_gil;
 use crate::utils::otlp::PropagatedContext;
-use crate::utils::python::release_gil;
 use crate::version_to_bytes_le;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
@@ -176,7 +176,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame")]
     fn video_frame_gil(frame: &VideoFrameProxy) -> Self {
-        release_gil(|| Message::video_frame(frame))
+        release_gil!(|| Message::video_frame(frame))
     }
 
     /// Create a new video frame batch message
@@ -194,7 +194,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame_batch")]
     fn video_frame_batch_gil(batch: &VideoFrameBatch) -> Self {
-        release_gil(|| Message::video_frame_batch(batch))
+        release_gil!(|| Message::video_frame_batch(batch))
     }
 
     /// Create a new end of stream message
@@ -230,7 +230,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "telemetry")]
     fn telemetry_gil(t: &Telemetry) -> Self {
-        release_gil(|| Message::telemetry(t.clone()))
+        release_gil!(|| Message::telemetry(t.clone()))
     }
 
     /// Create a new video frame update message
@@ -248,7 +248,7 @@ impl Message {
     #[staticmethod]
     #[pyo3(name = "video_frame_update")]
     fn video_frame_update_gil(update: &VideoFrameUpdate) -> Self {
-        release_gil(|| Message::video_frame_update(update.clone()))
+        release_gil!(|| Message::video_frame_update(update.clone()))
     }
 
     #[getter]

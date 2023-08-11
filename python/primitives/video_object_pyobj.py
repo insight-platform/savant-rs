@@ -2,6 +2,9 @@ from savant_rs.primitives import VideoObject
 from savant_rs.primitives.geometry import RBBox
 import random
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 obj = VideoObject(
         id=1,
         namespace="created_by_1",

@@ -1,5 +1,5 @@
 use crate::primitives::VideoObjectProxy;
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use libloading::os::unix::Symbol;
@@ -60,7 +60,7 @@ lazy_static! {
 #[pyfunction]
 #[pyo3(name = "is_plugin_function_registered")]
 pub fn is_plugin_function_registered_gil(alias: String) -> bool {
-    release_gil(|| is_plugin_function_registered(&alias))
+    is_plugin_function_registered(&alias)
 }
 
 pub fn is_plugin_function_registered(alias: &str) -> bool {
@@ -96,10 +96,8 @@ pub fn register_plugin_function_gil(
     function_type: &UserFunctionType,
     alias: String,
 ) -> PyResult<()> {
-    release_gil(|| {
-        register_plugin_function(&plugin, &function, function_type, &alias)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
-    })
+    register_plugin_function(&plugin, &function, function_type, &alias)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
 }
 
 pub fn register_plugin_function(
@@ -162,7 +160,7 @@ pub fn register_plugin_function(
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
 pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObjectProxy>) -> PyResult<bool> {
-    release_gil(|| {
+    release_gil!(|| {
         call_object_predicate(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -203,7 +201,7 @@ pub fn call_object_inplace_modifier_gil(
     alias: String,
     args: Vec<VideoObjectProxy>,
 ) -> PyResult<()> {
-    release_gil(|| {
+    release_gil!(|| {
         call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -249,7 +247,7 @@ pub fn call_object_map_modifier_gil(
     alias: String,
     arg: &VideoObjectProxy,
 ) -> PyResult<VideoObjectProxy> {
-    release_gil(|| {
+    release_gil!(|| {
         call_object_map_modifier(&alias, arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })

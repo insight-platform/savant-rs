@@ -1,6 +1,6 @@
 use crate::primitives::{PythonBBox, RBBox};
 use crate::utils::np::{ConvF64, ElementType, RConvF64};
-use crate::utils::python::with_gil;
+use crate::with_gil;
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
@@ -78,23 +78,24 @@ pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zer
     boxes: &Vec<PythonBBox>,
     format: &BBoxFormat,
 ) -> Py<PyArray<T, IxDyn>> {
-    with_gil(|py| {
-        let arr = py.allow_threads(|| {
-            let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 4]));
-            for (i, bbox) in boxes.iter().enumerate() {
-                let (v0, v1, v2, v3) = match format {
-                    BBoxFormat::LeftTopRightBottom => bbox.as_ltrb(),
-                    BBoxFormat::LeftTopWidthHeight => bbox.as_ltwh(),
-                    BBoxFormat::XcYcWidthHeight => bbox.as_xcycwh(),
-                };
+    let arr = {
+        let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 4]));
+        for (i, bbox) in boxes.iter().enumerate() {
+            let (v0, v1, v2, v3) = match format {
+                BBoxFormat::LeftTopRightBottom => bbox.as_ltrb(),
+                BBoxFormat::LeftTopWidthHeight => bbox.as_ltwh(),
+                BBoxFormat::XcYcWidthHeight => bbox.as_xcycwh(),
+            };
 
-                arr[[i, 0]] = RConvF64::conv_from_f64(v0);
-                arr[[i, 1]] = RConvF64::conv_from_f64(v1);
-                arr[[i, 2]] = RConvF64::conv_from_f64(v2);
-                arr[[i, 3]] = RConvF64::conv_from_f64(v3);
-            }
-            arr
-        });
+            arr[[i, 0]] = RConvF64::conv_from_f64(v0);
+            arr[[i, 1]] = RConvF64::conv_from_f64(v1);
+            arr[[i, 2]] = RConvF64::conv_from_f64(v2);
+            arr[[i, 3]] = RConvF64::conv_from_f64(v3);
+        }
+        arr
+    };
+
+    with_gil!(|py| {
         let arr = PyArray::from_array(py, &arr);
         arr.into_py(py)
     })
@@ -103,18 +104,19 @@ pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zer
 pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zero>(
     boxes: Vec<RBBox>,
 ) -> Py<PyArray<T, IxDyn>> {
-    with_gil(|py| {
-        let arr = py.allow_threads(|| {
-            let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 5]));
-            for (i, bbox) in boxes.iter().enumerate() {
-                arr[[i, 0]] = RConvF64::conv_from_f64(bbox.get_xc());
-                arr[[i, 1]] = RConvF64::conv_from_f64(bbox.get_yc());
-                arr[[i, 2]] = RConvF64::conv_from_f64(bbox.get_width());
-                arr[[i, 3]] = RConvF64::conv_from_f64(bbox.get_height());
-                arr[[i, 4]] = RConvF64::conv_from_f64(bbox.get_angle().unwrap_or(0.0));
-            }
-            arr
-        });
+    let arr = {
+        let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 5]));
+        for (i, bbox) in boxes.iter().enumerate() {
+            arr[[i, 0]] = RConvF64::conv_from_f64(bbox.get_xc());
+            arr[[i, 1]] = RConvF64::conv_from_f64(bbox.get_yc());
+            arr[[i, 2]] = RConvF64::conv_from_f64(bbox.get_width());
+            arr[[i, 3]] = RConvF64::conv_from_f64(bbox.get_height());
+            arr[[i, 4]] = RConvF64::conv_from_f64(bbox.get_angle().unwrap_or(0.0));
+        }
+        arr
+    };
+
+    with_gil!(|py| {
         let arr = PyArray::from_array(py, &arr);
         arr.into_py(py)
     })
@@ -144,19 +146,19 @@ pub fn rotated_bboxes_to_ndarray_gil(boxes: Vec<RBBox>, dtype: String) -> PyObje
     match dtype.as_str() {
         "float32" => {
             let arr = rotated_bboxes_to_ndarray::<f32>(boxes);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "float64" => {
             let arr = rotated_bboxes_to_ndarray::<f64>(boxes);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "int32" => {
             let arr = rotated_bboxes_to_ndarray::<i32>(boxes);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "int64" => {
             let arr = rotated_bboxes_to_ndarray::<i64>(boxes);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         _ => panic!("Unsupported dtype"),
     }
@@ -268,19 +270,19 @@ pub fn bboxes_to_ndarray_gil(
     match dtype.as_str() {
         "float32" => {
             let arr = bboxes_to_ndarray::<f32>(&boxes, format);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "float64" => {
             let arr = bboxes_to_ndarray::<f64>(&boxes, format);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "int32" => {
             let arr = bboxes_to_ndarray::<i32>(&boxes, format);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         "int64" => {
             let arr = bboxes_to_ndarray::<i64>(&boxes, format);
-            with_gil(|py| arr.to_object(py))
+            with_gil!(|py| arr.to_object(py))
         }
         _ => panic!("Unsupported dtype"),
     }

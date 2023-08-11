@@ -5,6 +5,8 @@ from timeit import default_timer as timer
 num = 10_000
 dims = (1024, 1)
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
 
 def bench_matrix(dtype, dims, num):
     t = timer()

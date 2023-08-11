@@ -2,8 +2,9 @@ use pyo3::types::PyBytes;
 use pyo3::{pyfunction, PyObject};
 
 use crate::primitives::Message;
+use crate::release_gil;
 use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::python::{release_gil, with_gil};
+use crate::with_gil;
 
 /// Save a message to a byte array
 ///
@@ -20,7 +21,7 @@ use crate::utils::python::{release_gil, with_gil};
 #[pyfunction]
 #[pyo3(name = "save_message")]
 pub fn save_message_gil(message: &Message) -> Vec<u8> {
-    release_gil(|| save_message(message))
+    save_message(message)
 }
 
 pub fn save_message(m: &Message) -> Vec<u8> {
@@ -51,7 +52,7 @@ pub fn save_message(m: &Message) -> Vec<u8> {
 #[pyo3(name = "save_message_to_bytebuffer")]
 #[pyo3(signature = (message, with_hash=true))]
 pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> ByteBuffer {
-    release_gil(|| {
+    release_gil!(|| {
         let m = save_message(message);
         let hash_opt = if with_hash {
             Some(crc32fast::hash(&m))
@@ -77,8 +78,8 @@ pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> Byt
 #[pyfunction]
 #[pyo3(name = "save_message_to_bytes")]
 pub fn save_message_to_bytes_gil(message: &Message) -> PyObject {
-    let bytes = release_gil(|| save_message(message));
-    with_gil(|py| {
+    let bytes = release_gil!(|| save_message(message));
+    with_gil!(|py| {
         let bytes = PyBytes::new(py, &bytes);
         PyObject::from(bytes)
     })

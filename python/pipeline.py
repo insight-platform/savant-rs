@@ -1,8 +1,12 @@
 import time
 from threading import Thread, current_thread
+from pprint import pprint
 
 import savant_rs
+
 from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
+set_log_level(LogLevel.Trace)
+
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
 from savant_rs.utils import gen_frame, TelemetrySpan
@@ -15,7 +19,6 @@ from savant_rs.video_object_query import MatchQuery as Q
 
 if __name__ == "__main__":
     savant_rs.version()
-    set_log_level(LogLevel.Trace)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
@@ -134,7 +137,7 @@ if __name__ == "__main__":
 
     try:
         with root_spans_1.nested_span("sleep-1") as root_span:
-            with root_span.nested_span_when_loglevel_active('sleep-debugging', LogLevel.Debug) as sds:
+            with root_span.nested_span_when('sleep-debugging', log_level_enabled(LogLevel.Debug)) as sds:
                 log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):
                 log(LogLevel.Debug, "a::b", "I'm debugging: {}".format(1))

@@ -1,7 +1,7 @@
 use crate::primitives::message::MessageEnvelope;
 use crate::primitives::Message;
+use crate::release_gil;
 use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::python::release_gil;
 use pyo3::pyfunction;
 use pyo3::types::PyBytes;
 
@@ -20,7 +20,7 @@ use pyo3::types::PyBytes;
 #[pyfunction]
 #[pyo3(name = "load_message")]
 pub fn load_message_gil(bytes: Vec<u8>) -> Message {
-    release_gil(|| load_message(&bytes))
+    load_message(&bytes)
 }
 
 pub fn load_message(bytes: &[u8]) -> Message {
@@ -69,7 +69,7 @@ pub fn load_message(bytes: &[u8]) -> Message {
 #[pyfunction]
 #[pyo3(name = "load_message_from_bytebuffer")]
 pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer) -> Message {
-    release_gil(|| load_message(buffer.bytes()))
+    release_gil!(|| load_message(buffer.bytes()))
 }
 
 /// Loads a message from a python bytes. The function is GIL-free.
@@ -88,7 +88,7 @@ pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer) -> Message {
 #[pyo3(name = "load_message_from_bytes")]
 pub fn load_message_from_bytes_gil(buffer: &PyBytes) -> Message {
     let bytes = buffer.as_bytes();
-    release_gil(|| load_message(bytes))
+    release_gil!(|| load_message(bytes))
 }
 
 #[cfg(test)]

@@ -761,7 +761,7 @@ mod tests {
         assert!(!expr.execute_with_new_context(&gen_object(1)));
 
         let object = gen_object(1);
-        object.set_detection_bbox(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
+        object.set_detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         assert!(expr.execute_with_new_context(&object));
 
         let expr = BoxAngle(gt(20.0));

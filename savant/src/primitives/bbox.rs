@@ -5,7 +5,7 @@ use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use crate::utils::round_2_digits;
 use anyhow::bail;
 use geo::{Area, BooleanOps};
@@ -522,7 +522,7 @@ impl RBBox {
     ///
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
-        release_gil(|| {
+        release_gil!(|| {
             self.scale(scale_x, scale_y);
         })
     }
@@ -537,7 +537,7 @@ impl RBBox {
     #[getter]
     #[pyo3(name = "vertices")]
     pub fn get_vertices_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.get_vertices())
+        self.get_vertices()
     }
 
     /// Returns vertices of the bbox rounded to 2 decimal digits. The property is GIL-free.
@@ -550,7 +550,7 @@ impl RBBox {
     #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn get_vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.get_vertices_rounded())
+        self.get_vertices_rounded()
     }
 
     /// Returns vertices of the bbox rounded to integers. The property is GIL-free.
@@ -563,7 +563,7 @@ impl RBBox {
     #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn get_vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        release_gil(|| self.get_vertices_int())
+        self.get_vertices_int()
     }
 
     /// Returns bbox as a polygonal area. The property is GIL-free.
@@ -575,7 +575,7 @@ impl RBBox {
     ///
     #[pyo3(name = "as_polygonal_area")]
     pub fn get_as_polygonal_area_gil(&self) -> PolygonalArea {
-        release_gil(|| self.get_as_polygonal_area())
+        self.get_as_polygonal_area()
     }
 
     /// Returns axis-aligned bounding box wrapping the bbox. The property is GIL-free.
@@ -588,7 +588,7 @@ impl RBBox {
     #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn get_wrapping_box_gil(&self) -> PythonBBox {
-        release_gil(|| self.get_wrapping_bbox())
+        self.get_wrapping_bbox()
     }
 
     /// Returns rotated bounding box wrapping the bbox with geometry corrected with respect to the padding and border width. The property is GIL-free.
@@ -607,7 +607,7 @@ impl RBBox {
     ///
     #[pyo3(name = "visual_box")]
     pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
-        release_gil(|| self.get_visual_bbox(padding, border_width))
+        release_gil!(|| self.get_visual_bbox(padding, border_width))
     }
 
     /// Returns rotated bounding box wrapping the bbox. The property is GIL-free.
@@ -624,7 +624,7 @@ impl RBBox {
     ///
     #[pyo3(name = "new_padded")]
     pub fn new_padded_gil(&self, padding: &PaddingDraw) -> Self {
-        release_gil(|| self.new_padded(padding))
+        release_gil!(|| self.new_padded(padding))
     }
 
     /// Returns a copy of the RBBox object. Modification flag is reset.
@@ -663,7 +663,7 @@ impl RBBox {
     ///
     #[pyo3(name = "iou")]
     pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
+        release_gil!(|| {
             self.iou(other)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -683,7 +683,7 @@ impl RBBox {
     ///
     #[pyo3(name = "ios")]
     pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
+        release_gil!(|| {
             self.ios(other)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -703,7 +703,7 @@ impl RBBox {
     ///
     #[pyo3(name = "ioo")]
     pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil(|| {
+        release_gil!(|| {
             self.ioo(other)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
@@ -1329,25 +1329,25 @@ impl PythonBBox {
     #[getter]
     #[pyo3(name = "vertices")]
     pub fn get_vertices_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.inner.get_vertices())
+        self.inner.get_vertices()
     }
 
     #[getter]
     #[pyo3(name = "vertices_rounded")]
     pub fn get_vertices_rounded_gil(&self) -> Vec<(f64, f64)> {
-        release_gil(|| self.inner.get_vertices_rounded())
+        self.inner.get_vertices_rounded()
     }
 
     #[getter]
     #[pyo3(name = "vertices_int")]
     pub fn get_vertices_int_gil(&self) -> Vec<(i64, i64)> {
-        release_gil(|| self.inner.get_vertices_int())
+        self.inner.get_vertices_int()
     }
 
     #[getter]
     #[pyo3(name = "wrapping_box")]
     pub fn get_wrapping_box_gil(&self) -> PythonBBox {
-        release_gil(|| self.inner.get_wrapping_bbox())
+        self.inner.get_wrapping_bbox()
     }
 
     #[pyo3(name = "visual_box")]
@@ -1358,7 +1358,7 @@ impl PythonBBox {
         max_x: f64,
         max_y: f64,
     ) -> PyResult<PythonBBox> {
-        release_gil(|| self.get_visual_bbox(padding, border_width, max_x, max_y))
+        self.get_visual_bbox(padding, border_width, max_x, max_y)
     }
 
     /// Returns (left, top, right, bottom) coordinates.
@@ -1405,9 +1405,7 @@ impl PythonBBox {
 
     #[pyo3(name = "scale")]
     pub fn scale_gil(&mut self, scale_x: f64, scale_y: f64) {
-        release_gil(|| {
-            self.inner.scale(scale_x, scale_y);
-        })
+        self.inner.scale(scale_x, scale_y);
     }
 
     pub fn shift(&mut self, dx: f64, dy: f64) {
@@ -1416,7 +1414,7 @@ impl PythonBBox {
 
     #[pyo3(name = "as_polygonal_area")]
     pub fn get_as_polygonal_area_gil(&self) -> PolygonalArea {
-        release_gil(|| self.inner.get_as_polygonal_area())
+        self.inner.get_as_polygonal_area()
     }
 
     /// Returns a copy of the BBox object
