@@ -3,6 +3,9 @@ from savant_rs.primitives import VideoFrame, VideoFrameContent
 from savant_rs.utils.symbol_mapper import register_model_objects, RegistrationPolicy
 from savant_rs.video_object_query import MatchQuery as Q
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 register_model_objects("detector", { 1: "person" }, RegistrationPolicy.ErrorIfNonUnique)
 
 frame = VideoFrame(

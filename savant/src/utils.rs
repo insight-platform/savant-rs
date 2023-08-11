@@ -42,9 +42,7 @@ use crate::utils::pluggable_udf_api::{
     call_object_inplace_modifier_gil, call_object_map_modifier_gil, call_object_predicate_gil,
     is_plugin_function_registered_gil, register_plugin_function_gil, UserFunctionType,
 };
-use crate::utils::python::{
-    configure_thread_gil_contention_collector, gil_contention_report, with_gil,
-};
+use crate::with_gil;
 pub use bbox::*;
 pub use fps_meter::FpsMeter;
 pub use np_nalgebra::*;
@@ -66,7 +64,7 @@ pub fn get_tracer() -> BoxedTracer {
 #[pyfunction]
 pub fn estimate_gil_contention() {
     if log_level_enabled(LogLevel::Trace) {
-        with_gil(|_| {});
+        with_gil!(|_| {});
     }
 }
 
@@ -149,11 +147,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        configure_thread_gil_contention_collector,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(gil_contention_report, m)?)?;
 
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;

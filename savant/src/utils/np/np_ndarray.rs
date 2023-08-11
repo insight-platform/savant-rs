@@ -1,5 +1,5 @@
 use crate::utils::np::ElementType;
-use crate::utils::python::with_gil;
+use crate::with_gil;
 use ndarray::{ArrayBase, IxDyn, OwnedRepr};
 use numpy::{PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
@@ -120,7 +120,7 @@ impl NDarray {
 
 pub fn ndarray_to_np<T: ElementType>(m: &DynamicArray<T>) -> PyObject {
     let arr = m.clone();
-    with_gil(|py| {
+    with_gil!(|py| {
         let arr = PyArray::from_array(py, &arr);
         arr.into_py(py)
     })
@@ -149,52 +149,52 @@ pub fn np_to_ndarray<T: ElementType>(arr: PyReadonlyArrayDyn<T>) -> PyResult<Dyn
 pub fn np_to_ndarray_gil(arr: &PyAny) -> PyResult<PyObject> {
     if let Ok(arr) = arr.downcast::<PyArray<f32, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_fp32)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<f64, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_fp64)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i8, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_i8)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i16, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_i16)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i32, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_i32)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<i64, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_i64)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<u8, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_u8)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<u16, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_u16)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<u32, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_u32)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     if let Ok(arr) = arr.downcast::<PyArray<u64, IxDyn>>() {
         let m = np_to_ndarray(arr.readonly()).map(NDarray::from_u64)?;
-        return with_gil(|py| Ok(m.into_py(py)));
+        return with_gil!(|py| Ok(m.into_py(py)));
     }
 
     Err(pyo3::exceptions::PyTypeError::new_err(

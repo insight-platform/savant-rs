@@ -1,6 +1,8 @@
 from savant_rs.primitives import Telemetry, Attribute, AttributeValue
 from savant_rs.utils.serialization import save_message_to_bytes, load_message_from_bytes, Message
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
 
 t = Telemetry("abc")
 t.set_attribute(Attribute(namespace="some", name="attr", hint="x", values=[AttributeValue.float(1.0, confidence=0.5)]))

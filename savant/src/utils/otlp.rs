@@ -1,6 +1,7 @@
 use crate::logging::{log_message, LogLevel};
+use crate::release_gil;
 use crate::utils::get_tracer;
-use crate::utils::python::{release_gil, with_gil};
+use crate::with_gil;
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, TraceId, Tracer};
 use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
@@ -132,7 +133,7 @@ impl TelemetrySpan {
     ///   new span
     ///
     fn nested_span(&self, name: &str) -> TelemetrySpan {
-        release_gil(|| {
+        release_gil!(|| {
             let parent_ctx = &self.0;
 
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
@@ -179,7 +180,7 @@ impl TelemetrySpan {
     ///
     fn propagate(&self) -> PropagatedContext {
         self.ensure_same_thread();
-        release_gil(|| PropagatedContext::inject(&self.0))
+        release_gil!(|| PropagatedContext::inject(&self.0))
     }
 
     #[classattr]
@@ -214,7 +215,7 @@ impl TelemetrySpan {
         exc_value: Option<&PyAny>,
         traceback: Option<&PyAny>,
     ) -> PyResult<()> {
-        with_gil(|py| {
+        with_gil!(|py| {
             if let Some(e) = exc_type {
                 let mut attrs = HashMap::new();
 
@@ -238,7 +239,7 @@ impl TelemetrySpan {
                 }
 
                 attrs.insert("python.version".into(), py.version().to_string());
-                release_gil(|| {
+                release_gil!(|| {
                     log_message(
                         LogLevel::Error,
                         "python::exception".to_string(),
@@ -258,7 +259,7 @@ impl TelemetrySpan {
             }
         });
 
-        release_gil(|| {
+        release_gil!(|| {
             self.0.span().end();
             pop_context();
         });
@@ -371,7 +372,7 @@ impl TelemetrySpan {
     #[pyo3(signature = (name, attributes = HashMap::default()))]
     fn add_event(&self, name: String, attributes: HashMap<String, String>) {
         self.ensure_same_thread();
-        release_gil(|| {
+        release_gil!(|| {
             self.0
                 .span()
                 .add_event(name, TelemetrySpan::build_attributes(attributes))
@@ -485,7 +486,7 @@ impl PropagatedContext {
     ///   A new span
     ///
     fn nested_span(&self, name: &str) -> TelemetrySpan {
-        release_gil(|| {
+        release_gil!(|| {
             let parent_ctx = self.extract();
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
                 return TelemetrySpan::default();

@@ -1,5 +1,3 @@
-import threading
-
 from savant_rs.utils import gen_frame
 from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox
@@ -8,11 +6,14 @@ from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE
 from timeit import default_timer as timer
 from threading import Thread, Barrier
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 import random
 
 register_utility_resolver()
 
-T = 32
+T = 1
 N = 100
 
 

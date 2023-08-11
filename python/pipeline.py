@@ -3,10 +3,13 @@ from threading import Thread, current_thread
 from pprint import pprint
 
 import savant_rs
+
 from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
+set_log_level(LogLevel.Trace)
+
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
-from savant_rs.utils import gen_frame, TelemetrySpan, configure_thread_gil_contention_collector, gil_contention_report
+from savant_rs.utils import gen_frame, TelemetrySpan
 from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
     AttributeUpdateCollisionResolutionPolicy
 from savant_rs import init_jaeger_tracer
@@ -16,7 +19,6 @@ from savant_rs.video_object_query import MatchQuery as Q
 
 if __name__ == "__main__":
     savant_rs.version()
-    set_log_level(LogLevel.Trace)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
@@ -101,7 +103,6 @@ if __name__ == "__main__":
 
 
     def f(span):
-        configure_thread_gil_contention_collector(1000, [100, 500, 5000, 25000, 100000, 500000, 1000000])
         with span.nested_span("func") as s:
             log(LogLevel.Error, "a", "Context Depth: {}".format(TelemetrySpan.context_depth()),
                 dict(context_depth=TelemetrySpan.context_depth()))
@@ -121,7 +122,6 @@ if __name__ == "__main__":
                     time.sleep(0.1)
                 log(LogLevel.Warning, "a::b", "Context Depth: {}".format(TelemetrySpan.context_depth()))
         log(LogLevel.Warning, "c", "Context Depth: {}".format(TelemetrySpan.context_depth()))
-        pprint(gil_contention_report())
 
 
     thr1 = Thread(target=f, args=(root_spans_1,))

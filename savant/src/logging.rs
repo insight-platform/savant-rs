@@ -1,5 +1,5 @@
+use crate::release_gil;
 use crate::utils::otlp::with_current_context;
-use crate::utils::python::release_gil;
 use colored::Colorize;
 use opentelemetry::trace::{TraceContextExt, TraceId};
 use opentelemetry::KeyValue;
@@ -134,7 +134,7 @@ fn log_message_py(level: LogLevel, target: String, message: String, params: Opti
             .collect::<Vec<_>>()
     });
 
-    release_gil(|| {
+    release_gil!(|| {
         log_message(level, target, message, params);
     });
 }

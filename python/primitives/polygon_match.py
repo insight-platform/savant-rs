@@ -1,5 +1,8 @@
 from pprint import pprint
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 from savant_rs.primitives.geometry import PolygonalArea, Point, Segment, IntersectionKind
 from timeit import default_timer as timer
 
@@ -31,7 +34,7 @@ l = [crosses_31, crosses_20, crosses_031, crosses_013, leaves_vertex, crosses_ve
 t = timer()
 
 res = None
-for _ in range(10_000):
+for _ in range(10_0):
     res = area.crossed_by_segments(l)
 
 print("Spent", timer() - t)

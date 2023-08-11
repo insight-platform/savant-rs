@@ -1,7 +1,7 @@
 use crate::primitives::point::Point;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use geo::line_intersection::line_intersection;
 use geo::{Contains, EuclideanDistance, Line, LineIntersection, LineString};
 use pyo3::exceptions::PyValueError;
@@ -77,7 +77,7 @@ impl PolygonalArea {
 
     #[pyo3(name = "crossed_by_segment")]
     pub fn crossed_by_segment_gil(&mut self, seg: &Segment) -> Intersection {
-        release_gil(|| {
+        release_gil!(|| {
             self.build_polygon();
             self.crossed_by_segment(seg)
         })
@@ -85,7 +85,7 @@ impl PolygonalArea {
 
     #[pyo3(name = "crossed_by_segments")]
     pub fn crossed_by_segments_gil(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
-        release_gil(|| {
+        release_gil!(|| {
             self.build_polygon();
             segments
                 .iter()
@@ -96,15 +96,13 @@ impl PolygonalArea {
 
     #[pyo3(name = "is_self_intersecting")]
     pub fn is_self_intersecting_gil(&mut self) -> bool {
-        release_gil(|| {
-            self.build_polygon();
-            self.is_self_intersecting()
-        })
+        self.build_polygon();
+        self.is_self_intersecting()
     }
 
     #[pyo3(name = "contains")]
     pub fn contains_gil(&mut self, p: &Point) -> bool {
-        release_gil(|| {
+        release_gil!(|| {
             self.build_polygon();
             self.contains(p)
         })
@@ -112,7 +110,7 @@ impl PolygonalArea {
 
     #[pyo3(name = "contains_many_points")]
     pub fn contains_many_points_gil(&mut self, points: Vec<Point>) -> Vec<bool> {
-        release_gil(|| {
+        release_gil!(|| {
             self.build_polygon();
             points.iter().map(|p| self.contains(p)).collect()
         })
@@ -121,7 +119,7 @@ impl PolygonalArea {
     #[staticmethod]
     #[pyo3(name = "points_positions")]
     pub fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>) -> Vec<Vec<bool>> {
-        release_gil(|| {
+        release_gil!(|| {
             let pts = &points;
             polys
                 .into_par_iter()
@@ -139,7 +137,7 @@ impl PolygonalArea {
         polys: Vec<Self>,
         segments: Vec<Segment>,
     ) -> Vec<Vec<Intersection>> {
-        release_gil(|| {
+        release_gil!(|| {
             let segments = &segments;
             polys
                 .into_par_iter()

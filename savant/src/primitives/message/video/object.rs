@@ -8,7 +8,7 @@ use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::pyobject::PyObjectMeta;
 use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrameProxy};
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
@@ -399,7 +399,7 @@ impl VideoObjectProxy {
     #[getter]
     #[pyo3(name = "attributes")]
     pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
-        release_gil(|| self.get_attributes())
+        release_gil!(|| self.get_attributes())
     }
 
     /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
@@ -512,7 +512,7 @@ impl VideoObjectProxy {
     #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
     pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
-        release_gil(move || {
+        release_gil!(move || {
             {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
@@ -576,7 +576,7 @@ impl VideoObjectProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        release_gil(|| self.find_attributes(namespace, names, hint))
+        self.find_attributes(namespace, names, hint)
     }
 
     /// Fetches attribute by namespace and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
@@ -776,7 +776,7 @@ impl VideoObjectProxy {
 
     #[pyo3(name = "transform_geometry")]
     fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>) {
-        release_gil(|| {
+        release_gil!(|| {
             let inner_ops = ops.iter().map(|op| op.get_ref()).collect::<Vec<_>>();
             self.transform_geometry(&inner_ops);
         })

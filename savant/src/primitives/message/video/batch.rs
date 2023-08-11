@@ -3,7 +3,7 @@ use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::video::query::match_query::MatchQuery;
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{VideoFrameProxy, VideoObjectProxy, VideoObjectsView};
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use pyo3::{pyclass, pymethods};
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
@@ -103,17 +103,17 @@ impl VideoFrameBatch {
 
     #[pyo3(name = "snapshot")]
     pub fn snapshot_gil(&mut self) {
-        release_gil(|| self.snapshot())
+        release_gil!(|| self.snapshot())
     }
 
     #[pyo3(name = "restore")]
     pub fn restore_gil(&mut self) {
-        release_gil(|| self.restore())
+        release_gil!(|| self.restore())
     }
 
     #[pyo3(name = "access_objects")]
     pub fn access_objects_gil(&self, q: MatchQueryProxy) -> HashMap<i64, VideoObjectsView> {
-        release_gil(|| {
+        release_gil!(|| {
             self.access_objects(q.inner.deref())
                 .into_iter()
                 .map(|(id, x)| (id, x.into()))
@@ -123,6 +123,6 @@ impl VideoFrameBatch {
 
     #[pyo3(name = "delete_objects")]
     pub fn delete_objects_gil(&mut self, q: MatchQueryProxy) {
-        release_gil(|| self.delete_objects(q.inner.deref()))
+        release_gil!(|| self.delete_objects(q.inner.deref()))
     }
 }

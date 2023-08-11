@@ -1,4 +1,4 @@
-use crate::utils::python::with_gil;
+use crate::with_gil;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use std::sync::Arc;
@@ -82,7 +82,7 @@ impl ByteBuffer {
     #[getter]
     #[pyo3(name = "bytes")]
     pub fn bytes_py(&self) -> PyObject {
-        with_gil(|py| {
+        with_gil!(|py| {
             let bytes = PyBytes::new(py, self.inner.as_slice());
             PyObject::from(bytes)
         })

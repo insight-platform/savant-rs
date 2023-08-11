@@ -5,7 +5,7 @@ use crate::primitives::message::video::query::match_query::{
 };
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{RBBox, VideoObjectProxy};
-use crate::utils::python::release_gil;
+use crate::release_gil;
 use crate::utils::{
     ndarray_to_bboxes, ndarray_to_rotated_bboxes, rotated_bboxes_to_ndarray, BBoxFormat,
 };
@@ -46,13 +46,11 @@ impl From<Vec<VideoObjectProxy>> for VideoObjectsView {
 
 impl VideoObjectsView {
     fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
-        release_gil(|| {
-            let it = zip(self.inner.iter(), boxes);
-            match kind {
-                VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_bbox(b)),
-                VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.set_track_box(b)),
-            }
-        })
+        let it = zip(self.inner.iter(), boxes);
+        match kind {
+            VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_bbox(b)),
+            VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.set_track_box(b)),
+        }
     }
 }
 
@@ -88,19 +86,19 @@ impl VideoObjectsView {
     #[getter]
     #[pyo3(name = "ids")]
     fn ids_py(&self) -> Vec<i64> {
-        release_gil(|| self.inner.iter().map(|x| x.get_id()).collect())
+        self.inner.iter().map(|x| x.get_id()).collect()
     }
 
     #[pyo3(name = "detached_copy")]
     fn detached_copy_py(&self) -> VideoObjectsView {
-        release_gil(|| VideoObjectsView {
+        release_gil!(|| VideoObjectsView {
             inner: Arc::new(self.inner.iter().map(|x| x.detached_copy()).collect()),
         })
     }
 
     #[pyo3(name = "rotated_boxes_as_numpy")]
     fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
-        let boxes = release_gil(|| match kind {
+        let boxes = match kind {
             VideoObjectBBoxType::Detection => self
                 .inner
                 .iter()
@@ -111,30 +109,26 @@ impl VideoObjectsView {
                 .iter()
                 .flat_map(|o| o.get_track_box().or(Some(BBOX_UNDEFINED.clone())))
                 .collect::<Vec<_>>(),
-        });
+        };
         rotated_bboxes_to_ndarray(boxes)
     }
 
     #[getter]
     #[pyo3(name = "track_ids")]
     pub fn track_ids_gil(&self) -> Vec<Option<i64>> {
-        release_gil(|| {
-            self.inner
-                .iter()
-                .map(|o| o.get_track_id())
-                .collect::<Vec<_>>()
-        })
+        self.inner
+            .iter()
+            .map(|o| o.get_track_id())
+            .collect::<Vec<_>>()
     }
 
     #[pyo3(name = "sorted_by_id")]
     pub fn sorted_by_id_gil(&self) -> VideoObjectsView {
-        release_gil(|| {
-            let mut objects = self.inner.as_ref().clone();
-            objects.sort_by_key(|o| o.get_id());
-            VideoObjectsView {
-                inner: Arc::new(objects),
-            }
-        })
+        let mut objects = self.inner.as_ref().clone();
+        objects.sort_by_key(|o| o.get_id());
+        VideoObjectsView {
+            inner: Arc::new(objects),
+        }
     }
 
     #[pyo3(name = "update_from_numpy_boxes")]
@@ -172,7 +166,7 @@ impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "filter")]
     pub(crate) fn filter_gil(v: &VideoObjectsView, q: &MatchQueryProxy) -> VideoObjectsView {
-        release_gil(|| VideoObjectsView {
+        release_gil!(|| VideoObjectsView {
             inner: Arc::new(filter(v.inner.as_ref(), &q.inner)),
         })
     }
@@ -183,7 +177,7 @@ impl QueryFunctions {
         v: VideoObjectsViewBatch,
         q: &MatchQueryProxy,
     ) -> VideoObjectsViewBatch {
-        release_gil(|| {
+        release_gil!(|| {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -201,7 +195,7 @@ impl QueryFunctions {
         v: &VideoObjectsView,
         q: &MatchQueryProxy,
     ) -> (VideoObjectsView, VideoObjectsView) {
-        release_gil(|| {
+        release_gil!(|| {
             let (a, b) = partition(v.inner.as_ref(), &q.inner);
             (
                 VideoObjectsView { inner: Arc::new(a) },
@@ -216,7 +210,7 @@ impl QueryFunctions {
         v: VideoObjectsViewBatch,
         q: &MatchQueryProxy,
     ) -> (VideoObjectsViewBatch, VideoObjectsViewBatch) {
-        release_gil(|| {
+        release_gil!(|| {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -237,7 +231,7 @@ impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "map_udf")]
     pub(crate) fn map_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<VideoObjectsView> {
-        release_gil(|| {
+        release_gil!(|| {
             map_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf)
                 .map(|x| VideoObjectsView { inner: Arc::new(x) })
         })
@@ -250,7 +244,7 @@ impl QueryFunctions {
         v: VideoObjectsViewBatch,
         udf: String,
     ) -> PyResult<VideoObjectsViewBatch> {
-        release_gil(|| {
+        release_gil!(|| {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -267,7 +261,7 @@ impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "foreach_udf")]
     pub(crate) fn foreach_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<()> {
-        release_gil(|| {
+        release_gil!(|| {
             let res = foreach_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf);
 
             for r in res {
@@ -280,7 +274,7 @@ impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "batch_foreach_udf")]
     pub(crate) fn batch_foreach_udf_gil(v: VideoObjectsViewBatch, udf: String) -> PyResult<()> {
-        release_gil(|| {
+        release_gil!(|| {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))

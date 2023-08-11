@@ -6,6 +6,9 @@ from savant_rs.video_object_query import FloatExpression as FE, \
     MatchQuery as Q, \
     utility_resolver_name
 
+from savant_rs.logging import LogLevel, set_log_level
+set_log_level(LogLevel.Trace)
+
 and_ = Q.and_
 or_ = Q.or_
 not_ = Q.not_

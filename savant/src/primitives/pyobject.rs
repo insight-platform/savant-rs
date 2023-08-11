@@ -1,4 +1,4 @@
-use crate::utils::python::with_gil;
+use crate::with_gil;
 use pyo3::{Py, PyAny, PyObject};
 use std::collections::HashMap;
 
@@ -7,7 +7,7 @@ pub trait PyObjectMeta: Send {
     fn get_py_objects_ref_mut(&mut self) -> &mut HashMap<(String, String), PyObject>;
 
     fn get_py_object_by_ref(&self, namespace: &str, name: &str) -> Option<Py<PyAny>> {
-        with_gil(|py| {
+        with_gil!(|py| {
             self.get_py_objects_ref()
                 .get(&(namespace.to_owned(), name.to_owned()))
                 .map(|o| o.clone_ref(py))
