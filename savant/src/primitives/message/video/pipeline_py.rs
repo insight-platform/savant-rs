@@ -127,12 +127,10 @@ impl VideoPipeline {
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> PyResult<()> {
-        release_gil!(|| {
-            self.0
-                .write()
-                .add_frame_update(stage, frame_id, update)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .write()
+            .add_frame_update(stage, frame_id, update)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Adds a frame update to the batched frame.
     ///
@@ -161,12 +159,10 @@ impl VideoPipeline {
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> PyResult<()> {
-        release_gil!(|| {
-            self.0
-                .write()
-                .add_batched_frame_update(stage, batch_id, frame_id, update)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .write()
+            .add_batched_frame_update(stage, batch_id, frame_id, update)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Adds a frame to the stage.
     ///
@@ -190,12 +186,10 @@ impl VideoPipeline {
     ///   If the stage does not exist or is not of type independent frames.
     ///
     fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> PyResult<i64> {
-        release_gil!(|| {
-            self.0
-                .write()
-                .add_frame(stage_name, frame)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .write()
+            .add_frame(stage_name, frame)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Adds a frame to the stage with an OTLP parent context.
@@ -227,12 +221,10 @@ impl VideoPipeline {
         frame: VideoFrameProxy,
         parent_span: &TelemetrySpan,
     ) -> PyResult<i64> {
-        release_gil!(|| {
-            self.0
-                .write()
-                .add_frame_with_telemetry(stage_name, frame, parent_span.0.clone())
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .write()
+            .add_frame_with_telemetry(stage_name, frame, parent_span.0.clone())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Deletes a frame or a batch from the stage.
@@ -257,16 +249,14 @@ impl VideoPipeline {
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
     fn delete(&self, stage_name: &str, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
-        release_gil!(|| {
-            let res = self.0.write().delete(stage_name, id);
-            match res {
-                Ok(h) => Ok(h
-                    .into_iter()
-                    .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
-                    .collect()),
-                Err(e) => Err(PyValueError::new_err(e.to_string())),
-            }
-        })
+        let res = self.0.write().delete(stage_name, id);
+        match res {
+            Ok(h) => Ok(h
+                .into_iter()
+                .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
+                .collect()),
+            Err(e) => Err(PyValueError::new_err(e.to_string())),
+        }
     }
     /// Retrieves the length of the queue of a stage.
     ///
@@ -319,13 +309,11 @@ impl VideoPipeline {
         stage: &str,
         frame_id: i64,
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
-        release_gil!(|| {
-            self.0
-                .read()
-                .get_independent_frame(stage, frame_id)
-                .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .read()
+            .get_independent_frame(stage, frame_id)
+            .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Retrieves a batched frame from a specified stage.
     ///
@@ -356,13 +344,11 @@ impl VideoPipeline {
         batch_id: i64,
         frame_id: i64,
     ) -> PyResult<(VideoFrameProxy, TelemetrySpan)> {
-        release_gil!(|| {
-            self.0
-                .read()
-                .get_batched_frame(stage, batch_id, frame_id)
-                .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .read()
+            .get_batched_frame(stage, batch_id, frame_id)
+            .map(|(f, c)| (f, TelemetrySpan::from_context(c)))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Retrieves a batch from a specified stage.
     ///
@@ -390,20 +376,18 @@ impl VideoPipeline {
         stage: &str,
         batch_id: i64,
     ) -> PyResult<(VideoFrameBatch, HashMap<i64, TelemetrySpan>)> {
-        release_gil!(|| {
-            self.0
-                .read()
-                .get_batch(stage, batch_id)
-                .map(|(b, c)| {
-                    (
-                        b,
-                        c.into_iter()
-                            .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
-                            .collect(),
-                    )
-                })
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .read()
+            .get_batch(stage, batch_id)
+            .map(|(b, c)| {
+                (
+                    b,
+                    c.into_iter()
+                        .map(|(k, v)| (k, TelemetrySpan::from_context(v)))
+                        .collect(),
+                )
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Applies the updates to the frames and batches of a stage.
     ///
@@ -421,8 +405,10 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn apply_updates(&self, stage: &str, id: i64) -> PyResult<()> {
-        release_gil!(|| {
+    #[pyo3(name = "apply_updates")]
+    #[pyo3(signature = (stage, id, no_gil = true))]
+    fn apply_updates_gil(&self, stage: &str, id: i64, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || {
             self.0
                 .read()
                 .apply_updates(stage, id)
@@ -447,12 +433,10 @@ impl VideoPipeline {
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
     fn clear_updates(&self, stage: &str, id: i64) -> PyResult<()> {
-        release_gil!(|| {
-            self.0
-                .write()
-                .clear_updates(stage, id)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+        self.0
+            .write()
+            .clear_updates(stage, id)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Moves frames or batches from a stage to another. The dest stage must be the same time as the source stage.
@@ -475,13 +459,17 @@ impl VideoPipeline {
     ///   If the source stage and the destination stage are not of the same type.
     ///   If the frame or batch does not exist.
     ///
-    fn move_as_is(
+
+    #[pyo3(name = "move_as_is")]
+    #[pyo3(signature = (source_stage_name, dest_stage_name, object_ids, no_gil = true))]
+    fn move_as_is_gil(
         &self,
         source_stage_name: &str,
         dest_stage_name: &str,
         object_ids: Vec<i64>,
+        no_gil: bool,
     ) -> PyResult<()> {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             self.0
                 .write()
                 .move_as_is(source_stage_name, dest_stage_name, object_ids)
@@ -513,13 +501,16 @@ impl VideoPipeline {
     ///   If the source stage is not of type independent frames or the destination stage is not of type batches.
     ///   If the frame does not exist.
     ///
-    fn move_and_pack_frames(
+    #[pyo3(name = "move_and_pack_frames")]
+    #[pyo3(signature = (source_stage_name, dest_stage_name, frame_ids, no_gil = true))]
+    fn move_and_pack_frames_gil(
         &self,
         source_stage_name: &str,
         dest_stage_name: &str,
         frame_ids: Vec<i64>,
+        no_gil: bool,
     ) -> PyResult<i64> {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             self.0
                 .write()
                 .move_and_pack_frames(source_stage_name, dest_stage_name, frame_ids)
@@ -551,13 +542,16 @@ impl VideoPipeline {
     ///   If the source stage is not of type batches or the destination stage is not of type independent frames.
     ///   If the batch does not exist.
     ///
-    fn move_and_unpack_batch(
+    #[pyo3(name = "move_and_unpack_batch")]
+    #[pyo3(signature = (source_stage_name, dest_stage_name, batch_id, no_gil = true))]
+    fn move_and_unpack_batch_gil(
         &self,
         source_stage_name: &str,
         dest_stage_name: &str,
         batch_id: i64,
+        no_gil: bool,
     ) -> PyResult<HashMap<String, i64>> {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             self.0
                 .write()
                 .move_and_unpack_batch(source_stage_name, dest_stage_name, batch_id)
@@ -565,13 +559,16 @@ impl VideoPipeline {
         })
     }
 
-    pub fn access_objects(
+    #[pyo3(name = "access_objects")]
+    #[pyo3(signature = (stage_name, frame_id, query, no_gil = true))]
+    pub fn access_objects_gil(
         &self,
         stage_name: &str,
         frame_id: i64,
         query: &MatchQueryProxy,
+        no_gil: bool,
     ) -> PyResult<HashMap<i64, VideoObjectsView>> {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             self.0
                 .read()
                 .access_objects(stage_name, frame_id, &query.inner)

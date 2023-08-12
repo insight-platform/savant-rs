@@ -125,8 +125,14 @@ pub fn log_level_enabled(level: LogLevel) -> bool {
 ///
 #[pyfunction]
 #[pyo3(name = "log")]
-#[pyo3(signature = (level, target, message, params=None))]
-fn log_message_py(level: LogLevel, target: String, message: String, params: Option<&PyDict>) {
+#[pyo3(signature = (level, target, message, params=None, no_gil=true))]
+fn log_message_py(
+    level: LogLevel,
+    target: String,
+    message: String,
+    params: Option<&PyDict>,
+    no_gil: bool,
+) {
     let params: Option<_> = params.map(|params| {
         params
             .iter()
@@ -134,7 +140,7 @@ fn log_message_py(level: LogLevel, target: String, message: String, params: Opti
             .collect::<Vec<_>>()
     });
 
-    release_gil!(|| {
+    release_gil!(no_gil, || {
         log_message(level, target, message, params);
     });
 }

@@ -159,8 +159,13 @@ pub fn register_plugin_function(
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_predicate")]
-pub fn call_object_predicate_gil(alias: String, args: Vec<VideoObjectProxy>) -> PyResult<bool> {
-    release_gil!(|| {
+#[pyo3(signature = (alias, args, no_gil = true))]
+pub fn call_object_predicate_gil(
+    alias: String,
+    args: Vec<VideoObjectProxy>,
+    no_gil: bool,
+) -> PyResult<bool> {
+    release_gil!(no_gil, || {
         call_object_predicate(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -197,11 +202,13 @@ pub fn call_object_predicate(alias: &str, args: &[&VideoObjectProxy]) -> anyhow:
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_inplace_modifier")]
+#[pyo3(signature = (alias, args, no_gil = true))]
 pub fn call_object_inplace_modifier_gil(
     alias: String,
     args: Vec<VideoObjectProxy>,
+    no_gil: bool,
 ) -> PyResult<()> {
-    release_gil!(|| {
+    release_gil!(no_gil, || {
         call_object_inplace_modifier(&alias, args.iter().collect::<Vec<_>>().as_slice())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })
@@ -243,11 +250,13 @@ pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObjectProxy]) -> 
 ///
 #[pyfunction]
 #[pyo3(name = "call_object_map_modifier")]
+#[pyo3(signature = (alias, arg, no_gil = true))]
 pub fn call_object_map_modifier_gil(
     alias: String,
     arg: &VideoObjectProxy,
+    no_gil: bool,
 ) -> PyResult<VideoObjectProxy> {
-    release_gil!(|| {
+    release_gil!(no_gil, || {
         call_object_map_modifier(&alias, arg)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
     })

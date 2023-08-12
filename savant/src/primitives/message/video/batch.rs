@@ -102,27 +102,36 @@ impl VideoFrameBatch {
     }
 
     #[pyo3(name = "snapshot")]
-    pub fn snapshot_gil(&mut self) {
-        release_gil!(|| self.snapshot())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn snapshot_gil(&mut self, no_gil: bool) {
+        release_gil!(no_gil, || self.snapshot())
     }
 
     #[pyo3(name = "restore")]
-    pub fn restore_gil(&mut self) {
-        release_gil!(|| self.restore())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn restore_gil(&mut self, no_gil: bool) {
+        release_gil!(no_gil, || self.restore())
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: MatchQueryProxy) -> HashMap<i64, VideoObjectsView> {
-        release_gil!(|| {
+    #[pyo3(signature = (q, no_gil = true))]
+    pub fn access_objects_gil(
+        &self,
+        q: MatchQueryProxy,
+        no_gil: bool,
+    ) -> HashMap<i64, VideoObjectsView> {
+        let f = || {
             self.access_objects(q.inner.deref())
                 .into_iter()
                 .map(|(id, x)| (id, x.into()))
-                .collect()
-        })
+                .collect::<HashMap<_, _>>()
+        };
+        release_gil!(no_gil, f)
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&mut self, q: MatchQueryProxy) {
-        release_gil!(|| self.delete_objects(q.inner.deref()))
+    #[pyo3(signature = (q, no_gil = true))]
+    pub fn delete_objects_gil(&mut self, q: MatchQueryProxy, no_gil: bool) {
+        release_gil!(no_gil, || self.delete_objects(q.inner.deref()))
     }
 }

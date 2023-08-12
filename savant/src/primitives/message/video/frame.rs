@@ -18,7 +18,7 @@ use crate::primitives::{
     SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::release_gil;
-use crate::utils::symbol_mapper::{get_model_id, get_object_label};
+use crate::utils::symbol_mapper::{get_model_id_py, get_object_label};
 use crate::with_gil;
 use anyhow::bail;
 use derive_builder::Builder;
@@ -1031,8 +1031,9 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 #[pymethods]
 impl VideoFrameProxy {
     #[pyo3(name = "transform_geometry")]
-    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>) {
-        release_gil!(|| {
+    #[pyo3(signature = (ops, no_gil=true))]
+    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>, no_gil: bool) {
+        release_gil!(no_gil, || {
             let ops_ref = ops.iter().map(|op| op.get_ref()).collect();
             self.transform_geometry(&ops_ref);
         })
@@ -1112,13 +1113,17 @@ impl VideoFrameProxy {
     #[getter]
     #[pyo3(name = "json")]
     pub fn json_gil(&self) -> String {
-        release_gil!(|| serde_json::to_string(&self.to_serde_json_value()).unwrap())
+        release_gil!(true, || serde_json::to_string(&self.to_serde_json_value())
+            .unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
     fn json_pretty_gil(&self) -> String {
-        release_gil!(|| serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap())
+        release_gil!(true, || serde_json::to_string_pretty(
+            &self.to_serde_json_value()
+        )
+        .unwrap())
     }
 
     #[setter]
@@ -1339,8 +1344,15 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "set_draw_label")]
-    pub fn set_draw_label_gil(&self, q: &MatchQueryProxy, draw_label: SetDrawLabelKindProxy) {
-        release_gil!(|| self.set_draw_label(q.inner.deref(), draw_label.inner))
+    #[pyo3(signature = (q, draw_label, no_gil = false))]
+    pub fn set_draw_label_gil(
+        &self,
+        q: &MatchQueryProxy,
+        draw_label: SetDrawLabelKindProxy,
+        no_gil: bool,
+    ) {
+        release_gil!(no_gil, || self
+            .set_draw_label(q.inner.deref(), draw_label.inner))
     }
 
     #[pyo3(name = "get_object")]
@@ -1349,8 +1361,9 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "access_objects")]
-    pub fn access_objects_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
-        release_gil!(|| self.access_objects(q.inner.deref()).into())
+    #[pyo3(signature = (q, no_gil = true))]
+    pub fn access_objects_gil(&self, q: &MatchQueryProxy, no_gil: bool) -> VideoObjectsView {
+        release_gil!(no_gil, || self.access_objects(q.inner.deref()).into())
     }
 
     #[pyo3(name = "access_objects_by_id")]
@@ -1364,17 +1377,20 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "delete_objects")]
-    pub fn delete_objects_gil(&self, query: &MatchQueryProxy) -> VideoObjectsView {
-        release_gil!(|| self.delete_objects(&query.inner).into())
+    #[pyo3(signature = (q, no_gil = true))]
+    pub fn delete_objects_gil(&self, q: &MatchQueryProxy, no_gil: bool) -> VideoObjectsView {
+        release_gil!(no_gil, || self.delete_objects(&q.inner).into())
     }
 
     #[pyo3(name = "set_parent")]
+    #[pyo3(signature = (q, parent, no_gil = true))]
     pub fn set_parent_gil(
         &self,
         q: &MatchQueryProxy,
         parent: &VideoObjectProxy,
+        no_gil: bool,
     ) -> VideoObjectsView {
-        release_gil!(|| self.set_parent(q.inner.deref(), parent).into())
+        release_gil!(no_gil, || self.set_parent(q.inner.deref(), parent).into())
     }
 
     #[pyo3(name = "set_parent_by_id")]
@@ -1384,8 +1400,9 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "clear_parent")]
-    pub fn clear_parent_gil(&self, q: &MatchQueryProxy) -> VideoObjectsView {
-        release_gil!(|| self.clear_parent(q.inner.deref()).into())
+    #[pyo3(signature = (q, no_gil = true))]
+    pub fn clear_parent_gil(&self, q: &MatchQueryProxy, no_gil: bool) -> VideoObjectsView {
+        release_gil!(no_gil, || self.clear_parent(q.inner.deref()).into())
     }
 
     pub fn clear_objects(&self) {
@@ -1394,13 +1411,15 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "make_snapshot")]
-    pub fn make_snapshot_gil(&self) {
-        release_gil!(|| self.make_snapshot())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn make_snapshot_gil(&self, no_gil: bool) {
+        release_gil!(no_gil, || self.make_snapshot())
     }
 
     #[pyo3(name = "restore_from_snapshot")]
-    pub fn restore_from_snapshot_gil(&self) {
-        release_gil!(|| self.restore_from_snapshot())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn restore_from_snapshot_gil(&self, no_gil: bool) {
+        release_gil!(no_gil, || self.restore_from_snapshot())
     }
 
     #[pyo3(name = "get_modified_objects")]
@@ -1414,25 +1433,30 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "copy")]
-    pub fn copy_gil(&self) -> VideoFrameProxy {
-        release_gil!(|| self.deep_copy())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn copy_gil(&self, no_gil: bool) -> VideoFrameProxy {
+        release_gil!(no_gil, || self.deep_copy())
     }
 
     #[pyo3(name = "update_attributes")]
-    pub fn update_attributes_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        release_gil!(|| self.update_attributes(other))
+    #[pyo3(signature = (other, no_gil = true))]
+    pub fn update_attributes_gil(&self, other: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || self.update_attributes(other))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update_objects")]
-    pub fn update_objects_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        release_gil!(|| self.update_objects(other))
+    #[pyo3(signature = (other, no_gil = true))]
+    pub fn update_objects_gil(&self, other: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || self.update_objects(other))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "update")]
-    pub fn update_gil(&self, other: &VideoFrameUpdate) -> PyResult<()> {
-        release_gil!(|| self.update(other)).map_err(|e| PyValueError::new_err(e.to_string()))
+    #[pyo3(signature = (other, no_gil = true))]
+    pub fn update_gil(&self, other: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || self.update(other))
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn create_objects_from_numpy(&self, namespace: String, boxes: &PyAny) -> PyResult<()> {
@@ -1491,7 +1515,7 @@ impl VideoFrameProxy {
             return Err(PyValueError::new_err("Array must be of type f32 or f64"));
         };
 
-        let model_id = get_model_id(&namespace)
+        let model_id = get_model_id_py(&namespace)
             .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
 
         boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
@@ -1686,10 +1710,10 @@ mod tests {
     #[test]
     fn test_snapshot_simple() {
         let f = gen_frame();
-        f.make_snapshot_gil();
+        f.make_snapshot_gil(false);
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_namespace(s("modified"));
-        f.restore_from_snapshot_gil();
+        f.restore_from_snapshot_gil(false);
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         assert_eq!(o.get_namespace(), s("test"));
     }

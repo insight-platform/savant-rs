@@ -398,8 +398,8 @@ impl VideoObjectProxy {
     ///
     #[getter]
     #[pyo3(name = "attributes")]
-    pub fn get_attributes_gil(&self) -> Vec<(String, String)> {
-        release_gil!(|| self.get_attributes())
+    pub fn get_attributes_py(&self) -> Vec<(String, String)> {
+        self.get_attributes()
     }
 
     /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
@@ -509,10 +509,15 @@ impl VideoObjectProxy {
     /// names : List[str]
     ///   Attribute names. If empty, it is ignored when candidates are selected for removal.
     ///
-    #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
-        release_gil!(move || {
+    #[pyo3(signature = (namespace=None, names=vec![], no_gil=false))]
+    pub fn delete_attributes_gil(
+        &mut self,
+        namespace: Option<String>,
+        names: Vec<String>,
+        no_gil: bool,
+    ) {
+        release_gil!(no_gil, move || {
             {
                 let mut object = self.inner.write();
                 object.add_modification(VideoObjectModification::Attributes);
@@ -775,8 +780,9 @@ impl VideoObjectProxy {
     }
 
     #[pyo3(name = "transform_geometry")]
-    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>) {
-        release_gil!(|| {
+    #[pyo3(signature = (ops, no_gil = false))]
+    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformationProxy>, no_gil: bool) {
+        release_gil!(no_gil, || {
             let inner_ops = ops.iter().map(|op| op.get_ref()).collect::<Vec<_>>();
             self.transform_geometry(&inner_ops);
         })

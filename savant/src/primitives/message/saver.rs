@@ -50,9 +50,13 @@ pub fn save_message(m: &Message) -> Vec<u8> {
 ///
 #[pyfunction]
 #[pyo3(name = "save_message_to_bytebuffer")]
-#[pyo3(signature = (message, with_hash=true))]
-pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> ByteBuffer {
-    release_gil!(|| {
+#[pyo3(signature = (message, with_hash=true, no_gil=true))]
+pub fn save_message_to_bytebuffer_gil(
+    message: &Message,
+    with_hash: bool,
+    no_gil: bool,
+) -> ByteBuffer {
+    let f = || {
         let m = save_message(message);
         let hash_opt = if with_hash {
             Some(crc32fast::hash(&m))
@@ -60,7 +64,8 @@ pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> Byt
             None
         };
         ByteBuffer::new(m, hash_opt)
-    })
+    };
+    release_gil!(no_gil, f)
 }
 
 /// Save a message to python bytes
@@ -77,8 +82,9 @@ pub fn save_message_to_bytebuffer_gil(message: &Message, with_hash: bool) -> Byt
 ///
 #[pyfunction]
 #[pyo3(name = "save_message_to_bytes")]
-pub fn save_message_to_bytes_gil(message: &Message) -> PyObject {
-    let bytes = release_gil!(|| save_message(message));
+#[pyo3(signature = (message, no_gil=true))]
+pub fn save_message_to_bytes_gil(message: &Message, no_gil: bool) -> PyObject {
+    let bytes = release_gil!(no_gil, || save_message(message));
     with_gil!(|py| {
         let bytes = PyBytes::new(py, &bytes);
         PyObject::from(bytes)

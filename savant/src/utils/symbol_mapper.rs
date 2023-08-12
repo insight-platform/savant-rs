@@ -63,16 +63,14 @@ pub enum Errors {
 ///
 #[pyfunction]
 #[pyo3(name = "get_model_id")]
-pub fn get_model_id_gil(model_name: String) -> PyResult<i64> {
-    release_gil!(|| {
-        let mut mapper = SYMBOL_MAPPER.lock();
-        mapper
-            .get_model_id(&model_name)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    })
+pub fn get_model_id_py(model_name: &str) -> PyResult<i64> {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper
+        .get_model_id(model_name)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
+pub fn get_model_id(model_name: &str) -> anyhow::Result<i64> {
     let mut mapper = SYMBOL_MAPPER.lock();
     mapper.get_model_id(model_name)
 }
@@ -98,14 +96,14 @@ pub fn get_model_id(model_name: &String) -> anyhow::Result<i64> {
 ///
 #[pyfunction]
 #[pyo3(name = "get_object_id")]
-pub fn get_object_id_gil(model_name: String, object_label: String) -> PyResult<(i64, i64)> {
+pub fn get_object_id_gil(model_name: &str, object_label: &str) -> PyResult<(i64, i64)> {
     let mut mapper = SYMBOL_MAPPER.lock();
     mapper
         .get_object_id(&model_name, &object_label)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-pub fn get_object_id(model_name: &String, object_label: &String) -> anyhow::Result<(i64, i64)> {
+pub fn get_object_id(model_name: &str, object_label: &str) -> anyhow::Result<(i64, i64)> {
     let mut mapper = SYMBOL_MAPPER.lock();
     mapper.get_object_id(model_name, object_label)
 }
@@ -135,17 +133,15 @@ pub fn get_object_id(model_name: &String, object_label: &String) -> anyhow::Resu
 ///
 #[pyfunction]
 #[pyo3(name = "register_model_objects")]
-pub fn register_model_objects_gil(
-    model_name: String,
+pub fn register_model_objects_py(
+    model_name: &str,
     elements: StdHashMap<i64, String>,
     policy: RegistrationPolicy,
 ) -> PyResult<i64> {
-    release_gil!(|| {
-        let mut mapper = SYMBOL_MAPPER.lock();
-        mapper
-            .register_model_objects(&model_name, &elements, &policy)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    })
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper
+        .register_model_objects(&model_name, &elements, &policy)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 pub fn get_model_name(model_id: i64) -> Option<String> {
@@ -171,8 +167,8 @@ pub fn get_model_name(model_id: i64) -> Option<String> {
 ///
 #[pyfunction]
 #[pyo3(name = "get_model_name")]
-pub fn get_model_name_gil(model_id: i64) -> Option<String> {
-    release_gil!(|| get_model_name(model_id))
+pub fn get_model_name_py(model_id: i64) -> Option<String> {
+    get_model_name(model_id)
 }
 
 pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
@@ -200,8 +196,8 @@ pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
 ///
 #[pyfunction]
 #[pyo3(name = "get_object_label")]
-pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
-    release_gil!(|| get_object_label(model_id, object_id))
+pub fn get_object_label_py(model_id: i64, object_id: i64) -> Option<String> {
+    get_object_label(model_id, object_id)
 }
 
 /// The function allows getting the object labels by their ids (bulk operation).
@@ -222,19 +218,17 @@ pub fn get_object_label_gil(model_id: i64, object_id: i64) -> Option<String> {
 ///
 #[pyfunction]
 #[pyo3(name = "get_object_labels")]
-pub fn get_object_labels_gil(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
-    release_gil!(|| {
-        let mapper = SYMBOL_MAPPER.lock();
-        object_ids
-            .iter()
-            .flat_map(|object_id| {
-                mapper
-                    .get_object_label(model_id, *object_id)
-                    .map(|label| (*object_id, Some(label)))
-                    .or(Some((*object_id, None)))
-            })
-            .collect()
-    })
+pub fn get_object_labels_py(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
+    let mapper = SYMBOL_MAPPER.lock();
+    object_ids
+        .iter()
+        .flat_map(|object_id| {
+            mapper
+                .get_object_label(model_id, *object_id)
+                .map(|label| (*object_id, Some(label)))
+                .or(Some((*object_id, None)))
+        })
+        .collect()
 }
 
 /// The function allows getting the object ids by their labels (bulk operation).
@@ -254,23 +248,21 @@ pub fn get_object_labels_gil(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, O
 ///
 #[pyfunction]
 #[pyo3(name = "get_object_ids")]
-pub fn get_object_ids_gil(
-    model_name: String,
+pub fn get_object_ids_py(
+    model_name: &str,
     object_labels: Vec<String>,
 ) -> Vec<(String, Option<i64>)> {
-    release_gil!(|| {
-        let mut mapper = SYMBOL_MAPPER.lock();
-        object_labels
-            .iter()
-            .flat_map(|object_label| {
-                mapper
-                    .get_object_id(&model_name, object_label)
-                    .ok()
-                    .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
-                    .or_else(|| Some((object_label.clone(), None)))
-            })
-            .collect()
-    })
+    let mut mapper = SYMBOL_MAPPER.lock();
+    object_labels
+        .iter()
+        .flat_map(|object_label| {
+            mapper
+                .get_object_id(&model_name, object_label)
+                .ok()
+                .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
+                .or_else(|| Some((object_label.clone(), None)))
+        })
+        .collect()
 }
 
 /// The function clears mapping database.
@@ -279,11 +271,9 @@ pub fn get_object_ids_gil(
 ///
 #[pyfunction]
 #[pyo3(name = "clear_symbol_maps")]
-pub fn clear_symbol_maps_gil() {
-    release_gil!(|| {
-        let mut mapper = SYMBOL_MAPPER.lock();
-        mapper.clear();
-    })
+pub fn clear_symbol_maps_py() {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper.clear();
 }
 
 /// The function allows building a model object key from model name and object label.
@@ -304,8 +294,8 @@ pub fn clear_symbol_maps_gil() {
 ///
 #[pyfunction]
 #[pyo3(name = "build_model_object_key")]
-pub fn build_model_object_key_gil(model_name: String, object_label: String) -> String {
-    release_gil!(|| SymbolMapper::build_model_object_key(&model_name, &object_label))
+pub fn build_model_object_key_py(model_name: &str, object_label: &str) -> String {
+    SymbolMapper::build_model_object_key(model_name, object_label)
 }
 
 /// The function allows parsing a model object key into model name and object label.
@@ -329,10 +319,8 @@ pub fn build_model_object_key_gil(model_name: String, object_label: String) -> S
 ///
 #[pyfunction]
 #[pyo3(name = "parse_compound_key")]
-pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
-    release_gil!(|| {
-        SymbolMapper::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
-    })
+pub fn parse_compound_key_py(key: &str) -> PyResult<(String, String)> {
+    SymbolMapper::parse_compound_key(key).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// The function allows validating a model or object key.
@@ -356,10 +344,8 @@ pub fn parse_compound_key_gil(key: String) -> PyResult<(String, String)> {
 ///
 #[pyfunction]
 #[pyo3(name = "validate_base_key")]
-pub fn validate_base_key_gil(key: String) -> PyResult<String> {
-    release_gil!(|| {
-        SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
-    })
+pub fn validate_base_key_py(key: &str) -> PyResult<String> {
+    SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// The function checks if the model is registered.
@@ -378,11 +364,9 @@ pub fn validate_base_key_gil(key: String) -> PyResult<String> {
 ///
 #[pyfunction]
 #[pyo3(name = "is_model_registered")]
-pub fn is_model_registered_gil(model_name: String) -> bool {
-    release_gil!(|| {
-        let mapper = SYMBOL_MAPPER.lock();
-        mapper.is_model_registered(&model_name)
-    })
+pub fn is_model_registered_py(model_name: &str) -> bool {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.is_model_registered(&model_name)
 }
 
 /// The function checks if the object is registered.
@@ -403,11 +387,9 @@ pub fn is_model_registered_gil(model_name: String) -> bool {
 ///
 #[pyfunction]
 #[pyo3(name = "is_object_registered")]
-pub fn is_object_registered_gil(model_name: String, object_label: String) -> bool {
-    release_gil!(|| {
-        let mapper = SYMBOL_MAPPER.lock();
-        mapper.is_object_registered(&model_name, &object_label)
-    })
+pub fn is_object_registered_py(model_name: &str, object_label: &str) -> bool {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.is_object_registered(&model_name, &object_label)
 }
 
 /// The function dumps the registry in the form of model or object label, model_id and optional object id.
@@ -421,7 +403,7 @@ pub fn is_object_registered_gil(model_name: String, object_label: String) -> boo
 #[pyfunction]
 #[pyo3(name = "dump_registry")]
 pub fn dump_registry_gil() -> Vec<String> {
-    release_gil!(|| {
+    release_gil!(true, || {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.dump_registry()
     })
@@ -471,18 +453,19 @@ impl SymbolMapper {
             .collect()
     }
 
-    pub fn build_model_object_key(model_name: &String, object_label: &String) -> String {
+    pub fn build_model_object_key(model_name: &str, object_label: &str) -> String {
         format!("{}{}{}", model_name, REGISTRY_KEY_SEPARATOR, object_label)
     }
 
-    pub fn get_model_id(&mut self, model_name: &String) -> anyhow::Result<i64> {
+    pub fn get_model_id(&mut self, model_name: &str) -> anyhow::Result<i64> {
         Self::validate_base_key(model_name)?;
         match self.registry.get(model_name) {
             None => {
                 let model_id = self.gen_id();
-                self.registry.insert(model_name.clone(), (model_id, None));
+                self.registry
+                    .insert(model_name.to_string(), (model_id, None));
                 self.reverse_registry
-                    .insert((model_id, None), model_name.clone());
+                    .insert((model_id, None), model_name.to_string());
                 Ok(model_id)
             }
             Some(&(model_id, None)) => Ok(model_id),
@@ -490,18 +473,18 @@ impl SymbolMapper {
         }
     }
 
-    pub fn is_model_registered(&self, model: &String) -> bool {
+    pub fn is_model_registered(&self, model: &str) -> bool {
         self.registry.contains_key(model)
     }
 
-    pub fn is_object_registered(&self, model: &String, label: &String) -> bool {
+    pub fn is_object_registered(&self, model: &str, label: &str) -> bool {
         let key = Self::build_model_object_key(model, label);
         self.registry.contains_key(&key)
     }
 
-    pub fn parse_compound_key(key: &String) -> anyhow::Result<(String, String)> {
+    pub fn parse_compound_key(key: &str) -> anyhow::Result<(String, String)> {
         if key.len() < 3 {
-            return Err(Errors::FullyQualifiedObjectNameParseError(key.clone()).into());
+            return Err(Errors::FullyQualifiedObjectNameParseError(key.to_string()).into());
         }
 
         let mut parts = key.split(REGISTRY_KEY_SEPARATOR);
@@ -510,7 +493,7 @@ impl SymbolMapper {
         let object_name = parts.next();
 
         if parts.count() != 0 {
-            return Err(Errors::FullyQualifiedObjectNameParseError(key.clone()).into());
+            return Err(Errors::FullyQualifiedObjectNameParseError(key.to_string()).into());
         }
 
         match (model_name, object_name) {
@@ -518,29 +501,29 @@ impl SymbolMapper {
                 if !m.is_empty() && !o.is_empty() {
                     Ok((m.to_string(), o.to_string()))
                 } else {
-                    Err(Errors::FullyQualifiedObjectNameParseError(key.clone()).into())
+                    Err(Errors::FullyQualifiedObjectNameParseError(key.to_string()).into())
                 }
             }
-            _ => Err(Errors::FullyQualifiedObjectNameParseError(key.clone()).into()),
+            _ => Err(Errors::FullyQualifiedObjectNameParseError(key.to_string()).into()),
         }
     }
 
-    pub fn validate_base_key(key: &String) -> anyhow::Result<String> {
+    pub fn validate_base_key(key: &str) -> anyhow::Result<String> {
         if key.is_empty() {
-            return Err(Errors::BaseNameParseError(key.clone()).into());
+            return Err(Errors::BaseNameParseError(key.to_string()).into());
         }
         let parts = key.split(REGISTRY_KEY_SEPARATOR);
         if parts.count() == 1 {
-            Ok(key.clone())
+            Ok(key.to_string())
         } else {
-            Err(Errors::BaseNameParseError(key.clone()).into())
+            Err(Errors::BaseNameParseError(key.to_string()).into())
         }
     }
 
     pub fn get_object_id(
         &mut self,
-        model_name: &String,
-        object_label: &String,
+        model_name: &str,
+        object_label: &str,
     ) -> anyhow::Result<(i64, i64)> {
         let model_id = self.get_model_id(model_name)?;
         Self::validate_base_key(object_label)?;
@@ -559,9 +542,9 @@ impl SymbolMapper {
                 self.registry
                     .insert(full_key.clone(), (model_id, Some(object_id)));
                 self.reverse_registry
-                    .insert((model_id, Some(object_id)), object_label.clone());
+                    .insert((model_id, Some(object_id)), object_label.to_string());
                 self.model_object_next_ids
-                    .insert(model_name.clone(), object_id);
+                    .insert(model_name.to_string(), object_id);
                 Ok((model_id, object_id))
             }
         }
@@ -569,7 +552,7 @@ impl SymbolMapper {
 
     pub fn register_model_objects(
         &mut self,
-        model_name: &String,
+        model_name: &str,
         objects: &StdHashMap<i64, String>,
         policy: &RegistrationPolicy,
     ) -> anyhow::Result<i64> {
@@ -593,7 +576,7 @@ impl SymbolMapper {
                     .contains_key(&(model_id, Some(*label_id)))
                 {
                     return Err(Errors::DuplicateId(
-                        model_name.clone(),
+                        model_name.to_string(),
                         model_id,
                         object_label.clone(),
                         *label_id,
@@ -613,7 +596,7 @@ impl SymbolMapper {
         }
 
         self.model_object_next_ids
-            .insert(model_name.clone(), last_object_id);
+            .insert(model_name.to_string(), last_object_id);
 
         Ok(model_id)
     }
@@ -633,23 +616,23 @@ impl SymbolMapper {
     }
 
     #[staticmethod]
-    pub fn model_object_key_gil(model_name: String, object_label: String) -> String {
+    pub fn model_object_key_gil(model_name: &str, object_label: &str) -> String {
         Self::build_model_object_key(&model_name, &object_label)
     }
 
     #[staticmethod]
-    pub fn parse_model_object_key_gil(key: String) -> PyResult<(String, String)> {
+    pub fn parse_model_object_key_gil(key: &str) -> PyResult<(String, String)> {
         Self::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "register_model")]
-    pub fn register_model_gil(
+    pub fn register_model_py(
         &mut self,
-        model_name: String,
+        model_name: &str,
         elements: StdHashMap<i64, String>,
         policy: RegistrationPolicy,
     ) -> PyResult<i64> {
-        release_gil!(|| self.register_model_objects(&model_name, &elements, &policy))
+        self.register_model_objects(&model_name, &elements, &policy)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -663,26 +646,22 @@ impl SymbolMapper {
             .cloned()
     }
 
-    pub fn get_model_id_gil(&mut self, model_name: String) -> PyResult<i64> {
+    pub fn get_model_id_gil(&mut self, model_name: &str) -> PyResult<i64> {
         self.get_model_id(&model_name)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn is_model_object_key_registered_gil(
-        &self,
-        model_name: String,
-        object_label: String,
-    ) -> bool {
+    pub fn is_model_object_key_registered_gil(&self, model_name: &str, object_label: &str) -> bool {
         self.is_object_registered(&model_name, &object_label)
     }
 
     #[pyo3(name = "get_object_id")]
-    pub fn get_object_id_gil(
+    pub fn get_object_id_py(
         &mut self,
-        model_name: String,
-        object_label: String,
+        model_name: &str,
+        object_label: &str,
     ) -> PyResult<(i64, i64)> {
-        release_gil!(|| self.get_object_id(&model_name, &object_label))
+        self.get_object_id(&model_name, &object_label)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
@@ -692,8 +671,8 @@ mod tests {
     use super::SymbolMapper;
     use crate::test::utils::s;
     use crate::utils::symbol_mapper::{
-        clear_symbol_maps_gil, get_model_id_gil, get_model_name_gil, get_object_id_gil,
-        get_object_label_gil, register_model_objects_gil, RegistrationPolicy,
+        clear_symbol_maps_py, get_model_id_py, get_model_name_py, get_object_id_gil,
+        get_object_label_py, register_model_objects_py, RegistrationPolicy,
     };
     use serial_test::serial;
 
@@ -753,11 +732,11 @@ mod tests {
     #[test]
     #[serial]
     fn register_incorrect_names() -> anyhow::Result<()> {
-        clear_symbol_maps_gil();
+        clear_symbol_maps_py();
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model."),
+            register_model_objects_py(
+                "model.",
                 [].into_iter().collect(),
                 RegistrationPolicy::ErrorIfNonUnique,
             ),
@@ -765,8 +744,8 @@ mod tests {
         ));
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model"),
+            register_model_objects_py(
+                "model",
                 [(1, s("obj.ect"))].into_iter().collect(),
                 RegistrationPolicy::ErrorIfNonUnique,
             ),
@@ -779,28 +758,28 @@ mod tests {
     #[test]
     #[serial]
     fn test_register_duplicate_objects_error_non_unique() -> anyhow::Result<()> {
-        clear_symbol_maps_gil();
+        clear_symbol_maps_py();
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model"),
+            register_model_objects_py(
+                "model",
                 [(1, s("object")), (2, s("object"))].into_iter().collect(),
                 RegistrationPolicy::ErrorIfNonUnique,
             ),
             Err(_)
         ));
 
-        clear_symbol_maps_gil();
+        clear_symbol_maps_py();
 
-        register_model_objects_gil(
-            s("model"),
+        register_model_objects_py(
+            "model",
             [(1, s("object"))].into_iter().collect(),
             RegistrationPolicy::ErrorIfNonUnique,
         )?;
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model"),
+            register_model_objects_py(
+                "model",
                 [(1, s("object2"))].into_iter().collect(),
                 RegistrationPolicy::ErrorIfNonUnique,
             ),
@@ -813,49 +792,46 @@ mod tests {
     #[test]
     #[serial]
     fn test_register_duplicate_objects_override() -> anyhow::Result<()> {
-        clear_symbol_maps_gil();
+        clear_symbol_maps_py();
 
-        register_model_objects_gil(
-            s("model"),
+        register_model_objects_py(
+            "model",
             [(1, s("object"))].into_iter().collect(),
             RegistrationPolicy::Override,
         )?;
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model"),
+            register_model_objects_py(
+                "model",
                 [(2, s("object"))].into_iter().collect(),
                 RegistrationPolicy::Override,
             ),
             Ok(0)
         ));
 
-        assert!(matches!(
-            get_object_id_gil(s("model"), s("object")),
-            Ok((0, 2))
-        ));
+        assert!(matches!(get_object_id_gil("model", "object"), Ok((0, 2))));
 
-        let label = get_object_label_gil(0, 2).unwrap();
+        let label = get_object_label_py(0, 2).unwrap();
         assert_eq!(label, s("object"));
 
-        clear_symbol_maps_gil();
+        clear_symbol_maps_py();
 
-        register_model_objects_gil(
-            s("model"),
+        register_model_objects_py(
+            "model",
             [(1, s("object"))].into_iter().collect(),
             RegistrationPolicy::Override,
         )?;
 
         assert!(matches!(
-            register_model_objects_gil(
-                s("model"),
+            register_model_objects_py(
+                "model",
                 [(1, s("object2"))].into_iter().collect(),
                 RegistrationPolicy::Override,
             ),
             Ok(0)
         ));
 
-        let label = get_object_label_gil(0, 1).unwrap();
+        let label = get_object_label_py(0, 1).unwrap();
         assert_eq!(label, s("object2"));
 
         Ok(())
@@ -864,53 +840,53 @@ mod tests {
     #[test]
     #[serial]
     fn test_get_model_id() {
-        clear_symbol_maps_gil();
-        let model_id = get_model_id_gil(s("model")).unwrap();
+        clear_symbol_maps_py();
+        let model_id = get_model_id_py("model").unwrap();
         assert_eq!(model_id, 0);
     }
 
     #[test]
     #[serial]
     fn test_get_model_name() {
-        clear_symbol_maps_gil();
-        let model_id = get_model_id_gil(s("model")).unwrap();
+        clear_symbol_maps_py();
+        let model_id = get_model_id_py("model").unwrap();
         assert_eq!(model_id, 0);
 
-        let model_name = get_model_name_gil(model_id).unwrap();
+        let model_name = get_model_name_py(model_id).unwrap();
         assert_eq!(model_name, s("model"));
 
-        let nonexistent_model_name = get_model_name_gil(1);
+        let nonexistent_model_name = get_model_name_py(1);
         assert!(matches!(nonexistent_model_name, None));
     }
 
     #[test]
     #[serial]
     fn test_get_object_label() {
-        clear_symbol_maps_gil();
-        let (model_id, object_id) = get_object_id_gil(s("model"), s("object")).unwrap();
+        clear_symbol_maps_py();
+        let (model_id, object_id) = get_object_id_gil("model", "object").unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 0);
 
-        let object_label = get_object_label_gil(model_id, object_id).unwrap();
+        let object_label = get_object_label_py(model_id, object_id).unwrap();
         assert_eq!(object_label, s("object"));
 
-        let nonexistent_object_label = get_object_label_gil(0, 1);
+        let nonexistent_object_label = get_object_label_py(0, 1);
         assert!(matches!(nonexistent_object_label, None));
     }
 
     #[test]
     #[serial]
     fn get_model_object_ids() {
-        clear_symbol_maps_gil();
-        let (model_id, object_id) = get_object_id_gil(s("model"), s("object0")).unwrap();
+        clear_symbol_maps_py();
+        let (model_id, object_id) = get_object_id_gil("model", "object0").unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 0);
 
-        let (model_id, object_id) = get_object_id_gil(s("model"), s("object1")).unwrap();
+        let (model_id, object_id) = get_object_id_gil("model", "object1").unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 1);
 
-        let (model_id, object_id) = get_object_id_gil(s("model2"), s("object0")).unwrap();
+        let (model_id, object_id) = get_object_id_gil("model2", "object0").unwrap();
         assert_eq!(model_id, 1);
         assert_eq!(object_id, 0);
     }
@@ -918,18 +894,18 @@ mod tests {
     #[test]
     #[serial]
     fn register_and_get_model_object_ids() -> anyhow::Result<()> {
-        clear_symbol_maps_gil();
-        register_model_objects_gil(
-            s("model"),
+        clear_symbol_maps_py();
+        register_model_objects_py(
+            "model",
             [(2, s("object0"))].into_iter().collect(),
             RegistrationPolicy::Override,
         )?;
 
-        let (model_id, object_id) = get_object_id_gil(s("model"), s("object0")).unwrap();
+        let (model_id, object_id) = get_object_id_gil("model", "object0").unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 2);
 
-        let (model_id, object_id) = get_object_id_gil(s("model"), s("object1")).unwrap();
+        let (model_id, object_id) = get_object_id_gil("model", "object1").unwrap();
         assert_eq!(model_id, 0);
         assert_eq!(object_id, 3);
 

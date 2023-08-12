@@ -597,8 +597,14 @@ impl RBBox {
     ///   wrapping bbox
     ///
     #[pyo3(name = "visual_box")]
-    pub fn get_visual_box_gil(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
-        release_gil!(|| self.get_visual_bbox(padding, border_width))
+    #[pyo3(signature= (padding, border_width, no_gil=false))]
+    pub fn get_visual_box_gil(
+        &self,
+        padding: &PaddingDraw,
+        border_width: i64,
+        no_gil: bool,
+    ) -> PyResult<RBBox> {
+        release_gil!(no_gil, || self.get_visual_bbox(padding, border_width))
     }
 
     /// Returns rotated bounding box wrapping the bbox. The property is GIL-free.
@@ -614,8 +620,9 @@ impl RBBox {
     ///   wrapping bbox
     ///
     #[pyo3(name = "new_padded")]
-    pub fn new_padded_gil(&self, padding: &PaddingDraw) -> Self {
-        release_gil!(|| self.new_padded(padding))
+    #[pyo3(signature= (padding, no_gil=false))]
+    pub fn new_padded_gil(&self, padding: &PaddingDraw, no_gil: bool) -> Self {
+        release_gil!(no_gil, || self.new_padded(padding))
     }
 
     /// Returns a copy of the RBBox object. Modification flag is reset.

@@ -59,35 +59,54 @@ impl Telemetry {
     }
 
     #[pyo3(name = "attributes")]
-    pub fn attributes_gil(&self) -> Vec<(String, String)> {
-        release_gil!(|| self.get_attributes())
+    #[pyo3(signature = (no_gil = true))]
+    pub fn attributes_gil(&self, no_gil: bool) -> Vec<(String, String)> {
+        release_gil!(no_gil, || self.get_attributes())
     }
 
     #[pyo3(name = "find_attributes")]
-    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
+    #[pyo3(signature = (namespace=None, names=vec![], hint=None, no_gil=true))]
     pub fn find_attributes_gil(
         &self,
         namespace: Option<String>,
         names: Vec<String>,
         hint: Option<String>,
+        no_gil: bool,
     ) -> Vec<(String, String)> {
-        release_gil!(|| self.find_attributes(namespace, names, hint))
+        release_gil!(no_gil, || self.find_attributes(namespace, names, hint))
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
-        release_gil!(|| self.get_attribute(namespace, name))
+    #[pyo3(signature = (namespace, name, no_gil=true))]
+    pub fn get_attribute_gil(
+        &self,
+        namespace: String,
+        name: String,
+        no_gil: bool,
+    ) -> Option<Attribute> {
+        release_gil!(no_gil, || self.get_attribute(namespace, name))
     }
 
-    #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
-        release_gil!(|| self.delete_attributes(namespace, names))
+    #[pyo3(signature = (namespace=None, names=vec![], no_gil=true))]
+    pub fn delete_attributes_gil(
+        &mut self,
+        namespace: Option<String>,
+        names: Vec<String>,
+        no_gil: bool,
+    ) {
+        release_gil!(no_gil, || self.delete_attributes(namespace, names))
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
-        release_gil!(|| self.delete_attribute(namespace, name))
+    #[pyo3(signature = (namespace, name, no_gil=true))]
+    pub fn delete_attribute_gil(
+        &mut self,
+        namespace: String,
+        name: String,
+        no_gil: bool,
+    ) -> Option<Attribute> {
+        release_gil!(no_gil, || self.delete_attribute(namespace, name))
     }
 
     #[pyo3(name = "set_attribute")]
@@ -96,8 +115,9 @@ impl Telemetry {
     }
 
     #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_gil(&mut self) {
-        release_gil!(|| self.clear_attributes())
+    #[pyo3(signature = (no_gil=true))]
+    pub fn clear_attributes_gil(&mut self, no_gil: bool) {
+        release_gil!(no_gil, || self.clear_attributes())
     }
 
     pub fn json(&self) -> String {

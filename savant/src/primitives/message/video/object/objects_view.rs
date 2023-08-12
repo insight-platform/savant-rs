@@ -90,14 +90,14 @@ impl VideoObjectsView {
     }
 
     #[pyo3(name = "detached_copy")]
-    fn detached_copy_py(&self) -> VideoObjectsView {
-        release_gil!(|| VideoObjectsView {
+    #[pyo3(signature = (no_gil = true))]
+    fn detached_copy_gil(&self, no_gil: bool) -> VideoObjectsView {
+        release_gil!(no_gil, || VideoObjectsView {
             inner: Arc::new(self.inner.iter().map(|x| x.detached_copy()).collect()),
         })
     }
 
-    #[pyo3(name = "rotated_boxes_as_numpy")]
-    fn rotated_boxes_as_numpy_gil(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
+    fn rotated_boxes_as_numpy(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
         let boxes = match kind {
             VideoObjectBBoxType::Detection => self
                 .inner
@@ -165,19 +165,26 @@ pub(crate) struct QueryFunctions;
 impl QueryFunctions {
     #[staticmethod]
     #[pyo3(name = "filter")]
-    pub(crate) fn filter_gil(v: &VideoObjectsView, q: &MatchQueryProxy) -> VideoObjectsView {
-        release_gil!(|| VideoObjectsView {
+    #[pyo3(signature = (v, q, no_gil = true))]
+    pub(crate) fn filter_gil(
+        v: &VideoObjectsView,
+        q: &MatchQueryProxy,
+        no_gil: bool,
+    ) -> VideoObjectsView {
+        release_gil!(no_gil, || VideoObjectsView {
             inner: Arc::new(filter(v.inner.as_ref(), &q.inner)),
         })
     }
 
     #[staticmethod]
     #[pyo3(name = "batch_filter")]
+    #[pyo3(signature = (v, q, no_gil = true))]
     pub(crate) fn batch_filter_gil(
         v: VideoObjectsViewBatch,
         q: &MatchQueryProxy,
+        no_gil: bool,
     ) -> VideoObjectsViewBatch {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -191,11 +198,13 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "partition")]
+    #[pyo3(signature = (v, q, no_gil = true))]
     pub(crate) fn partition_gil(
         v: &VideoObjectsView,
         q: &MatchQueryProxy,
+        no_gil: bool,
     ) -> (VideoObjectsView, VideoObjectsView) {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             let (a, b) = partition(v.inner.as_ref(), &q.inner);
             (
                 VideoObjectsView { inner: Arc::new(a) },
@@ -206,11 +215,13 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "batch_partition")]
+    #[pyo3(signature = (v, q, no_gil = true))]
     pub(crate) fn batch_partition_gil(
         v: VideoObjectsViewBatch,
         q: &MatchQueryProxy,
+        no_gil: bool,
     ) -> (VideoObjectsViewBatch, VideoObjectsViewBatch) {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -230,8 +241,13 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "map_udf")]
-    pub(crate) fn map_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<VideoObjectsView> {
-        release_gil!(|| {
+    #[pyo3(signature = (v, udf, no_gil = true))]
+    pub(crate) fn map_udf_gil(
+        v: &VideoObjectsView,
+        udf: String,
+        no_gil: bool,
+    ) -> PyResult<VideoObjectsView> {
+        release_gil!(no_gil, || {
             map_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf)
                 .map(|x| VideoObjectsView { inner: Arc::new(x) })
         })
@@ -240,11 +256,13 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "batch_map_udf")]
+    #[pyo3(signature = (v, udf, no_gil = true))]
     pub(crate) fn batch_map_udf_gil(
         v: VideoObjectsViewBatch,
         udf: String,
+        no_gil: bool,
     ) -> PyResult<VideoObjectsViewBatch> {
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))
@@ -260,8 +278,9 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "foreach_udf")]
-    pub(crate) fn foreach_udf_gil(v: &VideoObjectsView, udf: String) -> PyResult<()> {
-        release_gil!(|| {
+    #[pyo3(signature = (v, udf, no_gil = true))]
+    pub(crate) fn foreach_udf_gil(v: &VideoObjectsView, udf: String, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || {
             let res = foreach_udf(v.inner.as_ref().iter().collect::<Vec<_>>().as_slice(), &udf);
 
             for r in res {
@@ -273,8 +292,13 @@ impl QueryFunctions {
 
     #[staticmethod]
     #[pyo3(name = "batch_foreach_udf")]
-    pub(crate) fn batch_foreach_udf_gil(v: VideoObjectsViewBatch, udf: String) -> PyResult<()> {
-        release_gil!(|| {
+    #[pyo3(signature = (v, udf, no_gil = true))]
+    pub(crate) fn batch_foreach_udf_gil(
+        v: VideoObjectsViewBatch,
+        udf: String,
+        no_gil: bool,
+    ) -> PyResult<()> {
+        release_gil!(no_gil, || {
             let m = v
                 .iter()
                 .map(|(id, v)| (*id, v.inner.to_vec()))

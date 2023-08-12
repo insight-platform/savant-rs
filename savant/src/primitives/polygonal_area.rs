@@ -82,13 +82,18 @@ impl PolygonalArea {
     }
 
     #[pyo3(name = "crossed_by_segments")]
-    pub fn crossed_by_segments_gil(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
-        release_gil!(|| {
+    #[pyo3(signature = (segments, no_gil=false))]
+    pub fn crossed_by_segments_gil(
+        &mut self,
+        segments: Vec<Segment>,
+        no_gil: bool,
+    ) -> Vec<Intersection> {
+        release_gil!(no_gil, || {
             self.build_polygon();
             segments
                 .iter()
                 .map(|s| self.crossed_by_segment(s))
-                .collect()
+                .collect::<Vec<_>>()
         })
     }
 
@@ -99,25 +104,32 @@ impl PolygonalArea {
     }
 
     #[pyo3(name = "contains")]
-    pub fn contains_gil(&mut self, p: &Point) -> bool {
-        release_gil!(|| {
+    #[pyo3(signature = (p, no_gil=false))]
+    pub fn contains_gil(&mut self, p: &Point, no_gil: bool) -> bool {
+        release_gil!(no_gil, || {
             self.build_polygon();
             self.contains(p)
         })
     }
 
     #[pyo3(name = "contains_many_points")]
-    pub fn contains_many_points_gil(&mut self, points: Vec<Point>) -> Vec<bool> {
-        release_gil!(|| {
+    #[pyo3(signature = (points, no_gil=false))]
+    pub fn contains_many_points_gil(&mut self, points: Vec<Point>, no_gil: bool) -> Vec<bool> {
+        release_gil!(no_gil, || {
             self.build_polygon();
-            points.iter().map(|p| self.contains(p)).collect()
+            points.iter().map(|p| self.contains(p)).collect::<Vec<_>>()
         })
     }
 
     #[staticmethod]
     #[pyo3(name = "points_positions")]
-    pub fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>) -> Vec<Vec<bool>> {
-        release_gil!(|| {
+    #[pyo3(signature = (polys, points, no_gil=false))]
+    pub fn points_positions_gil(
+        polys: Vec<Self>,
+        points: Vec<Point>,
+        no_gil: bool,
+    ) -> Vec<Vec<bool>> {
+        let f = || {
             let pts = &points;
             polys
                 .into_par_iter()
@@ -125,17 +137,20 @@ impl PolygonalArea {
                     p.build_polygon();
                     pts.iter().map(|pt| p.contains(pt)).collect()
                 })
-                .collect()
-        })
+                .collect::<Vec<_>>()
+        };
+        release_gil!(no_gil, f)
     }
 
     #[staticmethod]
     #[pyo3(name = "segments_intersections")]
+    #[pyo3(signature = (polys, segments, no_gil=false))]
     pub fn segments_intersections_gil(
         polys: Vec<Self>,
         segments: Vec<Segment>,
+        no_gil: bool,
     ) -> Vec<Vec<Intersection>> {
-        release_gil!(|| {
+        let f = || {
             let segments = &segments;
             polys
                 .into_par_iter()
@@ -146,8 +161,9 @@ impl PolygonalArea {
                         .map(|seg| p.crossed_by_segment_gil(seg))
                         .collect()
                 })
-                .collect()
-        })
+                .collect::<Vec<_>>()
+        };
+        release_gil!(no_gil, f)
     }
 }
 
@@ -287,17 +303,17 @@ mod tests {
         let mut area1 = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
         let area2 = PolygonalArea::new(get_square_area(-1.0, 0.0, 2.0), None);
 
-        assert!(area1.contains_gil(&p1));
-        assert!(area1.contains_gil(&p2));
-        assert!(!area1.contains_gil(&p3));
+        assert!(area1.contains(&p1));
+        assert!(area1.contains(&p2));
+        assert!(!area1.contains(&p3));
 
         assert_eq!(
-            area1.contains_many_points_gil(vec![p1.clone(), p2.clone(), p3.clone()]),
+            area1.contains_many_points_gil(vec![p1.clone(), p2.clone(), p3.clone()], false),
             vec![true, true, false]
         );
 
         assert_eq!(
-            PolygonalArea::points_positions_gil(vec![area1, area2], vec![p1, p2, p3],),
+            PolygonalArea::points_positions_gil(vec![area1, area2], vec![p1, p2, p3], false),
             vec![vec![true, true, false], vec![false, false, false]]
         )
     }
@@ -333,15 +349,16 @@ mod tests {
         let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
         let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
         let p1 = Point::new(0.0, 0.0);
-        assert!(area.clone().contains_gil(&p1));
+        assert!(area.clone().contains(&p1));
 
         assert_eq!(
-            area.clone().contains_many_points_gil(vec![p1.clone()]),
+            area.clone()
+                .contains_many_points_gil(vec![p1.clone()], false),
             vec![true]
         );
 
         assert_eq!(
-            PolygonalArea::points_positions_gil(vec![area], vec![p1],),
+            PolygonalArea::points_positions_gil(vec![area], vec![p1], false),
             vec![vec![true]]
         )
     }
@@ -485,7 +502,7 @@ mod tests {
         let seg1 = Segment::new(&Point::new(-2.0, 0.5), &Point::new(3.0, 0.5));
         let seg2 = Segment::new(&Point::new(-0.5, 2.0), &Point::new(-0.5, -2.0));
         let intersections =
-            PolygonalArea::segments_intersections_gil(vec![area1, area2], vec![seg1, seg2]);
+            PolygonalArea::segments_intersections_gil(vec![area1, area2], vec![seg1, seg2], false);
         assert_eq!(
             intersections,
             vec![

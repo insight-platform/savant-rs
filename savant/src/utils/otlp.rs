@@ -132,8 +132,10 @@ impl TelemetrySpan {
     /// :py:class:`TelemetrySpan`
     ///   new span
     ///
-    fn nested_span(&self, name: &str) -> TelemetrySpan {
-        release_gil!(|| {
+    #[pyo3(name = "nested_span")]
+    #[pyo3(signature = (name, no_gil = true))]
+    fn nested_span_gil(&self, name: &str, no_gil: bool) -> TelemetrySpan {
+        release_gil!(no_gil, || {
             let parent_ctx = &self.0;
 
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
@@ -163,7 +165,8 @@ impl TelemetrySpan {
     ///
     fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
         MaybeTelemetrySpan::new(if predicate {
-            Some(self.nested_span(name))
+            // TODO: get rid of this gil
+            Some(self.nested_span_gil(name, false))
         } else {
             None
         })
@@ -178,9 +181,11 @@ impl TelemetrySpan {
     /// :py:class:`PropagatedContext`
     ///   The created context.
     ///
-    fn propagate(&self) -> PropagatedContext {
+    #[pyo3(name = "propagate")]
+    #[pyo3(signature = (no_gil = true))]
+    fn propagate_gil(&self, no_gil: bool) -> PropagatedContext {
         self.ensure_same_thread();
-        release_gil!(|| PropagatedContext::inject(&self.0))
+        release_gil!(no_gil, || PropagatedContext::inject(&self.0))
     }
 
     #[classattr]
@@ -239,7 +244,7 @@ impl TelemetrySpan {
                 }
 
                 attrs.insert("python.version".into(), py.version().to_string());
-                release_gil!(|| {
+                release_gil!(true, || {
                     log_message(
                         LogLevel::Error,
                         "python::exception".to_string(),
@@ -252,18 +257,15 @@ impl TelemetrySpan {
                         ),
                     );
 
-                    self.add_event("python.exception".to_string(), attrs);
+                    self.add_event_gil("python.exception".to_string(), attrs, false);
                 });
             } else {
                 self.0.span().set_status(Status::Ok);
             }
         });
 
-        release_gil!(|| {
-            self.0.span().end();
-            pop_context();
-        });
-
+        self.0.span().end();
+        pop_context();
         Ok(())
     }
 
@@ -369,10 +371,11 @@ impl TelemetrySpan {
     /// attributes : dict[str, str]
     ///   The attributes of the event.
     ///
-    #[pyo3(signature = (name, attributes = HashMap::default()))]
-    fn add_event(&self, name: String, attributes: HashMap<String, String>) {
+    #[pyo3(name = "add_event")]
+    #[pyo3(signature = (name, attributes = HashMap::default(), no_gil = false))]
+    fn add_event_gil(&self, name: String, attributes: HashMap<String, String>, no_gil: bool) {
         self.ensure_same_thread();
-        release_gil!(|| {
+        release_gil!(no_gil, || {
             self.0
                 .span()
                 .add_event(name, TelemetrySpan::build_attributes(attributes))
@@ -419,7 +422,8 @@ impl MaybeTelemetrySpan {
     fn nested_span(&self, name: &str) -> MaybeTelemetrySpan {
         if let Some(span) = &self.span {
             MaybeTelemetrySpan {
-                span: Some(span.nested_span(name)),
+                // TODO: get rid of GIL
+                span: Some(span.nested_span_gil(name, false)),
             }
         } else {
             MaybeTelemetrySpan { span: None }
@@ -430,7 +434,8 @@ impl MaybeTelemetrySpan {
         match &self.span {
             None => MaybeTelemetrySpan::new(None),
             Some(span) => MaybeTelemetrySpan::new(if predicate {
-                Some(span.nested_span(name))
+                // TODO: get rid of GIL
+                Some(span.nested_span_gil(name, false))
             } else {
                 None
             }),
@@ -485,8 +490,10 @@ impl PropagatedContext {
     /// OTLPSpan
     ///   A new span
     ///
-    fn nested_span(&self, name: &str) -> TelemetrySpan {
-        release_gil!(|| {
+    #[pyo3(name = "nested_span")]
+    #[pyo3(signature = (name, no_gil = false))]
+    fn nested_span_gil(&self, name: &str, no_gil: bool) -> TelemetrySpan {
+        release_gil!(no_gil, || {
             let parent_ctx = self.extract();
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
                 return TelemetrySpan::default();
@@ -514,7 +521,8 @@ impl PropagatedContext {
     ///
     fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
         MaybeTelemetrySpan::new(if predicate {
-            Some(self.nested_span(name))
+            // TODO: get rid of GIL
+            Some(self.nested_span_gil(name, false))
         } else {
             None
         })

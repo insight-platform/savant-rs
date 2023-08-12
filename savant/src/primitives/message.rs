@@ -175,8 +175,9 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "video_frame")]
-    fn video_frame_gil(frame: &VideoFrameProxy) -> Self {
-        release_gil!(|| Message::video_frame(frame))
+    #[pyo3(signature = (frame, no_gil=true))]
+    fn video_frame_gil(frame: &VideoFrameProxy, no_gil: bool) -> Self {
+        release_gil!(no_gil, || Message::video_frame(frame))
     }
 
     /// Create a new video frame batch message
@@ -193,8 +194,9 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "video_frame_batch")]
-    fn video_frame_batch_gil(batch: &VideoFrameBatch) -> Self {
-        release_gil!(|| Message::video_frame_batch(batch))
+    #[pyo3(signature = (batch, no_gil=true))]
+    fn video_frame_batch_gil(batch: &VideoFrameBatch, no_gil: bool) -> Self {
+        release_gil!(no_gil, || Message::video_frame_batch(batch))
     }
 
     /// Create a new end of stream message
@@ -229,8 +231,9 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "telemetry")]
-    fn telemetry_gil(t: &Telemetry) -> Self {
-        release_gil!(|| Message::telemetry(t.clone()))
+    #[pyo3(signature = (t, no_gil=true))]
+    fn telemetry_gil(t: &Telemetry, no_gil: bool) -> Self {
+        release_gil!(no_gil, || Message::telemetry(t.clone()))
     }
 
     /// Create a new video frame update message
@@ -247,8 +250,9 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "video_frame_update")]
-    fn video_frame_update_gil(update: &VideoFrameUpdate) -> Self {
-        release_gil!(|| Message::video_frame_update(update.clone()))
+    #[pyo3(signature = (update, no_gil=true))]
+    fn video_frame_update_gil(update: &VideoFrameUpdate, no_gil: bool) -> Self {
+        release_gil!(no_gil, || Message::video_frame_update(update.clone()))
     }
 
     #[getter]

@@ -68,8 +68,9 @@ pub fn load_message(bytes: &[u8]) -> Message {
 ///
 #[pyfunction]
 #[pyo3(name = "load_message_from_bytebuffer")]
-pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer) -> Message {
-    release_gil!(|| load_message(buffer.bytes()))
+#[pyo3(signature = (buffer, no_gil = true))]
+pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer, no_gil: bool) -> Message {
+    release_gil!(no_gil, || load_message(buffer.bytes()))
 }
 
 /// Loads a message from a python bytes. The function is GIL-free.
@@ -86,9 +87,10 @@ pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer) -> Message {
 ///
 #[pyfunction]
 #[pyo3(name = "load_message_from_bytes")]
-pub fn load_message_from_bytes_gil(buffer: &PyBytes) -> Message {
+#[pyo3(signature = (buffer, no_gil = true))]
+pub fn load_message_from_bytes_gil(buffer: &PyBytes, no_gil: bool) -> Message {
     let bytes = buffer.as_bytes();
-    release_gil!(|| load_message(bytes))
+    release_gil!(no_gil, || load_message(bytes))
 }
 
 #[cfg(test)]
