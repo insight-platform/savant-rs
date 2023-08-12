@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 pub enum VideoObjectBBoxTransformation {
-    Scale(f64, f64),
-    Shift(f64, f64),
+    Scale(f32, f32),
+    Shift(f32, f32),
 }
 
 #[pyclass]
@@ -22,14 +22,14 @@ impl VideoObjectBBoxTransformationProxy {
 #[pymethods]
 impl VideoObjectBBoxTransformationProxy {
     #[staticmethod]
-    fn scale(x: f64, y: f64) -> Self {
+    fn scale(x: f32, y: f32) -> Self {
         Self {
             transformation: VideoObjectBBoxTransformation::Scale(x, y),
         }
     }
 
     #[staticmethod]
-    fn shift(x: f64, y: f64) -> Self {
+    fn shift(x: f32, y: f32) -> Self {
         Self {
             transformation: VideoObjectBBoxTransformation::Shift(x, y),
         }

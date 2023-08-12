@@ -1354,13 +1354,13 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "access_objects_by_id")]
-    pub fn access_objects_by_id_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        release_gil!(|| self.access_objects_by_id(&ids).into())
+    pub fn access_objects_by_id_py(&self, ids: Vec<i64>) -> VideoObjectsView {
+        self.access_objects_by_id(&ids).into()
     }
 
     #[pyo3(name = "delete_objects_by_ids")]
-    pub fn delete_objects_by_ids_gil(&self, ids: Vec<i64>) -> VideoObjectsView {
-        release_gil!(|| self.delete_objects_by_ids(&ids).into())
+    pub fn delete_objects_by_ids_py(&self, ids: Vec<i64>) -> VideoObjectsView {
+        self.delete_objects_by_ids(&ids).into()
     }
 
     #[pyo3(name = "delete_objects")]
@@ -1378,8 +1378,8 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "set_parent_by_id")]
-    pub fn set_parent_by_id_gil(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
-        release_gil!(|| self.set_parent_by_id(object_id, parent_id))
+    pub fn set_parent_by_id_py(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
+        self.set_parent_by_id(object_id, parent_id)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -1404,13 +1404,13 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "get_modified_objects")]
-    pub fn get_modified_objects_gil(&self) -> VideoObjectsView {
-        release_gil!(|| self.get_modified_objects().into())
+    pub fn get_modified_objects_py(&self) -> VideoObjectsView {
+        self.get_modified_objects().into()
     }
 
     #[pyo3(name = "get_children")]
-    pub fn get_children_gil(&self, id: i64) -> VideoObjectsView {
-        release_gil!(|| self.get_children(id).into())
+    pub fn get_children_py(&self, id: i64) -> VideoObjectsView {
+        self.get_children(id).into()
     }
 
     #[pyo3(name = "copy")]
@@ -1465,9 +1465,8 @@ impl VideoFrameProxy {
                 .map(|r| {
                     let class_id = r[0] as i64;
                     let conf = r[1];
-                    let angle = angle_col.map(|c| r[c] as f64);
-                    let bbox =
-                        RBBox::new(r[2] as f64, r[3] as f64, r[4] as f64, r[5] as f64, angle);
+                    let angle = angle_col.map(|c| r[c]);
+                    let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
                     (class_id, conf, bbox)
                 })
                 .collect()
@@ -1482,8 +1481,9 @@ impl VideoFrameProxy {
                 .map(|r| {
                     let class_id = r[0] as i64;
                     let conf = r[1] as f32;
-                    let angle = angle_col.map(|c| r[c]);
-                    let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
+                    let angle = angle_col.map(|c| r[c] as f32);
+                    let bbox =
+                        RBBox::new(r[2] as f32, r[3] as f32, r[4] as f32, r[5] as f32, angle);
                     (class_id, conf, bbox)
                 })
                 .collect()

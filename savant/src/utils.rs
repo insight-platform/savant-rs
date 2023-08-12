@@ -50,7 +50,7 @@ pub use np_ndarray::*;
 
 #[pyfunction]
 #[inline]
-pub fn round_2_digits(v: f64) -> f64 {
+pub fn round_2_digits(v: f32) -> f32 {
     (v * 100.0).round() / 100.0
 }
 

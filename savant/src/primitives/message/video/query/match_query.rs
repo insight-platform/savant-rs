@@ -26,25 +26,25 @@ pub(crate) trait ExecutableMatchQuery<T> {
 #[serde(rename = "float")]
 pub enum FloatExpression {
     #[serde(rename = "eq")]
-    EQ(f64),
+    EQ(f32),
     #[serde(rename = "ne")]
-    NE(f64),
+    NE(f32),
     #[serde(rename = "lt")]
-    LT(f64),
+    LT(f32),
     #[serde(rename = "le")]
-    LE(f64),
+    LE(f32),
     #[serde(rename = "gt")]
-    GT(f64),
+    GT(f32),
     #[serde(rename = "ge")]
-    GE(f64),
+    GE(f32),
     #[serde(rename = "between")]
-    Between(f64, f64),
+    Between(f32, f32),
     #[serde(rename = "one_of")]
-    OneOf(Vec<f64>),
+    OneOf(Vec<f32>),
 }
 
-impl ExecutableMatchQuery<&f64> for FloatExpression {
-    fn execute(&self, o: &f64, _: &mut ObjectContext) -> bool {
+impl ExecutableMatchQuery<&f32> for FloatExpression {
+    fn execute(&self, o: &f32, _: &mut ObjectContext) -> bool {
         match self {
             FloatExpression::EQ(x) => x == o,
             FloatExpression::NE(x) => x != o,
@@ -164,7 +164,7 @@ pub enum MatchQuery {
     TrackBoxAngle(FloatExpression),
     #[serde(rename = "track.bbox.metric")]
     TrackBoxMetric {
-        other: (f64, f64, f64, f64, Option<f64>),
+        other: (f32, f32, f32, f32, Option<f32>),
         metric_type: BBoxMetricType,
         threshold_expr: FloatExpression,
     },
@@ -202,7 +202,7 @@ pub enum MatchQuery {
     BoxAngle(FloatExpression),
     #[serde(rename = "bbox.metric")]
     BoxMetric {
-        other: (f64, f64, f64, f64, Option<f64>),
+        other: (f32, f32, f32, f32, Option<f32>),
         metric_type: BBoxMetricType,
         threshold_expr: FloatExpression,
     },
@@ -239,10 +239,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
             MatchQuery::Id(x) => x.execute(&o.id, ctx),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, ctx),
             MatchQuery::Label(x) => x.execute(&o.label, ctx),
-            MatchQuery::Confidence(x) => o
-                .confidence
-                .map(|c| x.execute(&(c as f64), ctx))
-                .unwrap_or(false),
+            MatchQuery::Confidence(x) => o.confidence.map(|c| x.execute(&c, ctx)).unwrap_or(false),
             MatchQuery::ConfidenceDefined => o.confidence.is_some(),
             MatchQuery::TrackDefined => o.track_id.is_some(),
             MatchQuery::TrackId(x) => o
@@ -289,7 +286,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                     BBoxMetricType::IoSelf => t.ios(&other).unwrap_or(0.0),
                     BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
-                threshold_expr.execute(&metric, ctx)
+                threshold_expr.execute(&(metric as f32), ctx)
             }),
 
             // parent
@@ -322,7 +319,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                     BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
                     BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
                 };
-                threshold_expr.execute(&metric, ctx)
+                threshold_expr.execute(&(metric as f32), ctx)
             }
 
             // attributes

@@ -4,12 +4,12 @@ use std::fmt::Debug;
 pub mod np_nalgebra;
 pub mod np_ndarray;
 
-pub trait ConvF64 {
-    fn conv_f64(self) -> f64;
+pub trait ConvF32 {
+    fn conv_f32(self) -> f32;
 }
 
-pub trait RConvF64 {
-    fn conv_from_f64(f: f64) -> Self;
+pub trait RConvF32 {
+    fn conv_from_f32(f: f32) -> Self;
 }
 
 pub trait ElementType: numpy::Element + Scalar + Copy + Clone + Debug {}

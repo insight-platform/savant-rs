@@ -30,7 +30,7 @@ fn bench_get_area(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_iou_90(b: &mut Bencher) {
+fn bench_iou(b: &mut Bencher) {
     let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(0.0));
     let bb2 = RBBox::new(0.0, 0.0, 20.0, 10.0, Some(0.0));
     b.iter(|| {

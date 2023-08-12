@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::slice::from_raw_parts;
 
 /// When BBox is not defined, its elements are set to this value.
-pub const BBOX_ELEMENT_UNDEFINED: f64 = 1.797_693_134_862_315_7e308_f64;
+pub const BBOX_ELEMENT_UNDEFINED: f32 = 3.402_823_5e38_f32;
 
 #[derive(Clone, Debug)]
 #[repr(C)]
@@ -22,11 +22,11 @@ pub struct VideoObjectInferenceMeta {
     pub label_id: i64,
     pub confidence: f32,
     pub track_id: i64,
-    pub xc: f64,
-    pub yc: f64,
-    pub width: f64,
-    pub height: f64,
-    pub angle: f64,
+    pub xc: f32,
+    pub yc: f32,
+    pub width: f32,
+    pub height: f32,
+    pub angle: f32,
 }
 
 pub fn from_object(

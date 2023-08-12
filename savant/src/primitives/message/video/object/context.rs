@@ -115,7 +115,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.tracking_info_bbox.xc.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.get_xc()),
+                        Some(info) => Value::from(info.get_xc() as f64),
                     }
                 }))
             }
@@ -124,7 +124,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.tracking_info_bbox.yc.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.get_yc()),
+                        Some(info) => Value::from(info.get_yc() as f64),
                     }
                 }))
             }
@@ -133,7 +133,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.tracking_info_bbox.width.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.get_width()),
+                        Some(info) => Value::from(info.get_width() as f64),
                     }
                 }))
             }
@@ -142,7 +142,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.tracking_info_bbox.height.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
-                        Some(info) => Value::from(info.get_height()),
+                        Some(info) => Value::from(info.get_height() as f64),
                     }
                 }))
             }
@@ -153,7 +153,7 @@ impl<'a> Context for ObjectContext<'a> {
                         None => Value::Empty,
                         Some(info) => match info.get_angle() {
                             None => Value::Empty,
-                            Some(angle) => Value::from(angle),
+                            Some(angle) => Value::from(angle as f64),
                         },
                     }
                 }))
@@ -163,34 +163,32 @@ impl<'a> Context for ObjectContext<'a> {
                 self.object_view
                     .bbox
                     .xc
-                    .get_or_init(|| Value::from(self.object.get_detection_box().get_xc())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_xc() as f64)),
             ),
 
             "bbox.yc" => Some(
                 self.object_view
                     .bbox
                     .yc
-                    .get_or_init(|| Value::from(self.object.get_detection_box().get_yc())),
+                    .get_or_init(|| Value::from(self.object.get_detection_box().get_yc() as f64)),
             ),
 
-            "bbox.width" => Some(
-                self.object_view
-                    .bbox
-                    .width
-                    .get_or_init(|| Value::from(self.object.get_detection_box().get_width())),
-            ),
+            "bbox.width" => {
+                Some(self.object_view.bbox.width.get_or_init(|| {
+                    Value::from(self.object.get_detection_box().get_width() as f64)
+                }))
+            }
 
-            "bbox.height" => Some(
-                self.object_view
-                    .bbox
-                    .height
-                    .get_or_init(|| Value::from(self.object.get_detection_box().get_height())),
-            ),
+            "bbox.height" => {
+                Some(self.object_view.bbox.height.get_or_init(|| {
+                    Value::from(self.object.get_detection_box().get_height() as f64)
+                }))
+            }
 
             "bbox.angle" => Some(self.object_view.bbox.angle.get_or_init(|| {
                 match self.object.get_detection_box().get_angle() {
                     None => Value::Empty,
-                    Some(a) => Value::from(a),
+                    Some(a) => Value::from(a as f64),
                 }
             })),
 

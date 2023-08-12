@@ -6,7 +6,7 @@
 /**
  * When BBox is not defined, its elements are set to this value.
  */
-#define BBOX_ELEMENT_UNDEFINED 1.7976931348623157e308
+#define BBOX_ELEMENT_UNDEFINED 3.4028235e38
 
 #define EPS 0.00001
 
@@ -27,11 +27,11 @@ typedef struct VideoObjectInferenceMeta {
   int64_t label_id;
   float confidence;
   int64_t track_id;
-  double xc;
-  double yc;
-  double width;
-  double height;
-  double angle;
+  float xc;
+  float yc;
+  float width;
+  float height;
+  float angle;
 } VideoObjectInferenceMeta;
 
 /**

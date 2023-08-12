@@ -1,5 +1,5 @@
 use crate::primitives::{PythonBBox, RBBox};
-use crate::utils::np::{ConvF64, ElementType, RConvF64};
+use crate::utils::np::{ConvF32, ElementType, RConvF32};
 use crate::with_gil;
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
@@ -22,7 +22,7 @@ pub enum BBoxFormat {
     XcYcWidthHeight,
 }
 
-pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF64>(
+pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF32>(
     arr: &PyReadonlyArrayDyn<T>,
 ) -> Vec<RBBox> {
     let dims = arr.shape();
@@ -32,17 +32,17 @@ pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF64>(
         .into_iter()
         .map(|r| {
             RBBox::new(
-                r[0].conv_f64(),
-                r[1].conv_f64(),
-                r[2].conv_f64(),
-                r[3].conv_f64(),
-                Some(r[4].conv_f64()),
+                r[0].conv_f32(),
+                r[1].conv_f32(),
+                r[2].conv_f32(),
+                r[3].conv_f32(),
+                Some(r[4].conv_f32()),
             )
         })
         .collect::<Vec<_>>()
 }
 
-pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
+pub fn ndarray_to_bboxes<T: ElementType + ConvF32>(
     arr: &PyReadonlyArrayDyn<T>,
     format: &BBoxFormat,
 ) -> Vec<PythonBBox> {
@@ -53,28 +53,28 @@ pub fn ndarray_to_bboxes<T: ElementType + ConvF64>(
         .into_iter()
         .map(|r| match format {
             BBoxFormat::LeftTopRightBottom => PythonBBox::ltrb(
-                r[0].conv_f64(),
-                r[1].conv_f64(),
-                r[2].conv_f64(),
-                r[3].conv_f64(),
+                r[0].conv_f32(),
+                r[1].conv_f32(),
+                r[2].conv_f32(),
+                r[3].conv_f32(),
             ),
             BBoxFormat::LeftTopWidthHeight => PythonBBox::ltwh(
-                r[0].conv_f64(),
-                r[1].conv_f64(),
-                r[2].conv_f64(),
-                r[3].conv_f64(),
+                r[0].conv_f32(),
+                r[1].conv_f32(),
+                r[2].conv_f32(),
+                r[3].conv_f32(),
             ),
             BBoxFormat::XcYcWidthHeight => PythonBBox::new(
-                r[0].conv_f64(),
-                r[1].conv_f64(),
-                r[2].conv_f64(),
-                r[3].conv_f64(),
+                r[0].conv_f32(),
+                r[1].conv_f32(),
+                r[2].conv_f32(),
+                r[3].conv_f32(),
             ),
         })
         .collect::<Vec<_>>()
 }
 
-pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zero>(
+pub fn bboxes_to_ndarray<T: ElementType + RConvF32 + num_traits::identities::Zero>(
     boxes: &Vec<PythonBBox>,
     format: &BBoxFormat,
 ) -> Py<PyArray<T, IxDyn>> {
@@ -87,10 +87,10 @@ pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zer
                 BBoxFormat::XcYcWidthHeight => bbox.as_xcycwh(),
             };
 
-            arr[[i, 0]] = RConvF64::conv_from_f64(v0);
-            arr[[i, 1]] = RConvF64::conv_from_f64(v1);
-            arr[[i, 2]] = RConvF64::conv_from_f64(v2);
-            arr[[i, 3]] = RConvF64::conv_from_f64(v3);
+            arr[[i, 0]] = RConvF32::conv_from_f32(v0);
+            arr[[i, 1]] = RConvF32::conv_from_f32(v1);
+            arr[[i, 2]] = RConvF32::conv_from_f32(v2);
+            arr[[i, 3]] = RConvF32::conv_from_f32(v3);
         }
         arr
     };
@@ -101,17 +101,17 @@ pub fn bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zer
     })
 }
 
-pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF64 + num_traits::identities::Zero>(
+pub fn rotated_bboxes_to_ndarray<T: ElementType + RConvF32 + num_traits::identities::Zero>(
     boxes: Vec<RBBox>,
 ) -> Py<PyArray<T, IxDyn>> {
     let arr = {
         let mut arr = ArrayD::<T>::zeros(IxDyn(&[boxes.len(), 5]));
         for (i, bbox) in boxes.iter().enumerate() {
-            arr[[i, 0]] = RConvF64::conv_from_f64(bbox.get_xc());
-            arr[[i, 1]] = RConvF64::conv_from_f64(bbox.get_yc());
-            arr[[i, 2]] = RConvF64::conv_from_f64(bbox.get_width());
-            arr[[i, 3]] = RConvF64::conv_from_f64(bbox.get_height());
-            arr[[i, 4]] = RConvF64::conv_from_f64(bbox.get_angle().unwrap_or(0.0));
+            arr[[i, 0]] = RConvF32::conv_from_f32(bbox.get_xc());
+            arr[[i, 1]] = RConvF32::conv_from_f32(bbox.get_yc());
+            arr[[i, 2]] = RConvF32::conv_from_f32(bbox.get_width());
+            arr[[i, 3]] = RConvF32::conv_from_f32(bbox.get_height());
+            arr[[i, 4]] = RConvF32::conv_from_f32(bbox.get_angle().unwrap_or(0.0));
         }
         arr
     };

@@ -8,16 +8,16 @@ pub trait EqOps<T: Clone, R> {
     fn one_of(v: &[T]) -> R;
 }
 
-impl EqOps<f64, FloatExpression> for FloatExpression {
-    fn eq(v: f64) -> FloatExpression {
+impl EqOps<f32, FloatExpression> for FloatExpression {
+    fn eq(v: f32) -> FloatExpression {
         FloatExpression::EQ(v)
     }
 
-    fn ne(v: f64) -> FloatExpression {
+    fn ne(v: f32) -> FloatExpression {
         FloatExpression::NE(v)
     }
 
-    fn one_of(v: &[f64]) -> FloatExpression {
+    fn one_of(v: &[f32]) -> FloatExpression {
         FloatExpression::OneOf(v.to_vec())
     }
 }
@@ -72,24 +72,24 @@ pub trait NumberOps<T, R> {
     fn between(a: T, b: T) -> R;
 }
 
-impl NumberOps<f64, FloatExpression> for FloatExpression {
-    fn gt(v: f64) -> FloatExpression {
+impl NumberOps<f32, FloatExpression> for FloatExpression {
+    fn gt(v: f32) -> FloatExpression {
         FloatExpression::GT(v)
     }
 
-    fn ge(v: f64) -> FloatExpression {
+    fn ge(v: f32) -> FloatExpression {
         FloatExpression::GE(v)
     }
 
-    fn lt(v: f64) -> FloatExpression {
+    fn lt(v: f32) -> FloatExpression {
         FloatExpression::LT(v)
     }
 
-    fn le(v: f64) -> FloatExpression {
+    fn le(v: f32) -> FloatExpression {
         FloatExpression::LE(v)
     }
 
-    fn between(a: f64, b: f64) -> FloatExpression {
+    fn between(a: f32, b: f32) -> FloatExpression {
         FloatExpression::Between(a, b)
     }
 }

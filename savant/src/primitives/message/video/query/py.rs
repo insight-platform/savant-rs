@@ -78,7 +78,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn eq(v: f64) -> FloatExpressionProxy {
+    fn eq(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::EQ(v),
         }
@@ -99,7 +99,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn ne(v: f64) -> FloatExpressionProxy {
+    fn ne(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::NE(v),
         }
@@ -120,7 +120,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn lt(v: f64) -> FloatExpressionProxy {
+    fn lt(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::LT(v),
         }
@@ -141,7 +141,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn le(v: f64) -> FloatExpressionProxy {
+    fn le(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::LE(v),
         }
@@ -162,7 +162,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn gt(v: f64) -> FloatExpressionProxy {
+    fn gt(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::GT(v),
         }
@@ -183,7 +183,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn ge(v: f64) -> FloatExpressionProxy {
+    fn ge(v: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::GE(v),
         }
@@ -206,7 +206,7 @@ impl FloatExpressionProxy {
     ///   Float expression
     ///
     #[staticmethod]
-    fn between(a: f64, b: f64) -> FloatExpressionProxy {
+    fn between(a: f32, b: f32) -> FloatExpressionProxy {
         FloatExpressionProxy {
             inner: FloatExpression::Between(a, b),
         }
@@ -234,8 +234,8 @@ impl FloatExpressionProxy {
         let mut vals = Vec::with_capacity(list.len());
         for arg in list {
             let v = arg
-                .extract::<f64>()
-                .expect("Invalid argument. Only f64 values are allowed.");
+                .extract::<f32>()
+                .expect("Invalid argument. Only f32 values are allowed.");
             vals.push(v);
         }
         FloatExpressionProxy {
