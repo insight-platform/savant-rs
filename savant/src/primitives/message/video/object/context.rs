@@ -75,7 +75,7 @@ impl<'a> Context for ObjectContext<'a> {
                 Some(self.object_view.confidence.get_or_init(
                     || match self.object.get_confidence() {
                         None => Value::Empty,
-                        Some(c) => Value::from(c),
+                        Some(c) => Value::from(c as f64),
                     },
                 ))
             }

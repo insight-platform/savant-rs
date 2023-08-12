@@ -96,7 +96,7 @@ impl ToSerdeJsonValue for AttributeValueVariant {
 #[archive(check_bytes)]
 pub struct AttributeValue {
     #[pyo3(get, set)]
-    pub confidence: Option<f64>,
+    pub confidence: Option<f32>,
     pub(crate) v: AttributeValueVariant,
 }
 
@@ -168,7 +168,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (int, confidence = None))]
-    pub fn intersection(int: Intersection, confidence: Option<f64>) -> Self {
+    pub fn intersection(int: Intersection, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Intersection(int),
@@ -207,7 +207,7 @@ impl AttributeValue {
     ///   
     #[staticmethod]
     #[pyo3(signature = (dims, blob, confidence = None))]
-    pub fn bytes_from_list(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f64>) -> Self {
+    pub fn bytes_from_list(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Bytes(dims, blob),
@@ -231,7 +231,7 @@ impl AttributeValue {
     ///   
     #[staticmethod]
     #[pyo3(signature = (dims, blob, confidence = None))]
-    pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f64>) -> Self {
+    pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
@@ -254,7 +254,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (s, confidence = None))]
-    pub fn string(s: String, confidence: Option<f64>) -> Self {
+    pub fn string(s: String, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::String(s),
@@ -277,7 +277,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (ss, confidence = None))]
-    pub fn strings(ss: Vec<String>, confidence: Option<f64>) -> Self {
+    pub fn strings(ss: Vec<String>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::StringVector(ss),
@@ -300,7 +300,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (i, confidence = None))]
-    pub fn integer(i: i64, confidence: Option<f64>) -> Self {
+    pub fn integer(i: i64, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Integer(i),
@@ -323,7 +323,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (ii, confidence = None))]
-    pub fn integers(ii: Vec<i64>, confidence: Option<f64>) -> Self {
+    pub fn integers(ii: Vec<i64>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::IntegerVector(ii),
@@ -346,7 +346,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (f, confidence = None))]
-    pub fn float(f: f64, confidence: Option<f64>) -> Self {
+    pub fn float(f: f64, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Float(f),
@@ -369,7 +369,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (ff, confidence = None))]
-    pub fn floats(ff: Vec<f64>, confidence: Option<f64>) -> Self {
+    pub fn floats(ff: Vec<f64>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::FloatVector(ff),
@@ -392,7 +392,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (b, confidence = None))]
-    pub fn boolean(b: bool, confidence: Option<f64>) -> Self {
+    pub fn boolean(b: bool, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Boolean(b),
@@ -415,7 +415,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (bb, confidence = None))]
-    pub fn booleans(bb: Vec<bool>, confidence: Option<f64>) -> Self {
+    pub fn booleans(bb: Vec<bool>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::BooleanVector(bb),
@@ -438,7 +438,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (bbox, confidence = None))]
-    pub fn bbox(bbox: RBBox, confidence: Option<f64>) -> Self {
+    pub fn bbox(bbox: RBBox, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::BBox(
@@ -463,7 +463,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (bboxes, confidence = None))]
-    pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f64>) -> Self {
+    pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::BBoxVector(
@@ -491,7 +491,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (point, confidence = None))]
-    pub fn point(point: Point, confidence: Option<f64>) -> Self {
+    pub fn point(point: Point, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Point(point),
@@ -514,7 +514,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (points, confidence = None))]
-    pub fn points(points: Vec<Point>, confidence: Option<f64>) -> Self {
+    pub fn points(points: Vec<Point>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::PointVector(points),
@@ -537,7 +537,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (polygon, confidence = None))]
-    pub fn polygon(polygon: PolygonalArea, confidence: Option<f64>) -> Self {
+    pub fn polygon(polygon: PolygonalArea, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::Polygon(polygon),
@@ -560,7 +560,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (polygons, confidence = None))]
-    pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f64>) -> Self {
+    pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
             v: AttributeValueVariant::PolygonVector(polygons),

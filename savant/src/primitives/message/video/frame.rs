@@ -1464,7 +1464,7 @@ impl VideoFrameProxy {
                 .into_iter()
                 .map(|r| {
                     let class_id = r[0] as i64;
-                    let conf = r[1] as f64;
+                    let conf = r[1];
                     let angle = angle_col.map(|c| r[c] as f64);
                     let bbox =
                         RBBox::new(r[2] as f64, r[3] as f64, r[4] as f64, r[5] as f64, angle);
@@ -1481,7 +1481,7 @@ impl VideoFrameProxy {
                 .into_iter()
                 .map(|r| {
                     let class_id = r[0] as i64;
-                    let conf = r[1];
+                    let conf = r[1] as f32;
                     let angle = angle_col.map(|c| r[c]);
                     let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
                     (class_id, conf, bbox)
@@ -1491,40 +1491,36 @@ impl VideoFrameProxy {
             return Err(PyValueError::new_err("Array must be of type f32 or f64"));
         };
 
-        release_gil!(|| {
-            let model_id = get_model_id(&namespace)
-                .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
+        let model_id = get_model_id(&namespace)
+            .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
 
-            boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
-                let label = get_object_label(model_id, cls_id);
+        boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
+            let label = get_object_label(model_id, cls_id);
 
-                match label {
-                    None => Err(PyValueError::new_err(format!(
-                        "Failed to get object label for model={} (id={}): cls_id={}",
-                        &namespace, model_id, cls_id
-                    ))),
+            match label {
+                None => Err(PyValueError::new_err(format!(
+                    "Failed to get object label for model={} (id={}): cls_id={}",
+                    &namespace, model_id, cls_id
+                ))),
 
-                    Some(l) => {
-                        let object = VideoObjectProxy::new(
-                            0,
-                            namespace.clone(),
-                            l,
-                            b,
-                            HashMap::default(),
-                            Some(conf),
-                            None,
-                            None,
-                        );
-                        self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
-                            .map_err(|e| {
-                                PyValueError::new_err(format!("Failed to add object: {}", e))
-                            })
-                    }
+                Some(l) => {
+                    let object = VideoObjectProxy::new(
+                        0,
+                        namespace.clone(),
+                        l,
+                        b,
+                        HashMap::default(),
+                        Some(conf),
+                        None,
+                        None,
+                    );
+                    self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+                        .map_err(|e| PyValueError::new_err(format!("Failed to add object: {}", e)))
                 }
-            })?;
+            }
+        })?;
 
-            Ok(())
-        })
+        Ok(())
     }
 
     fn get_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {

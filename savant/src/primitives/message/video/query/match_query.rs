@@ -239,7 +239,10 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
             MatchQuery::Id(x) => x.execute(&o.id, ctx),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, ctx),
             MatchQuery::Label(x) => x.execute(&o.label, ctx),
-            MatchQuery::Confidence(x) => o.confidence.map(|c| x.execute(&c, ctx)).unwrap_or(false),
+            MatchQuery::Confidence(x) => o
+                .confidence
+                .map(|c| x.execute(&(c as f64), ctx))
+                .unwrap_or(false),
             MatchQuery::ConfidenceDefined => o.confidence.is_some(),
             MatchQuery::TrackDefined => o.track_id.is_some(),
             MatchQuery::TrackId(x) => o

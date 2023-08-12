@@ -64,7 +64,7 @@ pub struct VideoObject {
     #[builder(default)]
     pub attributes: HashMap<(String, String), Attribute>,
     #[builder(default)]
-    pub confidence: Option<f64>,
+    pub confidence: Option<f32>,
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
@@ -361,7 +361,7 @@ impl VideoObjectProxy {
         label: String,
         detection_box: RBBox,
         attributes: HashMap<(String, String), Attribute>,
-        confidence: Option<f64>,
+        confidence: Option<f32>,
         track_id: Option<i64>,
         track_box: Option<RBBox>,
     ) -> Self {
@@ -456,7 +456,7 @@ impl VideoObjectProxy {
     ///   Object's confidence.
     ///
     #[getter]
-    pub fn get_confidence(&self) -> Option<f64> {
+    pub fn get_confidence(&self) -> Option<f32> {
         let inner = self.inner.read_recursive();
         inner.confidence
     }
@@ -768,7 +768,7 @@ impl VideoObjectProxy {
     }
 
     #[setter]
-    pub fn set_confidence(&self, confidence: Option<f64>) {
+    pub fn set_confidence(&self, confidence: Option<f32>) {
         let mut inner = self.inner.write();
         inner.confidence = confidence;
         inner.add_modification(VideoObjectModification::Confidence);

@@ -20,7 +20,7 @@ pub struct VideoObjectInferenceMeta {
     pub id: i64,
     pub namespace_id: i64,
     pub label_id: i64,
-    pub confidence: f64,
+    pub confidence: f32,
     pub track_id: i64,
     pub xc: f64,
     pub yc: f64,

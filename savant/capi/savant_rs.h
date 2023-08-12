@@ -25,7 +25,7 @@ typedef struct VideoObjectInferenceMeta {
   int64_t id;
   int64_t namespace_id;
   int64_t label_id;
-  double confidence;
+  float confidence;
   int64_t track_id;
   double xc;
   double yc;
