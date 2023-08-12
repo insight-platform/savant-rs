@@ -640,7 +640,7 @@ impl RBBox {
         new_self
     }
 
-    /// Calculates the intersection over union (IoU) of two rotated bounding boxes. The function is GIL-free.
+    /// Calculates the intersection over union (IoU) of two rotated bounding boxes.
     ///
     /// Parameters
     /// ----------
@@ -653,14 +653,12 @@ impl RBBox {
     ///   intersection over union (IoU) of two rotated bounding boxes
     ///
     #[pyo3(name = "iou")]
-    pub(crate) fn iou_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil!(|| {
-            self.iou(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    pub(crate) fn iou_py(&self, other: &Self) -> PyResult<f32> {
+        self.iou(other)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    /// Calculates the intersection over self (IoS) of two rotated bounding boxes. The function is GIL-free.
+    /// Calculates the intersection over self (IoS) of two rotated bounding boxes.
     ///
     /// Parameters
     /// ----------
@@ -673,14 +671,12 @@ impl RBBox {
     ///   intersection over self (IoS) of two rotated bounding boxes
     ///
     #[pyo3(name = "ios")]
-    pub(crate) fn ios_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil!(|| {
-            self.ios(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    pub(crate) fn ios_py(&self, other: &Self) -> PyResult<f32> {
+        self.ios(other)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    /// Calculates the intersection over other (IoO) of two rotated bounding boxes. The function is GIL-free.
+    /// Calculates the intersection over other (IoO) of two rotated bounding boxes.
     ///
     /// Parameters
     /// ----------
@@ -693,11 +689,9 @@ impl RBBox {
     ///   intersection over other (IoO) of two rotated bounding boxes
     ///
     #[pyo3(name = "ioo")]
-    pub(crate) fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
-        release_gil!(|| {
-            self.ioo(other)
-                .map_err(|e| PyValueError::new_err(e.to_string()))
-        })
+    pub(crate) fn ioo_py(&self, other: &Self) -> PyResult<f32> {
+        self.ioo(other)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Shifts the center of the rotated bounding box by the given amount.
@@ -915,6 +909,34 @@ impl RBBox {
 }
 
 impl RBBox {
+    pub(crate) fn intersection_coaxial(&self, other: &RBBox) -> Option<f32> {
+        if self.get_angle().unwrap_or(0.0) != other.get_angle().unwrap_or(0.0) {
+            return None;
+        }
+        let mut bb1 = self.clone();
+        bb1.set_angle(None);
+        let mut bb2 = other.clone();
+        bb2.set_angle(None);
+
+        let (xmin1, ymin1, xmax1, ymax1) = bb1.as_ltrb().unwrap();
+        let (xmin2, ymin2, xmax2, ymax2) = bb2.as_ltrb().unwrap();
+
+        // Calculate the overlap coordinates
+        let overlap_xmin = xmin1.max(xmin2);
+        let overlap_ymin = ymin1.max(ymin2);
+        let overlap_xmax = xmax1.min(xmax2);
+        let overlap_ymax = ymax1.min(ymax2);
+
+        // Calculate the overlap area
+        let intersection = if overlap_xmin < overlap_xmax && overlap_ymin < overlap_ymax {
+            (overlap_xmax - overlap_xmin) * (overlap_ymax - overlap_ymin)
+        } else {
+            0.0
+        };
+
+        Some(intersection)
+    }
+
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let (left, right, top, bottom) = (
             padding.left as f32,
@@ -941,50 +963,35 @@ impl RBBox {
         Self::new(xc, yc, width, height, angle)
     }
 
-    pub fn ios(&self, other: &Self) -> anyhow::Result<f64> {
+    fn calculate_intersection(&self, other: &Self) -> anyhow::Result<f32> {
         if self.get_area() < EPS || other.get_area() < EPS {
             bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
         }
 
-        let mut area1 = self.get_as_polygonal_area();
-        let poly1 = area1.get_polygon();
-        let mut area2 = other.get_as_polygonal_area();
-        let poly2 = area2.get_polygon();
-
-        let intersection = poly1.intersection(&poly2).unsigned_area();
-        Ok(intersection / self.get_area() as f64)
+        Ok(if let Some(int) = self.intersection_coaxial(other) {
+            int
+        } else {
+            let mut area1 = self.get_as_polygonal_area();
+            let poly1 = area1.get_polygon();
+            let mut area2 = other.get_as_polygonal_area();
+            let poly2 = area2.get_polygon();
+            poly1.intersection(&poly2).unsigned_area() as f32
+        })
     }
 
-    pub fn ioo(&self, other: &Self) -> anyhow::Result<f64> {
-        if self.get_area() < EPS || other.get_area() < EPS {
-            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
-        }
-
-        let mut area1 = self.get_as_polygonal_area();
-        let poly1 = area1.get_polygon();
-        let mut area2 = other.get_as_polygonal_area();
-        let poly2 = area2.get_polygon();
-
-        let intersection = poly1.intersection(&poly2).unsigned_area();
-        Ok(intersection / other.get_area() as f64)
+    pub fn ios(&self, other: &Self) -> anyhow::Result<f32> {
+        let own_area = self.get_area();
+        Ok(self.calculate_intersection(other)? / own_area)
     }
 
-    pub fn iou(&self, other: &Self) -> anyhow::Result<f64> {
-        if self.get_area() < EPS || other.get_area() < EPS {
-            bail!("Area of one of the bounding boxes is zero. Division by zero is not allowed.");
-        }
+    pub fn ioo(&self, other: &Self) -> anyhow::Result<f32> {
+        let other_area = other.get_area();
+        Ok(self.calculate_intersection(other)? / other_area)
+    }
 
-        let mut area1 = self.get_as_polygonal_area();
-        let poly1 = area1.get_polygon();
-        let mut area2 = other.get_as_polygonal_area();
-        let poly2 = area2.get_polygon();
-        let union = poly1.union(&poly2).unsigned_area();
-        if union < EPS as f64 {
-            bail!("Union of two bounding boxes is zero. Division by zero is not allowed.",)
-        }
-
-        let intersection = poly1.intersection(&poly2).unsigned_area();
-        Ok(intersection / union)
+    pub fn iou(&self, other: &Self) -> anyhow::Result<f32> {
+        let intersection = self.calculate_intersection(other)?;
+        Ok(intersection / (self.get_area() + other.get_area() - intersection))
     }
 
     pub fn scale(&mut self, scale_x: f32, scale_y: f32) {
@@ -1020,20 +1027,30 @@ impl RBBox {
 
     pub fn get_vertices(&self) -> Vec<(f32, f32)> {
         let angle = self.get_angle().unwrap_or(0.0);
-        let angle = angle * PI / 180.0;
-        let cos = angle.cos();
-        let sin = angle.sin();
+
         let x = self.get_xc();
         let y = self.get_yc();
         let w = self.get_width() / 2.0;
         let h = self.get_height() / 2.0;
 
-        vec![
-            (x + w * cos - h * sin, y + w * sin + h * cos),
-            (x + w * cos + h * sin, y + w * sin - h * cos),
-            (x - w * cos + h * sin, y - w * sin - h * cos),
-            (x - w * cos - h * sin, y - w * sin + h * cos),
-        ]
+        if angle == 0.0 {
+            vec![
+                (x - w, y - h),
+                (x + w, y - h),
+                (x + w, y + h),
+                (x - w, y + h),
+            ]
+        } else {
+            let angle = angle * PI / 180.0;
+            let cos = angle.cos();
+            let sin = angle.sin();
+            vec![
+                (x + w * cos - h * sin, y + w * sin + h * cos),
+                (x + w * cos + h * sin, y + w * sin - h * cos),
+                (x - w * cos + h * sin, y - w * sin - h * cos),
+                (x - w * cos - h * sin, y - w * sin + h * cos),
+            ]
+        }
     }
 
     pub fn get_vertices_rounded(&self) -> Vec<(f32, f32)> {
@@ -1147,19 +1164,16 @@ impl PythonBBox {
         self.inner.__richcmp__(&other.inner, op)
     }
 
-    #[pyo3(name = "iou")]
-    fn iou_gil(&self, other: &Self) -> PyResult<f64> {
-        self.inner.iou_gil(&other.inner)
+    fn iou(&self, other: &Self) -> PyResult<f32> {
+        self.inner.iou_py(&other.inner)
     }
 
-    #[pyo3(name = "ios")]
-    fn ios_gil(&self, other: &Self) -> PyResult<f64> {
-        self.inner.ios_gil(&other.inner)
+    fn ios(&self, other: &Self) -> PyResult<f32> {
+        self.inner.ios_py(&other.inner)
     }
 
-    #[pyo3(name = "ioo")]
-    fn ioo_gil(&self, other: &Self) -> PyResult<f64> {
-        self.inner.ioo_gil(&other.inner)
+    fn ioo(&self, other: &Self) -> PyResult<f32> {
+        self.inner.ioo_py(&other.inner)
     }
 
     fn __str__(&self) -> String {
@@ -1697,5 +1711,48 @@ mod tests {
                 height.ceil() as i64
             )
         );
+    }
+
+    #[test]
+    fn test_intersection_coaxial() {
+        let bb1 = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(0.0));
+        let bb2 = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(0.0));
+        let int = bb1.intersection_coaxial(&bb2).unwrap();
+        assert_eq!(int, 10000.0);
+
+        let bb1 = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(20.0));
+        let bb2 = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(20.0));
+        let int = bb1.intersection_coaxial(&bb2).unwrap();
+        assert_eq!(int, 10000.0);
+
+        let bb1 = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+        let bb2 = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+        let int = bb1.intersection_coaxial(&bb2).unwrap();
+        assert_eq!(int, 10000.0);
+
+        let bb1 = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(1.0));
+        let bb2 = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+        let int = bb1.intersection_coaxial(&bb2);
+        assert!(int.is_none());
+
+        let int = bb2.intersection_coaxial(&bb1);
+        assert!(int.is_none());
+
+        let bb1 = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+        let bb2 = RBBox::new(0.0, 0.0, 50.0, 50.0, None);
+
+        let int = bb1.intersection_coaxial(&bb2).unwrap();
+        assert_eq!(int, 2500.0);
+
+        let int = bb2.intersection_coaxial(&bb1).unwrap();
+        assert_eq!(int, 2500.0);
+
+        let bb1 = RBBox::new(-20.0, 0.0, 40.0, 100.0, Some(0.0));
+        let bb2 = RBBox::new(0.0, 0.0, 40.0, 100.0, Some(0.0));
+        let int = bb1.intersection_coaxial(&bb2).unwrap();
+        assert_eq!(int, 2000.0);
+
+        let int = bb2.intersection_coaxial(&bb1).unwrap();
+        assert_eq!(int, 2000.0);
     }
 }

@@ -37,3 +37,21 @@ fn bench_iou(b: &mut Bencher) {
         bb1.iou(&bb2).expect("iou failed");
     });
 }
+
+#[bench]
+fn bench_ios(b: &mut Bencher) {
+    let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(0.0));
+    let bb2 = RBBox::new(0.0, 0.0, 20.0, 10.0, Some(0.0));
+    b.iter(|| {
+        bb1.ios(&bb2).expect("ios failed");
+    });
+}
+
+#[bench]
+fn bench_ioo(b: &mut Bencher) {
+    let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(0.0));
+    let bb2 = RBBox::new(0.0, 0.0, 20.0, 10.0, Some(0.0));
+    b.iter(|| {
+        bb1.ioo(&bb2).expect("ioo failed");
+    });
+}
