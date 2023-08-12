@@ -1054,7 +1054,7 @@ impl RBBox {
         PolygonalArea::new(
             self.get_vertices()
                 .into_iter()
-                .map(|(x, y)| Point::new(x as f64, y as f64))
+                .map(|(x, y)| Point::new(x, y))
                 .collect::<Vec<_>>(),
             None,
         )

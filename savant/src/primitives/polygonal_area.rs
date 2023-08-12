@@ -9,14 +9,13 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::Arc;
 
 #[pyclass]
 #[derive(Archive, Deserialize, Serialize, Debug, Default, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct PolygonalArea {
-    pub(self) vertices: Arc<Vec<Point>>,
-    pub(self) tags: Arc<Option<Vec<Option<String>>>>,
+    pub(self) vertices: Vec<Point>,
+    pub(self) tags: Option<Vec<Option<String>>>,
     #[with(Skip)]
     polygon: Option<geo::Polygon>,
 }
@@ -27,9 +26,10 @@ impl ToSerdeJsonValue for PolygonalArea {
         for v in self.vertices.iter() {
             vertices.push(v.to_serde_json_value());
         }
+        let tags = self.tags.as_ref();
         serde_json::json!({
             "vertices": vertices,
-            "tags": self.tags.as_ref().as_ref().unwrap_or(&Vec::new()),
+            "tags": tags.unwrap_or(&Vec::new()),
         })
     }
 }
@@ -56,13 +56,13 @@ impl PolygonalArea {
         let polygon = Some(Self::gen_polygon(&vertices));
         Self {
             polygon,
-            tags: Arc::new(tags),
-            vertices: Arc::new(vertices),
+            tags,
+            vertices,
         }
     }
 
     pub fn get_tag(&self, edge: usize) -> PyResult<Option<String>> {
-        let tags = self.tags.as_ref().as_ref();
+        let tags = self.tags.as_ref();
         match tags {
             None => Ok(None),
             Some(tags) => {
@@ -77,10 +77,8 @@ impl PolygonalArea {
 
     #[pyo3(name = "crossed_by_segment")]
     pub fn crossed_by_segment_gil(&mut self, seg: &Segment) -> Intersection {
-        release_gil!(|| {
-            self.build_polygon();
-            self.crossed_by_segment(seg)
-        })
+        self.build_polygon();
+        self.crossed_by_segment(seg)
     }
 
     #[pyo3(name = "crossed_by_segments")]
@@ -181,7 +179,10 @@ impl PolygonalArea {
     }
 
     pub fn crossed_by_segment(&mut self, seg: &Segment) -> Intersection {
-        let seg = Line::from([(seg.begin.x, seg.begin.y), (seg.end.x, seg.end.y)]);
+        let seg = Line::from([
+            (seg.begin.x as f64, seg.begin.y as f64),
+            (seg.end.x as f64, seg.end.y as f64),
+        ]);
         let poly = self.polygon.as_ref().unwrap();
 
         let mut intersections = poly
@@ -229,7 +230,7 @@ impl PolygonalArea {
         self.polygon
             .as_ref()
             .unwrap()
-            .contains(&geo::Point::from((p.x, p.y)))
+            .contains(&geo::Point::from((p.x as f64, p.y as f64)))
     }
 
     fn gen_polygon(vertices: &[Point]) -> geo::Polygon {
@@ -237,7 +238,7 @@ impl PolygonalArea {
             LineString::from(
                 vertices
                     .iter()
-                    .map(|p| geo::Point::from((p.x, p.y)))
+                    .map(|p| geo::Point::from((p.x as f64, p.y as f64)))
                     .collect::<Vec<geo::Point>>(),
             ),
             vec![],
@@ -264,7 +265,7 @@ mod tests {
     const LOWER: &str = "lower";
     const LEFT: &str = "left";
 
-    fn get_square_area(xc: f64, yc: f64, l: f64) -> Vec<Point> {
+    fn get_square_area(xc: f32, yc: f32, l: f32) -> Vec<Point> {
         let l2 = l / 2.0;
 
         vec![
@@ -312,7 +313,7 @@ mod tests {
         assert!(area2.is_ok());
         assert_eq!(area2.as_ref().unwrap().vertices, area.vertices);
         assert_eq!(
-            area2.as_ref().unwrap().tags.as_ref().as_ref().unwrap(),
+            area2.as_ref().unwrap().tags.as_ref().unwrap(),
             &vec![Some("1".into()), None, None, None]
         );
 
