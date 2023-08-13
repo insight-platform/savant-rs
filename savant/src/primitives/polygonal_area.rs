@@ -1,587 +1,100 @@
 use crate::primitives::point::Point;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Intersection, IntersectionKind, Segment};
+use crate::primitives::{Intersection, Segment};
 use crate::release_gil;
-use geo::line_intersection::line_intersection;
-use geo::{Contains, EuclideanDistance, Line, LineIntersection, LineString};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use savant_core::primitives::Intersection as IntersectionRs;
+use savant_core::primitives::Point as PointRs;
+use savant_core::primitives::PolygonalArea as PolygonalAreaRs;
+use savant_core::primitives::Segment as SegmentRs;
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
+use std::mem;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, Default, Clone, PartialEq)]
-#[archive(check_bytes)]
-pub struct PolygonalArea {
-    pub(self) vertices: Vec<Point>,
-    pub(self) tags: Option<Vec<Option<String>>>,
-    #[with(Skip)]
-    polygon: Option<geo::Polygon>,
-}
+#[derive(Debug, PartialEq, Clone)]
+pub struct PolygonalArea(PolygonalAreaRs);
 
 impl ToSerdeJsonValue for PolygonalArea {
     fn to_serde_json_value(&self) -> Value {
-        let mut vertices = Vec::new();
-        for v in self.vertices.iter() {
-            vertices.push(v.to_serde_json_value());
-        }
-        let tags = self.tags.as_ref();
-        serde_json::json!({
-            "vertices": vertices,
-            "tags": tags.unwrap_or(&Vec::new()),
-        })
+        self.0.to_serde_json_value()
     }
 }
 
 impl PolygonalArea {
-    pub fn contains_many_points(&mut self, points: &[Point]) -> Vec<bool> {
-        self.build_polygon();
-        points.iter().map(|p| self.contains(p)).collect::<Vec<_>>()
-    }
-
-    pub fn crossed_by_segments(&mut self, segments: &[Segment]) -> Vec<Intersection> {
-        self.build_polygon();
-        segments
-            .iter()
-            .map(|s| self.crossed_by_segment(s))
-            .collect::<Vec<_>>()
-    }
-
     pub fn get_polygon(&mut self) -> geo::Polygon {
-        self.build_polygon();
-        self.polygon.as_ref().unwrap().clone()
-    }
-
-    pub fn is_self_intersecting(&mut self) -> bool {
-        use geo::algorithm::line_intersection::LineIntersection::*;
-        self.build_polygon();
-        let poly = self.polygon.as_ref().unwrap();
-        let exterior = poly.exterior();
-        exterior.lines().any(|l| {
-            exterior.lines().filter(|l2| &l != l2).any(|l2| {
-                let res = line_intersection(l, l2);
-                match res {
-                    Some(li) => match li {
-                        SinglePoint {
-                            intersection: _,
-                            is_proper,
-                        } => is_proper,
-                        _ => true,
-                    },
-                    _ => false,
-                }
-            })
-        })
-    }
-
-    pub fn crossed_by_segment(&mut self, seg: &Segment) -> Intersection {
-        self.build_polygon();
-        let seg = Line::from([
-            (seg.begin.x as f64, seg.begin.y as f64),
-            (seg.end.x as f64, seg.end.y as f64),
-        ]);
-        let poly = self.polygon.as_ref().unwrap();
-
-        let mut intersections = poly
-            .exterior()
-            .lines()
-            .enumerate()
-            .flat_map(|(indx, l)| match line_intersection(l, seg) {
-                None => None,
-                Some(intersection) => match intersection {
-                    LineIntersection::SinglePoint {
-                        intersection,
-                        is_proper: _,
-                    } => Some((indx, seg.start.euclidean_distance(&intersection))),
-                    LineIntersection::Collinear { intersection } => {
-                        Some((indx, seg.start.euclidean_distance(&intersection.start)))
-                    }
-                },
-            })
-            .collect::<Vec<_>>();
-        intersections.sort_by(|(_, ld), (_, rd)| ld.partial_cmp(rd).unwrap());
-        let intersections = intersections
-            .into_iter()
-            .map(|(e, _)| e)
-            .collect::<Vec<_>>();
-
-        let contains_start = poly.contains(&seg.start) || poly.exterior().contains(&seg.start);
-        let contains_end = poly.contains(&seg.end) || poly.exterior().contains(&seg.end);
-
-        Intersection::new(
-            &match (contains_start, contains_end, intersections.is_empty()) {
-                (false, false, false) => IntersectionKind::Cross,
-                (false, false, true) => IntersectionKind::Outside,
-                (true, true, _) => IntersectionKind::Inside,
-                (true, false, _) => IntersectionKind::Leave,
-                (false, true, _) => IntersectionKind::Enter,
-            },
-            intersections
-                .iter()
-                .map(|i| (*i, self.get_tag(*i).unwrap()))
-                .collect(),
-        )
-    }
-
-    pub fn contains(&mut self, p: &Point) -> bool {
-        self.build_polygon();
-        self.polygon
-            .as_ref()
-            .unwrap()
-            .contains(&geo::Point::from((p.x as f64, p.y as f64)))
-    }
-
-    pub fn build_polygon(&mut self) {
-        let p = self
-            .polygon
-            .take()
-            .unwrap_or_else(|| Self::gen_polygon(&self.vertices));
-        self.polygon.replace(p);
-    }
-}
-
-// class methods
-impl PolygonalArea {
-    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
-        if let Some(t) = &tags {
-            assert_eq!(vertices.len(), t.len());
-        }
-
-        let polygon = Some(Self::gen_polygon(&vertices));
-        Self {
-            polygon,
-            tags,
-            vertices,
-        }
-    }
-    fn gen_polygon(vertices: &[Point]) -> geo::Polygon {
-        geo::Polygon::new(
-            LineString::from(
-                vertices
-                    .iter()
-                    .map(|p| geo::Point::from((p.x as f64, p.y as f64)))
-                    .collect::<Vec<geo::Point>>(),
-            ),
-            vec![],
-        )
-    }
-
-    pub fn points_positions(polys: &mut [Self], points: &[Point]) -> Vec<Vec<bool>> {
-        polys
-            .iter_mut()
-            .map(|p| {
-                p.build_polygon();
-                points.iter().map(|pt| p.contains(pt)).collect()
-            })
-            .collect::<Vec<_>>()
-    }
-
-    pub fn segments_intersections(
-        polys: &mut [Self],
-        segments: &[Segment],
-    ) -> Vec<Vec<Intersection>> {
-        let segments = &segments;
-        polys
-            .iter_mut()
-            .map(|p| {
-                p.build_polygon();
-                segments
-                    .iter()
-                    .map(|seg| p.crossed_by_segment(seg))
-                    .collect()
-            })
-            .collect::<Vec<_>>()
+        self.0.get_polygon()
     }
 }
 
 #[pymethods]
 impl PolygonalArea {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-
-    fn __repr__(&self) -> String {
-        format!("{self:?}")
+    pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
+        let points = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(points) };
+        self.0.contains_many_points(&points)
     }
 
-    fn __str__(&self) -> String {
-        self.__repr__()
+    pub fn crossed_by_segments(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
+        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<SegmentRs>>(segments) };
+        let intersections = self.0.crossed_by_segments(&segments);
+        unsafe { mem::transmute::<Vec<IntersectionRs>, Vec<Intersection>>(intersections) }
     }
 
-    #[new]
-    fn new_py(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
-        Self::new(vertices, tags)
+    pub fn is_self_intersecting(&mut self) -> bool {
+        self.0.is_self_intersecting()
+    }
+
+    pub fn crossed_by_segment(&mut self, segment: &Segment) -> Intersection {
+        let segment = unsafe { mem::transmute::<&Segment, &SegmentRs>(segment) };
+        let intersection = self.0.crossed_by_segment(segment);
+        unsafe { mem::transmute::<IntersectionRs, Intersection>(intersection) }
+    }
+
+    pub fn contains(&mut self, p: &Point) -> bool {
+        self.0
+            .contains(unsafe { mem::transmute::<&Point, &PointRs>(p) })
+    }
+
+    pub fn build_polygon(&mut self) {
+        self.0.build_polygon();
     }
 
     pub fn get_tag(&self, edge: usize) -> PyResult<Option<String>> {
-        let tags = self.tags.as_ref();
-        match tags {
-            None => Ok(None),
-            Some(tags) => {
-                if tags.len() <= edge {
-                    Err(PyValueError::new_err(format!("Index {edge} out of range!")))
-                } else {
-                    Ok(tags.get(edge).unwrap().clone())
-                }
-            }
-        }
-    }
-
-    #[pyo3(name = "crossed_by_segment")]
-    fn crossed_by_segment_py(&mut self, seg: &Segment) -> Intersection {
-        self.crossed_by_segment(seg)
-    }
-
-    #[pyo3(name = "crossed_by_segments")]
-    #[pyo3(signature = (segments, no_gil=false))]
-    fn crossed_by_segments_gil(
-        &mut self,
-        segments: Vec<Segment>,
-        no_gil: bool,
-    ) -> Vec<Intersection> {
-        release_gil!(no_gil, || { self.crossed_by_segments(&segments) })
-    }
-
-    #[pyo3(name = "is_self_intersecting")]
-    fn is_self_intersecting_py(&mut self) -> bool {
-        self.is_self_intersecting()
-    }
-
-    #[pyo3(name = "contains")]
-    #[pyo3(signature = (p, no_gil=false))]
-    fn contains_gil(&mut self, p: &Point, no_gil: bool) -> bool {
-        release_gil!(no_gil, || { self.contains(p) })
-    }
-
-    #[pyo3(name = "contains_many_points")]
-    #[pyo3(signature = (points, no_gil=false))]
-    fn contains_many_points_gil(&mut self, points: Vec<Point>, no_gil: bool) -> Vec<bool> {
-        release_gil!(no_gil, || { self.contains_many_points(&points) })
+        self.0
+            .get_tag(edge)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[staticmethod]
     #[pyo3(name = "points_positions")]
     #[pyo3(signature = (polys, points, no_gil=false))]
-    fn points_positions_gil(
-        mut polys: Vec<Self>,
-        points: Vec<Point>,
-        no_gil: bool,
-    ) -> Vec<Vec<bool>> {
-        release_gil!(no_gil, || { Self::points_positions(&mut polys, &points) })
+    fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>, no_gil: bool) -> Vec<Vec<bool>> {
+        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<PolygonalAreaRs>>(polys) };
+        let points = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(points) };
+        release_gil!(no_gil, || {
+            PolygonalAreaRs::points_positions(&mut polys, &points)
+        })
     }
 
     #[staticmethod]
     #[pyo3(name = "segments_intersections")]
     #[pyo3(signature = (polys, segments, no_gil=false))]
     fn segments_intersections_gil(
-        mut polys: Vec<Self>,
+        polys: Vec<Self>,
         segments: Vec<Segment>,
         no_gil: bool,
     ) -> Vec<Vec<Intersection>> {
-        release_gil!(no_gil, || {
-            Self::segments_intersections(&mut polys, &segments)
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PolygonalArea;
-    use crate::primitives::point::Point;
-    use crate::primitives::{Intersection, IntersectionKind, Segment};
-
-    const UPPER: &str = "upper";
-    const RIGHT: &str = "right";
-    const LOWER: &str = "lower";
-    const LEFT: &str = "left";
-
-    fn get_square_area(xc: f32, yc: f32, l: f32) -> Vec<Point> {
-        let l2 = l / 2.0;
-
-        vec![
-            Point::new(xc - l2, yc + l2),
-            Point::new(xc + l2, yc + l2),
-            Point::new(xc + l2, yc - l2),
-            Point::new(xc - l2, yc - l2),
-        ]
+        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<PolygonalAreaRs>>(polys) };
+        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<SegmentRs>>(segments) };
+        let intersections = release_gil!(no_gil, || {
+            PolygonalAreaRs::segments_intersections(&mut polys, &segments)
+        });
+        unsafe { mem::transmute::<Vec<Vec<IntersectionRs>>, Vec<Vec<Intersection>>>(intersections) }
     }
 
-    #[test]
-    fn contains() {
-        pyo3::prepare_freethreaded_python();
-
-        let p1 = Point::new(0.0, 0.0);
-        let p2 = Point::new(0.99, 0.0);
-        let p3 = Point::new(1.0, 0.0);
-
-        let mut area1 = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
-        let area2 = PolygonalArea::new(get_square_area(-1.0, 0.0, 2.0), None);
-
-        assert!(area1.contains(&p1));
-        assert!(area1.contains(&p2));
-        assert!(!area1.contains(&p3));
-
-        assert_eq!(
-            area1.contains_many_points(&vec![p1.clone(), p2.clone(), p3.clone()]),
-            vec![true, true, false]
-        );
-
-        assert_eq!(
-            PolygonalArea::points_positions(&mut vec![area1, area2], &vec![p1, p2, p3]),
-            vec![vec![true, true, false], vec![false, false, false]]
-        )
-    }
-
-    #[test]
-    fn archive() {
-        let area = PolygonalArea::new(
-            get_square_area(0.0, 0.0, 2.0),
-            Some(vec![Some("1".into()), None, None, None]),
-        );
-        let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
-        let area2 = rkyv::from_bytes::<PolygonalArea>(&bytes[..]);
-        assert!(area2.is_ok());
-        assert_eq!(area2.as_ref().unwrap().vertices, area.vertices);
-        assert_eq!(
-            area2.as_ref().unwrap().tags.as_ref().unwrap(),
-            &vec![Some("1".into()), None, None, None]
-        );
-
-        let area_err = rkyv::from_bytes::<PolygonalArea>(vec![].as_slice());
-        assert!(area_err.is_err());
-
-        let area_err = rkyv::from_bytes::<PolygonalArea>(vec![1, 2, 3].as_slice());
-        assert!(area_err.is_err());
-    }
-
-    #[test]
-    fn contains_after_archive() {
-        pyo3::prepare_freethreaded_python();
-
-        let area = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
-
-        let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
-        let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
-        let p1 = Point::new(0.0, 0.0);
-        assert!(area.clone().contains(&p1));
-
-        assert_eq!(
-            area.clone().contains_many_points(&vec![p1.clone()]),
-            vec![true]
-        );
-
-        assert_eq!(
-            PolygonalArea::points_positions(&mut vec![area], &vec![p1]),
-            vec![vec![true]]
-        )
-    }
-
-    #[test]
-    fn segment_intersects() {
-        pyo3::prepare_freethreaded_python();
-
-        let mut area = PolygonalArea::new(
-            get_square_area(0.0, 0.0, 2.0),
-            Some(vec![Some(UPPER.into()), None, Some(LOWER.into()), None]),
-        );
-
-        let seg1 = Segment::new(&Point::new(0.0, 2.0), &Point::new(0.0, 0.0));
-        let res = area.crossed_by_segment(&seg1);
-        assert_eq!(
-            res,
-            Intersection::new(&IntersectionKind::Enter, vec![(0, Some(UPPER.into()))])
-        );
-
-        let seg2 = Segment::new(&Point::new(0.0, 0.0), &Point::new(0.0, -2.0));
-        let res = area.crossed_by_segment(&seg2);
-        assert_eq!(
-            res,
-            Intersection::new(&IntersectionKind::Leave, vec![(2, Some(LOWER.into()))])
-        );
-
-        let seg3 = Segment::new(&Point::new(0.0, 0.0), &Point::new(0.0, -0.5));
-        let res = area.crossed_by_segment(&seg3);
-        assert_eq!(res, Intersection::new(&IntersectionKind::Inside, vec![]));
-
-        let seg4 = Segment::new(&Point::new(-1.0, 2.0), &Point::new(1.0, 2.0));
-        let res = area.crossed_by_segment(&seg4);
-        assert_eq!(res, Intersection::new(&IntersectionKind::Outside, vec![]));
-
-        let seg5 = Segment::new(&Point::new(-2.0, 0.0), &Point::new(2.0, 0.0));
-        let res = area.crossed_by_segment(&seg5);
-        assert_eq!(
-            res,
-            Intersection::new(&IntersectionKind::Cross, vec![(3, None), (1, None)])
-        );
-
-        let seg6 = Segment::new(&Point::new(0.0, 2.0), &Point::new(0.0, -2.0));
-        let res = area.crossed_by_segment(&seg6);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Cross,
-                vec![(0, Some(UPPER.into())), (2, Some(LOWER.into()))]
-            )
-        );
-
-        let seg7 = Segment::new(&Point::new(0.0, 0.0), &Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg7);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Inside,
-                vec![(0, Some(UPPER.into())), (1, None)]
-            )
-        );
-
-        let seg8 = Segment::new(&Point::new(2.0, 2.0), &Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg8);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Enter,
-                vec![(0, Some(UPPER.into())), (1, None)]
-            )
-        );
-
-        let seg9 = Segment::new(&Point::new(-1.0, -1.0), &Point::new(1.0, 1.0));
-        let res = area.crossed_by_segment(&seg9);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Inside,
-                vec![
-                    (2, Some(LOWER.into())),
-                    (3, None),
-                    (0, Some(UPPER.into())),
-                    (1, None),
-                ]
-            )
-        );
-
-        let seg9 = Segment::new(&Point::new(0.0, 1.0), &Point::new(1.0, 0.0));
-        let res = area.crossed_by_segment(&seg9);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Inside,
-                vec![(0, Some(UPPER.into())), (1, None),]
-            )
-        );
-
-        let seg10 = Segment::new(&Point::new(-2.0, 1.0), &Point::new(2.0, 1.0));
-        let res = area.crossed_by_segment(&seg10);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Cross,
-                vec![(0, Some(UPPER.into())), (3, None), (1, None)]
-            )
-        );
-
-        let seg11 = Segment::new(&Point::new(2.0, 1.0), &Point::new(-2.0, 1.0));
-        let res = area.crossed_by_segment(&seg11);
-        assert_eq!(
-            res,
-            Intersection::new(
-                &IntersectionKind::Cross,
-                vec![(1, None), (0, Some(UPPER.into())), (3, None),]
-            )
-        );
-    }
-
-    #[test]
-    fn multi_seg_crossing() {
-        let area1 = PolygonalArea::new(
-            get_square_area(0.0, 0.0, 2.0),
-            Some(vec![
-                Some(format!("{UPPER}_1")),
-                Some(format!("{RIGHT}_1")),
-                Some(format!("{LOWER}_1")),
-                Some(format!("{LEFT}_1")),
-            ]),
-        );
-
-        let area2 = PolygonalArea::new(
-            get_square_area(1.0, 1.0, 2.0),
-            Some(vec![
-                Some(format!("{UPPER}_2")),
-                Some(format!("{RIGHT}_2")),
-                Some(format!("{LOWER}_2")),
-                Some(format!("{LEFT}_2")),
-            ]),
-        );
-
-        let seg1 = Segment::new(&Point::new(-2.0, 0.5), &Point::new(3.0, 0.5));
-        let seg2 = Segment::new(&Point::new(-0.5, 2.0), &Point::new(-0.5, -2.0));
-        let intersections =
-            PolygonalArea::segments_intersections_gil(vec![area1, area2], vec![seg1, seg2], false);
-        assert_eq!(
-            intersections,
-            vec![
-                vec![
-                    Intersection::new(
-                        &IntersectionKind::Cross,
-                        vec![
-                            (3, Some(format!("{LEFT}_1"))),
-                            (1, Some(format!("{RIGHT}_1"))),
-                        ]
-                    ),
-                    Intersection::new(
-                        &IntersectionKind::Cross,
-                        vec![
-                            (0, Some(format!("{UPPER}_1"))),
-                            (2, Some(format!("{LOWER}_1")))
-                        ]
-                    )
-                ],
-                vec![
-                    Intersection::new(
-                        &IntersectionKind::Cross,
-                        vec![
-                            (3, Some(format!("{LEFT}_2"))),
-                            (1, Some(format!("{RIGHT}_2"))),
-                        ]
-                    ),
-                    Intersection::new(&IntersectionKind::Outside, vec![])
-                ]
-            ]
-        );
-    }
-
-    #[test]
-    fn test_self_intersecting() {
-        let mut area = PolygonalArea::new(
-            vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(0.0, 1.0),
-            ],
-            None,
-        );
-        assert!(!area.is_self_intersecting());
-
-        let mut area = PolygonalArea::new(
-            vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(1.0, 0.0),
-                Point::new(0.0, 1.0),
-            ],
-            None,
-        );
-        assert!(area.is_self_intersecting());
-
-        let mut area = PolygonalArea::new(
-            vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 0.0),
-                Point::new(0.5, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(0.0, 1.0),
-            ],
-            None,
-        );
-        assert!(area.is_self_intersecting());
+    #[new]
+    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
+        let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(vertices) };
+        Self(PolygonalAreaRs::new(vertices, tags))
     }
 }

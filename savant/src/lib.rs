@@ -11,8 +11,6 @@ pub mod test;
 ///
 pub mod utils;
 
-use lazy_static::lazy_static;
-use opentelemetry::global;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -21,49 +19,23 @@ use pyo3::wrap_pymodule;
 use crate::logging::{set_log_level, LogLevel};
 use primitives::message::video::query::py::video_object_query;
 
-lazy_static! {
-    static ref VERSION_CRC32: u32 = crc32fast::hash(env!("CARGO_PKG_VERSION").as_bytes());
-}
-
 #[pyfunction]
-fn init_jaeger_tracer(service_name: String, endpoint: String) {
-    global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-    opentelemetry_jaeger::new_agent_pipeline()
-        .with_endpoint(endpoint)
-        .with_service_name(service_name)
-        .with_trace_config(opentelemetry::sdk::trace::config().with_resource(
-            opentelemetry::sdk::Resource::new(vec![
-                opentelemetry::KeyValue::new("service.name", "savant"), // this will not override the trace-udp-demo
-                opentelemetry::KeyValue::new("service.namespace", "savant-rs"),
-                opentelemetry::KeyValue::new("exporter", "jaeger"),
-            ]),
-        ))
-        .install_simple()
-        .expect("Failed to install Jaeger tracer globally");
+fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
+    savant_core::telemetry::init_jaeger_tracer(service_name, endpoint);
 }
 
 /// Returns the version of the package set in Cargo.toml
 ///
 #[pyfunction]
 pub fn version() -> String {
-    log::debug!("Savant-rs version is {}", env!("CARGO_PKG_VERSION"));
-    env!("CARGO_PKG_VERSION").to_owned()
+    savant_core::version()
 }
 
 /// Returns version in CRC32 format
 ///
 #[pyfunction]
 pub fn version_crc32() -> u32 {
-    log::debug!("Savant-rs version CRC32 is {}", *VERSION_CRC32);
-    *VERSION_CRC32
-}
-
-pub fn version_to_bytes_le() -> [u8; 4] {
-    VERSION_CRC32.to_le_bytes()
-}
-
-pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
-    u32::from_le_bytes(bytes)
+    savant_core::version_crc32()
 }
 
 #[pymodule]
@@ -90,7 +62,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::utils))?;
     m.add_wrapped(wrap_pymodule!(utils::symbol_mapper_module))?;
     m.add_wrapped(wrap_pymodule!(utils::udf_api_module))?;
-    m.add_wrapped(wrap_pymodule!(utils::numpy_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
     m.add_wrapped(wrap_pymodule!(logging::logging))?;
@@ -112,7 +83,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     )?;
 
     sys_modules.set_item("savant_rs.utils.udf_api", m.getattr("udf_api_module")?)?;
-    sys_modules.set_item("savant_rs.utils.numpy", m.getattr("numpy_module")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.serialization",

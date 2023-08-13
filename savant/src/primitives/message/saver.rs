@@ -1,5 +1,6 @@
 use pyo3::types::PyBytes;
 use pyo3::{pyfunction, PyObject};
+use savant_core::fast_hash;
 
 use crate::primitives::Message;
 use crate::release_gil;
@@ -20,7 +21,7 @@ use crate::with_gil;
 ///
 #[pyfunction]
 #[pyo3(name = "save_message")]
-pub fn save_message_gil(message: &Message) -> Vec<u8> {
+pub fn save_message_py(message: &Message) -> Vec<u8> {
     save_message(message)
 }
 
@@ -56,16 +57,11 @@ pub fn save_message_to_bytebuffer_gil(
     with_hash: bool,
     no_gil: bool,
 ) -> ByteBuffer {
-    let f = || {
+    release_gil!(no_gil, || {
         let m = save_message(message);
-        let hash_opt = if with_hash {
-            Some(crc32fast::hash(&m))
-        } else {
-            None
-        };
+        let hash_opt = if with_hash { Some(fast_hash(&m)) } else { None };
         ByteBuffer::new(m, hash_opt)
-    };
-    release_gil!(no_gil, f)
+    })
 }
 
 /// Save a message to python bytes

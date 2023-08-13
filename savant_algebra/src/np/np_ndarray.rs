@@ -1,8 +1,8 @@
-use crate::utils::np::ElementType;
-use crate::with_gil;
+use crate::np::ElementType;
 use ndarray::{ArrayBase, IxDyn, OwnedRepr};
 use numpy::{PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
+use savant_rs::with_gil;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -217,7 +217,7 @@ pub fn np_to_ndarray_gil(arr: &PyAny) -> PyResult<PyObject> {
 ///
 #[pyfunction]
 #[pyo3(name = "ndarray_to_np")]
-pub fn ndarray_to_np_gil(m: &PyAny) -> PyResult<PyObject> {
+pub fn ndarray_to_np_py(m: &PyAny) -> PyResult<PyObject> {
     if let Ok(m) = m.extract::<NDarray>() {
         let m = match m.inner.deref() {
             NDarrayVariant::Float64(m) => ndarray_to_np(m),

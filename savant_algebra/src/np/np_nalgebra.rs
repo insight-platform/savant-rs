@@ -1,10 +1,10 @@
-use crate::utils::np::ElementType;
-use crate::with_gil;
+use crate::np::ElementType;
 use nalgebra::DMatrix;
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use savant_rs::with_gil;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -291,7 +291,7 @@ pub fn np_to_matrix_gil(arr: &PyAny) -> PyResult<PyObject> {
 ///
 #[pyfunction]
 #[pyo3(name = "matrix_to_np")]
-pub fn matrix_to_np_gil(m: &PyAny) -> PyResult<PyObject> {
+pub fn matrix_to_np_py(m: &PyAny) -> PyResult<PyObject> {
     if let Ok(m) = m.extract::<NalgebraDMatrix>() {
         let m = match m.inner.deref() {
             NalgebraDMatrixVariant::Float64(m) => matrix_to_np(m),

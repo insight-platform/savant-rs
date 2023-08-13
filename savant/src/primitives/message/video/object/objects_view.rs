@@ -1,4 +1,3 @@
-use crate::primitives::bbox::BBOX_UNDEFINED;
 use crate::primitives::message::video::query::match_query::{
     batch_filter, batch_foreach_udf, batch_map_udf, batch_partition, filter, foreach_udf, map_udf,
     partition,
@@ -6,11 +5,6 @@ use crate::primitives::message::video::query::match_query::{
 use crate::primitives::message::video::query::py::MatchQueryProxy;
 use crate::primitives::{RBBox, VideoObjectProxy};
 use crate::release_gil;
-use crate::utils::{
-    ndarray_to_bboxes, ndarray_to_rotated_bboxes, rotated_bboxes_to_ndarray, BBoxFormat,
-};
-use ndarray::IxDyn;
-use numpy::{PyArray, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyIndexError, PyRuntimeError};
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -45,7 +39,7 @@ impl From<Vec<VideoObjectProxy>> for VideoObjectsView {
 }
 
 impl VideoObjectsView {
-    fn fill_boxes_gil(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
+    pub fn fill_boxes(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
         let it = zip(self.inner.iter(), boxes);
         match kind {
             VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_box(b)),
@@ -97,25 +91,25 @@ impl VideoObjectsView {
         })
     }
 
-    fn rotated_boxes_as_numpy(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
-        let boxes = match kind {
-            VideoObjectBBoxType::Detection => self
-                .inner
-                .iter()
-                .map(|x| x.get_detection_box())
-                .collect::<Vec<_>>(),
-            VideoObjectBBoxType::TrackingInfo => self
-                .inner
-                .iter()
-                .flat_map(|o| o.get_track_box().or(Some(BBOX_UNDEFINED.clone())))
-                .collect::<Vec<_>>(),
-        };
-        rotated_bboxes_to_ndarray(boxes)
-    }
+    // fn rotated_boxes_as_numpy(&self, kind: &VideoObjectBBoxType) -> Py<PyArray<f64, IxDyn>> {
+    //     let boxes = match kind {
+    //         VideoObjectBBoxType::Detection => self
+    //             .inner
+    //             .iter()
+    //             .map(|x| x.get_detection_box())
+    //             .collect::<Vec<_>>(),
+    //         VideoObjectBBoxType::TrackingInfo => self
+    //             .inner
+    //             .iter()
+    //             .flat_map(|o| o.get_track_box().or(Some(BBOX_UNDEFINED.clone())))
+    //             .collect::<Vec<_>>(),
+    //     };
+    //     rotated_bboxes_to_ndarray(boxes)
+    // }
 
     #[getter]
     #[pyo3(name = "track_ids")]
-    pub fn track_ids_gil(&self) -> Vec<Option<i64>> {
+    pub fn track_ids_py(&self) -> Vec<Option<i64>> {
         self.inner
             .iter()
             .map(|o| o.get_track_id())
@@ -123,7 +117,7 @@ impl VideoObjectsView {
     }
 
     #[pyo3(name = "sorted_by_id")]
-    pub fn sorted_by_id_gil(&self) -> VideoObjectsView {
+    pub fn sorted_by_id_py(&self) -> VideoObjectsView {
         let mut objects = self.inner.as_ref().clone();
         objects.sort_by_key(|o| o.get_id());
         VideoObjectsView {
@@ -131,30 +125,30 @@ impl VideoObjectsView {
         }
     }
 
-    #[pyo3(name = "update_from_numpy_boxes")]
-    pub fn update_from_numpy_boxes_gil(
-        &mut self,
-        np_boxes: PyReadonlyArrayDyn<f64>,
-        format: &BBoxFormat,
-        kind: &VideoObjectBBoxType,
-    ) {
-        let boxes = ndarray_to_bboxes(&np_boxes, format)
-            .into_iter()
-            .map(|x| x.inner)
-            .collect::<Vec<_>>();
+    // #[pyo3(name = "update_from_numpy_boxes")]
+    // pub fn update_from_numpy_boxes_py(
+    //     &mut self,
+    //     np_boxes: PyReadonlyArrayDyn<f64>,
+    //     format: &BBoxFormat,
+    //     kind: &VideoObjectBBoxType,
+    // ) {
+    //     let boxes = ndarray_to_bboxes(&np_boxes, format)
+    //         .into_iter()
+    //         .map(|x| x.inner)
+    //         .collect::<Vec<_>>();
+    //
+    //     self.fill_boxes(boxes, kind);
+    // }
 
-        self.fill_boxes_gil(boxes, kind);
-    }
-
-    #[pyo3(name = "update_from_numpy_rotated_boxes")]
-    pub fn update_from_numpy_rotated_boxes_gil(
-        &mut self,
-        np_boxes: PyReadonlyArrayDyn<f64>,
-        kind: &VideoObjectBBoxType,
-    ) {
-        let boxes = ndarray_to_rotated_bboxes(&np_boxes);
-        self.fill_boxes_gil(boxes, kind);
-    }
+    // #[pyo3(name = "update_from_numpy_rotated_boxes")]
+    // pub fn update_from_numpy_rotated_boxes_py(
+    //     &mut self,
+    //     np_boxes: PyReadonlyArrayDyn<f64>,
+    //     kind: &VideoObjectBBoxType,
+    // ) {
+    //     let boxes = ndarray_to_rotated_bboxes(&np_boxes);
+    //     self.fill_boxes(boxes, kind);
+    // }
 }
 
 #[pyclass]
@@ -192,7 +186,7 @@ impl QueryFunctions {
             batch_filter(&m, &q.inner)
                 .into_iter()
                 .map(|(id, v)| (id, VideoObjectsView { inner: Arc::new(v) }))
-                .collect()
+                .collect::<VideoObjectsViewBatch>()
         })
     }
 

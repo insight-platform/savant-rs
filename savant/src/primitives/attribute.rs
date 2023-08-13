@@ -1,10 +1,10 @@
 pub mod attribute_value;
 
 use crate::primitives::attribute::attribute_value::AttributeValuesView;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use attribute_value::AttributeValue;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 

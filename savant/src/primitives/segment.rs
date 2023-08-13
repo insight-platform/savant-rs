@@ -1,25 +1,20 @@
 use crate::primitives::point::Point;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::primitives::point::Point as PointRs;
+use savant_core::primitives::segment::Intersection as IntersectionRs;
+use savant_core::primitives::segment::IntersectionKind as IntersectionKindRs;
+use savant_core::primitives::segment::Segment as SegmentRs;
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
+use std::mem;
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
-pub struct Segment {
-    #[pyo3(get, set)]
-    pub begin: Point,
-    #[pyo3(get, set)]
-    pub end: Point,
-}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Segment(SegmentRs);
 
 impl ToSerdeJsonValue for Segment {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "begin": self.begin.to_serde_json_value(),
-            "end": self.end.to_serde_json_value(),
-        })
+        self.0.to_serde_json_value()
     }
 }
 
@@ -37,23 +32,46 @@ impl Segment {
     }
 
     #[new]
-    pub fn new(begin: &Point, end: &Point) -> Self {
-        Self {
-            begin: begin.clone(),
-            end: end.clone(),
-        }
+    pub fn new(begin: Point, end: Point) -> Self {
+        Self(SegmentRs::new(
+            unsafe { mem::transmute::<Point, PointRs>(begin) },
+            unsafe { mem::transmute::<Point, PointRs>(end) },
+        ))
     }
 }
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone)]
 pub enum IntersectionKind {
     Enter,
     Inside,
     Leave,
     Cross,
     Outside,
+}
+
+impl From<IntersectionKind> for IntersectionKindRs {
+    fn from(kind: IntersectionKind) -> Self {
+        match kind {
+            IntersectionKind::Enter => IntersectionKindRs::Enter,
+            IntersectionKind::Inside => IntersectionKindRs::Inside,
+            IntersectionKind::Leave => IntersectionKindRs::Leave,
+            IntersectionKind::Cross => IntersectionKindRs::Cross,
+            IntersectionKind::Outside => IntersectionKindRs::Outside,
+        }
+    }
+}
+
+impl From<IntersectionKindRs> for IntersectionKind {
+    fn from(kind: IntersectionKindRs) -> Self {
+        match kind {
+            IntersectionKindRs::Enter => IntersectionKind::Enter,
+            IntersectionKindRs::Inside => IntersectionKind::Inside,
+            IntersectionKindRs::Leave => IntersectionKind::Leave,
+            IntersectionKindRs::Cross => IntersectionKind::Cross,
+            IntersectionKindRs::Outside => IntersectionKind::Outside,
+        }
+    }
 }
 
 impl ToSerdeJsonValue for IntersectionKind {
@@ -77,19 +95,12 @@ impl IntersectionKind {
 }
 
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
-pub struct Intersection {
-    pub kind: IntersectionKind,
-    pub edges: Vec<(usize, Option<String>)>,
-}
+#[derive(Debug, Clone)]
+pub struct Intersection(IntersectionRs);
 
 impl ToSerdeJsonValue for Intersection {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "kind": self.kind.to_serde_json_value(),
-            "edges": self.edges,
-        })
+        self.0.to_serde_json_value()
     }
 }
 
@@ -107,20 +118,17 @@ impl Intersection {
     }
 
     #[new]
-    pub fn new(kind: &IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
-        Self {
-            kind: kind.clone(),
-            edges,
-        }
+    pub fn new(kind: IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
+        Self(IntersectionRs::new(kind.into(), edges))
     }
 
     #[getter]
     pub fn get_kind(&self) -> IntersectionKind {
-        self.kind.clone()
+        self.0.kind.clone().into()
     }
 
     #[getter]
     pub fn get_edges(&self) -> Vec<(usize, Option<String>)> {
-        self.edges.clone()
+        self.0.edges.clone()
     }
 }

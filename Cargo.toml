@@ -1,8 +1,10 @@
 [workspace]
 members = [
+    "savant_core",
     "savant",
     "etcd_dynamic_state",
-    "savant_etcd_dynamic_state"
+    "savant_etcd_dynamic_state",
+    "savant_algebra"
 ]
 resolver = "2"
 

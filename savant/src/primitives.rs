@@ -6,8 +6,6 @@ pub mod attribute;
 pub mod bbox;
 /// The draw specification used to draw objects on the frame when they are visualized.
 pub mod draw;
-pub mod eval_context;
-/// The protocol message wrapping various objects to serialize an deserialize them.
 pub mod message;
 /// Simple point structure.
 pub mod point;
@@ -17,8 +15,6 @@ pub mod polygonal_area;
 pub mod pyobject;
 /// A line consisting of two points.
 pub mod segment;
-/// A trait to serialize various objects to json.
-pub mod to_json_value;
 
 use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
 

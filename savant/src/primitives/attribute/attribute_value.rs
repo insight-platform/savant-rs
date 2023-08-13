@@ -1,12 +1,17 @@
 use crate::primitives::bbox::OwnedRBBoxData;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
-use crate::primitives::{Intersection, Point, PolygonalArea, RBBox};
+use crate::primitives::segment::Intersection;
+use crate::primitives::{Point, PolygonalArea, RBBox};
 use pyo3::exceptions::PyIndexError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::primitives::Intersection as IntersectionRs;
+use savant_core::primitives::Point as PointRs;
+use savant_core::primitives::PolygonalArea as PolygonalAreaRs;
+use savant_core::to_json_value::ToSerdeJsonValue;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::mem;
 use std::sync::Arc;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
@@ -23,11 +28,11 @@ pub enum AttributeValueVariant {
     BooleanVector(Vec<bool>),
     BBox(OwnedRBBoxData),
     BBoxVector(Vec<OwnedRBBoxData>),
-    Point(Point),
-    PointVector(Vec<Point>),
-    Polygon(PolygonalArea),
-    PolygonVector(Vec<PolygonalArea>),
-    Intersection(Intersection),
+    Point(PointRs),
+    PointVector(Vec<PointRs>),
+    Polygon(PolygonalAreaRs),
+    PolygonVector(Vec<PolygonalAreaRs>),
+    Intersection(IntersectionRs),
     #[default]
     None,
 }
@@ -171,7 +176,9 @@ impl AttributeValue {
     pub fn intersection(int: Intersection, confidence: Option<f32>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::Intersection(int),
+            v: AttributeValueVariant::Intersection(unsafe {
+                mem::transmute::<Intersection, IntersectionRs>(int)
+            }),
         }
     }
 
@@ -494,7 +501,7 @@ impl AttributeValue {
     pub fn point(point: Point, confidence: Option<f32>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::Point(point),
+            v: AttributeValueVariant::Point(unsafe { mem::transmute::<Point, PointRs>(point) }),
         }
     }
 
@@ -517,7 +524,9 @@ impl AttributeValue {
     pub fn points(points: Vec<Point>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::PointVector(points),
+            v: AttributeValueVariant::PointVector(unsafe {
+                mem::transmute::<Vec<Point>, Vec<PointRs>>(points)
+            }),
         }
     }
 
@@ -540,7 +549,9 @@ impl AttributeValue {
     pub fn polygon(polygon: PolygonalArea, confidence: Option<f32>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::Polygon(polygon),
+            v: AttributeValueVariant::Polygon(unsafe {
+                mem::transmute::<PolygonalArea, PolygonalAreaRs>(polygon)
+            }),
         }
     }
 
@@ -563,7 +574,9 @@ impl AttributeValue {
     pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
         Self {
             confidence,
-            v: AttributeValueVariant::PolygonVector(polygons),
+            v: AttributeValueVariant::PolygonVector(unsafe {
+                mem::transmute::<Vec<PolygonalArea>, Vec<PolygonalAreaRs>>(polygons)
+            }),
         }
     }
 
@@ -596,7 +609,9 @@ impl AttributeValue {
     ///
     pub fn as_intersection(&self) -> Option<Intersection> {
         match &self.v {
-            AttributeValueVariant::Intersection(i) => Some(i.clone()),
+            AttributeValueVariant::Intersection(i) => {
+                Some(unsafe { mem::transmute::<IntersectionRs, Intersection>(i.clone()) })
+            }
             _ => None,
         }
     }
@@ -755,7 +770,9 @@ impl AttributeValue {
     ///
     pub fn as_point(&self) -> Option<Point> {
         match &self.v {
-            AttributeValueVariant::Point(point) => Some(point.clone()),
+            AttributeValueVariant::Point(point) => {
+                Some(unsafe { mem::transmute::<PointRs, Point>(point.clone()) })
+            }
             _ => None,
         }
     }
@@ -769,7 +786,9 @@ impl AttributeValue {
     ///
     pub fn as_points(&self) -> Option<Vec<Point>> {
         match &self.v {
-            AttributeValueVariant::PointVector(point) => Some(point.clone()),
+            AttributeValueVariant::PointVector(points) => {
+                Some(unsafe { mem::transmute::<Vec<PointRs>, Vec<Point>>(points.clone()) })
+            }
             _ => None,
         }
     }
@@ -783,7 +802,9 @@ impl AttributeValue {
     ///
     pub fn as_polygon(&self) -> Option<PolygonalArea> {
         match &self.v {
-            AttributeValueVariant::Polygon(polygon) => Some(polygon.clone()),
+            AttributeValueVariant::Polygon(polygon) => {
+                Some(unsafe { mem::transmute::<PolygonalAreaRs, PolygonalArea>(polygon.clone()) })
+            }
             _ => None,
         }
     }
@@ -797,7 +818,9 @@ impl AttributeValue {
     ///
     pub fn as_polygons(&self) -> Option<Vec<PolygonalArea>> {
         match &self.v {
-            AttributeValueVariant::PolygonVector(polygon) => Some(polygon.clone()),
+            AttributeValueVariant::PolygonVector(polygons) => Some(unsafe {
+                mem::transmute::<Vec<PolygonalAreaRs>, Vec<PolygonalArea>>(polygons.clone())
+            }),
             _ => None,
         }
     }

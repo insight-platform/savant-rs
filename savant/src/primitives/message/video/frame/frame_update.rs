@@ -315,12 +315,12 @@ mod tests {
     use crate::primitives::attribute::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::query::match_query::MatchQuery;
-    use crate::primitives::message::video::query::IntExpression;
     use crate::primitives::{
         Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
         ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
     };
     use crate::test::utils::{gen_frame, gen_object, s};
+    use savant_core::match_query::IntExpression;
 
     #[test]
     fn update_attributes_error_when_dup() {

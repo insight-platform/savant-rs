@@ -1,10 +1,10 @@
 [package]
-name = "savant_rs_etcd_dynamic_state"
+name = "savant_algebra"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
-homepage.workspace =  true
+homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
@@ -12,20 +12,17 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-etcd_dynamic_state = { path = "../etcd_dynamic_state" }
 savant_rs = { path = "../savant" }
+parking_lot = "0.12"
 anyhow = "1"
-env_logger = "0.10"
 opentelemetry = "0.19"
-opentelemetry-jaeger = "0.18"
-parking_lot = {version = "0.12", features = ["deadlock_detection"]}
-jmespath = { version = "0.3", features = ["sync"] }
-lru = "0.11"
-
+numpy = {version = "0.19", features = ["nalgebra"]}
+nalgebra = "0.32"
+ndarray = "0.15"
+num-traits = "0.2"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -33,14 +30,9 @@ crate-type = ["cdylib", "lib"]
 [dependencies.pyo3]
 version = "0.19"
 
-[dependencies.tokio]
-version = "1.28"
-features = ["full"]
-
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
 
 [build-dependencies]
 pyo3-build-config = "0.19"
-cbindgen = "0.24"

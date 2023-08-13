@@ -1,9 +1,9 @@
 use crate::primitives::bbox::context::RBBoxFieldsView;
-use crate::primitives::eval_context::EvalWithResolvers;
 use crate::primitives::message::video::frame::context::FrameFieldsView;
 use crate::primitives::VideoObjectProxy;
 use evalexpr::*;
 use hashbrown::HashMap;
+use savant_core::eval_resolvers::EvalWithResolvers;
 use std::cell::OnceCell;
 
 pub(crate) struct ObjectContext<'a> {

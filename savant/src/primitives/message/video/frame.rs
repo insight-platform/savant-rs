@@ -7,29 +7,25 @@ use crate::primitives::bbox::transformations::{
 };
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::message::video::object::VideoObject;
-use crate::primitives::message::video::query::match_query::{
-    IntExpression, MatchQuery, StringExpression,
-};
 use crate::primitives::message::video::query::py::MatchQueryProxy;
+use crate::primitives::message::video::query::MatchQuery;
 use crate::primitives::pyobject::PyObjectMeta;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{
-    Attribute, IdCollisionResolutionPolicy, Message, RBBox, SetDrawLabelKind,
-    SetDrawLabelKindProxy, VideoFrameUpdate, VideoObjectProxy,
+    Attribute, IdCollisionResolutionPolicy, Message, SetDrawLabelKind, SetDrawLabelKindProxy,
+    VideoFrameUpdate, VideoObjectProxy,
 };
 use crate::release_gil;
-use crate::utils::symbol_mapper::{get_model_id_py, get_object_label};
 use crate::with_gil;
 use anyhow::bail;
 use derive_builder::Builder;
-use ndarray::IxDyn;
-use numpy::PyArray;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use savant_core::match_query::{IntExpression, StringExpression};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
@@ -895,7 +891,7 @@ impl VideoFrameProxy {
         let other_inner = update.objects.clone();
 
         let object_query = |o: &VideoObject| {
-            crate::primitives::message::video::query::and![
+            savant_core::match_query::and![
                 MatchQuery::Label(StringExpression::EQ(o.label.clone())),
                 MatchQuery::Namespace(StringExpression::EQ(o.namespace.clone()))
             ]
@@ -1292,13 +1288,13 @@ impl VideoFrameProxy {
 
     #[getter]
     #[pyo3(name = "attributes")]
-    pub fn attributes_gil(&self) -> Vec<(String, String)> {
+    pub fn attributes_py(&self) -> Vec<(String, String)> {
         self.get_attributes()
     }
 
     #[pyo3(name = "find_attributes")]
     #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
-    pub fn find_attributes_gil(
+    pub fn find_attributes_py(
         &self,
         namespace: Option<String>,
         names: Vec<String>,
@@ -1308,13 +1304,13 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute_py(&self, namespace: String, name: String) -> Option<Attribute> {
         self.get_attribute(namespace, name)
     }
 
     #[pyo3(signature = (namespace=None, names=vec![]))]
     #[pyo3(name = "delete_attributes")]
-    pub fn delete_attributes_gil(&mut self, namespace: Option<String>, names: Vec<String>) {
+    pub fn delete_attributes_py(&mut self, namespace: Option<String>, names: Vec<String>) {
         self.delete_attributes(namespace, names)
     }
 
@@ -1329,17 +1325,17 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute_py(&mut self, namespace: String, name: String) -> Option<Attribute> {
         self.delete_attribute(namespace, name)
     }
 
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
+    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.set_attribute(attribute)
     }
 
     #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_gil(&mut self) {
+    pub fn clear_attributes_py(&mut self) {
         self.clear_attributes()
     }
 
@@ -1356,7 +1352,7 @@ impl VideoFrameProxy {
     }
 
     #[pyo3(name = "get_object")]
-    pub fn get_object_gil(&self, id: i64) -> Option<VideoObjectProxy> {
+    pub fn get_object_py(&self, id: i64) -> Option<VideoObjectProxy> {
         self.get_object(id)
     }
 
@@ -1459,93 +1455,93 @@ impl VideoFrameProxy {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn create_objects_from_numpy(&self, namespace: String, boxes: &PyAny) -> PyResult<()> {
-        fn check_shape(shape: &[usize]) -> PyResult<Option<usize>> {
-            if shape.len() != 2 {
-                return Err(PyValueError::new_err("Array must have 2 dimensions"));
-            }
-
-            let col_number = shape[1];
-
-            if col_number == 7 {
-                Ok(Some(6))
-            } else if col_number == 6 {
-                Ok(None)
-            } else {
-                Err(PyValueError::new_err(
-                    "Array must have 6 or 7 columns (class_id, conf, xc, yc, width, height [, angle])",
-                ))
-            }
-        }
-
-        let boxes: Vec<_> = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
-            let shape = arr.shape();
-            let angle_col = check_shape(shape)?;
-            let ro_binding = arr.readonly();
-            let ro_array = ro_binding.as_array();
-            ro_array
-                .rows()
-                .into_iter()
-                .map(|r| {
-                    let class_id = r[0] as i64;
-                    let conf = r[1];
-                    let angle = angle_col.map(|c| r[c]);
-                    let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
-                    (class_id, conf, bbox)
-                })
-                .collect()
-        } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
-            let shape = arr.shape();
-            let angle_col = check_shape(shape)?;
-            let ro_binding = arr.readonly();
-            let ro_array = ro_binding.as_array();
-            ro_array
-                .rows()
-                .into_iter()
-                .map(|r| {
-                    let class_id = r[0] as i64;
-                    let conf = r[1] as f32;
-                    let angle = angle_col.map(|c| r[c] as f32);
-                    let bbox =
-                        RBBox::new(r[2] as f32, r[3] as f32, r[4] as f32, r[5] as f32, angle);
-                    (class_id, conf, bbox)
-                })
-                .collect()
-        } else {
-            return Err(PyValueError::new_err("Array must be of type f32 or f64"));
-        };
-
-        let model_id = get_model_id_py(&namespace)
-            .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
-
-        boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
-            let label = get_object_label(model_id, cls_id);
-
-            match label {
-                None => Err(PyValueError::new_err(format!(
-                    "Failed to get object label for model={} (id={}): cls_id={}",
-                    &namespace, model_id, cls_id
-                ))),
-
-                Some(l) => {
-                    let object = VideoObjectProxy::new(
-                        0,
-                        namespace.clone(),
-                        l,
-                        b,
-                        HashMap::default(),
-                        Some(conf),
-                        None,
-                        None,
-                    );
-                    self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
-                        .map_err(|e| PyValueError::new_err(format!("Failed to add object: {}", e)))
-                }
-            }
-        })?;
-
-        Ok(())
-    }
+    // pub fn create_objects_from_numpy(&self, namespace: String, boxes: &PyAny) -> PyResult<()> {
+    //     fn check_shape(shape: &[usize]) -> PyResult<Option<usize>> {
+    //         if shape.len() != 2 {
+    //             return Err(PyValueError::new_err("Array must have 2 dimensions"));
+    //         }
+    //
+    //         let col_number = shape[1];
+    //
+    //         if col_number == 7 {
+    //             Ok(Some(6))
+    //         } else if col_number == 6 {
+    //             Ok(None)
+    //         } else {
+    //             Err(PyValueError::new_err(
+    //                 "Array must have 6 or 7 columns (class_id, conf, xc, yc, width, height [, angle])",
+    //             ))
+    //         }
+    //     }
+    //
+    //     let boxes: Vec<_> = if let Ok(arr) = boxes.downcast::<PyArray<f32, IxDyn>>() {
+    //         let shape = arr.shape();
+    //         let angle_col = check_shape(shape)?;
+    //         let ro_binding = arr.readonly();
+    //         let ro_array = ro_binding.as_array();
+    //         ro_array
+    //             .rows()
+    //             .into_iter()
+    //             .map(|r| {
+    //                 let class_id = r[0] as i64;
+    //                 let conf = r[1];
+    //                 let angle = angle_col.map(|c| r[c]);
+    //                 let bbox = RBBox::new(r[2], r[3], r[4], r[5], angle);
+    //                 (class_id, conf, bbox)
+    //             })
+    //             .collect()
+    //     } else if let Ok(arr) = boxes.downcast::<PyArray<f64, IxDyn>>() {
+    //         let shape = arr.shape();
+    //         let angle_col = check_shape(shape)?;
+    //         let ro_binding = arr.readonly();
+    //         let ro_array = ro_binding.as_array();
+    //         ro_array
+    //             .rows()
+    //             .into_iter()
+    //             .map(|r| {
+    //                 let class_id = r[0] as i64;
+    //                 let conf = r[1] as f32;
+    //                 let angle = angle_col.map(|c| r[c] as f32);
+    //                 let bbox =
+    //                     RBBox::new(r[2] as f32, r[3] as f32, r[4] as f32, r[5] as f32, angle);
+    //                 (class_id, conf, bbox)
+    //             })
+    //             .collect()
+    //     } else {
+    //         return Err(PyValueError::new_err("Array must be of type f32 or f64"));
+    //     };
+    //
+    //     let model_id = get_model_id_py(&namespace)
+    //         .map_err(|e| PyValueError::new_err(format!("Failed to get model id: {}", e)))?;
+    //
+    //     boxes.into_iter().try_for_each(|(cls_id, conf, b)| {
+    //         let label = get_object_label(model_id, cls_id);
+    //
+    //         match label {
+    //             None => Err(PyValueError::new_err(format!(
+    //                 "Failed to get object label for model={} (id={}): cls_id={}",
+    //                 &namespace, model_id, cls_id
+    //             ))),
+    //
+    //             Some(l) => {
+    //                 let object = VideoObjectProxy::new(
+    //                     0,
+    //                     namespace.clone(),
+    //                     l,
+    //                     b,
+    //                     HashMap::default(),
+    //                     Some(conf),
+    //                     None,
+    //                     None,
+    //                 );
+    //                 self.add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+    //                     .map_err(|e| PyValueError::new_err(format!("Failed to add object: {}", e)))
+    //             }
+    //         }
+    //     })?;
+    //
+    //     Ok(())
+    // }
 
     fn get_pyobject(&self, namespace: String, name: String) -> Option<PyObject> {
         let inner = self.inner.read_recursive();
@@ -1583,12 +1579,12 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::message::video::query::match_query::MatchQuery;
-    use crate::primitives::message::video::query::{eq, one_of};
     use crate::primitives::{
         IdCollisionResolutionPolicy, RBBox, SetDrawLabelKind, VideoObjectModification,
         VideoObjectProxy,
     };
     use crate::test::utils::{gen_empty_frame, gen_frame, gen_object, s};
+    use savant_core::match_query::{eq, one_of};
     use std::sync::Arc;
 
     #[test]
@@ -1627,18 +1623,18 @@ mod tests {
     fn test_find_attributes() {
         pyo3::prepare_freethreaded_python();
         let t = gen_frame();
-        let mut attributes = t.find_attributes_gil(Some("system".to_string()), vec![], None);
+        let mut attributes = t.find_attributes_py(Some("system".to_string()), vec![], None);
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
 
         let attributes =
-            t.find_attributes_gil(Some("system".to_string()), vec!["test".to_string()], None);
+            t.find_attributes_py(Some("system".to_string()), vec!["test".to_string()], None);
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let attributes = t.find_attributes_gil(
+        let attributes = t.find_attributes_py(
             Some("system".to_string()),
             vec!["test".to_string()],
             Some("test".to_string()),
@@ -1646,7 +1642,7 @@ mod tests {
         assert_eq!(attributes.len(), 1);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
 
-        let mut attributes = t.find_attributes_gil(None, vec![], Some("test".to_string()));
+        let mut attributes = t.find_attributes_py(None, vec![], Some("test".to_string()));
         attributes.sort();
         assert_eq!(attributes.len(), 2);
         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
@@ -1710,10 +1706,10 @@ mod tests {
     #[test]
     fn test_snapshot_simple() {
         let f = gen_frame();
-        f.make_snapshot_gil(false);
+        f.make_snapshot();
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         o.set_namespace(s("modified"));
-        f.restore_from_snapshot_gil(false);
+        f.restore_from_snapshot();
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         assert_eq!(o.get_namespace(), s("test"));
     }

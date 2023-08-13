@@ -1,6 +1,7 @@
 use nalgebra::Scalar;
 use std::fmt::Debug;
 
+pub mod bbox;
 pub mod np_nalgebra;
 pub mod np_ndarray;
 

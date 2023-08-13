@@ -13,9 +13,9 @@ use crate::primitives::VideoFrameProxy;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
 use crate::release_gil;
 use crate::utils::otlp::PropagatedContext;
-use crate::version_to_bytes_le;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::version_to_bytes_le;
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -502,7 +502,7 @@ mod tests {
         assert!(b.get(2).is_some());
         assert!(b.get(3).is_some());
         let f = b.get(1).unwrap();
-        let mut attrs = f.attributes_gil();
+        let mut attrs = f.get_attributes();
         attrs.sort();
 
         assert_eq!(

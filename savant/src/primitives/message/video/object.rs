@@ -6,7 +6,6 @@ use crate::primitives::bbox::{OwnedRBBoxData, BBOX_UNDEFINED};
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::pyobject::PyObjectMeta;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, RBBox, VideoFrameProxy};
 use crate::release_gil;
 use crate::utils::symbol_mapper::get_object_id;
@@ -14,6 +13,7 @@ use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -432,15 +432,14 @@ impl VideoObjectProxy {
     ///   A view of the object's children.
     ///
     #[getter]
-    #[pyo3(name = "children_ref")]
-    pub fn children_ref_gil(&self) -> VideoObjectsView {
+    pub fn children_ref(&self) -> VideoObjectsView {
         self.get_children().into()
     }
 
     /// Clears all object's attributes.
     ///
     #[pyo3(name = "clear_attributes")]
-    pub fn clear_attributes_gil(&mut self) {
+    pub fn clear_attributes_py(&mut self) {
         {
             let mut object = self.inner.write();
             object.add_modification(VideoObjectModification::Attributes);
@@ -489,7 +488,7 @@ impl VideoObjectProxy {
     ///   Deleted attribute or None if the attribute is not found.
     ///
     #[pyo3(name = "delete_attribute")]
-    pub fn delete_attribute_gil(&mut self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute_py(&mut self, namespace: String, name: String) -> Option<Attribute> {
         match self.delete_attribute(namespace, name) {
             Some(attribute) => {
                 let mut object = self.inner.write();
@@ -575,7 +574,7 @@ impl VideoObjectProxy {
     ///
     #[pyo3(name = "find_attributes")]
     #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
-    pub fn find_attributes_gil(
+    pub fn find_attributes_py(
         &self,
         namespace: Option<String>,
         names: Vec<String>,
@@ -603,7 +602,7 @@ impl VideoObjectProxy {
     ///   Attribute or None if the attribute is not found.
     ///
     #[pyo3(name = "get_attribute")]
-    pub fn get_attribute_gil(&self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute_py(&self, namespace: String, name: String) -> Option<Attribute> {
         self.get_attribute(namespace, name)
     }
 
@@ -682,7 +681,7 @@ impl VideoObjectProxy {
     ///   Attribute that was replaced or None if the attribute was not set.
     ///
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_gil(&mut self, attribute: &Attribute) -> Option<Attribute> {
+    pub fn set_attribute_py(&mut self, attribute: &Attribute) -> Option<Attribute> {
         {
             let mut object = self.inner.write();
             object.add_modification(VideoObjectModification::Attributes);
@@ -907,7 +906,7 @@ mod tests {
         assert_eq!(t.take_modifications(), vec![]);
 
         t.set_detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None));
-        t.clear_attributes_gil();
+        t.clear_attributes_py();
         assert_eq!(
             t.take_modifications(),
             vec![

@@ -120,13 +120,12 @@ impl VideoFrameBatch {
         q: MatchQueryProxy,
         no_gil: bool,
     ) -> HashMap<i64, VideoObjectsView> {
-        let f = || {
+        release_gil!(no_gil, || {
             self.access_objects(q.inner.deref())
                 .into_iter()
                 .map(|(id, x)| (id, x.into()))
                 .collect::<HashMap<_, _>>()
-        };
-        release_gil!(no_gil, f)
+        })
     }
 
     #[pyo3(name = "delete_objects")]

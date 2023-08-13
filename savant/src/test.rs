@@ -152,7 +152,7 @@ pub mod utils {
                     AttributeValue::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
                     AttributeValue::intersection(
                         Intersection::new(
-                            &IntersectionKind::Enter,
+                            IntersectionKind::Enter,
                             vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],
                         ),
                         None,

@@ -1,4 +1,4 @@
-use crate::utils::np::{ConvF32, RConvF32};
+use crate::np::{ConvF32, RConvF32};
 
 impl ConvF32 for f32 {
     fn conv_f32(self) -> f32 {

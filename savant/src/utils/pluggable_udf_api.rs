@@ -59,7 +59,7 @@ lazy_static! {
 ///
 #[pyfunction]
 #[pyo3(name = "is_plugin_function_registered")]
-pub fn is_plugin_function_registered_gil(alias: String) -> bool {
+pub fn is_plugin_function_registered_py(alias: String) -> bool {
     is_plugin_function_registered(&alias)
 }
 
@@ -90,7 +90,7 @@ pub fn is_plugin_function_registered(alias: &str) -> bool {
 ///
 #[pyfunction]
 #[pyo3(name = "register_plugin_function")]
-pub fn register_plugin_function_gil(
+pub fn register_plugin_function_py(
     plugin: String,
     function: String,
     function_type: &UserFunctionType,

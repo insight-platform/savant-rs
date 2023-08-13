@@ -4,6 +4,7 @@ use crate::release_gil;
 use crate::utils::byte_buffer::ByteBuffer;
 use pyo3::pyfunction;
 use pyo3::types::PyBytes;
+use savant_core::version_to_bytes_le;
 
 /// Loads a message from a byte array. The function is GIL-free.
 ///
@@ -19,7 +20,7 @@ use pyo3::types::PyBytes;
 ///
 #[pyfunction]
 #[pyo3(name = "load_message")]
-pub fn load_message_gil(bytes: Vec<u8>) -> Message {
+pub fn load_message_py(bytes: Vec<u8>) -> Message {
     load_message(&bytes)
 }
 
@@ -32,7 +33,7 @@ pub fn load_message(bytes: &[u8]) -> Message {
 
     let mut m = m.unwrap();
 
-    if m.meta.lib_version != crate::version_to_bytes_le() {
+    if m.meta.lib_version != version_to_bytes_le() {
         return Message::unknown(format!(
             "Message CRC32 version mismatch: {:?} != {:?}. Expected version: {}",
             m.meta.lib_version,

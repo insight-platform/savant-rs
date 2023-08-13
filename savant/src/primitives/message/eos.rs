@@ -1,7 +1,7 @@
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::Message;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 
 #[pyclass]

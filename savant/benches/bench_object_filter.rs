@@ -2,6 +2,7 @@
 
 extern crate test;
 
+use savant_core::match_query::*;
 use savant_rs::primitives::attribute::attribute_value::AttributeValue;
 use savant_rs::primitives::message::video::object::VideoObjectBuilder;
 use savant_rs::primitives::message::video::query::*;

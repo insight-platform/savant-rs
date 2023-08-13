@@ -3,7 +3,6 @@ pub mod transformations;
 
 use crate::capi::BBOX_ELEMENT_UNDEFINED;
 use crate::primitives::message::video::object::VideoObject;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{PaddingDraw, Point, PolygonalArea};
 use crate::release_gil;
 use crate::utils::round_2_digits;
@@ -15,6 +14,7 @@ use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use std::f32::consts::PI;
 use std::sync::Arc;
 
@@ -527,7 +527,7 @@ impl RBBox {
     ///
     #[getter]
     #[pyo3(name = "vertices")]
-    pub fn get_vertices_gil(&self) -> Vec<(f32, f32)> {
+    pub fn get_vertices_py(&self) -> Vec<(f32, f32)> {
         self.get_vertices()
     }
 
@@ -540,7 +540,7 @@ impl RBBox {
     ///
     #[getter]
     #[pyo3(name = "vertices_rounded")]
-    pub fn get_vertices_rounded_gil(&self) -> Vec<(f32, f32)> {
+    pub fn get_vertices_rounded_py(&self) -> Vec<(f32, f32)> {
         self.get_vertices_rounded()
     }
 
@@ -553,7 +553,7 @@ impl RBBox {
     ///
     #[getter]
     #[pyo3(name = "vertices_int")]
-    pub fn get_vertices_int_gil(&self) -> Vec<(i64, i64)> {
+    pub fn get_vertices_int_py(&self) -> Vec<(i64, i64)> {
         self.get_vertices_int()
     }
 
@@ -565,7 +565,7 @@ impl RBBox {
     ///   polygonal area of the bbox
     ///
     #[pyo3(name = "as_polygonal_area")]
-    pub fn get_as_polygonal_area_gil(&self) -> PolygonalArea {
+    pub fn get_as_polygonal_area_py(&self) -> PolygonalArea {
         self.get_as_polygonal_area()
     }
 
@@ -578,7 +578,7 @@ impl RBBox {
     ///
     #[getter]
     #[pyo3(name = "wrapping_box")]
-    pub fn get_wrapping_box_gil(&self) -> PythonBBox {
+    pub fn get_wrapping_box_py(&self) -> PythonBBox {
         self.get_wrapping_bbox()
     }
 
@@ -1401,7 +1401,7 @@ impl PythonBBox {
     }
 
     #[pyo3(name = "scale")]
-    pub fn scale_gil(&mut self, scale_x: f32, scale_y: f32) {
+    pub fn scale_py(&mut self, scale_x: f32, scale_y: f32) {
         self.inner.scale(scale_x, scale_y);
     }
 

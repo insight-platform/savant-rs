@@ -1,14 +1,14 @@
 use crate::primitives::bbox::BBoxMetricType;
 use crate::primitives::message::video::object::objects_view::QueryFunctions;
-use crate::primitives::message::video::query::match_query::{
-    FloatExpression, IntExpression, MatchQuery, StringExpression,
-};
-use crate::primitives::message::video::query::MatchQuery::{BoxMetric, TrackBoxMetric};
+use crate::primitives::message::video::query::MatchQuery;
+use crate::primitives::message::MatchQuery::BoxMetric;
+use crate::primitives::message::MatchQuery::TrackBoxMetric;
 use crate::primitives::RBBox;
 use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
+use savant_core::match_query::{FloatExpression, IntExpression, StringExpression};
 use std::ops::Deref;
 use std::sync::Arc;
 

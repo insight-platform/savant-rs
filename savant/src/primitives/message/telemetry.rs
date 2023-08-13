@@ -1,9 +1,9 @@
 use crate::primitives::attribute::Attributive;
-use crate::primitives::to_json_value::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Message};
 use crate::release_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::mem;
@@ -110,7 +110,7 @@ impl Telemetry {
     }
 
     #[pyo3(name = "set_attribute")]
-    pub fn set_attribute_gil(&mut self, attribute: Attribute) -> Option<Attribute> {
+    pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.set_attribute(attribute)
     }
 
