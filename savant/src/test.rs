@@ -1,6 +1,6 @@
 pub mod utils {
-    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::message::video::frame::{
         VideoFrameBuilder, VideoFrameTranscodingMethod,
     };

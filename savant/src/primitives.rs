@@ -1,6 +1,7 @@
 /// Attribute module specifies attribute code for [crate::primitives::VideoObjectProxy] and [crate::primitives::VideoFrameProxy].
 ///
 pub mod attribute;
+pub mod attribute_value;
 /// Here are decleared bounding boxes
 ///
 pub mod bbox;
@@ -21,10 +22,8 @@ use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
 pub use crate::primitives::message::video::object::objects_view::{
     VideoObjectBBoxType, VideoObjectsView,
 };
-pub use attribute::attribute_value::{
-    AttributeValue, AttributeValueType, AttributeValueVariant, AttributeValuesView,
-};
 pub use attribute::{Attribute, AttributeBuilder};
+pub use attribute_value::{AttributeValue, AttributeValueType, AttributeValuesView};
 pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;
 pub use message::eos::EndOfStream;

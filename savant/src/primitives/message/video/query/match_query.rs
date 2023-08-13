@@ -4,7 +4,6 @@ use crate::primitives::message::video::query::VideoObjectsProxyBatch;
 use crate::primitives::{RBBox, VideoObjectProxy};
 use savant_core::to_json_value::ToSerdeJsonValue;
 
-use crate::primitives::bbox::BBoxMetricType;
 use crate::utils::eval_resolvers::{
     config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
 };
@@ -18,6 +17,7 @@ use savant_core::eval_cache::{get_compiled_eval_expr, get_compiled_jmp_filter};
 use savant_core::match_query::{
     ExecutableMatchQuery, FloatExpression, IntExpression, StringExpression,
 };
+use savant_core::primitives::BBoxMetricType as BBoxMetricTypeRs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -59,7 +59,7 @@ pub enum MatchQuery {
     #[serde(rename = "track.bbox.metric")]
     TrackBoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
-        metric_type: BBoxMetricType,
+        metric_type: BBoxMetricTypeRs,
         threshold_expr: FloatExpression,
     },
 
@@ -97,7 +97,7 @@ pub enum MatchQuery {
     #[serde(rename = "bbox.metric")]
     BoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
-        metric_type: BBoxMetricType,
+        metric_type: BBoxMetricTypeRs,
         threshold_expr: FloatExpression,
     },
     // Attributes
@@ -179,9 +179,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             } => tracking_box.as_ref().map_or(false, |t| {
                 let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
                 let metric = match metric_type {
-                    BBoxMetricType::IoU => t.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => t.ios(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoU => t.iou(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoSelf => t.ios(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, &mut ())
             }),
@@ -212,9 +212,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             } => {
                 let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
                 let metric = match metric_type {
-                    BBoxMetricType::IoU => detection_box.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoU => detection_box.iou(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
+                    BBoxMetricTypeRs::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, &mut ())
             }
@@ -436,9 +436,8 @@ pub fn batch_foreach_udf(
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::bbox::BBoxMetricType;
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::message::video::query::match_query::MatchQuery::*;
     use crate::primitives::message::video::query::match_query::{
         filter, foreach_udf, map_udf, partition, MatchQuery,
@@ -452,6 +451,7 @@ mod tests {
     use savant_core::match_query::{
         and, eq, gt, lt, not, one_of, or, starts_with, FloatExpression,
     };
+    use savant_core::primitives::BBoxMetricType;
     use savant_core::query_and;
 
     #[test]

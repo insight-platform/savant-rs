@@ -312,8 +312,8 @@ impl VideoFrameUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::primitives::{
         Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
@@ -321,6 +321,7 @@ mod tests {
     };
     use crate::test::utils::{gen_frame, gen_object, s};
     use savant_core::match_query::IntExpression;
+    use savant_core::primitives::attribute_value::AttributeValueVariant;
 
     #[test]
     fn update_attributes_error_when_dup() {
@@ -376,7 +377,7 @@ mod tests {
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+        assert!(matches!(v.get_value(), AttributeValueVariant::Integer(10)));
     }
 
     #[test]
@@ -396,7 +397,10 @@ mod tests {
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+        assert!(matches!(
+            v.get_value(),
+            AttributeValueVariant::Boolean(true)
+        ));
     }
 
     #[test]
@@ -417,12 +421,15 @@ mod tests {
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Boolean(true)));
+        assert!(matches!(
+            v.get_value(),
+            AttributeValueVariant::Boolean(true)
+        ));
 
         let attr = f.get_attribute(s("system"), s("conflict_test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.v, AttributeValueVariant::Integer(10)));
+        assert!(matches!(v.get_value(), AttributeValueVariant::Integer(10)));
     }
 
     #[test]

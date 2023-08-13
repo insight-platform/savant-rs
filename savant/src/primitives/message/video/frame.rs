@@ -1614,7 +1614,7 @@ mod tests {
         let attribute = t.get_attribute("system".to_string(), "test".to_string());
         assert!(attribute.is_some());
         assert_eq!(
-            attribute.unwrap().values[0].as_string().unwrap(),
+            attribute.unwrap().get_values()[0].as_string().unwrap(),
             "1".to_string()
         );
     }

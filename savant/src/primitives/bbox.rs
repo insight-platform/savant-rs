@@ -13,12 +13,12 @@ use parking_lot::RwLock;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
-use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::consts::EPS;
+use savant_core::primitives::BBoxMetricType as BBoxMetricTypeRs;
+use savant_core::primitives::OwnedRBBoxData;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use std::f32::consts::PI;
 use std::sync::Arc;
-
-pub const EPS: f32 = 0.00001;
 
 lazy_static! {
     pub static ref BBOX_UNDEFINED: RBBox = RBBox::new(
@@ -37,23 +37,31 @@ lazy_static! {
 /// IoOther - Intersection over Other (Intersection / Area of Other)
 ///
 #[pyclass]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename = "bbox.metric.type")]
-pub enum BBoxMetricType {
+#[derive(Debug, Clone)]
+pub(crate) enum BBoxMetricType {
     IoU,
     IoSelf,
     IoOther,
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
-pub struct OwnedRBBoxData {
-    pub xc: f32,
-    pub yc: f32,
-    pub width: f32,
-    pub height: f32,
-    pub angle: Option<f32>,
-    pub has_modifications: bool,
+impl From<BBoxMetricType> for BBoxMetricTypeRs {
+    fn from(value: BBoxMetricType) -> Self {
+        match value {
+            BBoxMetricType::IoU => BBoxMetricTypeRs::IoU,
+            BBoxMetricType::IoSelf => BBoxMetricTypeRs::IoSelf,
+            BBoxMetricType::IoOther => BBoxMetricTypeRs::IoOther,
+        }
+    }
+}
+
+impl From<BBoxMetricTypeRs> for BBoxMetricType {
+    fn from(value: BBoxMetricTypeRs) -> Self {
+        match value {
+            BBoxMetricTypeRs::IoU => BBoxMetricType::IoU,
+            BBoxMetricTypeRs::IoSelf => BBoxMetricType::IoSelf,
+            BBoxMetricTypeRs::IoOther => BBoxMetricType::IoOther,
+        }
+    }
 }
 
 impl TryFrom<RBBox> for OwnedRBBoxData {
@@ -76,31 +84,6 @@ impl TryFrom<&RBBox> for OwnedRBBoxData {
                 |t| Ok(t.clone()),
             ),
         }
-    }
-}
-
-impl Default for OwnedRBBoxData {
-    fn default() -> Self {
-        Self {
-            xc: 0.0,
-            yc: 0.0,
-            width: 0.0,
-            height: 0.0,
-            angle: None,
-            has_modifications: false,
-        }
-    }
-}
-
-impl ToSerdeJsonValue for OwnedRBBoxData {
-    fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "xc": self.xc,
-            "yc": self.yc,
-            "width": self.width,
-            "height": self.height,
-            "angle": self.angle,
-        })
     }
 }
 

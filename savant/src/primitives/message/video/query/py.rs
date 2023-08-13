@@ -810,7 +810,7 @@ impl MatchQueryProxy {
                     bbox.get_height(),
                     bbox.get_angle(),
                 ),
-                metric_type,
+                metric_type: metric_type.into(),
                 threshold_expr: e.inner,
             }),
         }
@@ -831,7 +831,7 @@ impl MatchQueryProxy {
                     bbox.get_height(),
                     bbox.get_angle(),
                 ),
-                metric_type,
+                metric_type: metric_type.into(),
                 threshold_expr: e.inner,
             }),
         }

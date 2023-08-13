@@ -1,11 +1,11 @@
-pub mod attribute_value;
-
-use crate::primitives::attribute::attribute_value::AttributeValuesView;
-use attribute_value::AttributeValue;
+use crate::primitives::attribute_value::AttributeValue;
+use crate::primitives::attribute_value::AttributeValuesView;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::primitives::attribute_value::AttributeValue as AttributeValueRs;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 
 /// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
@@ -27,7 +27,7 @@ pub struct Attribute {
     #[pyo3(get)]
     pub name: String,
     #[builder(setter(custom))]
-    pub values: Arc<Vec<AttributeValue>>,
+    pub values: Arc<Vec<AttributeValueRs>>,
     #[pyo3(get)]
     pub hint: Option<String>,
     #[pyo3(get)]
@@ -37,6 +37,8 @@ pub struct Attribute {
 
 impl AttributeBuilder {
     pub fn values(&mut self, vals: Vec<AttributeValue>) -> &mut Self {
+        let vals =
+            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(vals) };
         self.values = Some(Arc::new(vals));
         self
     }
@@ -75,6 +77,8 @@ impl Attribute {
         hint: Option<String>,
         is_persistent: bool,
     ) -> Self {
+        let values =
+            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
         Self {
             is_persistent,
             namespace,
@@ -109,6 +113,8 @@ impl Attribute {
         values: Vec<AttributeValue>,
         hint: Option<String>,
     ) -> Self {
+        let values =
+            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
         Self {
             is_persistent: true,
             namespace,
@@ -143,6 +149,8 @@ impl Attribute {
         values: Vec<AttributeValue>,
         hint: Option<String>,
     ) -> Self {
+        let values =
+            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
         Self {
             is_persistent: false,
             namespace,
@@ -219,7 +227,9 @@ impl Attribute {
     ///
     #[getter]
     pub fn get_values(&self) -> Vec<AttributeValue> {
-        (*self.values).clone()
+        unsafe {
+            mem::transmute::<Vec<AttributeValueRs>, Vec<AttributeValue>>((*self.values).clone())
+        }
     }
 
     /// Returns a link to attributes without retrieving them. It is convenience method if you need to access certain value.
@@ -267,7 +277,9 @@ impl Attribute {
     ///
     #[setter]
     pub fn set_values(&mut self, values: Vec<AttributeValue>) {
-        self.values = Arc::new(values);
+        self.values = Arc::new(unsafe {
+            mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values)
+        });
     }
 }
 

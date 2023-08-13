@@ -8,8 +8,6 @@
  */
 #define BBOX_ELEMENT_UNDEFINED 3.4028235e38
 
-#define EPS 0.00001
-
 #define VERSION_LEN 4
 
 /**

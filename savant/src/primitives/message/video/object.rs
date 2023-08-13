@@ -2,7 +2,7 @@ use crate::primitives::attribute::{AttributeMethods, Attributive};
 use crate::primitives::bbox::transformations::{
     VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
 };
-use crate::primitives::bbox::{OwnedRBBoxData, BBOX_UNDEFINED};
+use crate::primitives::bbox::BBOX_UNDEFINED;
 use crate::primitives::message::video::frame::BelongingVideoFrame;
 use crate::primitives::message::video::object::objects_view::VideoObjectsView;
 use crate::primitives::pyobject::PyObjectMeta;
@@ -13,6 +13,7 @@ use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use savant_core::primitives::OwnedRBBoxData;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -820,8 +821,8 @@ impl VideoObjectProxy {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::attribute_value::AttributeValue;
     use crate::primitives::attribute::AttributeMethods;
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::bbox::transformations::VideoObjectBBoxTransformation;
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::{
