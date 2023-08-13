@@ -53,7 +53,7 @@ def simple_count():
     total_time = timer()
     random_model = choice(models)
     random_object = f"object_{choice(range(1000))}_{random_model}"
-    num = 100
+    num = 1000
     for _ in range(num):
         get_object_id(model_name=random_model, object_label=random_object)
     return num, timer() - total_time
@@ -67,7 +67,7 @@ def batched_count():
     total_time = timer()
     random_model = choice(models)
     random_objects = [f"object_{choice(range(1000))}_{random_model}" for _ in range(100)]
-    num = 1
+    num = 10
     for _ in range(num):
         get_object_ids(model_name=random_model, object_labels=random_objects)
     return num, timer() - total_time

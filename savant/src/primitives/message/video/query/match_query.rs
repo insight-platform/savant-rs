@@ -286,7 +286,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                     BBoxMetricType::IoSelf => t.ios(&other).unwrap_or(0.0),
                     BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
-                threshold_expr.execute(&(metric as f32), ctx)
+                threshold_expr.execute(&metric, ctx)
             }),
 
             // parent
@@ -319,7 +319,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>> for MatchQuery {
                     BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
                     BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
                 };
-                threshold_expr.execute(&(metric as f32), ctx)
+                threshold_expr.execute(&metric, ctx)
             }
 
             // attributes

@@ -99,7 +99,7 @@ pub fn get_model_id(model_name: &str) -> anyhow::Result<i64> {
 pub fn get_object_id_gil(model_name: &str, object_label: &str) -> PyResult<(i64, i64)> {
     let mut mapper = SYMBOL_MAPPER.lock();
     mapper
-        .get_object_id(&model_name, &object_label)
+        .get_object_id(model_name, object_label)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
@@ -140,7 +140,7 @@ pub fn register_model_objects_py(
 ) -> PyResult<i64> {
     let mut mapper = SYMBOL_MAPPER.lock();
     mapper
-        .register_model_objects(&model_name, &elements, &policy)
+        .register_model_objects(model_name, &elements, &policy)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
@@ -257,7 +257,7 @@ pub fn get_object_ids_py(
         .iter()
         .flat_map(|object_label| {
             mapper
-                .get_object_id(&model_name, object_label)
+                .get_object_id(model_name, object_label)
                 .ok()
                 .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
                 .or_else(|| Some((object_label.clone(), None)))
@@ -345,7 +345,7 @@ pub fn parse_compound_key_py(key: &str) -> PyResult<(String, String)> {
 #[pyfunction]
 #[pyo3(name = "validate_base_key")]
 pub fn validate_base_key_py(key: &str) -> PyResult<String> {
-    SymbolMapper::validate_base_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
+    SymbolMapper::validate_base_key(key).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// The function checks if the model is registered.
@@ -366,7 +366,7 @@ pub fn validate_base_key_py(key: &str) -> PyResult<String> {
 #[pyo3(name = "is_model_registered")]
 pub fn is_model_registered_py(model_name: &str) -> bool {
     let mapper = SYMBOL_MAPPER.lock();
-    mapper.is_model_registered(&model_name)
+    mapper.is_model_registered(model_name)
 }
 
 /// The function checks if the object is registered.
@@ -389,7 +389,7 @@ pub fn is_model_registered_py(model_name: &str) -> bool {
 #[pyo3(name = "is_object_registered")]
 pub fn is_object_registered_py(model_name: &str, object_label: &str) -> bool {
     let mapper = SYMBOL_MAPPER.lock();
-    mapper.is_object_registered(&model_name, &object_label)
+    mapper.is_object_registered(model_name, object_label)
 }
 
 /// The function dumps the registry in the form of model or object label, model_id and optional object id.
@@ -617,12 +617,12 @@ impl SymbolMapper {
 
     #[staticmethod]
     pub fn model_object_key_gil(model_name: &str, object_label: &str) -> String {
-        Self::build_model_object_key(&model_name, &object_label)
+        Self::build_model_object_key(model_name, object_label)
     }
 
     #[staticmethod]
     pub fn parse_model_object_key_gil(key: &str) -> PyResult<(String, String)> {
-        Self::parse_compound_key(&key).map_err(|e| PyValueError::new_err(e.to_string()))
+        Self::parse_compound_key(key).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "register_model")]
@@ -632,7 +632,7 @@ impl SymbolMapper {
         elements: StdHashMap<i64, String>,
         policy: RegistrationPolicy,
     ) -> PyResult<i64> {
-        self.register_model_objects(&model_name, &elements, &policy)
+        self.register_model_objects(model_name, &elements, &policy)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -647,12 +647,12 @@ impl SymbolMapper {
     }
 
     pub fn get_model_id_gil(&mut self, model_name: &str) -> PyResult<i64> {
-        self.get_model_id(&model_name)
+        self.get_model_id(model_name)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn is_model_object_key_registered_gil(&self, model_name: &str, object_label: &str) -> bool {
-        self.is_object_registered(&model_name, &object_label)
+        self.is_object_registered(model_name, object_label)
     }
 
     #[pyo3(name = "get_object_id")]
@@ -661,7 +661,7 @@ impl SymbolMapper {
         model_name: &str,
         object_label: &str,
     ) -> PyResult<(i64, i64)> {
-        self.get_object_id(&model_name, &object_label)
+        self.get_object_id(model_name, object_label)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
