@@ -105,4 +105,8 @@ impl AttributeValue {
     pub fn new(v: AttributeValueVariant, confidence: Option<f32>) -> Self {
         Self { confidence, v }
     }
+
+    pub fn get_value(&self) -> &AttributeValueVariant {
+        &self.v
+    }
 }

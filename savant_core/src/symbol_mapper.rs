@@ -1,7 +1,13 @@
-use hashbrown::HashMap;
+use lazy_static::lazy_static;
+use parking_lot::{const_mutex, Mutex};
+use std::collections::HashMap;
 use thiserror::Error;
 
 const REGISTRY_KEY_SEPARATOR: char = '.';
+
+lazy_static! {
+    static ref SYMBOL_MAPPER: Mutex<SymbolMapper> = const_mutex(SymbolMapper::default());
+}
 
 #[derive(Debug, Clone)]
 pub enum RegistrationPolicy {
@@ -224,6 +230,82 @@ impl SymbolMapper {
             .get(&(model_id, Some(object_id)))
             .cloned()
     }
+}
+
+pub fn get_model_id(model_name: &str) -> anyhow::Result<i64> {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper.get_model_id(model_name)
+}
+
+pub fn get_object_id(model_name: &str, object_label: &str) -> anyhow::Result<(i64, i64)> {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper.get_object_id(model_name, object_label)
+}
+
+pub fn register_model_objects(
+    model_name: &str,
+    elements: HashMap<i64, String>,
+    policy: RegistrationPolicy,
+) -> anyhow::Result<i64> {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper.register_model_objects(model_name, &elements, &(policy.into()))
+}
+
+pub fn get_model_name(model_id: i64) -> Option<String> {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.get_model_name(model_id)
+}
+
+pub fn get_object_label(model_id: i64, object_id: i64) -> Option<String> {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.get_object_label(model_id, object_id)
+}
+
+pub fn get_object_labels(model_id: i64, object_ids: Vec<i64>) -> Vec<(i64, Option<String>)> {
+    let mapper = SYMBOL_MAPPER.lock();
+    object_ids
+        .iter()
+        .flat_map(|object_id| {
+            mapper
+                .get_object_label(model_id, *object_id)
+                .map(|label| (*object_id, Some(label)))
+                .or(Some((*object_id, None)))
+        })
+        .collect()
+}
+
+pub fn get_object_ids(model_name: &str, object_labels: Vec<String>) -> Vec<(String, Option<i64>)> {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    object_labels
+        .iter()
+        .flat_map(|object_label| {
+            mapper
+                .get_object_id(model_name, object_label)
+                .ok()
+                .map(|(_model_id, object_id)| (object_label.clone(), Some(object_id)))
+                .or_else(|| Some((object_label.clone(), None)))
+        })
+        .collect()
+}
+
+pub fn clear_symbol_maps() {
+    let mut mapper = SYMBOL_MAPPER.lock();
+    mapper.clear();
+}
+
+pub fn is_model_registered(model_name: &str) -> bool {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.is_model_registered(model_name)
+}
+
+pub fn is_object_registered(model_name: &str, object_label: &str) -> bool {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.is_object_registered(model_name, object_label)
+}
+
+pub fn dump_registry() -> Vec<String> {
+    let mapper = SYMBOL_MAPPER.lock();
+    mapper.dump_registry()
 }
 
 #[cfg(test)]

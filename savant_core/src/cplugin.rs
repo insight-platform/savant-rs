@@ -1,4 +1,4 @@
-use crate::primitives::VideoObjectProxy;
+use crate::primitives::object::VideoObjectProxy;
 use std::sync::Arc;
 
 #[no_mangle]

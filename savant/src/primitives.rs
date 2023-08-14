@@ -30,7 +30,7 @@ pub use draw::*;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
-pub use message::telemetry::Telemetry;
+pub use message::unspecified::UnspecifiedData;
 pub use message::video::batch::VideoFrameBatch;
 pub use message::video::frame::frame_update::VideoFrameUpdate;
 pub use message::video::frame::frame_update::{
@@ -90,7 +90,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AttributeValueType>()?;
     m.add_class::<AttributeValuesView>()?;
     m.add_class::<EndOfStream>()?;
-    m.add_class::<Telemetry>()?;
+    m.add_class::<UnspecifiedData>()?;
 
     m.add_class::<VideoFrameProxy>()?;
     m.add_class::<VideoFrameBatch>()?;

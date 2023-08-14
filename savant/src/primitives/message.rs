@@ -1,11 +1,11 @@
 pub mod eos;
 pub mod loader;
 pub mod saver;
-pub mod telemetry;
+pub mod unspecified;
 pub mod video;
 
 use crate::primitives::attribute::AttributeMethods;
-use crate::primitives::message::telemetry::Telemetry;
+use crate::primitives::message::unspecified::UnspecifiedData;
 use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::message::video::frame::VideoFrame;
 use crate::primitives::message::video::query::MatchQuery;
@@ -15,18 +15,18 @@ use crate::release_gil;
 use crate::utils::otlp::PropagatedContext;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
-use savant_core::primitives::Attributive;
+use savant_core::primitives::rust as rust_primitives;
 use savant_core::{rust, version_to_bytes_le};
 use std::mem;
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub enum MessageEnvelope {
-    EndOfStream(EndOfStream),
+    EndOfStream(rust_primitives::EndOfStream),
     VideoFrame(Box<VideoFrame>),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
-    Telemetry(Telemetry),
+    Unspecified(rust_primitives::UnspecifiedData),
     Unknown(String),
 }
 
@@ -72,19 +72,23 @@ impl Message {
         }
     }
 
-    pub fn telemetry(mut t: Telemetry) -> Self {
+    pub fn unspecified(mut t: UnspecifiedData) -> Self {
         t.exclude_temporary_attributes();
 
         Self {
             meta: MessageMeta::new(),
-            payload: MessageEnvelope::Telemetry(t),
+            payload: MessageEnvelope::Unspecified(unsafe {
+                mem::transmute::<UnspecifiedData, rust_primitives::UnspecifiedData>(t)
+            }),
         }
     }
 
     pub fn end_of_stream(eos: EndOfStream) -> Self {
         Self {
             meta: MessageMeta::new(),
-            payload: MessageEnvelope::EndOfStream(eos),
+            payload: MessageEnvelope::EndOfStream(unsafe {
+                mem::transmute::<EndOfStream, rust_primitives::EndOfStream>(eos)
+            }),
         }
     }
     pub fn video_frame(frame: &VideoFrameProxy) -> Self {
@@ -215,16 +219,16 @@ impl Message {
     ///
     #[staticmethod]
     #[pyo3(name = "end_of_stream")]
-    fn end_of_stream_py(eos: &EndOfStream) -> Self {
-        Self::end_of_stream(eos.clone())
+    fn end_of_stream_py(eos: EndOfStream) -> Self {
+        Self::end_of_stream(eos)
     }
 
-    /// Create a new telemetry message
+    /// Create a new unspecified message
     ///
     /// Parameters
     /// ----------
-    /// t : savant_rs.primitives.Telemetry
-    ///   The telemetry message
+    /// t : savant_rs.primitives.UnspecifiedData
+    ///   The unspecified message
     ///
     /// Returns
     /// -------
@@ -232,10 +236,10 @@ impl Message {
     ///   The message of EndOfStream type
     ///
     #[staticmethod]
-    #[pyo3(name = "telemetry")]
+    #[pyo3(name = "unspecified")]
     #[pyo3(signature = (t, no_gil=true))]
-    fn telemetry_gil(t: &Telemetry, no_gil: bool) -> Self {
-        release_gil!(no_gil, || Message::telemetry(t.clone()))
+    fn unspecified_gil(t: &UnspecifiedData, no_gil: bool) -> Self {
+        release_gil!(no_gil, || Message::unspecified(t.clone()))
     }
 
     /// Create a new video frame update message
@@ -311,8 +315,8 @@ impl Message {
     /// bool
     ///   True if the message is of Telemetry type, False otherwise
     ///
-    pub fn is_telemetry(&self) -> bool {
-        matches!(self.payload, MessageEnvelope::Telemetry(_))
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self.payload, MessageEnvelope::Unspecified(_))
     }
 
     /// Checks if the message is of VideoFrame type
@@ -375,7 +379,9 @@ impl Message {
     ///
     pub fn as_end_of_stream(&self) -> Option<EndOfStream> {
         match &self.payload {
-            MessageEnvelope::EndOfStream(eos) => Some(eos.clone()),
+            MessageEnvelope::EndOfStream(eos) => Some(unsafe {
+                mem::transmute::<rust_primitives::EndOfStream, EndOfStream>(eos.clone())
+            }),
             _ => None,
         }
     }
@@ -389,9 +395,11 @@ impl Message {
     /// None
     ///   If the message is not of Telemetry type
     ///
-    pub fn as_telemetry(&self) -> Option<Telemetry> {
+    pub fn as_unspecified(&self) -> Option<UnspecifiedData> {
         match &self.payload {
-            MessageEnvelope::Telemetry(t) => Some(t.clone()),
+            MessageEnvelope::Unspecified(t) => Some(unsafe {
+                mem::transmute::<rust_primitives::UnspecifiedData, UnspecifiedData>(t.clone())
+            }),
             _ => None,
         }
     }
@@ -450,7 +458,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::message::loader::load_message;
     use crate::primitives::{
-        save_message, Attribute, EndOfStream, Message, Telemetry, VideoFrameBatch,
+        save_message, Attribute, EndOfStream, Message, UnspecifiedData, VideoFrameBatch,
     };
     use crate::test::utils::gen_frame;
 
@@ -465,13 +473,13 @@ mod tests {
     }
 
     #[test]
-    fn test_save_load_telemetry() {
+    fn test_save_load_unspecified() {
         pyo3::prepare_freethreaded_python();
-        let t = Telemetry::new("test".to_string());
-        let m = Message::telemetry(t);
+        let t = UnspecifiedData::new("test".to_string());
+        let m = Message::unspecified(t);
         let res = save_message(&m);
         let m = load_message(&res);
-        assert!(m.is_telemetry());
+        assert!(m.is_unspecified());
     }
 
     #[test]
