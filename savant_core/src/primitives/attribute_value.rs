@@ -100,3 +100,9 @@ impl ToSerdeJsonValue for AttributeValue {
         })
     }
 }
+
+impl AttributeValue {
+    pub fn new(v: AttributeValueVariant, confidence: Option<f32>) -> Self {
+        Self { confidence, v }
+    }
+}

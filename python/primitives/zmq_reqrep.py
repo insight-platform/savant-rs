@@ -11,7 +11,7 @@ from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionRes
     AttributeUpdateCollisionResolutionPolicy
 
 
-socket_name = "ipc://test_hello"
+socket_name = "ipc:///tmp/test_hello"
 
 
 def server():

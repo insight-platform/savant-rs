@@ -44,6 +44,10 @@ tests:
 	@echo "Running tests..."
 	cd savant && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
 
+core-tests:
+	@echo "Running core lib tests..."
+	cd savant_core && cargo build && cargo test -- --show-output --nocapture --test-threads=1
+
 bench:
 	@echo "Running benchmarks..."
 	cd savant && cargo bench --no-default-features -- --show-output --nocapture

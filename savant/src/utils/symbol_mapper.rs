@@ -4,8 +4,8 @@ use parking_lot::const_mutex;
 use parking_lot::Mutex;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use savant_core::symbol_mapper::RegistrationPolicy as RegistrationPolicyRs;
-use savant_core::symbol_mapper::SymbolMapper;
+use savant_core::rust;
+use savant_core::rust::SymbolMapper;
 use std::collections::HashMap;
 
 lazy_static! {
@@ -26,20 +26,20 @@ pub enum RegistrationPolicy {
     ErrorIfNonUnique,
 }
 
-impl From<RegistrationPolicy> for RegistrationPolicyRs {
+impl From<RegistrationPolicy> for rust::RegistrationPolicy {
     fn from(value: RegistrationPolicy) -> Self {
         match value {
-            RegistrationPolicy::Override => RegistrationPolicyRs::Override,
-            RegistrationPolicy::ErrorIfNonUnique => RegistrationPolicyRs::ErrorIfNonUnique,
+            RegistrationPolicy::Override => rust::RegistrationPolicy::Override,
+            RegistrationPolicy::ErrorIfNonUnique => rust::RegistrationPolicy::ErrorIfNonUnique,
         }
     }
 }
 
-impl From<RegistrationPolicyRs> for RegistrationPolicy {
-    fn from(value: RegistrationPolicyRs) -> Self {
+impl From<rust::RegistrationPolicy> for RegistrationPolicy {
+    fn from(value: rust::RegistrationPolicy) -> Self {
         match value {
-            RegistrationPolicyRs::Override => RegistrationPolicy::Override,
-            RegistrationPolicyRs::ErrorIfNonUnique => RegistrationPolicy::ErrorIfNonUnique,
+            rust::RegistrationPolicy::Override => RegistrationPolicy::Override,
+            rust::RegistrationPolicy::ErrorIfNonUnique => RegistrationPolicy::ErrorIfNonUnique,
         }
     }
 }

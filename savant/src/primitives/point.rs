@@ -1,11 +1,11 @@
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use savant_core::primitives::point::Point as PointRs;
+use savant_core::primitives::rust;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
-pub struct Point(PointRs);
+pub struct Point(rust::Point);
 
 #[pymethods]
 impl Point {
@@ -22,7 +22,7 @@ impl Point {
 
     #[new]
     pub fn new(x: f32, y: f32) -> Self {
-        Self(PointRs::new(x, y))
+        Self(rust::Point::new(x, y))
     }
 
     #[getter]

@@ -4,7 +4,7 @@ pub mod saver;
 pub mod telemetry;
 pub mod video;
 
-use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::message::telemetry::Telemetry;
 use crate::primitives::message::video::frame::frame_update::VideoFrameUpdate;
 use crate::primitives::message::video::frame::VideoFrame;
@@ -15,7 +15,9 @@ use crate::release_gil;
 use crate::utils::otlp::PropagatedContext;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
-use savant_core::version_to_bytes_le;
+use savant_core::primitives::Attributive;
+use savant_core::{rust, version_to_bytes_le};
+use std::mem;
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -35,7 +37,7 @@ pub const VERSION_LEN: usize = 4;
 pub struct MessageMeta {
     pub(crate) lib_version: [u8; VERSION_LEN],
     pub(crate) routing_labels: Vec<String>,
-    pub(crate) otlp_span_context: PropagatedContext,
+    pub(crate) span_context: rust::PropagatedContext,
 }
 
 impl Default for MessageMeta {
@@ -49,7 +51,7 @@ impl MessageMeta {
         Self {
             lib_version: version_to_bytes_le(),
             routing_labels: Vec::default(),
-            otlp_span_context: PropagatedContext::default(),
+            span_context: rust::PropagatedContext::default(),
         }
     }
 }
@@ -266,13 +268,18 @@ impl Message {
     }
 
     #[setter]
-    fn set_otlp_span_context(&mut self, context: PropagatedContext) {
-        self.meta.otlp_span_context = context;
+    fn set_span_context(&mut self, context: PropagatedContext) {
+        self.meta.span_context =
+            unsafe { mem::transmute::<PropagatedContext, rust::PropagatedContext>(context) };
     }
 
     #[getter]
-    fn get_otlp_span_context(&self) -> PropagatedContext {
-        self.meta.otlp_span_context.clone()
+    fn get_span_context(&self) -> PropagatedContext {
+        unsafe {
+            mem::transmute::<rust::PropagatedContext, PropagatedContext>(
+                self.meta.span_context.clone(),
+            )
+        }
     }
 
     /// Checks if the message is of Unknown type

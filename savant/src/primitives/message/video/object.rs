@@ -1,4 +1,4 @@
-use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::bbox::transformations::{
     VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
 };
@@ -13,10 +13,11 @@ use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use savant_core::primitives::OwnedRBBoxData;
+use savant_core::primitives::{rust, Attributive, OwnedRBBoxData};
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::mem;
 use std::sync::Arc;
 
 pub mod context;
@@ -63,7 +64,7 @@ pub struct VideoObject {
     pub draw_label: Option<String>,
     pub detection_box: OwnedRBBoxData,
     #[builder(default)]
-    pub attributes: HashMap<(String, String), Attribute>,
+    pub attributes: HashMap<(String, String), rust::Attribute>,
     #[builder(default)]
     pub confidence: Option<f32>,
     #[builder(default)]
@@ -175,19 +176,19 @@ impl PyObjectMeta for VideoObject {
 }
 
 impl Attributive for VideoObject {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), rust::Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), rust::Attribute> {
         &mut self.attributes
     }
 
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+    fn take_attributes(&mut self) -> HashMap<(String, String), rust::Attribute> {
         std::mem::take(&mut self.attributes)
     }
 
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), rust::Attribute>) {
         self.attributes = attributes;
     }
 }
@@ -195,12 +196,18 @@ impl Attributive for VideoObject {
 impl AttributeMethods for VideoObjectProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
-        inner.exclude_temporary_attributes()
+        unsafe {
+            mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(
+                inner.exclude_temporary_attributes(),
+            )
+        }
     }
 
     fn restore_attributes(&self, attributes: Vec<Attribute>) {
         let mut inner = self.inner.write();
-        inner.restore_attributes(attributes)
+        inner.restore_attributes(unsafe {
+            mem::transmute::<Vec<Attribute>, Vec<rust::Attribute>>(attributes)
+        })
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
@@ -210,17 +217,29 @@ impl AttributeMethods for VideoObjectProxy {
 
     fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let inner = self.inner.read_recursive();
-        inner.get_attribute(namespace, name)
+        unsafe {
+            mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(
+                inner.get_attribute(namespace, name),
+            )
+        }
     }
 
     fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.delete_attribute(namespace, name)
+        unsafe {
+            mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(
+                inner.delete_attribute(namespace, name),
+            )
+        }
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.set_attribute(attribute)
+        unsafe {
+            mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(
+                inner.set_attribute(mem::transmute(attribute)),
+            )
+        }
     }
 
     fn clear_attributes(&self) {
@@ -376,7 +395,14 @@ impl VideoObjectProxy {
             detection_box: detection_box
                 .try_into()
                 .expect("Failed to convert RBBox to RBBoxData"),
-            attributes,
+            attributes: attributes
+                .into_iter()
+                .map(|(k, v)| {
+                    (k, unsafe {
+                        mem::transmute::<Attribute, rust::Attribute>(v)
+                    })
+                })
+                .collect(),
             confidence,
             track_id,
             track_box: track_box
@@ -826,10 +852,10 @@ mod tests {
     use crate::primitives::bbox::transformations::VideoObjectBBoxTransformation;
     use crate::primitives::message::video::object::VideoObjectBuilder;
     use crate::primitives::{
-        AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectModification,
-        VideoObjectProxy,
+        Attribute, IdCollisionResolutionPolicy, RBBox, VideoObjectModification, VideoObjectProxy,
     };
     use crate::test::utils::{gen_frame, s};
+    use std::mem;
 
     fn get_object() -> VideoObjectProxy {
         VideoObjectProxy::from_video_object(
@@ -846,30 +872,31 @@ mod tests {
                 .confidence(Some(0.5))
                 .attributes(
                     vec![
-                        AttributeBuilder::default()
-                            .namespace("namespace".to_string())
-                            .name("name".to_string())
-                            .values(vec![AttributeValue::string("value".to_string(), None)])
-                            .hint(None)
-                            .build()
-                            .unwrap(),
-                        AttributeBuilder::default()
-                            .namespace("namespace".to_string())
-                            .name("name2".to_string())
-                            .values(vec![AttributeValue::string("value2".to_string(), None)])
-                            .hint(None)
-                            .build()
-                            .unwrap(),
-                        AttributeBuilder::default()
-                            .namespace("namespace2".to_string())
-                            .name("name".to_string())
-                            .values(vec![AttributeValue::string("value".to_string(), None)])
-                            .hint(None)
-                            .build()
-                            .unwrap(),
+                        Attribute::persistent(
+                            "namespace".to_string(),
+                            "name".to_string(),
+                            vec![AttributeValue::string("value".to_string(), None)],
+                            None,
+                        ),
+                        Attribute::persistent(
+                            "namespace".to_string(),
+                            "name2".to_string(),
+                            vec![AttributeValue::string("value2".to_string(), None)],
+                            None,
+                        ),
+                        Attribute::persistent(
+                            "namespace2".to_string(),
+                            "name".to_string(),
+                            vec![AttributeValue::string("value".to_string(), None)],
+                            None,
+                        ),
                     ]
                     .into_iter()
-                    .map(|a| ((a.namespace.clone(), a.name.clone()), a))
+                    .map(|a| {
+                        ((a.get_namespace(), a.get_name()), unsafe {
+                            mem::transmute(a)
+                        })
+                    })
                     .collect(),
                 )
                 .parent_id(None)

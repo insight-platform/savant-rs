@@ -1,10 +1,8 @@
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::attribute_value::AttributeValuesView;
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use rkyv::{Archive, Deserialize, Serialize};
-use savant_core::primitives::attribute_value::AttributeValue as AttributeValueRs;
+use savant_core::primitives::rust;
 use savant_core::to_json_value::ToSerdeJsonValue;
-use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 
@@ -17,41 +15,21 @@ use std::sync::Arc;
 /// list is :class:`AttributeValue`.
 ///
 #[pyclass]
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder, Default,
-)]
-#[archive(check_bytes)]
-pub struct Attribute {
-    #[pyo3(get)]
-    pub namespace: String,
-    #[pyo3(get)]
-    pub name: String,
-    #[builder(setter(custom))]
-    pub values: Arc<Vec<AttributeValueRs>>,
-    #[pyo3(get)]
-    pub hint: Option<String>,
-    #[pyo3(get)]
-    #[builder(default = "true")]
-    pub is_persistent: bool,
-}
+#[derive(Debug, PartialEq, Clone, Default)]
+pub struct Attribute(rust::Attribute);
 
-impl AttributeBuilder {
+impl Attribute {
     pub fn values(&mut self, vals: Vec<AttributeValue>) -> &mut Self {
         let vals =
-            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(vals) };
-        self.values = Some(Arc::new(vals));
+            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(vals) };
+        self.0.values = Arc::new(vals);
         self
     }
 }
 
 impl ToSerdeJsonValue for Attribute {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "namespace": self.namespace,
-            "name": self.name,
-            "values": self.values.iter().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-            "hint": self.hint,
-        })
+        self.0.to_serde_json_value()
     }
 }
 
@@ -78,14 +56,15 @@ impl Attribute {
         is_persistent: bool,
     ) -> Self {
         let values =
-            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
-        Self {
-            is_persistent,
+            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+
+        Self(rust::Attribute::new(
             namespace,
             name,
-            values: Arc::new(values),
+            values,
             hint,
-        }
+            is_persistent,
+        ))
     }
 
     /// Alias to constructor method. Creates a persistent attribute.
@@ -114,14 +93,8 @@ impl Attribute {
         hint: Option<String>,
     ) -> Self {
         let values =
-            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
-        Self {
-            is_persistent: true,
-            namespace,
-            name,
-            values: Arc::new(values),
-            hint,
-        }
+            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+        Self(rust::Attribute::new(namespace, name, values, hint, true))
     }
 
     /// Alias to constructor method for non-persistent attributes.
@@ -150,14 +123,8 @@ impl Attribute {
         hint: Option<String>,
     ) -> Self {
         let values =
-            unsafe { std::mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values) };
-        Self {
-            is_persistent: false,
-            namespace,
-            name,
-            values: Arc::new(values),
-            hint,
-        }
+            unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
+        Self(rust::Attribute::new(namespace, name, values, hint, false))
     }
 
     /// Returns ``True`` if the attribute is persistent, ``False`` otherwise.
@@ -168,7 +135,7 @@ impl Attribute {
     ///   ``True`` if the attribute is persistent, ``False`` otherwise.
     ///
     pub fn is_temporary(&self) -> bool {
-        !self.is_persistent
+        !self.0.is_persistent
     }
 
     /// Changes the attribute to be persistent.
@@ -179,7 +146,7 @@ impl Attribute {
     ///   The attribute is changed in-place.
     ///
     pub fn make_persistent(&mut self) {
-        self.is_persistent = true;
+        self.0.is_persistent = true;
     }
 
     /// Changes the attribute to be non-persistent.
@@ -190,7 +157,7 @@ impl Attribute {
     ///   The attribute is changed in-place.
     ///
     pub fn make_temporary(&mut self) {
-        self.is_persistent = false;
+        self.0.is_persistent = false;
     }
 
     /// Returns the namespace of the attribute.
@@ -202,7 +169,7 @@ impl Attribute {
     ///
     #[getter]
     pub fn get_namespace(&self) -> String {
-        self.namespace.clone()
+        self.0.get_namespace().to_string()
     }
 
     /// Returns the name of the attribute.
@@ -214,7 +181,7 @@ impl Attribute {
     ///
     #[getter]
     pub fn get_name(&self) -> String {
-        self.name.clone()
+        self.0.get_name().to_string()
     }
 
     /// Returns the values of the attribute. The values are returned as copies, changing them will not change the attribute. To change the values of the
@@ -228,7 +195,9 @@ impl Attribute {
     #[getter]
     pub fn get_values(&self) -> Vec<AttributeValue> {
         unsafe {
-            mem::transmute::<Vec<AttributeValueRs>, Vec<AttributeValue>>((*self.values).clone())
+            mem::transmute::<Vec<rust::AttributeValue>, Vec<AttributeValue>>(
+                (*self.0.values).clone(),
+            )
         }
     }
 
@@ -240,7 +209,7 @@ impl Attribute {
     #[getter]
     pub fn values_view(&self) -> AttributeValuesView {
         AttributeValuesView {
-            inner: self.values.clone(),
+            inner: self.0.values.clone(),
         }
     }
 
@@ -253,7 +222,7 @@ impl Attribute {
     ///
     #[getter]
     pub fn get_hint(&self) -> Option<String> {
-        self.hint.clone()
+        self.0.hint.clone()
     }
 
     /// Sets the hint of the attribute.
@@ -265,7 +234,7 @@ impl Attribute {
     ///
     #[setter]
     pub fn set_hint(&mut self, hint: Option<String>) {
-        self.hint = hint;
+        self.0.hint = hint;
     }
 
     /// Sets the values of the attribute.
@@ -277,8 +246,8 @@ impl Attribute {
     ///
     #[setter]
     pub fn set_values(&mut self, values: Vec<AttributeValue>) {
-        self.values = Arc::new(unsafe {
-            mem::transmute::<Vec<AttributeValue>, Vec<AttributeValueRs>>(values)
+        self.0.values = Arc::new(unsafe {
+            mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values)
         });
     }
 }
@@ -298,106 +267,4 @@ pub trait AttributeMethods {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)>;
-}
-
-pub trait Attributive: Send {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute>;
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute>;
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute>;
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>);
-
-    fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
-        let attributes = self.take_attributes();
-        let (retained, removed): (Vec<Attribute>, Vec<Attribute>) =
-            attributes.into_values().partition(|a| !a.is_temporary());
-
-        self.place_attributes(
-            retained
-                .into_iter()
-                .map(|a| ((a.namespace.clone(), a.name.clone()), a))
-                .collect(),
-        );
-
-        removed
-    }
-
-    fn restore_attributes(&mut self, attributes: Vec<Attribute>) {
-        let attrs = self.get_attributes_ref_mut();
-        attributes.into_iter().for_each(|a| {
-            attrs.insert((a.namespace.clone(), a.name.clone()), a);
-        })
-    }
-
-    fn get_attributes(&self) -> Vec<(String, String)> {
-        self.get_attributes_ref()
-            .iter()
-            .map(|((namespace, name), _)| (namespace.clone(), name.clone()))
-            .collect()
-    }
-
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref().get(&(namespace, name)).cloned()
-    }
-
-    fn delete_attribute(&mut self, namespace: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref_mut().remove(&(namespace, name))
-    }
-
-    fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.get_attributes_ref_mut().insert(
-            (attribute.namespace.clone(), attribute.name.clone()),
-            attribute,
-        )
-    }
-
-    fn clear_attributes(&mut self) {
-        self.get_attributes_ref_mut().clear();
-    }
-
-    fn delete_attributes(&mut self, namespace: Option<String>, names: Vec<String>) {
-        self.get_attributes_ref_mut().retain(|(c, label), _| {
-            if let Some(namespace) = &namespace {
-                if c != namespace {
-                    return true;
-                }
-            }
-
-            if !names.is_empty() && !names.contains(label) {
-                return true;
-            }
-
-            false
-        });
-    }
-
-    fn find_attributes(
-        &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
-    ) -> Vec<(String, String)> {
-        self.get_attributes_ref()
-            .iter()
-            .filter(|((_, _), a)| {
-                if let Some(namespace) = &namespace {
-                    if a.namespace != *namespace {
-                        return false;
-                    }
-                }
-
-                if !names.is_empty() && !names.contains(&a.name) {
-                    return false;
-                }
-
-                if let Some(hint) = &hint {
-                    if a.hint.as_ref() != Some(hint) {
-                        return false;
-                    }
-                }
-
-                true
-            })
-            .map(|((c, n), _)| (c.clone(), n.clone()))
-            .collect()
-    }
 }

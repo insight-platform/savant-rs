@@ -22,7 +22,8 @@ use crate::primitives::message::video::frame::VideoFrameTransformationProxy;
 pub use crate::primitives::message::video::object::objects_view::{
     VideoObjectBBoxType, VideoObjectsView,
 };
-pub use attribute::{Attribute, AttributeBuilder};
+
+pub use attribute::Attribute;
 pub use attribute_value::{AttributeValue, AttributeValueType, AttributeValuesView};
 pub use bbox::{PythonBBox, RBBox};
 pub use draw::*;

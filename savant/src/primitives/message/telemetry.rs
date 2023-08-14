@@ -1,8 +1,8 @@
-use crate::primitives::attribute::Attributive;
 use crate::primitives::{Attribute, Message};
 use crate::release_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::primitives::{rust, Attributive};
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use std::mem;
 pub struct Telemetry {
     #[pyo3(get, set)]
     pub source_id: String,
-    pub attributes: HashMap<(String, String), Attribute>,
+    pub attributes: HashMap<(String, String), rust::Attribute>,
 }
 
 impl ToSerdeJsonValue for Telemetry {
@@ -84,7 +84,8 @@ impl Telemetry {
         name: String,
         no_gil: bool,
     ) -> Option<Attribute> {
-        release_gil!(no_gil, || self.get_attribute(namespace, name))
+        let res = release_gil!(no_gil, || self.get_attribute(namespace, name));
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     #[pyo3(name = "delete_attributes")]
@@ -106,12 +107,15 @@ impl Telemetry {
         name: String,
         no_gil: bool,
     ) -> Option<Attribute> {
-        release_gil!(no_gil, || self.delete_attribute(namespace, name))
+        let res = release_gil!(no_gil, || self.delete_attribute(namespace, name));
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     #[pyo3(name = "set_attribute")]
     pub fn set_attribute_py(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.set_attribute(attribute)
+        let attribute = unsafe { mem::transmute::<Attribute, rust::Attribute>(attribute) };
+        let res = self.set_attribute(attribute);
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     #[pyo3(name = "clear_attributes")]
@@ -130,19 +134,19 @@ impl Telemetry {
 }
 
 impl Attributive for Telemetry {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), rust::Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), rust::Attribute> {
         &mut self.attributes
     }
 
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+    fn take_attributes(&mut self) -> HashMap<(String, String), rust::Attribute> {
         mem::take(&mut self.attributes)
     }
 
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), rust::Attribute>) {
         self.attributes = attributes;
     }
 }

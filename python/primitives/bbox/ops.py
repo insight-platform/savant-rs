@@ -1,6 +1,5 @@
 from savant_rs.primitives.geometry import BBox, RBBox
 from savant_rs.draw_spec import PaddingDraw
-from savant_rs.utils.numpy import *
 
 from savant_rs.logging import LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
@@ -80,15 +79,3 @@ print("Graphical wrapping box:", box)
 
 print(BBox.ltwh(0, 0, 100, 100))
 print(BBox.ltrb(0, 0, 100, 100))
-
-arr = bboxes_to_ndarray([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom, 'float64')
-print("BBoxes to f64", arr)
-
-boxes = ndarray_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
-print(boxes)
-
-arr = bboxes_to_ndarray([BBox(50.0, 50.0, 30.0, 50.0), BBox(70.0, 70.0, 50.0, 50.0)], BBoxFormat.LeftTopRightBottom, 'float32')
-print("BBoxes to f32", arr)
-
-boxes = ndarray_to_bboxes(arr, BBoxFormat.LeftTopRightBottom)
-print(boxes)

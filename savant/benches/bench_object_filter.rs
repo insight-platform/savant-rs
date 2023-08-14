@@ -3,12 +3,11 @@
 extern crate test;
 
 use savant_core::match_query::*;
-use savant_rs::primitives::attribute::attribute_value::AttributeValue;
+use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use savant_core::primitives::{Attribute, Attributive};
 use savant_rs::primitives::message::video::object::VideoObjectBuilder;
 use savant_rs::primitives::message::video::query::*;
-use savant_rs::primitives::{
-    AttributeBuilder, IdCollisionResolutionPolicy, RBBox, VideoObjectProxy,
-};
+use savant_rs::primitives::{IdCollisionResolutionPolicy, RBBox, VideoObjectProxy};
 use savant_rs::test::utils::gen_empty_frame;
 use savant_rs::utils::eval_resolvers::register_utility_resolver;
 use test::Bencher;
@@ -31,16 +30,12 @@ fn get_objects() -> Vec<VideoObjectProxy> {
                 ))
                 .build()
                 .unwrap();
-            o.attributes.insert(
-                ("test".to_string(), "test".to_string()),
-                AttributeBuilder::default()
-                    .namespace("test".to_string())
-                    .name("test".to_string())
-                    .hint(Some("hint".to_string()))
-                    .values(vec![AttributeValue::integer(1, None)])
-                    .build()
-                    .unwrap(),
-            );
+            o.set_attribute(Attribute::persistent(
+                "test".to_string(),
+                "test".to_string(),
+                vec![AttributeValue::new(AttributeValueVariant::Integer(1), None)],
+                Some("hint".to_string()),
+            ));
             VideoObjectProxy::from_video_object(o)
         })
         .collect::<Vec<_>>()

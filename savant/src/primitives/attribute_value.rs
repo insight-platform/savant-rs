@@ -3,11 +3,8 @@ use crate::primitives::{Point, PolygonalArea, RBBox};
 use pyo3::exceptions::PyIndexError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
-use savant_core::primitives::attribute_value::AttributeValue as AttributeValueRs;
 use savant_core::primitives::attribute_value::AttributeValueVariant;
-use savant_core::primitives::Intersection as IntersectionRs;
-use savant_core::primitives::Point as PointRs;
-use savant_core::primitives::PolygonalArea as PolygonalAreaRs;
+use savant_core::primitives::rust;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::mem;
@@ -15,7 +12,7 @@ use std::sync::Arc;
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct AttributeValue(AttributeValueRs);
+pub struct AttributeValue(rust::AttributeValue);
 
 #[cfg(test)]
 impl AttributeValue {
@@ -98,10 +95,10 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (int, confidence = None))]
     pub fn intersection(int: Intersection, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Intersection(unsafe {
-                mem::transmute::<Intersection, IntersectionRs>(int)
+                mem::transmute::<Intersection, rust::Intersection>(int)
             }),
         })
     }
@@ -115,7 +112,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     pub fn none() -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence: None,
             v: AttributeValueVariant::None,
         })
@@ -139,7 +136,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (dims, blob, confidence = None))]
     pub fn bytes_from_list(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Bytes(dims, blob),
         })
@@ -163,7 +160,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (dims, blob, confidence = None))]
     pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
         })
@@ -186,7 +183,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (s, confidence = None))]
     pub fn string(s: String, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::String(s),
         })
@@ -209,7 +206,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (ss, confidence = None))]
     pub fn strings(ss: Vec<String>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::StringVector(ss),
         })
@@ -232,7 +229,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (i, confidence = None))]
     pub fn integer(i: i64, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Integer(i),
         })
@@ -255,7 +252,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (ii, confidence = None))]
     pub fn integers(ii: Vec<i64>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::IntegerVector(ii),
         })
@@ -278,7 +275,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (f, confidence = None))]
     pub fn float(f: f64, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Float(f),
         })
@@ -301,7 +298,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (ff, confidence = None))]
     pub fn floats(ff: Vec<f64>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::FloatVector(ff),
         })
@@ -324,7 +321,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (b, confidence = None))]
     pub fn boolean(b: bool, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Boolean(b),
         })
@@ -347,7 +344,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (bb, confidence = None))]
     pub fn booleans(bb: Vec<bool>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::BooleanVector(bb),
         })
@@ -370,7 +367,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (bbox, confidence = None))]
     pub fn bbox(bbox: RBBox, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::BBox(
                 bbox.try_into()
@@ -395,7 +392,7 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (bboxes, confidence = None))]
     pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::BBoxVector(
                 bboxes
@@ -423,9 +420,9 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (point, confidence = None))]
     pub fn point(point: Point, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Point(unsafe { mem::transmute::<Point, PointRs>(point) }),
+            v: AttributeValueVariant::Point(unsafe { mem::transmute::<Point, rust::Point>(point) }),
         })
     }
 
@@ -446,10 +443,10 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (points, confidence = None))]
     pub fn points(points: Vec<Point>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::PointVector(unsafe {
-                mem::transmute::<Vec<Point>, Vec<PointRs>>(points)
+                mem::transmute::<Vec<Point>, Vec<rust::Point>>(points)
             }),
         })
     }
@@ -471,10 +468,10 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (polygon, confidence = None))]
     pub fn polygon(polygon: PolygonalArea, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::Polygon(unsafe {
-                mem::transmute::<PolygonalArea, PolygonalAreaRs>(polygon)
+                mem::transmute::<PolygonalArea, rust::PolygonalArea>(polygon)
             }),
         })
     }
@@ -496,10 +493,10 @@ impl AttributeValue {
     #[staticmethod]
     #[pyo3(signature = (polygons, confidence = None))]
     pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
-        Self(AttributeValueRs {
+        Self(rust::AttributeValue {
             confidence,
             v: AttributeValueVariant::PolygonVector(unsafe {
-                mem::transmute::<Vec<PolygonalArea>, Vec<PolygonalAreaRs>>(polygons)
+                mem::transmute::<Vec<PolygonalArea>, Vec<rust::PolygonalArea>>(polygons)
             }),
         })
     }
@@ -534,7 +531,7 @@ impl AttributeValue {
     pub fn as_intersection(&self) -> Option<Intersection> {
         match &self.0.v {
             AttributeValueVariant::Intersection(i) => {
-                Some(unsafe { mem::transmute::<IntersectionRs, Intersection>(i.clone()) })
+                Some(unsafe { mem::transmute::<rust::Intersection, Intersection>(i.clone()) })
             }
             _ => None,
         }
@@ -695,7 +692,7 @@ impl AttributeValue {
     pub fn as_point(&self) -> Option<Point> {
         match &self.0.v {
             AttributeValueVariant::Point(point) => {
-                Some(unsafe { mem::transmute::<PointRs, Point>(point.clone()) })
+                Some(unsafe { mem::transmute::<rust::Point, Point>(point.clone()) })
             }
             _ => None,
         }
@@ -711,7 +708,7 @@ impl AttributeValue {
     pub fn as_points(&self) -> Option<Vec<Point>> {
         match &self.0.v {
             AttributeValueVariant::PointVector(points) => {
-                Some(unsafe { mem::transmute::<Vec<PointRs>, Vec<Point>>(points.clone()) })
+                Some(unsafe { mem::transmute::<Vec<rust::Point>, Vec<Point>>(points.clone()) })
             }
             _ => None,
         }
@@ -726,9 +723,9 @@ impl AttributeValue {
     ///
     pub fn as_polygon(&self) -> Option<PolygonalArea> {
         match &self.0.v {
-            AttributeValueVariant::Polygon(polygon) => {
-                Some(unsafe { mem::transmute::<PolygonalAreaRs, PolygonalArea>(polygon.clone()) })
-            }
+            AttributeValueVariant::Polygon(polygon) => Some(unsafe {
+                mem::transmute::<rust::PolygonalArea, PolygonalArea>(polygon.clone())
+            }),
             _ => None,
         }
     }
@@ -743,7 +740,7 @@ impl AttributeValue {
     pub fn as_polygons(&self) -> Option<Vec<PolygonalArea>> {
         match &self.0.v {
             AttributeValueVariant::PolygonVector(polygons) => Some(unsafe {
-                mem::transmute::<Vec<PolygonalAreaRs>, Vec<PolygonalArea>>(polygons.clone())
+                mem::transmute::<Vec<rust::PolygonalArea>, Vec<PolygonalArea>>(polygons.clone())
             }),
             _ => None,
         }
@@ -798,7 +795,7 @@ impl AttributeValueType {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct AttributeValuesView {
-    pub inner: Arc<Vec<AttributeValueRs>>,
+    pub inner: Arc<Vec<rust::AttributeValue>>,
 }
 
 #[pymethods]
@@ -820,7 +817,7 @@ impl AttributeValuesView {
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))
             .map(|x| x.clone())?;
-        Ok(unsafe { mem::transmute::<AttributeValueRs, AttributeValue>(v) })
+        Ok(unsafe { mem::transmute::<rust::AttributeValue, AttributeValue>(v) })
     }
 
     #[getter]

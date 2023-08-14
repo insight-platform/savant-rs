@@ -2,6 +2,8 @@ use crate::primitives::message::video::object::VideoObject;
 use crate::primitives::{Attribute, VideoObjectProxy};
 use pyo3::prelude::*;
 use rkyv::{Archive, Deserialize, Serialize};
+use savant_core::primitives::rust;
+use std::mem;
 
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[archive(check_bytes)]
@@ -144,14 +146,16 @@ impl From<AttributeUpdateCollisionResolutionPolicyProxy>
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct VideoFrameUpdate {
-    #[pyo3(get, set)]
-    pub(crate) attributes: Vec<Attribute>,
+    attributes: Vec<rust::Attribute>,
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
     pub(crate) attribute_collision_resolution_policy: AttributeUpdateCollisionResolutionPolicy,
     pub(crate) object_collision_resolution_policy: ObjectUpdateCollisionResolutionPolicy,
 }
 
 impl VideoFrameUpdate {
+    pub(crate) fn get_attributes(&self) -> &Vec<rust::Attribute> {
+        &self.attributes
+    }
     pub fn set_attribute_collision_resolution_policy(
         &mut self,
         p: AttributeUpdateCollisionResolutionPolicy,
@@ -208,8 +212,9 @@ impl VideoFrameUpdate {
     /// -------
     /// None
     ///
-    pub fn add_attribute(&mut self, attribute: &Attribute) {
-        self.attributes.push(attribute.clone());
+    pub fn add_attribute(&mut self, attribute: Attribute) {
+        let attribute = unsafe { mem::transmute::<Attribute, rust::Attribute>(attribute) };
+        self.attributes.push(attribute);
     }
 
     /// Sets collision resolution policy for attributes
@@ -316,8 +321,8 @@ mod tests {
     use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::message::video::query::match_query::MatchQuery;
     use crate::primitives::{
-        Attribute, AttributeBuilder, AttributeUpdateCollisionResolutionPolicy,
-        ObjectUpdateCollisionResolutionPolicy, VideoFrameUpdate,
+        Attribute, AttributeUpdateCollisionResolutionPolicy, ObjectUpdateCollisionResolutionPolicy,
+        VideoFrameUpdate,
     };
     use crate::test::utils::{gen_frame, gen_object, s};
     use savant_core::match_query::IntExpression;
@@ -330,7 +335,7 @@ mod tests {
         f.set_attribute(my.clone());
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(&my);
+        upd.add_attribute(my);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
         );
@@ -341,22 +346,18 @@ mod tests {
 
     fn get_attributes() -> (Attribute, Attribute) {
         (
-            AttributeBuilder::default()
-                .namespace("system".into())
-                .name("test".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::boolean(true, None)])
-                .build()
-                .unwrap(),
-            AttributeBuilder::default()
-                .namespace("system".into())
-                .name("test".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::integer(10, None)])
-                .build()
-                .unwrap(),
+            Attribute::persistent(
+                "system".into(),
+                "test".into(),
+                vec![AttributeValue::boolean(true, None)],
+                Some("test".into()),
+            ),
+            Attribute::persistent(
+                "system".into(),
+                "test".into(),
+                vec![AttributeValue::integer(10, None)],
+                Some("test".into()),
+            ),
         )
     }
 
@@ -367,7 +368,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(&their);
+        upd.add_attribute(their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
         );
@@ -387,7 +388,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(&their);
+        upd.add_attribute(their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
         );
@@ -410,7 +411,7 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::new();
-        upd.add_attribute(&their);
+        upd.add_attribute(their);
         upd.set_attribute_collision_resolution_policy(
             AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
         );

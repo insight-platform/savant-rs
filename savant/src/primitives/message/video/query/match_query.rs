@@ -17,7 +17,7 @@ use savant_core::eval_cache::{get_compiled_eval_expr, get_compiled_jmp_filter};
 use savant_core::match_query::{
     ExecutableMatchQuery, FloatExpression, IntExpression, StringExpression,
 };
-use savant_core::primitives::BBoxMetricType as BBoxMetricTypeRs;
+use savant_core::primitives::rust;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -59,7 +59,7 @@ pub enum MatchQuery {
     #[serde(rename = "track.bbox.metric")]
     TrackBoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
-        metric_type: BBoxMetricTypeRs,
+        metric_type: rust::BBoxMetricType,
         threshold_expr: FloatExpression,
     },
 
@@ -97,7 +97,7 @@ pub enum MatchQuery {
     #[serde(rename = "bbox.metric")]
     BoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
-        metric_type: BBoxMetricTypeRs,
+        metric_type: rust::BBoxMetricType,
         threshold_expr: FloatExpression,
     },
     // Attributes
@@ -179,9 +179,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             } => tracking_box.as_ref().map_or(false, |t| {
                 let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
                 let metric = match metric_type {
-                    BBoxMetricTypeRs::IoU => t.iou(&other).unwrap_or(0.0),
-                    BBoxMetricTypeRs::IoSelf => t.ios(&other).unwrap_or(0.0),
-                    BBoxMetricTypeRs::IoOther => t.ioo(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoU => t.iou(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoSelf => t.ios(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoOther => t.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, &mut ())
             }),
@@ -212,9 +212,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             } => {
                 let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
                 let metric = match metric_type {
-                    BBoxMetricTypeRs::IoU => detection_box.iou(&other).unwrap_or(0.0),
-                    BBoxMetricTypeRs::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
-                    BBoxMetricTypeRs::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoU => detection_box.iou(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
+                    rust::BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, &mut ())
             }
@@ -442,7 +442,7 @@ mod tests {
     use crate::primitives::message::video::query::match_query::{
         filter, foreach_udf, map_udf, partition, MatchQuery,
     };
-    use crate::primitives::{AttributeBuilder, IdCollisionResolutionPolicy, RBBox};
+    use crate::primitives::{Attribute, IdCollisionResolutionPolicy, RBBox};
     use crate::test::utils::{gen_empty_frame, gen_frame, gen_object, s};
     use crate::utils::eval_resolvers::register_env_resolver;
     use crate::utils::pluggable_udf_api::{
@@ -559,19 +559,16 @@ mod tests {
         let expr = TrackDefined;
         assert!(expr.execute_with_new_context(&object));
 
-        object.set_attribute(
-            AttributeBuilder::default()
-                .name(s("age-min-max-avg"))
-                .namespace(s("classifier"))
-                .hint(Some(s("morphological-classifier")))
-                .values(vec![
-                    AttributeValue::float(10.0, Some(0.7)),
-                    AttributeValue::float(20.0, Some(0.8)),
-                    AttributeValue::float(15.0, None),
-                ])
-                .build()
-                .unwrap(),
-        );
+        object.set_attribute(Attribute::persistent(
+            s("classifier"),
+            s("age-min-max-avg"),
+            vec![
+                AttributeValue::float(10.0, Some(0.7)),
+                AttributeValue::float(20.0, Some(0.8)),
+                AttributeValue::float(15.0, None),
+            ],
+            Some(s("morphological-classifier")),
+        ));
 
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (namespace == 'classifier')]",

@@ -1,7 +1,7 @@
 pub mod context;
 pub mod frame_update;
 
-use crate::primitives::attribute::{AttributeMethods, Attributive};
+use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::bbox::transformations::{
     VideoObjectBBoxTransformation, VideoObjectBBoxTransformationProxy,
 };
@@ -25,6 +25,7 @@ use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use rayon::prelude::*;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use savant_core::match_query::{IntExpression, StringExpression};
+use savant_core::primitives::{rust, Attributive};
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -384,7 +385,7 @@ pub struct VideoFrame {
     #[builder(setter(skip))]
     pub transformations: Vec<FrameTransformation>,
     #[builder(setter(skip))]
-    pub attributes: HashMap<(String, String), Attribute>,
+    pub attributes: HashMap<(String, String), rust::Attribute>,
     #[builder(setter(skip))]
     pub offline_objects: HashMap<i64, VideoObject>,
     #[with(Skip)]
@@ -462,19 +463,19 @@ impl PyObjectMeta for Box<VideoFrame> {
 }
 
 impl Attributive for Box<VideoFrame> {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &HashMap<(String, String), rust::Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), rust::Attribute> {
         &mut self.attributes
     }
 
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+    fn take_attributes(&mut self) -> HashMap<(String, String), rust::Attribute> {
         mem::take(&mut self.attributes)
     }
 
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
+    fn place_attributes(&mut self, attributes: HashMap<(String, String), rust::Attribute>) {
         self.attributes = attributes;
     }
 }
@@ -565,12 +566,15 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
 impl AttributeMethods for VideoFrameProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
         let mut inner = self.inner.write();
-        inner.exclude_temporary_attributes()
+        let attrs = inner.exclude_temporary_attributes();
+        unsafe { mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attrs) }
     }
 
     fn restore_attributes(&self, attributes: Vec<Attribute>) {
         let mut inner = self.inner.write();
-        inner.restore_attributes(attributes)
+        let attributes =
+            unsafe { mem::transmute::<Vec<Attribute>, Vec<rust::Attribute>>(attributes) };
+        inner.restore_attributes(attributes);
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
@@ -580,17 +584,21 @@ impl AttributeMethods for VideoFrameProxy {
 
     fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let inner = self.inner.read_recursive();
-        inner.get_attribute(namespace, name)
+        let res = inner.get_attribute(namespace, name);
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.delete_attribute(namespace, name)
+        let res = inner.delete_attribute(namespace, name);
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
         let mut inner = self.inner.write();
-        inner.set_attribute(attribute)
+        let attribute = unsafe { mem::transmute::<Attribute, rust::Attribute>(attribute) };
+        let res = inner.set_attribute(attribute);
+        unsafe { mem::transmute::<Option<rust::Attribute>, Option<Attribute>>(res) }
     }
 
     fn clear_attributes(&self) {
@@ -961,7 +969,7 @@ impl VideoFrameProxy {
         match &update.attribute_collision_resolution_policy {
             ReplaceWithForeignWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = update.attributes.clone();
+                let other_inner = update.get_attributes().clone();
                 inner.attributes.extend(
                     other_inner
                         .into_iter()
@@ -970,7 +978,7 @@ impl VideoFrameProxy {
             }
             KeepOwnWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = update.attributes.clone();
+                let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
                     inner.attributes.entry(key).or_insert(attr);
@@ -978,7 +986,7 @@ impl VideoFrameProxy {
             }
             ErrorWhenDuplicate => {
                 let mut inner = self.inner.write();
-                let other_inner = update.attributes.clone();
+                let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
                     if inner.attributes.contains_key(&key) {
@@ -993,7 +1001,7 @@ impl VideoFrameProxy {
             }
             PrefixDuplicates(prefix) => {
                 let mut inner = self.inner.write();
-                let other_inner = update.attributes.clone();
+                let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
                     if inner.attributes.contains_key(&key) {

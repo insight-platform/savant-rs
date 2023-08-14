@@ -55,7 +55,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     }
     let attrs = f.get_attributes();
     for (namespace, label) in attrs {
-        update.add_attribute(&f.get_attribute(namespace, label).unwrap());
+        update.add_attribute(f.get_attribute(namespace, label).unwrap());
     }
 
     let message = Message::video_frame_update(update);

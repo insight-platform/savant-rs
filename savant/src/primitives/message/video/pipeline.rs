@@ -1,10 +1,10 @@
 use crate::primitives::message::video::query::MatchQuery;
 use crate::primitives::{VideoFrameBatch, VideoFrameProxy, VideoFrameUpdate, VideoObjectProxy};
-use crate::utils::get_tracer;
 use hashbrown::HashSet;
 use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
 use opentelemetry::Context;
 use pyo3::prelude::*;
+use savant_core::get_tracer;
 use std::collections::HashMap;
 
 const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
@@ -600,7 +600,7 @@ mod tests {
     use crate::primitives::message::video::pipeline::{
         VideoPipeline, VideoPipelineStagePayloadType,
     };
-    use crate::primitives::{AttributeBuilder, AttributeValue, VideoFrameUpdate};
+    use crate::primitives::{Attribute, AttributeValue, VideoFrameUpdate};
     use crate::test::utils::gen_frame;
     use opentelemetry::global;
     use opentelemetry::sdk::export::trace::stdout;
@@ -732,16 +732,12 @@ mod tests {
 
     fn get_update() -> VideoFrameUpdate {
         let mut update = VideoFrameUpdate::new();
-        update.add_attribute(
-            &AttributeBuilder::default()
-                .namespace("update".into())
-                .name("attribute".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::string("1".into(), None)])
-                .build()
-                .unwrap(),
-        );
+        update.add_attribute(Attribute::persistent(
+            "update".into(),
+            "attribute".into(),
+            vec![AttributeValue::string("1".into(), None)],
+            Some("test".into()),
+        ));
         update
     }
 

@@ -1,16 +1,13 @@
 use crate::primitives::point::Point;
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use savant_core::primitives::point::Point as PointRs;
-use savant_core::primitives::segment::Intersection as IntersectionRs;
-use savant_core::primitives::segment::IntersectionKind as IntersectionKindRs;
-use savant_core::primitives::segment::Segment as SegmentRs;
+use savant_core::primitives::rust;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::mem;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
-pub struct Segment(SegmentRs);
+pub struct Segment(rust::Segment);
 
 impl ToSerdeJsonValue for Segment {
     fn to_serde_json_value(&self) -> Value {
@@ -33,10 +30,20 @@ impl Segment {
 
     #[new]
     pub fn new(begin: Point, end: Point) -> Self {
-        Self(SegmentRs::new(
-            unsafe { mem::transmute::<Point, PointRs>(begin) },
-            unsafe { mem::transmute::<Point, PointRs>(end) },
+        Self(rust::Segment::new(
+            unsafe { mem::transmute::<Point, rust::Point>(begin) },
+            unsafe { mem::transmute::<Point, rust::Point>(end) },
         ))
+    }
+
+    #[getter]
+    pub fn begin(&self) -> Point {
+        unsafe { mem::transmute::<rust::Point, Point>(self.0.begin.clone()) }
+    }
+
+    #[getter]
+    pub fn end(&self) -> Point {
+        unsafe { mem::transmute::<rust::Point, Point>(self.0.end.clone()) }
     }
 }
 
@@ -50,26 +57,26 @@ pub enum IntersectionKind {
     Outside,
 }
 
-impl From<IntersectionKind> for IntersectionKindRs {
+impl From<IntersectionKind> for rust::IntersectionKind {
     fn from(kind: IntersectionKind) -> Self {
         match kind {
-            IntersectionKind::Enter => IntersectionKindRs::Enter,
-            IntersectionKind::Inside => IntersectionKindRs::Inside,
-            IntersectionKind::Leave => IntersectionKindRs::Leave,
-            IntersectionKind::Cross => IntersectionKindRs::Cross,
-            IntersectionKind::Outside => IntersectionKindRs::Outside,
+            IntersectionKind::Enter => rust::IntersectionKind::Enter,
+            IntersectionKind::Inside => rust::IntersectionKind::Inside,
+            IntersectionKind::Leave => rust::IntersectionKind::Leave,
+            IntersectionKind::Cross => rust::IntersectionKind::Cross,
+            IntersectionKind::Outside => rust::IntersectionKind::Outside,
         }
     }
 }
 
-impl From<IntersectionKindRs> for IntersectionKind {
-    fn from(kind: IntersectionKindRs) -> Self {
+impl From<rust::IntersectionKind> for IntersectionKind {
+    fn from(kind: rust::IntersectionKind) -> Self {
         match kind {
-            IntersectionKindRs::Enter => IntersectionKind::Enter,
-            IntersectionKindRs::Inside => IntersectionKind::Inside,
-            IntersectionKindRs::Leave => IntersectionKind::Leave,
-            IntersectionKindRs::Cross => IntersectionKind::Cross,
-            IntersectionKindRs::Outside => IntersectionKind::Outside,
+            rust::IntersectionKind::Enter => IntersectionKind::Enter,
+            rust::IntersectionKind::Inside => IntersectionKind::Inside,
+            rust::IntersectionKind::Leave => IntersectionKind::Leave,
+            rust::IntersectionKind::Cross => IntersectionKind::Cross,
+            rust::IntersectionKind::Outside => IntersectionKind::Outside,
         }
     }
 }
@@ -96,7 +103,7 @@ impl IntersectionKind {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct Intersection(IntersectionRs);
+pub struct Intersection(rust::Intersection);
 
 impl ToSerdeJsonValue for Intersection {
     fn to_serde_json_value(&self) -> Value {
@@ -119,7 +126,7 @@ impl Intersection {
 
     #[new]
     pub fn new(kind: IntersectionKind, edges: Vec<(usize, Option<String>)>) -> Self {
-        Self(IntersectionRs::new(kind.into(), edges))
+        Self(rust::Intersection::new(kind.into(), edges))
     }
 
     #[getter]

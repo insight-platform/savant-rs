@@ -7,8 +7,6 @@ pub mod pluggable_udf_api;
 pub mod python;
 pub mod symbol_mapper;
 
-use opentelemetry::global;
-use opentelemetry::global::BoxedTracer;
 use pyo3::prelude::*;
 
 use crate::primitives::message::loader::{
@@ -43,11 +41,7 @@ pub use fps_meter::FpsMeter;
 #[pyfunction]
 #[inline]
 pub fn round_2_digits(v: f32) -> f32 {
-    (v * 100.0).round() / 100.0
-}
-
-pub fn get_tracer() -> BoxedTracer {
-    global::tracer("video_pipeline")
+    savant_core::round_2_digits(v)
 }
 
 /// When loglevel is set to Trace reports the number of nanoseconds spent waiting for the GIL

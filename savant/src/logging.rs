@@ -1,10 +1,10 @@
 use crate::release_gil;
-use crate::utils::otlp::with_current_context;
 use colored::Colorize;
 use opentelemetry::trace::{TraceContextExt, TraceId};
 use opentelemetry::KeyValue;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use savant_core::otlp::with_current_context;
 
 #[pyclass]
 #[derive(Debug, Clone, Copy)]

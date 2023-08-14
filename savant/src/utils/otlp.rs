@@ -1,51 +1,16 @@
 use crate::logging::{log_message, LogLevel};
 use crate::release_gil;
-use crate::utils::get_tracer;
 use crate::with_gil;
-use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, TraceId, Tracer};
-use opentelemetry::{global, Array, Context, KeyValue, StringValue, Value};
+use opentelemetry::{Array, Context, KeyValue, StringValue, Value};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyTraceback;
-use rkyv::{Archive, Deserialize, Serialize};
-use std::cell::RefCell;
+use savant_core::otlp::{current_context, current_context_depth, pop_context, push_context};
+use savant_core::{get_tracer, rust};
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::thread::ThreadId;
-
-thread_local! {
-    static CURRENT_CONTEXTS: RefCell<Vec<Context>> = RefCell::new(vec![Context::default()]);
-}
-
-fn push_context(ctx: Context) {
-    CURRENT_CONTEXTS.with(|contexts| {
-        contexts.borrow_mut().push(ctx);
-    });
-}
-
-fn pop_context() {
-    CURRENT_CONTEXTS.with(|contexts| {
-        contexts.borrow_mut().pop();
-    });
-}
-
-pub(crate) fn current_context() -> Context {
-    CURRENT_CONTEXTS.with(|contexts| {
-        let contexts = contexts.borrow();
-        contexts.last().unwrap().clone()
-    })
-}
-
-pub(crate) fn with_current_context<F, R>(f: F) -> R
-where
-    F: FnOnce(&Context) -> R,
-{
-    CURRENT_CONTEXTS.with(|contexts| {
-        let contexts = contexts.borrow();
-        f(contexts.last().as_ref().unwrap())
-    })
-}
 
 /// A Span to be used locally. Works as a guard (use with `with` statement).
 ///
@@ -102,7 +67,7 @@ impl TelemetrySpan {
 
     #[staticmethod]
     fn context_depth() -> usize {
-        CURRENT_CONTEXTS.with(|contexts| contexts.borrow().len())
+        current_context_depth()
     }
 
     #[new]
@@ -132,21 +97,17 @@ impl TelemetrySpan {
     /// :py:class:`TelemetrySpan`
     ///   new span
     ///
-    #[pyo3(name = "nested_span")]
-    #[pyo3(signature = (name, no_gil = true))]
-    fn nested_span_gil(&self, name: &str, no_gil: bool) -> TelemetrySpan {
-        release_gil!(no_gil, || {
-            let parent_ctx = &self.0;
+    fn nested_span(&self, name: &str) -> TelemetrySpan {
+        let parent_ctx = &self.0;
 
-            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
-                return TelemetrySpan::default();
-            }
+        if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+            return TelemetrySpan::default();
+        }
 
-            let span = get_tracer()
-                .build_with_context(SpanBuilder::from_name(name.to_string()), parent_ctx);
-            let ctx = Context::current_with_span(span);
-            TelemetrySpan(ctx, TelemetrySpan::thread_id())
-        })
+        let span =
+            get_tracer().build_with_context(SpanBuilder::from_name(name.to_string()), parent_ctx);
+        let ctx = Context::current_with_span(span);
+        TelemetrySpan(ctx, TelemetrySpan::thread_id())
     }
 
     /// Creates a nested span only when log level is enabled
@@ -165,8 +126,7 @@ impl TelemetrySpan {
     ///
     fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
         MaybeTelemetrySpan::new(if predicate {
-            // TODO: get rid of this gil
-            Some(self.nested_span_gil(name, false))
+            Some(self.nested_span(name))
         } else {
             None
         })
@@ -181,11 +141,9 @@ impl TelemetrySpan {
     /// :py:class:`PropagatedContext`
     ///   The created context.
     ///
-    #[pyo3(name = "propagate")]
-    #[pyo3(signature = (no_gil = true))]
-    fn propagate_gil(&self, no_gil: bool) -> PropagatedContext {
+    fn propagate(&self) -> PropagatedContext {
         self.ensure_same_thread();
-        release_gil!(no_gil, || PropagatedContext::inject(&self.0))
+        PropagatedContext::inject(&self.0)
     }
 
     #[classattr]
@@ -257,7 +215,7 @@ impl TelemetrySpan {
                         ),
                     );
 
-                    self.add_event_gil("python.exception".to_string(), attrs, false);
+                    self.add_event("python.exception".to_string(), attrs);
                 });
             } else {
                 self.0.span().set_status(Status::Ok);
@@ -371,15 +329,12 @@ impl TelemetrySpan {
     /// attributes : dict[str, str]
     ///   The attributes of the event.
     ///
-    #[pyo3(name = "add_event")]
-    #[pyo3(signature = (name, attributes = HashMap::default(), no_gil = false))]
-    fn add_event_gil(&self, name: String, attributes: HashMap<String, String>, no_gil: bool) {
+    #[pyo3(signature = (name, attributes = HashMap::default()))]
+    fn add_event(&self, name: String, attributes: HashMap<String, String>) {
         self.ensure_same_thread();
-        release_gil!(no_gil, || {
-            self.0
-                .span()
-                .add_event(name, TelemetrySpan::build_attributes(attributes))
-        });
+        self.0
+            .span()
+            .add_event(name, TelemetrySpan::build_attributes(attributes))
     }
 
     /// Configures the span status as Error with the given message.
@@ -422,8 +377,7 @@ impl MaybeTelemetrySpan {
     fn nested_span(&self, name: &str) -> MaybeTelemetrySpan {
         if let Some(span) = &self.span {
             MaybeTelemetrySpan {
-                // TODO: get rid of GIL
-                span: Some(span.nested_span_gil(name, false)),
+                span: Some(span.nested_span(name)),
             }
         } else {
             MaybeTelemetrySpan { span: None }
@@ -434,8 +388,7 @@ impl MaybeTelemetrySpan {
         match &self.span {
             None => MaybeTelemetrySpan::new(None),
             Some(span) => MaybeTelemetrySpan::new(if predicate {
-                // TODO: get rid of GIL
-                Some(span.nested_span_gil(name, false))
+                Some(span.nested_span(name))
             } else {
                 None
             }),
@@ -470,9 +423,8 @@ impl MaybeTelemetrySpan {
 ///
 ///
 #[pyclass]
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
-#[archive(check_bytes)]
-pub struct PropagatedContext(HashMap<String, String>);
+#[derive(Debug, Clone, Default)]
+pub struct PropagatedContext(rust::PropagatedContext);
 
 #[pymethods]
 impl PropagatedContext {
@@ -490,19 +442,15 @@ impl PropagatedContext {
     /// OTLPSpan
     ///   A new span
     ///
-    #[pyo3(name = "nested_span")]
-    #[pyo3(signature = (name, no_gil = false))]
-    fn nested_span_gil(&self, name: &str, no_gil: bool) -> TelemetrySpan {
-        release_gil!(no_gil, || {
-            let parent_ctx = self.extract();
-            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
-                return TelemetrySpan::default();
-            }
-            let span = get_tracer()
-                .build_with_context(SpanBuilder::from_name(name.to_string()), &parent_ctx);
-            let ctx = Context::current_with_span(span);
-            TelemetrySpan(ctx, TelemetrySpan::thread_id())
-        })
+    fn nested_span(&self, name: &str) -> TelemetrySpan {
+        let parent_ctx = self.extract();
+        if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+            return TelemetrySpan::default();
+        }
+        let span =
+            get_tracer().build_with_context(SpanBuilder::from_name(name.to_string()), &parent_ctx);
+        let ctx = Context::current_with_span(span);
+        TelemetrySpan(ctx, TelemetrySpan::thread_id())
     }
 
     /// Creates a nested span only when log level is enabled
@@ -521,8 +469,7 @@ impl PropagatedContext {
     ///
     fn nested_span_when(&self, name: &str, predicate: bool) -> MaybeTelemetrySpan {
         MaybeTelemetrySpan::new(if predicate {
-            // TODO: get rid of GIL
-            Some(self.nested_span_gil(name, false))
+            Some(self.nested_span(name))
         } else {
             None
         })
@@ -531,7 +478,7 @@ impl PropagatedContext {
     /// Returns the context in the form of a dictionary
     ///
     fn as_dict(&self) -> HashMap<String, String> {
-        self.0.clone()
+        self.0 .0.clone()
     }
 
     #[classattr]
@@ -551,32 +498,11 @@ impl PropagatedContext {
         Self::default()
     }
 
-    pub fn inject(context: &opentelemetry::Context) -> Self {
-        global::get_text_map_propagator(|propagator| {
-            let mut propagation_context = PropagatedContext::new();
-            propagator.inject_context(context, &mut propagation_context);
-            propagation_context
-        })
+    pub fn inject(context: &Context) -> Self {
+        Self(rust::PropagatedContext::inject(context))
     }
 
-    pub fn extract(&self) -> opentelemetry::Context {
-        global::get_text_map_propagator(|propagator| propagator.extract(self))
-    }
-}
-
-impl Injector for PropagatedContext {
-    fn set(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_owned(), value);
-    }
-}
-
-impl Extractor for PropagatedContext {
-    fn get(&self, key: &str) -> Option<&str> {
-        let key = key.to_owned();
-        self.0.get(&key).map(|v| v.as_ref())
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        self.0.keys().map(|k| k.as_ref()).collect()
+    pub fn extract(&self) -> Context {
+        rust::PropagatedContext::extract(&self.0)
     }
 }

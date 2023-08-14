@@ -3,17 +3,14 @@ use crate::primitives::{Intersection, Segment};
 use crate::release_gil;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use savant_core::primitives::Intersection as IntersectionRs;
-use savant_core::primitives::Point as PointRs;
-use savant_core::primitives::PolygonalArea as PolygonalAreaRs;
-use savant_core::primitives::Segment as SegmentRs;
+use savant_core::primitives::rust;
 use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::mem;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
-pub struct PolygonalArea(PolygonalAreaRs);
+pub struct PolygonalArea(rust::PolygonalArea);
 
 impl ToSerdeJsonValue for PolygonalArea {
     fn to_serde_json_value(&self) -> Value {
@@ -30,14 +27,14 @@ impl PolygonalArea {
 #[pymethods]
 impl PolygonalArea {
     pub fn contains_many_points(&mut self, points: Vec<Point>) -> Vec<bool> {
-        let points = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(points) };
+        let points = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(points) };
         self.0.contains_many_points(&points)
     }
 
     pub fn crossed_by_segments(&mut self, segments: Vec<Segment>) -> Vec<Intersection> {
-        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<SegmentRs>>(segments) };
+        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<rust::Segment>>(segments) };
         let intersections = self.0.crossed_by_segments(&segments);
-        unsafe { mem::transmute::<Vec<IntersectionRs>, Vec<Intersection>>(intersections) }
+        unsafe { mem::transmute::<Vec<rust::Intersection>, Vec<Intersection>>(intersections) }
     }
 
     pub fn is_self_intersecting(&mut self) -> bool {
@@ -45,14 +42,14 @@ impl PolygonalArea {
     }
 
     pub fn crossed_by_segment(&mut self, segment: &Segment) -> Intersection {
-        let segment = unsafe { mem::transmute::<&Segment, &SegmentRs>(segment) };
+        let segment = unsafe { mem::transmute::<&Segment, &rust::Segment>(segment) };
         let intersection = self.0.crossed_by_segment(segment);
-        unsafe { mem::transmute::<IntersectionRs, Intersection>(intersection) }
+        unsafe { mem::transmute::<rust::Intersection, Intersection>(intersection) }
     }
 
     pub fn contains(&mut self, p: &Point) -> bool {
         self.0
-            .contains(unsafe { mem::transmute::<&Point, &PointRs>(p) })
+            .contains(unsafe { mem::transmute::<&Point, &rust::Point>(p) })
     }
 
     pub fn build_polygon(&mut self) {
@@ -69,10 +66,10 @@ impl PolygonalArea {
     #[pyo3(name = "points_positions")]
     #[pyo3(signature = (polys, points, no_gil=false))]
     fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>, no_gil: bool) -> Vec<Vec<bool>> {
-        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<PolygonalAreaRs>>(polys) };
-        let points = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(points) };
+        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
+        let points = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(points) };
         release_gil!(no_gil, || {
-            PolygonalAreaRs::points_positions(&mut polys, &points)
+            rust::PolygonalArea::points_positions(&mut polys, &points)
         })
     }
 
@@ -84,17 +81,19 @@ impl PolygonalArea {
         segments: Vec<Segment>,
         no_gil: bool,
     ) -> Vec<Vec<Intersection>> {
-        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<PolygonalAreaRs>>(polys) };
-        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<SegmentRs>>(segments) };
+        let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
+        let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<rust::Segment>>(segments) };
         let intersections = release_gil!(no_gil, || {
-            PolygonalAreaRs::segments_intersections(&mut polys, &segments)
+            rust::PolygonalArea::segments_intersections(&mut polys, &segments)
         });
-        unsafe { mem::transmute::<Vec<Vec<IntersectionRs>>, Vec<Vec<Intersection>>>(intersections) }
+        unsafe {
+            mem::transmute::<Vec<Vec<rust::Intersection>>, Vec<Vec<Intersection>>>(intersections)
+        }
     }
 
     #[new]
     pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
-        let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<PointRs>>(vertices) };
-        Self(PolygonalAreaRs::new(vertices, tags))
+        let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(vertices) };
+        Self(rust::PolygonalArea::new(vertices, tags))
     }
 }

@@ -1,4 +1,5 @@
 pub mod utils {
+    use crate::primitives::attribute::Attribute;
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::message::video::frame::{
@@ -6,8 +7,8 @@ pub mod utils {
     };
     use crate::primitives::message::video::object::{VideoObject, VideoObjectBuilder};
     use crate::primitives::{
-        AttributeBuilder, IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point,
-        VideoFrameContentProxy, VideoObjectProxy,
+        IdCollisionResolutionPolicy, Intersection, IntersectionKind, Point, VideoFrameContentProxy,
+        VideoObjectProxy,
     };
     use crate::primitives::{RBBox, VideoFrameProxy};
     use pyo3::pyfunction;
@@ -96,72 +97,58 @@ pub mod utils {
         f.add_object(&c2, IdCollisionResolutionPolicy::Error)
             .unwrap();
 
-        f.set_attribute(
-            AttributeBuilder::default()
-                .namespace("system".into())
-                .name("test".into())
-                .hint(None)
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::string("1".into(), None)])
-                .build()
-                .unwrap(),
-        );
+        f.set_attribute(Attribute::persistent(
+            "system".into(),
+            "test".into(),
+            vec![AttributeValue::string("1".into(), None)],
+            Some("test".into()),
+        ));
 
-        f.set_attribute(
-            AttributeBuilder::default()
-                .namespace("system2".into())
-                .name("test2".into())
-                .hint(None)
-                .values(vec![AttributeValue::string("2".into(), None)])
-                .build()
-                .unwrap(),
-        );
+        f.set_attribute(Attribute::persistent(
+            "system2".into(),
+            "test2".into(),
+            vec![AttributeValue::string("2".into(), None)],
+            None,
+        ));
 
-        f.set_attribute(
-            AttributeBuilder::default()
-                .namespace("system".into())
-                .name("test2".into())
-                .hint(Some("test".into()))
-                .values(vec![AttributeValue::string("3".into(), None)])
-                .build()
-                .unwrap(),
-        );
+        f.set_attribute(Attribute::persistent(
+            "system".into(),
+            "test2".into(),
+            vec![AttributeValue::string("3".into(), None)],
+            Some("test".into()),
+        ));
 
-        f.set_attribute(
-            AttributeBuilder::default()
-                .namespace("test".to_string())
-                .name("test".to_string())
-                .hint(Some("hint".to_string()))
-                .values(vec![
-                    AttributeValue::bytes_from_list(vec![8, 3, 8, 8], [0; 192].into(), None),
-                    AttributeValue::integers([0, 1, 2, 3, 4, 5].into(), None),
-                    AttributeValue::string("incoming".to_string(), Some(0.56)),
-                    AttributeValue::strings(vec!["abc".into(), "cde".into()], None),
-                    AttributeValue::string("outgoing".to_string(), Some(0.64)),
-                    AttributeValue::none(),
-                    AttributeValue::bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None), None),
-                    AttributeValue::bboxes(
-                        vec![
-                            RBBox::new(0.0, 0.0, 0.0, 0.0, None),
-                            RBBox::new(0.0, 0.0, 0.0, 0.0, None),
-                        ],
-                        None,
+        f.set_attribute(Attribute::persistent(
+            "test".to_string(),
+            "test".to_string(),
+            vec![
+                AttributeValue::bytes_from_list(vec![8, 3, 8, 8], [0; 192].into(), None),
+                AttributeValue::integers([0, 1, 2, 3, 4, 5].into(), None),
+                AttributeValue::string("incoming".to_string(), Some(0.56)),
+                AttributeValue::strings(vec!["abc".into(), "cde".into()], None),
+                AttributeValue::string("outgoing".to_string(), Some(0.64)),
+                AttributeValue::none(),
+                AttributeValue::bbox(RBBox::new(0.0, 0.0, 0.0, 0.0, None), None),
+                AttributeValue::bboxes(
+                    vec![
+                        RBBox::new(0.0, 0.0, 0.0, 0.0, None),
+                        RBBox::new(0.0, 0.0, 0.0, 0.0, None),
+                    ],
+                    None,
+                ),
+                AttributeValue::float(0.0, None),
+                AttributeValue::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
+                AttributeValue::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
+                AttributeValue::intersection(
+                    Intersection::new(
+                        IntersectionKind::Enter,
+                        vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],
                     ),
-                    AttributeValue::float(0.0, None),
-                    AttributeValue::floats(vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0], None),
-                    AttributeValue::points(vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0)], None),
-                    AttributeValue::intersection(
-                        Intersection::new(
-                            IntersectionKind::Enter,
-                            vec![(0, Some("x1".to_string())), (1, Some("y1".to_string()))],
-                        ),
-                        None,
-                    ),
-                ])
-                .build()
-                .unwrap(),
-        );
-
+                    None,
+                ),
+            ],
+            Some("hint".to_string()),
+        ));
         f
     }
 
@@ -177,13 +164,12 @@ pub mod utils {
             ..Default::default()
         });
 
-        let attr = AttributeBuilder::default()
-            .namespace("some".to_string())
-            .name("attribute".to_string())
-            .hint(Some("hint".to_string()))
-            .values(vec![])
-            .build()
-            .unwrap();
+        let attr = Attribute::persistent(
+            "some".to_string(),
+            "attribute".to_string(),
+            vec![],
+            Some("hint".to_string()),
+        );
         o.set_attribute(attr);
         o
     }
