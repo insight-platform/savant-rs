@@ -13,7 +13,7 @@ clippy:
 
 build_savant:
 	@echo "Building..."
-	cd savant && CARGO_INCREMENTAL=true maturin build -o dist
+	cd savant_python && CARGO_INCREMENTAL=true maturin build -o dist
 
 build_etcd_dynamic_state:
 	@echo "Building Etcd dynamic state..."
@@ -21,7 +21,7 @@ build_etcd_dynamic_state:
 
 build_savant_release:
 	@echo "Building..."
-	cd savant && maturin build --release -o dist
+	cd savant_python && maturin build --release -o dist
 
 build_etcd_dynamic_state_release:
 	@echo "Building..."
@@ -29,7 +29,7 @@ build_etcd_dynamic_state_release:
 
 install_savant:
 	@echo "Installing..."
-	cd savant && pip3.10 install --force-reinstall dist/*.whl
+	cd savant_python && pip3.10 install --force-reinstall dist/*.whl
 
 install_etcd_dynamic_state:
 	@echo "Installing..."
@@ -37,13 +37,17 @@ install_etcd_dynamic_state:
 
 clean:
 	@echo "Cleaning..."
-	cd savant && rm -rf dist/*.whl
+	cd savant_python && rm -rf dist/*.whl
 	cd savant_etcd_dynamic_state && rm -rf dist/*.whl
 
 tests:
 	@echo "Running tests..."
-	cd savant && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
+	cd savant_python && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
+
+core-tests:
+	@echo "Running core lib tests..."
+	cd savant_core && cargo build && cargo test -- --show-output --nocapture --test-threads=1
 
 bench:
 	@echo "Running benchmarks..."
-	cd savant && cargo bench --no-default-features -- --show-output --nocapture
+	cd savant_core && cargo bench --no-default-features -- --show-output --nocapture

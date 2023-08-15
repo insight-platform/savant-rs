@@ -7,11 +7,10 @@ set_log_level(LogLevel.Trace)
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import load_message_from_bytes, save_message_to_bytes, Message
-from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
-    AttributeUpdateCollisionResolutionPolicy
+from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, AttributeUpdatePolicy
 
 
-socket_name = "ipc://test_hello"
+socket_name = "ipc:///tmp/test_hello"
 
 
 def server():
@@ -27,8 +26,8 @@ def server():
         _ = load_message_from_bytes(message)
 
         update = VideoFrameUpdate()
-        update.object_collision_resolution_policy = VideoObjectUpdateCollisionResolutionPolicy.add_foreign_objects()
-        update.attribute_collision_resolution_policy = AttributeUpdateCollisionResolutionPolicy.replace_with_foreign()
+        update.object_policy = ObjectUpdatePolicy.AddForeignObjects
+        update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
         m = Message.video_frame_update(update)
         binary = save_message_to_bytes(m)

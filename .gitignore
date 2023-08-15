@@ -21,6 +21,6 @@ Cargo.lock
 /Cargo.lock
 /docs/build
 /docs/source/generated
-/savant/dist
+/savant_python/dist
 /sample_plugin/dist
 /savant_etcd_dynamic_state/dist

@@ -37,7 +37,7 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          working-directory: savant
+          working-directory: savant_python
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: wheels
-          path: savant/dist
+          path: savant_python/dist
 
   release:
     name: Release

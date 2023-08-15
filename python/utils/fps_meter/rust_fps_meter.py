@@ -9,7 +9,7 @@ m = FpsMeter.time_based(5)
 t = timer()
 
 res = None
-for i in range(10_000_000):
+for i in range(10_000):
     res = m(i)
 
 fps = FpsMeter.fps(*res)

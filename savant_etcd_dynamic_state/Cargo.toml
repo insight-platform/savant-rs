@@ -17,18 +17,21 @@ rust-version.workspace = true
 
 [dependencies]
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }
-savant_rs = { path = "../savant" }
-parking_lot = "0.12"
+savant_rs = { path = "../savant_python" }
 anyhow = "1"
 env_logger = "0.10"
 opentelemetry = "0.19"
 opentelemetry-jaeger = "0.18"
+parking_lot = {version = "0.12", features = ["deadlock_detection"]}
+jmespath = { version = "0.3", features = ["sync"] }
+lru = "0.11"
+
 
 [lib]
 crate-type = ["cdylib", "lib"]
 
 [dependencies.pyo3]
-version = "0.18"
+version = "0.19"
 
 [dependencies.tokio]
 version = "1.28"
@@ -39,5 +42,5 @@ extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
 
 [build-dependencies]
-pyo3-build-config = "0.18"
+pyo3-build-config = "0.19"
 cbindgen = "0.24"

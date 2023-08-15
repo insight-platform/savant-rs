@@ -1,0 +1,44 @@
+[package]
+name = "savant_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hashbrown = "0.14"
+anyhow = "1"
+geo = "0.26"
+thiserror = "1"
+lazy_static = "1.4"
+crc32fast = "1"
+opentelemetry = "0.19"
+opentelemetry-jaeger = "0.18"
+serde_json = "1.0"
+serde_yaml = "0.9"
+serde = { version = "1.0", features = ["derive"] }
+jmespath = { version = "0.3", features = ["sync"] }
+lru = "0.11"
+evalexpr = { version = "11", features = ["rand", "regex_support"] }
+parking_lot = {version = "0.12", features = ["deadlock_detection"]}
+rkyv = { version = "0.7", features = ["validation", "archive_le"] }
+etcd_dynamic_state = { path = "../etcd_dynamic_state" }
+derive_builder = "0.12"
+rayon = "1.7"
+libloading = "0.8"
+
+[dependencies.tokio]
+version = "1.28"
+features = ["full"]
+
+[lib]
+crate-type = ["cdylib", "lib"]

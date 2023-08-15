@@ -281,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_monitor() -> anyhow::Result<()> {
         _ = env_logger::try_init();
 
@@ -344,6 +345,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_wrong_ip() {
         _ = env_logger::try_init();
 

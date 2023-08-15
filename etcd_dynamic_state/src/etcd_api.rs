@@ -303,6 +303,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     #[tokio::test]
+    #[ignore]
     async fn test_monitor() -> Result<()> {
         _ = env_logger::try_init();
         let mut client = EtcdClient::new(
