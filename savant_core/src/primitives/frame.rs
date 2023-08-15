@@ -344,6 +344,10 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 }
 
 impl VideoFrameProxy {
+    pub fn memory_handle(&self) -> usize {
+        self as *const Self as usize
+    }
+
     pub fn transform_geometry(&self, ops: &Vec<VideoObjectBBoxTransformation>) {
         let objs = self.access_objects(&MatchQuery::Idle);
         for obj in objs {
@@ -723,10 +727,6 @@ impl VideoFrameProxy {
 
     pub fn get_parallelized(&self) -> bool {
         self.is_parallelized
-    }
-
-    pub fn memory_handle(&self) -> usize {
-        self as *const Self as usize
     }
 
     #[allow(clippy::too_many_arguments)]

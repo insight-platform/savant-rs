@@ -43,6 +43,10 @@ pub struct VideoPipeline {
 }
 
 impl VideoPipeline {
+    pub fn memory_handle(&self) -> usize {
+        self as *const Self as usize
+    }
+
     pub fn set_root_span_name(&mut self, name: String) {
         self.root_span_name = Some(name);
     }
