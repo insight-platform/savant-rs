@@ -1,10 +1,10 @@
 pub mod eos;
 pub mod loader;
 pub mod saver;
-pub mod unspecified;
+pub mod user_data;
 pub mod video;
 
-use crate::primitives::message::unspecified::UnspecifiedData;
+use crate::primitives::message::user_data::UserData;
 use crate::primitives::message::video::frame_update::VideoFrameUpdate;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
@@ -58,8 +58,8 @@ impl Message {
     ///   The message of EndOfStream type
     ///
     #[staticmethod]
-    pub fn unspecified(data: UnspecifiedData) -> Self {
-        Self(rust_primitives::Message::unspecified(data.0))
+    pub fn user_data(data: UserData) -> Self {
+        Self(rust_primitives::Message::user_data(data.0))
     }
 
     /// Create a new end of stream message
@@ -178,8 +178,8 @@ impl Message {
     /// bool
     ///   True if the message is of Telemetry type, False otherwise
     ///
-    pub fn is_unspecified(&self) -> bool {
-        self.0.is_unspecified()
+    pub fn is_user_data(&self) -> bool {
+        self.0.is_user_data()
     }
 
     /// Checks if the message is of VideoFrame type
@@ -251,9 +251,9 @@ impl Message {
     /// None
     ///   If the message is not of Telemetry type
     ///
-    pub fn as_unspecified(&self) -> Option<UnspecifiedData> {
-        let data = self.0.as_unspecified()?;
-        Some(UnspecifiedData(data.clone()))
+    pub fn as_user_data(&self) -> Option<UserData> {
+        let data = self.0.as_user_data()?;
+        Some(UserData(data.clone()))
     }
 
     /// Returns the message as VideoFrame type

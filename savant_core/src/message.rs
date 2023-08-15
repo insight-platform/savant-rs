@@ -4,7 +4,7 @@ use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
-use crate::primitives::unspecified::UnspecifiedData;
+use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
 use crate::version_to_bytes_le;
 use rkyv::{Archive, Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub enum MessageEnvelope {
     VideoFrame(Box<VideoFrame>),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
-    Unspecified(UnspecifiedData),
+    UserData(UserData),
     Unknown(String),
 }
 
@@ -61,12 +61,12 @@ impl Message {
         }
     }
 
-    pub fn unspecified(mut t: UnspecifiedData) -> Self {
+    pub fn user_data(mut t: UserData) -> Self {
         t.exclude_temporary_attributes();
 
         Self {
             meta: MessageMeta::new(),
-            payload: MessageEnvelope::Unspecified(t),
+            payload: MessageEnvelope::UserData(t),
         }
     }
 
@@ -138,8 +138,8 @@ impl Message {
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.payload, MessageEnvelope::EndOfStream(_))
     }
-    pub fn is_unspecified(&self) -> bool {
-        matches!(self.payload, MessageEnvelope::Unspecified(_))
+    pub fn is_user_data(&self) -> bool {
+        matches!(self.payload, MessageEnvelope::UserData(_))
     }
     pub fn is_video_frame(&self) -> bool {
         matches!(self.payload, MessageEnvelope::VideoFrame(_))
@@ -162,9 +162,9 @@ impl Message {
             _ => None,
         }
     }
-    pub fn as_unspecified(&self) -> Option<&UnspecifiedData> {
+    pub fn as_user_data(&self) -> Option<&UserData> {
         match &self.payload {
-            MessageEnvelope::Unspecified(data) => Some(data),
+            MessageEnvelope::UserData(data) => Some(data),
             _ => None,
         }
     }
@@ -235,7 +235,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
-    use crate::primitives::unspecified::UnspecifiedData;
+    use crate::primitives::userdata::UserData;
     use crate::primitives::Attribute;
     use crate::test::gen_frame;
 
@@ -249,12 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn test_save_load_unspecified() {
-        let t = UnspecifiedData::new("test".to_string());
-        let m = Message::unspecified(t);
+    fn test_save_load_user_data() {
+        let t = UserData::new("test".to_string());
+        let m = Message::user_data(t);
         let res = save_message(&m);
         let m = load_message(&res);
-        assert!(m.is_unspecified());
+        assert!(m.is_user_data());
     }
 
     #[test]

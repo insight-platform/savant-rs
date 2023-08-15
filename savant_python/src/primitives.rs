@@ -26,7 +26,7 @@ pub use draw::*;
 pub use message::eos::EndOfStream;
 pub use message::loader::load_message;
 pub use message::saver::save_message;
-pub use message::unspecified::UnspecifiedData;
+pub use message::user_data::UserData;
 pub use message::video::batch::VideoFrameBatch;
 
 pub use message::video::frame::{VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod};
@@ -81,7 +81,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AttributeValueType>()?;
     m.add_class::<AttributeValuesView>()?;
     m.add_class::<EndOfStream>()?;
-    m.add_class::<UnspecifiedData>()?;
+    m.add_class::<UserData>()?;
 
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameBatch>()?;

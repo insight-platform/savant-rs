@@ -9,16 +9,16 @@ use std::mem;
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct UnspecifiedData(pub(crate) rust_primitives::UnspecifiedData);
+pub struct UserData(pub(crate) rust_primitives::UserData);
 
-impl ToSerdeJsonValue for UnspecifiedData {
+impl ToSerdeJsonValue for UserData {
     fn to_serde_json_value(&self) -> Value {
         self.0.to_serde_json_value()
     }
 }
 
 #[pymethods]
-impl UnspecifiedData {
+impl UserData {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -32,7 +32,7 @@ impl UnspecifiedData {
 
     #[new]
     pub fn new(source_id: String) -> Self {
-        Self(rust_primitives::UnspecifiedData::new(source_id))
+        Self(rust_primitives::UserData::new(source_id))
     }
 
     #[getter]
@@ -46,7 +46,7 @@ impl UnspecifiedData {
     }
 
     pub fn to_message(&self) -> Message {
-        Message::unspecified(self.clone())
+        Message::user_data(self.clone())
     }
 
     #[pyo3(name = "attributes")]

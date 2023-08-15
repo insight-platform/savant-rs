@@ -7,12 +7,12 @@ use std::mem;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub struct UnspecifiedData {
+pub struct UserData {
     pub source_id: String,
     pub attributes: HashMap<(String, String), Attribute>,
 }
 
-impl ToSerdeJsonValue for UnspecifiedData {
+impl ToSerdeJsonValue for UserData {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!(
         {
@@ -23,7 +23,7 @@ impl ToSerdeJsonValue for UnspecifiedData {
     }
 }
 
-impl UnspecifiedData {
+impl UserData {
     pub fn new(source_id: String) -> Self {
         Self {
             source_id,
@@ -44,7 +44,7 @@ impl UnspecifiedData {
     }
 }
 
-impl Attributive for UnspecifiedData {
+impl Attributive for UserData {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
