@@ -16,20 +16,20 @@ pub enum VideoPipelineStagePayloadType {
     Batch,
 }
 
-impl From<VideoPipelineStagePayloadType> for rust::VideoPipelineStagePayloadType {
+impl From<VideoPipelineStagePayloadType> for rust::PipelineStagePayloadType {
     fn from(p: VideoPipelineStagePayloadType) -> Self {
         match p {
-            VideoPipelineStagePayloadType::Frame => rust::VideoPipelineStagePayloadType::Frame,
-            VideoPipelineStagePayloadType::Batch => rust::VideoPipelineStagePayloadType::Batch,
+            VideoPipelineStagePayloadType::Frame => rust::PipelineStagePayloadType::Frame,
+            VideoPipelineStagePayloadType::Batch => rust::PipelineStagePayloadType::Batch,
         }
     }
 }
 
-impl From<rust::VideoPipelineStagePayloadType> for VideoPipelineStagePayloadType {
-    fn from(p: rust::VideoPipelineStagePayloadType) -> Self {
+impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
+    fn from(p: rust::PipelineStagePayloadType) -> Self {
         match p {
-            rust::VideoPipelineStagePayloadType::Frame => VideoPipelineStagePayloadType::Frame,
-            rust::VideoPipelineStagePayloadType::Batch => VideoPipelineStagePayloadType::Batch,
+            rust::PipelineStagePayloadType::Frame => VideoPipelineStagePayloadType::Frame,
+            rust::PipelineStagePayloadType::Batch => VideoPipelineStagePayloadType::Batch,
         }
     }
 }
@@ -43,13 +43,13 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pyclass]
 #[derive(Debug)]
-struct VideoPipeline(rust::VideoPipeline);
+struct VideoPipeline(rust::Pipeline);
 
 #[pymethods]
 impl VideoPipeline {
     #[new]
     fn new(name: String) -> Self {
-        let mut p = rust::VideoPipeline::default();
+        let mut p = rust::Pipeline::default();
         p.set_root_span_name(name);
         Self(p)
     }

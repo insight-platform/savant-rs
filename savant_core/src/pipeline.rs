@@ -16,7 +16,7 @@ pub struct VideoPipelineStage {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum VideoPipelineStagePayloadType {
+pub enum PipelineStagePayloadType {
     Frame,
     Batch,
 }
@@ -32,17 +32,17 @@ pub enum VideoPipelinePayload {
 }
 
 #[derive(Debug, Default)]
-pub struct VideoPipeline {
+pub struct Pipeline {
     id_counter: i64,
     sampling_period: i64,
     frame_counter: i64,
     root_spans: HashMap<i64, Context>,
     stages: HashMap<String, VideoPipelineStage>,
-    stage_types: HashMap<String, VideoPipelineStagePayloadType>,
+    stage_types: HashMap<String, PipelineStagePayloadType>,
     root_span_name: Option<String>,
 }
 
-impl VideoPipeline {
+impl Pipeline {
     pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
     }
@@ -88,7 +88,7 @@ impl VideoPipeline {
     pub fn add_stage(
         &mut self,
         name: &str,
-        stage_type: VideoPipelineStagePayloadType,
+        stage_type: PipelineStagePayloadType,
     ) -> anyhow::Result<()> {
         if self.stages.contains_key(name) {
             anyhow::bail!("Stage already exists")
@@ -107,7 +107,7 @@ impl VideoPipeline {
         self.stages.get_mut(name)
     }
 
-    pub fn get_stage_type(&self, name: &str) -> Option<&VideoPipelineStagePayloadType> {
+    pub fn get_stage_type(&self, name: &str) -> Option<&PipelineStagePayloadType> {
         self.stage_types.get(name)
     }
 
@@ -176,7 +176,7 @@ impl VideoPipeline {
     ) -> anyhow::Result<i64> {
         if matches!(
             self.get_stage_type(stage_name),
-            Some(VideoPipelineStagePayloadType::Batch)
+            Some(PipelineStagePayloadType::Batch)
         ) {
             anyhow::bail!("Stage does not accept batched frames")
         }
@@ -438,10 +438,10 @@ impl VideoPipeline {
     ) -> anyhow::Result<i64> {
         if matches!(
             self.get_stage_type(source_stage_name),
-            Some(VideoPipelineStagePayloadType::Batch)
+            Some(PipelineStagePayloadType::Batch)
         ) || matches!(
             self.get_stage_type(dest_stage_name),
-            Some(VideoPipelineStagePayloadType::Frame)
+            Some(PipelineStagePayloadType::Frame)
         ) {
             anyhow::bail!("Source stage must contain independent frames and destination stage must contain batched frames")
         }
@@ -501,10 +501,10 @@ impl VideoPipeline {
     ) -> anyhow::Result<HashMap<String, i64>> {
         if matches!(
             self.get_stage_type(source_stage_name),
-            Some(VideoPipelineStagePayloadType::Frame)
+            Some(PipelineStagePayloadType::Frame)
         ) || matches!(
             self.get_stage_type(dest_stage_name),
-            Some(VideoPipelineStagePayloadType::Batch)
+            Some(PipelineStagePayloadType::Batch)
         ) {
             anyhow::bail!("Source stage must contain batched frames and destination stage must contain independent frames")
         }
@@ -601,7 +601,7 @@ impl VideoPipeline {
 #[cfg(test)]
 mod tests {
 
-    use crate::pipeline::{VideoPipeline, VideoPipelineStagePayloadType};
+    use crate::pipeline::{Pipeline, PipelineStagePayloadType};
     use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::{Attribute, AttributeMethods};
@@ -612,12 +612,12 @@ mod tests {
     use opentelemetry::trace::{TraceContextExt, TraceId};
     use std::io::sink;
 
-    fn create_pipeline() -> anyhow::Result<VideoPipeline> {
-        let mut pipeline = VideoPipeline::default();
-        pipeline.add_stage("input", VideoPipelineStagePayloadType::Frame)?;
-        pipeline.add_stage("proc1", VideoPipelineStagePayloadType::Batch)?;
-        pipeline.add_stage("proc2", VideoPipelineStagePayloadType::Batch)?;
-        pipeline.add_stage("output", VideoPipelineStagePayloadType::Frame)?;
+    fn create_pipeline() -> anyhow::Result<Pipeline> {
+        let mut pipeline = Pipeline::default();
+        pipeline.add_stage("input", PipelineStagePayloadType::Frame)?;
+        pipeline.add_stage("proc1", PipelineStagePayloadType::Batch)?;
+        pipeline.add_stage("proc2", PipelineStagePayloadType::Batch)?;
+        pipeline.add_stage("output", PipelineStagePayloadType::Frame)?;
         Ok(pipeline)
     }
 
@@ -634,7 +634,7 @@ mod tests {
     fn test_add_duplicate_stage() -> anyhow::Result<()> {
         let mut pipeline = create_pipeline()?;
         assert!(pipeline
-            .add_stage("input", VideoPipelineStagePayloadType::Frame)
+            .add_stage("input", PipelineStagePayloadType::Frame)
             .is_err());
         Ok(())
     }
@@ -666,11 +666,11 @@ mod tests {
         let pipeline = create_pipeline()?;
         assert!(matches!(
             pipeline.get_stage_type("input"),
-            Some(VideoPipelineStagePayloadType::Frame)
+            Some(PipelineStagePayloadType::Frame)
         ));
         assert!(matches!(
             pipeline.get_stage_type("proc1"),
-            Some(VideoPipelineStagePayloadType::Batch)
+            Some(PipelineStagePayloadType::Batch)
         ));
         Ok(())
     }
