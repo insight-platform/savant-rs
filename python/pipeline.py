@@ -5,6 +5,7 @@ from pprint import pprint
 import savant_rs
 
 from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
+
 set_log_level(LogLevel.Trace)
 
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
@@ -57,38 +58,38 @@ if __name__ == "__main__":
 
     p.add_frame_update("input", frame_id1, update)
 
-    frame1, ctxt1 = p.get_independent_frame("input", frame_id1)
+    frame1, ctxt1 = p.get_independent_frame(frame_id1)
     log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
 
-    frame2, ctxt2 = p.get_independent_frame("input", frame_id2)
+    frame2, ctxt2 = p.get_independent_frame(frame_id2)
     log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
 
-    batch_id = p.move_and_pack_frames("input", "proc1", [frame_id1, frame_id2])
+    batch_id = p.move_and_pack_frames("proc1", [frame_id1, frame_id2])
     assert batch_id == 3
     assert p.get_stage_queue_len("input") == 0
     assert p.get_stage_queue_len("proc1") == 1
 
-    p.apply_updates("proc1", batch_id)
-    p.clear_updates("proc1", batch_id)
+    p.apply_updates(batch_id)
+    p.clear_updates(batch_id)
 
-    p.move_as_is("proc1", "proc2", [batch_id])
-    objects = p.access_objects("proc2", batch_id, Q.idle())
+    p.move_as_is("proc2", [batch_id])
+    objects = p.access_objects(batch_id, Q.idle())
 
-    frame_map = p.move_and_unpack_batch("proc2", "output", batch_id)
+    frame_map = p.move_and_unpack_batch("output", batch_id)
     assert len(frame_map) == 2
     assert frame_map == {"test1": frame_id1, "test2": frame_id2}
 
-    frame1, ctxt1 = p.get_independent_frame("output", frame_id1)
+    frame1, ctxt1 = p.get_independent_frame(frame_id1)
     with ctxt1.nested_span("print"):
         log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
 
-    frame2, ctxt2 = p.get_independent_frame("output", frame_id2)
+    frame2, ctxt2 = p.get_independent_frame(frame_id2)
     log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
 
-    root_spans_1 = p.delete("output", frame_id1)
+    root_spans_1 = p.delete(frame_id1)
     root_spans_1 = root_spans_1[1]
 
-    root_spans_2 = p.delete("output", frame_id2)
+    root_spans_2 = p.delete(frame_id2)
     del root_spans_2
 
     with root_spans_1.nested_span("queue_len") as ns:
