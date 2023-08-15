@@ -76,39 +76,38 @@ fn benchmark(
     b.iter(|| {
         let f = gen_frame();
         let mut current_id = pipeline.add_frame("add", f).expect("Cannot add frame");
-        let mut current_stage = String::from("add");
         let mut current_payload_type = PipelineStagePayloadType::Frame;
         for (next_stage, next_payload_type) in &stages {
             match (&current_payload_type, next_payload_type) {
                 (PipelineStagePayloadType::Frame, PipelineStagePayloadType::Frame) => {
                     pipeline
-                        .move_as_is(&current_stage, next_stage, vec![current_id])
+                        .move_as_is(next_stage, vec![current_id])
                         .expect("Cannot move");
                 }
                 (PipelineStagePayloadType::Frame, PipelineStagePayloadType::Batch) => {
                     current_id = pipeline
-                        .move_and_pack_frames(&current_stage, next_stage, vec![current_id])
+                        .move_and_pack_frames(next_stage, vec![current_id])
                         .expect("Cannot move");
                 }
                 (PipelineStagePayloadType::Batch, PipelineStagePayloadType::Batch) => {
                     pipeline
-                        .move_as_is(&current_stage, next_stage, vec![current_id])
+                        .move_as_is(next_stage, vec![current_id])
                         .expect("Cannot move");
                 }
                 (PipelineStagePayloadType::Batch, PipelineStagePayloadType::Frame) => {
                     let ids = pipeline
-                        .move_and_unpack_batch(&current_stage, next_stage, current_id)
+                        .move_and_unpack_batch(next_stage, current_id)
                         .expect("Cannot move");
                     current_id = ids.values().next().unwrap().clone();
                 }
             }
-            current_stage = next_stage.clone();
             current_payload_type = next_payload_type.clone();
         }
-        let results = pipeline.delete("drop", current_id).expect("Cannot delete");
+        let results = pipeline.delete(current_id).expect("Cannot delete");
         for (_, ctx) in results {
             ctx.span().end();
         }
+        assert!(pipeline.get_id_locations().is_empty())
     });
 }
 
