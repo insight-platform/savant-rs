@@ -36,7 +36,7 @@ jobs:
       - name: Build Savant dist (no release)
         uses: PyO3/maturin-action@v1
         with:
-          working-directory: savant
+          working-directory: savant_python
           args: --out dist
 
       - name: Build Savant Etcd Dynamic State dist (no release)
@@ -49,7 +49,7 @@ jobs:
         run: pip install -r docs/requirements.txt
 
       - name: Install savant_rs
-        run: pip install savant/dist/*.whl
+        run: pip install savant_python/dist/*.whl
 
       - name: Install savant_etcd_dynamic_state
         run: pip install savant_etcd_dynamic_state/dist/*.whl
