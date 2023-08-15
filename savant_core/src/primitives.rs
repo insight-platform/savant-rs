@@ -23,11 +23,24 @@ pub mod rust {
     pub use super::attribute_value::AttributeValue;
     pub use super::bbox::BBoxMetricType;
     pub use super::bbox::OwnedRBBoxData;
+    pub use super::bbox::RBBox;
     pub use super::eos::EndOfStream;
+    pub use super::frame::BelongingVideoFrame;
+    pub use super::frame::VideoFrameContent;
+    pub use super::frame::VideoFrameProxy;
+    pub use super::frame::VideoFrameTranscodingMethod;
+    pub use super::frame::VideoFrameTransformation;
+    pub use super::frame_batch::VideoFrameBatch;
+    pub use super::frame_update::VideoFrameUpdate;
+    pub use super::object::VideoObjectBBoxTransformation;
+    pub use super::object::VideoObjectProxy;
     pub use super::point::Point;
     pub use super::polygonal_area::PolygonalArea;
     pub use super::segment::Intersection;
     pub use super::segment::IntersectionKind;
     pub use super::segment::Segment;
     pub use super::unspecified::UnspecifiedData;
+    pub use crate::message::Message;
+    pub use crate::primitives::frame::ExternalFrame;
+    pub use crate::primitives::object::IdCollisionResolutionPolicy;
 }

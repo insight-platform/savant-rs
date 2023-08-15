@@ -38,6 +38,10 @@ impl UnspecifiedData {
     pub fn json_pretty(&self) -> String {
         serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
     }
+
+    pub fn get_source_id(&self) -> &str {
+        &self.source_id
+    }
 }
 
 impl Attributive for UnspecifiedData {

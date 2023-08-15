@@ -11,6 +11,13 @@ use crate::symbol_mapper::get_object_id;
 use crate::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 
+#[derive(Clone, Debug, Copy)]
+#[repr(C)]
+pub enum VideoObjectBBoxType {
+    Detection,
+    TrackingInfo,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum VideoObjectBBoxTransformation {
     Scale(f32, f32),
@@ -111,7 +118,7 @@ impl VideoObject {
 ///
 #[derive(Debug, Clone)]
 pub struct VideoObjectProxy {
-    pub(crate) inner: Arc<RwLock<VideoObject>>,
+    pub inner: Arc<RwLock<VideoObject>>,
 }
 
 impl ToSerdeJsonValue for VideoObjectProxy {
@@ -190,6 +197,20 @@ impl AttributeMethods for VideoObjectProxy {
     }
 }
 
+impl From<VideoObject> for VideoObjectProxy {
+    fn from(value: VideoObject) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(value)),
+        }
+    }
+}
+
+impl From<Arc<RwLock<VideoObject>>> for VideoObjectProxy {
+    fn from(value: Arc<RwLock<VideoObject>>) -> Self {
+        Self { inner: value }
+    }
+}
+
 impl VideoObjectProxy {
     pub fn get_parent_id(&self) -> Option<i64> {
         let inner = self.inner.read_recursive();
@@ -198,16 +219,6 @@ impl VideoObjectProxy {
 
     pub fn get_inner(&self) -> Arc<RwLock<VideoObject>> {
         self.inner.clone()
-    }
-
-    pub fn from_video_object(object: VideoObject) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(object)),
-        }
-    }
-
-    pub fn from_arced_inner_object(object: Arc<RwLock<VideoObject>>) -> Self {
-        Self { inner: object }
     }
 
     pub fn get_inner_read(&self) -> RwLockReadGuard<VideoObject> {
@@ -339,8 +350,18 @@ impl VideoObjectProxy {
         self.inner.read_recursive().namespace.clone()
     }
 
+    pub fn get_namespace_id(&self) -> Option<i64> {
+        let inner = self.inner.read_recursive();
+        inner.namespace_id
+    }
+
     pub fn get_label(&self) -> String {
         self.inner.read_recursive().label.clone()
+    }
+
+    pub fn get_label_id(&self) -> Option<i64> {
+        let inner = self.inner.read_recursive();
+        inner.label_id
     }
 
     pub fn detached_copy(&self) -> Self {
@@ -452,7 +473,7 @@ mod tests {
     use crate::test::{gen_frame, s};
 
     fn get_object() -> VideoObjectProxy {
-        VideoObjectProxy::from_video_object(
+        VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .id(1)
                 .namespace("model".to_string())

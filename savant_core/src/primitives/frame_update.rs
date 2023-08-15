@@ -4,7 +4,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[archive(check_bytes)]
-pub enum ObjectUpdateCollisionResolutionPolicy {
+pub enum ObjectUpdatePolicy {
     AddForeignObjects,
     ErrorIfLabelsCollide,
     ReplaceSameLabelObjects,
@@ -12,11 +12,10 @@ pub enum ObjectUpdateCollisionResolutionPolicy {
 
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
 #[archive(check_bytes)]
-pub enum AttributeUpdateCollisionResolutionPolicy {
-    ReplaceWithForeignWhenDuplicate,
-    KeepOwnWhenDuplicate,
-    ErrorWhenDuplicate,
-    PrefixDuplicates(String),
+pub enum AttributeUpdatePolicy {
+    ReplaceWithForeign,
+    KeepOwn,
+    Error,
 }
 
 /// A video frame update object is used to update state of a frame from external source.
@@ -28,8 +27,8 @@ pub enum AttributeUpdateCollisionResolutionPolicy {
 pub struct VideoFrameUpdate {
     attributes: Vec<Attribute>,
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
-    pub(crate) attribute_collision_resolution_policy: AttributeUpdateCollisionResolutionPolicy,
-    pub(crate) object_collision_resolution_policy: ObjectUpdateCollisionResolutionPolicy,
+    pub(crate) attribute_collision_resolution_policy: AttributeUpdatePolicy,
+    pub(crate) object_collision_resolution_policy: ObjectUpdatePolicy,
 }
 
 impl Default for VideoFrameUpdate {
@@ -37,10 +36,8 @@ impl Default for VideoFrameUpdate {
         Self {
             attributes: Vec::new(),
             objects: Vec::new(),
-            object_collision_resolution_policy:
-                ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
-            attribute_collision_resolution_policy:
-                AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
+            object_collision_resolution_policy: ObjectUpdatePolicy::ErrorIfLabelsCollide,
+            attribute_collision_resolution_policy: AttributeUpdatePolicy::Error,
         }
     }
 }
@@ -49,27 +46,19 @@ impl VideoFrameUpdate {
     pub(crate) fn get_attributes(&self) -> &Vec<Attribute> {
         &self.attributes
     }
-    pub fn set_attribute_collision_resolution_policy(
-        &mut self,
-        p: AttributeUpdateCollisionResolutionPolicy,
-    ) {
+    pub fn set_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
         self.attribute_collision_resolution_policy = p;
     }
 
-    pub fn get_attribute_collision_resolution_policy(
-        &self,
-    ) -> AttributeUpdateCollisionResolutionPolicy {
+    pub fn get_attribute_policy(&self) -> AttributeUpdatePolicy {
         self.attribute_collision_resolution_policy.clone()
     }
 
-    pub fn set_object_collision_resolution_policy(
-        &mut self,
-        p: ObjectUpdateCollisionResolutionPolicy,
-    ) {
+    pub fn set_object_policy(&mut self, p: ObjectUpdatePolicy) {
         self.object_collision_resolution_policy = p;
     }
 
-    pub fn get_object_collision_resolution_policy(&self) -> ObjectUpdateCollisionResolutionPolicy {
+    pub fn get_object_policy(&self) -> ObjectUpdatePolicy {
         self.object_collision_resolution_policy.clone()
     }
 
@@ -84,7 +73,7 @@ impl VideoFrameUpdate {
     pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {
         self.objects
             .iter()
-            .map(|(o, p)| (VideoObjectProxy::from_video_object(o.clone()), *p))
+            .map(|(o, p)| (VideoObjectProxy::from(o.clone()), *p))
             .collect()
     }
 }
@@ -94,8 +83,7 @@ mod tests {
     use crate::match_query::{IntExpression, MatchQuery};
     use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::frame_update::{
-        AttributeUpdateCollisionResolutionPolicy, ObjectUpdateCollisionResolutionPolicy,
-        VideoFrameUpdate,
+        AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
     };
     use crate::primitives::{Attribute, AttributeMethods};
     use crate::test::{gen_frame, gen_object, s};
@@ -108,9 +96,7 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::default();
         upd.add_attribute(my);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::ErrorWhenDuplicate,
-        );
+        upd.set_attribute_policy(AttributeUpdatePolicy::Error);
 
         let res = f.update_attributes(&upd);
         assert!(res.is_err());
@@ -147,9 +133,7 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::default();
         upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::ReplaceWithForeignWhenDuplicate,
-        );
+        upd.set_attribute_policy(AttributeUpdatePolicy::ReplaceWithForeign);
 
         let res = f.update_attributes(&upd);
         assert!(res.is_ok());
@@ -167,9 +151,7 @@ mod tests {
 
         let mut upd = VideoFrameUpdate::default();
         upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::KeepOwnWhenDuplicate,
-        );
+        upd.set_attribute_policy(AttributeUpdatePolicy::KeepOwn);
 
         let res = f.update_attributes(&upd);
         assert!(res.is_ok());
@@ -180,35 +162,6 @@ mod tests {
             v.get_value(),
             AttributeValueVariant::Boolean(true)
         ));
-    }
-
-    #[test]
-    fn update_attributes_prefix_when_dup() {
-        let f = gen_frame();
-        let (my, their) = get_attributes();
-        f.set_attribute(my);
-
-        let mut upd = VideoFrameUpdate::default();
-        upd.add_attribute(their);
-        upd.set_attribute_collision_resolution_policy(
-            AttributeUpdateCollisionResolutionPolicy::PrefixDuplicates(s("conflict_")),
-        );
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_ok());
-
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(
-            v.get_value(),
-            AttributeValueVariant::Boolean(true)
-        ));
-
-        let attr = f.get_attribute(s("system"), s("conflict_test")).unwrap();
-        let vals = attr.get_values();
-        let v = &vals[0];
-        assert!(matches!(v.get_value(), AttributeValueVariant::Integer(10)));
     }
 
     #[test]
@@ -219,9 +172,7 @@ mod tests {
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o1, None);
         upd.add_object(&o2, None);
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 4);
@@ -236,9 +187,7 @@ mod tests {
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o1, None);
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
@@ -246,9 +195,7 @@ mod tests {
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o2, None);
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::ErrorIfLabelsCollide,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_err());
         assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
@@ -260,9 +207,7 @@ mod tests {
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o1, None);
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::ReplaceSameLabelObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 3);
@@ -271,9 +216,7 @@ mod tests {
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o2, None);
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::ReplaceSameLabelObjects,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::ReplaceSameLabelObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 4);
@@ -287,9 +230,7 @@ mod tests {
         let o = gen_object(100);
         let mut upd = VideoFrameUpdate::default();
         upd.add_object(&o, Some(p.get_id()));
-        upd.set_object_collision_resolution_policy(
-            ObjectUpdateCollisionResolutionPolicy::AddForeignObjects,
-        );
+        upd.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
 

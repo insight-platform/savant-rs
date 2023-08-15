@@ -1,4 +1,4 @@
-use crate::draw::SetDrawLabelKind;
+use crate::draw::DrawLabelKind;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
 use crate::primitives::attribute::AttributeMethods;
@@ -77,26 +77,26 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
-pub enum FrameTransformation {
+pub enum VideoFrameTransformation {
     InitialSize(u64, u64),
     Scale(u64, u64),
     Padding(u64, u64, u64, u64),
     ResultingSize(u64, u64),
 }
 
-impl ToSerdeJsonValue for FrameTransformation {
+impl ToSerdeJsonValue for VideoFrameTransformation {
     fn to_serde_json_value(&self) -> Value {
         match self {
-            FrameTransformation::InitialSize(width, height) => {
+            VideoFrameTransformation::InitialSize(width, height) => {
                 serde_json::json!({"initial_size": [width, height]})
             }
-            FrameTransformation::Scale(width, height) => {
+            VideoFrameTransformation::Scale(width, height) => {
                 serde_json::json!({"scale": [width, height]})
             }
-            FrameTransformation::Padding(left, top, right, bottom) => {
+            VideoFrameTransformation::Padding(left, top, right, bottom) => {
                 serde_json::json!({"padding": [left, top, right, bottom]})
             }
-            FrameTransformation::ResultingSize(width, height) => {
+            VideoFrameTransformation::ResultingSize(width, height) => {
                 serde_json::json!({"resulting_size": [width, height]})
             }
         }
@@ -122,7 +122,7 @@ pub struct VideoFrame {
     pub duration: Option<i64>,
     pub content: VideoFrameContent,
     #[builder(setter(skip))]
-    pub transformations: Vec<FrameTransformation>,
+    pub transformations: Vec<VideoFrameTransformation>,
     #[builder(setter(skip))]
     pub attributes: HashMap<(String, String), Attribute>,
     #[builder(setter(skip))]
@@ -390,7 +390,7 @@ impl VideoFrameProxy {
         resident_objects
             .iter()
             .filter_map(|(_, o)| {
-                let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
+                let obj = VideoObjectProxy::from(o.clone());
                 if q.execute_with_new_context(&obj) {
                     Some(obj)
                 } else {
@@ -418,7 +418,7 @@ impl VideoFrameProxy {
             .flat_map(|id| {
                 let o = resident_objects
                     .get(id)
-                    .map(|o| VideoObjectProxy::from_arced_inner_object(o.clone()));
+                    .map(|o| VideoObjectProxy::from(o.clone()));
                 o
             })
             .collect()
@@ -435,7 +435,7 @@ impl VideoFrameProxy {
         removed
             .into_values()
             .map(|o| {
-                let o = VideoObjectProxy::from_arced_inner_object(o);
+                let o = VideoObjectProxy::from(o);
                 o.detached_copy()
             })
             .collect()
@@ -457,7 +457,7 @@ impl VideoFrameProxy {
         inner
             .resident_objects
             .get(&id)
-            .map(|o| VideoObjectProxy::from_arced_inner_object(o.clone()))
+            .map(|o| VideoObjectProxy::from(o.clone()))
     }
 
     pub fn make_snapshot(&self) {
@@ -488,13 +488,13 @@ impl VideoFrameProxy {
         self.fix_object_owned_frame();
     }
 
-    pub fn set_draw_label(&self, q: &MatchQuery, label: SetDrawLabelKind) {
+    pub fn set_draw_label(&self, q: &MatchQuery, label: DrawLabelKind) {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| match &label {
-            SetDrawLabelKind::OwnLabel(l) => {
+            DrawLabelKind::OwnLabel(l) => {
                 o.set_draw_label(Some(l.clone()));
             }
-            SetDrawLabelKind::ParentLabel(l) => {
+            DrawLabelKind::ParentLabel(l) => {
                 if let Some(p) = o.get_parent().as_ref() {
                     p.set_draw_label(Some(l.clone()));
                 }
@@ -603,7 +603,7 @@ impl VideoFrameProxy {
     }
 
     pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
-        use crate::primitives::frame_update::ObjectUpdateCollisionResolutionPolicy::*;
+        use crate::primitives::frame_update::ObjectUpdatePolicy::*;
         let other_inner = update.objects.clone();
 
         let object_query = |o: &VideoObject| {
@@ -620,7 +620,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from_video_object(obj),
+                        &VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
                     if let Some(p) = p {
@@ -643,7 +643,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from_video_object(obj),
+                        &VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
                     if let Some(p) = p {
@@ -659,7 +659,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from_video_object(obj),
+                        &VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
 
@@ -673,9 +673,9 @@ impl VideoFrameProxy {
     }
 
     pub fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
-        use crate::primitives::frame_update::AttributeUpdateCollisionResolutionPolicy::*;
+        use crate::primitives::frame_update::AttributeUpdatePolicy::*;
         match &update.attribute_collision_resolution_policy {
-            ReplaceWithForeignWhenDuplicate => {
+            ReplaceWithForeign => {
                 let mut inner = self.inner.write();
                 let other_inner = update.get_attributes().clone();
                 inner.attributes.extend(
@@ -684,7 +684,7 @@ impl VideoFrameProxy {
                         .map(|a| ((a.namespace.clone(), a.name.clone()), a)),
                 );
             }
-            KeepOwnWhenDuplicate => {
+            KeepOwn => {
                 let mut inner = self.inner.write();
                 let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
@@ -692,7 +692,7 @@ impl VideoFrameProxy {
                     inner.attributes.entry(key).or_insert(attr);
                 }
             }
-            ErrorWhenDuplicate => {
+            Error => {
                 let mut inner = self.inner.write();
                 let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
@@ -705,20 +705,6 @@ impl VideoFrameProxy {
                         );
                     }
                     inner.attributes.insert(key, attr);
-                }
-            }
-            PrefixDuplicates(prefix) => {
-                let mut inner = self.inner.write();
-                let other_inner = update.get_attributes().clone();
-                for attr in other_inner {
-                    let key = (attr.namespace.clone(), attr.name.clone());
-                    if inner.attributes.contains_key(&key) {
-                        let mut new_key = key.clone();
-                        new_key.1 = format!("{}{}", prefix, new_key.1);
-                        inner.attributes.insert(new_key, attr);
-                    } else {
-                        inner.attributes.insert(key, attr);
-                    }
                 }
             }
         }
@@ -887,12 +873,12 @@ impl VideoFrameProxy {
         inner.transformations.clear();
     }
 
-    pub fn add_transformation(&mut self, transformation: FrameTransformation) {
+    pub fn add_transformation(&mut self, transformation: VideoFrameTransformation) {
         let mut inner = self.inner.write();
         inner.transformations.push(transformation);
     }
 
-    pub fn get_transformations(&self) -> Vec<FrameTransformation> {
+    pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
         let inner = self.inner.read_recursive();
         inner.transformations.clone()
     }
@@ -925,7 +911,7 @@ impl VideoFrameProxy {
 
 #[cfg(test)]
 mod tests {
-    use crate::draw::SetDrawLabelKind;
+    use crate::draw::DrawLabelKind;
     use crate::match_query::{eq, one_of, MatchQuery};
     use crate::primitives::attribute_value::AttributeValueVariant;
     use crate::primitives::object::{
@@ -1059,7 +1045,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_panic_snapshot_no_parent_added_to_frame() {
-        let parent = VideoObjectProxy::from_video_object(
+        let parent = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .parent_id(None)
                 .namespace(s("some-model"))
@@ -1077,7 +1063,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_with_parent_added_to_frame() {
-        let parent = VideoObjectProxy::from_video_object(
+        let parent = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .parent_id(None)
                 .namespace(s("some-model"))
@@ -1116,7 +1102,7 @@ mod tests {
     #[test]
     fn set_parent_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::ParentLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1127,7 +1113,7 @@ mod tests {
     #[test]
     fn set_own_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&MatchQuery::Idle, SetDrawLabelKind::OwnLabel(s("draw")));
+        frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.get_draw_label(), s("draw"));
 
@@ -1167,7 +1153,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn attach_object_with_detached_parent() {
-        let p = VideoObjectProxy::from_video_object(
+        let p = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .id(11)
                 .namespace(s("random"))
@@ -1177,7 +1163,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let o = VideoObjectProxy::from_video_object(
+        let o = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .id(23)
                 .namespace(s("random"))
@@ -1197,7 +1183,7 @@ mod tests {
     #[should_panic]
     fn set_detached_parent_as_parent() {
         let f = gen_frame();
-        let o = VideoObjectProxy::from_video_object(
+        let o = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .id(11)
                 .namespace(s("random"))

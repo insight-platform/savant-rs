@@ -17,7 +17,7 @@ rust-version.workspace = true
 
 [dependencies]
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }
-savant_rs = { path = "../savant" }
+savant_rs = { path = "../savant_python" }
 anyhow = "1"
 env_logger = "0.10"
 opentelemetry = "0.19"

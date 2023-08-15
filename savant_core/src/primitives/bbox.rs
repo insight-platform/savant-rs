@@ -111,13 +111,15 @@ impl ToSerdeJsonValue for RBBox {
     }
 }
 
-impl RBBox {
-    pub fn new_from_data(data: OwnedRBBoxData) -> Self {
+impl From<OwnedRBBoxData> for RBBox {
+    fn from(value: OwnedRBBoxData) -> Self {
         Self {
-            data: BBoxVariant::Owned(data),
+            data: BBoxVariant::Owned(value),
         }
     }
+}
 
+impl RBBox {
     pub fn borrowed_detection_box(object: Arc<RwLock<VideoObject>>) -> Self {
         Self {
             data: BBoxVariant::BorrowedDetectionBox(object),

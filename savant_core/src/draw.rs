@@ -52,26 +52,6 @@ impl PaddingDraw {
             bottom: 0,
         }
     }
-
-    pub fn padding(&self) -> (i64, i64, i64, i64) {
-        (self.left, self.top, self.right, self.bottom)
-    }
-
-    pub fn left(&self) -> i64 {
-        self.left
-    }
-
-    pub fn top(&self) -> i64 {
-        self.top
-    }
-
-    pub fn right(&self) -> i64 {
-        self.right
-    }
-
-    pub fn bottom(&self) -> i64 {
-        self.bottom
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -100,32 +80,8 @@ impl ColorDraw {
         })
     }
 
-    pub fn bgra(&self) -> (i64, i64, i64, i64) {
-        (self.blue, self.green, self.red, self.alpha)
-    }
-
-    pub fn rgba(&self) -> (i64, i64, i64, i64) {
-        (self.red, self.green, self.blue, self.alpha)
-    }
-
-    pub fn red(&self) -> i64 {
-        self.red
-    }
-
-    pub fn green(&self) -> i64 {
-        self.green
-    }
-
-    pub fn blue(&self) -> i64 {
-        self.blue
-    }
-
-    pub fn alpha(&self) -> i64 {
-        self.alpha
-    }
-
-    pub fn transparent() -> Self {
-        Self::new(0, 0, 0, 0).unwrap()
+    pub fn transparent() -> Result<Self> {
+        Self::new(0, 0, 0, 0)
     }
 }
 
@@ -155,19 +111,6 @@ impl BoundingBoxDraw {
             padding,
         })
     }
-
-    pub fn border_color(&self) -> ColorDraw {
-        self.border_color
-    }
-    pub fn background_color(&self) -> ColorDraw {
-        self.background_color
-    }
-    pub fn thickness(&self) -> i64 {
-        self.thickness
-    }
-    pub fn padding(&self) -> PaddingDraw {
-        self.padding
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -183,13 +126,8 @@ impl DotDraw {
         }
         Ok(Self { color, radius })
     }
-    pub fn color(&self) -> ColorDraw {
-        self.color
-    }
-    pub fn radius(&self) -> i64 {
-        self.radius
-    }
 }
+
 #[derive(Clone, Copy, Debug)]
 pub enum LabelPositionKind {
     /// Margin is relative to the **top** left corner of the text bounding box
@@ -199,11 +137,12 @@ pub enum LabelPositionKind {
     /// Margin is relative to the **top** left corner of the text bounding box
     Center,
 }
+
 #[derive(Clone, Copy, Debug)]
 pub struct LabelPosition {
-    position: LabelPositionKind,
-    margin_x: i64,
-    margin_y: i64,
+    pub position: LabelPositionKind,
+    pub margin_x: i64,
+    pub margin_y: i64,
 }
 impl LabelPosition {
     pub fn new(position: LabelPositionKind, margin_x: i64, margin_y: i64) -> Result<Self> {
@@ -217,19 +156,11 @@ impl LabelPosition {
             margin_y,
         })
     }
-    pub fn default_position() -> Self {
-        Self::new(LabelPositionKind::TopLeftOutside, 0, -10).unwrap()
-    }
-    pub fn position(&self) -> LabelPositionKind {
-        self.position
-    }
-    pub fn margin_x(&self) -> i64 {
-        self.margin_x
-    }
-    pub fn margin_y(&self) -> i64 {
-        self.margin_y
+    pub fn default_position() -> Result<Self> {
+        Self::new(LabelPositionKind::TopLeftOutside, 0, -10)
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct LabelDraw {
     pub font_color: ColorDraw,
@@ -242,6 +173,7 @@ pub struct LabelDraw {
     pub format: Vec<String>,
 }
 impl LabelDraw {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         font_color: ColorDraw,
         background_color: ColorDraw,
@@ -267,32 +199,8 @@ impl LabelDraw {
             format,
         })
     }
-
-    pub fn font_color(&self) -> ColorDraw {
-        self.font_color
-    }
-    pub fn background_color(&self) -> ColorDraw {
-        self.background_color
-    }
-    pub fn border_color(&self) -> ColorDraw {
-        self.border_color
-    }
-    pub fn font_scale(&self) -> f64 {
-        self.font_scale
-    }
-    pub fn thickness(&self) -> i64 {
-        self.thickness
-    }
-    pub fn format(&self) -> Vec<String> {
-        self.format.clone()
-    }
-    pub fn position(&self) -> LabelPosition {
-        self.position
-    }
-    pub fn padding(&self) -> PaddingDraw {
-        self.padding
-    }
 }
+
 #[derive(Clone, Debug)]
 pub struct ObjectDraw {
     pub bounding_box: Option<BoundingBoxDraw>,
@@ -314,22 +222,10 @@ impl ObjectDraw {
             blur,
         }
     }
-    pub fn blur(&self) -> bool {
-        self.blur
-    }
-    pub fn bounding_box(&self) -> Option<BoundingBoxDraw> {
-        self.bounding_box
-    }
-    pub fn central_dot(&self) -> Option<DotDraw> {
-        self.central_dot
-    }
-    pub fn label(&self) -> Option<LabelDraw> {
-        self.label.clone()
-    }
 }
 
 #[derive(Clone, Debug)]
-pub enum SetDrawLabelKind {
+pub enum DrawLabelKind {
     OwnLabel(String),
     ParentLabel(String),
 }

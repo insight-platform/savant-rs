@@ -235,8 +235,8 @@ pub enum MatchQuery {
 
 impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery {
     fn execute(&self, o: &RwLockReadGuard<VideoObject>, _: &mut ()) -> bool {
-        let detection_box = RBBox::new_from_data(o.detection_box.clone());
-        let tracking_box = o.track_box.clone().map(RBBox::new_from_data);
+        let detection_box = RBBox::from(o.detection_box.clone());
+        let tracking_box = o.track_box.clone().map(RBBox::from);
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, &mut ()),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, &mut ()),
@@ -507,7 +507,7 @@ pub fn partition(
 //     )
 // }
 
-pub fn map_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<VideoObjectProxy>> {
+pub fn map_udf(objs: &[VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<VideoObjectProxy>> {
     objs.iter()
         .map(|o| call_object_map_modifier(udf, o))
         .collect()
@@ -526,7 +526,7 @@ pub fn map_udf(objs: &[&VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<Vide
 //         .collect()
 // }
 
-pub fn foreach_udf(objs: &[&VideoObjectProxy], udf: &str) -> Vec<anyhow::Result<()>> {
+pub fn foreach_udf(objs: &[VideoObjectProxy], udf: &str) -> Vec<anyhow::Result<()>> {
     objs.iter()
         .map(|o| call_object_inplace_modifier(udf, &[o]))
         .collect()
@@ -1054,11 +1054,7 @@ mod tests {
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
         }
 
-        let new_objects = map_udf(
-            &objects.iter().collect::<Vec<_>>().as_slice(),
-            "sample.map_modifier",
-        )
-        .unwrap();
+        let new_objects = map_udf(&objects, "sample.map_modifier").unwrap();
         assert_eq!(new_objects.len(), 3);
         for o in new_objects {
             assert!(
@@ -1084,10 +1080,7 @@ mod tests {
             .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
         }
 
-        foreach_udf(
-            &objects.iter().collect::<Vec<_>>().as_slice(),
-            "sample.inplace_modifier",
-        );
+        foreach_udf(&objects, "sample.inplace_modifier");
 
         for o in objects {
             assert!(

@@ -10,8 +10,8 @@ set_log_level(LogLevel.Trace)
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
 from savant_rs.utils import gen_frame, TelemetrySpan
-from savant_rs.primitives import VideoFrameUpdate, VideoObjectUpdateCollisionResolutionPolicy, \
-    AttributeUpdateCollisionResolutionPolicy
+from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
+    AttributeUpdatePolicy
 from savant_rs import init_jaeger_tracer
 from savant_rs.video_object_query import MatchQuery as Q
 
@@ -52,8 +52,8 @@ if __name__ == "__main__":
 
     update = VideoFrameUpdate()
 
-    update.object_collision_resolution_policy = VideoObjectUpdateCollisionResolutionPolicy.add_foreign_objects()
-    update.attribute_collision_resolution_policy = AttributeUpdateCollisionResolutionPolicy.replace_with_foreign()
+    update.object_policy = ObjectUpdatePolicy.AddForeignObjects
+    update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
     p.add_frame_update("input", frame_id1, update)
 

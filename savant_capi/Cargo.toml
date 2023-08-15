@@ -1,0 +1,26 @@
+[package]
+name = "savant_capi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+savant_core = { path = "../savant_core" }
+anyhow = "1"
+log = "0.4"
+
+[build-dependencies]
+cbindgen = "0.24"
+
+[lib]
+crate-type = ["cdylib", "lib"]

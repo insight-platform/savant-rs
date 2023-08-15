@@ -25,9 +25,9 @@ pub const VERSION_LEN: usize = 4;
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct MessageMeta {
-    pub(crate) lib_version: [u8; VERSION_LEN],
-    pub(crate) routing_labels: Vec<String>,
-    pub(crate) span_context: PropagatedContext,
+    pub lib_version: [u8; VERSION_LEN],
+    pub routing_labels: Vec<String>,
+    pub span_context: PropagatedContext,
 }
 
 impl Default for MessageMeta {

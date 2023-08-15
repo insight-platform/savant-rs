@@ -42,7 +42,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    let parent_object = VideoObjectProxy::from_video_object(
+    let parent_object = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(0)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
@@ -54,7 +54,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    let c1 = VideoObjectProxy::from_video_object(
+    let c1 = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(1)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
@@ -67,7 +67,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    let c2 = VideoObjectProxy::from_video_object(
+    let c2 = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(2)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
@@ -131,7 +131,7 @@ pub fn gen_frame() -> VideoFrameProxy {
 }
 
 pub fn gen_object(id: i64) -> VideoObjectProxy {
-    let o = VideoObjectProxy::from_video_object(VideoObject {
+    let o = VideoObjectProxy::from(VideoObject {
         id,
         namespace: s("peoplenet"),
         label: s("face"),

@@ -47,4 +47,11 @@ mod tests {
         let x = unsafe { std::mem::transmute::<Option<i64>, Option<X>>(int) };
         assert_eq!(x.unwrap().0, -1);
     }
+
+    #[test]
+    fn test_transmute_result_i64_to_result_x() {
+        let int = Ok(-1);
+        let x = unsafe { std::mem::transmute::<Result<i64, i64>, Result<X, i64>>(int) };
+        assert_eq!(x.unwrap().0, -1);
+    }
 }

@@ -29,23 +29,12 @@ pub enum Errors {
     DuplicateId(String, i64, String, i64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SymbolMapper {
     registry: HashMap<String, (i64, Option<i64>)>,
     reverse_registry: HashMap<(i64, Option<i64>), String>,
     model_next_id: i64,
     model_object_next_ids: HashMap<String, i64>,
-}
-
-impl Default for SymbolMapper {
-    fn default() -> Self {
-        Self {
-            registry: HashMap::new(),
-            reverse_registry: HashMap::new(),
-            model_object_next_ids: HashMap::new(),
-            model_next_id: 0,
-        }
-    }
 }
 
 impl SymbolMapper {
@@ -248,7 +237,7 @@ pub fn register_model_objects(
     policy: RegistrationPolicy,
 ) -> anyhow::Result<i64> {
     let mut mapper = SYMBOL_MAPPER.lock();
-    mapper.register_model_objects(model_name, &elements, &(policy.into()))
+    mapper.register_model_objects(model_name, &elements, &policy)
 }
 
 pub fn get_model_name(model_id: i64) -> Option<String> {
