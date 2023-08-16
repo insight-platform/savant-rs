@@ -129,14 +129,15 @@ mod tests {
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let batch_id = pipeline.move_and_pack_frames("stage2", vec![id]).unwrap();
         let stage = CString::new("stage3").unwrap();
-        let mut frame_ids = [0i64; 16];
+        const MAX_ELTS: usize = 16;
+        let mut frame_ids = [0i64; MAX_ELTS];
         let count = unsafe {
             pipeline_move_and_unpack_batch(
                 pipeline.memory_handle(),
                 stage.as_ptr(),
                 batch_id,
                 frame_ids.as_mut_ptr(),
-                16,
+                MAX_ELTS,
             )
         };
         assert_eq!(count, 1);
