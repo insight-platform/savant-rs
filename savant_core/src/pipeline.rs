@@ -55,7 +55,7 @@ impl Pipeline {
     }
 
     pub fn add_batched_frame_update(
-        &mut self,
+        &self,
         stage: &str,
         batch_id: i64,
         frame_id: i64,
@@ -81,7 +81,7 @@ impl Pipeline {
             .add_frame_with_telemetry(stage_name, frame, parent_ctx)
     }
 
-    pub fn delete(&mut self, id: i64) -> anyhow::Result<HashMap<i64, Context>> {
+    pub fn delete(&self, id: i64) -> anyhow::Result<HashMap<i64, Context>> {
         self.0.write().delete(id)
     }
 

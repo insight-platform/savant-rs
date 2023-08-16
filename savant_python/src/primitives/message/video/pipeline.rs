@@ -49,7 +49,7 @@ struct VideoPipeline(rust::Pipeline);
 impl VideoPipeline {
     #[new]
     fn new(name: String) -> Self {
-        let mut p = rust::Pipeline::default();
+        let p = rust::Pipeline::default();
         p.set_root_span_name(name);
         Self(p)
     }
@@ -67,7 +67,7 @@ impl VideoPipeline {
     ///   The name of the root span.
     ///
     #[setter]
-    fn set_root_span_name(&mut self, name: String) {
+    fn set_root_span_name(&self, name: String) {
         self.0.set_root_span_name(name);
     }
 
@@ -81,7 +81,7 @@ impl VideoPipeline {
     /// Set sampling
     ///
     #[setter]
-    fn set_sampling_period(&mut self, period: i64) {
+    fn set_sampling_period(&self, period: i64) {
         self.0.set_sampling_period(period);
     }
 
@@ -107,7 +107,7 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage name is already in use.
     ///
-    fn add_stage(&mut self, name: &str, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
+    fn add_stage(&self, name: &str, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
         self.0
             .add_stage(name, stage_type.into())
             .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -150,7 +150,7 @@ impl VideoPipeline {
     ///  If the stage does not exist or is not of type independent frames. If the frame does not exist.
     ///
     fn add_frame_update(
-        &mut self,
+        &self,
         stage: &str,
         frame_id: i64,
         update: VideoFrameUpdate,
@@ -180,7 +180,7 @@ impl VideoPipeline {
     ///   If the stage does not exist or is not of type batches. If the batch or the frame do not exist.
     ///
     fn add_batched_frame_update(
-        &mut self,
+        &self,
         stage: &str,
         batch_id: i64,
         frame_id: i64,
@@ -211,7 +211,7 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist or is not of type independent frames.
     ///
-    fn add_frame(&mut self, stage_name: &str, frame: VideoFrame) -> PyResult<i64> {
+    fn add_frame(&self, stage_name: &str, frame: VideoFrame) -> PyResult<i64> {
         self.0
             .add_frame(stage_name, frame.0)
             .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -241,7 +241,7 @@ impl VideoPipeline {
     ///   If the stage does not exist or is not of type independent frames.
     ///
     pub fn add_frame_with_telemetry(
-        &mut self,
+        &self,
         stage_name: &str,
         frame: VideoFrame,
         parent_span: &TelemetrySpan,
@@ -270,7 +270,7 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn delete(&mut self, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
+    fn delete(&self, id: i64) -> PyResult<HashMap<i64, TelemetrySpan>> {
         let res = self.0.delete(id);
         match res {
             Ok(h) => Ok(h
@@ -323,7 +323,7 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist or is not of type independent frames. If the frame does not exist.
     ///
-    fn get_independent_frame(&mut self, frame_id: i64) -> PyResult<(VideoFrame, TelemetrySpan)> {
+    fn get_independent_frame(&self, frame_id: i64) -> PyResult<(VideoFrame, TelemetrySpan)> {
         self.0
             .get_independent_frame(frame_id)
             .map(|(f, c)| (VideoFrame(f), TelemetrySpan::from_context(c)))
@@ -430,7 +430,7 @@ impl VideoPipeline {
     /// ValueError
     ///   If the stage does not exist. If the frame or batch does not exist.
     ///
-    fn clear_updates(&mut self, id: i64) -> PyResult<()> {
+    fn clear_updates(&self, id: i64) -> PyResult<()> {
         self.0
             .clear_updates(id)
             .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -458,7 +458,7 @@ impl VideoPipeline {
     #[pyo3(name = "move_as_is")]
     #[pyo3(signature = (dest_stage_name, object_ids, no_gil = true))]
     fn move_as_is_gil(
-        &mut self,
+        &self,
         dest_stage_name: &str,
         object_ids: Vec<i64>,
         no_gil: bool,
@@ -495,7 +495,7 @@ impl VideoPipeline {
     #[pyo3(name = "move_and_pack_frames")]
     #[pyo3(signature = (dest_stage_name, frame_ids, no_gil = true))]
     fn move_and_pack_frames_gil(
-        &mut self,
+        &self,
         dest_stage_name: &str,
         frame_ids: Vec<i64>,
         no_gil: bool,
@@ -532,7 +532,7 @@ impl VideoPipeline {
     #[pyo3(name = "move_and_unpack_batch")]
     #[pyo3(signature = (dest_stage_name, batch_id, no_gil = true))]
     fn move_and_unpack_batch_gil(
-        &mut self,
+        &self,
         dest_stage_name: &str,
         batch_id: i64,
         no_gil: bool,
