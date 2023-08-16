@@ -7,8 +7,6 @@ name: Savant Etcd Dynamic State CI
 
 on:
   push:
-    branches:
-      - 'main'
     tags:
       - '*'
   pull_request:

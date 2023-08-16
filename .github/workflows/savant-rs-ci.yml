@@ -7,8 +7,6 @@ name: Savant CI
 
 on:
   push:
-    branches:
-      - 'main'
     tags:
       - '*'
   pull_request:
