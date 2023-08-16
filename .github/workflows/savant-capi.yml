@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        target: [x86_64]
     steps:
-      - name: install protoc
+      - name: install unzip
         run: sudo apt-get install -y unzip
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
