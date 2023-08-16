@@ -13,7 +13,7 @@ if [ ! -f "$HOME/.local/bin/protoc" ]; then
 fi
 
 export PROTOC=$HOME/.local/bin/protoc
-echo $PROTOC
+chmod 755 $HOME/.local/bin/protoc
 
 cd savant_capi
 cargo build --target x86_64-unknown-linux-gnu --release
