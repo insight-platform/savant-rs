@@ -11,8 +11,10 @@ Cargo.lock
 **/*.rs.bk
 
 # MSVC Windows builds of rustc generate these, which store debugging information
-*.pdb
-
+**/*.pdb
+**/*.gz
+**/*.zip
+**/*.so
 # Added by cargo
 
 /.idea
@@ -24,3 +26,5 @@ Cargo.lock
 /savant_python/dist
 /sample_plugin/dist
 /savant_etcd_dynamic_state/dist
+/artifacts.tar.gz
+/savant_capi/artifacts

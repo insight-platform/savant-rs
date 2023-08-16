@@ -24,3 +24,8 @@ jobs:
       - uses: mirlahiji/rust-action@master
         with:
           args: bash savant_capi/build/build.sh ${{ matrix.target }}
+      - name: 'Upload Artifacts'
+        uses: actions/upload-artifact@v3
+        with:
+          name: savant_capi
+          path: artifacts.tar.gz
