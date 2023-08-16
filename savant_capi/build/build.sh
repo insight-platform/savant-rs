@@ -2,6 +2,8 @@
 
 set -e
 
+sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross protobuf-compiler
+
 rustup target add aarch64-unknown-linux-gnu
 # rustup toolchain install stable-aarch64-unknown-linux-gnu
 
@@ -12,6 +14,8 @@ if [ ! -f "$HOME/.local/bin/protoc" ]; then
   export PATH="$PATH:$HOME/.local/bin"
 fi
 
+export PROTOC=$HOME/.local/bin/protoc
+echo $PROTOC
 
 cd savant_capi
 cargo build --target x86_64-unknown-linux-gnu --release

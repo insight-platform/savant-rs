@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Savant Etcd Dynamic State CI
+name: Savant Python Etcd Dynamic Storage CI
 
 on:
   push:

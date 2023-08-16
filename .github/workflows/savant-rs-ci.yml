@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Savant CI
+name: Savant Python CI
 
 on:
   push:

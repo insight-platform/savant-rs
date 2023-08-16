@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Docs CI
+name: Savant Docs CI
 
 on:
   push:
