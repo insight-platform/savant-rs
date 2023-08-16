@@ -18,15 +18,11 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v1
       - name: install deps
         run: sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross && bash savant_capi/build/build.sh
-      - uses: actions/checkout@v1
       - name: build
-        run: bash savant_capi/build/build.sh
-
-      #- uses: mirlahiji/rust-action@master
-      #  with:
-      #    args: bash savant_capi/build/build.sh ${{ matrix.target }}
+        run: cd Savant && bash savant_capi/build/build.sh
       - name: 'Upload Artifacts'
         uses: actions/upload-artifact@v3
         with:
