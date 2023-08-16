@@ -21,7 +21,6 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      -
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
         with:
