@@ -88,11 +88,13 @@ if __name__ == "__main__":
 
     root_spans_1 = p.delete(frame_id1)
     root_spans_1 = root_spans_1[1]
+    root_spans_1_propagated = root_spans_1.propagate()
+    del root_spans_1
 
     root_spans_2 = p.delete(frame_id2)
     del root_spans_2
 
-    with root_spans_1.nested_span("queue_len") as ns:
+    with root_spans_1_propagated.nested_span("queue_len") as ns:
         assert p.get_stage_queue_len("input") == 0
         assert p.get_stage_queue_len("proc1") == 0
         assert p.get_stage_queue_len("proc2") == 0
@@ -125,8 +127,8 @@ if __name__ == "__main__":
         log(LogLevel.Warning, "c", "Context Depth: {}".format(TelemetrySpan.context_depth()))
 
 
-    thr1 = Thread(target=f, args=(root_spans_1,))
-    thr2 = Thread(target=f, args=(root_spans_1,))
+    thr1 = Thread(target=f, args=(root_spans_1_propagated,))
+    thr2 = Thread(target=f, args=(root_spans_1_propagated,))
     t = time.time()
     thr1.start()
     thr2.start()
@@ -137,7 +139,7 @@ if __name__ == "__main__":
     log(LogLevel.Info, "root", "Time: {}".format(delta), params=dict(time_spent=delta))
 
     try:
-        with root_spans_1.nested_span("sleep-1") as root_span:
+        with root_spans_1_propagated.nested_span("sleep-1") as root_span:
             with root_span.nested_span_when('sleep-debugging', log_level_enabled(LogLevel.Debug)) as sds:
                 log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):
@@ -154,4 +156,4 @@ if __name__ == "__main__":
 
     time.sleep(0.3)
 
-    del root_spans_1
+    # del root_spans_1

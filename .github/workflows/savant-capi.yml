@@ -26,4 +26,4 @@ jobs:
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
         with:
-          args: bash savant_capi/build/build.sh
+          args: bash savant_capi/build/build.sh ${{ matrix.target }}
