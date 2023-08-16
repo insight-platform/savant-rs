@@ -17,12 +17,9 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [x86_64]
     steps:
-      - name: install unzip
-        run: sudo apt-get install -y unzip
+      - name: install deps
+        run: sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
         with:
