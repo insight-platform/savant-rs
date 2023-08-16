@@ -2,8 +2,6 @@
 
 set -e
 
-sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross protobuf-compiler
-
 rustup target add aarch64-unknown-linux-gnu
 # rustup toolchain install stable-aarch64-unknown-linux-gnu
 
