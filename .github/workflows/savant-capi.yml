@@ -22,8 +22,8 @@ jobs:
         target: [x86_64, aarch64]
     steps:
       - name: install protoc
-        run: sudo apt-get install -y protobuf-compiler
+        run: sudo apt-get install -y unzip
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
         with:
-          args: rustup target add ${{ matrix.target }}-unknown-linux-gnu && cd savant_capi && cargo build --release --target ${{ matrix.target }}-unknown-linux-gnu
+          args: bash savant_capi/build/build.sh
