@@ -8,12 +8,13 @@ rustup target add aarch64-unknown-linux-gnu
 if [ ! -f "$HOME/.local/bin/protoc" ]; then
   PB_REL="https://github.com/protocolbuffers/protobuf/releases"
   curl -LO $PB_REL/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip
-  unzip -f protoc-3.15.8-linux-x86_64.zip -d $HOME/.local
-  export PATH="$PATH:$HOME/.local/bin"
+  mkdir -p .local
+  unzip -f protoc-3.15.8-linux-x86_64.zip -d .local
+  export PATH="$PATH:$(pwd)/.local/bin"
 fi
 
-export PROTOC=$HOME/.local/bin/protoc
-chmod 755 $HOME/.local/bin/protoc
+export PROTOC=$(pwd)/.local/bin/protoc
+chmod 755 $(pwd)/.local/bin/protoc
 
 cd savant_capi
 cargo build --target x86_64-unknown-linux-gnu --release
