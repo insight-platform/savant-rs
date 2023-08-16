@@ -11,14 +11,14 @@ rustc -V
 rustup target add aarch64-unknown-linux-gnu
 # rustup toolchain install stable-aarch64-unknown-linux-gnu
 
-PB_REL="https://github.com/protocolbuffers/protobuf/releases"
-curl -LO $PB_REL/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip
-unzip -f protoc-3.15.8-linux-x86_64.zip -d /tmp
-ls -la /tmp
-export PATH="$PATH:/tmp/bin"
-
-export PROTOC=/tmp/bin/protoc
-chmod 755 /tmp/bin/protoc
+#PB_REL="https://github.com/protocolbuffers/protobuf/releases"
+#curl -LO $PB_REL/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip
+#unzip -f protoc-3.15.8-linux-x86_64.zip -d /tmp
+#ls -la /tmp
+#export PATH="$PATH:/tmp/bin"
+#
+#export PROTOC=/tmp/bin/protoc
+#chmod 755 /tmp/bin/protoc
 
 cd savant_capi
 cargo build --target x86_64-unknown-linux-gnu --release

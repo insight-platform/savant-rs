@@ -20,9 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: install deps
-        run: sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross && bash savant_capi/build/build.sh
-      - name: build
-        run: cd Savant && bash savant_capi/build/build.sh
+        run: sudo apt-get install -y unzip g++-aarch64-linux-gnu libc6-dev-arm64-cross protobuf-compiler && bash savant_capi/build/build.sh
       - name: 'Upload Artifacts'
         uses: actions/upload-artifact@v3
         with:
