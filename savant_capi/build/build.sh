@@ -5,12 +5,11 @@ set -e
 rustup target add aarch64-unknown-linux-gnu
 # rustup toolchain install stable-aarch64-unknown-linux-gnu
 
-if [ ! -f "$HOME/.local/bin/protoc" ]; then
-  PB_REL="https://github.com/protocolbuffers/protobuf/releases"
-  curl -LO $PB_REL/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip
-  unzip -f protoc-3.15.8-linux-x86_64.zip -d /tmp
-  export PATH="$PATH:/tmp/bin"
-fi
+PB_REL="https://github.com/protocolbuffers/protobuf/releases"
+curl -LO $PB_REL/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip
+unzip -f protoc-3.15.8-linux-x86_64.zip -d /tmp
+ls -la /tmp
+export PATH="$PATH:/tmp/bin"
 
 export PROTOC=/tmp/bin/protoc
 chmod 755 /tmp/bin/protoc
