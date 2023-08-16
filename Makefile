@@ -40,7 +40,7 @@ clean:
 	cd savant_python && rm -rf dist/*.whl
 	cd savant_etcd_dynamic_state && rm -rf dist/*.whl
 
-python-tests:
+pythontests:
 	@echo "Running tests..."
 	cd savant_python && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
 
