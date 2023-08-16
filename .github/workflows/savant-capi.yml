@@ -21,7 +21,8 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
+      -
       - uses: actions/checkout@v1
       - uses: mirlahiji/rust-action@master
         with:
-          args: cd savant_capi && cargo build --release --target ${{ matrix.target }}-unknown-linux-gnu
+          args: rustup target add ${{ matrix.target }}-unknown-linux-gnu && cd savant_capi && cargo build --release --target ${{ matrix.target }}-unknown-linux-gnu
