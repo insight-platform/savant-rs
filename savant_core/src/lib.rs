@@ -1,5 +1,6 @@
 pub mod consts;
 pub mod cplugin;
+pub mod deadlock_detection;
 pub mod draw;
 pub mod eval_cache;
 pub mod eval_context;

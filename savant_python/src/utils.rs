@@ -56,6 +56,13 @@ pub fn estimate_gil_contention() {
     }
 }
 
+/// Enables deadlock detection
+///
+#[pyfunction]
+pub fn enable_dl_detection() {
+    savant_core::deadlock_detection::enable_dl_detection();
+}
+
 #[pymodule]
 pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_model_object_key_py, m)?)?;
@@ -113,6 +120,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     // utility
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
+    m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?;
 
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;

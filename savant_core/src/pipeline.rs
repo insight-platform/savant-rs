@@ -45,25 +45,19 @@ impl Pipeline {
         self.0.read().get_stage_type(name).cloned()
     }
 
-    pub fn add_frame_update(
-        &self,
-        stage: &str,
-        frame_id: i64,
-        update: VideoFrameUpdate,
-    ) -> anyhow::Result<()> {
-        self.0.write().add_frame_update(stage, frame_id, update)
+    pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> anyhow::Result<()> {
+        self.0.write().add_frame_update(frame_id, update)
     }
 
     pub fn add_batched_frame_update(
         &self,
-        stage: &str,
         batch_id: i64,
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> anyhow::Result<()> {
         self.0
             .write()
-            .add_batched_frame_update(stage, batch_id, frame_id, update)
+            .add_batched_frame_update(batch_id, frame_id, update)
     }
 
     pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> anyhow::Result<i64> {
@@ -270,11 +264,11 @@ mod implementation {
 
         pub fn add_frame_update(
             &mut self,
-            stage: &str,
             frame_id: i64,
             update: VideoFrameUpdate,
         ) -> anyhow::Result<()> {
-            if let Some(stage) = self.get_stage_mut(stage) {
+            let stage_name = &self.get_stage_for_id(frame_id)?;
+            if let Some(stage) = self.get_stage_mut(stage_name) {
                 if let Some(payload) = stage.payload.get_mut(&frame_id) {
                     match payload {
                         VideoPipelinePayload::Frame(_, updates, _) => {
@@ -293,12 +287,12 @@ mod implementation {
 
         pub fn add_batched_frame_update(
             &mut self,
-            stage: &str,
             batch_id: i64,
             frame_id: i64,
             update: VideoFrameUpdate,
         ) -> anyhow::Result<()> {
-            if let Some(stage) = self.get_stage_mut(stage) {
+            let stage_name = &self.get_stage_for_id(batch_id)?;
+            if let Some(stage) = self.get_stage_mut(stage_name) {
                 if let Some(payload) = stage.payload.get_mut(&batch_id) {
                     match payload {
                         VideoPipelinePayload::Batch(_, updates, _) => {
@@ -966,7 +960,7 @@ mod implementation {
             let mut pipeline = create_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let update = get_update();
-            pipeline.add_frame_update("input", id, update)?;
+            pipeline.add_frame_update(id, update)?;
             pipeline.apply_updates(id)?;
             let (frame, _) = pipeline.get_independent_frame(id)?;
             frame
@@ -981,7 +975,7 @@ mod implementation {
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
             let update = get_update();
-            pipeline.add_batched_frame_update("proc1", batch_id, id, update)?;
+            pipeline.add_batched_frame_update(batch_id, id, update)?;
             pipeline.apply_updates(batch_id)?;
             pipeline.clear_updates(batch_id)?;
             let (frame, _) = pipeline.get_batched_frame(batch_id, id)?;
