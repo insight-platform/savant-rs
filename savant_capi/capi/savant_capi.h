@@ -5,6 +5,8 @@
 
 void enable_log_tracing(void);
 
+void hello(void);
+
 /**
  * # Safety
  *
