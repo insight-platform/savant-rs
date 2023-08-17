@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+void enable_log_tracing(void);
+
 /**
  * # Safety
  *

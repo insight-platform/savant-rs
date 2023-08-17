@@ -19,6 +19,7 @@ rust-version.workspace = true
 savant_core = { path = "../savant_core" }
 anyhow = "1"
 log = "0.4"
+pretty_env_logger = "0.5"
 
 [build-dependencies]
 cbindgen = "0.24"

@@ -23,6 +23,7 @@ numpy = {version = "0.19", features = ["nalgebra"]}
 nalgebra = "0.32"
 ndarray = "0.15"
 num-traits = "0.2"
+log = "0.4"
 
 [lib]
 crate-type = ["cdylib", "lib"]

@@ -17,6 +17,18 @@ import json
 from timeit import default_timer as timer
 from ctypes import *
 
+lib = cdll.LoadLibrary("../../target/debug/libsavant_capi.so")
+lib.enable_log_tracing.argtypes = []
+lib.enable_log_tracing.rettype = None
+lib.hello.argtypes = []
+lib.hello.rettype = None
+
+lib.hello()
+lib.enable_log_tracing()
+lib.enable_log_tracing()
+lib.hello()
+exit(0)
+
 f = gen_frame()
 
 t = timer()

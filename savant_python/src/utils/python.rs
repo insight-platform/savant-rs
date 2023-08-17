@@ -19,7 +19,24 @@ macro_rules! function {
 macro_rules! with_gil {
     ($expression:expr) => {{
         let start = std::time::Instant::now();
+        let thread_id = std::thread::current().id();
+        log::trace!(
+            target: "savant::trace::before::gil_acquire",
+                "[{:?}] Trace line ({}, {}, {})",
+                thread_id,
+                $crate::function!(),
+                file!(),
+                line!()
+        );
         let res = pyo3::marker::Python::with_gil($expression);
+        log::trace!(
+            target: "savant::trace::after::gil_acquire",
+                "[{:?}] Trace line ({}, {}, {})",
+                thread_id,
+                $crate::function!(),
+                file!(),
+                line!()
+        );
         let elapsed = start.elapsed();
         $crate::logging::log_message(
             $crate::logging::LogLevel::Trace,
@@ -74,7 +91,24 @@ macro_rules! with_trace {
 macro_rules! release_gil {
     ($predicate:expr, $expression:expr) => {{
         if $predicate {
+            let thread_id = std::thread::current().id();
+            log::trace!(
+                target: "savant::trace::before::gil_release",
+                    "[{:?}] Trace line ({}, {}, {})",
+                    thread_id,
+                    $crate::function!(),
+                    file!(),
+                    line!()
+            );
             let (res, elapsed_nogil, elapsed_gil_back) = pyo3::marker::Python::with_gil(|py| {
+                log::trace!(
+                    target: "savant::trace::after::gil_release",
+                        "[{:?}] Trace line ({}, {}, {})",
+                        thread_id,
+                        $crate::function!(),
+                        file!(),
+                        line!()
+                );
                 let (res, elapsed_nogil, start_gil_back) = py.allow_threads(|| {
                     let start_nogil = std::time::Instant::now();
                     #[allow(clippy::redundant_closure_call)]
