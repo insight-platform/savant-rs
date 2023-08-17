@@ -10,6 +10,7 @@ savant_rs
    :maxdepth: 2
 
    draw_spec
+   logging
    pipeline
    primitives
    primitives_geometry

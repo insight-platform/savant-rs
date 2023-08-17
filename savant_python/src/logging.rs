@@ -122,6 +122,8 @@ pub fn log_level_enabled(level: LogLevel) -> bool {
 ///   The log message.
 /// params: dict
 ///   The log message parameters.
+/// no_gil: bool
+///   If True, the GIL is released when the function is executed.
 ///
 #[pyfunction]
 #[pyo3(name = "log")]

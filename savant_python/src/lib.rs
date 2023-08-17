@@ -17,6 +17,15 @@ use pyo3::wrap_pymodule;
 use crate::logging::{set_log_level, LogLevel};
 use crate::match_query::video_object_query;
 
+/// Initializes Jaeger tracer.
+///
+/// Params
+/// ------
+/// service_name: str
+///   The name of the service used by logger.
+/// endpoint: str
+///   The endpoint of the Jaeger collector.
+///
 #[pyfunction]
 fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
     savant_core::telemetry::init_jaeger_tracer(service_name, endpoint);
