@@ -42,4 +42,4 @@ version = "1.28"
 features = ["full"]
 
 [lib]
-crate-type = ["cdylib", "lib"]
+crate-type = ["cdylib"]
