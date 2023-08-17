@@ -13,6 +13,6 @@ pub unsafe extern "C" fn enable_log_tracing() {
 }
 
 #[no_mangle]
-pub unsafe fn hello() {
+pub unsafe extern "C" fn hello() {
     log::trace!("Hello from savant_capi::hello()");
 }
