@@ -25,11 +25,10 @@ void pipeline_move_as_is(uintptr_t handle,
  *
  * The function is intended for invocation from C/C++, so it is unsafe by design.
  */
-void pipeline_move_and_pack_frames(uintptr_t handle,
-                                   const char *dest_stage,
-                                   const int64_t *frame_ids,
-                                   uintptr_t len,
-                                   int64_t *batch_id);
+int64_t pipeline_move_and_pack_frames(uintptr_t handle,
+                                      const char *dest_stage,
+                                      const int64_t *frame_ids,
+                                      uintptr_t len);
 
 /**
  * # Safety

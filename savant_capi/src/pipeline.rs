@@ -31,8 +31,7 @@ pub unsafe extern "C" fn pipeline_move_and_pack_frames(
     dest_stage: *const c_char,
     frame_ids: *const i64,
     len: usize,
-    batch_id: *mut i64,
-) {
+) -> i64 {
     let dest_stage = CStr::from_ptr(dest_stage)
         .to_str()
         .expect("Failed to convert dest_stage to string. This is a bug. Please report it.");
@@ -41,7 +40,7 @@ pub unsafe extern "C" fn pipeline_move_and_pack_frames(
     let res = pipeline
         .move_and_pack_frames(dest_stage, ids.to_vec())
         .expect("Failed to move objects as is.");
-    *batch_id = res;
+    res
 }
 
 /// # Safety
@@ -109,16 +108,14 @@ mod tests {
             .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let stage = CString::new("stage2").unwrap();
-        let mut batch_id: i64 = 0;
-        unsafe {
+        let batch_id = unsafe {
             pipeline_move_and_pack_frames(
                 pipeline.memory_handle(),
                 stage.as_ptr(),
                 [id].as_ptr(),
                 1,
-                &mut batch_id as *mut i64,
-            );
-        }
+            )
+        };
         assert_eq!(batch_id, 2);
     }
 
