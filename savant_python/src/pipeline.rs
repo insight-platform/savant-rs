@@ -1,7 +1,8 @@
-use crate::primitives::message::video::frame_update::VideoFrameUpdate;
-use crate::primitives::message::video::match_query::MatchQuery;
-use crate::primitives::message::video::objects_view::VideoObjectsView;
-use crate::primitives::{VideoFrame, VideoFrameBatch};
+use crate::match_query::MatchQuery;
+use crate::primitives::batch::VideoFrameBatch;
+use crate::primitives::frame::VideoFrame;
+use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::utils::otlp::TelemetrySpan;
 use pyo3::exceptions::PyValueError;

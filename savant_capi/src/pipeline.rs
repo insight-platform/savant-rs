@@ -2,6 +2,9 @@ use savant_core::pipeline::Pipeline;
 use std::ffi::{c_char, CStr};
 use std::slice::from_raw_parts;
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn pipeline_move_as_is(
     handle: usize,
@@ -19,6 +22,9 @@ pub unsafe extern "C" fn pipeline_move_as_is(
         .expect("Failed to move objects as is.");
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn pipeline_move_and_pack_frames(
     handle: usize,
@@ -38,6 +44,9 @@ pub unsafe extern "C" fn pipeline_move_and_pack_frames(
     *batch_id = res;
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn pipeline_move_and_unpack_batch(
     handle: usize,

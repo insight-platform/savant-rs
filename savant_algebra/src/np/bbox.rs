@@ -3,7 +3,7 @@ use crate::BBoxFormat;
 use numpy::ndarray::ArrayD;
 use numpy::{IxDyn, PyArray, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
-use savant_rs::primitives::{BBox, RBBox};
+use savant_rs::primitives::bbox::{BBox, RBBox};
 use savant_rs::with_gil;
 
 pub fn ndarray_to_rotated_bboxes<T: ElementType + ConvF32>(

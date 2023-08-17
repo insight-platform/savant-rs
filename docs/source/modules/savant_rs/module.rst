@@ -15,7 +15,6 @@ savant_rs
    primitives_geometry
    utils
    utils_symbol_mapper
-   utils_numpy
    utils_udf_api
    utils_serialization
    video_object_query

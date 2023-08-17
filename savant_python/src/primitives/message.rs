@@ -1,11 +1,8 @@
-pub mod eos;
 pub mod loader;
 pub mod saver;
-pub mod user_data;
-pub mod video;
 
-use crate::primitives::message::user_data::UserData;
-use crate::primitives::message::video::frame_update::VideoFrameUpdate;
+use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::user_data::UserData;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, VideoFrameBatch};
 use crate::utils::otlp::PropagatedContext;

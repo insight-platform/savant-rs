@@ -2,7 +2,7 @@ use pyo3::types::PyBytes;
 use pyo3::{pyfunction, PyObject};
 use savant_core::fast_hash;
 
-use crate::primitives::Message;
+use crate::primitives::message::Message;
 use crate::release_gil;
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::with_gil;

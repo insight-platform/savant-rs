@@ -1,4 +1,4 @@
-use crate::primitives::message::video::object::VideoObject;
+use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
 use pyo3::prelude::*;
 use savant_core::primitives::frame_update as rust;

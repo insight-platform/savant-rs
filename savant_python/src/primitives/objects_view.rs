@@ -1,5 +1,5 @@
-use crate::primitives::message::video::match_query::MatchQuery;
-use crate::primitives::message::video::object::VideoObject;
+use crate::match_query::MatchQuery;
+use crate::primitives::object::VideoObject;
 use crate::primitives::RBBox;
 use crate::release_gil;
 use pyo3::exceptions::{PyIndexError, PyRuntimeError};
@@ -61,7 +61,7 @@ impl VideoObjectsView {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.inner)
+        format!("{:?}", self.inner)
     }
 
     fn __str__(&self) -> String {

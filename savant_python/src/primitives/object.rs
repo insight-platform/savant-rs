@@ -1,5 +1,5 @@
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
-use crate::primitives::message::video::objects_view::VideoObjectsView;
+use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::release_gil;
 use pyo3::exceptions::PyRuntimeError;
