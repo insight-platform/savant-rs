@@ -1,21 +1,4 @@
 #[macro_export]
-macro_rules! function {
-    () => {{
-        fn f() {}
-        fn type_name_of<T>(_: T) -> &'static str {
-            std::any::type_name::<T>()
-        }
-        let name = type_name_of(f);
-
-        // Find and cut the rest of the path
-        match &name[..name.len() - 3].rfind(':') {
-            Some(pos) => &name[pos + 1..name.len() - 3],
-            None => &name[..name.len() - 3],
-        }
-    }};
-}
-
-#[macro_export]
 macro_rules! with_gil {
     ($expression:expr) => {{
         let start = std::time::Instant::now();
@@ -26,7 +9,7 @@ macro_rules! with_gil {
             "savant::gil_management::with_gil".to_string(),
             format!(
                 "Holding GIL ({}, {}, {})",
-                $crate::function!(),
+                savant_core::function!(),
                 file!(),
                 line!()
             ),
@@ -54,7 +37,7 @@ macro_rules! with_trace {
             "savant::trace".to_string(),
             format!(
                 "Tracing ({}, {}, {})",
-                $crate::function!(),
+                savant_core::function!(),
                 file!(),
                 line!()
             ),
@@ -94,7 +77,7 @@ macro_rules! release_gil {
                 format!(
                     "{} GIL-free operation ({}, {}, {})",
                     if gf > 10000 { "👌" } else { "💀" },
-                    $crate::function!(),
+                    savant_core::function!(),
                     file!(),
                     line!()
                 ),

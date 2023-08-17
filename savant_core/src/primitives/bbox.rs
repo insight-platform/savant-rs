@@ -2,8 +2,8 @@ use crate::consts::EPS;
 use crate::draw::PaddingDraw;
 use crate::primitives::object::VideoObject;
 use crate::primitives::{Point, PolygonalArea};
-use crate::round_2_digits;
 use crate::to_json_value::ToSerdeJsonValue;
+use crate::{round_2_digits, trace};
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
 use parking_lot::RwLock;
@@ -70,8 +70,8 @@ impl TryFrom<&RBBox> for OwnedRBBoxData {
     fn try_from(value: &RBBox) -> Result<Self, Self::Error> {
         match &value.data {
             BBoxVariant::Owned(d) => Ok(d.clone()),
-            BBoxVariant::BorrowedDetectionBox(d) => Ok(d.read().detection_box.clone()),
-            BBoxVariant::BorrowedTrackingBox(d) => d.read().track_box.as_ref().map_or_else(
+            BBoxVariant::BorrowedDetectionBox(d) => Ok(trace!(d.read()).detection_box.clone()),
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read()).track_box.as_ref().map_or_else(
                 || Err(anyhow::anyhow!("Cannot convert tracking box to RBBoxData")),
                 |t| Ok(t.clone()),
             ),
@@ -155,9 +155,8 @@ impl RBBox {
     pub fn get_xc(&self) -> f32 {
         match &self.data {
             BBoxVariant::Owned(d) => d.xc,
-            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.xc,
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.xc,
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.xc)
@@ -167,9 +166,8 @@ impl RBBox {
     pub fn get_yc(&self) -> f32 {
         match &self.data {
             BBoxVariant::Owned(d) => d.yc,
-            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.yc,
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.yc,
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.yc)
@@ -179,9 +177,8 @@ impl RBBox {
     pub fn get_width(&self) -> f32 {
         match &self.data {
             BBoxVariant::Owned(d) => d.width,
-            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.width,
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.width,
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.width)
@@ -191,9 +188,8 @@ impl RBBox {
     pub fn get_height(&self) -> f32 {
         match &self.data {
             BBoxVariant::Owned(d) => d.height,
-            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.height,
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.height,
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.height)
@@ -203,9 +199,8 @@ impl RBBox {
     pub fn get_angle(&self) -> Option<f32> {
         match &self.data {
             BBoxVariant::Owned(d) => d.angle,
-            BBoxVariant::BorrowedDetectionBox(d) => d.read_recursive().detection_box.angle,
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.angle,
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.angle)
@@ -224,10 +219,9 @@ impl RBBox {
         match &self.data {
             BBoxVariant::Owned(d) => d.has_modifications,
             BBoxVariant::BorrowedDetectionBox(d) => {
-                d.read_recursive().detection_box.has_modifications
+                trace!(d.read_recursive()).detection_box.has_modifications
             }
-            BBoxVariant::BorrowedTrackingBox(d) => d
-                .read_recursive()
+            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
                 .track_box
                 .as_ref()
                 .map(|t| t.has_modifications)
@@ -238,11 +232,11 @@ impl RBBox {
         match &mut self.data {
             BBoxVariant::Owned(d) => d.has_modifications = value,
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.has_modifications = value;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.has_modifications = value;
                 }
@@ -256,12 +250,12 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.xc = xc;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.xc = xc;
                     b.has_modifications = true;
@@ -276,12 +270,12 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.yc = yc;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.yc = yc;
                     b.has_modifications = true;
@@ -296,12 +290,12 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.width = width;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.width = width;
                     b.has_modifications = true;
@@ -316,12 +310,12 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.height = height;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.height = height;
                     b.has_modifications = true;
@@ -336,12 +330,12 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.angle = angle;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(b) = &mut lock.track_box {
                     b.angle = angle;
                     b.has_modifications = true;
@@ -369,13 +363,13 @@ impl RBBox {
                 d.has_modifications = true;
             }
             BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 lock.detection_box.xc += dx;
                 lock.detection_box.yc += dy;
                 lock.detection_box.has_modifications = true;
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = d.write();
+                let mut lock = trace!(d.write());
                 if let Some(track_box) = &mut lock.track_box {
                     track_box.xc += dx;
                     track_box.yc += dy;

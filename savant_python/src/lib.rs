@@ -1,3 +1,4 @@
+pub mod capi;
 pub mod logging;
 pub mod match_query;
 pub mod pipeline;

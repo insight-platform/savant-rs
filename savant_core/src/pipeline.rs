@@ -3,6 +3,7 @@ use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
+use crate::trace;
 pub use implementation::PipelineStagePayloadType;
 use opentelemetry::Context;
 use parking_lot::RwLock;
@@ -18,19 +19,19 @@ impl Pipeline {
     }
 
     pub fn set_root_span_name(&self, name: String) {
-        self.0.write().set_root_span_name(name)
+        trace!(self.0.write()).set_root_span_name(name)
     }
 
     pub fn set_sampling_period(&self, period: i64) {
-        self.0.write().set_sampling_period(period)
+        trace!(self.0.write()).set_sampling_period(period)
     }
 
     pub fn get_sampling_period(&self) -> i64 {
-        self.0.read().get_sampling_period()
+        trace!(self.0.read()).get_sampling_period()
     }
 
     pub fn get_root_span_name(&self) -> String {
-        self.0.read().get_root_span_name()
+        trace!(self.0.read()).get_root_span_name()
     }
 
     pub fn add_stage(
@@ -38,15 +39,15 @@ impl Pipeline {
         name: &str,
         stage_type: PipelineStagePayloadType,
     ) -> anyhow::Result<()> {
-        self.0.write().add_stage(name, stage_type)
+        trace!(self.0.write()).add_stage(name, stage_type)
     }
 
     pub fn get_stage_type(&self, name: &str) -> Option<PipelineStagePayloadType> {
-        self.0.read().get_stage_type(name).cloned()
+        trace!(self.0.read()).get_stage_type(name).cloned()
     }
 
     pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> anyhow::Result<()> {
-        self.0.write().add_frame_update(frame_id, update)
+        trace!(self.0.write()).add_frame_update(frame_id, update)
     }
 
     pub fn add_batched_frame_update(
@@ -55,13 +56,11 @@ impl Pipeline {
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> anyhow::Result<()> {
-        self.0
-            .write()
-            .add_batched_frame_update(batch_id, frame_id, update)
+        trace!(self.0.write()).add_batched_frame_update(batch_id, frame_id, update)
     }
 
     pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> anyhow::Result<i64> {
-        self.0.write().add_frame(stage_name, frame)
+        trace!(self.0.write()).add_frame(stage_name, frame)
     }
 
     pub fn add_frame_with_telemetry(
@@ -70,28 +69,26 @@ impl Pipeline {
         frame: VideoFrameProxy,
         parent_ctx: Context,
     ) -> anyhow::Result<i64> {
-        self.0
-            .write()
-            .add_frame_with_telemetry(stage_name, frame, parent_ctx)
+        trace!(self.0.write()).add_frame_with_telemetry(stage_name, frame, parent_ctx)
     }
 
     pub fn delete(&self, id: i64) -> anyhow::Result<HashMap<i64, Context>> {
-        self.0.write().delete(id)
+        trace!(self.0.write()).delete(id)
     }
 
     pub fn get_stage_queue_len(&self, stage: &str) -> anyhow::Result<usize> {
-        self.0.read().get_stage_queue_len(stage)
+        trace!(self.0.read()).get_stage_queue_len(stage)
     }
 
     pub fn get_id_locations(&self) -> HashMap<i64, String> {
-        self.0.read().get_id_locations().clone()
+        trace!(self.0.read()).get_id_locations().clone()
     }
 
     pub fn get_independent_frame(
         &self,
         frame_id: i64,
     ) -> anyhow::Result<(VideoFrameProxy, Context)> {
-        self.0.read().get_independent_frame(frame_id)
+        trace!(self.0.read()).get_independent_frame(frame_id)
     }
 
     pub fn get_batched_frame(
@@ -99,26 +96,26 @@ impl Pipeline {
         batch_id: i64,
         frame_id: i64,
     ) -> anyhow::Result<(VideoFrameProxy, Context)> {
-        self.0.read().get_batched_frame(batch_id, frame_id)
+        trace!(self.0.read()).get_batched_frame(batch_id, frame_id)
     }
 
     pub fn get_batch(
         &self,
         batch_id: i64,
     ) -> anyhow::Result<(VideoFrameBatch, HashMap<i64, Context>)> {
-        self.0.read().get_batch(batch_id)
+        trace!(self.0.read()).get_batch(batch_id)
     }
 
     pub fn apply_updates(&self, id: i64) -> anyhow::Result<()> {
-        self.0.read().apply_updates(id)
+        trace!(self.0.read()).apply_updates(id)
     }
 
     pub fn clear_updates(&self, id: i64) -> anyhow::Result<()> {
-        self.0.write().clear_updates(id)
+        trace!(self.0.write()).clear_updates(id)
     }
 
     pub fn move_as_is(&self, dest_stage_name: &str, object_ids: Vec<i64>) -> anyhow::Result<()> {
-        self.0.write().move_as_is(dest_stage_name, object_ids)
+        trace!(self.0.write()).move_as_is(dest_stage_name, object_ids)
     }
 
     pub fn move_and_pack_frames(
@@ -126,9 +123,7 @@ impl Pipeline {
         dest_stage_name: &str,
         frame_ids: Vec<i64>,
     ) -> anyhow::Result<i64> {
-        self.0
-            .write()
-            .move_and_pack_frames(dest_stage_name, frame_ids)
+        trace!(self.0.write()).move_and_pack_frames(dest_stage_name, frame_ids)
     }
 
     pub fn move_and_unpack_batch(
@@ -136,9 +131,7 @@ impl Pipeline {
         dest_stage_name: &str,
         batch_id: i64,
     ) -> anyhow::Result<HashMap<String, i64>> {
-        self.0
-            .write()
-            .move_and_unpack_batch(dest_stage_name, batch_id)
+        trace!(self.0.write()).move_and_unpack_batch(dest_stage_name, batch_id)
     }
 
     pub fn access_objects(
@@ -146,7 +139,7 @@ impl Pipeline {
         frame_id: i64,
         query: &MatchQuery,
     ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
-        self.0.read().access_objects(frame_id, query)
+        trace!(self.0.read()).access_objects(frame_id, query)
     }
 }
 

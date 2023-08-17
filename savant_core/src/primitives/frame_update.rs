@@ -1,5 +1,6 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
+use crate::trace;
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Debug, Clone, Archive, Deserialize, Serialize)]
@@ -67,7 +68,8 @@ impl VideoFrameUpdate {
     }
 
     pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
-        self.objects.push((object.inner.read().clone(), parent_id));
+        self.objects
+            .push((trace!(object.inner.read()).clone(), parent_id));
     }
 
     pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {

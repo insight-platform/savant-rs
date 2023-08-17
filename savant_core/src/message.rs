@@ -6,7 +6,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
-use crate::version_to_bytes_le;
+use crate::{trace, version_to_bytes_le};
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
@@ -88,7 +88,7 @@ impl Message {
             });
         frame_copy.make_snapshot();
 
-        let inner = frame_copy.inner.read().clone();
+        let inner = trace!(frame_copy.inner.read()).clone();
 
         Self {
             meta: MessageMeta::new(),

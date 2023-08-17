@@ -8,6 +8,7 @@ use crate::primitives::object::{
 };
 use crate::primitives::{Attribute, Attributive};
 use crate::to_json_value::ToSerdeJsonValue;
+use crate::trace;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
 use parking_lot::RwLock;
@@ -180,7 +181,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-                "objects": self.resident_objects.values().map(|o| o.read_recursive().to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": self.resident_objects.values().map(|o| trace!(o.read_recursive()).to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
     }
@@ -209,7 +210,7 @@ impl VideoFrame {
         self.offline_objects = self
             .resident_objects
             .iter()
-            .map(|(id, o)| (*id, o.read_recursive().clone()))
+            .map(|(id, o)| (*id, trace!(o.read_recursive()).clone()))
             .collect();
     }
 
@@ -245,7 +246,7 @@ impl Debug for BelongingVideoFrame {
         match self.inner.upgrade() {
             Some(inner) => f
                 .debug_struct("BelongingVideoFrame")
-                .field("stream_id", &inner.read_recursive().source_id)
+                .field("stream_id", &trace!(inner.read_recursive()).source_id)
                 .finish(),
             None => f.debug_struct("Unset").finish(),
         }
@@ -286,42 +287,42 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
 
 impl AttributeMethods for VideoFrameProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.exclude_temporary_attributes()
     }
 
     fn restore_attributes(&self, attributes: Vec<Attribute>) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.restore_attributes(attributes);
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.get_attributes()
     }
 
     fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.get_attribute(namespace, name)
     }
 
     fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.delete_attribute(namespace, name)
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.set_attribute(attribute)
     }
 
     fn clear_attributes(&self) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.clear_attributes()
     }
 
     fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.delete_attributes(namespace, names)
     }
 
@@ -331,14 +332,14 @@ impl AttributeMethods for VideoFrameProxy {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.find_attributes(namespace, names, hint)
     }
 }
 
 impl ToSerdeJsonValue for VideoFrameProxy {
     fn to_serde_json_value(&self) -> Value {
-        let inner = self.inner.read_recursive().clone();
+        let inner = trace!(self.inner.read_recursive()).clone();
         inner.to_serde_json_value()
     }
 }
@@ -356,7 +357,7 @@ impl VideoFrameProxy {
     }
 
     pub fn deep_copy(&self) -> Self {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         let inner_copy = inner.deep_copy();
         drop(inner);
         Self::from_inner(inner_copy)
@@ -374,7 +375,7 @@ impl VideoFrameProxy {
     }
 
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
 
@@ -414,7 +415,7 @@ impl VideoFrameProxy {
     }
 
     pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
 
@@ -430,7 +431,7 @@ impl VideoFrameProxy {
 
     pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
         self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         let objects = mem::take(&mut inner.resident_objects);
         let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
         inner.resident_objects = retained;
@@ -446,7 +447,7 @@ impl VideoFrameProxy {
     }
 
     pub fn object_exists(&self, id: i64) -> bool {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.resident_objects.contains_key(&id)
     }
 
@@ -457,7 +458,7 @@ impl VideoFrameProxy {
     }
 
     pub fn get_object(&self, id: i64) -> Option<VideoObjectProxy> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner
             .resident_objects
             .get(&id)
@@ -465,7 +466,7 @@ impl VideoFrameProxy {
     }
 
     pub fn make_snapshot(&self) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.preserve();
     }
 
@@ -477,16 +478,16 @@ impl VideoFrameProxy {
 
     pub fn restore_from_snapshot(&self) {
         {
-            let inner = self.inner.write();
+            let inner = trace!(self.inner.write());
             let resident_objects = inner.resident_objects.clone();
             drop(inner);
 
             resident_objects.iter().for_each(|(_, o)| {
-                let mut o = o.write();
+                let mut o = trace!(o.write());
                 o.frame = None
             });
 
-            let mut inner = self.inner.write();
+            let mut inner = trace!(self.inner.write());
             inner.restore();
         }
         self.fix_object_owned_frame();
@@ -568,7 +569,7 @@ impl VideoFrameProxy {
 
         let object_id = object.get_id();
         let new_id = self.get_max_object_id() + 1;
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         if inner.resident_objects.contains_key(&object_id) {
             match policy {
                 IdCollisionResolutionPolicy::GenerateNewId => {
@@ -577,8 +578,9 @@ impl VideoFrameProxy {
                 }
                 IdCollisionResolutionPolicy::Overwrite => {
                     let old = inner.resident_objects.remove(&object_id).unwrap();
-                    old.write().frame = None;
-                    old.write().parent_id = None;
+                    let mut guard = trace!(old.write());
+                    guard.frame = None;
+                    guard.parent_id = None;
                     inner
                         .resident_objects
                         .insert(object_id, object.inner.clone());
@@ -602,7 +604,7 @@ impl VideoFrameProxy {
     }
 
     pub fn get_max_object_id(&self) -> i64 {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.max_object_id
     }
 
@@ -680,7 +682,7 @@ impl VideoFrameProxy {
         use crate::primitives::frame_update::AttributeUpdatePolicy::*;
         match &update.attribute_collision_resolution_policy {
             ReplaceWithForeign => {
-                let mut inner = self.inner.write();
+                let mut inner = trace!(self.inner.write());
                 let other_inner = update.get_attributes().clone();
                 inner.attributes.extend(
                     other_inner
@@ -689,7 +691,7 @@ impl VideoFrameProxy {
                 );
             }
             KeepOwn => {
-                let mut inner = self.inner.write();
+                let mut inner = trace!(self.inner.write());
                 let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
@@ -697,7 +699,7 @@ impl VideoFrameProxy {
                 }
             }
             Error => {
-                let mut inner = self.inner.write();
+                let mut inner = trace!(self.inner.write());
                 let other_inner = update.get_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
@@ -766,62 +768,62 @@ impl VideoFrameProxy {
     }
 
     pub fn get_source_id(&self) -> String {
-        self.inner.read_recursive().source_id.clone()
+        trace!(self.inner.read_recursive()).source_id.clone()
     }
 
     pub fn set_source_id(&mut self, source_id: String) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.source_id = source_id;
     }
 
     pub fn set_time_base(&mut self, time_base: (i32, i32)) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.time_base = time_base;
     }
     pub fn get_time_base(&self) -> (i32, i32) {
-        self.inner.read_recursive().time_base
+        trace!(self.inner.read_recursive()).time_base
     }
 
     pub fn get_pts(&self) -> i64 {
-        self.inner.read_recursive().pts
+        trace!(self.inner.read_recursive()).pts
     }
     pub fn set_pts(&mut self, pts: i64) {
         assert!(pts >= 0, "pts must be greater than or equal to 0");
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.pts = pts;
     }
 
     pub fn get_framerate(&self) -> String {
-        self.inner.read_recursive().framerate.clone()
+        trace!(self.inner.read_recursive()).framerate.clone()
     }
 
     pub fn set_framerate(&mut self, framerate: String) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.framerate = framerate;
     }
 
     pub fn get_width(&self) -> i64 {
-        self.inner.read_recursive().width
+        trace!(self.inner.read_recursive()).width
     }
 
     pub fn set_width(&mut self, width: i64) {
         assert!(width > 0, "width must be greater than 0");
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.width = width;
     }
 
     pub fn get_height(&self) -> i64 {
-        self.inner.read_recursive().height
+        trace!(self.inner.read_recursive()).height
     }
 
     pub fn set_height(&mut self, height: i64) {
         assert!(height > 0, "height must be greater than 0");
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.height = height;
     }
 
     pub fn get_dts(&self) -> Option<i64> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.dts
     }
 
@@ -830,12 +832,12 @@ impl VideoFrameProxy {
             dts.is_none() || dts.unwrap() >= 0,
             "dts must be greater than or equal to 0"
         );
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.dts = dts;
     }
 
     pub fn get_duration(&self) -> Option<i64> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.duration
     }
 
@@ -844,67 +846,67 @@ impl VideoFrameProxy {
             duration.is_none() || duration.unwrap() >= 0,
             "duration must be greater than or equal to 0"
         );
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.duration = duration;
     }
 
     pub fn get_transcoding_method(&self) -> VideoFrameTranscodingMethod {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.transcoding_method.clone()
     }
 
     pub fn set_transcoding_method(&mut self, transcoding_method: VideoFrameTranscodingMethod) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.transcoding_method = transcoding_method;
     }
 
     pub fn get_codec(&self) -> Option<String> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.codec.clone()
     }
 
     pub fn set_codec(&mut self, codec: Option<String>) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.codec = codec;
     }
 
     pub fn clear_transformations(&mut self) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.transformations.clear();
     }
 
     pub fn add_transformation(&mut self, transformation: VideoFrameTransformation) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.transformations.push(transformation);
     }
 
     pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.transformations.clone()
     }
 
     pub fn get_keyframe(&self) -> Option<bool> {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.keyframe
     }
 
     pub fn set_keyframe(&mut self, keyframe: Option<bool>) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.keyframe = keyframe;
     }
 
     pub fn get_content(&self) -> VideoFrameContent {
-        let inner = self.inner.read_recursive();
+        let inner = trace!(self.inner.read_recursive());
         inner.content.clone()
     }
 
     pub fn set_content(&mut self, content: VideoFrameContent) {
-        let mut inner = self.inner.write();
+        let mut inner = trace!(self.inner.write());
         inner.content = content;
     }
 
     pub fn clear_objects(&self) {
-        let mut frame = self.inner.write();
+        let mut frame = trace!(self.inner.write());
         frame.resident_objects.clear();
     }
 }
@@ -919,6 +921,7 @@ mod tests {
     };
     use crate::primitives::{AttributeMethods, RBBox};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
+    use crate::trace;
     use std::sync::Arc;
 
     #[test]
@@ -1082,7 +1085,10 @@ mod tests {
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(obj.get_parent().unwrap().inner.read_recursive().id, 155);
+        assert_eq!(
+            trace!(obj.get_parent().unwrap().inner.read_recursive()).id,
+            155
+        );
     }
 
     #[test]

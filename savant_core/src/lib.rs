@@ -5,6 +5,7 @@ pub mod draw;
 pub mod eval_cache;
 pub mod eval_context;
 pub mod eval_resolvers;
+pub mod macros;
 pub mod match_query;
 pub mod message;
 pub mod otlp;

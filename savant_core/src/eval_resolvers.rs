@@ -42,6 +42,7 @@ pub(crate) mod resolvers {
         cast_str_to_primitive_type, config_resolver_name, env_resolver_name, etcd_resolver_name,
         get_symbol_resolver, utility_resolver_name, CONFIG_FUNC, ENV_FUNC, ETCD_FUNC,
     };
+    use crate::trace;
     use anyhow::{anyhow, bail, Result};
     use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
     use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
@@ -131,7 +132,7 @@ pub(crate) mod resolvers {
         }
 
         pub fn add_symbol(&mut self, name: String, value: String) {
-            self.symbols.write().insert(name, value);
+            trace!(self.symbols.write()).insert(name, value);
         }
     }
 
@@ -144,7 +145,7 @@ pub(crate) mod resolvers {
                     }
                     match expr.as_tuple().unwrap().as_slice() {
                         [Value::String(key), default] => {
-                            match self.symbols.read_recursive().get(key) {
+                            match trace!(self.symbols.read_recursive()).get(key) {
                                 Some(value) => cast_str_to_primitive_type(value, default),
                                 None => Ok(default.clone()),
                             }
@@ -351,6 +352,7 @@ pub(crate) mod singleton {
         ConfigSymbolResolver, EnvSymbolResolver, EtcdSymbolResolver, SymbolResolver,
         UtilityResolver,
     };
+    use crate::trace;
     use anyhow::Result;
     use hashbrown::HashMap;
     use lazy_static::lazy_static;
@@ -423,7 +425,7 @@ pub(crate) mod singleton {
                 .downcast_ref::<ConfigSymbolResolver>()
                 .expect("Wrong downcast");
 
-            let mut old_symbols = resolver.symbols.write();
+            let mut old_symbols = trace!(resolver.symbols.write());
             old_symbols.extend(symbols);
         } else {
             drop(r);

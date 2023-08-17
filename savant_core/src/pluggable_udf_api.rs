@@ -1,4 +1,5 @@
 use crate::primitives::object::VideoObjectProxy;
+use crate::trace;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use libloading::os::unix::Symbol;
@@ -34,7 +35,7 @@ lazy_static! {
 }
 
 pub fn is_plugin_function_registered(alias: &str) -> bool {
-    let registry = PLUGIN_REGISTRY.read();
+    let registry = trace!(PLUGIN_REGISTRY.read());
     registry.contains_key(alias)
 }
 
@@ -44,8 +45,8 @@ pub fn register_plugin_function(
     kind: &UserFunctionType,
     alias: &str,
 ) -> anyhow::Result<()> {
-    let mut registry = PLUGIN_REGISTRY.write();
-    let mut lib_registry = PLUGIN_LIB_REGISTRY.write();
+    let mut registry = trace!(PLUGIN_REGISTRY.write());
+    let mut lib_registry = trace!(PLUGIN_LIB_REGISTRY.write());
 
     if !lib_registry.contains_key(plugin) {
         let lib = unsafe { libloading::Library::new(plugin)? };
@@ -75,7 +76,7 @@ pub fn register_plugin_function(
 }
 
 pub fn call_object_predicate(alias: &str, args: &[&VideoObjectProxy]) -> anyhow::Result<bool> {
-    let registry = PLUGIN_REGISTRY.read();
+    let registry = trace!(PLUGIN_REGISTRY.read());
     let func = match registry.get(alias) {
         Some(func) => func,
         None => panic!("Function {} not found", alias),
@@ -88,7 +89,7 @@ pub fn call_object_predicate(alias: &str, args: &[&VideoObjectProxy]) -> anyhow:
 }
 
 pub fn call_object_inplace_modifier(alias: &str, args: &[&VideoObjectProxy]) -> anyhow::Result<()> {
-    let registry = PLUGIN_REGISTRY.read();
+    let registry = trace!(PLUGIN_REGISTRY.read());
     let func = match registry.get(alias) {
         Some(func) => func,
         None => panic!("Function {} not found", alias),
@@ -104,7 +105,7 @@ pub fn call_object_map_modifier(
     alias: &str,
     arg: &VideoObjectProxy,
 ) -> anyhow::Result<VideoObjectProxy> {
-    let registry = PLUGIN_REGISTRY.read();
+    let registry = trace!(PLUGIN_REGISTRY.read());
     let func = match registry.get(alias) {
         Some(func) => func,
         None => panic!("Function {} not found", alias),
