@@ -1,7 +1,7 @@
-use crate::primitives::message::video::frame::VideoFrame;
-use crate::primitives::message::video::match_query::MatchQuery;
-use crate::primitives::message::video::object::VideoObject;
-use crate::primitives::message::video::objects_view::VideoObjectsView;
+use crate::match_query::MatchQuery;
+use crate::primitives::frame::VideoFrame;
+use crate::primitives::object::VideoObject;
+use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use pyo3::{pyclass, pymethods};
 use savant_core::primitives::rust;

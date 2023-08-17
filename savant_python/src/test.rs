@@ -1,6 +1,6 @@
 pub mod utils {
-    use crate::primitives::message::video::object::VideoObject;
-    use crate::primitives::VideoFrame;
+    use crate::primitives::frame::VideoFrame;
+    use crate::primitives::object::VideoObject;
     use pyo3::pyfunction;
 
     #[pyfunction]

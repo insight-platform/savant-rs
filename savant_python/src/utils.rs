@@ -29,8 +29,8 @@ use crate::primitives::message::saver::*;
 
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
-use crate::primitives::message::video::objects_view::VideoObjectBBoxType;
-use crate::primitives::Message;
+use crate::primitives::message::Message;
+use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::otlp::{MaybeTelemetrySpan, PropagatedContext, TelemetrySpan};
 use crate::utils::pluggable_udf_api::{

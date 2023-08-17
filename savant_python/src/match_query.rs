@@ -1,5 +1,5 @@
 use crate::primitives::bbox::{BBoxMetricType, RBBox};
-use crate::primitives::message::video::objects_view::QueryFunctions;
+use crate::primitives::objects_view::QueryFunctions;
 use crate::utils::eval_resolvers::*;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;

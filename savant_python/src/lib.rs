@@ -1,4 +1,6 @@
 pub mod logging;
+pub mod match_query;
+pub mod pipeline;
 /// # Basic objects
 ///
 pub mod primitives;
@@ -13,7 +15,7 @@ use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
 use crate::logging::{set_log_level, LogLevel};
-use crate::primitives::message::video::match_query::video_object_query;
+use crate::match_query::video_object_query;
 
 #[pyfunction]
 fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
@@ -50,9 +52,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version_crc32, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
-    m.add_wrapped(wrap_pymodule!(
-        primitives::message::video::pipeline::pipeline
-    ))?;
+    m.add_wrapped(wrap_pymodule!(pipeline::pipeline))?;
     m.add_wrapped(wrap_pymodule!(primitives::geometry))?;
     m.add_wrapped(wrap_pymodule!(primitives::draw_spec))?;
     m.add_wrapped(wrap_pymodule!(utils::utils))?;

@@ -2,12 +2,18 @@
 ///
 pub mod attribute;
 pub mod attribute_value;
+pub mod batch;
 /// Here are decleared bounding boxes
 ///
 pub mod bbox;
 /// The draw specification used to draw objects on the frame when they are visualized.
 pub mod draw;
+pub mod eos;
+pub mod frame;
+pub mod frame_update;
 pub mod message;
+pub mod object;
+pub mod objects_view;
 /// Simple point structure.
 pub mod point;
 /// A structure representing polygonal areas and functions.
@@ -16,32 +22,32 @@ pub mod polygonal_area;
 pub mod pyobject;
 /// A line consisting of two points.
 pub mod segment;
+pub mod user_data;
 
-use crate::primitives::message::video::frame::VideoFrameTransformation;
+use crate::primitives::frame::{
+    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
+};
 
-pub use attribute::Attribute;
-pub use attribute_value::{AttributeValue, AttributeValueType, AttributeValuesView};
-pub use bbox::{BBox, RBBox};
-pub use draw::*;
-pub use message::eos::EndOfStream;
-pub use message::loader::load_message;
-pub use message::saver::save_message;
-pub use message::user_data::UserData;
-pub use message::video::batch::VideoFrameBatch;
-
-pub use message::video::frame::{VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod};
-
-use crate::primitives::message::video::frame_update::{
+use crate::primitives::attribute::Attribute;
+use crate::primitives::attribute_value::{AttributeValue, AttributeValueType, AttributeValuesView};
+use crate::primitives::batch::VideoFrameBatch;
+use crate::primitives::bbox::{BBox, RBBox};
+use crate::primitives::draw::{
+    BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, LabelPositionKind, ObjectDraw,
+    PaddingDraw, SetDrawLabelKind,
+};
+use crate::primitives::eos::EndOfStream;
+use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use crate::primitives::message::video::object::{IdCollisionResolutionPolicy, VideoObject};
-use crate::primitives::message::video::objects_view::VideoObjectsView;
-pub use message::Message;
-pub use point::Point;
-pub use polygonal_area::PolygonalArea;
+use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::objects_view::VideoObjectsView;
+use crate::primitives::point::Point;
+use crate::primitives::polygonal_area::PolygonalArea;
+use crate::primitives::segment::{Intersection, IntersectionKind, Segment};
+use crate::primitives::user_data::UserData;
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, PyResult, Python};
-pub use segment::{Intersection, IntersectionKind, Segment};
 
 #[pymodule]
 pub fn geometry(_py: Python, m: &PyModule) -> PyResult<()> {

@@ -14,13 +14,16 @@
 // use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn check_version(external_version: *const c_char) -> bool {
     let external_version = CStr::from_ptr(external_version);
     savant_core::version()
-        == String::from(external_version.to_str().expect(
+        == *external_version.to_str().expect(
             "Failed to convert external version to string. This is a bug. Please report it.",
-        ))
+        )
 }
 
 #[cfg(test)]

@@ -1,9 +1,11 @@
+use crate::match_query::MatchQuery;
+use crate::primitives::attribute::Attribute;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
-use crate::primitives::message::video::frame_update::VideoFrameUpdate;
-use crate::primitives::message::video::match_query::MatchQuery;
-use crate::primitives::message::video::object::{IdCollisionResolutionPolicy, VideoObject};
-use crate::primitives::message::video::objects_view::VideoObjectsView;
-use crate::primitives::{Attribute, Message, SetDrawLabelKind};
+use crate::primitives::draw::SetDrawLabelKind;
+use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::message::Message;
+use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::with_gil;
 use pyo3::exceptions::PyValueError;

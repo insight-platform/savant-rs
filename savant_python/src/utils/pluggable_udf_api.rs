@@ -1,4 +1,4 @@
-use crate::primitives::message::video::object::VideoObject;
+use crate::primitives::object::VideoObject;
 use crate::release_gil;
 use pyo3::prelude::*;
 use savant_core::pluggable_udf_api as rust;

@@ -1,4 +1,5 @@
-use crate::primitives::{Attribute, Message};
+use crate::primitives::attribute::Attribute;
+use crate::primitives::message::Message;
 use crate::release_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
