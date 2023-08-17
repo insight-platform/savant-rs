@@ -10,7 +10,7 @@ set_log_level(LogLevel.Trace)
 
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
 
-from savant_rs.utils import gen_frame, TelemetrySpan
+from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
 from savant_rs import init_jaeger_tracer
@@ -20,6 +20,7 @@ from savant_rs.video_object_query import MatchQuery as Q
 
 if __name__ == "__main__":
     savant_rs.version()
+    enable_dl_detection() # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
@@ -56,7 +57,7 @@ if __name__ == "__main__":
     update.object_policy = ObjectUpdatePolicy.AddForeignObjects
     update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
-    p.add_frame_update("input", frame_id1, update)
+    p.add_frame_update(frame_id1, update)
 
     frame1, ctxt1 = p.get_independent_frame(frame_id1)
     log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)

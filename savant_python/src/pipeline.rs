@@ -10,6 +10,8 @@ use pyo3::prelude::*;
 use savant_core::rust;
 use std::collections::HashMap;
 
+/// Defines which type of payload a stage handles.
+///
 #[pyclass]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VideoPipelineStagePayloadType {
@@ -42,12 +44,26 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
+/// A video pipeline.
+///
 #[pyclass]
 #[derive(Debug)]
 struct VideoPipeline(rust::Pipeline);
 
 #[pymethods]
 impl VideoPipeline {
+    /// Creates a new pipeline. Same as ``__init__``.
+    ///
+    /// Params
+    /// ------
+    /// name: str
+    ///   The name of the pipeline. It is used in OTLP as a root span name.
+    ///
+    #[staticmethod]
+    fn constructor(name: String) -> Self {
+        Self::new(name)
+    }
+
     #[new]
     fn new(name: String) -> Self {
         let p = rust::Pipeline::default();
@@ -55,6 +71,8 @@ impl VideoPipeline {
         Self(p)
     }
 
+    /// Allows receiving a raw pointer to Rust inner Pipeline struct.
+    ///
     #[getter]
     fn memory_handle(&self) -> usize {
         self.0.memory_handle()
@@ -62,8 +80,8 @@ impl VideoPipeline {
 
     /// Sets the root span name.
     ///
-    /// Parameters
-    /// ----------
+    /// Params
+    /// ------
     /// name : str
     ///   The name of the root span.
     ///
@@ -79,14 +97,26 @@ impl VideoPipeline {
         self.0.get_root_span_name()
     }
 
-    /// Set sampling
+    /// Set sampling. Sampling is used to reduce the number of spans sent to an OTLP collector.
+    /// By default, it is set to 0, which means that spans are only produced for propagated telemetry.
+    ///
+    /// Params
+    /// ------
+    /// period : int
+    ///   The sampling period. If set to 0, no sampling is performed.
+    ///   Set it to a high number (e.g. 100, 1000) for production, 1 for development purposes to trace every frame.
     ///
     #[setter]
     fn set_sampling_period(&self, period: i64) {
         self.0.set_sampling_period(period);
     }
 
-    /// Get sampling
+    /// Get sampling configured for the pipeline.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   The sampling period.
     ///
     #[getter]
     fn get_sampling_period(&self) -> i64 {
@@ -94,7 +124,6 @@ impl VideoPipeline {
     }
 
     /// Adds a stage to the pipeline.
-    ///
     ///
     /// Parameters
     /// ----------
@@ -115,8 +144,6 @@ impl VideoPipeline {
     }
     /// Retrieves the type of a stage.
     ///
-    /// GIL management: the function is GIL-free.
-    ///
     /// Parameters
     /// ----------
     /// name : str
@@ -134,12 +161,8 @@ impl VideoPipeline {
     }
     /// Adds a frame update to the independent frame.
     ///
-    /// GIL management: the function is GIL-free.
-    ///
     /// Parameters
     /// ----------
-    /// stage : str
-    ///   The name of the stage. Must be a stage of type independent frames.
     /// frame_id : int
     ///   The id of the frame.
     /// update : :py:class:`savant_rs.primitives.VideoFrameUpdate`
@@ -150,14 +173,9 @@ impl VideoPipeline {
     /// ValueError
     ///  If the stage does not exist or is not of type independent frames. If the frame does not exist.
     ///
-    fn add_frame_update(
-        &self,
-        stage: &str,
-        frame_id: i64,
-        update: VideoFrameUpdate,
-    ) -> PyResult<()> {
+    fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> PyResult<()> {
         self.0
-            .add_frame_update(stage, frame_id, update.0)
+            .add_frame_update(frame_id, update.0)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Adds a frame update to the batched frame.
@@ -166,8 +184,6 @@ impl VideoPipeline {
     ///
     /// Parameters
     /// ----------
-    /// stage : str
-    ///   The name of the stage. Must be a stage of type batches.
     /// batch_id : int
     ///   The id of the batch.
     /// frame_id : int
@@ -182,13 +198,12 @@ impl VideoPipeline {
     ///
     fn add_batched_frame_update(
         &self,
-        stage: &str,
         batch_id: i64,
         frame_id: i64,
         update: VideoFrameUpdate,
     ) -> PyResult<()> {
         self.0
-            .add_batched_frame_update(stage, batch_id, frame_id, update.0)
+            .add_batched_frame_update(batch_id, frame_id, update.0)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Adds a frame to the stage.
