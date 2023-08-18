@@ -921,7 +921,6 @@ mod tests {
     };
     use crate::primitives::{AttributeMethods, RBBox};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
-    use crate::trace;
     use std::sync::Arc;
 
     #[test]
@@ -1085,10 +1084,7 @@ mod tests {
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
-        assert_eq!(
-            trace!(obj.get_parent().unwrap().inner.read_recursive()).id,
-            155
-        );
+        assert_eq!(obj.get_parent().unwrap().inner.read_recursive().id, 155);
     }
 
     #[test]
