@@ -127,7 +127,7 @@ pub struct VideoFrame {
     #[builder(setter(skip))]
     pub attributes: HashMap<(String, String), Attribute>,
     #[builder(setter(skip))]
-    pub offline_objects: HashMap<i64, VideoObject>,
+    pub offline_objects: Vec<(i64, VideoObject)>,
     #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) resident_objects: HashMap<i64, Arc<RwLock<VideoObject>>>,
@@ -153,7 +153,7 @@ impl Default for VideoFrame {
             content: VideoFrameContent::None,
             transformations: Vec::new(),
             attributes: HashMap::new(),
-            offline_objects: HashMap::new(),
+            offline_objects: Vec::new(),
             resident_objects: HashMap::new(),
             max_object_id: 0,
         }
@@ -233,7 +233,6 @@ impl VideoFrame {
 #[repr(C)]
 pub struct VideoFrameProxy {
     pub(crate) inner: Arc<RwLock<Box<VideoFrame>>>,
-    pub(crate) is_parallelized: bool,
 }
 
 #[derive(Clone)]
@@ -268,7 +267,6 @@ impl From<BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
-            is_parallelized: false,
         }
     }
 }
@@ -280,7 +278,6 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
                 .inner
                 .upgrade()
                 .expect("Frame is dropped, you cannot use attached objects anymore"),
-            is_parallelized: false,
         }
     }
 }
@@ -370,7 +367,6 @@ impl VideoFrameProxy {
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
         VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
-            is_parallelized: false,
         }
     }
 
@@ -731,13 +727,6 @@ impl VideoFrameProxy {
         self.update_objects(update)?;
         self.update_attributes(update)?;
         Ok(())
-    }
-    pub fn set_parallelized(&mut self, is_parallelized: bool) {
-        self.is_parallelized = is_parallelized;
-    }
-
-    pub fn get_parallelized(&self) -> bool {
-        self.is_parallelized
     }
 
     #[allow(clippy::too_many_arguments)]

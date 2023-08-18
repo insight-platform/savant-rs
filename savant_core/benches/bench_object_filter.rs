@@ -89,8 +89,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
     );
 
     let objs = get_objects();
-    let mut frame = gen_empty_frame();
-    frame.set_parallelized(true);
+    let frame = gen_empty_frame();
     for o in objs {
         frame
             .add_object(

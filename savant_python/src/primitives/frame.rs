@@ -339,11 +339,6 @@ impl VideoFrame {
     }
 
     #[getter]
-    pub fn get_parallelized(&self) -> bool {
-        self.0.get_parallelized()
-    }
-
-    #[getter]
     fn memory_handle(&self) -> usize {
         self.0.memory_handle()
     }
