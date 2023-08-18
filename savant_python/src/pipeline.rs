@@ -556,6 +556,7 @@ impl VideoPipeline {
         release_gil!(no_gil, || {
             self.0
                 .move_and_unpack_batch(dest_stage_name, batch_id)
+                .map(|m| std::collections::HashMap::from_iter(m.into_iter()))
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }

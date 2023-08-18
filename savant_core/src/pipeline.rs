@@ -4,10 +4,10 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 use crate::trace;
+use hashbrown::HashMap;
 pub use implementation::PipelineStagePayloadType;
 use opentelemetry::Context;
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone, Default, Debug)]
@@ -151,9 +151,9 @@ mod implementation {
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
     use anyhow::bail;
+    use hashbrown::{HashMap, HashSet};
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
     use opentelemetry::Context;
-    use std::collections::{HashMap, HashSet};
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 
     #[derive(Debug, Default)]

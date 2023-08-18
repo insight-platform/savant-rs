@@ -333,11 +333,6 @@ impl VideoFrame {
         })
     }
 
-    #[setter]
-    pub fn set_parallelized(&mut self, is_parallelized: bool) {
-        self.0.set_parallelized(is_parallelized)
-    }
-
     #[getter]
     fn memory_handle(&self) -> usize {
         self.0.memory_handle()

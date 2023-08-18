@@ -9,7 +9,7 @@ use std::sync::Arc;
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
 #[archive(check_bytes)]
 pub struct VideoFrameBatch {
-    offline_frames: HashMap<i64, VideoFrame>,
+    offline_frames: Vec<(i64, VideoFrame)>,
     #[with(Skip)]
     pub(crate) frames: HashMap<i64, VideoFrameProxy>,
 }
@@ -47,7 +47,7 @@ impl VideoFrameBatch {
             });
             frame.make_snapshot();
             let inner = Arc::try_unwrap(frame.inner).unwrap().into_inner(); //..into_inner();
-            self.offline_frames.insert(*id, *inner);
+            self.offline_frames.push((*id, *inner));
         }
     }
 
@@ -59,7 +59,7 @@ impl VideoFrameBatch {
         self.prepare_after_load();
     }
 
-    pub fn access_objects(&self, q: &MatchQuery) -> HashMap<i64, Vec<VideoObjectProxy>> {
+    pub fn access_objects(&self, q: &MatchQuery) -> hashbrown::HashMap<i64, Vec<VideoObjectProxy>> {
         self.frames
             .iter()
             .map(|(id, frame)| (*id, frame.access_objects(q)))
