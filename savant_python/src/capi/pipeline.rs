@@ -37,10 +37,9 @@ pub unsafe extern "C" fn pipeline_move_and_pack_frames(
         .expect("Failed to convert dest_stage to string. This is a bug. Please report it.");
     let pipeline = &*(handle as *const Pipeline);
     let ids = from_raw_parts(frame_ids, len);
-    let res = pipeline
+    pipeline
         .move_and_pack_frames(dest_stage, ids.to_vec())
-        .expect("Failed to move objects as is.");
-    res
+        .expect("Failed to move objects as is.")
 }
 
 /// # Safety

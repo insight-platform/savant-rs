@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "savant_core",
-    "savant_capi",
     "savant_python",
     "etcd_dynamic_state",
     "savant_etcd_dynamic_state",
@@ -10,7 +9,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.55"
+version = "0.1.56"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant rust optimization library"

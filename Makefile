@@ -12,7 +12,7 @@ clippy:
 
 build_savant:
 	@echo "Building..."
-	cd savant_python && CARGO_INCREMENTAL=true maturin dev
+	cd savant_python && CARGO_INCREMENTAL=true maturin build -o dist && pip install --force-reinstall dist/*.whl
 
 build_etcd_dynamic_state:
 	@echo "Building Etcd dynamic state..."

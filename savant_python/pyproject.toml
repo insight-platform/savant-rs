@@ -19,3 +19,5 @@ max-line-length = 88
 
 [tool.maturin]
 python-source = "python"
+include = ["*"]
+
