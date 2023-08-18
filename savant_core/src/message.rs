@@ -1,4 +1,3 @@
-use crate::match_query::MatchQuery;
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
@@ -80,12 +79,9 @@ impl Message {
         let frame_copy = frame.deep_copy();
 
         frame_copy.exclude_temporary_attributes();
-        frame_copy
-            .access_objects(&MatchQuery::Idle)
-            .iter()
-            .for_each(|o| {
-                o.exclude_temporary_attributes();
-            });
+        frame_copy.get_all_objects().iter().for_each(|o| {
+            o.exclude_temporary_attributes();
+        });
         frame_copy.make_snapshot();
 
         let inner = trace!(frame_copy.inner.read()).clone();

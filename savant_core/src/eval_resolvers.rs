@@ -20,20 +20,24 @@ mod utils {
         }
     }
 
+    #[inline(always)]
     pub fn utility_resolver_name() -> String {
-        "utility-resolver".to_string()
+        String::from("utility-resolver")
     }
 
+    #[inline(always)]
     pub fn env_resolver_name() -> String {
-        "env-resolver".to_string()
+        String::from("env-resolver")
     }
 
+    #[inline(always)]
     pub fn config_resolver_name() -> String {
-        "config-resolver".to_string()
+        String::from("config-resolver")
     }
 
+    #[inline(always)]
     pub fn etcd_resolver_name() -> String {
-        "etcd-resolver".to_string()
+        String::from("etcd-resolver")
     }
 }
 

@@ -34,7 +34,7 @@ pub(crate) struct ObjectContext<'a> {
     pub object: &'a VideoObjectProxy,
     pub resolvers: Vec<String>,
     pub temp_vars: HashMap<String, Value>,
-    pub object_view: ObjectFieldsView,
+    pub object_view: OnceCell<ObjectFieldsView>,
 }
 
 #[derive(Default)]
@@ -62,7 +62,7 @@ impl<'a> ObjectContext<'a> {
             object,
             resolvers: resolvers.to_vec(),
             temp_vars: HashMap::new(),
-            object_view: ObjectFieldsView::default(),
+            object_view: OnceCell::default(),
         }
     }
 }
@@ -79,33 +79,37 @@ impl<'a> Context for ObjectContext<'a> {
             return Some(v);
         }
 
+        let object_view = self.object_view.get_or_init(|| ObjectFieldsView::default());
+
         match identifier {
             "id" => Some(
-                self.object_view
+                object_view
                     .id
                     .get_or_init(|| Value::from(self.object.get_id())),
             ),
             "namespace" => Some(
-                self.object_view
+                object_view
                     .namespace
                     .get_or_init(|| Value::from(self.object.get_namespace())),
             ),
             "label" => Some(
-                self.object_view
+                object_view
                     .label
                     .get_or_init(|| Value::from(self.object.get_label())),
             ),
             "confidence" => {
-                Some(self.object_view.confidence.get_or_init(
-                    || match self.object.get_confidence() {
-                        None => Value::Empty,
-                        Some(c) => Value::from(c as f64),
-                    },
-                ))
+                Some(
+                    object_view
+                        .confidence
+                        .get_or_init(|| match self.object.get_confidence() {
+                            None => Value::Empty,
+                            Some(c) => Value::from(c as f64),
+                        }),
+                )
             }
             "parent.id" => {
                 Some(
-                    self.object_view
+                    object_view
                         .parent_id
                         .get_or_init(|| match self.object.get_parent_id() {
                             None => Value::Empty,
@@ -113,48 +117,52 @@ impl<'a> Context for ObjectContext<'a> {
                         }),
                 )
             }
-            "parent.namespace" => Some(self.object_view.parent_namespace.get_or_init(|| {
-                match &self.object.get_parent() {
-                    None => Value::Empty,
-                    Some(parent) => Value::from(parent.get_namespace()),
-                }
-            })),
+            "parent.namespace" => {
+                Some(
+                    object_view
+                        .parent_namespace
+                        .get_or_init(|| match &self.object.get_parent() {
+                            None => Value::Empty,
+                            Some(parent) => Value::from(parent.get_namespace()),
+                        }),
+                )
+            }
             "parent.label" => {
-                Some(self.object_view.parent_label.get_or_init(
-                    || match &self.object.get_parent() {
+                Some(
+                    object_view
+                        .parent_label
+                        .get_or_init(|| match &self.object.get_parent() {
+                            None => Value::Empty,
+                            Some(parent) => Value::from(parent.get_label()),
+                        }),
+                )
+            }
+
+            "tracking_info.id" => {
+                Some(object_view.tracking_info_id.get_or_init(
+                    || match self.object.get_track_id() {
                         None => Value::Empty,
-                        Some(parent) => Value::from(parent.get_label()),
+                        Some(id) => Value::from(id),
                     },
                 ))
             }
 
-            "tracking_info.id" => Some(self.object_view.tracking_info_id.get_or_init(|| {
-                match self.object.get_track_id() {
+            "tracking_info.bbox.xc" => Some(object_view.tracking_info_bbox.xc.get_or_init(|| {
+                match self.object.get_track_box() {
                     None => Value::Empty,
-                    Some(id) => Value::from(id),
+                    Some(info) => Value::from(info.get_xc() as f64),
                 }
             })),
 
-            "tracking_info.bbox.xc" => {
-                Some(self.object_view.tracking_info_bbox.xc.get_or_init(|| {
-                    match self.object.get_track_box() {
-                        None => Value::Empty,
-                        Some(info) => Value::from(info.get_xc() as f64),
-                    }
-                }))
-            }
-
-            "tracking_info.bbox.yc" => {
-                Some(self.object_view.tracking_info_bbox.yc.get_or_init(|| {
-                    match self.object.get_track_box() {
-                        None => Value::Empty,
-                        Some(info) => Value::from(info.get_yc() as f64),
-                    }
-                }))
-            }
+            "tracking_info.bbox.yc" => Some(object_view.tracking_info_bbox.yc.get_or_init(|| {
+                match self.object.get_track_box() {
+                    None => Value::Empty,
+                    Some(info) => Value::from(info.get_yc() as f64),
+                }
+            })),
 
             "tracking_info.bbox.width" => {
-                Some(self.object_view.tracking_info_bbox.width.get_or_init(|| {
+                Some(object_view.tracking_info_bbox.width.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
                         Some(info) => Value::from(info.get_width() as f64),
@@ -163,7 +171,7 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "tracking_info.bbox.height" => {
-                Some(self.object_view.tracking_info_bbox.height.get_or_init(|| {
+                Some(object_view.tracking_info_bbox.height.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
                         Some(info) => Value::from(info.get_height() as f64),
@@ -172,7 +180,7 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "tracking_info.bbox.angle" => {
-                Some(self.object_view.tracking_info_bbox.angle.get_or_init(|| {
+                Some(object_view.tracking_info_bbox.angle.get_or_init(|| {
                     match self.object.get_track_box() {
                         None => Value::Empty,
                         Some(info) => match info.get_angle() {
@@ -184,32 +192,32 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "bbox.xc" => Some(
-                self.object_view
+                object_view
                     .bbox
                     .xc
                     .get_or_init(|| Value::from(self.object.get_detection_box().get_xc() as f64)),
             ),
 
             "bbox.yc" => Some(
-                self.object_view
+                object_view
                     .bbox
                     .yc
                     .get_or_init(|| Value::from(self.object.get_detection_box().get_yc() as f64)),
             ),
 
             "bbox.width" => {
-                Some(self.object_view.bbox.width.get_or_init(|| {
+                Some(object_view.bbox.width.get_or_init(|| {
                     Value::from(self.object.get_detection_box().get_width() as f64)
                 }))
             }
 
             "bbox.height" => {
-                Some(self.object_view.bbox.height.get_or_init(|| {
+                Some(object_view.bbox.height.get_or_init(|| {
                     Value::from(self.object.get_detection_box().get_height() as f64)
                 }))
             }
 
-            "bbox.angle" => Some(self.object_view.bbox.angle.get_or_init(|| {
+            "bbox.angle" => Some(object_view.bbox.angle.get_or_init(|| {
                 match self.object.get_detection_box().get_angle() {
                     None => Value::Empty,
                     Some(a) => Value::from(a as f64),
@@ -218,7 +226,7 @@ impl<'a> Context for ObjectContext<'a> {
 
             "frame.source" => {
                 Some(
-                    self.object_view
+                    object_view
                         .frame
                         .source
                         .get_or_init(|| match self.object.get_frame() {
@@ -229,17 +237,20 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "frame.rate" => {
-                Some(self.object_view.frame.framerate.get_or_init(
-                    || match self.object.get_frame() {
-                        None => Value::Empty,
-                        Some(f) => Value::from(f.get_framerate()),
-                    },
-                ))
+                Some(
+                    object_view
+                        .frame
+                        .framerate
+                        .get_or_init(|| match self.object.get_frame() {
+                            None => Value::Empty,
+                            Some(f) => Value::from(f.get_framerate()),
+                        }),
+                )
             }
 
             "frame.width" => {
                 Some(
-                    self.object_view
+                    object_view
                         .frame
                         .width
                         .get_or_init(|| match self.object.get_frame() {
@@ -251,7 +262,7 @@ impl<'a> Context for ObjectContext<'a> {
 
             "frame.height" => {
                 Some(
-                    self.object_view
+                    object_view
                         .frame
                         .height
                         .get_or_init(|| match self.object.get_frame() {
@@ -262,61 +273,53 @@ impl<'a> Context for ObjectContext<'a> {
             }
 
             "frame.keyframe" => {
-                Some(self.object_view.frame.keyframe.get_or_init(
-                    || match self.object.get_frame() {
-                        None => Value::Empty,
-                        Some(f) => match f.get_keyframe() {
-                            None => Value::Empty,
-                            Some(kf) => Value::from(kf),
-                        },
-                    },
-                ))
-            }
-
-            "frame.dts" => {
                 Some(
-                    self.object_view
+                    object_view
                         .frame
-                        .dts
+                        .keyframe
                         .get_or_init(|| match self.object.get_frame() {
                             None => Value::Empty,
-                            Some(f) => match f.get_dts() {
+                            Some(f) => match f.get_keyframe() {
                                 None => Value::Empty,
-                                Some(dts) => Value::from(dts),
+                                Some(kf) => Value::from(kf),
                             },
                         }),
                 )
             }
 
-            "frame.pts" => {
-                Some(
-                    self.object_view
-                        .frame
-                        .pts
-                        .get_or_init(|| match self.object.get_frame() {
-                            None => Value::Empty,
-                            Some(f) => Value::from(f.get_pts()),
-                        }),
-                )
-            }
+            "frame.dts" => Some(object_view.frame.dts.get_or_init(
+                || match self.object.get_frame() {
+                    None => Value::Empty,
+                    Some(f) => match f.get_dts() {
+                        None => Value::Empty,
+                        Some(dts) => Value::from(dts),
+                    },
+                },
+            )),
+
+            "frame.pts" => Some(object_view.frame.pts.get_or_init(
+                || match self.object.get_frame() {
+                    None => Value::Empty,
+                    Some(f) => Value::from(f.get_pts()),
+                },
+            )),
 
             "frame.time_base.nominator" => {
-                Some(self.object_view.frame.time_base_nominator.get_or_init(|| {
+                Some(object_view.frame.time_base_nominator.get_or_init(|| {
                     match self.object.get_frame() {
                         None => Value::Empty,
                         Some(f) => Value::from(f.get_time_base().0 as i64),
                     }
                 }))
             }
-            "frame.time_base.denominator" => Some(
-                self.object_view
-                    .frame
-                    .time_base_denominator
-                    .get_or_init(|| match self.object.get_frame() {
+            "frame.time_base.denominator" => {
+                Some(object_view.frame.time_base_denominator.get_or_init(|| {
+                    match self.object.get_frame() {
                         None => Value::Empty,
                         Some(f) => Value::from(f.get_time_base().1 as i64),
-                    }),
-            ),
+                    }
+                }))
+            }
             _ => None,
         }
     }

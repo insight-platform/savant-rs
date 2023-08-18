@@ -143,3 +143,20 @@ fn bench_simple_filtering(b: &mut Bencher) {
         let _ = frame.access_objects(&expr);
     });
 }
+
+#[bench]
+fn bench_all_objects(b: &mut Bencher) {
+    let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(
+                &VideoObjectProxy::from(o),
+                IdCollisionResolutionPolicy::Error,
+            )
+            .unwrap();
+    }
+    b.iter(|| {
+        let _ = frame.get_all_objects();
+    });
+}

@@ -350,7 +350,7 @@ impl VideoFrameProxy {
     }
 
     pub fn transform_geometry(&self, ops: &Vec<VideoObjectBBoxTransformation>) {
-        let objs = self.access_objects(&MatchQuery::Idle);
+        let objs = self.get_all_objects();
         for obj in objs {
             obj.transform_geometry(ops);
         }
@@ -372,6 +372,15 @@ impl VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
             is_parallelized: false,
         }
+    }
+
+    pub fn get_all_objects(&self) -> Vec<VideoObjectProxy> {
+        let inner = trace!(self.inner.read_recursive());
+        inner
+            .resident_objects
+            .values()
+            .map(|o| VideoObjectProxy::from(o.clone()))
+            .collect()
     }
 
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
@@ -471,7 +480,7 @@ impl VideoFrameProxy {
     }
 
     fn fix_object_owned_frame(&self) {
-        self.access_objects(&MatchQuery::Idle)
+        self.get_all_objects()
             .iter()
             .for_each(|o| o.attach_to_video_frame(self.clone()));
     }
@@ -985,7 +994,7 @@ mod tests {
     fn test_delete_objects_by_ids() {
         let f = gen_frame();
         f.delete_objects_by_ids(&[0, 1]);
-        let objects = f.access_objects(&MatchQuery::Idle);
+        let objects = f.get_all_objects();
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
     }
@@ -1029,7 +1038,7 @@ mod tests {
         let f = gen_frame();
         let objs = f.delete_objects(&MatchQuery::Idle);
         assert_eq!(objs.len(), 3);
-        let objects = f.access_objects(&MatchQuery::Idle);
+        let objects = f.get_all_objects();
         assert!(objects.is_empty());
     }
 
@@ -1330,7 +1339,7 @@ mod tests {
             .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
             .unwrap();
         assert_eq!(frame.get_max_object_id(), 1);
-        let objs = frame.access_objects(&MatchQuery::Idle);
+        let objs = frame.get_all_objects();
         assert_eq!(objs.len(), 2);
     }
 
@@ -1349,7 +1358,7 @@ mod tests {
             .is_ok());
 
         assert_eq!(frame.get_max_object_id(), 0);
-        let objs = frame.access_objects(&MatchQuery::Idle);
+        let objs = frame.get_all_objects();
         assert_eq!(objs.len(), 1);
     }
 }

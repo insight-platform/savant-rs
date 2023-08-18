@@ -13,11 +13,8 @@ use savant_core::test::gen_frame;
 use std::io::sink;
 use test::Bencher;
 
-fn get_pipeline() -> (
-    savant_core::pipeline::Pipeline,
-    Vec<(String, PipelineStagePayloadType)>,
-) {
-    let mut pipeline = savant_core::pipeline::Pipeline::default();
+fn get_pipeline() -> (Pipeline, Vec<(String, PipelineStagePayloadType)>) {
+    let pipeline = Pipeline::default();
     pipeline.set_root_span_name("bench_batch_snapshot".to_owned());
     let stages = vec![
         // intermediate
@@ -68,11 +65,7 @@ fn get_pipeline() -> (
     (pipeline, stages)
 }
 
-fn benchmark(
-    b: &mut Bencher,
-    mut pipeline: Pipeline,
-    stages: Vec<(String, PipelineStagePayloadType)>,
-) {
+fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineStagePayloadType)>) {
     b.iter(|| {
         let f = gen_frame();
         let mut current_id = pipeline.add_frame("add", f).expect("Cannot add frame");
@@ -116,7 +109,7 @@ fn bench_pipeline_sampling_1of100(b: &mut Bencher) {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let (mut pipeline, stages) = get_pipeline();
+    let (pipeline, stages) = get_pipeline();
     pipeline.set_sampling_period(100);
     benchmark(b, pipeline, stages);
 }
@@ -126,7 +119,7 @@ fn bench_pipeline_no_sampling(b: &mut Bencher) {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let (mut pipeline, stages) = get_pipeline();
+    let (pipeline, stages) = get_pipeline();
     pipeline.set_sampling_period(1);
     benchmark(b, pipeline, stages);
 }
@@ -135,7 +128,7 @@ fn bench_pipeline_no_sampling(b: &mut Bencher) {
 #[ignore]
 fn bench_pipeline_with_jaeger_no_sampling(b: &mut Bencher) {
     init_jaeger_tracer("bench-pipeline", "localhost:6831");
-    let (mut pipeline, stages) = get_pipeline();
+    let (pipeline, stages) = get_pipeline();
     pipeline.set_sampling_period(1);
     benchmark(b, pipeline, stages);
 }

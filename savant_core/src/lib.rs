@@ -59,6 +59,7 @@ pub fn fast_hash(bytes: &[u8]) -> u32 {
     crc32fast::hash(bytes)
 }
 
+#[inline]
 pub fn get_tracer() -> BoxedTracer {
     global::tracer("video_pipeline")
 }

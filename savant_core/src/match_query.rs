@@ -355,6 +355,7 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
 impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
     fn execute(&self, o: &VideoObjectProxy, ctx: &mut ObjectContext) -> bool {
         match self {
+            MatchQuery::Idle => true,
             MatchQuery::And(v) => v.iter().all(|x| x.execute(o, ctx)),
             MatchQuery::Or(v) => v.iter().any(|x| x.execute(o, ctx)),
             MatchQuery::Not(x) => !x.execute(o, ctx),

@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(f.get_max_object_id(), 4);
         let o = f.get_object(4).unwrap();
         assert_eq!(o.get_namespace(), s("peoplenet"));
-        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 5);
+        assert_eq!(f.get_all_objects().len(), 5);
     }
 
     #[test]
@@ -192,7 +192,7 @@ mod tests {
         upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
-        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
+        assert_eq!(f.get_all_objects().len(), 4);
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
@@ -200,7 +200,7 @@ mod tests {
         upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_err());
-        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
+        assert_eq!(f.get_all_objects().len(), 4);
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 3);
-        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
+        assert_eq!(f.get_all_objects().len(), 4);
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
@@ -222,7 +222,7 @@ mod tests {
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
         assert_eq!(f.get_max_object_id(), 4);
-        assert_eq!(f.access_objects(&MatchQuery::Idle).len(), 4);
+        assert_eq!(f.get_all_objects().len(), 4);
     }
 
     #[test]

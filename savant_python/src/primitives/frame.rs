@@ -609,6 +609,10 @@ impl VideoFrame {
         release_gil!(no_gil, || self.0.access_objects(&q.0).into())
     }
 
+    pub fn get_all_objects(&self) -> VideoObjectsView {
+        self.0.get_all_objects().into()
+    }
+
     pub fn access_objects_by_id(&self, ids: Vec<i64>) -> VideoObjectsView {
         self.0.access_objects_by_id(&ids).into()
     }

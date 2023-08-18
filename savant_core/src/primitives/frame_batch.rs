@@ -42,12 +42,9 @@ impl VideoFrameBatch {
         for (id, frame) in self.frames.iter() {
             let frame = frame.deep_copy();
             frame.exclude_temporary_attributes();
-            frame
-                .access_objects(&MatchQuery::Idle)
-                .iter()
-                .for_each(|o| {
-                    o.exclude_temporary_attributes();
-                });
+            frame.get_all_objects().iter().for_each(|o| {
+                o.exclude_temporary_attributes();
+            });
             frame.make_snapshot();
             let inner = Arc::try_unwrap(frame.inner).unwrap().into_inner(); //..into_inner();
             self.offline_frames.insert(*id, *inner);

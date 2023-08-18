@@ -72,7 +72,7 @@ pub unsafe extern "C" fn pipeline_move_and_unpack_batch(
 
 #[cfg(test)]
 mod tests {
-    use crate::pipeline::{
+    use crate::capi::pipeline::{
         pipeline_move_and_pack_frames, pipeline_move_and_unpack_batch, pipeline_move_as_is,
     };
     use savant_core::pipeline::PipelineStagePayloadType;
