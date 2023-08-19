@@ -2,21 +2,21 @@
 
 extern crate test;
 
+use anyhow::Result;
 use opentelemetry::global;
 use opentelemetry::sdk::export::trace::stdout;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::trace::TraceContextExt;
-use savant_core::pipeline::Pipeline;
-use savant_core::pipeline::PipelineStagePayloadType;
+use savant_core::pipeline2::Pipeline;
+use savant_core::pipeline2::PipelineStagePayloadType;
 use savant_core::telemetry::init_jaeger_tracer;
 use savant_core::test::gen_frame;
 use std::io::sink;
 use test::Bencher;
 
-fn get_pipeline() -> (Pipeline, Vec<(String, PipelineStagePayloadType)>) {
-    let pipeline = Pipeline::default();
-    pipeline.set_root_span_name("bench_batch_snapshot".to_owned());
-    let stages = vec![
+fn get_pipeline() -> Result<(Pipeline, Vec<(String, PipelineStagePayloadType)>)> {
+    let mut stages = vec![
+        (String::from("add"), PipelineStagePayloadType::Frame),
         // intermediate
         (format!("{}", line!()), PipelineStagePayloadType::Frame),
         (format!("{}", line!()), PipelineStagePayloadType::Frame),
@@ -53,16 +53,10 @@ fn get_pipeline() -> (Pipeline, Vec<(String, PipelineStagePayloadType)>) {
         // inter
         (String::from("drop"), PipelineStagePayloadType::Frame),
     ];
-
-    pipeline
-        .add_stage("add", PipelineStagePayloadType::Frame)
-        .expect("Cannot add stage");
-    for (name, payload_type) in &stages {
-        pipeline
-            .add_stage(name, payload_type.clone())
-            .expect("Cannot add stage");
-    }
-    (pipeline, stages)
+    let pipeline = Pipeline::new(stages.clone())?;
+    stages.pop();
+    pipeline.set_root_span_name("bench_batch_snapshot".to_owned())?;
+    Ok((pipeline, stages))
 }
 
 fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineStagePayloadType)>) {
@@ -91,7 +85,7 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
                     let ids = pipeline
                         .move_and_unpack_batch(next_stage, current_id)
                         .expect("Cannot move");
-                    current_id = ids.values().next().unwrap().clone();
+                    current_id = ids[0];
                 }
             }
             current_payload_type = next_payload_type.clone();
@@ -100,35 +94,38 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
         for (_, ctx) in results {
             ctx.span().end();
         }
-        assert!(pipeline.get_id_locations().is_empty())
+        assert_eq!(pipeline.get_id_locations_len(), 0);
     });
 }
 
 #[bench]
-fn bench_pipeline_sampling_1of100(b: &mut Bencher) {
+fn bench_pipeline2_sampling_1of100(b: &mut Bencher) -> Result<()> {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let (pipeline, stages) = get_pipeline();
-    pipeline.set_sampling_period(100);
+    let (pipeline, stages) = get_pipeline()?;
+    pipeline.set_sampling_period(100)?;
     benchmark(b, pipeline, stages);
+    Ok(())
 }
 
 #[bench]
-fn bench_pipeline_no_sampling(b: &mut Bencher) {
+fn bench_pipeline2_no_sampling(b: &mut Bencher) -> Result<()> {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 
-    let (pipeline, stages) = get_pipeline();
-    pipeline.set_sampling_period(1);
+    let (pipeline, stages) = get_pipeline()?;
+    pipeline.set_sampling_period(1)?;
     benchmark(b, pipeline, stages);
+    Ok(())
 }
 
 #[bench]
 #[ignore]
-fn bench_pipeline_with_jaeger_no_sampling(b: &mut Bencher) {
+fn bench_pipeline2_with_jaeger_no_sampling(b: &mut Bencher) -> Result<()> {
     init_jaeger_tracer("bench-pipeline", "localhost:6831");
-    let (pipeline, stages) = get_pipeline();
-    pipeline.set_sampling_period(1);
+    let (pipeline, stages) = get_pipeline()?;
+    pipeline.set_sampling_period(1)?;
     benchmark(b, pipeline, stages);
+    Ok(())
 }
