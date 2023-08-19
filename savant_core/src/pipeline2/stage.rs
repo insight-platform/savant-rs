@@ -258,15 +258,15 @@ impl PipelineStage {
 
     pub fn access_objects(
         &self,
-        frame_id: i64,
+        id: i64,
         query: &MatchQuery,
     ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
-        self.with_payload_item(frame_id, |payload| match payload {
+        self.with_payload_item(id, |payload| match payload {
             PipelinePayload::Frame(frame, _, ctx) => {
                 let _span =
                     Pipeline::get_nested_span(format!("{}/access-objects", self.stage_name), ctx)
                         .attach();
-                Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
+                Ok(HashMap::from([(id, frame.access_objects(query))]))
             }
             PipelinePayload::Batch(batch, _, contexts) => {
                 let contexts = contexts
