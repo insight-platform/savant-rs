@@ -174,7 +174,9 @@ impl PipelineStage {
         self.with_payload_item(batch_id, |payload| match payload {
             PipelinePayload::Batch(batch, _, contexts) => {
                 if let Some(frame) = batch.get(frame_id) {
-                    let ctx = contexts.get(&frame_id).unwrap();
+                    let ctx = contexts
+                        .get(&frame_id)
+                        .expect("Frame context must be in the same batch");
                     Ok((frame.clone(), ctx.clone()))
                 } else {
                     bail!("Frame not found in batch")
@@ -281,5 +283,361 @@ impl PipelineStage {
                 res
             }
         })?
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::match_query::MatchQuery;
+    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
+    use crate::pipeline2::stage::PipelineStage;
+    use crate::primitives::frame_batch::VideoFrameBatch;
+    use crate::primitives::frame_update::VideoFrameUpdate;
+    use crate::primitives::{Attribute, AttributeMethods};
+    use crate::test::gen_frame;
+    use anyhow::Result;
+    use hashbrown::HashMap;
+    use opentelemetry::Context;
+    use parking_lot::lock_api::RwLock;
+    use std::default::Default;
+
+    fn get_frame_stage() -> PipelineStage {
+        PipelineStage {
+            stage_name: "stage".to_string(),
+            stage_type: PipelineStagePayloadType::Frame,
+            payload: RwLock::new(HashMap::default()),
+        }
+    }
+
+    fn get_batch_stage() -> PipelineStage {
+        PipelineStage {
+            stage_name: "stage".to_string(),
+            stage_type: PipelineStagePayloadType::Batch,
+            payload: RwLock::new(HashMap::default()),
+        }
+    }
+
+    #[test]
+    fn test_add_correct_payload() -> Result<()> {
+        let stage = get_frame_stage();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        let stage = get_batch_stage();
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+        )
+    }
+
+    #[test]
+    fn test_add_incorrect_payload() -> Result<()> {
+        let stage = get_frame_stage();
+        assert!(stage
+            .add_frame_payload(
+                1,
+                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            )
+            .is_err());
+
+        let stage = get_batch_stage();
+        assert!(stage
+            .add_batch_payload(
+                1,
+                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            )
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn add_correct_payload_multi() -> Result<()> {
+        let stage = get_frame_stage();
+        stage.add_payloads(vec![
+            (
+                1,
+                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            ),
+            (
+                2,
+                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            ),
+        ])?;
+
+        let stage = get_batch_stage();
+        stage.add_payloads(vec![
+            (
+                1,
+                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            ),
+            (
+                2,
+                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            ),
+        ])
+    }
+
+    #[test]
+    fn add_incorrect_payload_multi() -> Result<()> {
+        let stage = get_frame_stage();
+        assert!(stage
+            .add_payloads(vec![
+                (
+                    1,
+                    PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                ),
+                (
+                    2,
+                    PipelinePayload::Batch(
+                        VideoFrameBatch::new(),
+                        Vec::default(),
+                        HashMap::default()
+                    ),
+                ),
+            ])
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn add_duplicate_frame_payload() -> Result<()> {
+        let stage = get_frame_stage();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        assert!(stage
+            .add_frame_payload(
+                1,
+                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            )
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn add_duplicate_batch_payload() -> Result<()> {
+        let stage = get_batch_stage();
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+        )?;
+        assert!(stage
+            .add_batch_payload(
+                1,
+                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            )
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete() {
+        let stage = get_frame_stage();
+        stage
+            .add_frame_payload(
+                1,
+                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            )
+            .unwrap();
+        assert!(stage.delete(1).is_some());
+        assert!(stage.delete(1).is_none());
+    }
+
+    #[test]
+    fn test_delete_many() -> Result<()> {
+        let stage = get_frame_stage();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        stage.add_frame_payload(
+            2,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        stage.add_frame_payload(
+            3,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        let removed = stage.delete_many(&[1, 2, 3]);
+        assert_eq!(removed.len(), 3);
+        let removed = stage.delete_many(&[1, 2, 3]);
+        assert!(removed.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_len() -> Result<()> {
+        let stage = get_frame_stage();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        stage.add_frame_payload(
+            2,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        stage.add_frame_payload(
+            3,
+            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+        )?;
+        assert_eq!(stage.len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_independent_frame() -> Result<()> {
+        let stage = get_frame_stage();
+        let frame = gen_frame();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(frame.clone(), Vec::default(), Context::default()),
+        )?;
+        let (_, _) = stage.get_independent_frame(1)?;
+        assert!(stage.get_independent_frame(2).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_batched_frame() -> Result<()> {
+        let stage = get_batch_stage();
+        let frame = gen_frame();
+        let mut batch = VideoFrameBatch::new();
+        batch.add(2, frame);
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(
+                batch,
+                Vec::default(),
+                HashMap::from([(2, Context::default())]),
+            ),
+        )?;
+        let (_, _) = stage.get_batched_frame(1, 2)?;
+        assert!(stage.get_batched_frame(1, 3).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_batch() -> Result<()> {
+        let stage = get_batch_stage();
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::from([])),
+        )?;
+        let (_, _) = stage.get_batch(1)?;
+        assert!(stage.get_batch(2).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_updates_for_frame() -> Result<()> {
+        let stage = get_frame_stage();
+        let frame = gen_frame();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(frame, Vec::default(), Context::default()),
+        )?;
+        let mut update = VideoFrameUpdate::default();
+        update.add_attribute(Attribute::new(
+            "new".to_string(),
+            "attr".to_string(),
+            vec![],
+            None,
+            true,
+        ));
+        stage.add_frame_update(1, update)?;
+        stage.apply_updates(1)?;
+        let frame = stage.get_independent_frame(1)?.0;
+        frame
+            .get_attribute("new".to_string(), "attr".to_string())
+            .unwrap();
+        assert!(frame
+            .delete_attribute("new".to_string(), "attr".to_string())
+            .is_some());
+
+        stage.clear_updates(1)?;
+        stage.apply_updates(1)?;
+
+        assert!(frame
+            .get_attribute("new".to_string(), "attr".to_string())
+            .is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_apply_attributes_for_batch() -> Result<()> {
+        let stage = get_batch_stage();
+        let frame = gen_frame();
+        let mut batch = VideoFrameBatch::new();
+        batch.add(2, frame);
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(
+                batch,
+                Vec::default(),
+                HashMap::from([(2, Context::default())]),
+            ),
+        )?;
+        let mut update = VideoFrameUpdate::default();
+        update.add_attribute(Attribute::new(
+            "new".to_string(),
+            "attr".to_string(),
+            vec![],
+            None,
+            true,
+        ));
+        stage.add_batched_frame_update(1, 2, update)?;
+        stage.apply_updates(1)?;
+        let frame = stage.get_batched_frame(1, 2)?.0;
+        frame
+            .get_attribute("new".to_string(), "attr".to_string())
+            .unwrap();
+        assert!(frame
+            .delete_attribute("new".to_string(), "attr".to_string())
+            .is_some());
+
+        stage.clear_updates(1)?;
+        stage.apply_updates(1)?;
+
+        assert!(frame
+            .get_attribute("new".to_string(), "attr".to_string())
+            .is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_access_objects_for_frame() -> Result<()> {
+        let stage = get_frame_stage();
+        let frame = gen_frame();
+        stage.add_frame_payload(
+            1,
+            PipelinePayload::Frame(frame, Vec::default(), Context::default()),
+        )?;
+        let objects = stage.access_objects(1, &MatchQuery::Idle)?;
+        assert_eq!(objects.get(&1).unwrap().len(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn test_access_objects_for_batch() -> Result<()> {
+        let stage = get_batch_stage();
+        let mut batch = VideoFrameBatch::new();
+        batch.add(2, gen_frame());
+        batch.add(3, gen_frame());
+        stage.add_batch_payload(
+            1,
+            PipelinePayload::Batch(
+                batch,
+                Vec::default(),
+                HashMap::from([(2, Context::default()), (3, Context::default())]),
+            ),
+        )?;
+        let objects = stage.access_objects(1, &MatchQuery::Idle)?;
+        assert_eq!(objects.get(&2).unwrap().len(), 3);
+        assert_eq!(objects.get(&3).unwrap().len(), 3);
+        Ok(())
     }
 }
