@@ -1,11 +1,11 @@
 use crate::match_query::MatchQuery;
+use crate::pipeline::PipelineStagePayloadType;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 use anyhow::Result;
 use hashbrown::HashMap;
-pub use implementation::PipelineStagePayloadType;
 use opentelemetry::Context;
 use std::sync::Arc;
 
@@ -128,6 +128,7 @@ impl Pipeline {
 mod implementation {
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
+    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
@@ -146,13 +147,13 @@ mod implementation {
     struct PipelineStage {
         pub stage_name: String,
         pub stage_type: PipelineStagePayloadType,
-        pub payload: RwLock<HashMap<i64, VideoPipelinePayload>>,
+        pub payload: RwLock<HashMap<i64, PipelinePayload>>,
     }
 
     impl PipelineStage {
         fn with_payload_item_mut<F, T>(&self, id: i64, f: F) -> Result<T>
         where
-            F: FnOnce(&mut VideoPipelinePayload) -> T,
+            F: FnOnce(&mut PipelinePayload) -> T,
         {
             let mut bind = self.payload.write();
             let payload = bind
@@ -163,7 +164,7 @@ mod implementation {
 
         fn with_payload_item<F, T>(&self, id: i64, f: F) -> Result<T>
         where
-            F: FnOnce(&VideoPipelinePayload) -> T,
+            F: FnOnce(&PipelinePayload) -> T,
         {
             let bind = self.payload.read();
             let payload = bind
@@ -174,7 +175,7 @@ mod implementation {
 
         fn with_payload_mut<F, T>(&self, f: F) -> T
         where
-            F: FnOnce(&mut HashMap<i64, VideoPipelinePayload>) -> T,
+            F: FnOnce(&mut HashMap<i64, PipelinePayload>) -> T,
         {
             let mut bind = self.payload.write();
             f(&mut bind)
@@ -182,7 +183,7 @@ mod implementation {
 
         fn with_payload<F, T>(&self, f: F) -> T
         where
-            F: FnOnce(&HashMap<i64, VideoPipelinePayload>) -> T,
+            F: FnOnce(&HashMap<i64, PipelinePayload>) -> T,
         {
             let bind = self.payload.read();
             f(&bind)
@@ -190,7 +191,7 @@ mod implementation {
 
         pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> Result<()> {
             self.with_payload_item_mut(frame_id, move |payload| match payload {
-                VideoPipelinePayload::Frame(_, updates, _) => {
+                PipelinePayload::Frame(_, updates, _) => {
                     updates.push(update);
                     Ok(())
                 }
@@ -205,7 +206,7 @@ mod implementation {
             update: VideoFrameUpdate,
         ) -> Result<()> {
             self.with_payload_item_mut(batch_id, |payload| match payload {
-                VideoPipelinePayload::Batch(_, updates, _) => {
+                PipelinePayload::Batch(_, updates, _) => {
                     updates.push((frame_id, update));
                     Ok(())
                 }
@@ -215,7 +216,7 @@ mod implementation {
 
         pub fn add_payloads<I>(&self, payloads: I) -> Result<()>
         where
-            I: IntoIterator<Item = (i64, VideoPipelinePayload)>,
+            I: IntoIterator<Item = (i64, PipelinePayload)>,
         {
             self.with_payload_mut(|bind| {
                 for (id, payload) in payloads {
@@ -223,12 +224,12 @@ mod implementation {
                         bail!("Payload {} already exists", id)
                     }
                     match &payload {
-                        VideoPipelinePayload::Frame(_, _, _) => {
+                        PipelinePayload::Frame(_, _, _) => {
                             if self.stage_type == PipelineStagePayloadType::Batch {
                                 bail!("Payload must be a batch")
                             }
                         }
-                        VideoPipelinePayload::Batch(_, _, _) => {
+                        PipelinePayload::Batch(_, _, _) => {
                             if self.stage_type == PipelineStagePayloadType::Frame {
                                 bail!("Payload must be a frame")
                             }
@@ -240,16 +241,12 @@ mod implementation {
             })
         }
 
-        pub fn add_frame_payload(
-            &self,
-            frame_id: i64,
-            payload: VideoPipelinePayload,
-        ) -> Result<()> {
+        pub fn add_frame_payload(&self, frame_id: i64, payload: PipelinePayload) -> Result<()> {
             self.with_payload_mut(|bind| {
                 if bind.contains_key(&frame_id) {
                     bail!("Frame {} already exists", frame_id)
                 }
-                if matches!(payload, VideoPipelinePayload::Batch(_, _, _)) {
+                if matches!(payload, PipelinePayload::Batch(_, _, _)) {
                     bail!("Payload must be a frame")
                 }
                 bind.insert(frame_id, payload);
@@ -257,16 +254,12 @@ mod implementation {
             })
         }
 
-        pub fn add_batch_payload(
-            &self,
-            batch_id: i64,
-            payload: VideoPipelinePayload,
-        ) -> Result<()> {
+        pub fn add_batch_payload(&self, batch_id: i64, payload: PipelinePayload) -> Result<()> {
             self.with_payload_mut(|bind| {
                 if bind.contains_key(&batch_id) {
                     bail!("Batch {} already exists", batch_id)
                 }
-                if matches!(payload, VideoPipelinePayload::Frame(_, _, _)) {
+                if matches!(payload, PipelinePayload::Frame(_, _, _)) {
                     bail!("Payload must be a batch")
                 }
                 bind.insert(batch_id, payload);
@@ -274,11 +267,11 @@ mod implementation {
             })
         }
 
-        pub fn delete(&self, id: i64) -> Option<VideoPipelinePayload> {
+        pub fn delete(&self, id: i64) -> Option<PipelinePayload> {
             self.with_payload_mut(|bind| bind.remove(&id))
         }
 
-        pub fn delete_many(&self, ids: &[i64]) -> Vec<(i64, VideoPipelinePayload)> {
+        pub fn delete_many(&self, ids: &[i64]) -> Vec<(i64, PipelinePayload)> {
             self.with_payload_mut(|bind| {
                 let mut removed = Vec::with_capacity(ids.len());
                 for id in ids {
@@ -297,7 +290,7 @@ mod implementation {
 
         pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrameProxy, Context)> {
             self.with_payload_item(frame_id, |payload| match payload {
-                VideoPipelinePayload::Frame(frame, _, ctx) => Ok((frame.clone(), ctx.clone())),
+                PipelinePayload::Frame(frame, _, ctx) => Ok((frame.clone(), ctx.clone())),
                 _ => bail!("Payload must be a frame"),
             })?
         }
@@ -308,7 +301,7 @@ mod implementation {
             frame_id: i64,
         ) -> Result<(VideoFrameProxy, Context)> {
             self.with_payload_item(batch_id, |payload| match payload {
-                VideoPipelinePayload::Batch(batch, _, contexts) => {
+                PipelinePayload::Batch(batch, _, contexts) => {
                     if let Some(frame) = batch.get(frame_id) {
                         let ctx = contexts.get(&frame_id).unwrap();
                         Ok((frame.clone(), ctx.clone()))
@@ -322,9 +315,7 @@ mod implementation {
 
         pub fn get_batch(&self, batch_id: i64) -> Result<(VideoFrameBatch, HashMap<i64, Context>)> {
             self.with_payload_item(batch_id, |payload| match payload {
-                VideoPipelinePayload::Batch(batch, _, contexts) => {
-                    Ok((batch.clone(), contexts.clone()))
-                }
+                PipelinePayload::Batch(batch, _, contexts) => Ok((batch.clone(), contexts.clone())),
                 _ => bail!("Payload must be a batch"),
             })?
         }
@@ -332,7 +323,7 @@ mod implementation {
         pub fn apply_updates(&self, id: i64) -> Result<()> {
             self.with_payload_item_mut(id, |payload| {
                 match payload {
-                    VideoPipelinePayload::Frame(frame, updates, ctx) => {
+                    PipelinePayload::Frame(frame, updates, ctx) => {
                         let _span = Pipeline::get_nested_span(
                             format!("{}/apply-updates", self.stage_name),
                             ctx,
@@ -342,7 +333,7 @@ mod implementation {
                             frame.update(update)?;
                         }
                     }
-                    VideoPipelinePayload::Batch(batch, updates, contexts) => {
+                    PipelinePayload::Batch(batch, updates, contexts) => {
                         for (frame_id, update) in updates {
                             if let Some(frame) = batch.get(*frame_id) {
                                 let _context_guard = Pipeline::get_nested_span(
@@ -362,7 +353,7 @@ mod implementation {
         pub fn clear_updates(&self, id: i64) -> Result<()> {
             self.with_payload_item_mut(id, |payload| {
                 match payload {
-                    VideoPipelinePayload::Frame(_, updates, ctx) => {
+                    PipelinePayload::Frame(_, updates, ctx) => {
                         let _guard = Pipeline::get_nested_span(
                             format!("{}/clear-updates", self.stage_name),
                             ctx,
@@ -370,7 +361,7 @@ mod implementation {
                         .attach();
                         updates.clear();
                     }
-                    VideoPipelinePayload::Batch(_, updates, ctxts) => {
+                    PipelinePayload::Batch(_, updates, ctxts) => {
                         let ids = updates.iter().map(|(id, _)| *id).collect::<HashSet<_>>();
                         let contexts = ids
                             .iter()
@@ -395,7 +386,7 @@ mod implementation {
             query: &MatchQuery,
         ) -> Result<HashMap<i64, Vec<VideoObjectProxy>>> {
             self.with_payload_item(frame_id, |payload| match payload {
-                VideoPipelinePayload::Frame(frame, _, ctx) => {
+                PipelinePayload::Frame(frame, _, ctx) => {
                     let _span = Pipeline::get_nested_span(
                         format!("{}/access-objects", self.stage_name),
                         ctx,
@@ -403,7 +394,7 @@ mod implementation {
                     .attach();
                     Ok(HashMap::from([(frame_id, frame.access_objects(query))]))
                 }
-                VideoPipelinePayload::Batch(batch, _, contexts) => {
+                PipelinePayload::Batch(batch, _, contexts) => {
                     let contexts = contexts
                         .iter()
                         .map(|(_, ctx)| {
@@ -419,22 +410,6 @@ mod implementation {
                 }
             })?
         }
-    }
-
-    #[derive(Clone, Debug, PartialEq)]
-    pub enum PipelineStagePayloadType {
-        Frame,
-        Batch,
-    }
-
-    #[derive(Debug)]
-    enum VideoPipelinePayload {
-        Frame(VideoFrameProxy, Vec<VideoFrameUpdate>, Context),
-        Batch(
-            VideoFrameBatch,
-            Vec<(i64, VideoFrameUpdate)>,
-            HashMap<i64, Context>,
-        ),
     }
 
     #[derive(Debug, Default)]
@@ -595,7 +570,7 @@ mod implementation {
             }
 
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
-            let frame_payload = VideoPipelinePayload::Frame(frame, Vec::new(), ctx);
+            let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);
 
             if let Some(stage) = self.stages.get(stage_name) {
                 stage.add_frame_payload(id_counter, frame_payload)?;
@@ -625,12 +600,12 @@ mod implementation {
 
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
-                    VideoPipelinePayload::Frame(_, _, ctx) => {
+                    PipelinePayload::Frame(_, _, ctx) => {
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
                         Ok(HashMap::from([(id, root_ctx)]))
                     }
-                    VideoPipelinePayload::Batch(_, _, contexts) => Ok({
+                    PipelinePayload::Batch(_, _, contexts) => Ok({
                         let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
@@ -745,7 +720,7 @@ mod implementation {
             let stage_name = stage_names.next().unwrap();
 
             for current_name in stage_names {
-                if &current_name != &stage_name {
+                if current_name != stage_name {
                     bail!("All objects must be in the same stage")
                 }
             }
@@ -770,10 +745,7 @@ mod implementation {
             }
 
             let removed_objects = source_stage_opt
-                .map(|stage| {
-                    let removed_objects = stage.delete_many(&object_ids);
-                    removed_objects
-                })
+                .map(|stage| stage.delete_many(&object_ids))
                 .unwrap();
 
             self.update_frame_locations(&object_ids, dest_stage_name);
@@ -781,12 +753,12 @@ mod implementation {
             let mut payloads = Vec::with_capacity(removed_objects.len());
             for (id, payload) in removed_objects {
                 let payload = match payload {
-                    VideoPipelinePayload::Frame(frame, updates, ctx) => {
+                    PipelinePayload::Frame(frame, updates, ctx) => {
                         ctx.span().end();
                         let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
-                        VideoPipelinePayload::Frame(frame, updates, ctx)
+                        PipelinePayload::Frame(frame, updates, ctx)
                     }
-                    VideoPipelinePayload::Batch(batch, updates, contexts) => {
+                    PipelinePayload::Batch(batch, updates, contexts) => {
                         let mut new_contexts = HashMap::new();
                         for (id, ctx) in contexts.iter() {
                             ctx.span().end();
@@ -794,7 +766,7 @@ mod implementation {
                                 self.get_stage_span(*id, format!("stage/{}", dest_stage_name));
                             new_contexts.insert(*id, ctx);
                         }
-                        VideoPipelinePayload::Batch(batch, updates, new_contexts)
+                        PipelinePayload::Batch(batch, updates, new_contexts)
                     }
                 };
                 payloads.push((id, payload));
@@ -847,7 +819,7 @@ mod implementation {
                     .unwrap()
                 {
                     match payload {
-                        VideoPipelinePayload::Frame(frame, updates, ctx) => {
+                        PipelinePayload::Frame(frame, updates, ctx) => {
                             batch.add(id, frame);
                             contexts.insert(id, ctx);
                             for update in updates {
@@ -868,7 +840,7 @@ mod implementation {
                 })
                 .collect();
 
-            let payload = VideoPipelinePayload::Batch(batch, batch_updates, contexts);
+            let payload = PipelinePayload::Batch(batch, batch_updates, contexts);
 
             dest_stage_opt
                 .map(|dest_stage| dest_stage.add_batch_payload(batch_id, payload))
@@ -912,9 +884,7 @@ mod implementation {
                 .unwrap()
             {
                 match payload {
-                    VideoPipelinePayload::Batch(batch, updates, contexts) => {
-                        (batch, updates, contexts)
-                    }
+                    PipelinePayload::Batch(batch, updates, contexts) => (batch, updates, contexts),
                     _ => bail!("Source stage must contain batch"),
                 }
             } else {
@@ -932,16 +902,13 @@ mod implementation {
                 ctx.span().end();
                 let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
 
-                payloads.insert(
-                    frame_id,
-                    VideoPipelinePayload::Frame(frame, Vec::new(), ctx),
-                );
+                payloads.insert(frame_id, PipelinePayload::Frame(frame, Vec::new(), ctx));
             }
 
             for (frame_id, update) in updates {
                 if let Some(frame) = payloads.get_mut(&frame_id) {
                     match frame {
-                        VideoPipelinePayload::Frame(_, updates, _) => {
+                        PipelinePayload::Frame(_, updates, _) => {
                             updates.push(update);
                         }
                         _ => bail!("Destination stage must contain independent frames"),

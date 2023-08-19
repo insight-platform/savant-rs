@@ -79,7 +79,7 @@ impl<'a> Context for ObjectContext<'a> {
             return Some(v);
         }
 
-        let object_view = self.object_view.get_or_init(|| ObjectFieldsView::default());
+        let object_view = self.object_view.get_or_init(ObjectFieldsView::default);
 
         match identifier {
             "id" => Some(
