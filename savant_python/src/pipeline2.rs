@@ -11,9 +11,17 @@ use pyo3::prelude::*;
 use savant_core::rust;
 use std::collections::HashMap;
 
+#[pymodule]
+pub(crate) fn pipeline2(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<VideoPipelineStagePayloadType>()?;
+    m.add_class::<Pipeline2>()?;
+    Ok(())
+}
+
 /// A video pipeline.
 ///
 #[pyclass]
+#[pyo3(name = "VideoPipeline")]
 #[derive(Debug)]
 pub(crate) struct Pipeline2(rust::Pipeline2);
 

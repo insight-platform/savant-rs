@@ -1,5 +1,4 @@
 use crate::match_query::MatchQuery;
-use crate::pipeline2::Pipeline2;
 use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -42,7 +41,6 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
 pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
     m.add_class::<VideoPipeline>()?;
-    m.add_class::<Pipeline2>()?;
     Ok(())
 }
 
