@@ -7,8 +7,8 @@ use opentelemetry::global;
 use opentelemetry::sdk::export::trace::stdout;
 use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::trace::TraceContextExt;
+use savant_core::pipeline::PipelineStagePayloadType;
 use savant_core::pipeline2::Pipeline;
-use savant_core::pipeline2::PipelineStagePayloadType;
 use savant_core::telemetry::init_jaeger_tracer;
 use savant_core::test::gen_frame;
 use std::io::sink;
@@ -110,7 +110,7 @@ fn bench_pipeline2_sampling_1of100(b: &mut Bencher) -> Result<()> {
 }
 
 #[bench]
-fn bench_pipeline2_no_sampling(b: &mut Bencher) -> Result<()> {
+fn bench_pipeline2_sampling_1of1(b: &mut Bencher) -> Result<()> {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 

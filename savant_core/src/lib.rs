@@ -67,6 +67,9 @@ pub fn get_tracer() -> BoxedTracer {
 
 pub mod rust {
     pub use super::otlp::PropagatedContext;
+    pub use super::pipeline::Pipeline;
+    pub use super::pipeline::PipelineStagePayloadType;
+    pub use super::pipeline2::Pipeline as Pipeline2;
     pub use super::symbol_mapper::RegistrationPolicy;
     pub use super::symbol_mapper::SymbolMapper;
 }

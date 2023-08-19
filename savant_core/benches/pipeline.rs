@@ -115,7 +115,7 @@ fn bench_pipeline_sampling_1of100(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_pipeline_no_sampling(b: &mut Bencher) {
+fn bench_pipeline_sampling_1of1(b: &mut Bencher) {
     stdout::new_pipeline().with_writer(sink()).install_simple();
     global::set_text_map_propagator(TraceContextPropagator::new());
 
