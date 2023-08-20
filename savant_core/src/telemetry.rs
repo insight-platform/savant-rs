@@ -1,4 +1,8 @@
 use opentelemetry::global;
+use opentelemetry::sdk::export::trace::stdout;
+use opentelemetry::sdk::propagation::TraceContextPropagator;
+use std::io::sink;
+
 pub fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
     global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
     opentelemetry_jaeger::new_agent_pipeline()
@@ -13,4 +17,9 @@ pub fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
         ))
         .install_simple()
         .expect("Failed to install Jaeger tracer globally");
+}
+
+pub fn init_noop_tracer() {
+    stdout::new_pipeline().with_writer(sink()).install_simple();
+    global::set_text_map_propagator(TraceContextPropagator::new());
 }

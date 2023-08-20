@@ -2,15 +2,11 @@
 
 extern crate test;
 
-use opentelemetry::global;
-use opentelemetry::sdk::export::trace::stdout;
-use opentelemetry::sdk::propagation::TraceContextPropagator;
 use opentelemetry::trace::TraceContextExt;
 use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
-use savant_core::telemetry::init_jaeger_tracer;
+use savant_core::telemetry::{init_jaeger_tracer, init_noop_tracer};
 use savant_core::test::gen_frame;
-use std::io::sink;
 use test::Bencher;
 
 fn get_pipeline() -> (Pipeline, Vec<(String, PipelineStagePayloadType)>) {
@@ -105,19 +101,17 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
 }
 
 #[bench]
-fn bench_pipeline_sampling_1of100(b: &mut Bencher) {
-    stdout::new_pipeline().with_writer(sink()).install_simple();
-    global::set_text_map_propagator(TraceContextPropagator::new());
+fn bench_pipeline_sampling_none(b: &mut Bencher) {
+    init_noop_tracer();
 
     let (pipeline, stages) = get_pipeline();
-    pipeline.set_sampling_period(100);
+    pipeline.set_sampling_period(0);
     benchmark(b, pipeline, stages);
 }
 
 #[bench]
-fn bench_pipeline_sampling_1of1(b: &mut Bencher) {
-    stdout::new_pipeline().with_writer(sink()).install_simple();
-    global::set_text_map_propagator(TraceContextPropagator::new());
+fn bench_pipeline_sampling_every(b: &mut Bencher) {
+    init_noop_tracer();
 
     let (pipeline, stages) = get_pipeline();
     pipeline.set_sampling_period(1);

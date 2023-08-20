@@ -12,6 +12,7 @@ savant_rs
    draw_spec
    logging
    pipeline
+   pipeline2
    primitives
    primitives_geometry
    utils
