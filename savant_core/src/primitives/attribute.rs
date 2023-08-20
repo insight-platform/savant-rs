@@ -1,7 +1,7 @@
 use crate::primitives::attribute_value::AttributeValue;
 use crate::to_json_value::ToSerdeJsonValue;
+use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 pub type AttributeRs = Attribute;

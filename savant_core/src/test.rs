@@ -6,7 +6,7 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder, VideoObjectProxy,
 };
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
-use std::collections::HashMap;
+use hashbrown::HashMap;
 type Variant = AttributeValueVariant;
 
 pub fn gen_empty_frame() -> VideoFrameProxy {

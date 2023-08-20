@@ -1,7 +1,7 @@
 use anyhow::bail;
+use hashbrown::HashMap;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::consts::BBOX_UNDEFINED;

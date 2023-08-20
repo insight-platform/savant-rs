@@ -28,7 +28,7 @@ rayon = "1.7"
 pretty_env_logger = "0.5"
 derive_builder = "0.12"
 num_cpus = "1.15"
-hashbrown = "0.14"
+hashbrown = { version = "0.14", features = ["raw"]}
 lazy_static = "1.4"
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
