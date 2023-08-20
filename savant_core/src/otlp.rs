@@ -67,7 +67,7 @@ impl PropagatedContext {
         Self::default()
     }
 
-    pub fn inject(context: &opentelemetry::Context) -> Self {
+    pub fn inject(context: &Context) -> Self {
         global::get_text_map_propagator(|propagator| {
             let mut propagation_context = PropagatedContext::new();
             propagator.inject_context(context, &mut propagation_context);
@@ -75,7 +75,7 @@ impl PropagatedContext {
         })
     }
 
-    pub fn extract(&self) -> opentelemetry::Context {
+    pub fn extract(&self) -> Context {
         global::get_text_map_propagator(|propagator| propagator.extract(self))
     }
 }

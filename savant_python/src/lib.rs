@@ -33,6 +33,15 @@ fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
     savant_core::telemetry::init_jaeger_tracer(service_name, endpoint);
 }
 
+/// Initializes Noop tracer.
+///
+/// This is useful when the telemetry is not required.
+///
+#[pyfunction]
+fn init_noop_tracer() {
+    savant_core::telemetry::init_noop_tracer();
+}
+
 /// Returns the version of the package set in Cargo.toml
 ///
 #[pyfunction]
@@ -59,6 +68,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     set_log_level(LogLevel::Error);
 
     m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
+    m.add_function(wrap_pyfunction!(init_noop_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(version_crc32, m)?)?;
 

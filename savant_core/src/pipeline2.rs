@@ -40,7 +40,7 @@ impl Pipeline {
     }
 
     pub fn get_stage_type(&self, name: &str) -> Option<PipelineStagePayloadType> {
-        self.0.get_stage_type(name)
+        self.0.find_stage_type(name, 0)
     }
 
     pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> Result<()> {
@@ -151,13 +151,25 @@ pub(super) mod implementation {
         id_counter: std::sync::atomic::AtomicI64,
         frame_counter: std::sync::atomic::AtomicI64,
         root_spans: RwLock<HashMap<i64, Context>>,
-        stages: HashMap<String, PipelineStage>,
-        frame_locations: RwLock<HashMap<i64, String>>,
+        stages: Vec<PipelineStage>,
+        frame_locations: RwLock<HashMap<i64, usize>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
     }
 
     impl Pipeline {
+        fn add_stage(&mut self, name: String, stage_type: PipelineStagePayloadType) -> Result<()> {
+            if self.find_stage(&name, 0).is_some() {
+                bail!("Stage with name {} already exists", name)
+            }
+            self.stages.push(PipelineStage {
+                stage_name: name,
+                stage_type,
+                payload: Default::default(),
+            });
+            Ok(())
+        }
+
         pub fn new(stages: Vec<(String, PipelineStagePayloadType)>) -> Result<Self> {
             let mut pipeline = Self::default();
             for (name, stage_type) in stages {
@@ -219,32 +231,19 @@ pub(super) mod implementation {
             Context::current_with_span(span)
         }
 
-        fn add_stage(&mut self, name: String, stage_type: PipelineStagePayloadType) -> Result<()> {
-            if self.stages.contains_key(&name) {
-                bail!("Stage already exists")
-            }
-            self.stages.insert(
-                name.to_owned(),
-                PipelineStage {
-                    stage_name: name,
-                    stage_type,
-                    payload: Default::default(),
-                },
-            );
-            Ok(())
-        }
-
-        pub fn get_stage_type(&self, name: &str) -> Option<PipelineStagePayloadType> {
-            self.stages.get(name).map(|stage| stage.stage_type.clone())
+        pub fn find_stage_type(
+            &self,
+            name: &str,
+            start_from: usize,
+        ) -> Option<PipelineStagePayloadType> {
+            self.find_stage(name, start_from)
+                .map(|(_, stage)| stage.stage_type.clone())
         }
 
         pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> Result<()> {
-            let stage_name = &self.get_stage_for_id(frame_id)?;
-            if let Some(stage) = self.stages.get(stage_name) {
-                stage.add_frame_update(frame_id, update)
-            } else {
-                bail!("Stage not found")
-            }
+            let cur_stage = self.get_stage_for_id(frame_id)?;
+            self.stages[cur_stage].add_frame_update(frame_id, update)?;
+            Ok(())
         }
 
         pub fn add_batched_frame_update(
@@ -253,8 +252,8 @@ pub(super) mod implementation {
             frame_id: i64,
             update: VideoFrameUpdate,
         ) -> Result<()> {
-            let stage_name = &self.get_stage_for_id(batch_id)?;
-            if let Some(stage) = self.stages.get(stage_name) {
+            let stage = self.get_stage_for_id(batch_id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.add_batched_frame_update(batch_id, frame_id, update)
             } else {
                 bail!("Stage not found")
@@ -272,6 +271,18 @@ pub(super) mod implementation {
             self.add_frame_with_telemetry(stage_name, frame, ctx)
         }
 
+        fn find_stage(
+            &self,
+            stage_name: &str,
+            start_from: usize,
+        ) -> Option<(usize, &PipelineStage)> {
+            self.stages[start_from..]
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i + start_from, s))
+                .find(|(_, s)| s.stage_name == stage_name)
+        }
+
         pub fn add_frame_with_telemetry(
             &self,
             stage_name: &str,
@@ -279,7 +290,7 @@ pub(super) mod implementation {
             parent_ctx: Context,
         ) -> Result<i64> {
             if matches!(
-                self.get_stage_type(stage_name),
+                self.find_stage_type(stage_name, 0),
                 Some(PipelineStagePayloadType::Batch)
             ) {
                 bail!("Stage does not accept batched frames")
@@ -306,27 +317,24 @@ pub(super) mod implementation {
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
             let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);
 
-            if let Some(stage) = self.stages.get(stage_name) {
+            if let Some((index, stage)) = self.find_stage(stage_name, 0) {
                 stage.add_frame_payload(id_counter, frame_payload)?;
+                self.frame_locations.write().insert(id_counter, index);
             } else {
                 bail!("Stage not found")
             }
-
-            self.frame_locations
-                .write()
-                .insert(id_counter, stage_name.to_owned());
 
             Ok(id_counter)
         }
 
         pub fn delete(&self, id: i64) -> Result<HashMap<i64, Context>> {
-            let stage_name = self
+            let stage = self
                 .frame_locations
                 .write()
                 .remove(&id)
                 .ok_or(anyhow::anyhow!("Object location not found"))?;
 
-            if let Some(stage) = self.stages.get(&stage_name) {
+            if let Some(stage) = self.stages.get(stage) {
                 let removed = stage.delete(id);
                 if removed.is_none() {
                     bail!("Object not found in stage")
@@ -357,23 +365,23 @@ pub(super) mod implementation {
         }
 
         pub fn get_stage_queue_len(&self, stage: &str) -> Result<usize> {
-            if let Some(stage) = self.stages.get(stage) {
+            if let Some((_, stage)) = self.find_stage(stage, 0) {
                 Ok(stage.len())
             } else {
                 bail!("Stage not found")
             }
         }
 
-        fn get_stage_for_id(&self, id: i64) -> Result<String> {
+        fn get_stage_for_id(&self, id: i64) -> Result<usize> {
             let bind = self.frame_locations.read();
             if let Some(stage) = bind.get(&id) {
-                Ok(stage.clone())
+                Ok(*stage)
             } else {
                 bail!("Object location not found")
             }
         }
 
-        fn get_stages_for_ids(&self, ids: &[i64]) -> Result<Vec<(i64, String)>> {
+        fn get_stages_for_ids(&self, ids: &[i64]) -> Result<Vec<(i64, usize)>> {
             let bind = self.frame_locations.read();
             let mut results = Vec::with_capacity(ids.len());
             for id in ids {
@@ -381,14 +389,14 @@ pub(super) mod implementation {
                 if val.is_none() {
                     bail!("Object location not found for {}", id)
                 }
-                results.push((*id, val.cloned().unwrap()));
+                results.push((*id, *val.unwrap()));
             }
             Ok(results)
         }
 
         pub fn get_independent_frame(&self, frame_id: i64) -> Result<(VideoFrameProxy, Context)> {
-            let stage_name = self.get_stage_for_id(frame_id)?;
-            if let Some(stage) = self.stages.get(&stage_name) {
+            let stage = self.get_stage_for_id(frame_id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.get_independent_frame(frame_id)
             } else {
                 bail!("Stage not found")
@@ -400,8 +408,8 @@ pub(super) mod implementation {
             batch_id: i64,
             frame_id: i64,
         ) -> Result<(VideoFrameProxy, Context)> {
-            let stage_name = self.get_stage_for_id(batch_id)?;
-            if let Some(stage) = self.stages.get(&stage_name) {
+            let stage = self.get_stage_for_id(batch_id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.get_batched_frame(batch_id, frame_id)
             } else {
                 bail!("Stage not found")
@@ -409,8 +417,8 @@ pub(super) mod implementation {
         }
 
         pub fn get_batch(&self, batch_id: i64) -> Result<(VideoFrameBatch, HashMap<i64, Context>)> {
-            let stage_name = self.get_stage_for_id(batch_id)?;
-            if let Some(stage) = self.stages.get(&stage_name) {
+            let stage = self.get_stage_for_id(batch_id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.get_batch(batch_id)
             } else {
                 bail!("Stage not found")
@@ -418,8 +426,8 @@ pub(super) mod implementation {
         }
 
         pub fn apply_updates(&self, id: i64) -> Result<()> {
-            let stage_name = self.get_stage_for_id(id)?;
-            if let Some(stage) = self.stages.get(&stage_name) {
+            let stage = self.get_stage_for_id(id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.apply_updates(id)
             } else {
                 bail!("Stage not found")
@@ -427,62 +435,64 @@ pub(super) mod implementation {
         }
 
         pub fn clear_updates(&self, id: i64) -> Result<()> {
-            let stage_name = self.get_stage_for_id(id)?;
-            if let Some(stage) = self.stages.get(&stage_name) {
+            let stage = self.get_stage_for_id(id)?;
+            if let Some(stage) = self.stages.get(stage) {
                 stage.clear_updates(id)
             } else {
                 bail!("Stage not found")
             }
         }
 
-        fn update_frame_locations(&self, ids: &[i64], stage_name: &str) {
+        fn update_frame_locations(&self, ids: &[i64], index: usize) {
             self.frame_locations
                 .write()
-                .extend(ids.iter().map(|id| (*id, stage_name.to_owned())));
+                .extend(ids.iter().map(|id| (*id, index)));
         }
 
-        fn check_ids_in_the_same_stage(&self, ids: &[i64]) -> Result<String> {
+        fn check_ids_in_the_same_stage(&self, ids: &[i64]) -> Result<usize> {
             if ids.is_empty() {
                 bail!("Object IDs cannot be empty")
             }
 
-            let mut stage_names = self
+            let mut stages = self
                 .get_stages_for_ids(ids)?
                 .into_iter()
                 .map(|(_, name)| name);
 
-            let stage_name = stage_names.next().unwrap();
+            let stage = stages.next().unwrap();
 
-            for current_name in stage_names {
-                if current_name != stage_name {
+            for current_stage in stages {
+                if current_stage != stage {
                     bail!("All objects must be in the same stage")
                 }
             }
-            Ok(stage_name)
+            Ok(stage)
         }
 
         pub fn move_as_is(&self, dest_stage_name: &str, object_ids: Vec<i64>) -> Result<()> {
-            let source_stage_name = self.check_ids_in_the_same_stage(&object_ids)?;
-
-            if self.get_stage_type(&source_stage_name) != self.get_stage_type(dest_stage_name) {
-                bail!("The source stage type must be the same as the destination stage type")
-            }
-
-            let source_stage_opt = self.stages.get(&source_stage_name);
+            let source_index = self.check_ids_in_the_same_stage(&object_ids)?;
+            let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
                 bail!("Source stage not found")
             }
+            let source_stage = source_stage_opt.unwrap();
 
-            let dest_stage_opt = self.stages.get(dest_stage_name);
+            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
                 bail!("Destination stage not found")
+            }
+
+            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+
+            if source_stage.stage_type != dest_stage.stage_type {
+                bail!("The source stage type must be the same as the destination stage type")
             }
 
             let removed_objects = source_stage_opt
                 .map(|stage| stage.delete_many(&object_ids))
                 .unwrap();
 
-            self.update_frame_locations(&object_ids, dest_stage_name);
+            self.update_frame_locations(&object_ids, dest_index);
 
             let mut payloads = Vec::with_capacity(removed_objects.len());
             for (id, payload) in removed_objects {
@@ -506,9 +516,7 @@ pub(super) mod implementation {
                 payloads.push((id, payload));
             }
 
-            dest_stage_opt
-                .map(|dest_stage| dest_stage.add_payloads(payloads))
-                .unwrap()?;
+            dest_stage.add_payloads(payloads)?;
 
             Ok(())
         }
@@ -518,30 +526,29 @@ pub(super) mod implementation {
             dest_stage_name: &str,
             frame_ids: Vec<i64>,
         ) -> Result<i64> {
-            let source_stage_name = self.check_ids_in_the_same_stage(&frame_ids)?;
-
-            if matches!(
-                self.get_stage_type(&source_stage_name),
-                Some(PipelineStagePayloadType::Batch)
-            ) || matches!(
-                self.get_stage_type(dest_stage_name),
-                Some(PipelineStagePayloadType::Frame)
-            ) {
-                bail!("Source stage must contain independent frames and destination stage must contain batched frames")
-            }
-
-            let batch_id = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
-            let source_stage_opt = self.stages.get(&source_stage_name);
+            let source_index = self.check_ids_in_the_same_stage(&frame_ids)?;
+            let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
                 bail!("Source stage not found")
             }
+            let source_stage = source_stage_opt.unwrap();
 
-            let dest_stage_opt = self.stages.get(dest_stage_name);
+            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
                 bail!("Destination stage not found")
             }
 
-            self.update_frame_locations(&frame_ids, dest_stage_name);
+            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+
+            if matches!(source_stage.stage_type, PipelineStagePayloadType::Batch)
+                || matches!(dest_stage.stage_type, PipelineStagePayloadType::Frame)
+            {
+                bail!("Source stage must contain independent frames and destination stage must contain batched frames")
+            }
+
+            let batch_id = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
+
+            self.update_frame_locations(&frame_ids, dest_index);
 
             let mut batch = VideoFrameBatch::new();
             let mut batch_updates = Vec::new();
@@ -575,14 +582,8 @@ pub(super) mod implementation {
                 .collect();
 
             let payload = PipelinePayload::Batch(batch, batch_updates, contexts);
-
-            dest_stage_opt
-                .map(|dest_stage| dest_stage.add_batch_payload(batch_id, payload))
-                .unwrap()?;
-
-            self.frame_locations
-                .write()
-                .insert(batch_id, dest_stage_name.to_owned());
+            dest_stage.add_batch_payload(batch_id, payload)?;
+            self.frame_locations.write().insert(batch_id, dest_index);
 
             Ok(batch_id)
         }
@@ -592,25 +593,24 @@ pub(super) mod implementation {
             dest_stage_name: &str,
             batch_id: i64,
         ) -> Result<Vec<i64>> {
-            let source_stage_name = &self.get_stage_for_id(batch_id)?;
-            if matches!(
-                self.get_stage_type(source_stage_name),
-                Some(PipelineStagePayloadType::Frame)
-            ) || matches!(
-                self.get_stage_type(dest_stage_name),
-                Some(PipelineStagePayloadType::Batch)
-            ) {
-                bail!("Source stage must contain batched frames and destination stage must contain independent frames")
-            }
-
-            let source_stage_opt = self.stages.get(source_stage_name);
+            let source_index = self.get_stage_for_id(batch_id)?;
+            let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
                 bail!("Source stage not found")
             }
+            let source_stage = source_stage_opt.unwrap();
 
-            let dest_stage_opt = self.stages.get(dest_stage_name);
+            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
                 bail!("Destination stage not found")
+            }
+
+            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+
+            if matches!(source_stage.stage_type, PipelineStagePayloadType::Frame)
+                || matches!(dest_stage.stage_type, PipelineStagePayloadType::Batch)
+            {
+                bail!("Source stage must contain batched frames and destination stage must contain independent frames")
             }
 
             let (batch, updates, mut contexts) = if let Some(payload) = source_stage_opt
@@ -628,7 +628,7 @@ pub(super) mod implementation {
             self.frame_locations.write().remove(&batch_id);
 
             let frame_ids = batch.frames.keys().cloned().collect::<Vec<_>>();
-            self.update_frame_locations(&frame_ids, dest_stage_name);
+            self.update_frame_locations(&frame_ids, dest_index);
 
             let mut payloads = HashMap::with_capacity(batch.frames.len());
             for (frame_id, frame) in batch.frames {
@@ -651,9 +651,8 @@ pub(super) mod implementation {
                     bail!("Frame not found in destination stage")
                 }
             }
-            dest_stage_opt
-                .map(|dest_stage| dest_stage.add_payloads(payloads))
-                .unwrap()?;
+
+            dest_stage.add_payloads(payloads)?;
 
             Ok(frame_ids)
         }
@@ -663,10 +662,10 @@ pub(super) mod implementation {
             frame_id: i64,
             query: &MatchQuery,
         ) -> Result<HashMap<i64, Vec<VideoObjectProxy>>> {
-            let stage_name = &self.get_stage_for_id(frame_id)?;
-            let stage_opt = self.stages.get(stage_name);
+            let stage = self.get_stage_for_id(frame_id)?;
+            let stage_opt = self.stages.get(stage);
             if stage_opt.is_none() {
-                bail!("Stage {} not found", stage_name);
+                bail!("Stage not found");
             }
 
             stage_opt
@@ -711,11 +710,11 @@ pub(super) mod implementation {
         fn test_get_stage_type() -> anyhow::Result<()> {
             let pipeline = create_pipeline()?;
             assert!(matches!(
-                pipeline.get_stage_type("input"),
+                pipeline.find_stage_type("input", 0),
                 Some(PipelineStagePayloadType::Frame)
             ));
             assert!(matches!(
-                pipeline.get_stage_type("proc1"),
+                pipeline.find_stage_type("proc1", 0),
                 Some(PipelineStagePayloadType::Batch)
             ));
             Ok(())
@@ -742,10 +741,10 @@ pub(super) mod implementation {
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
 
             assert!(pipeline.get_independent_frame(id).is_err());
-
-            assert!(pipeline.get_batch(batch_id).is_ok());
-            assert!(pipeline.get_batched_frame(batch_id, id).is_ok());
-
+            assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("proc1")?, 1);
+            pipeline.get_batch(batch_id)?;
+            pipeline.get_batched_frame(batch_id, id)?;
             Ok(())
         }
 
@@ -754,7 +753,13 @@ pub(super) mod implementation {
             let pipeline = create_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc2", vec![id])?;
+            assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("proc2")?, 1);
+            assert_eq!(pipeline.get_stage_queue_len("output")?, 0);
             pipeline.move_and_unpack_batch("output", batch_id)?;
+            assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("proc2")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("output")?, 1);
             let _frame = pipeline.get_independent_frame(id)?;
             Ok(())
         }
@@ -765,6 +770,9 @@ pub(super) mod implementation {
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
             pipeline.move_as_is("proc2", vec![batch_id])?;
+            assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("proc1")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("proc2")?, 1);
             let _batch = pipeline.get_batch(batch_id)?;
             let _frame = pipeline.get_batched_frame(batch_id, id)?;
             Ok(())
@@ -775,6 +783,8 @@ pub(super) mod implementation {
             let pipeline = create_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             pipeline.move_as_is("output", vec![id])?;
+            assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
+            assert_eq!(pipeline.get_stage_queue_len("output")?, 1);
             let _frame = pipeline.get_independent_frame(id)?;
             Ok(())
         }
