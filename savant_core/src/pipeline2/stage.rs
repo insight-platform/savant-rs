@@ -539,7 +539,7 @@ mod tests {
             PipelinePayload::Frame(frame, Vec::default(), Context::default()),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_attribute(Attribute::new(
+        update.add_frame_attribute(Attribute::new(
             "new".to_string(),
             "attr".to_string(),
             vec![],
@@ -581,7 +581,7 @@ mod tests {
             ),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_attribute(Attribute::new(
+        update.add_frame_attribute(Attribute::new(
             "new".to_string(),
             "attr".to_string(),
             vec![],

@@ -13,7 +13,8 @@ frame = gen_frame()
 update = VideoFrameUpdate()
 
 update.object_policy = ObjectUpdatePolicy.AddForeignObjects
-update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+update.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+update.object_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
 objects = frame.access_objects(Q.idle())
 
@@ -24,7 +25,7 @@ attributes = frame.attributes
 
 for (namespace, label) in attributes:
     attr = frame.get_attribute(namespace, label)
-    update.add_attribute(attr)
+    update.add_frame_attribute(attr)
 
 m = Message.video_frame_update(update)
 binary = save_message(m)

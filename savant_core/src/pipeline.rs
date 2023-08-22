@@ -934,7 +934,7 @@ mod implementation {
 
         fn get_update() -> VideoFrameUpdate {
             let mut update = VideoFrameUpdate::default();
-            update.add_attribute(Attribute::persistent(
+            update.add_frame_attribute(Attribute::persistent(
                 "update".into(),
                 "attribute".into(),
                 vec![AttributeValue::new(
