@@ -14,7 +14,7 @@ import random
 register_utility_resolver()
 
 T = 1
-N = 100
+N = 10
 
 
 def thread_python(barrier):

@@ -105,22 +105,35 @@ impl VideoFrameUpdate {
     ///
     /// Parameters
     /// ----------
-    /// attribute: savant_rs.primitives.Attribute
+    /// attribute: :py:class:`savant_rs.primitives.Attribute`
     ///    The attribute to add
     ///
     /// Returns
     /// -------
     /// None
     ///
-    pub fn add_attribute(&mut self, attribute: Attribute) {
-        self.0.add_attribute(attribute.0);
+    pub fn add_frame_attribute(&mut self, attribute: Attribute) {
+        self.0.add_frame_attribute(attribute.0);
+    }
+
+    /// Add an object attribute to the frame update.
+    ///
+    /// Parameters
+    /// ----------
+    /// object_id: int
+    ///   The object id
+    /// attribute: :py:class:`savant_rs.primitives.Attribute`
+    ///   The attribute to add
+    ///
+    pub fn add_object_attribute(&mut self, object_id: i64, attribute: Attribute) {
+        self.0.add_object_attribute(object_id, attribute.0);
     }
 
     /// Sets collision resolution policy for attributes
     ///
     /// Parameters
     /// ----------
-    /// attribute: savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy
+    /// attribute: :py:class:`savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy`
     ///    The policy to set
     ///
     /// Returns
@@ -128,16 +141,26 @@ impl VideoFrameUpdate {
     /// None
     ///
     #[setter]
-    #[pyo3(name = "attribute_policy")]
-    pub fn set_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
-        self.0.set_attribute_policy(p.into());
+    pub fn set_frame_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
+        self.0.set_frame_attribute_policy(p.into());
+    }
+
+    /// Sets collision resolution policy for attributes updated on objects
+    ///
+    /// Parameters
+    /// ----------
+    /// attribute: :py:class:`savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy`
+    ///
+    #[setter]
+    pub fn set_object_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
+        self.0.set_object_attribute_policy(p.into());
     }
 
     /// Sets collision resolution policy for objects
     ///
     /// Parameters
     /// ----------
-    /// object: savant_rs.primitives.ObjectUpdateCollisionResolutionPolicy
+    /// object: :py:class:`savant_rs.primitives.ObjectUpdateCollisionResolutionPolicy`
     ///   The policy to set
     ///
     #[setter]
@@ -150,19 +173,29 @@ impl VideoFrameUpdate {
     ///
     /// Returns
     /// -------
-    /// savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy
+    /// :py:class:`savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy`
     ///
     #[getter]
-    #[pyo3(name = "attribute_policy")]
-    pub fn get_attribute_policy(&self) -> AttributeUpdatePolicy {
-        self.0.get_attribute_policy().into()
+    pub fn get_frame_attribute_policy(&self) -> AttributeUpdatePolicy {
+        self.0.get_frame_attribute_policy().into()
+    }
+
+    /// Gets collision resolution policy for attributes updated on objects
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`savant_rs.primitives.AttributeUpdateCollisionResolutionPolicy`
+    ///
+    #[getter]
+    pub fn get_object_attribute_policy(&self) -> AttributeUpdatePolicy {
+        self.0.get_object_attribute_policy().into()
     }
 
     /// Gets collision resolution policy for objects
     ///
     /// Returns
     /// -------
-    /// savant_rs.primitives.ObjectUpdateCollisionResolutionPolicy
+    /// :py:class:`savant_rs.primitives.ObjectUpdateCollisionResolutionPolicy`
     ///
     #[getter]
     #[pyo3(name = "object_policy")]
@@ -174,7 +207,7 @@ impl VideoFrameUpdate {
     ///
     /// Parameters
     /// ----------
-    /// object: savant_rs.primitives.VideoObject
+    /// object: :py:class:`savant_rs.primitives.VideoObject`
     ///   The object to add
     /// parent_id: Optional[int]
     ///   The parent object id

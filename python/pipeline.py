@@ -55,7 +55,8 @@ if __name__ == "__main__":
     update = VideoFrameUpdate()
 
     update.object_policy = ObjectUpdatePolicy.AddForeignObjects
-    update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+    update.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+    update.object_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
     p.add_frame_update(frame_id1, update)
 

@@ -27,7 +27,7 @@ def server():
 
         update = VideoFrameUpdate()
         update.object_policy = ObjectUpdatePolicy.AddForeignObjects
-        update.attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+        update.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
 
         m = Message.video_frame_update(update)
         binary = save_message_to_bytes(m)

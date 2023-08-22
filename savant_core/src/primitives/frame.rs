@@ -613,7 +613,7 @@ impl VideoFrameProxy {
         inner.max_object_id
     }
 
-    pub fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+    pub(crate) fn update_objects(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use crate::primitives::frame_update::ObjectUpdatePolicy::*;
         let other_inner = update.objects.clone();
 
@@ -624,7 +624,7 @@ impl VideoFrameProxy {
             ]
         };
 
-        match &update.object_collision_resolution_policy {
+        match &update.object_policy {
             AddForeignObjects => {
                 for (mut obj, p) in other_inner {
                     let object_id = self.get_max_object_id() + 1;
@@ -683,12 +683,12 @@ impl VideoFrameProxy {
         Ok(())
     }
 
-    pub fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+    pub(crate) fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use crate::primitives::frame_update::AttributeUpdatePolicy::*;
-        match &update.attribute_collision_resolution_policy {
+        match &update.frame_attribute_policy {
             ReplaceWithForeign => {
                 let mut inner = trace!(self.inner.write());
-                let other_inner = update.get_attributes().clone();
+                let other_inner = update.get_frame_attributes().clone();
                 inner.attributes.extend(
                     other_inner
                         .into_iter()
@@ -697,7 +697,7 @@ impl VideoFrameProxy {
             }
             KeepOwn => {
                 let mut inner = trace!(self.inner.write());
-                let other_inner = update.get_attributes().clone();
+                let other_inner = update.get_frame_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
                     inner.attributes.entry(key).or_insert(attr);
@@ -705,7 +705,7 @@ impl VideoFrameProxy {
             }
             Error => {
                 let mut inner = trace!(self.inner.write());
-                let other_inner = update.get_attributes().clone();
+                let other_inner = update.get_frame_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
                     if inner.attributes.contains_key(&key) {
@@ -723,9 +723,48 @@ impl VideoFrameProxy {
         Ok(())
     }
 
+    pub(crate) fn update_object_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+        use crate::primitives::frame_update::AttributeUpdatePolicy::*;
+        let update_attrs = update.get_object_attributes().clone();
+        for (id, attr) in update_attrs {
+            let obj = self.get_object(id).ok_or(anyhow!(
+                "Object with ID {} does not exist in the frame.",
+                id
+            ))?;
+            match &update.object_attribute_policy {
+                ReplaceWithForeign => {
+                    obj.set_attribute(attr);
+                }
+                KeepOwn => {
+                    if obj
+                        .get_attribute(attr.namespace.clone(), attr.name.clone())
+                        .is_none()
+                    {
+                        obj.set_attribute(attr);
+                    }
+                }
+                Error => {
+                    if obj
+                        .get_attribute(attr.namespace.clone(), attr.name.clone())
+                        .is_some()
+                    {
+                        bail!(
+                            "Attribute with name '{}.{}' already exists in the object with ID {}.",
+                            attr.namespace,
+                            attr.name,
+                            id
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn update(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         self.update_objects(update)?;
         self.update_attributes(update)?;
+        self.update_object_attributes(update)?;
         Ok(())
     }
 

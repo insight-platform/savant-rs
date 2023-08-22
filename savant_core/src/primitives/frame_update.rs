@@ -26,45 +26,66 @@ pub enum AttributeUpdatePolicy {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct VideoFrameUpdate {
-    attributes: Vec<Attribute>,
+    frame_attributes: Vec<Attribute>,
+    pub(crate) object_attributes: Vec<(i64, Attribute)>,
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
-    pub(crate) attribute_collision_resolution_policy: AttributeUpdatePolicy,
-    pub(crate) object_collision_resolution_policy: ObjectUpdatePolicy,
+    pub(crate) frame_attribute_policy: AttributeUpdatePolicy,
+    pub(crate) object_attribute_policy: AttributeUpdatePolicy,
+    pub(crate) object_policy: ObjectUpdatePolicy,
 }
 
 impl Default for VideoFrameUpdate {
     fn default() -> Self {
         Self {
-            attributes: Vec::new(),
+            frame_attributes: Vec::new(),
+            object_attributes: Vec::new(),
             objects: Vec::new(),
-            object_collision_resolution_policy: ObjectUpdatePolicy::ErrorIfLabelsCollide,
-            attribute_collision_resolution_policy: AttributeUpdatePolicy::Error,
+            object_policy: ObjectUpdatePolicy::ErrorIfLabelsCollide,
+            frame_attribute_policy: AttributeUpdatePolicy::Error,
+            object_attribute_policy: AttributeUpdatePolicy::Error,
         }
     }
 }
 
 impl VideoFrameUpdate {
-    pub(crate) fn get_attributes(&self) -> &Vec<Attribute> {
-        &self.attributes
-    }
-    pub fn set_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
-        self.attribute_collision_resolution_policy = p;
+    pub(crate) fn get_frame_attributes(&self) -> &Vec<Attribute> {
+        &self.frame_attributes
     }
 
-    pub fn get_attribute_policy(&self) -> AttributeUpdatePolicy {
-        self.attribute_collision_resolution_policy.clone()
+    pub(crate) fn get_object_attributes(&self) -> &Vec<(i64, Attribute)> {
+        &self.object_attributes
+    }
+
+    pub fn set_frame_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
+        self.frame_attribute_policy = p;
+    }
+
+    pub fn get_frame_attribute_policy(&self) -> AttributeUpdatePolicy {
+        self.frame_attribute_policy.clone()
     }
 
     pub fn set_object_policy(&mut self, p: ObjectUpdatePolicy) {
-        self.object_collision_resolution_policy = p;
+        self.object_policy = p;
     }
 
     pub fn get_object_policy(&self) -> ObjectUpdatePolicy {
-        self.object_collision_resolution_policy.clone()
+        self.object_policy.clone()
     }
 
-    pub fn add_attribute(&mut self, attribute: Attribute) {
-        self.attributes.push(attribute);
+    pub fn set_object_attribute_policy(&mut self, p: AttributeUpdatePolicy) {
+        self.object_attribute_policy = p;
+    }
+
+    pub fn get_object_attribute_policy(&self) -> AttributeUpdatePolicy {
+        self.object_attribute_policy.clone()
+    }
+
+    pub fn add_frame_attribute(&mut self, attribute: Attribute) {
+        self.frame_attributes.push(attribute);
+    }
+
+    pub fn add_object_attribute(&mut self, object_id: i64, attribute: Attribute) {
+        self.object_attributes.push((object_id, attribute));
     }
 
     pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
@@ -90,20 +111,6 @@ mod tests {
     use crate::primitives::{Attribute, AttributeMethods};
     use crate::test::{gen_frame, gen_object, s};
 
-    #[test]
-    fn update_attributes_error_when_dup() {
-        let f = gen_frame();
-        let (my, _) = get_attributes();
-        f.set_attribute(my.clone());
-
-        let mut upd = VideoFrameUpdate::default();
-        upd.add_attribute(my);
-        upd.set_attribute_policy(AttributeUpdatePolicy::Error);
-
-        let res = f.update_attributes(&upd);
-        assert!(res.is_err());
-    }
-
     fn get_attributes() -> (Attribute, Attribute) {
         (
             Attribute::persistent(
@@ -127,6 +134,45 @@ mod tests {
         )
     }
 
+    fn get_object_attributes() -> Vec<(i64, Attribute)> {
+        let (a1, a2) = get_attributes();
+        vec![(1, a1), (1, a2)]
+    }
+
+    #[test]
+    fn update_attributes_error_when_dup() {
+        let f = gen_frame();
+        let (my, _) = get_attributes();
+        f.set_attribute(my.clone());
+
+        let mut upd = VideoFrameUpdate::default();
+        upd.add_frame_attribute(my);
+        upd.set_frame_attribute_policy(AttributeUpdatePolicy::Error);
+
+        let res = f.update_attributes(&upd);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn update_object_attributes_error_when_dup() {
+        let f = gen_frame();
+        let attrs = get_object_attributes();
+
+        for (id, mut attr) in attrs.clone() {
+            attr.make_temporary();
+            let o = f.get_object(id).unwrap();
+            o.set_attribute(attr);
+        }
+
+        let mut upd = VideoFrameUpdate::default();
+        for (id, attr) in attrs.clone() {
+            upd.add_object_attribute(id, attr);
+        }
+        upd.set_object_attribute_policy(AttributeUpdatePolicy::Error);
+        let res = f.update(&upd);
+        assert!(res.is_err());
+    }
+
     #[test]
     fn update_attributes_replace_when_dup() {
         let f = gen_frame();
@@ -134,8 +180,8 @@ mod tests {
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::default();
-        upd.add_attribute(their);
-        upd.set_attribute_policy(AttributeUpdatePolicy::ReplaceWithForeign);
+        upd.add_frame_attribute(their);
+        upd.set_frame_attribute_policy(AttributeUpdatePolicy::ReplaceWithForeign);
 
         let res = f.update_attributes(&upd);
         assert!(res.is_ok());
@@ -146,14 +192,39 @@ mod tests {
     }
 
     #[test]
+    fn update_object_attributes_replace_when_dup() {
+        let f = gen_frame();
+        let attrs = get_object_attributes();
+
+        for (id, mut attr) in attrs.clone() {
+            attr.make_temporary();
+            let o = f.get_object(id).unwrap();
+            o.set_attribute(attr);
+        }
+
+        let mut upd = VideoFrameUpdate::default();
+        for (id, attr) in attrs.clone() {
+            upd.add_object_attribute(id, attr);
+        }
+        upd.set_object_attribute_policy(AttributeUpdatePolicy::ReplaceWithForeign);
+        f.update(&upd).unwrap();
+
+        for (id, attr) in attrs {
+            let o = f.get_object(id).unwrap();
+            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            assert!(attr.is_persistent);
+        }
+    }
+
+    #[test]
     fn update_attributes_keep_own_when_dup() {
         let f = gen_frame();
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
         let mut upd = VideoFrameUpdate::default();
-        upd.add_attribute(their);
-        upd.set_attribute_policy(AttributeUpdatePolicy::KeepOwn);
+        upd.add_frame_attribute(their);
+        upd.set_frame_attribute_policy(AttributeUpdatePolicy::KeepOwn);
 
         let res = f.update_attributes(&upd);
         assert!(res.is_ok());
@@ -164,6 +235,31 @@ mod tests {
             v.get_value(),
             AttributeValueVariant::Boolean(true)
         ));
+    }
+
+    #[test]
+    fn update_object_attributes_keep_own_when_dup() {
+        let f = gen_frame();
+        let attrs = get_object_attributes();
+
+        for (id, mut attr) in attrs.clone() {
+            attr.make_temporary();
+            let o = f.get_object(id).unwrap();
+            o.set_attribute(attr);
+        }
+
+        let mut upd = VideoFrameUpdate::default();
+        for (id, attr) in attrs.clone() {
+            upd.add_object_attribute(id, attr);
+        }
+        upd.set_object_attribute_policy(AttributeUpdatePolicy::KeepOwn);
+        f.update(&upd).unwrap();
+
+        for (id, attr) in attrs {
+            let o = f.get_object(id).unwrap();
+            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            assert!(!attr.is_persistent);
+        }
     }
 
     #[test]
