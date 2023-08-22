@@ -34,8 +34,8 @@ crate-type = ["cdylib", "lib"]
 version = "0.19"
 
 [dependencies.tokio]
-version = "1.28"
-features = ["full"]
+version = "1.29"
+features = ["rt-multi-thread"]
 
 [features]
 extension-module = ["pyo3/extension-module"]
