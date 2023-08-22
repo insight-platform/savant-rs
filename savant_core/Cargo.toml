@@ -38,8 +38,8 @@ libloading = "0.8"
 log = "0.4"
 
 [dependencies.tokio]
-version = "1.28"
-features = ["full"]
+version = "1.29"
+features = ["rt-multi-thread"]
 
 [lib]
 crate-type = ["cdylib", "lib"]

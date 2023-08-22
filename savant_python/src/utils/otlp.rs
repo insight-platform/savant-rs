@@ -239,6 +239,19 @@ impl TelemetrySpan {
         format!("{:?}", self.0.span().span_context().trace_id())
     }
 
+    /// Checks if the span is a valid span (i.e. has a valid trace ID).
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the span is valid, False otherwise.
+    ///
+    #[getter]
+    fn is_valid(&self) -> bool {
+        self.ensure_same_thread();
+        self.0.span().span_context().trace_id() != TraceId::INVALID
+    }
+
     /// Returns the span ID of the span.
     ///
     /// Returns
@@ -416,6 +429,21 @@ impl MaybeTelemetrySpan {
     #[staticmethod]
     fn current() -> TelemetrySpan {
         TelemetrySpan::from_context(current_context())
+    }
+
+    #[getter]
+    fn is_span(&self) -> bool {
+        self.span.is_some()
+    }
+
+    #[getter]
+    fn is_valid(&self) -> bool {
+        self.span.as_ref().map(|s| s.is_valid()).unwrap_or(false)
+    }
+
+    #[getter]
+    fn trace_id(&self) -> Option<String> {
+        self.span.as_ref().map(|s| s.trace_id())
     }
 }
 
