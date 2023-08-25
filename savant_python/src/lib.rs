@@ -2,7 +2,6 @@ pub mod capi;
 pub mod logging;
 pub mod match_query;
 pub mod pipeline;
-pub mod pipeline2;
 /// # Basic objects
 ///
 pub mod primitives;
@@ -74,7 +73,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(pipeline::pipeline))?;
-    m.add_wrapped(wrap_pymodule!(pipeline2::pipeline2))?;
     m.add_wrapped(wrap_pymodule!(primitives::geometry))?;
     m.add_wrapped(wrap_pymodule!(primitives::draw_spec))?;
     m.add_wrapped(wrap_pymodule!(utils::utils))?;
@@ -89,7 +87,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
 
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
-    sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline2")?)?;
+    sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;
 
     sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;

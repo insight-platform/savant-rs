@@ -143,7 +143,8 @@ fn log_message_gil(
     });
 
     release_gil!(no_gil, || {
-        log_message(level, target, message, params);
+        let rs_target = target.replace('.', "::");
+        log_message(level, rs_target, message, params);
     });
 }
 

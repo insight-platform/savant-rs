@@ -24,14 +24,13 @@ if __name__ == "__main__":
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
-    p = VideoPipeline("demo-pipeline")
+    p = VideoPipeline("video-pipeline-root", [
+        ("input", VideoPipelineStagePayloadType.Frame),
+        ("proc1", VideoPipelineStagePayloadType.Batch),
+        ("proc2", VideoPipelineStagePayloadType.Batch),
+        ("output", VideoPipelineStagePayloadType.Frame)
+    ])
     p.sampling_period = 10
-    p.root_span_name = "video-pipeline-root"
-
-    p.add_stage("input", VideoPipelineStagePayloadType.Frame)
-    p.add_stage("proc1", VideoPipelineStagePayloadType.Batch)
-    p.add_stage("proc2", VideoPipelineStagePayloadType.Batch)
-    p.add_stage("output", VideoPipelineStagePayloadType.Frame)
 
     assert p.get_stage_type("input") == VideoPipelineStagePayloadType.Frame
     assert p.get_stage_type("proc1") == VideoPipelineStagePayloadType.Batch
@@ -78,8 +77,9 @@ if __name__ == "__main__":
     objects = p.access_objects(batch_id, Q.idle())
 
     frame_map = p.move_and_unpack_batch("output", batch_id)
+    frame_map.sort()
     assert len(frame_map) == 2
-    assert frame_map == {"test1": frame_id1, "test2": frame_id2}
+    assert frame_map == [frame_id1, frame_id2]
 
     frame1, ctxt1 = p.get_independent_frame(frame_id1)
     with ctxt1.nested_span("print"):

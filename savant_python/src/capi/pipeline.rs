@@ -6,7 +6,7 @@ use std::slice::from_raw_parts;
 ///
 /// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
-pub unsafe extern "C" fn pipeline_move_as_is(
+pub unsafe extern "C" fn pipeline2_move_as_is(
     handle: usize,
     dest_stage: *const c_char,
     ids: *const i64,
@@ -26,7 +26,7 @@ pub unsafe extern "C" fn pipeline_move_as_is(
 ///
 /// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
-pub unsafe extern "C" fn pipeline_move_and_pack_frames(
+pub unsafe extern "C" fn pipeline2_move_and_pack_frames(
     handle: usize,
     dest_stage: *const c_char,
     frame_ids: *const i64,
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn pipeline_move_and_pack_frames(
 ///
 /// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
-pub unsafe extern "C" fn pipeline_move_and_unpack_batch(
+pub unsafe extern "C" fn pipeline2_move_and_unpack_batch(
     handle: usize,
     dest_stage: *const c_char,
     batch_id: i64,
@@ -60,7 +60,6 @@ pub unsafe extern "C" fn pipeline_move_and_unpack_batch(
     let ids = pipeline
         .move_and_unpack_batch(dest_stage, batch_id)
         .expect("Failed to move objects as is.");
-    let ids = ids.values().cloned().collect::<Vec<_>>();
     if ids.len() > resulting_ids_len {
         panic!("Not enough space in resulting_ids");
     }
@@ -72,43 +71,40 @@ pub unsafe extern "C" fn pipeline_move_and_unpack_batch(
 
 #[cfg(test)]
 mod tests {
+
     use crate::capi::pipeline::{
-        pipeline_move_and_pack_frames, pipeline_move_and_unpack_batch, pipeline_move_as_is,
+        pipeline2_move_and_pack_frames, pipeline2_move_and_unpack_batch, pipeline2_move_as_is,
     };
+    use savant_core::pipeline::Pipeline;
     use savant_core::pipeline::PipelineStagePayloadType;
-    use savant_core::rust::Pipeline;
     use savant_core::test::gen_frame;
     use std::ffi::CString;
 
     #[test]
     fn test_move_as_is() {
-        let pipeline = Pipeline::default();
-        pipeline
-            .add_stage("stage1", PipelineStagePayloadType::Frame)
-            .unwrap();
-        pipeline
-            .add_stage("stage2", PipelineStagePayloadType::Frame)
-            .unwrap();
+        let pipeline = Pipeline::new(vec![
+            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+            ("stage2".to_owned(), PipelineStagePayloadType::Frame),
+        ])
+        .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let stage = CString::new("stage2").unwrap();
         unsafe {
-            pipeline_move_as_is(pipeline.memory_handle(), stage.as_ptr(), [id].as_ptr(), 1);
+            pipeline2_move_as_is(pipeline.memory_handle(), stage.as_ptr(), [id].as_ptr(), 1);
         }
     }
 
     #[test]
     fn test_move_and_pack() {
-        let pipeline = Pipeline::default();
-        pipeline
-            .add_stage("stage1", PipelineStagePayloadType::Frame)
-            .unwrap();
-        pipeline
-            .add_stage("stage2", PipelineStagePayloadType::Batch)
-            .unwrap();
+        let pipeline = Pipeline::new(vec![
+            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+            ("stage2".to_owned(), PipelineStagePayloadType::Batch),
+        ])
+        .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let stage = CString::new("stage2").unwrap();
         let batch_id = unsafe {
-            pipeline_move_and_pack_frames(
+            pipeline2_move_and_pack_frames(
                 pipeline.memory_handle(),
                 stage.as_ptr(),
                 [id].as_ptr(),
@@ -120,24 +116,19 @@ mod tests {
 
     #[test]
     fn test_move_and_unpack() {
-        let pipeline = Pipeline::default();
-        pipeline
-            .add_stage("stage1", PipelineStagePayloadType::Frame)
-            .unwrap();
-        pipeline
-            .add_stage("stage2", PipelineStagePayloadType::Batch)
-            .unwrap();
-        pipeline
-            .add_stage("stage3", PipelineStagePayloadType::Frame)
-            .unwrap();
-
+        let pipeline = Pipeline::new(vec![
+            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+            ("stage2".to_owned(), PipelineStagePayloadType::Batch),
+            ("stage3".to_owned(), PipelineStagePayloadType::Frame),
+        ])
+        .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let batch_id = pipeline.move_and_pack_frames("stage2", vec![id]).unwrap();
         let stage = CString::new("stage3").unwrap();
         const MAX_ELTS: usize = 16;
         let mut frame_ids = [0i64; MAX_ELTS];
         let count = unsafe {
-            pipeline_move_and_unpack_batch(
+            pipeline2_move_and_unpack_batch(
                 pipeline.memory_handle(),
                 stage.as_ptr(),
                 batch_id,
