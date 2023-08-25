@@ -1,6 +1,6 @@
 use crate::primitives::segment::Intersection;
 use crate::primitives::{Point, PolygonalArea, RBBox};
-use pyo3::exceptions::PyIndexError;
+use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use savant_core::primitives::attribute_value::AttributeValueVariant;
@@ -17,11 +17,11 @@ pub struct AttributeValue(rust::AttributeValue);
 #[cfg(test)]
 impl AttributeValue {
     pub fn get_value(&self) -> AttributeValueVariant {
-        self.0.v.clone()
+        self.0.value.clone()
     }
 
     pub fn set_value(&mut self, value: AttributeValueVariant) {
-        self.0.v = value;
+        self.0.value = value;
     }
 }
 
@@ -57,7 +57,7 @@ impl AttributeValue {
     ///
     #[getter]
     fn get_value_type(&self) -> AttributeValueType {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Bytes(_, _) => AttributeValueType::Bytes,
             AttributeValueVariant::String(_) => AttributeValueType::String,
             AttributeValueVariant::StringVector(_) => AttributeValueType::StringList,
@@ -97,7 +97,7 @@ impl AttributeValue {
     pub fn intersection(int: Intersection, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Intersection(int.0),
+            value: AttributeValueVariant::Intersection(int.0),
         })
     }
 
@@ -112,7 +112,7 @@ impl AttributeValue {
     pub fn none() -> Self {
         Self(rust::AttributeValue {
             confidence: None,
-            v: AttributeValueVariant::None,
+            value: AttributeValueVariant::None,
         })
     }
 
@@ -136,7 +136,7 @@ impl AttributeValue {
     pub fn bytes_from_list(dims: Vec<i64>, blob: Vec<u8>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Bytes(dims, blob),
+            value: AttributeValueVariant::Bytes(dims, blob),
         })
     }
 
@@ -160,7 +160,7 @@ impl AttributeValue {
     pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
+            value: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
         })
     }
 
@@ -183,7 +183,7 @@ impl AttributeValue {
     pub fn string(s: String, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::String(s),
+            value: AttributeValueVariant::String(s),
         })
     }
 
@@ -206,7 +206,7 @@ impl AttributeValue {
     pub fn strings(ss: Vec<String>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::StringVector(ss),
+            value: AttributeValueVariant::StringVector(ss),
         })
     }
 
@@ -229,7 +229,7 @@ impl AttributeValue {
     pub fn integer(i: i64, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Integer(i),
+            value: AttributeValueVariant::Integer(i),
         })
     }
 
@@ -252,7 +252,7 @@ impl AttributeValue {
     pub fn integers(ii: Vec<i64>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::IntegerVector(ii),
+            value: AttributeValueVariant::IntegerVector(ii),
         })
     }
 
@@ -275,7 +275,7 @@ impl AttributeValue {
     pub fn float(f: f64, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Float(f),
+            value: AttributeValueVariant::Float(f),
         })
     }
 
@@ -298,7 +298,7 @@ impl AttributeValue {
     pub fn floats(ff: Vec<f64>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::FloatVector(ff),
+            value: AttributeValueVariant::FloatVector(ff),
         })
     }
 
@@ -321,7 +321,7 @@ impl AttributeValue {
     pub fn boolean(b: bool, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Boolean(b),
+            value: AttributeValueVariant::Boolean(b),
         })
     }
 
@@ -344,7 +344,7 @@ impl AttributeValue {
     pub fn booleans(bb: Vec<bool>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::BooleanVector(bb),
+            value: AttributeValueVariant::BooleanVector(bb),
         })
     }
 
@@ -367,7 +367,7 @@ impl AttributeValue {
     pub fn bbox(bbox: RBBox, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::BBox(
+            value: AttributeValueVariant::BBox(
                 bbox.0
                     .try_into()
                     .expect("Unable to convert RBBox to RBBoxData."),
@@ -393,7 +393,7 @@ impl AttributeValue {
     pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::BBoxVector(
+            value: AttributeValueVariant::BBoxVector(
                 bboxes
                     .into_iter()
                     .map(|b| {
@@ -424,7 +424,7 @@ impl AttributeValue {
     pub fn point(point: Point, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Point(point.0),
+            value: AttributeValueVariant::Point(point.0),
         })
     }
 
@@ -447,7 +447,7 @@ impl AttributeValue {
     pub fn points(points: Vec<Point>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::PointVector(unsafe {
+            value: AttributeValueVariant::PointVector(unsafe {
                 mem::transmute::<Vec<Point>, Vec<rust::Point>>(points)
             }),
         })
@@ -472,7 +472,7 @@ impl AttributeValue {
     pub fn polygon(polygon: PolygonalArea, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::Polygon(polygon.0),
+            value: AttributeValueVariant::Polygon(polygon.0),
         })
     }
 
@@ -495,7 +495,7 @@ impl AttributeValue {
     pub fn polygons(polygons: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            v: AttributeValueVariant::PolygonVector(unsafe {
+            value: AttributeValueVariant::PolygonVector(unsafe {
                 mem::transmute::<Vec<PolygonalArea>, Vec<rust::PolygonalArea>>(polygons)
             }),
         })
@@ -504,7 +504,7 @@ impl AttributeValue {
     /// Checks if the attribute valus if of None type.
     ///
     pub fn is_none(&self) -> bool {
-        matches!(&self.0.v, AttributeValueVariant::None)
+        matches!(&self.0.value, AttributeValueVariant::None)
     }
 
     /// Returns the value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
@@ -515,7 +515,7 @@ impl AttributeValue {
     ///   The value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
     ///
     pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Bytes(dims, bytes) => Some((dims.clone(), bytes.clone())),
             _ => None,
         }
@@ -529,7 +529,7 @@ impl AttributeValue {
     ///   The value of attribute as an :class:`savant_rs.primitives.geometry.Intersection` or None if not an intersection type.
     ///
     pub fn as_intersection(&self) -> Option<Intersection> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Intersection(i) => Some(Intersection(i.clone())),
             _ => None,
         }
@@ -543,7 +543,7 @@ impl AttributeValue {
     ///   The value of attribute as a string or None if not a string type.
     ///
     pub fn as_string(&self) -> Option<String> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::String(s) => Some(s.clone()),
             _ => None,
         }
@@ -557,7 +557,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of strings or None if not a list of strings type.
     ///
     pub fn as_strings(&self) -> Option<Vec<String>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::StringVector(s) => Some(s.clone()),
             _ => None,
         }
@@ -571,7 +571,7 @@ impl AttributeValue {
     ///   The value of attribute as an integer or None if not an integer type.
     ///
     pub fn as_integer(&self) -> Option<i64> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Integer(i) => Some(*i),
             _ => None,
         }
@@ -585,7 +585,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of integers or None if not a list of integers type.
     ///
     pub fn as_integers(&self) -> Option<Vec<i64>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::IntegerVector(i) => Some(i.clone()),
             _ => None,
         }
@@ -599,7 +599,7 @@ impl AttributeValue {
     ///   The value of attribute as a float or None if not a float type.
     ///
     pub fn as_float(&self) -> Option<f64> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Float(f) => Some(*f),
             _ => None,
         }
@@ -613,7 +613,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of floats or None if not a list of floats type.
     ///
     pub fn as_floats(&self) -> Option<Vec<f64>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::FloatVector(f) => Some(f.clone()),
             _ => None,
         }
@@ -627,7 +627,7 @@ impl AttributeValue {
     ///   The value of attribute as a boolean or None if not a boolean type.
     ///
     pub fn as_boolean(&self) -> Option<bool> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Boolean(b) => Some(*b),
             _ => None,
         }
@@ -641,7 +641,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of booleans or None if not a list of booleans type.
     ///
     pub fn as_booleans(&self) -> Option<Vec<bool>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::BooleanVector(b) => Some(b.clone()),
             _ => None,
         }
@@ -655,7 +655,7 @@ impl AttributeValue {
     ///   The value of attribute as a :class:`savant_rs.primitives.geometry.RBBox` or None if not a bounding box type.
     ///
     pub fn as_bbox(&self) -> Option<RBBox> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::BBox(bbox) => Some(RBBox(rust::RBBox::from(bbox.clone()))),
             _ => None,
         }
@@ -669,7 +669,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.RBBox` or None if not a list of bounding boxes type.
     ///
     pub fn as_bboxes(&self) -> Option<Vec<RBBox>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::BBoxVector(bboxes) => Some(
                 bboxes
                     .iter()
@@ -688,7 +688,7 @@ impl AttributeValue {
     ///   The value of attribute as a :class:`savant_rs.primitives.geometry.Point` or None if not a point type.
     ///
     pub fn as_point(&self) -> Option<Point> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Point(point) => Some(Point(point.clone())),
             _ => None,
         }
@@ -702,7 +702,7 @@ impl AttributeValue {
     ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.Point` or None if not a list of points type.
     ///
     pub fn as_points(&self) -> Option<Vec<Point>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::PointVector(points) => {
                 Some(unsafe { mem::transmute::<Vec<rust::Point>, Vec<Point>>(points.clone()) })
             }
@@ -718,7 +718,7 @@ impl AttributeValue {
     ///   The value of attribute as a :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a polygon type.
     ///
     pub fn as_polygon(&self) -> Option<PolygonalArea> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::Polygon(polygon) => Some(PolygonalArea(polygon.clone())),
             _ => None,
         }
@@ -732,12 +732,28 @@ impl AttributeValue {
     ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.PolygonalArea` or None if not a list of polygons type.
     ///
     pub fn as_polygons(&self) -> Option<Vec<PolygonalArea>> {
-        match &self.0.v {
+        match &self.0.value {
             AttributeValueVariant::PolygonVector(polygons) => Some(unsafe {
                 mem::transmute::<Vec<rust::PolygonalArea>, Vec<PolygonalArea>>(polygons.clone())
             }),
             _ => None,
         }
+    }
+
+    #[getter]
+    pub fn json(&self) -> PyResult<String> {
+        let res = self
+            .0
+            .to_json()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(res)
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let res = rust::AttributeValue::from_json(json)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(res))
     }
 }
 

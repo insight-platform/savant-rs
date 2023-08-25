@@ -5,10 +5,10 @@ use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::consts::BBOX_UNDEFINED;
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
 use crate::primitives::{Attribute, AttributeMethods, Attributive, OwnedRBBoxData, RBBox};
 use crate::symbol_mapper::get_object_id;
-use crate::to_json_value::ToSerdeJsonValue;
 use crate::trace;
 use serde_json::Value;
 

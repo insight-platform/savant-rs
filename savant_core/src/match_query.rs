@@ -3,13 +3,13 @@ use crate::eval_context::ObjectContext;
 use crate::eval_resolvers::{
     config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
 };
+use crate::json_api::ToSerdeJsonValue;
 use crate::pluggable_udf_api::{
     call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
     is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::{BBoxMetricType, RBBox};
-use crate::to_json_value::ToSerdeJsonValue;
 use parking_lot::RwLockReadGuard;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

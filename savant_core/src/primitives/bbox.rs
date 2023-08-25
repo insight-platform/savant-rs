@@ -1,8 +1,8 @@
 use crate::consts::EPS;
 use crate::draw::PaddingDraw;
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::object::VideoObject;
 use crate::primitives::{Point, PolygonalArea};
-use crate::to_json_value::ToSerdeJsonValue;
 use crate::{round_2_digits, trace};
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
@@ -20,7 +20,9 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[derive(
+    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub struct OwnedRBBoxData {
     pub xc: f32,
