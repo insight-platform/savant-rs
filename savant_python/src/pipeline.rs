@@ -40,35 +40,28 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
 #[pymodule]
 pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
-    m.add_class::<VideoPipeline>()?;
+    m.add_class::<Pipeline>()?;
     Ok(())
 }
 
 /// A video pipeline.
 ///
 #[pyclass]
+#[pyo3(name = "VideoPipeline")]
 #[derive(Debug)]
-struct VideoPipeline(rust::Pipeline);
+pub(crate) struct Pipeline(rust::Pipeline);
 
 #[pymethods]
-impl VideoPipeline {
-    /// Creates a new pipeline. Same as ``__init__``.
-    ///
-    /// Params
-    /// ------
-    /// name: str
-    ///   The name of the pipeline. It is used in OTLP as a root span name.
-    ///
-    #[staticmethod]
-    fn constructor(name: String) -> Self {
-        Self::new(name)
-    }
-
+impl Pipeline {
     #[new]
-    fn new(name: String) -> Self {
-        let p = rust::Pipeline::default();
-        p.set_root_span_name(name);
-        Self(p)
+    fn new(name: String, stages: Vec<(String, VideoPipelineStagePayloadType)>) -> PyResult<Self> {
+        let stages = stages.into_iter().map(|(n, t)| (n, t.into())).collect();
+        let p = rust::Pipeline::new(stages).map_err(|e| {
+            PyValueError::new_err(format!("Failed to create pipeline: {}", e.to_string()))
+        })?;
+        p.set_root_span_name(name)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(p))
     }
 
     /// Allows receiving a raw pointer to Rust inner Pipeline struct.
@@ -76,18 +69,6 @@ impl VideoPipeline {
     #[getter]
     fn memory_handle(&self) -> usize {
         self.0.memory_handle()
-    }
-
-    /// Sets the root span name.
-    ///
-    /// Params
-    /// ------
-    /// name : str
-    ///   The name of the root span.
-    ///
-    #[setter]
-    fn set_root_span_name(&self, name: String) {
-        self.0.set_root_span_name(name);
     }
 
     /// Returns the root span name.
@@ -107,8 +88,13 @@ impl VideoPipeline {
     ///   Set it to a high number (e.g. 100, 1000) for production, 1 for development purposes to trace every frame.
     ///
     #[setter]
-    fn set_sampling_period(&self, period: i64) {
-        self.0.set_sampling_period(period);
+    fn set_sampling_period(&self, period: i64) -> PyResult<()> {
+        self.0.set_sampling_period(period).map_err(|e| {
+            PyValueError::new_err(format!(
+                "Failed to set sampling period to {}: {}",
+                period, e
+            ))
+        })
     }
 
     /// Get sampling configured for the pipeline.
@@ -123,25 +109,6 @@ impl VideoPipeline {
         self.0.get_sampling_period()
     }
 
-    /// Adds a stage to the pipeline.
-    ///
-    /// Parameters
-    /// ----------
-    /// name : str
-    ///  The name of the stage.
-    /// stage_type : :py:class:`VideoPipelineStagePayloadType`
-    ///  The type of the stage. Either independent frames or batches.
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///   If the stage name is already in use.
-    ///
-    fn add_stage(&self, name: &str, stage_type: VideoPipelineStagePayloadType) -> PyResult<()> {
-        self.0
-            .add_stage(name, stage_type.into())
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
     /// Retrieves the type of a stage.
     ///
     /// Parameters
@@ -552,11 +519,10 @@ impl VideoPipeline {
         dest_stage_name: &str,
         batch_id: i64,
         no_gil: bool,
-    ) -> PyResult<HashMap<String, i64>> {
+    ) -> PyResult<Vec<i64>> {
         release_gil!(no_gil, || {
             self.0
                 .move_and_unpack_batch(dest_stage_name, batch_id)
-                .map(std::collections::HashMap::from_iter)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
         })
     }

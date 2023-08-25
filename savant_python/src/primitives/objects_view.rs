@@ -1,13 +1,11 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::object::VideoObject;
-use crate::primitives::RBBox;
 use crate::release_gil;
 use pyo3::exceptions::{PyIndexError, PyRuntimeError};
 use pyo3::prelude::*;
 use savant_core::match_query::*;
 use savant_core::primitives::rust::VideoObjectProxy;
 use std::collections::HashMap;
-use std::iter::zip;
 use std::sync::Arc;
 
 pub type VideoObjectsViewBatch = HashMap<i64, VideoObjectsView>;
@@ -41,16 +39,6 @@ impl From<Vec<VideoObjectProxy>> for VideoObjectsView {
     fn from(value: Vec<VideoObjectProxy>) -> Self {
         VideoObjectsView {
             inner: Arc::new(value.into_iter().map(VideoObject).collect()),
-        }
-    }
-}
-
-impl VideoObjectsView {
-    pub fn fill_boxes(&self, boxes: Vec<RBBox>, kind: &VideoObjectBBoxType) {
-        let it = zip(self.inner.iter(), boxes);
-        match kind {
-            VideoObjectBBoxType::Detection => it.for_each(|(o, b)| o.set_detection_box(b)),
-            VideoObjectBBoxType::TrackingInfo => it.for_each(|(o, b)| o.set_track_box(b)),
         }
     }
 }
@@ -174,7 +162,7 @@ impl QueryFunctions {
     ) -> VideoObjectsView {
         release_gil!(no_gil, || {
             let objs = v.inner.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
-            filter(&objs, &q.0).into()
+            VideoObjectsView::from(filter(&objs, &q.0))
         })
     }
 

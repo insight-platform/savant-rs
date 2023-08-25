@@ -10,7 +10,6 @@ pub mod match_query;
 pub mod message;
 pub mod otlp;
 pub mod pipeline;
-pub mod pipeline2;
 pub mod pluggable_udf_api;
 pub mod primitives;
 pub mod symbol_mapper;
@@ -69,7 +68,6 @@ pub mod rust {
     pub use super::otlp::PropagatedContext;
     pub use super::pipeline::Pipeline;
     pub use super::pipeline::PipelineStagePayloadType;
-    pub use super::pipeline2::Pipeline as Pipeline2;
     pub use super::symbol_mapper::RegistrationPolicy;
     pub use super::symbol_mapper::SymbolMapper;
 }

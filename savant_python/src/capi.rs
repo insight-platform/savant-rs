@@ -1,5 +1,4 @@
 pub mod pipeline;
-pub mod pipeline2;
 
 use std::ffi::{c_char, CStr};
 

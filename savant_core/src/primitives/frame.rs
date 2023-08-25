@@ -384,19 +384,6 @@ impl VideoFrameProxy {
         let resident_objects = inner.resident_objects.clone();
         drop(inner);
 
-        // if self.is_parallelized {
-        //     resident_objects
-        //         .par_iter()
-        //         .filter_map(|(_, o)| {
-        //             let obj = VideoObjectProxy::from_arced_inner_object(o.clone());
-        //             if q.execute_with_new_context(&obj) {
-        //                 Some(obj)
-        //             } else {
-        //                 None
-        //             }
-        //         })
-        //         .collect()
-        // } else {
         resident_objects
             .iter()
             .filter_map(|(_, o)| {
@@ -408,7 +395,6 @@ impl VideoFrameProxy {
                 }
             })
             .collect()
-        // }
     }
 
     pub fn get_json(&self) -> String {

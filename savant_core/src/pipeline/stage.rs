@@ -1,6 +1,6 @@
 use crate::match_query::MatchQuery;
+use crate::pipeline::implementation::Pipeline;
 use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
-use crate::pipeline2::implementation::Pipeline;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -289,8 +289,8 @@ impl PipelineStage {
 #[cfg(test)]
 mod tests {
     use crate::match_query::MatchQuery;
+    use crate::pipeline::stage::PipelineStage;
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
-    use crate::pipeline2::stage::PipelineStage;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::{Attribute, AttributeMethods};
