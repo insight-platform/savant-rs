@@ -668,10 +668,31 @@ impl VideoFrame {
         release_gil!(no_gil, || VideoFrame(self.0.deep_copy()))
     }
 
+    /// Updates the frame with the given update. The function is GIL-free.
+    ///
+    /// The order of execution:
+    /// - frame attributes are updated
+    /// - existing objects are updated with attributes
+    /// - new objects are added
+    ///
+    /// Params
+    /// ------
+    /// update: :py:class:`savant_rs.primitives.VideoFrameUpdate`
+    ///   The update to apply
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the update cannot be applied to the frame
+    ///
     #[pyo3(name = "update")]
-    #[pyo3(signature = (other, no_gil = true))]
-    pub fn update_gil(&self, other: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
-        release_gil!(no_gil, || self.0.update(&other.0))
+    #[pyo3(signature = (update, no_gil = true))]
+    pub fn update_gil(&self, update: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
+        release_gil!(no_gil, || self.0.update(&update.0))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
