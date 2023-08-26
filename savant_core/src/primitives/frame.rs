@@ -5,7 +5,8 @@ use crate::message::Message;
 use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::{
-    IdCollisionResolutionPolicy, VideoObject, VideoObjectBBoxTransformation, VideoObjectProxy,
+    IdCollisionResolutionPolicy, VideoObject, VideoObjectBBoxTransformation, VideoObjectBBoxType,
+    VideoObjectProxy,
 };
 use crate::primitives::{Attribute, Attributive};
 use crate::trace;
@@ -669,7 +670,7 @@ impl VideoFrameProxy {
         Ok(())
     }
 
-    pub(crate) fn update_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
+    pub(crate) fn update_frame_attributes(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
         use crate::primitives::frame_update::AttributeUpdatePolicy::*;
         match &update.frame_attribute_policy {
             ReplaceWithForeign => {
@@ -748,9 +749,9 @@ impl VideoFrameProxy {
     }
 
     pub fn update(&self, update: &VideoFrameUpdate) -> anyhow::Result<()> {
-        self.update_objects(update)?;
-        self.update_attributes(update)?;
+        self.update_frame_attributes(update)?;
         self.update_object_attributes(update)?;
+        self.update_objects(update)?;
         Ok(())
     }
 
@@ -932,6 +933,33 @@ impl VideoFrameProxy {
         let mut frame = trace!(self.inner.write());
         frame.resident_objects.clear();
     }
+
+    pub fn check_frame_fit(
+        objs: &Vec<VideoObjectProxy>,
+        max_width: f32,
+        max_height: f32,
+        bbox_type: VideoObjectBBoxType,
+    ) -> Result<(), i64> {
+        for obj in objs {
+            let bb_opt = match bbox_type {
+                VideoObjectBBoxType::Detection => Some(obj.get_detection_box()),
+                VideoObjectBBoxType::TrackingInfo => obj.get_track_box(),
+            };
+
+            bb_opt
+                .map(|bb| {
+                    let vertices = bb.get_vertices();
+                    for (x, y) in vertices {
+                        if x < 0.0 || x > max_width || y < 0.0 || y > max_height {
+                            return Err(obj.get_id());
+                        }
+                    }
+                    Ok(())
+                })
+                .unwrap_or(Ok(()))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -939,8 +967,9 @@ mod tests {
     use crate::draw::DrawLabelKind;
     use crate::match_query::{eq, one_of, MatchQuery};
     use crate::primitives::attribute_value::AttributeValueVariant;
+    use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::object::{
-        IdCollisionResolutionPolicy, VideoObjectBuilder, VideoObjectProxy,
+        IdCollisionResolutionPolicy, VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
     };
     use crate::primitives::{AttributeMethods, RBBox};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
@@ -1374,5 +1403,25 @@ mod tests {
         assert_eq!(frame.get_max_object_id(), 0);
         let objs = frame.get_all_objects();
         assert_eq!(objs.len(), 1);
+    }
+
+    #[test]
+    fn check_frame_fit() {
+        let objects = vec![gen_object(0), gen_object(1), gen_object(2), gen_object(3)];
+        let res = VideoFrameProxy::check_frame_fit(
+            &objects,
+            100.0,
+            100.0,
+            VideoObjectBBoxType::Detection,
+        );
+        assert!(matches!(res, Err(0)));
+
+        let res = VideoFrameProxy::check_frame_fit(
+            &objects,
+            300.0,
+            300.0,
+            VideoObjectBBoxType::TrackingInfo,
+        );
+        assert!(res.is_ok());
     }
 }

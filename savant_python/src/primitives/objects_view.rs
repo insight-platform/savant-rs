@@ -1,7 +1,7 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::object::VideoObject;
 use crate::release_gil;
-use pyo3::exceptions::{PyIndexError, PyRuntimeError};
+use pyo3::exceptions::{PyIndexError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use savant_core::match_query::*;
 use savant_core::primitives::rust::VideoObjectProxy;
@@ -18,6 +18,32 @@ pub type VideoObjectsViewBatch = HashMap<i64, VideoObjectsView>;
 pub enum VideoObjectBBoxType {
     Detection,
     TrackingInfo,
+}
+
+impl From<VideoObjectBBoxType> for savant_core::primitives::object::VideoObjectBBoxType {
+    fn from(value: VideoObjectBBoxType) -> Self {
+        match value {
+            VideoObjectBBoxType::Detection => {
+                savant_core::primitives::object::VideoObjectBBoxType::Detection
+            }
+            VideoObjectBBoxType::TrackingInfo => {
+                savant_core::primitives::object::VideoObjectBBoxType::TrackingInfo
+            }
+        }
+    }
+}
+
+impl From<savant_core::primitives::object::VideoObjectBBoxType> for VideoObjectBBoxType {
+    fn from(value: savant_core::primitives::object::VideoObjectBBoxType) -> Self {
+        match value {
+            savant_core::primitives::object::VideoObjectBBoxType::Detection => {
+                VideoObjectBBoxType::Detection
+            }
+            savant_core::primitives::object::VideoObjectBBoxType::TrackingInfo => {
+                VideoObjectBBoxType::TrackingInfo
+            }
+        }
+    }
 }
 
 #[pyclass]
@@ -118,6 +144,52 @@ impl VideoObjectsView {
         VideoObjectsView {
             inner: Arc::new(objects),
         }
+    }
+
+    /// Ensures object box coordinates reside within the frame and not negative
+    ///
+    /// GIL is optionally released during the call
+    ///
+    /// Params
+    /// ------
+    /// width: float
+    ///   Frame width
+    /// height: float
+    ///   Frame height
+    /// box_type: :py:class:`VideoObjectBBoxType`
+    ///   Type of the box to check (detection box or track box)
+    /// no_gil: bool
+    ///   Whether to release GIL during the call (true means release)
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///   Raises exception if any of the boxes is out of frame
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If any of the boxes is out of frame
+    ///
+    #[pyo3(name = "check_frame_fit")]
+    #[pyo3(signature = (width, height, box_type, no_gil = true))]
+    pub fn check_frame_fit_gil(
+        &self,
+        width: f32,
+        height: f32,
+        box_type: VideoObjectBBoxType,
+        no_gil: bool,
+    ) -> PyResult<()> {
+        release_gil!(no_gil, || {
+            let objs = self.inner.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
+            savant_core::primitives::frame::VideoFrameProxy::check_frame_fit(
+                &objs,
+                width,
+                height,
+                box_type.into(),
+            )
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
     }
 
     // #[pyo3(name = "update_from_numpy_boxes")]

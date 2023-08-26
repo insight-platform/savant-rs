@@ -38,7 +38,7 @@ fn get_objects() -> Vec<VideoObject> {
                 vec![AttributeValue::new(AttributeValueVariant::Integer(1), None)],
                 Some("hint".to_string()),
             ));
-            VideoObject::from(o)
+            o
         })
         .collect::<Vec<_>>()
 }

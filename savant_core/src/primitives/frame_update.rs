@@ -149,7 +149,7 @@ mod tests {
         upd.add_frame_attribute(my);
         upd.set_frame_attribute_policy(AttributeUpdatePolicy::Error);
 
-        let res = f.update_attributes(&upd);
+        let res = f.update_frame_attributes(&upd);
         assert!(res.is_err());
     }
 
@@ -183,7 +183,7 @@ mod tests {
         upd.add_frame_attribute(their);
         upd.set_frame_attribute_policy(AttributeUpdatePolicy::ReplaceWithForeign);
 
-        let res = f.update_attributes(&upd);
+        let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
@@ -226,7 +226,7 @@ mod tests {
         upd.add_frame_attribute(their);
         upd.set_frame_attribute_policy(AttributeUpdatePolicy::KeepOwn);
 
-        let res = f.update_attributes(&upd);
+        let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
