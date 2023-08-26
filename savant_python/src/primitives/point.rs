@@ -1,6 +1,6 @@
 use pyo3::{pyclass, pymethods, Py, PyAny};
+use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 
 #[pyclass]

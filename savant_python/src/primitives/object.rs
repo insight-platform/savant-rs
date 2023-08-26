@@ -4,8 +4,8 @@ use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::release_gil;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::{rust, AttributeMethods};
-use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::collections::HashMap;
 

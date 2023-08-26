@@ -5,6 +5,8 @@ pub mod draw;
 pub mod eval_cache;
 pub mod eval_context;
 pub mod eval_resolvers;
+/// A trait to serialize various objects to json.
+pub mod json_api;
 pub mod macros;
 pub mod match_query;
 pub mod message;
@@ -15,8 +17,6 @@ pub mod primitives;
 pub mod symbol_mapper;
 pub mod telemetry;
 pub mod test;
-/// A trait to serialize various objects to json.
-pub mod to_json_value;
 pub mod transmutes;
 
 use lazy_static::lazy_static;

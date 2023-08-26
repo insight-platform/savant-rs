@@ -2,9 +2,9 @@ use crate::primitives::attribute::Attribute;
 use crate::primitives::message::Message;
 use crate::release_gil;
 use pyo3::{pyclass, pymethods, Py, PyAny};
+use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust as rust_primitives;
 use savant_core::primitives::{rust, Attributive};
-use savant_core::to_json_value::ToSerdeJsonValue;
 use serde_json::Value;
 use std::mem;
 

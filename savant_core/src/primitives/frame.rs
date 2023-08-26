@@ -1,4 +1,5 @@
 use crate::draw::DrawLabelKind;
+use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
 use crate::primitives::attribute::AttributeMethods;
@@ -7,7 +8,6 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBBoxTransformation, VideoObjectProxy,
 };
 use crate::primitives::{Attribute, Attributive};
-use crate::to_json_value::ToSerdeJsonValue;
 use crate::trace;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;

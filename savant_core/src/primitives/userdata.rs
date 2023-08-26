@@ -1,5 +1,5 @@
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Attributive};
-use crate::to_json_value::ToSerdeJsonValue;
 use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;

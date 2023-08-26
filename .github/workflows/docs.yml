@@ -5,6 +5,10 @@
 #
 name: Savant Docs CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:

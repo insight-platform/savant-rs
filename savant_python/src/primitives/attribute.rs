@@ -1,8 +1,9 @@
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::attribute_value::AttributeValuesView;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::exceptions::PyValueError;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use savant_core::to_json_value::ToSerdeJsonValue;
 use std::mem;
 use std::sync::Arc;
 
@@ -249,6 +250,22 @@ impl Attribute {
         self.0.values = Arc::new(unsafe {
             mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values)
         });
+    }
+
+    #[getter]
+    pub fn json(&self) -> PyResult<String> {
+        let res = self
+            .0
+            .to_json()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(res)
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        let res =
+            rust::Attribute::from_json(json).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self(res))
     }
 }
 
