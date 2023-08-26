@@ -1,12 +1,13 @@
-from savant_rs.utils import gen_frame
-from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
-from savant_rs.primitives.geometry import RBBox
-from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
-    utility_resolver_name, register_utility_resolver
-from timeit import default_timer as timer
 from threading import Thread, Barrier
+from timeit import default_timer as timer
 
 from savant_rs.logging import LogLevel, set_log_level
+from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
+from savant_rs.primitives.geometry import RBBox
+from savant_rs.utils import gen_frame
+from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
+    register_utility_resolver
+
 set_log_level(LogLevel.Trace)
 
 import random

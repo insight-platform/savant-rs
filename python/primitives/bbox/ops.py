@@ -1,7 +1,7 @@
-from savant_rs.primitives.geometry import BBox, RBBox
 from savant_rs.draw_spec import PaddingDraw
-
 from savant_rs.logging import LogLevel, set_log_level
+from savant_rs.primitives.geometry import BBox, RBBox
+
 set_log_level(LogLevel.Trace)
 
 box = BBox(50, 50, 50, 50)

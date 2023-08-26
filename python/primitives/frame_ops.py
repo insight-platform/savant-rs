@@ -1,22 +1,17 @@
-import ctypes
-
-from savant_rs.utils import gen_frame
-from savant_rs.utils.serialization import save_message, load_message, Message
+from savant_rs.draw_spec import SetDrawLabelKind
+from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
-from savant_rs.primitives.geometry import RBBox, BBox, Point, PolygonalArea
-from savant_rs.draw_spec import SetDrawLabelKind
+from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
+from savant_rs.utils import gen_frame
+from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.video_object_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
-from savant_rs.logging import LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
-
 
 import json
 from timeit import default_timer as timer
-from ctypes import *
-
 
 f = gen_frame()
 

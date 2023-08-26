@@ -2,6 +2,7 @@ from savant_rs.draw_spec import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, 
     LabelPositionKind
 
 from savant_rs.logging import LogLevel, set_log_level
+
 set_log_level(LogLevel.Trace)
 
 spec = ObjectDraw(

@@ -2,6 +2,7 @@ from random import choice
 from timeit import default_timer as timer
 
 from savant_rs.logging import LogLevel, set_log_level
+
 set_log_level(LogLevel.Trace)
 
 from savant_rs.utils.symbol_mapper import RegistrationPolicy, \
@@ -11,8 +12,6 @@ from savant_rs.utils.symbol_mapper import RegistrationPolicy, \
     parse_compound_key, \
     validate_base_key, \
     clear_symbol_maps, \
-    dump_registry, \
-    get_model_id, \
     get_object_id, \
     get_object_ids, \
     get_model_name, \
@@ -71,6 +70,7 @@ def batched_count():
     for _ in range(num):
         get_object_ids(model_name=random_model, object_labels=random_objects)
     return num, timer() - total_time
+
 
 num, single_total_time = batched_count()
 num, total = batched_count()

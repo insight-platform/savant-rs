@@ -1,18 +1,16 @@
+from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
 from savant_rs.video_object_query import FloatExpression as FE, \
     IntExpression as IE, \
     StringExpression as SE, \
-    MatchQuery as Q, \
-    utility_resolver_name
+    MatchQuery as Q
 
-from savant_rs.logging import LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
 
 and_ = Q.and_
 or_ = Q.or_
 not_ = Q.not_
-
 
 gt = IE.gt
 lt = IE.lt

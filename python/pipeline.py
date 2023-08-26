@@ -1,9 +1,7 @@
 import time
 from threading import Thread, current_thread
-from pprint import pprint
 
 import savant_rs
-
 from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
 
 set_log_level(LogLevel.Trace)
@@ -20,7 +18,7 @@ from savant_rs.video_object_query import MatchQuery as Q
 
 if __name__ == "__main__":
     savant_rs.version()
-    enable_dl_detection() # enables internal DL detection (checks every 5 secs)
+    enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 

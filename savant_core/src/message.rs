@@ -3,6 +3,7 @@ use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
 use crate::{trace, version_to_bytes_le};
@@ -16,6 +17,7 @@ pub enum MessageEnvelope {
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
     UserData(UserData),
+    Shutdown(Shutdown),
     Unknown(String),
 }
 
@@ -75,6 +77,14 @@ impl Message {
             payload: MessageEnvelope::EndOfStream(eos),
         }
     }
+
+    pub fn shutdown(shutdown: Shutdown) -> Self {
+        Self {
+            meta: MessageMeta::new(),
+            payload: MessageEnvelope::Shutdown(shutdown),
+        }
+    }
+
     pub fn video_frame(frame: &VideoFrameProxy) -> Self {
         let frame_copy = frame.deep_copy();
 
@@ -131,6 +141,9 @@ impl Message {
     pub fn is_unknown(&self) -> bool {
         matches!(self.payload, MessageEnvelope::Unknown(_))
     }
+    pub fn is_shutdown(&self) -> bool {
+        matches!(self.payload, MessageEnvelope::Shutdown(_))
+    }
     pub fn is_end_of_stream(&self) -> bool {
         matches!(self.payload, MessageEnvelope::EndOfStream(_))
     }
@@ -152,6 +165,14 @@ impl Message {
             _ => None,
         }
     }
+
+    pub fn as_shutdown(&self) -> Option<&Shutdown> {
+        match &self.payload {
+            MessageEnvelope::Shutdown(shutdown) => Some(shutdown),
+            _ => None,
+        }
+    }
+
     pub fn as_end_of_stream(&self) -> Option<&EndOfStream> {
         match &self.payload {
             MessageEnvelope::EndOfStream(eos) => Some(eos),
@@ -231,6 +252,7 @@ mod tests {
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
+    use crate::primitives::shutdown::Shutdown;
     use crate::primitives::userdata::UserData;
     use crate::primitives::Attribute;
     use crate::test::gen_frame;
@@ -242,6 +264,15 @@ mod tests {
         let res = save_message(&m);
         let m = load_message(&res);
         assert!(m.is_end_of_stream());
+    }
+
+    #[test]
+    fn test_save_load_shutdown() {
+        let s = Shutdown::new("test".to_string());
+        let m = Message::shutdown(s);
+        let res = save_message(&m);
+        let m = load_message(&res);
+        assert!(m.is_shutdown());
     }
 
     #[test]
