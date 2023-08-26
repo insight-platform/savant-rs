@@ -1,5 +1,5 @@
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::point::Point;
-use crate::to_json_value::ToSerdeJsonValue;
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -25,7 +25,9 @@ impl Segment {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[derive(
+    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub enum IntersectionKind {
     Enter,
@@ -41,7 +43,9 @@ impl ToSerdeJsonValue for IntersectionKind {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[derive(
+    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub struct Intersection {
     pub kind: IntersectionKind,

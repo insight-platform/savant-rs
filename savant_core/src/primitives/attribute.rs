@@ -1,5 +1,5 @@
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::attribute_value::AttributeValue;
-use crate::to_json_value::ToSerdeJsonValue;
 use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::sync::Arc;
@@ -15,7 +15,16 @@ pub type AttributeRs = Attribute;
 /// list is :class:`AttributeValue`.
 ///
 #[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, derive_builder::Builder, Default,
+    Archive,
+    Deserialize,
+    Serialize,
+    Debug,
+    PartialEq,
+    Clone,
+    derive_builder::Builder,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[archive(check_bytes)]
 pub struct Attribute {
@@ -37,12 +46,7 @@ impl AttributeBuilder {
 
 impl ToSerdeJsonValue for Attribute {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::json!({
-            "namespace": self.namespace,
-            "name": self.name,
-            "values": self.values.iter().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-            "hint": self.hint,
-        })
+        serde_json::to_value(self).unwrap()
     }
 }
 
@@ -227,6 +231,14 @@ impl Attribute {
     ///
     pub fn set_values(&mut self, values: Vec<AttributeValue>) {
         self.values = Arc::new(values);
+    }
+
+    pub fn to_json(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(self)?)
+    }
+
+    pub fn from_json(json: &str) -> anyhow::Result<Self> {
+        Ok(serde_json::from_str(json)?)
     }
 }
 

@@ -2,8 +2,8 @@ use crate::primitives::{PaddingDraw, PolygonalArea};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::{rust, OwnedRBBoxData};
-use savant_core::to_json_value::ToSerdeJsonValue;
 
 /// Allows configuring what kind of Intersection over Something to use.
 ///
