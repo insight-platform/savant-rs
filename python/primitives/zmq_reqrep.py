@@ -1,14 +1,14 @@
 from multiprocessing import Process
 from time import time
-import zmq
 
+import zmq
 from savant_rs.logging import LogLevel, set_log_level
+
 set_log_level(LogLevel.Trace)
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import load_message_from_bytes, save_message_to_bytes, Message
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, AttributeUpdatePolicy
-
 
 socket_name = "ipc:///tmp/test_hello"
 

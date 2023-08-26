@@ -4,7 +4,7 @@ pub mod saver;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::user_data::UserData;
 use crate::primitives::VideoFrame;
-use crate::primitives::{EndOfStream, VideoFrameBatch};
+use crate::primitives::{EndOfStream, Shutdown, VideoFrameBatch};
 use crate::utils::otlp::PropagatedContext;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
@@ -27,7 +27,7 @@ impl Message {
 
     /// Create a new undefined message
     ///
-    /// Parameters
+    /// Params
     /// ----------
     /// s : str
     ///   The message text
@@ -42,16 +42,33 @@ impl Message {
         Self(rust_primitives::Message::unknown(s))
     }
 
+    /// Create a new shutdown message
+    ///
+    /// Params
+    /// ------
+    /// shutdown : :py:class:`savant_rs.primitives.Shutdown`
+    ///   The shutdown message
+    ///
+    /// Returns
+    /// -------
+    /// py:class:`savant_rs.utils.serialization.Message`
+    ///   The message of Shutdown type
+    ///
+    #[staticmethod]
+    pub fn shutdown(shutdown: Shutdown) -> Self {
+        Self(rust_primitives::Message::shutdown(shutdown.0))
+    }
+
     /// Create a new unspecified message
     ///
-    /// Parameters
-    /// ----------
-    /// t : savant_rs.primitives.UnspecifiedData
+    /// Params
+    /// ------
+    /// t : :py:class:`savant_rs.primitives.UnspecifiedData`
     ///   The unspecified message
     ///
     /// Returns
     /// -------
-    /// :class:`savant_rs.utils.serialization.Message`
+    /// py:class:`savant_rs.utils.serialization.Message`
     ///   The message of EndOfStream type
     ///
     #[staticmethod]
@@ -157,6 +174,17 @@ impl Message {
         self.0.is_unknown()
     }
 
+    /// Checks if the message is of Shutdown type
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the message is of Shutdown type, False otherwise
+    ///
+    pub fn is_shutdown(&self) -> bool {
+        self.0.is_shutdown()
+    }
+
     /// Checks if the message is of EndOfStream type
     ///
     /// Returns
@@ -223,6 +251,18 @@ impl Message {
     ///
     pub fn as_unknown(&self) -> Option<String> {
         self.0.as_unknown()
+    }
+
+    /// Returns the message as Shutdown type
+    ///
+    /// Returns
+    /// -------
+    /// py:class:`savant_rs.primitives.Shutdown`
+    ///   The message as Shutdown type
+    ///
+    pub fn as_shutdown(&self) -> Option<Shutdown> {
+        let shutdown = self.0.as_shutdown()?;
+        Some(Shutdown(shutdown.clone()))
     }
 
     /// Returns the message as EndOfStream type

@@ -1,6 +1,7 @@
 from pprint import pprint
 
 from savant_rs.logging import LogLevel, set_log_level
+
 set_log_level(LogLevel.Trace)
 
 from savant_rs.primitives.geometry import PolygonalArea, Point, Segment, IntersectionKind
@@ -29,7 +30,8 @@ enters_vertex = Segment(Point(2, 2), Point(0, 0))
 outside = Segment(Point(-2, 2), Point(2, 2))
 inside = Segment(Point(-0.5, -0.5), Point(0.5, 0.5))
 
-l = [crosses_31, crosses_20, crosses_031, crosses_013, leaves_vertex, crosses_vertices, crosses_whole_edge, enters_vertex, outside, inside]
+l = [crosses_31, crosses_20, crosses_031, crosses_013, leaves_vertex, crosses_vertices, crosses_whole_edge,
+     enters_vertex, outside, inside]
 
 t = timer()
 

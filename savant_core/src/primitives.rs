@@ -14,6 +14,7 @@ pub mod frame_batch;
 pub mod frame_update;
 pub mod object;
 pub mod segment;
+pub mod shutdown;
 pub mod userdata;
 
 pub use segment::*;
@@ -39,6 +40,7 @@ pub mod rust {
     pub use super::segment::Intersection;
     pub use super::segment::IntersectionKind;
     pub use super::segment::Segment;
+    pub use super::shutdown::Shutdown;
     pub use super::userdata::UserData;
     pub use crate::message::Message;
     pub use crate::primitives::frame::ExternalFrame;

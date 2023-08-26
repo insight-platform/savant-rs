@@ -22,6 +22,7 @@ pub mod polygonal_area;
 pub mod pyobject;
 /// A line consisting of two points.
 pub mod segment;
+pub mod shutdown;
 pub mod user_data;
 
 use crate::primitives::frame::{
@@ -45,6 +46,7 @@ use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::point::Point;
 use crate::primitives::polygonal_area::PolygonalArea;
 use crate::primitives::segment::{Intersection, IntersectionKind, Segment};
+use crate::primitives::shutdown::Shutdown;
 use crate::primitives::user_data::UserData;
 use pyo3::prelude::PyModule;
 use pyo3::{pymodule, PyResult, Python};
@@ -87,6 +89,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AttributeValueType>()?;
     m.add_class::<AttributeValuesView>()?;
     m.add_class::<EndOfStream>()?;
+    m.add_class::<Shutdown>()?;
     m.add_class::<UserData>()?;
 
     m.add_class::<VideoFrame>()?;

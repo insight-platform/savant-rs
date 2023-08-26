@@ -1,7 +1,8 @@
-from savant_rs.utils import FpsMeter
 from timeit import default_timer as timer
 
 from savant_rs.logging import LogLevel, set_log_level
+from savant_rs.utils import FpsMeter
+
 set_log_level(LogLevel.Trace)
 
 m = FpsMeter.time_based(5)

@@ -1,8 +1,8 @@
-from savant_rs.utils import gen_frame, VideoObjectBBoxType
+from savant_rs.logging import LogLevel, set_log_level
+from savant_rs.utils import gen_frame
 from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered, UserFunctionType
 from savant_rs.video_object_query import MatchQuery as Q, IntExpression as IE, QueryFunctions as QF
 
-from savant_rs.logging import LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
 
 register_plugin_function("../../target/debug/libsavant_rs.so", "map_modifier", UserFunctionType.ObjectMapModifier,
@@ -38,7 +38,7 @@ print("Track ids:", track_ids)
 # boxes = objects.rotated_boxes_as_numpy(VideoObjectBBoxType.Detection)
 # print("Detections:", boxes)
 #
-#tr_boxes = objects.rotated_boxes_as_numpy(VideoObjectBBoxType.TrackingInfo)
+# tr_boxes = objects.rotated_boxes_as_numpy(VideoObjectBBoxType.TrackingInfo)
 # print("Tracking:", tr_boxes)
 
 # objects.update_from_numpy_boxes(boxes, BBoxFormat.XcYcWidthHeight, VideoObjectBBoxType.Detection)

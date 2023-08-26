@@ -1,6 +1,6 @@
+from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import BBox, RBBox
 
-from savant_rs.logging import LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
 
 box1 = BBox(50, 50, 50, 50)
