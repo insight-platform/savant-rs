@@ -5,5 +5,6 @@ register_env_resolver()
 register_utility_resolver()
 
 print(eval_expr("1 + 1"))
-print(eval_expr("""p = env("PATH", ""); (is_string(p), p)"""))
 
+print(eval_expr("""p = env("PATH", ""); (is_string(p), p)""")) # uncached
+print(eval_expr("""p = env("PATH", ""); (is_string(p), p)""")) # cached

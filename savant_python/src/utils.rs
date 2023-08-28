@@ -76,10 +76,11 @@ fn value_to_py(py: Python, v: Value) -> PyResult<PyObject> {
 #[pyfunction]
 #[pyo3(name = "eval_expr")]
 #[pyo3(signature = (query, ttl = 100, no_gil = true))]
-pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<PyObject> {
-    let res = release_gil!(no_gil, || savant_core::eval_cache::eval_expr(query, ttl)
+pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<(PyObject, bool)> {
+    let (res, cached) = release_gil!(no_gil, || savant_core::eval_cache::eval_expr(query, ttl)
         .map_err(|e| PyValueError::new_err(e.to_string())))?;
-    with_gil!(|py| value_to_py(py, res))
+    let v = with_gil!(|py| value_to_py(py, res))?;
+    Ok((v, cached))
 }
 
 /// Enables deadlock detection

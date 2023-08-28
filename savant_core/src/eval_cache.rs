@@ -44,7 +44,7 @@ pub fn get_compiled_eval_expr(query: &str) -> anyhow::Result<Arc<Node>> {
     Ok(c)
 }
 
-pub fn eval_expr(query: &str, ttl: u64) -> anyhow::Result<Value> {
+pub fn eval_expr(query: &str, ttl: u64) -> anyhow::Result<(Value, bool)> {
     let expr = get_compiled_eval_expr(query)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -56,7 +56,7 @@ pub fn eval_expr(query: &str, ttl: u64) -> anyhow::Result<Value> {
         let res_opt = eval_results.get(query).map(|(exp, v)| (*exp, v.clone()));
         if let Some((expires, res)) = res_opt {
             if expires > now {
-                return Ok(res);
+                return Ok((res, true));
             }
         }
     }
@@ -75,7 +75,7 @@ pub fn eval_expr(query: &str, ttl: u64) -> anyhow::Result<Value> {
         eval_results.put(query.to_string(), (now + ttl as u128, res.clone()));
     }
 
-    Ok(res)
+    Ok((res, false))
 }
 
 #[cfg(test)]
@@ -87,13 +87,20 @@ mod tests {
         use super::*;
         register_env_resolver();
 
-        let res = eval_expr("1 + 1", 0).unwrap();
+        let (res, cached) = eval_expr("1 + 1", 0).unwrap();
         assert_eq!(res, Value::from(2));
+        assert!(!cached);
 
-        let res = eval_expr("env(\"PATH\", \"\")", 0).unwrap();
+        let (res, cached) = eval_expr("env(\"PATH\", \"\")", 0).unwrap();
         assert_eq!(res, Value::from(std::env::var("PATH").unwrap()));
+        assert!(!cached);
 
-        let res = eval_expr("x = 1; x", 0).unwrap();
+        let (res, cached) = eval_expr("x = 1; x", 1000).unwrap();
         assert_eq!(res, Value::from(1));
+        assert!(!cached);
+
+        let (res, cached) = eval_expr("x = 1; x", 1000).unwrap();
+        assert_eq!(res, Value::from(1));
+        assert!(cached);
     }
 }
