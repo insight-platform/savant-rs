@@ -1,21 +1,28 @@
-pub mod byte_buffer;
-pub mod eval_resolvers;
-pub mod fps_meter;
-pub mod otlp;
-pub mod pluggable_udf_api;
-pub mod python;
-pub mod symbol_mapper;
-
+use evalexpr::Value;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+pub use fps_meter::FpsMeter;
+
+use crate::logging::{log_level_enabled, LogLevel};
+use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
+use crate::primitives::message::loader::*;
 use crate::primitives::message::loader::{
     load_message_from_bytebuffer_gil, load_message_from_bytes_gil,
 };
+use crate::primitives::message::saver::*;
 use crate::primitives::message::saver::{
     save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
 };
-
+use crate::primitives::message::Message;
+use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::test::utils::{gen_empty_frame, gen_frame};
+use crate::utils::byte_buffer::ByteBuffer;
+use crate::utils::otlp::{MaybeTelemetrySpan, PropagatedContext, TelemetrySpan};
+use crate::utils::pluggable_udf_api::{
+    call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
+    is_plugin_function_registered, register_plugin_function, UserFunctionType,
+};
 use crate::utils::symbol_mapper::RegistrationPolicy;
 use crate::utils::symbol_mapper::{
     build_model_object_key_py, clear_symbol_maps_py, dump_registry_gil, get_model_id_py,
@@ -23,22 +30,15 @@ use crate::utils::symbol_mapper::{
     get_object_labels_py, is_model_registered_py, is_object_registered_py, parse_compound_key_py,
     register_model_objects_py, validate_base_key_py,
 };
+use crate::{release_gil, with_gil};
 
-use crate::primitives::message::loader::*;
-use crate::primitives::message::saver::*;
-
-use crate::logging::{log_level_enabled, LogLevel};
-use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
-use crate::primitives::message::Message;
-use crate::primitives::objects_view::VideoObjectBBoxType;
-use crate::utils::byte_buffer::ByteBuffer;
-use crate::utils::otlp::{MaybeTelemetrySpan, PropagatedContext, TelemetrySpan};
-use crate::utils::pluggable_udf_api::{
-    call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
-    is_plugin_function_registered, register_plugin_function, UserFunctionType,
-};
-use crate::with_gil;
-pub use fps_meter::FpsMeter;
+pub mod byte_buffer;
+pub mod eval_resolvers;
+pub mod fps_meter;
+pub mod otlp;
+pub mod pluggable_udf_api;
+pub mod python;
+pub mod symbol_mapper;
 
 #[pyfunction]
 #[inline]
@@ -54,6 +54,33 @@ pub fn estimate_gil_contention() {
     if log_level_enabled(LogLevel::Trace) {
         with_gil!(|_| {});
     }
+}
+
+fn value_to_py(py: Python, v: Value) -> PyResult<PyObject> {
+    match v {
+        Value::String(v) => Ok(v.to_object(py)),
+        Value::Float(v) => Ok(v.to_object(py)),
+        Value::Int(v) => Ok(v.to_object(py)),
+        Value::Boolean(v) => Ok(v.to_object(py)),
+        Value::Tuple(v) => {
+            let mut res = Vec::with_capacity(v.len());
+            for v in v {
+                res.push(value_to_py(py, v)?);
+            }
+            Ok(res.to_object(py))
+        }
+        Value::Empty => Ok(None::<()>.to_object(py)),
+    }
+}
+
+#[pyfunction]
+#[pyo3(name = "eval_expr")]
+#[pyo3(signature = (query, ttl = 100, no_gil = true))]
+pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<(PyObject, bool)> {
+    let (res, cached) = release_gil!(no_gil, || savant_core::eval_cache::eval_expr(query, ttl)
+        .map_err(|e| PyValueError::new_err(e.to_string())))?;
+    let v = with_gil!(|py| value_to_py(py, res))?;
+    Ok((v, cached))
 }
 
 /// Enables deadlock detection
@@ -115,6 +142,7 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(eval_expr, m)?)?;
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
     m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
     // utility

@@ -360,20 +360,20 @@ pub(crate) mod singleton {
     use anyhow::Result;
     use hashbrown::HashMap;
     use lazy_static::lazy_static;
-    use parking_lot::Mutex;
+    use parking_lot::RwLock;
     use std::sync::Arc;
 
     pub type ResolverValue = (String, Arc<dyn SymbolResolver>);
 
     lazy_static! {
-        static ref RESOLVERS: Mutex<HashMap<String, ResolverValue>> =
-            Mutex::new(HashMap::default());
+        static ref RESOLVERS: RwLock<HashMap<String, ResolverValue>> =
+            RwLock::new(HashMap::default());
     }
 
     pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
         let name = resolver.name();
         let symbols = resolver.exported_symbols();
-        let mut r = RESOLVERS.lock();
+        let mut r = RESOLVERS.write();
         for s in symbols {
             r.insert(s.to_string(), (name.clone(), resolver.clone()));
         }
@@ -381,7 +381,7 @@ pub(crate) mod singleton {
     }
 
     pub fn get_symbol_resolver(symbol: &str) -> Option<ResolverValue> {
-        RESOLVERS.lock().get(symbol).cloned()
+        RESOLVERS.read().get(symbol).cloned()
     }
 
     pub fn register_utility_resolver() {
@@ -421,7 +421,7 @@ pub(crate) mod singleton {
     }
 
     pub fn update_config_resolver(symbols: HashMap<String, String>) {
-        let r = RESOLVERS.lock();
+        let r = RESOLVERS.read();
         let resolver = r.get(&config_resolver_name());
         if let Some((_, resolver)) = resolver {
             let resolver = resolver
@@ -438,7 +438,7 @@ pub(crate) mod singleton {
     }
 
     pub fn unregister_resolver(name: String) {
-        let mut r = RESOLVERS.lock();
+        let mut r = RESOLVERS.write();
         let resolver_opt = r.remove(&name);
         if let Some((_, resolver)) = resolver_opt {
             let symbols = resolver.exported_symbols();
