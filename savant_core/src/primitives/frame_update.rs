@@ -3,7 +3,7 @@ use crate::primitives::Attribute;
 use crate::trace;
 use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
@@ -11,7 +11,7 @@ pub enum ObjectUpdatePolicy {
     ReplaceSameLabelObjects,
 }
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeign,
@@ -23,7 +23,7 @@ pub enum AttributeUpdatePolicy {
 ///
 /// It contains a list of attributes and a list of objects.
 ///
-#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
 pub struct VideoFrameUpdate {
     frame_attributes: Vec<Attribute>,
@@ -98,6 +98,18 @@ impl VideoFrameUpdate {
             .iter()
             .map(|(o, p)| (VideoObjectProxy::from(o.clone()), *p))
             .collect()
+    }
+
+    pub fn to_json(&self, pretty: bool) -> anyhow::Result<String> {
+        Ok(if pretty {
+            serde_json::to_string_pretty(self)?
+        } else {
+            serde_json::to_string(self)?
+        })
+    }
+
+    pub fn from_json(json: &str) -> anyhow::Result<Self> {
+        Ok(serde_json::from_str(json)?)
     }
 }
 
