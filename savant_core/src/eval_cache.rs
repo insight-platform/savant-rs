@@ -39,7 +39,7 @@ pub fn get_compiled_eval_expr(query: &str) -> anyhow::Result<Arc<Node>> {
     Ok(c)
 }
 
-pub fn eval_expr_in_global_context(query: &str) -> anyhow::Result<Value> {
+pub fn eval_expr(query: &str) -> anyhow::Result<Value> {
     let expr = get_compiled_eval_expr(query)?;
     let mut context = GlobalContext::new(&[
         utility_resolver_name(),
@@ -56,17 +56,17 @@ mod tests {
     use crate::eval_resolvers::register_env_resolver;
 
     #[test]
-    fn test_eval_expr_in_global_context() {
+    fn test_eval_expr() {
         use super::*;
         register_env_resolver();
 
-        let res = eval_expr_in_global_context("1 + 1").unwrap();
+        let res = eval_expr("1 + 1").unwrap();
         assert_eq!(res, Value::from(2));
 
-        let res = eval_expr_in_global_context("env(\"PATH\", \"\")").unwrap();
+        let res = eval_expr("env(\"PATH\", \"\")").unwrap();
         assert_eq!(res, Value::from(std::env::var("PATH").unwrap()));
 
-        let res = eval_expr_in_global_context("x = 1; x").unwrap();
+        let res = eval_expr("x = 1; x").unwrap();
         assert_eq!(res, Value::from(1));
     }
 }

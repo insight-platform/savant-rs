@@ -6,6 +6,8 @@ pub mod pluggable_udf_api;
 pub mod python;
 pub mod symbol_mapper;
 
+use evalexpr::Value;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::primitives::message::loader::{
@@ -54,6 +56,32 @@ pub fn estimate_gil_contention() {
     if log_level_enabled(LogLevel::Trace) {
         with_gil!(|_| {});
     }
+}
+
+fn value_to_py(v: Value) -> PyResult<PyObject> {
+    with_gil!(|py| {
+        match v {
+            Value::String(v) => Ok(v.to_object(py)),
+            Value::Float(v) => Ok(v.to_object(py)),
+            Value::Int(v) => Ok(v.to_object(py)),
+            Value::Boolean(v) => Ok(v.to_object(py)),
+            Value::Tuple(v) => {
+                let mut res = Vec::with_capacity(v.len());
+                for v in v {
+                    res.push(value_to_py(v)?);
+                }
+                Ok(res.to_object(py))
+            }
+            Value::Empty => Ok(None::<()>.to_object(py)),
+        }
+    })
+}
+
+#[pyfunction]
+pub fn eval_expr(query: &str) -> PyResult<PyObject> {
+    let res = savant_core::eval_cache::eval_expr(query)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    value_to_py(res)
 }
 
 /// Enables deadlock detection
@@ -115,6 +143,7 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(eval_expr, m)?)?;
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
     m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
     // utility
