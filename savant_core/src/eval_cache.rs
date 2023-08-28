@@ -8,15 +8,20 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 const MAX_JMES_CACHE_SIZE: usize = 1024;
+const MAX_EVAL_EXPR_CACHE_SIZE: usize = 1024;
+const MAX_EVAL_RESULTS_CACHE_SIZE: usize = 1024;
 
 lazy_static! {
     static ref COMPILED_EVAL_EXPR: Mutex<lru::LruCache<String, Arc<Node>>> = Mutex::new(
-        lru::LruCache::new(std::num::NonZeroUsize::new(MAX_JMES_CACHE_SIZE).unwrap())
+        lru::LruCache::new(std::num::NonZeroUsize::new(MAX_EVAL_EXPR_CACHE_SIZE).unwrap())
     );
     static ref COMPILED_JMP_FILTER: Mutex<lru::LruCache<String, Arc<jmespath::Expression<'static>>>> =
         Mutex::new(lru::LruCache::new(
             std::num::NonZeroUsize::new(MAX_JMES_CACHE_SIZE).unwrap()
         ));
+    static ref EVAL_RESULTS: Mutex<lru::LruCache<String, (u128, evalexpr::Value)>> = Mutex::new(
+        lru::LruCache::new(std::num::NonZeroUsize::new(MAX_EVAL_RESULTS_CACHE_SIZE).unwrap())
+    );
 }
 
 pub fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression>> {
@@ -39,15 +44,37 @@ pub fn get_compiled_eval_expr(query: &str) -> anyhow::Result<Arc<Node>> {
     Ok(c)
 }
 
-pub fn eval_expr(query: &str) -> anyhow::Result<Value> {
+pub fn eval_expr(query: &str, ttl: u64) -> anyhow::Result<Value> {
     let expr = get_compiled_eval_expr(query)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+
+    if ttl > 0 {
+        let mut eval_results = EVAL_RESULTS.lock();
+        let res_opt = eval_results.get(query).map(|(exp, v)| (*exp, v.clone()));
+        if let Some((expires, res)) = res_opt {
+            if expires > now {
+                return Ok(res);
+            }
+        }
+    }
+
     let mut context = GlobalContext::new(&[
         utility_resolver_name(),
         etcd_resolver_name(),
         config_resolver_name(),
         env_resolver_name(),
     ]);
+
     let res = expr.eval_with_context_mut(&mut context)?;
+
+    if ttl > 0 {
+        let mut eval_results = EVAL_RESULTS.lock();
+        eval_results.put(query.to_string(), (now + ttl as u128, res.clone()));
+    }
+
     Ok(res)
 }
 
@@ -60,13 +87,13 @@ mod tests {
         use super::*;
         register_env_resolver();
 
-        let res = eval_expr("1 + 1").unwrap();
+        let res = eval_expr("1 + 1", 0).unwrap();
         assert_eq!(res, Value::from(2));
 
-        let res = eval_expr("env(\"PATH\", \"\")").unwrap();
+        let res = eval_expr("env(\"PATH\", \"\")", 0).unwrap();
         assert_eq!(res, Value::from(std::env::var("PATH").unwrap()));
 
-        let res = eval_expr("x = 1; x").unwrap();
+        let res = eval_expr("x = 1; x", 0).unwrap();
         assert_eq!(res, Value::from(1));
     }
 }
