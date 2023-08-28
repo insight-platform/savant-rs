@@ -1,4 +1,8 @@
-use evalexpr::{build_operator_tree, Node};
+use crate::eval_context::GlobalContext;
+use crate::eval_resolvers::{
+    config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
+};
+use evalexpr::{build_operator_tree, Node, Value};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -33,4 +37,36 @@ pub fn get_compiled_eval_expr(query: &str) -> anyhow::Result<Arc<Node>> {
     let c = Arc::new(build_operator_tree(query)?);
     compiled_eval_expr.put(query.to_string(), c.clone());
     Ok(c)
+}
+
+pub fn eval_expr_in_global_context(query: &str) -> anyhow::Result<Value> {
+    let expr = get_compiled_eval_expr(query)?;
+    let mut context = GlobalContext::new(&[
+        utility_resolver_name(),
+        etcd_resolver_name(),
+        config_resolver_name(),
+        env_resolver_name(),
+    ]);
+    let res = expr.eval_with_context_mut(&mut context)?;
+    Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::eval_resolvers::register_env_resolver;
+
+    #[test]
+    fn test_eval_expr_in_global_context() {
+        use super::*;
+        register_env_resolver();
+
+        let res = eval_expr_in_global_context("1 + 1").unwrap();
+        assert_eq!(res, Value::from(2));
+
+        let res = eval_expr_in_global_context("env(\"PATH\", \"\")").unwrap();
+        assert_eq!(res, Value::from(std::env::var("PATH").unwrap()));
+
+        let res = eval_expr_in_global_context("x = 1; x").unwrap();
+        assert_eq!(res, Value::from(1));
+    }
 }

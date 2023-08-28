@@ -30,6 +30,11 @@ pub(crate) struct FrameFieldsView {
     pub time_base_denominator: OnceCell<Value>,
 }
 
+pub(crate) struct GlobalContext {
+    pub resolvers: Vec<String>,
+    pub temp_vars: HashMap<String, Value>,
+}
+
 pub(crate) struct ObjectContext<'a> {
     pub object: &'a VideoObjectProxy,
     pub resolvers: Vec<String>,
@@ -56,6 +61,15 @@ pub(crate) struct ObjectFieldsView {
     pub frame: FrameFieldsView,
 }
 
+impl GlobalContext {
+    pub fn new(resolvers: &[String]) -> Self {
+        GlobalContext {
+            resolvers: resolvers.to_vec(),
+            temp_vars: HashMap::new(),
+        }
+    }
+}
+
 impl<'a> ObjectContext<'a> {
     pub fn new(object: &'a VideoObjectProxy, resolvers: &[String]) -> Self {
         ObjectContext {
@@ -67,9 +81,33 @@ impl<'a> ObjectContext<'a> {
     }
 }
 
+impl EvalWithResolvers for GlobalContext {
+    fn get_resolvers(&self) -> &'_ [String] {
+        self.resolvers.as_slice()
+    }
+}
+
 impl<'a> EvalWithResolvers for ObjectContext<'a> {
     fn get_resolvers(&self) -> &'_ [String] {
         self.resolvers.as_slice()
+    }
+}
+
+impl Context for GlobalContext {
+    fn get_value(&self, identifier: &str) -> Option<&Value> {
+        self.temp_vars.get(identifier)
+    }
+
+    fn call_function(&self, identifier: &str, argument: &Value) -> EvalexprResult<Value> {
+        self.resolve(identifier, argument)
+    }
+
+    fn are_builtin_functions_disabled(&self) -> bool {
+        false
+    }
+
+    fn set_builtin_functions_disabled(&mut self, _: bool) -> EvalexprResult<()> {
+        Ok(())
     }
 }
 
@@ -333,6 +371,22 @@ impl<'a> Context for ObjectContext<'a> {
     }
 
     fn set_builtin_functions_disabled(&mut self, _: bool) -> EvalexprResult<()> {
+        Ok(())
+    }
+}
+
+impl ContextWithMutableVariables for GlobalContext {
+    fn set_value(&mut self, identifier: String, value: Value) -> EvalexprResult<()> {
+        // check type mismatch
+        if let Some(v) = self.get_value(&identifier) {
+            if std::mem::discriminant(v) != std::mem::discriminant(&value) {
+                return Err(EvalexprError::TypeError {
+                    expected: vec![ValueType::from(v)],
+                    actual: value,
+                });
+            }
+        }
+        self.temp_vars.insert(identifier, value);
         Ok(())
     }
 }
