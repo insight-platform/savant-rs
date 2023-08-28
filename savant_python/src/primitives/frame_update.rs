@@ -1,5 +1,7 @@
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
+use crate::release_gil;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use savant_core::primitives::frame_update as rust;
 
@@ -235,5 +237,28 @@ impl VideoFrameUpdate {
             .into_iter()
             .map(|(o, p)| (VideoObject(o), p))
             .collect()
+    }
+
+    #[getter]
+    pub fn json(&self) -> PyResult<String> {
+        release_gil!(true, || self
+            .0
+            .to_json(false)
+            .map_err(|e| PyValueError::new_err(e.to_string())))
+    }
+
+    #[getter]
+    pub fn json_pretty(&self) -> PyResult<String> {
+        release_gil!(true, || self
+            .0
+            .to_json(true)
+            .map_err(|e| PyValueError::new_err(e.to_string())))
+    }
+
+    #[staticmethod]
+    pub fn from_json(json: &str) -> PyResult<Self> {
+        release_gil!(true, || rust::VideoFrameUpdate::from_json(json)
+            .map(VideoFrameUpdate)
+            .map_err(|e| PyValueError::new_err(e.to_string())))
     }
 }

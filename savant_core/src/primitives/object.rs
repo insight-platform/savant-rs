@@ -32,7 +32,16 @@ pub enum IdCollisionResolutionPolicy {
     Error,
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, derive_builder::Builder)]
+#[derive(
+    Archive,
+    Deserialize,
+    Serialize,
+    Debug,
+    Clone,
+    derive_builder::Builder,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub struct VideoObject {
     pub id: i64,
@@ -59,6 +68,7 @@ pub struct VideoObject {
     pub label_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
+    #[serde(skip_deserializing, skip_serializing)]
     pub(crate) frame: Option<BelongingVideoFrame>,
 }
 

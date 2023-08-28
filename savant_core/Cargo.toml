@@ -15,7 +15,7 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hashbrown = { version = "0.14", features = ["raw", "rkyv"]}
+hashbrown = { version = "0.14", features = ["raw", "rkyv", "serde"]}
 anyhow = "1"
 geo = "0.26"
 thiserror = "1"
