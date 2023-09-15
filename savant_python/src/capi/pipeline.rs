@@ -1,3 +1,4 @@
+use crate::logging::{log_message, LogLevel};
 use savant_core::pipeline::Pipeline;
 use std::ffi::{c_char, CStr};
 use std::slice::from_raw_parts;
@@ -67,6 +68,72 @@ pub unsafe extern "C" fn pipeline2_move_and_unpack_batch(
         *resulting_ids.add(i) = *id;
     }
     ids.len()
+}
+
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
+///
+/// Arguments
+/// ---------
+/// handle: usize
+///   The pipeline handle
+/// id: i64
+///   The batch or frame id to apply updates to
+///
+/// Returns
+/// -------
+/// bool
+///   True if the updates were applied, false otherwise
+///
+#[no_mangle]
+pub unsafe extern "C" fn pipeline2_apply_updates(handle: usize, id: i64) -> bool {
+    let pipeline = &*(handle as *const Pipeline);
+    let res = pipeline.apply_updates(id);
+    if let Err(e) = res {
+        log_message(
+            LogLevel::Error,
+            String::from("pipeline::capi::apply_updates"),
+            format!("Failed to apply updates: {}", e),
+            None,
+        );
+        false
+    } else {
+        true
+    }
+}
+
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
+///
+/// Arguments
+/// ---------
+/// handle: usize
+///   The pipeline handle
+/// id: i64
+///   The batch or frame id to clear updates from
+///
+/// Returns
+/// -------
+/// bool
+///   True if the updates were cleared, false otherwise
+///
+#[no_mangle]
+pub unsafe extern "C" fn pipeline2_clear_updates(handle: usize, id: i64) -> bool {
+    let pipeline = &*(handle as *const Pipeline);
+    let res = pipeline.clear_updates(id);
+    if let Err(e) = res {
+        log_message(
+            LogLevel::Error,
+            String::from("pipeline::capi::clear_updates"),
+            format!("Failed to clear updates: {}", e),
+            None,
+        );
+        false
+    } else {
+        true
+    }
 }
 
 #[cfg(test)]

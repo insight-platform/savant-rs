@@ -76,6 +76,13 @@ impl VideoFrameBatch {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            offline_frames: Vec::with_capacity(capacity),
+            frames: HashMap::with_capacity(capacity),
+        }
+    }
+
     pub fn add(&mut self, id: i64, frame: VideoFrameProxy) {
         self.frames.insert(id, frame);
     }

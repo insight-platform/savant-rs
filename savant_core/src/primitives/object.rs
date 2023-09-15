@@ -72,6 +72,8 @@ pub struct VideoObject {
     pub(crate) frame: Option<BelongingVideoFrame>,
 }
 
+const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
+
 impl Default for VideoObject {
     fn default() -> Self {
         Self {
@@ -80,7 +82,7 @@ impl Default for VideoObject {
             label: "".to_string(),
             draw_label: None,
             detection_box: BBOX_UNDEFINED.clone().try_into().unwrap(),
-            attributes: HashMap::new(),
+            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             confidence: None,
             parent_id: None,
             track_id: None,

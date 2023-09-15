@@ -23,11 +23,13 @@ impl ToSerdeJsonValue for UserData {
     }
 }
 
+const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
+
 impl UserData {
     pub fn new(source_id: String) -> Self {
         Self {
             source_id,
-            attributes: HashMap::new(),
+            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
         }
     }
 

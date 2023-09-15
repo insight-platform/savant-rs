@@ -53,6 +53,16 @@ pub struct VideoObjectsView {
     pub(crate) inner: Arc<Vec<VideoObject>>,
 }
 
+impl VideoObjectsView {
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
 impl From<Vec<VideoObject>> for VideoObjectsView {
     fn from(value: Vec<VideoObject>) -> Self {
         VideoObjectsView {

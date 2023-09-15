@@ -518,7 +518,7 @@ pub(super) mod implementation {
                         PipelinePayload::Frame(frame, updates, ctx)
                     }
                     PipelinePayload::Batch(batch, updates, contexts) => {
-                        let mut new_contexts = HashMap::new();
+                        let mut new_contexts = HashMap::with_capacity(contexts.len());
                         for (id, ctx) in contexts.iter() {
                             ctx.span().end();
                             let ctx =
@@ -565,9 +565,11 @@ pub(super) mod implementation {
 
             self.update_frame_locations(&frame_ids, dest_index);
 
-            let mut batch = VideoFrameBatch::new();
-            let mut batch_updates = Vec::new();
-            let mut contexts = HashMap::new();
+            let default_size = frame_ids.len();
+
+            let mut batch = VideoFrameBatch::with_capacity(default_size);
+            let mut batch_updates = Vec::with_capacity(default_size);
+            let mut contexts = HashMap::with_capacity(default_size);
 
             for id in frame_ids {
                 if let Some(payload) = source_stage_opt

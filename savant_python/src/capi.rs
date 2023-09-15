@@ -1,3 +1,4 @@
+pub mod inference_meta;
 pub mod pipeline;
 
 use std::ffi::{c_char, CStr};
