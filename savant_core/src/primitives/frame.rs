@@ -137,6 +137,10 @@ pub struct VideoFrame {
     pub(crate) max_object_id: i64,
 }
 
+const DEFAULT_TRANSFORMATIONS_COUNT: usize = 4;
+const DEFAULT_ATTRIBUTES_COUNT: usize = 8;
+const DEFAULT_OBJECTS_COUNT: usize = 64;
+
 impl Default for VideoFrame {
     fn default() -> Self {
         Self {
@@ -152,10 +156,10 @@ impl Default for VideoFrame {
             dts: None,
             duration: None,
             content: VideoFrameContent::None,
-            transformations: Vec::new(),
-            attributes: HashMap::new(),
-            offline_objects: Vec::new(),
-            resident_objects: HashMap::new(),
+            transformations: Vec::with_capacity(DEFAULT_TRANSFORMATIONS_COUNT),
+            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
+            offline_objects: Vec::with_capacity(DEFAULT_OBJECTS_COUNT),
+            resident_objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
             max_object_id: 0,
         }
     }

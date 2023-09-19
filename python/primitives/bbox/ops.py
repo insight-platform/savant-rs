@@ -6,6 +6,7 @@ set_log_level(LogLevel.Trace)
 
 box = BBox(50, 50, 50, 50)
 print("Original bbox:", box)
+print("Vertices:", box.vertices)
 print(box.left, box.top, box.bottom, box.right, box.width, box.height)
 box.width = 120
 box.left = 70

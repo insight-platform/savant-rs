@@ -6,6 +6,9 @@ use std::cell::OnceCell;
 use crate::eval_resolvers::EvalWithResolvers;
 use evalexpr::Value;
 
+const DEFAULT_GLOBAL_CONTEXT_VAR_NUM: usize = 16;
+const DEFAULT_OBJECT_CONTEXT_VAR_NUM: usize = 8;
+
 #[derive(Default)]
 pub(crate) struct RBBoxFieldsView {
     pub xc: OnceCell<Value>,
@@ -65,7 +68,7 @@ impl GlobalContext {
     pub fn new(resolvers: &[String]) -> Self {
         GlobalContext {
             resolvers: resolvers.to_vec(),
-            temp_vars: HashMap::new(),
+            temp_vars: HashMap::with_capacity(DEFAULT_GLOBAL_CONTEXT_VAR_NUM),
         }
     }
 }
@@ -75,7 +78,7 @@ impl<'a> ObjectContext<'a> {
         ObjectContext {
             object,
             resolvers: resolvers.to_vec(),
-            temp_vars: HashMap::new(),
+            temp_vars: HashMap::with_capacity(DEFAULT_OBJECT_CONTEXT_VAR_NUM),
             object_view: OnceCell::default(),
         }
     }
