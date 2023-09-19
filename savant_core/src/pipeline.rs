@@ -494,7 +494,11 @@ pub(super) mod implementation {
 
             let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
-                bail!("Destination stage not found")
+                bail!(
+                    "Destination stage {} not found, source stage is {}",
+                    dest_stage_name,
+                    source_stage.stage_name
+                )
             }
 
             let (dest_index, dest_stage) = dest_stage_opt.unwrap();
@@ -550,7 +554,11 @@ pub(super) mod implementation {
 
             let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
-                bail!("Destination stage not found")
+                bail!(
+                    "Destination stage {} not found, source stage is {}",
+                    dest_stage_name,
+                    source_stage.stage_name
+                )
             }
 
             let (dest_index, dest_stage) = dest_stage_opt.unwrap();
@@ -558,7 +566,7 @@ pub(super) mod implementation {
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Batch)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Frame)
             {
-                bail!("Source stage must contain independent frames and destination stage must contain batched frames")
+                bail!("Source stage {} must contain independent frames and destination stage must contain batched frames", source_stage.stage_name)
             }
 
             let batch_id = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -584,7 +592,10 @@ pub(super) mod implementation {
                                 batch_updates.push((id, update));
                             }
                         }
-                        _ => bail!("Source stage must contain independent frames"),
+                        _ => bail!(
+                            "Source stage {} must contain independent frames",
+                            source_stage.stage_name
+                        ),
                     }
                 }
             }
@@ -619,7 +630,11 @@ pub(super) mod implementation {
 
             let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
             if dest_stage_opt.is_none() {
-                bail!("Destination stage not found")
+                bail!(
+                    "Destination stage {} not found, source stage is {}",
+                    dest_stage_name,
+                    source_stage.stage_name
+                )
             }
 
             let (dest_index, dest_stage) = dest_stage_opt.unwrap();
@@ -627,7 +642,7 @@ pub(super) mod implementation {
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Frame)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Batch)
             {
-                bail!("Source stage must contain batched frames and destination stage must contain independent frames")
+                bail!("Source stage {} must contain batched frames and destination stage must contain independent frames", source_stage.stage_name)
             }
 
             let (batch, updates, mut contexts) = if let Some(payload) = source_stage_opt
@@ -636,10 +651,16 @@ pub(super) mod implementation {
             {
                 match payload {
                     PipelinePayload::Batch(batch, updates, contexts) => (batch, updates, contexts),
-                    _ => bail!("Source stage must contain batch"),
+                    _ => bail!(
+                        "Source stage {} must contain batch",
+                        source_stage.stage_name
+                    ),
                 }
             } else {
-                bail!("Batch not found in source stage")
+                bail!(
+                    "Batch not found in source stage {}",
+                    source_stage.stage_name
+                )
             };
 
             self.frame_locations.write().remove(&batch_id);
@@ -662,10 +683,16 @@ pub(super) mod implementation {
                         PipelinePayload::Frame(_, updates, _) => {
                             updates.push(update);
                         }
-                        _ => bail!("Destination stage must contain independent frames"),
+                        _ => bail!(
+                            "Destination stage {} must contain independent frames",
+                            dest_stage.stage_name
+                        ),
                     }
                 } else {
-                    bail!("Frame not found in destination stage")
+                    bail!(
+                        "Frame not found in destination stage {}",
+                        dest_stage.stage_name
+                    )
                 }
             }
 
