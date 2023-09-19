@@ -20,7 +20,7 @@ pub unsafe extern "C" fn pipeline2_move_as_is(
     let ids = from_raw_parts(ids, len);
     pipeline
         .move_as_is(dest_stage, ids.to_vec())
-        .expect("Failed to move objects as is.");
+        .unwrap_or_else(|e| panic!("Failed to move objects to {}, error: {}", dest_stage, e));
 }
 
 /// # Safety
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn pipeline2_move_and_pack_frames(
     let ids = from_raw_parts(frame_ids, len);
     pipeline
         .move_and_pack_frames(dest_stage, ids.to_vec())
-        .expect("Failed to move objects as is.")
+        .unwrap_or_else(|e| panic!("Failed to move and pack to {}, error: {}", dest_stage, e))
 }
 
 /// # Safety
@@ -60,7 +60,12 @@ pub unsafe extern "C" fn pipeline2_move_and_unpack_batch(
     let pipeline = &*(handle as *const Pipeline);
     let ids = pipeline
         .move_and_unpack_batch(dest_stage, batch_id)
-        .expect("Failed to move objects as is.");
+        .unwrap_or_else(|e| {
+            panic!(
+                "Failed to move and unpack to `{}`, error: {}",
+                dest_stage, e
+            )
+        });
     if ids.len() > resulting_ids_len {
         panic!("Not enough space in resulting_ids");
     }

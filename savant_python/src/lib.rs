@@ -57,12 +57,12 @@ pub fn version_crc32() -> u32 {
 
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
-    let log_env_var_name = "RUST_LOG";
+    let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
         std::env::set_var(log_env_var_name, log_env_var_level);
     }
-    pretty_env_logger::try_init()
+    pretty_env_logger::try_init_custom_env(log_env_var_name)
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
     set_log_level(LogLevel::Error);
 

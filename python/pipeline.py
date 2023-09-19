@@ -14,7 +14,7 @@ from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
 from savant_rs import init_jaeger_tracer
 from savant_rs.video_object_query import MatchQuery as Q
 
-# RUST_LOG=root=info,a=error,a::b=debug python python/pipeline.py
+# LOGLEVEL=info,a=error,a::b=debug python python/pipeline.py
 
 if __name__ == "__main__":
     savant_rs.version()
