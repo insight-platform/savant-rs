@@ -3,12 +3,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-enum BoxSource {
+typedef enum BoxSource {
   Detection = 0,
   Tracking = 1,
   TrackingWhenAbsentDetection = 2,
-};
-typedef uint32_t BoxSource;
+} BoxSource;
 
 typedef struct InferenceMeta {
   int64_t id;
@@ -35,7 +34,7 @@ bool check_version(const char *external_version);
  *
  */
 uintptr_t build_inference_meta(uintptr_t handle,
-                               BoxSource box_source,
+                               enum BoxSource box_source,
                                struct InferenceMeta *meta,
                                uintptr_t meta_capacity);
 

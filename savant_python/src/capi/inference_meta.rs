@@ -1,6 +1,6 @@
 use crate::primitives::objects_view::VideoObjectsView;
 
-#[repr(u32)]
+#[repr(C)]
 pub enum BoxSource {
     Detection = 0,
     Tracking = 1,
