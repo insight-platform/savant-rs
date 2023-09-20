@@ -148,11 +148,17 @@ impl Pipeline {
     /// -------
     /// :py:class:`VideoPipelineStagePayloadType`
     ///   The type of the stage. Either independent frames or batches.
-    /// None
-    ///  If the stage does not exist.
     ///
-    fn get_stage_type(&self, name: &str) -> Option<VideoPipelineStagePayloadType> {
-        self.0.get_stage_type(name).map(|t| t.clone().into())
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the stage does not exist.
+    ///
+    fn get_stage_type(&self, name: &str) -> PyResult<VideoPipelineStagePayloadType> {
+        self.0
+            .get_stage_type(name)
+            .map(VideoPipelineStagePayloadType::from)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
     /// Adds a frame update to the independent frame.
     ///

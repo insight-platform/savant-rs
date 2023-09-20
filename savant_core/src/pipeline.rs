@@ -61,7 +61,7 @@ impl Pipeline {
         self.0.get_root_span_name().clone()
     }
 
-    pub fn get_stage_type(&self, name: &str) -> Option<PipelineStagePayloadType> {
+    pub fn get_stage_type(&self, name: &str) -> Result<PipelineStagePayloadType> {
         self.0.find_stage_type(name, 0)
     }
 
@@ -191,9 +191,10 @@ pub(super) mod implementation {
 
     impl Pipeline {
         fn add_stage(&mut self, name: String, stage_type: PipelineStagePayloadType) -> Result<()> {
-            if self.find_stage(&name, 0).is_some() {
+            if self.find_stage(&name, 0).is_ok() {
                 bail!("Stage with name {} already exists", name)
             }
+
             self.stages.push(PipelineStage {
                 stage_name: name,
                 stage_type,
@@ -274,9 +275,9 @@ pub(super) mod implementation {
             &self,
             name: &str,
             start_from: usize,
-        ) -> Option<PipelineStagePayloadType> {
-            self.find_stage(name, start_from)
-                .map(|(_, stage)| stage.stage_type.clone())
+        ) -> Result<PipelineStagePayloadType> {
+            let (_, s) = self.find_stage(name, start_from)?;
+            Ok(s.stage_type.clone())
         }
 
         pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> Result<()> {
@@ -314,12 +315,44 @@ pub(super) mod implementation {
             &self,
             stage_name: &str,
             start_from: usize,
-        ) -> Option<(usize, &PipelineStage)> {
-            self.stages[start_from..]
+        ) -> Result<(usize, &PipelineStage)> {
+            let res = self.stages[start_from..]
                 .iter()
                 .enumerate()
                 .map(|(i, s)| (i + start_from, s))
-                .find(|(_, s)| s.stage_name == stage_name)
+                .find(|(_, s)| s.stage_name == stage_name);
+
+            if let Some((index, stage)) = res {
+                Ok((index, stage))
+            } else {
+                if self.stages.len() == 0 {
+                    bail!("Pipeline is empty. Looked for stage {}", stage_name)
+                }
+
+                let source_stage = self.stages[start_from].stage_name.as_str();
+                // try to start from the beginning to find the out of order situation
+                let res = self
+                    .stages
+                    .iter()
+                    .enumerate()
+                    .find(|(_, s)| s.stage_name == stage_name);
+
+                if let Some((index, _)) = res {
+                    bail!(
+                        "Stage {} is out of order. Stage index {} < {}, must be greater. Source stage is {}",
+                        stage_name,
+                        index,
+                        start_from,
+                        source_stage
+                    )
+                } else {
+                    bail!(
+                        "Stage {} not found. Source stage is {}",
+                        stage_name,
+                        source_stage
+                    )
+                }
+            }
         }
 
         pub fn add_frame_with_telemetry(
@@ -329,8 +362,8 @@ pub(super) mod implementation {
             parent_ctx: Context,
         ) -> Result<i64> {
             if matches!(
-                self.find_stage_type(stage_name, 0),
-                Some(PipelineStagePayloadType::Batch)
+                self.find_stage_type(stage_name, 0)?,
+                PipelineStagePayloadType::Batch
             ) {
                 bail!("Stage does not accept batched frames")
             }
@@ -356,14 +389,21 @@ pub(super) mod implementation {
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
             let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);
 
-            if let Some((index, stage)) = self.find_stage(stage_name, 0) {
-                stage.add_frame_payload(id_counter, frame_payload)?;
-                self.frame_locations.write().insert(id_counter, index);
-            } else {
-                bail!("Stage not found")
-            }
-
+            let (index, stage) = self.find_stage(stage_name, 0)?;
+            stage.add_frame_payload(id_counter, frame_payload)?;
+            self.frame_locations.write().insert(id_counter, index);
             Ok(id_counter)
+        }
+
+        fn add_frame_json(&self, frame: &VideoFrameProxy, ctx: &Context) {
+            if self.configuration.append_frame_json {
+                let json = if self.configuration.json_pretty {
+                    frame.get_json_pretty()
+                } else {
+                    frame.get_json()
+                };
+                ctx.span().set_attribute(KeyValue::new("frame_json", json))
+            }
         }
 
         pub fn delete(&self, id: i64) -> Result<HashMap<i64, Context>> {
@@ -382,14 +422,7 @@ pub(super) mod implementation {
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx) => {
-                        if self.configuration.append_frame_json {
-                            let json = if self.configuration.json_pretty {
-                                frame.get_json_pretty()
-                            } else {
-                                frame.get_json()
-                            };
-                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                        }
+                        self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
                         Ok(HashMap::from([(id, root_ctx)]))
@@ -424,11 +457,8 @@ pub(super) mod implementation {
         }
 
         pub fn get_stage_queue_len(&self, stage: &str) -> Result<usize> {
-            if let Some((_, stage)) = self.find_stage(stage, 0) {
-                Ok(stage.len())
-            } else {
-                bail!("Stage not found")
-            }
+            let (_, stage) = self.find_stage(stage, 0)?;
+            Ok(stage.len())
         }
 
         fn get_stage_for_id(&self, id: i64) -> Result<usize> {
@@ -436,7 +466,7 @@ pub(super) mod implementation {
             if let Some(stage) = bind.get(&id) {
                 Ok(*stage)
             } else {
-                bail!("Object location not found")
+                bail!("Object {} location not found.", id)
             }
         }
 
@@ -446,7 +476,7 @@ pub(super) mod implementation {
             for id in ids {
                 let val = bind.get(id);
                 if val.is_none() {
-                    bail!("Object location not found for {}", id)
+                    bail!("Object {} location not found.", id)
                 }
                 results.push((*id, *val.unwrap()));
             }
@@ -536,16 +566,7 @@ pub(super) mod implementation {
             }
             let source_stage = source_stage_opt.unwrap();
 
-            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
-            if dest_stage_opt.is_none() {
-                bail!(
-                    "Destination stage {} not found, source stage is {}",
-                    dest_stage_name,
-                    source_stage.stage_name
-                )
-            }
-
-            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+            let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if source_stage.stage_type != dest_stage.stage_type {
                 bail!("The source stage type must be the same as the destination stage type")
@@ -561,14 +582,7 @@ pub(super) mod implementation {
             for (id, payload) in removed_objects {
                 let payload = match payload {
                     PipelinePayload::Frame(frame, updates, ctx) => {
-                        if self.configuration.append_frame_json {
-                            let json = if self.configuration.json_pretty {
-                                frame.get_json_pretty()
-                            } else {
-                                frame.get_json()
-                            };
-                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                        }
+                        self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
                         PipelinePayload::Frame(frame, updates, ctx)
@@ -576,17 +590,11 @@ pub(super) mod implementation {
                     PipelinePayload::Batch(batch, updates, contexts) => {
                         let mut new_contexts = HashMap::with_capacity(contexts.len());
                         for (frame_id, ctx) in contexts.iter() {
-                            if self.configuration.append_frame_json {
-                                let json = if self.configuration.json_pretty {
-                                    batch.get(*frame_id).map(|f| f.get_json_pretty())
-                                } else {
-                                    batch.get(*frame_id).map(|f| f.get_json())
-                                };
-                                if let Some(json) = json {
-                                    ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                                } else {
-                                    bail!("Frame {} not found in batch {}", frame_id, id)
-                                }
+                            let frame_opt = batch.get(*frame_id);
+                            if let Some(frame) = frame_opt {
+                                self.add_frame_json(&frame, &ctx);
+                            } else {
+                                bail!("Frame {} not found in batch {}", frame_id, id)
                             }
                             ctx.span().end();
                             let ctx = self
@@ -615,17 +623,7 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
-
-            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
-            if dest_stage_opt.is_none() {
-                bail!(
-                    "Destination stage {} not found, source stage is {}",
-                    dest_stage_name,
-                    source_stage.stage_name
-                )
-            }
-
-            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+            let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Batch)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Frame)
@@ -666,22 +664,16 @@ pub(super) mod implementation {
 
             let contexts = contexts
                 .into_iter()
-                .map(|(id, ctx)| {
-                    if self.configuration.append_frame_json {
-                        let json = if self.configuration.json_pretty {
-                            batch.get(id).map(|f| f.get_json_pretty())
-                        } else {
-                            batch.get(id).map(|f| f.get_json())
-                        };
-                        if let Some(json) = json {
-                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                        } else {
-                            bail!("Frame {} not found in batch {}", id, batch_id)
-                        }
+                .map(|(frame_id, ctx)| {
+                    let frame_opt = batch.get(frame_id);
+                    if let Some(frame) = frame_opt {
+                        self.add_frame_json(&frame, &ctx);
+                    } else {
+                        bail!("Frame {} not found in batch {}", frame_id, batch_id)
                     }
                     ctx.span().end();
-                    let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
-                    Ok((id, ctx))
+                    let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
+                    Ok((frame_id, ctx))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
 
@@ -703,17 +695,7 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
-
-            let dest_stage_opt = self.find_stage(dest_stage_name, source_index);
-            if dest_stage_opt.is_none() {
-                bail!(
-                    "Destination stage {} not found, source stage is {}",
-                    dest_stage_name,
-                    source_stage.stage_name
-                )
-            }
-
-            let (dest_index, dest_stage) = dest_stage_opt.unwrap();
+            let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Frame)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Batch)
@@ -747,14 +729,7 @@ pub(super) mod implementation {
             let mut payloads = HashMap::with_capacity(batch.frames.len());
             for (frame_id, frame) in batch.frames {
                 let ctx = contexts.remove(&frame_id).unwrap();
-                if self.configuration.append_frame_json {
-                    let json = if self.configuration.json_pretty {
-                        frame.get_json_pretty()
-                    } else {
-                        frame.get_json()
-                    };
-                    ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                }
+                self.add_frame_json(&frame, &ctx);
                 ctx.span().end();
                 let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
 
@@ -847,13 +822,21 @@ pub(super) mod implementation {
         fn test_get_stage_type() -> anyhow::Result<()> {
             let pipeline = create_pipeline()?;
             assert!(matches!(
-                pipeline.find_stage_type("input", 0),
-                Some(PipelineStagePayloadType::Frame)
+                pipeline.find_stage_type("input", 0)?,
+                PipelineStagePayloadType::Frame
             ));
             assert!(matches!(
-                pipeline.find_stage_type("proc1", 0),
-                Some(PipelineStagePayloadType::Batch)
+                pipeline.find_stage_type("proc1", 0)?,
+                PipelineStagePayloadType::Batch
             ));
+            Ok(())
+        }
+
+        #[test]
+        fn test_find_stages() -> anyhow::Result<()> {
+            let pipeline = create_pipeline()?;
+            assert!(pipeline.find_stage("input", 0).is_ok());
+            assert!(pipeline.find_stage("input", 1).is_err());
             Ok(())
         }
 
