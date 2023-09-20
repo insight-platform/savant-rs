@@ -6,7 +6,7 @@ from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
 
 set_log_level(LogLevel.Trace)
 
-from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline
+from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration
 
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
@@ -22,12 +22,16 @@ if __name__ == "__main__":
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
+    conf = VideoPipelineConfiguration()
+    conf.append_frame_json = True
+    conf.json_pretty = True
+
     p = VideoPipeline("video-pipeline-root", [
         ("input", VideoPipelineStagePayloadType.Frame),
         ("proc1", VideoPipelineStagePayloadType.Batch),
         ("proc2", VideoPipelineStagePayloadType.Batch),
         ("output", VideoPipelineStagePayloadType.Frame)
-    ])
+    ], conf)
     p.sampling_period = 10
 
     assert p.get_stage_type("input") == VideoPipelineStagePayloadType.Frame

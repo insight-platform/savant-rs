@@ -149,15 +149,19 @@ mod tests {
     };
     use savant_core::pipeline::Pipeline;
     use savant_core::pipeline::PipelineStagePayloadType;
+    use savant_core::rust::PipelineConfiguration;
     use savant_core::test::gen_frame;
     use std::ffi::CString;
 
     #[test]
     fn test_move_as_is() {
-        let pipeline = Pipeline::new(vec![
-            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-            ("stage2".to_owned(), PipelineStagePayloadType::Frame),
-        ])
+        let pipeline = Pipeline::new(
+            vec![
+                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+                ("stage2".to_owned(), PipelineStagePayloadType::Frame),
+            ],
+            PipelineConfiguration::default(),
+        )
         .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let stage = CString::new("stage2").unwrap();
@@ -168,10 +172,13 @@ mod tests {
 
     #[test]
     fn test_move_and_pack() {
-        let pipeline = Pipeline::new(vec![
-            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-            ("stage2".to_owned(), PipelineStagePayloadType::Batch),
-        ])
+        let pipeline = Pipeline::new(
+            vec![
+                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+                ("stage2".to_owned(), PipelineStagePayloadType::Batch),
+            ],
+            PipelineConfiguration::default(),
+        )
         .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let stage = CString::new("stage2").unwrap();
@@ -188,11 +195,14 @@ mod tests {
 
     #[test]
     fn test_move_and_unpack() {
-        let pipeline = Pipeline::new(vec![
-            ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-            ("stage2".to_owned(), PipelineStagePayloadType::Batch),
-            ("stage3".to_owned(), PipelineStagePayloadType::Frame),
-        ])
+        let pipeline = Pipeline::new(
+            vec![
+                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
+                ("stage2".to_owned(), PipelineStagePayloadType::Batch),
+                ("stage3".to_owned(), PipelineStagePayloadType::Frame),
+            ],
+            PipelineConfiguration::default(),
+        )
         .unwrap();
         let id = pipeline.add_frame("stage1", gen_frame()).unwrap();
         let batch_id = pipeline.move_and_pack_frames("stage2", vec![id]).unwrap();

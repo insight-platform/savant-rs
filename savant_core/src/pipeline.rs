@@ -26,12 +26,19 @@ pub(crate) enum PipelinePayload {
     ),
 }
 
+pub use implementation::PipelineConfiguration;
 #[derive(Clone, Default, Debug)]
 pub struct Pipeline(Arc<implementation::Pipeline>);
 
 impl Pipeline {
-    pub fn new(stages: Vec<(String, PipelineStagePayloadType)>) -> Result<Self> {
-        Ok(Self(Arc::new(implementation::Pipeline::new(stages)?)))
+    pub fn new(
+        stages: Vec<(String, PipelineStagePayloadType)>,
+        configuration: PipelineConfiguration,
+    ) -> Result<Self> {
+        Ok(Self(Arc::new(implementation::Pipeline::new(
+            stages,
+            configuration,
+        )?)))
     }
 
     pub fn memory_handle(&self) -> usize {
@@ -152,14 +159,23 @@ pub(super) mod implementation {
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
     use anyhow::{bail, Result};
+    use derive_builder::Builder;
     use hashbrown::HashMap;
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
-    use opentelemetry::Context;
+    use opentelemetry::{Context, KeyValue};
     use parking_lot::RwLock;
     use std::sync::atomic::Ordering;
     use std::sync::OnceLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
+
+    #[derive(Builder, Default, Debug, Clone)]
+    pub struct PipelineConfiguration {
+        #[builder(default = "false")]
+        pub append_frame_json: bool,
+        #[builder(default = "false")]
+        pub json_pretty: bool,
+    }
 
     #[derive(Debug, Default)]
     pub struct Pipeline {
@@ -170,6 +186,7 @@ pub(super) mod implementation {
         frame_locations: RwLock<HashMap<i64, usize>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
+        configuration: PipelineConfiguration,
     }
 
     impl Pipeline {
@@ -185,8 +202,15 @@ pub(super) mod implementation {
             Ok(())
         }
 
-        pub fn new(stages: Vec<(String, PipelineStagePayloadType)>) -> Result<Self> {
-            let mut pipeline = Self::default();
+        pub fn new(
+            stages: Vec<(String, PipelineStagePayloadType)>,
+            configuration: PipelineConfiguration,
+        ) -> Result<Self> {
+            let mut pipeline = Self {
+                configuration,
+                ..Default::default()
+            };
+
             for (name, stage_type) in stages {
                 pipeline.add_stage(name, stage_type)?;
             }
@@ -357,21 +381,41 @@ pub(super) mod implementation {
 
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
-                    PipelinePayload::Frame(_, _, ctx) => {
+                    PipelinePayload::Frame(frame, _, ctx) => {
+                        if self.configuration.append_frame_json {
+                            let json = if self.configuration.json_pretty {
+                                frame.get_json_pretty()
+                            } else {
+                                frame.get_json()
+                            };
+                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                        }
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
                         Ok(HashMap::from([(id, root_ctx)]))
                     }
-                    PipelinePayload::Batch(_, _, contexts) => Ok({
+                    PipelinePayload::Batch(batch, _, contexts) => Ok({
                         let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
-                            .map(|(id, ctx)| {
+                            .map(|(frame_id, ctx)| {
+                                if self.configuration.append_frame_json {
+                                    let json = if self.configuration.json_pretty {
+                                        batch.get(frame_id).map(|f| f.get_json_pretty())
+                                    } else {
+                                        batch.get(frame_id).map(|f| f.get_json())
+                                    };
+                                    if let Some(json) = json {
+                                        ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                                    } else {
+                                        bail!("Frame {} not found in batch {}", frame_id, id)
+                                    }
+                                }
                                 ctx.span().end();
                                 let root_ctx = bind.remove(&id).unwrap();
-                                (id, root_ctx)
+                                Ok((id, root_ctx))
                             })
-                            .collect()
+                            .collect::<Result<HashMap<_, _>, _>>()?
                     }),
                 }
             } else {
@@ -517,17 +561,37 @@ pub(super) mod implementation {
             for (id, payload) in removed_objects {
                 let payload = match payload {
                     PipelinePayload::Frame(frame, updates, ctx) => {
+                        if self.configuration.append_frame_json {
+                            let json = if self.configuration.json_pretty {
+                                frame.get_json_pretty()
+                            } else {
+                                frame.get_json()
+                            };
+                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                        }
                         ctx.span().end();
                         let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
                         PipelinePayload::Frame(frame, updates, ctx)
                     }
                     PipelinePayload::Batch(batch, updates, contexts) => {
                         let mut new_contexts = HashMap::with_capacity(contexts.len());
-                        for (id, ctx) in contexts.iter() {
+                        for (frame_id, ctx) in contexts.iter() {
+                            if self.configuration.append_frame_json {
+                                let json = if self.configuration.json_pretty {
+                                    batch.get(*frame_id).map(|f| f.get_json_pretty())
+                                } else {
+                                    batch.get(*frame_id).map(|f| f.get_json())
+                                };
+                                if let Some(json) = json {
+                                    ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                                } else {
+                                    bail!("Frame {} not found in batch {}", frame_id, id)
+                                }
+                            }
                             ctx.span().end();
-                            let ctx =
-                                self.get_stage_span(*id, format!("stage/{}", dest_stage_name));
-                            new_contexts.insert(*id, ctx);
+                            let ctx = self
+                                .get_stage_span(*frame_id, format!("stage/{}", dest_stage_name));
+                            new_contexts.insert(*frame_id, ctx);
                         }
                         PipelinePayload::Batch(batch, updates, new_contexts)
                     }
@@ -603,11 +667,23 @@ pub(super) mod implementation {
             let contexts = contexts
                 .into_iter()
                 .map(|(id, ctx)| {
+                    if self.configuration.append_frame_json {
+                        let json = if self.configuration.json_pretty {
+                            batch.get(id).map(|f| f.get_json_pretty())
+                        } else {
+                            batch.get(id).map(|f| f.get_json())
+                        };
+                        if let Some(json) = json {
+                            ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                        } else {
+                            bail!("Frame {} not found in batch {}", id, batch_id)
+                        }
+                    }
                     ctx.span().end();
                     let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
-                    (id, ctx)
+                    Ok((id, ctx))
                 })
-                .collect();
+                .collect::<Result<HashMap<_, _>, _>>()?;
 
             let payload = PipelinePayload::Batch(batch, batch_updates, contexts);
             dest_stage.add_batch_payload(batch_id, payload)?;
@@ -671,6 +747,14 @@ pub(super) mod implementation {
             let mut payloads = HashMap::with_capacity(batch.frames.len());
             for (frame_id, frame) in batch.frames {
                 let ctx = contexts.remove(&frame_id).unwrap();
+                if self.configuration.append_frame_json {
+                    let json = if self.configuration.json_pretty {
+                        frame.get_json_pretty()
+                    } else {
+                        frame.get_json()
+                    };
+                    ctx.span().set_attribute(KeyValue::new("frame_json", json))
+                }
                 ctx.span().end();
                 let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
 
@@ -720,7 +804,9 @@ pub(super) mod implementation {
 
     #[cfg(test)]
     mod tests {
-        use crate::pipeline::implementation::{Pipeline, PipelineStagePayloadType};
+        use crate::pipeline::implementation::{
+            Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
+        };
         use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, AttributeMethods};
@@ -733,12 +819,19 @@ pub(super) mod implementation {
         use std::sync::atomic::Ordering;
 
         fn create_pipeline() -> anyhow::Result<Pipeline> {
-            let pipeline = Pipeline::new(vec![
-                ("input".to_string(), PipelineStagePayloadType::Frame),
-                ("proc1".to_string(), PipelineStagePayloadType::Batch),
-                ("proc2".to_string(), PipelineStagePayloadType::Batch),
-                ("output".to_string(), PipelineStagePayloadType::Frame),
-            ])?;
+            let pipeline = Pipeline::new(
+                vec![
+                    ("input".to_string(), PipelineStagePayloadType::Frame),
+                    ("proc1".to_string(), PipelineStagePayloadType::Batch),
+                    ("proc2".to_string(), PipelineStagePayloadType::Batch),
+                    ("output".to_string(), PipelineStagePayloadType::Frame),
+                ],
+                PipelineConfigurationBuilder::default()
+                    .json_pretty(true)
+                    .append_frame_json(true)
+                    .build()
+                    .unwrap(),
+            )?;
             Ok(pipeline)
         }
 

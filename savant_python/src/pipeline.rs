@@ -40,6 +40,7 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
 #[pymodule]
 pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
+    m.add_class::<PipelineConfiguration>()?;
     m.add_class::<Pipeline>()?;
     Ok(())
 }
@@ -51,12 +52,39 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
 #[derive(Debug)]
 pub(crate) struct Pipeline(rust::Pipeline);
 
+#[pyclass]
+#[pyo3(name = "VideoPipelineConfiguration")]
+#[derive(Debug, Clone)]
+pub(crate) struct PipelineConfiguration(rust::PipelineConfiguration);
+
+#[pymethods]
+impl PipelineConfiguration {
+    #[new]
+    pub fn new() -> Self {
+        Self(rust::PipelineConfiguration::default())
+    }
+
+    #[setter]
+    pub fn append_frame_json(&mut self, v: bool) {
+        self.0.append_frame_json = v;
+    }
+
+    #[setter]
+    pub fn json_pretty(&mut self, v: bool) {
+        self.0.json_pretty = v;
+    }
+}
+
 #[pymethods]
 impl Pipeline {
     #[new]
-    fn new(name: String, stages: Vec<(String, VideoPipelineStagePayloadType)>) -> PyResult<Self> {
+    fn new(
+        name: String,
+        stages: Vec<(String, VideoPipelineStagePayloadType)>,
+        configuration: PipelineConfiguration,
+    ) -> PyResult<Self> {
         let stages = stages.into_iter().map(|(n, t)| (n, t.into())).collect();
-        let p = rust::Pipeline::new(stages).map_err(|e| {
+        let p = rust::Pipeline::new(stages, configuration.0).map_err(|e| {
             PyValueError::new_err(format!("Failed to create pipeline: {}", e.to_string()))
         })?;
         p.set_root_span_name(name)

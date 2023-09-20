@@ -4,8 +4,8 @@ extern crate test;
 
 use anyhow::Result;
 use opentelemetry::trace::TraceContextExt;
-use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
+use savant_core::pipeline::{Pipeline, PipelineConfiguration};
 use savant_core::telemetry::{init_jaeger_tracer, init_noop_tracer};
 use savant_core::test::gen_frame;
 use test::Bencher;
@@ -49,7 +49,7 @@ fn get_pipeline() -> Result<(Pipeline, Vec<(String, PipelineStagePayloadType)>)>
         // inter
         (String::from("drop"), PipelineStagePayloadType::Frame),
     ];
-    let pipeline = Pipeline::new(stages.clone())?;
+    let pipeline = Pipeline::new(stages.clone(), PipelineConfiguration::default())?;
     stages.pop();
     pipeline.set_root_span_name("bench_batch_snapshot".to_owned())?;
     Ok((pipeline, stages))
