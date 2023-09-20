@@ -10,7 +10,10 @@ use savant_core::telemetry::{init_jaeger_tracer, init_noop_tracer};
 use savant_core::test::gen_frame;
 use test::Bencher;
 
-fn get_pipeline() -> Result<(Pipeline, Vec<(String, PipelineStagePayloadType)>)> {
+fn get_pipeline(
+    append_frame_json: bool,
+    json_pretty: bool,
+) -> Result<(Pipeline, Vec<(String, PipelineStagePayloadType)>)> {
     let mut stages = vec![
         (String::from("add"), PipelineStagePayloadType::Frame),
         // intermediate
@@ -49,7 +52,12 @@ fn get_pipeline() -> Result<(Pipeline, Vec<(String, PipelineStagePayloadType)>)>
         // inter
         (String::from("drop"), PipelineStagePayloadType::Frame),
     ];
-    let pipeline = Pipeline::new(stages.clone(), PipelineConfiguration::default())?;
+    let conf = PipelineConfiguration {
+        append_frame_json,
+        json_pretty,
+    };
+
+    let pipeline = Pipeline::new(stages.clone(), conf)?;
     stages.pop();
     pipeline.set_root_span_name("bench_batch_snapshot".to_owned())?;
     Ok((pipeline, stages))
@@ -98,7 +106,27 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
 fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
     init_noop_tracer();
 
-    let (pipeline, stages) = get_pipeline()?;
+    let (pipeline, stages) = get_pipeline(false, false)?;
+    pipeline.set_sampling_period(0)?;
+    benchmark(b, pipeline, stages);
+    Ok(())
+}
+
+#[bench]
+fn bench_pipeline2_sampling_none_with_json(b: &mut Bencher) -> Result<()> {
+    init_noop_tracer();
+
+    let (pipeline, stages) = get_pipeline(true, false)?;
+    pipeline.set_sampling_period(0)?;
+    benchmark(b, pipeline, stages);
+    Ok(())
+}
+
+#[bench]
+fn bench_pipeline2_sampling_none_with_json_pretty(b: &mut Bencher) -> Result<()> {
+    init_noop_tracer();
+
+    let (pipeline, stages) = get_pipeline(true, true)?;
     pipeline.set_sampling_period(0)?;
     benchmark(b, pipeline, stages);
     Ok(())
@@ -108,7 +136,7 @@ fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
 fn bench_pipeline2_sampling_every(b: &mut Bencher) -> Result<()> {
     init_noop_tracer();
 
-    let (pipeline, stages) = get_pipeline()?;
+    let (pipeline, stages) = get_pipeline(false, false)?;
     pipeline.set_sampling_period(1)?;
     benchmark(b, pipeline, stages);
     Ok(())
@@ -118,7 +146,7 @@ fn bench_pipeline2_sampling_every(b: &mut Bencher) -> Result<()> {
 #[ignore]
 fn bench_pipeline2_with_jaeger_no_sampling(b: &mut Bencher) -> Result<()> {
     init_jaeger_tracer("bench-pipeline", "localhost:6831");
-    let (pipeline, stages) = get_pipeline()?;
+    let (pipeline, stages) = get_pipeline(false, false)?;
     pipeline.set_sampling_period(1)?;
     benchmark(b, pipeline, stages);
     Ok(())
