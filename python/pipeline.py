@@ -23,8 +23,7 @@ if __name__ == "__main__":
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
     conf = VideoPipelineConfiguration()
-    conf.append_frame_json = True
-    conf.json_pretty = True
+    conf.append_frame_meta_to_otlp_span = True
 
     p = VideoPipeline("video-pipeline-root", [
         ("input", VideoPipelineStagePayloadType.Frame),

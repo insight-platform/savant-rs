@@ -65,13 +65,8 @@ impl PipelineConfiguration {
     }
 
     #[setter]
-    pub fn append_frame_json(&mut self, v: bool) {
-        self.0.append_frame_json = v;
-    }
-
-    #[setter]
-    pub fn json_pretty(&mut self, v: bool) {
-        self.0.json_pretty = v;
+    pub fn append_frame_meta_to_otlp_span(&mut self, v: bool) {
+        self.0.append_frame_meta_to_otlp_span = v;
     }
 }
 

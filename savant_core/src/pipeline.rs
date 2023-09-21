@@ -172,9 +172,7 @@ pub(super) mod implementation {
     #[derive(Builder, Default, Debug, Clone)]
     pub struct PipelineConfiguration {
         #[builder(default = "false")]
-        pub append_frame_json: bool,
-        #[builder(default = "false")]
-        pub json_pretty: bool,
+        pub append_frame_meta_to_otlp_span: bool,
     }
 
     #[derive(Debug, Default)]
@@ -316,6 +314,10 @@ pub(super) mod implementation {
             stage_name: &str,
             start_from: usize,
         ) -> Result<(usize, &PipelineStage)> {
+            if self.stages.is_empty() {
+                bail!("Pipeline is empty. Looked for stage {}", stage_name)
+            }
+
             let res = self.stages[start_from..]
                 .iter()
                 .enumerate()
@@ -325,10 +327,6 @@ pub(super) mod implementation {
             if let Some((index, stage)) = res {
                 Ok((index, stage))
             } else {
-                if self.stages.len() == 0 {
-                    bail!("Pipeline is empty. Looked for stage {}", stage_name)
-                }
-
                 let source_stage = self.stages[start_from].stage_name.as_str();
                 // try to start from the beginning to find the out of order situation
                 let res = self
@@ -396,13 +394,9 @@ pub(super) mod implementation {
         }
 
         fn add_frame_json(&self, frame: &VideoFrameProxy, ctx: &Context) {
-            if self.configuration.append_frame_json {
-                let json = if self.configuration.json_pretty {
-                    frame.get_json_pretty()
-                } else {
-                    frame.get_json()
-                };
-                ctx.span().set_attribute(KeyValue::new("frame_json", json))
+            if self.configuration.append_frame_meta_to_otlp_span {
+                let json = frame.get_json();
+                ctx.span().set_attribute(KeyValue::new("frame_json", json));
             }
         }
 
@@ -432,17 +426,11 @@ pub(super) mod implementation {
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
-                                if self.configuration.append_frame_json {
-                                    let json = if self.configuration.json_pretty {
-                                        batch.get(frame_id).map(|f| f.get_json_pretty())
-                                    } else {
-                                        batch.get(frame_id).map(|f| f.get_json())
-                                    };
-                                    if let Some(json) = json {
-                                        ctx.span().set_attribute(KeyValue::new("frame_json", json))
-                                    } else {
-                                        bail!("Frame {} not found in batch {}", frame_id, id)
-                                    }
+                                let frame_opt = batch.get(frame_id);
+                                if let Some(frame) = frame_opt {
+                                    self.add_frame_json(&frame, &ctx);
+                                } else {
+                                    bail!("Frame {} not found in batch {}", frame_id, id)
                                 }
                                 ctx.span().end();
                                 let root_ctx = bind.remove(&id).unwrap();
@@ -592,7 +580,7 @@ pub(super) mod implementation {
                         for (frame_id, ctx) in contexts.iter() {
                             let frame_opt = batch.get(*frame_id);
                             if let Some(frame) = frame_opt {
-                                self.add_frame_json(&frame, &ctx);
+                                self.add_frame_json(&frame, ctx);
                             } else {
                                 bail!("Frame {} not found in batch {}", frame_id, id)
                             }
@@ -802,8 +790,7 @@ pub(super) mod implementation {
                     ("output".to_string(), PipelineStagePayloadType::Frame),
                 ],
                 PipelineConfigurationBuilder::default()
-                    .json_pretty(true)
-                    .append_frame_json(true)
+                    .append_frame_meta_to_otlp_span(true)
                     .build()
                     .unwrap(),
             )?;
