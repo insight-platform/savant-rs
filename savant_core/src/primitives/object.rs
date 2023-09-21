@@ -135,7 +135,7 @@ pub struct VideoObjectProxy {
 }
 
 impl ToSerdeJsonValue for VideoObjectProxy {
-    fn to_serde_json_value(&self) -> serde_json::Value {
+    fn to_serde_json_value(&self) -> Value {
         trace!(self.inner.read_recursive()).to_serde_json_value()
     }
 }
@@ -242,22 +242,48 @@ impl VideoObjectProxy {
         trace!(self.inner.write())
     }
 
-    pub(crate) fn set_parent(&self, parent_opt: Option<i64>) {
+    pub(crate) fn set_parent(&self, parent_opt: Option<i64>) -> anyhow::Result<()> {
         if let Some(parent) = parent_opt {
             if self.get_frame().is_none() {
-                panic!("Cannot set parent to the object detached from a frame");
+                bail!("Cannot set parent to the object detached from a frame");
             }
             if self.get_id() == parent {
-                panic!("Cannot set parent to itself");
+                bail!("Cannot set parent to itself");
             }
-            let f = self.get_frame().unwrap();
-            if !f.object_exists(parent) {
-                panic!("Cannot set parent to the object which cannot be found in the frame");
+            let owning_frame =
+                self.get_frame()
+                    .ok_or(anyhow::anyhow!(
+                "The object {:?} is not assigned to a frame, you cannot assign parent to it", self
+            ))?;
+
+            if !owning_frame.object_exists(parent) {
+                bail!("Cannot set parent to the object which cannot be found in the frame");
+            }
+
+            // detect loops
+            let mut id_chain = vec![self.get_id(), parent];
+            loop {
+                let parent_obj = owning_frame.get_object(*id_chain.last().unwrap()).unwrap();
+                let his_parent_opt = parent_obj.get_parent_id();
+                if let Some(his_parent) = his_parent_opt {
+                    if id_chain.contains(&his_parent) {
+                        bail!(
+                            "A parent-Child Loop detected. Caused by setting a parent with ID={} to an object with ID={}, Loop goes through IDs: {:?}",
+                            parent,
+                            self.get_id(),
+                            id_chain
+                        );
+                    }
+                    id_chain.push(his_parent);
+                } else {
+                    break;
+                }
             }
         }
 
         let mut inner = trace!(self.inner.write());
         inner.parent_id = parent_opt;
+        Ok(())
     }
 
     pub fn get_parent(&self) -> Option<VideoObjectProxy> {
@@ -481,12 +507,12 @@ mod tests {
         VideoObjectProxy,
     };
     use crate::primitives::{Attribute, RBBox};
-    use crate::test::{gen_frame, s};
+    use crate::test::{gen_empty_frame, gen_frame, s};
 
-    fn get_object() -> VideoObjectProxy {
+    fn get_object(id: i64) -> VideoObjectProxy {
         VideoObjectProxy::from(
             VideoObjectBuilder::default()
-                .id(1)
+                .id(id)
                 .namespace("model".to_string())
                 .label("label".to_string())
                 .detection_box(
@@ -537,37 +563,65 @@ mod tests {
 
     #[test]
     fn test_delete_attributes() {
-        let obj = get_object();
+        let obj = get_object(1);
         obj.delete_attributes(None, vec![]);
         assert_eq!(obj.get_inner_read().attributes.len(), 0);
 
-        let obj = get_object();
+        let obj = get_object(1);
         obj.delete_attributes(Some(s("namespace")), vec![]);
         assert_eq!(obj.get_attributes().len(), 1);
 
-        let obj = get_object();
+        let obj = get_object(1);
         obj.delete_attributes(None, vec![s("name")]);
         assert_eq!(obj.get_inner_read().attributes.len(), 1);
 
-        let t = get_object();
+        let t = get_object(1);
         t.delete_attributes(None, vec![s("name"), s("name2")]);
         assert_eq!(t.get_inner_read().attributes.len(), 0);
     }
 
     #[test]
-    #[should_panic]
-    fn self_parent_assignment_panic_trivial() {
-        let obj = get_object();
-        obj.set_parent(Some(obj.get_id()));
+    fn test_loop_2() {
+        let f = gen_empty_frame();
+        let o1 = get_object(1);
+        f.add_object(&o1, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        let o2 = get_object(2);
+        f.add_object(&o2, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        o1.set_parent(Some(o2.get_id())).unwrap();
+        assert!(o2.set_parent(Some(o1.get_id())).is_err());
     }
 
     #[test]
-    #[should_panic]
+    fn test_loop_3() {
+        let f = gen_empty_frame();
+        let o1 = get_object(1);
+        f.add_object(&o1, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        let o2 = get_object(2);
+        f.add_object(&o2, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        let o3 = get_object(3);
+        f.add_object(&o3, IdCollisionResolutionPolicy::Error)
+            .unwrap();
+        o1.set_parent(Some(o2.get_id())).unwrap();
+        o2.set_parent(Some(o3.get_id())).unwrap();
+        assert!(o3.set_parent(Some(o1.get_id())).is_err());
+    }
+
+    #[test]
+    fn self_parent_assignment_trivial() {
+        let obj = get_object(1);
+        assert!(obj.set_parent(Some(obj.get_id())).is_err());
+    }
+
+    #[test]
     fn self_parent_assignment_change_id() {
-        let obj = get_object();
+        let obj = get_object(1);
         let parent = obj.clone();
         _ = parent.set_id(2);
-        obj.set_parent(Some(parent.get_id()));
+        assert!(obj.set_parent(Some(parent.get_id())).is_err());
     }
 
     #[test]
@@ -611,7 +665,7 @@ mod tests {
 
     #[test]
     fn test_transform_geometry() {
-        let o = get_object();
+        let o = get_object(1);
         o.set_track_info(13, RBBox::new(0.0, 0.0, 10.0, 20.0, None));
         let ops = vec![VideoObjectBBoxTransformation::Shift(10.0, 20.0)];
         o.transform_geometry(&ops);

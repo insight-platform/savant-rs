@@ -169,7 +169,7 @@ mod tests {
             .unwrap();
         f.add_object(&o, IdCollisionResolutionPolicy::Error)
             .unwrap();
-        o.set_parent(Some(parent.get_id()));
+        assert!(o.set_parent(Some(parent.get_id())).is_ok());
 
         assert!(call_object_predicate(
             "sample.binary_op_parent",

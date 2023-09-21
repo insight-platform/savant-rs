@@ -503,18 +503,29 @@ impl VideoFrameProxy {
         });
     }
 
-    pub fn set_parent(&self, q: &MatchQuery, parent: &VideoObjectProxy) -> Vec<VideoObjectProxy> {
-        let frame = parent.get_frame();
-        assert!(
-            frame.is_some() && Arc::ptr_eq(&frame.unwrap().inner, &self.inner),
-            "Parent object must be attached to the same frame"
-        );
-        let objects = self.access_objects(q);
-        objects.iter().for_each(|o| {
-            o.set_parent(Some(parent.get_id()));
-        });
+    pub fn set_parent(
+        &self,
+        q: &MatchQuery,
+        parent: &VideoObjectProxy,
+    ) -> anyhow::Result<Vec<VideoObjectProxy>> {
+        let frame_opt = parent.get_frame();
+        if let Some(frame) = frame_opt {
+            if !Arc::ptr_eq(&frame.inner, &self.inner) {
+                bail!(
+                    "Parent object ID={} must be attached to the same frame.",
+                    parent.get_id()
+                );
+            }
+        } else {
+            bail!("Parent object ID={} must be attached.", parent.get_id());
+        }
 
+        let objects = self.access_objects(q);
         objects
+            .iter()
+            .try_for_each(|o| o.set_parent(Some(parent.get_id())))?;
+
+        Ok(objects)
     }
 
     pub fn set_parent_by_id(&self, object_id: i64, parent_id: i64) -> anyhow::Result<()> {
@@ -528,14 +539,14 @@ impl VideoFrameProxy {
             object_id
         ))?;
 
-        object.set_parent(Some(parent_id));
+        object.set_parent(Some(parent_id))?;
         Ok(())
     }
 
     pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let objects = self.access_objects(q);
         objects.iter().for_each(|o| {
-            o.set_parent(None);
+            o.set_parent(None).unwrap();
         });
         objects
     }
@@ -1090,19 +1101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_simple() {
-        let f = gen_frame();
-        f.make_snapshot();
-        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        o.set_namespace(s("modified"));
-        f.restore_from_snapshot();
-        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        assert_eq!(o.get_namespace(), s("test"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_panic_snapshot_no_parent_added_to_frame() {
+    fn test_parent_not_added_to_frame() {
         let parent = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .parent_id(None)
@@ -1115,12 +1114,22 @@ mod tests {
         );
         let frame = gen_frame();
         let obj = frame.get_object(0).unwrap();
-        obj.set_parent(Some(parent.get_id()));
-        frame.make_snapshot();
+        assert!(obj.set_parent(Some(parent.get_id())).is_err());
     }
 
     #[test]
-    fn test_snapshot_with_parent_added_to_frame() {
+    fn test_snapshot_simple() {
+        let f = gen_frame();
+        f.make_snapshot();
+        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
+        o.set_namespace(s("modified"));
+        f.restore_from_snapshot();
+        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
+        assert_eq!(o.get_namespace(), s("test"));
+    }
+
+    #[test]
+    fn test_snapshot_with_parent_added_to_frame() -> anyhow::Result<()> {
         let parent = VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .parent_id(None)
@@ -1136,11 +1145,12 @@ mod tests {
             .add_object(&parent, IdCollisionResolutionPolicy::Error)
             .unwrap();
         let obj = frame.get_object(0).unwrap();
-        obj.set_parent(Some(parent.get_id()));
+        obj.set_parent(Some(parent.get_id()))?;
         frame.make_snapshot();
         frame.restore_from_snapshot();
         let obj = frame.get_object(0).unwrap();
         assert_eq!(obj.get_parent().unwrap().inner.read_recursive().id, 155);
+        Ok(())
     }
 
     #[test]
@@ -1183,7 +1193,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_clear_parent_ops() {
+    fn test_set_clear_parent_ops() -> anyhow::Result<()> {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
         frame.clear_parent(&MatchQuery::Id(one_of(&[1, 2])));
@@ -1192,12 +1202,13 @@ mod tests {
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_none());
 
-        frame.set_parent(&MatchQuery::Id(one_of(&[1, 2])), &parent);
+        frame.set_parent(&MatchQuery::Id(one_of(&[1, 2])), &parent)?;
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_some());
 
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_some());
+        Ok(())
     }
 
     #[test]
@@ -1238,7 +1249,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn set_detached_parent_as_parent() {
         let f = gen_frame();
         let o = VideoObjectProxy::from(
@@ -1250,20 +1260,19 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        f.set_parent(&MatchQuery::Id(eq(0)), &o);
+        assert!(f.set_parent(&MatchQuery::Id(eq(0)), &o).is_err());
     }
 
     #[test]
-    #[should_panic]
     fn set_wrong_parent_as_parent() {
         let f1 = gen_frame();
         let f2 = gen_frame();
         let f1o = f1.get_object(0).unwrap();
-        f2.set_parent(&MatchQuery::Id(eq(1)), &f1o);
+        assert!(f2.set_parent(&MatchQuery::Id(eq(1)), &f1o).is_err());
     }
 
     #[test]
-    fn normally_transfer_parent() {
+    fn normally_transfer_parent() -> anyhow::Result<()> {
         let f1 = gen_frame();
         let f2 = gen_frame();
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
@@ -1272,7 +1281,8 @@ mod tests {
         f2.add_object(&o, IdCollisionResolutionPolicy::Error)
             .unwrap();
         o = f2.get_object(33).unwrap();
-        f2.set_parent(&MatchQuery::Id(eq(1)), &o);
+        f2.set_parent(&MatchQuery::Id(eq(1)), &o)?;
+        Ok(())
     }
 
     #[test]

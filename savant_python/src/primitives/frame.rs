@@ -596,7 +596,9 @@ impl VideoFrame {
     #[pyo3(name = "access_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || self.0.access_objects(&q.0).into())
+        release_gil!(no_gil, || VideoObjectsView::from(
+            self.0.access_objects(&q.0)
+        ))
     }
 
     pub fn get_all_objects(&self) -> VideoObjectsView {
@@ -614,7 +616,9 @@ impl VideoFrame {
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || self.0.delete_objects(&q.0).into())
+        release_gil!(no_gil, || VideoObjectsView::from(
+            self.0.delete_objects(&q.0)
+        ))
     }
 
     #[pyo3(name = "set_parent")]
@@ -624,8 +628,21 @@ impl VideoFrame {
         q: &MatchQuery,
         parent: &VideoObject,
         no_gil: bool,
-    ) -> VideoObjectsView {
-        release_gil!(no_gil, || self.0.set_parent(&q.0, &parent.0).into())
+    ) -> PyResult<VideoObjectsView> {
+        let fun = || {
+            self.0
+                .set_parent(&q.0, &parent.0)
+                .map(|o| o.into())
+                .map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "Cannot set parent ID={} for objects matching query {:?}: {}",
+                        parent.0.get_id(),
+                        q,
+                        e
+                    ))
+                })
+        };
+        release_gil!(no_gil, fun)
     }
 
     #[pyo3(name = "set_parent_by_id")]
@@ -638,7 +655,7 @@ impl VideoFrame {
     #[pyo3(name = "clear_parent")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn clear_parent_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || self.0.clear_parent(&q.0).into())
+        release_gil!(no_gil, || VideoObjectsView::from(self.0.clear_parent(&q.0)))
     }
 
     pub fn clear_objects(&self) {

@@ -928,7 +928,7 @@ mod tests {
             .unwrap();
         f.add_object(&object, IdCollisionResolutionPolicy::Error)
             .unwrap();
-        object.set_parent(Some(parent_object.get_id()));
+        assert!(object.set_parent(Some(parent_object.get_id())).is_ok());
 
         let expr = ParentId(eq(13));
         assert!(expr.execute_with_new_context(&object));
