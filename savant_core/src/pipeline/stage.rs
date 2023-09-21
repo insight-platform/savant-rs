@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 
 #[derive(Debug)]
 pub(super) struct PipelineStage {
-    pub stage_name: String,
+    pub name: String,
     pub stage_type: PipelineStagePayloadType,
     pub payload: RwLock<HashMap<i64, PipelinePayload>>,
 }
@@ -200,11 +200,9 @@ impl PipelineStage {
         self.with_payload_item_mut(id, |payload| {
             match payload {
                 PipelinePayload::Frame(frame, updates, ctx) => {
-                    let _span = Pipeline::get_nested_span(
-                        format!("{}/apply-updates", self.stage_name),
-                        ctx,
-                    )
-                    .attach();
+                    let _span =
+                        Pipeline::get_nested_span(format!("{}/apply-updates", self.name), ctx)
+                            .attach();
                     for update in updates {
                         frame.update(update)?;
                     }
@@ -213,7 +211,7 @@ impl PipelineStage {
                     for (frame_id, update) in updates {
                         if let Some(frame) = batch.get(*frame_id) {
                             let _context_guard = Pipeline::get_nested_span(
-                                format!("{}/apply-updates", self.stage_name),
+                                format!("{}/apply-updates", self.name),
                                 contexts.get(frame_id).unwrap(),
                             )
                             .attach();
@@ -230,11 +228,9 @@ impl PipelineStage {
         self.with_payload_item_mut(id, |payload| {
             match payload {
                 PipelinePayload::Frame(_, updates, ctx) => {
-                    let _guard = Pipeline::get_nested_span(
-                        format!("{}/clear-updates", self.stage_name),
-                        ctx,
-                    )
-                    .attach();
+                    let _guard =
+                        Pipeline::get_nested_span(format!("{}/clear-updates", self.name), ctx)
+                            .attach();
                     updates.clear();
                 }
                 PipelinePayload::Batch(_, updates, ctxts) => {
@@ -243,7 +239,7 @@ impl PipelineStage {
                         .iter()
                         .map(|id| {
                             Pipeline::get_nested_span(
-                                format!("{}/clear-updates", self.stage_name),
+                                format!("{}/clear-updates", self.name),
                                 ctxts.get(id).unwrap(),
                             )
                         })
@@ -263,19 +259,15 @@ impl PipelineStage {
     ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
         self.with_payload_item(id, |payload| match payload {
             PipelinePayload::Frame(frame, _, ctx) => {
-                let _span =
-                    Pipeline::get_nested_span(format!("{}/access-objects", self.stage_name), ctx)
-                        .attach();
+                let _span = Pipeline::get_nested_span(format!("{}/access-objects", self.name), ctx)
+                    .attach();
                 Ok(HashMap::from([(id, frame.access_objects(query))]))
             }
             PipelinePayload::Batch(batch, _, contexts) => {
                 let contexts = contexts
                     .iter()
                     .map(|(_, ctx)| {
-                        Pipeline::get_nested_span(
-                            format!("{}/access-objects", self.stage_name),
-                            ctx,
-                        )
+                        Pipeline::get_nested_span(format!("{}/access-objects", self.name), ctx)
                     })
                     .collect::<Vec<_>>();
                 let res = Ok(batch.access_objects(query));
@@ -303,7 +295,7 @@ mod tests {
 
     fn get_frame_stage() -> PipelineStage {
         PipelineStage {
-            stage_name: "stage".to_string(),
+            name: "stage".to_string(),
             stage_type: PipelineStagePayloadType::Frame,
             payload: RwLock::new(HashMap::default()),
         }
@@ -311,7 +303,7 @@ mod tests {
 
     fn get_batch_stage() -> PipelineStage {
         PipelineStage {
-            stage_name: "stage".to_string(),
+            name: "stage".to_string(),
             stage_type: PipelineStagePayloadType::Batch,
             payload: RwLock::new(HashMap::default()),
         }
