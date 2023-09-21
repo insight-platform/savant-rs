@@ -194,7 +194,7 @@ pub(super) mod implementation {
             }
 
             self.stages.push(PipelineStage {
-                stage_name: name,
+                name: name,
                 stage_type,
                 payload: Default::default(),
             });
@@ -322,18 +322,18 @@ pub(super) mod implementation {
                 .iter()
                 .enumerate()
                 .map(|(i, s)| (i + start_from, s))
-                .find(|(_, s)| s.stage_name == stage_name);
+                .find(|(_, s)| s.name == stage_name);
 
             if let Some((index, stage)) = res {
                 Ok((index, stage))
             } else {
-                let source_stage = self.stages[start_from].stage_name.as_str();
+                let source_stage = self.stages[start_from].name.as_str();
                 // try to start from the beginning to find the out of order situation
                 let res = self
                     .stages
                     .iter()
                     .enumerate()
-                    .find(|(_, s)| s.stage_name == stage_name);
+                    .find(|(_, s)| s.name == stage_name);
 
                 if let Some((index, _)) = res {
                     bail!(
@@ -553,7 +553,7 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
-
+            log::trace!(target: "savant_rs::pipeline", "Moving frames {:?} as is from stage {} to stage {}", object_ids, source_stage.name, dest_stage_name);
             let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if source_stage.stage_type != dest_stage.stage_type {
@@ -611,12 +611,13 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
+            log::trace!(target: "savant_rs::pipeline", "Moving and packing frames {:?} from stage {} to stage {}", frame_ids, source_stage.name, dest_stage_name);
             let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Batch)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Frame)
             {
-                bail!("Source stage {} must contain independent frames and destination stage must contain batched frames", source_stage.stage_name)
+                bail!("Source stage {} must contain independent frames and destination stage must contain batched frames", source_stage.name)
             }
 
             let batch_id = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
@@ -644,7 +645,7 @@ pub(super) mod implementation {
                         }
                         _ => bail!(
                             "Source stage {} must contain independent frames",
-                            source_stage.stage_name
+                            source_stage.name
                         ),
                     }
                 }
@@ -683,12 +684,13 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
+            log::trace!(target: "savant_rs::pipeline", "Moving and unpacking batch {} from stage {} to stage {}", batch_id, source_stage.name, dest_stage_name);
             let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if matches!(source_stage.stage_type, PipelineStagePayloadType::Frame)
                 || matches!(dest_stage.stage_type, PipelineStagePayloadType::Batch)
             {
-                bail!("Source stage {} must contain batched frames and destination stage must contain independent frames", source_stage.stage_name)
+                bail!("Source stage {} must contain batched frames and destination stage must contain independent frames", source_stage.name)
             }
 
             let (batch, updates, mut contexts) = if let Some(payload) = source_stage_opt
@@ -697,16 +699,10 @@ pub(super) mod implementation {
             {
                 match payload {
                     PipelinePayload::Batch(batch, updates, contexts) => (batch, updates, contexts),
-                    _ => bail!(
-                        "Source stage {} must contain batch",
-                        source_stage.stage_name
-                    ),
+                    _ => bail!("Source stage {} must contain batch", source_stage.name),
                 }
             } else {
-                bail!(
-                    "Batch not found in source stage {}",
-                    source_stage.stage_name
-                )
+                bail!("Batch not found in source stage {}", source_stage.name)
             };
 
             self.frame_locations.write().remove(&batch_id);
@@ -732,14 +728,11 @@ pub(super) mod implementation {
                         }
                         _ => bail!(
                             "Destination stage {} must contain independent frames",
-                            dest_stage.stage_name
+                            dest_stage.name
                         ),
                     }
                 } else {
-                    bail!(
-                        "Frame not found in destination stage {}",
-                        dest_stage.stage_name
-                    )
+                    bail!("Frame not found in destination stage {}", dest_stage.name)
                 }
             }
 
