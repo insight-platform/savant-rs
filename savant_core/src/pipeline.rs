@@ -194,7 +194,7 @@ pub(super) mod implementation {
             }
 
             self.stages.push(PipelineStage {
-                name: name,
+                name,
                 stage_type,
                 payload: Default::default(),
             });
