@@ -390,6 +390,8 @@ pub(super) mod implementation {
             let (index, stage) = self.find_stage(stage_name, 0)?;
             stage.add_frame_payload(id_counter, frame_payload)?;
             self.frame_locations.write().insert(id_counter, index);
+
+            log::trace!(target: "savant_rs::pipeline", "Added frame {} to stage {}", id_counter, stage_name);
             Ok(id_counter)
         }
 
@@ -553,7 +555,9 @@ pub(super) mod implementation {
                 bail!("Source stage not found")
             }
             let source_stage = source_stage_opt.unwrap();
-            log::trace!(target: "savant_rs::pipeline", "Moving frames {:?} as is from stage {} to stage {}", object_ids, source_stage.name, dest_stage_name);
+            log::trace!(
+                target: "savant_rs::pipeline", "Moving objects {:?} of type {:?} as is from stage {} to stage {}", 
+                object_ids, source_stage.stage_type, source_stage.name, dest_stage_name);
             let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if source_stage.stage_type != dest_stage.stage_type {
@@ -669,7 +673,7 @@ pub(super) mod implementation {
             let payload = PipelinePayload::Batch(batch, batch_updates, contexts);
             dest_stage.add_batch_payload(batch_id, payload)?;
             self.frame_locations.write().insert(batch_id, dest_index);
-
+            log::trace!(target: "savant_rs::pipeline", "Created batch {} to stage {}", batch_id, dest_stage_name);
             Ok(batch_id)
         }
 

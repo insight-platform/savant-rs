@@ -19,13 +19,8 @@ pub mod telemetry;
 pub mod test;
 pub mod transmutes;
 
-use lazy_static::lazy_static;
 use opentelemetry::global;
 use opentelemetry::global::BoxedTracer;
-
-lazy_static! {
-    static ref VERSION_CRC32: u32 = crc32fast::hash(env!("CARGO_PKG_VERSION").as_bytes());
-}
 
 #[inline]
 pub fn round_2_digits(v: f32) -> f32 {
@@ -35,23 +30,6 @@ pub fn round_2_digits(v: f32) -> f32 {
 #[inline]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
-}
-
-/// Returns version in CRC32 format
-///
-#[inline]
-pub fn version_crc32() -> u32 {
-    *VERSION_CRC32
-}
-
-#[inline]
-pub fn version_to_bytes_le() -> [u8; 4] {
-    VERSION_CRC32.to_le_bytes()
-}
-
-#[inline]
-pub fn bytes_le_to_version(bytes: [u8; 4]) -> u32 {
-    u32::from_le_bytes(bytes)
 }
 
 #[inline]

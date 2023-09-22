@@ -48,13 +48,6 @@ pub fn version() -> String {
     savant_core::version()
 }
 
-/// Returns version in CRC32 format
-///
-#[pyfunction]
-pub fn version_crc32() -> u32 {
-    savant_core::version_crc32()
-}
-
 #[pymodule]
 fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
@@ -69,7 +62,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(init_noop_tracer, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
-    m.add_function(wrap_pyfunction!(version_crc32, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(pipeline::pipeline))?;

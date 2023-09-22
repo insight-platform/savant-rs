@@ -6,7 +6,7 @@ use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
-use crate::{trace, version_to_bytes_le};
+use crate::{trace, version};
 use rkyv::{Archive, Deserialize, Serialize};
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
@@ -26,7 +26,7 @@ pub const VERSION_LEN: usize = 4;
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct MessageMeta {
-    pub lib_version: [u8; VERSION_LEN],
+    pub lib_version: String,
     pub routing_labels: Vec<String>,
     pub span_context: PropagatedContext,
 }
@@ -40,7 +40,7 @@ impl Default for MessageMeta {
 impl MessageMeta {
     pub fn new() -> Self {
         Self {
-            lib_version: version_to_bytes_le(),
+            lib_version: version(),
             routing_labels: Vec::default(),
             span_context: PropagatedContext::default(),
         }
@@ -214,12 +214,11 @@ pub fn load_message(bytes: &[u8]) -> Message {
 
     let mut m = m.unwrap();
 
-    if m.meta.lib_version != version_to_bytes_le() {
+    if m.meta.lib_version != version() {
         return Message::unknown(format!(
-            "Message CRC32 version mismatch: {:?} != {:?}. Expected version: {}",
+            "Message version mismatch: message version={:?}, program expects version={:?}.",
             m.meta.lib_version,
-            crate::version_crc32(),
-            crate::version()
+            version()
         ));
     }
 
