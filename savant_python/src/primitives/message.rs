@@ -6,11 +6,44 @@ use crate::primitives::user_data::UserData;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, Shutdown, VideoFrameBatch};
 use crate::utils::otlp::PropagatedContext;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::{pyclass, pyfunction, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
 
 #[pyclass]
 pub struct Message(pub(crate) rust_primitives::Message);
+
+/// Allows validating the sequence id of the message
+///
+/// Params
+/// ------
+/// stream : str
+///   The stream name
+/// seq_id : int
+///   The sequence id to validate
+///
+/// Returns
+/// -------
+/// bool
+///   True if the sequence id is valid, False otherwise
+///
+#[pyfunction]
+pub fn validate_seq_iq(stream: &str, seq_id: u64) -> bool {
+    savant_core::message::validate_seq_iq(stream, seq_id)
+}
+
+/// Resets the sequence id for the stream
+///
+#[pyfunction]
+pub fn reset_seq_id(stream: &str) {
+    savant_core::message::reset_seq_id(stream)
+}
+
+/// Clears the sequence validators for all streams
+///
+#[pyfunction]
+pub fn clear_validators() {
+    savant_core::message::clear_validators()
+}
 
 #[pymethods]
 impl Message {
