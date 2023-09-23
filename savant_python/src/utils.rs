@@ -14,7 +14,7 @@ use crate::primitives::message::saver::*;
 use crate::primitives::message::saver::{
     save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
 };
-use crate::primitives::message::{clear_validators, reset_seq_id, validate_seq_iq, Message};
+use crate::primitives::message::Message;
 use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::test::utils::{gen_empty_frame, gen_frame};
 use crate::utils::byte_buffer::ByteBuffer;
@@ -135,10 +135,6 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_message, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytebuffer_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytes_gil, m)?)?;
-
-    m.add_function(wrap_pyfunction!(validate_seq_iq, m)?)?;
-    m.add_function(wrap_pyfunction!(reset_seq_id, m)?)?;
-    m.add_function(wrap_pyfunction!(clear_validators, m)?)?;
 
     m.add_class::<Message>()?;
     Ok(())
