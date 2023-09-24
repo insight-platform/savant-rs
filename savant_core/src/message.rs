@@ -7,7 +7,85 @@ use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
 use crate::{trace, version};
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
+use parking_lot::{const_mutex, Mutex};
 use rkyv::{Archive, Deserialize, Serialize};
+
+lazy_static! {
+    static ref SEQ_STORE: Mutex<SeqStore> = const_mutex(SeqStore::new());
+}
+
+pub struct SeqStore {
+    generators: HashMap<String, u64>,
+    validators: HashMap<String, u64>,
+}
+
+impl SeqStore {
+    fn new() -> Self {
+        Self {
+            generators: HashMap::new(),
+            validators: HashMap::new(),
+        }
+    }
+
+    pub fn generate_message_seq_id(&mut self, source: &str) -> u64 {
+        let v = self.generators.entry(source.to_string()).or_insert(0);
+        *v += 1;
+        *v
+    }
+
+    fn validate_seq_i_raw(&mut self, source: &str, seq_id: u64) -> bool {
+        let v = self.validators.entry(source.to_string()).or_insert(0);
+        if seq_id <= *v {
+            log::trace!(target: "savant_rs::message::validate_seq_iq", 
+                "SeqId reset for {}, expected seq_id = {}, received seq_id = {}", 
+                source, *v + 1, seq_id);
+            *v = seq_id;
+            true
+        } else if *v + 1 == seq_id {
+            log::trace!(target: "savant_rs::message::validate_seq_iq", 
+                "Successfully validated seq_id={} for {}", 
+                seq_id, source);
+            *v += 1;
+            true
+        } else {
+            log::warn!(target: "savant_rs::message::validate_seq_iq", 
+                "Failed to validate seq_id={} for {}, expected={}. SeqId discrepancy is a symptom of message loss.", 
+                seq_id, source, *v + 1);
+            *v = seq_id;
+            false
+        }
+    }
+
+    pub fn reset_seq_id(&mut self, source: &str) {
+        self.validators.remove(source);
+        self.generators.remove(source);
+    }
+
+    pub fn validate_seq_id(&mut self, m: &Message) -> bool {
+        let seq_id = m.meta.seq_id;
+        match &m.payload {
+            MessageEnvelope::EndOfStream(eos) => {
+                self.reset_seq_id(&eos.source_id);
+                true
+            }
+            MessageEnvelope::VideoFrame(vf) => self.validate_seq_i_raw(&vf.source_id, seq_id),
+            MessageEnvelope::UserData(ud) => self.validate_seq_i_raw(&ud.source_id, seq_id),
+            _ => true,
+        }
+    }
+}
+
+pub fn validate_seq_id(m: &Message) -> bool {
+    let mut seq_store = trace!(SEQ_STORE.lock());
+    seq_store.validate_seq_id(m)
+}
+
+fn generate_message_seq_id(source: &str) -> u64 {
+    let mut seq_store = trace!(SEQ_STORE.lock());
+    seq_store.generate_message_seq_id(source)
+}
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
@@ -29,20 +107,22 @@ pub struct MessageMeta {
     pub lib_version: String,
     pub routing_labels: Vec<String>,
     pub span_context: PropagatedContext,
+    pub seq_id: u64,
 }
 
 impl Default for MessageMeta {
     fn default() -> Self {
-        Self::new()
+        Self::new(0)
     }
 }
 
 impl MessageMeta {
-    pub fn new() -> Self {
+    pub fn new(seq_id: u64) -> Self {
         Self {
             lib_version: version(),
             routing_labels: Vec::default(),
             span_context: PropagatedContext::default(),
+            seq_id,
         }
     }
 }
@@ -57,37 +137,38 @@ pub struct Message {
 impl Message {
     pub fn unknown(s: String) -> Self {
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(0),
             payload: MessageEnvelope::Unknown(s),
         }
     }
 
     pub fn user_data(mut t: UserData) -> Self {
+        let seq_id = generate_message_seq_id(t.get_source_id());
         t.exclude_temporary_attributes();
-
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(seq_id),
             payload: MessageEnvelope::UserData(t),
         }
     }
 
     pub fn end_of_stream(eos: EndOfStream) -> Self {
+        let seq_id = generate_message_seq_id(&eos.source_id);
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(seq_id),
             payload: MessageEnvelope::EndOfStream(eos),
         }
     }
 
     pub fn shutdown(shutdown: Shutdown) -> Self {
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(0),
             payload: MessageEnvelope::Shutdown(shutdown),
         }
     }
 
     pub fn video_frame(frame: &VideoFrameProxy) -> Self {
+        let seq_id = generate_message_seq_id(frame.get_source_id().as_str());
         let frame_copy = frame.deep_copy();
-
         frame_copy.exclude_temporary_attributes();
         frame_copy.get_all_objects().iter().for_each(|o| {
             o.exclude_temporary_attributes();
@@ -97,7 +178,7 @@ impl Message {
         let inner = trace!(frame_copy.inner.read()).clone();
 
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(seq_id),
             payload: MessageEnvelope::VideoFrame(inner),
         }
     }
@@ -106,14 +187,14 @@ impl Message {
         let mut batch_copy = batch.deep_copy();
         batch_copy.prepare_before_save();
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(0),
             payload: MessageEnvelope::VideoFrameBatch(batch_copy),
         }
     }
 
     pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
         Self {
-            meta: MessageMeta::new(),
+            meta: MessageMeta::new(0),
             payload: MessageEnvelope::VideoFrameUpdate(update),
         }
     }
@@ -247,7 +328,7 @@ pub fn save_message(m: &Message) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::message::{load_message, save_message, Message};
+    use crate::message::{load_message, save_message, validate_seq_id, Message};
     use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
@@ -348,5 +429,82 @@ mod tests {
         let f = m.as_video_frame().unwrap();
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);
+    }
+
+    #[test]
+    fn test_save_load_seq_ids() {
+        let mut f = gen_frame();
+        f.set_source_id("test_save_load_seq_ids".to_string());
+        let ud = UserData::new(f.get_source_id());
+        let eos = EndOfStream::new(f.get_source_id());
+        let mf = Message::video_frame(&f);
+        assert_eq!(mf.meta.seq_id, 1);
+        let mud = Message::user_data(ud);
+        assert_eq!(mud.meta.seq_id, 2);
+        let meos = Message::end_of_stream(eos);
+        assert_eq!(meos.meta.seq_id, 3);
+
+        let ud = UserData::new(format!("{}-2", f.get_source_id()));
+        let eos = EndOfStream::new(format!("{}-2", f.get_source_id()));
+        let mud = Message::user_data(ud);
+        assert_eq!(mud.meta.seq_id, 1);
+        let meos = Message::end_of_stream(eos);
+        assert_eq!(meos.meta.seq_id, 2);
+    }
+
+    #[test]
+    fn test_validate_sequence_ids() {
+        let mut f = gen_frame();
+        f.set_source_id("test_validate_sequence_ids".to_string());
+        let ud = UserData::new(f.get_source_id());
+        let eos = EndOfStream::new(f.get_source_id());
+
+        let mf = Message::video_frame(&f);
+        let mud = Message::user_data(ud.clone());
+        let meos = Message::end_of_stream(eos.clone());
+
+        assert!(validate_seq_id(&mf));
+        assert!(validate_seq_id(&mud));
+        assert!(validate_seq_id(&meos));
+
+        let mf = Message::video_frame(&f);
+        let mud = Message::user_data(ud);
+        let meos = Message::end_of_stream(eos);
+
+        assert!(validate_seq_id(&mf));
+        assert!(validate_seq_id(&mud));
+        assert!(validate_seq_id(&meos));
+    }
+
+    #[test]
+    fn test_validate_sequence_ids_with_misses() {
+        let mut f = gen_frame();
+        f.set_source_id("test_validate_sequence_ids_with_misses".to_string());
+
+        let ud = UserData::new(f.get_source_id());
+        let eos = EndOfStream::new(f.get_source_id());
+
+        let mf = Message::video_frame(&f);
+        let _ = Message::video_frame(&f);
+        let mud = Message::user_data(ud.clone());
+        let meos = Message::end_of_stream(eos.clone());
+
+        assert!(validate_seq_id(&mf));
+        assert!(!validate_seq_id(&mud));
+        assert!(validate_seq_id(&meos));
+    }
+
+    #[test]
+    fn test_validate_sequence_id_reset_on_eos() {
+        let mut f = gen_frame();
+        f.set_source_id("test_validate_sequence_id_reset_on_eos".to_string());
+
+        let eos = EndOfStream::new(f.get_source_id());
+
+        let mf = Message::video_frame(&f);
+        let meos = Message::end_of_stream(eos);
+
+        assert!(validate_seq_id(&meos));
+        assert!(validate_seq_id(&mf));
     }
 }

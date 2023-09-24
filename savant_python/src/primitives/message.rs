@@ -334,4 +334,15 @@ impl Message {
         let batch = self.0.as_video_frame_batch()?;
         Some(VideoFrameBatch(batch.clone()))
     }
+
+    /// Allows validating the sequence id of the message
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the sequence id is valid, False otherwise
+    ///
+    pub fn validate_seq_id(&self) -> bool {
+        savant_core::message::validate_seq_id(&self.0)
+    }
 }
