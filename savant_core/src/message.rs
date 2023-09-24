@@ -7,8 +7,8 @@ use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
 use crate::primitives::{AttributeMethods, Attributive};
 use crate::{trace, version};
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
+use lru::LruCache;
 use parking_lot::{const_mutex, Mutex};
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -17,26 +17,28 @@ lazy_static! {
 }
 
 pub struct SeqStore {
-    generators: HashMap<String, u64>,
-    validators: HashMap<String, u64>,
+    generators: LruCache<String, u64>,
+    validators: LruCache<String, u64>,
 }
+
+const MAX_SEQ_STORE_SIZE: usize = 256;
 
 impl SeqStore {
     fn new() -> Self {
         Self {
-            generators: HashMap::new(),
-            validators: HashMap::new(),
+            generators: LruCache::new(std::num::NonZeroUsize::new(MAX_SEQ_STORE_SIZE).unwrap()),
+            validators: LruCache::new(std::num::NonZeroUsize::new(MAX_SEQ_STORE_SIZE).unwrap()),
         }
     }
 
     pub fn generate_message_seq_id(&mut self, source: &str) -> u64 {
-        let v = self.generators.entry(source.to_string()).or_insert(0);
+        let v = self.generators.get_or_insert_mut(source.to_string(), || 0);
         *v += 1;
         *v
     }
 
     fn validate_seq_i_raw(&mut self, source: &str, seq_id: u64) -> bool {
-        let v = self.validators.entry(source.to_string()).or_insert(0);
+        let v = self.validators.get_or_insert_mut(source.to_string(), || 0);
         if seq_id <= *v {
             log::trace!(target: "savant_rs::message::validate_seq_iq", 
                 "SeqId reset for {}, expected seq_id = {}, received seq_id = {}", 
@@ -59,8 +61,8 @@ impl SeqStore {
     }
 
     pub fn reset_seq_id(&mut self, source: &str) {
-        self.validators.remove(source);
-        self.generators.remove(source);
+        self.validators.pop(source);
+        self.generators.pop(source);
     }
 
     pub fn validate_seq_id(&mut self, m: &Message) -> bool {
