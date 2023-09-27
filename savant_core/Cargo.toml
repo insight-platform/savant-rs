@@ -36,6 +36,7 @@ derive_builder = "0.12"
 rayon = "1.7"
 libloading = "0.8"
 log = "0.4"
+uuid = {version = "1.4", features = ["fast-rng", "v4"]}
 
 [dependencies.tokio]
 version = "1.29"

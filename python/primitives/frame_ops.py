@@ -14,6 +14,10 @@ import json
 from timeit import default_timer as timer
 
 f = gen_frame()
+f.creation_timestamp_ns = 1_000_000_000
+
+print(f.uuid)
+print(f.creation_timestamp_ns)
 
 t = timer()
 for _ in range(1_00):

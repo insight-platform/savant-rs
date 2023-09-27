@@ -36,6 +36,7 @@ log = "0.4"
 opentelemetry = "0.19"
 colored = "2"
 
+
 [dependencies.pyo3]
 version = "0.19"
 

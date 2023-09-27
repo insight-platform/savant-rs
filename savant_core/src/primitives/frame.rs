@@ -10,6 +10,7 @@ use crate::primitives::object::{
 };
 use crate::primitives::{Attribute, Attributive};
 use crate::trace;
+use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
 use hashbrown::HashMap;
@@ -19,6 +20,8 @@ use serde_json::Value;
 use std::fmt::{Debug, Formatter};
 use std::mem;
 use std::sync::{Arc, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
@@ -109,6 +112,9 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 #[archive(check_bytes)]
 pub struct VideoFrame {
     pub source_id: String,
+    pub uuid: u128,
+    #[builder(setter(skip))]
+    pub creation_timestamp_ns: u128,
     pub framerate: String,
     pub width: i64,
     pub height: i64,
@@ -145,6 +151,11 @@ impl Default for VideoFrame {
     fn default() -> Self {
         Self {
             source_id: String::new(),
+            uuid: Uuid::new_v4().as_u128(),
+            creation_timestamp_ns: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
             framerate: String::new(),
             width: 0,
             height: 0,
@@ -167,10 +178,12 @@ impl Default for VideoFrame {
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
-        use crate::version;
+        let frame_uuid = Uuid::from_u128(self.uuid).to_string();
         serde_json::json!(
             {
                 "version": version(),
+                "uuid": frame_uuid,
+                "creation_timestamp_ns": self.creation_timestamp_ns,
                 "type": "VideoFrame",
                 "source_id": self.source_id,
                 "framerate": self.framerate,
@@ -821,6 +834,23 @@ impl VideoFrameProxy {
     }
     pub fn get_time_base(&self) -> (i32, i32) {
         trace!(self.inner.read_recursive()).time_base
+    }
+
+    pub fn get_uuid(&self) -> Uuid {
+        Uuid::from_u128(trace!(self.inner.read_recursive()).uuid)
+    }
+
+    pub fn get_uuid_as_string(&self) -> String {
+        self.get_uuid().to_string()
+    }
+
+    pub fn get_creation_timestamp_ns(&self) -> u128 {
+        trace!(self.inner.read_recursive()).creation_timestamp_ns
+    }
+
+    pub fn set_creation_timestamp_ns(&mut self, creation_timestamp_ns: u128) {
+        let mut inner = trace!(self.inner.write());
+        inner.creation_timestamp_ns = creation_timestamp_ns;
     }
 
     pub fn get_pts(&self) -> i64 {
