@@ -429,6 +429,21 @@ impl VideoFrame {
         self.0.get_pts()
     }
 
+    #[getter]
+    pub fn get_uuid(&self) -> String {
+        self.0.get_uuid_as_string()
+    }
+
+    #[getter]
+    pub fn get_creation_timestamp_ns(&self) -> u128 {
+        self.0.get_creation_timestamp_ns()
+    }
+
+    #[setter]
+    pub fn set_creation_timestamp_ns(&mut self, timestamp: u128) {
+        self.0.set_creation_timestamp_ns(timestamp)
+    }
+
     #[setter]
     pub fn set_pts(&mut self, pts: i64) {
         self.0.set_pts(pts)
