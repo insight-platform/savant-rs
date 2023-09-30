@@ -53,7 +53,7 @@ impl SeqStore {
             true
         } else {
             log::warn!(target: "savant_rs::message::validate_seq_iq", 
-                "Failed to validate seq_id={} for {}, expected={}. SeqId discrepancy is a symptom of message loss.", 
+                "Failed to validate seq_id={} for {}, expected={}. SeqId discrepancy is a symptom of message loss or stream termination without EOS", 
                 seq_id, source, *v + 1);
             *v = seq_id;
             false
