@@ -91,8 +91,9 @@ impl VideoFrameContent {
     }
 
     #[staticmethod]
-    pub fn internal(data: Vec<u8>) -> Self {
-        Self(rust::VideoFrameContent::Internal(data))
+    pub fn internal(data: &PyBytes) -> Self {
+        let bytes = data.as_bytes();
+        Self(rust::VideoFrameContent::Internal(bytes.to_vec()))
     }
 
     #[staticmethod]
