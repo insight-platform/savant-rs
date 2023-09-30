@@ -27,7 +27,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 jmespath = { version = "0.3", features = ["sync"] }
-lru = "0.11"
+lru = {version = "0.11", features = ["hashbrown"] }
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 rkyv = { version = "0.7", features = ["validation", "archive_le"] }
