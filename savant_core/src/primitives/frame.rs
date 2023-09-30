@@ -60,7 +60,7 @@ impl ToSerdeJsonValue for VideoFrameContent {
                 serde_json::json!({"external": data.to_serde_json_value()})
             }
             VideoFrameContent::Internal(_) => {
-                serde_json::json!({ "internal": Value::Null })
+                serde_json::json!({ "internal": Value::String("<blob-omitted>".to_string()) })
             }
             VideoFrameContent::None => Value::Null,
         }
