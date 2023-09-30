@@ -19,7 +19,7 @@ if __name__ == "__main__":
     conf.append_frame_meta_to_otlp_span = True
 
     frame = VideoFrame(source_id="test", framerate="30/1", width=1400, height=720,
-                       content=VideoFrameContent.internal([1,2,3]),
+                       content=VideoFrameContent.internal(bytes("this is it", 'utf-8')),
                        transcoding_method=VideoFrameTranscodingMethod.Encoded, codec="h264", keyframe=True,
                        time_base=(1, 1000000), pts=10000, dts=10000, duration=10)
     frame.add_transformation(VideoFrameTransformation.initial_size(1920, 1080))
