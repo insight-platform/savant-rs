@@ -651,9 +651,10 @@ impl MatchQuery {
     fn not_(a: &MatchQuery) -> MatchQuery {
         MatchQuery(rust::MatchQuery::Not(Box::new(a.0.clone())))
     }
-    /// Break If False predicate
+
+    /// Stop searching If False predicate (short-circuit)
     ///
-    /// In JSON/YAML: break_if_false
+    /// In JSON/YAML: stop_if_false
     ///
     /// Parameters
     /// ----------
@@ -666,8 +667,27 @@ impl MatchQuery {
     ///   Query
     ///
     #[staticmethod]
-    fn break_if_false(a: &MatchQuery) -> MatchQuery {
-        MatchQuery(rust::MatchQuery::BreakIfFalse(Box::new(a.0.clone())))
+    fn stop_if_false(a: &MatchQuery) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::StopIfFalse(Box::new(a.0.clone())))
+    }
+
+    /// Stop searching If True predicate (short-circuit)
+    ///
+    /// In JSON/YAML: stop_if_true
+    ///
+    /// Parameters
+    /// ----------
+    /// a: :py:class:`Query`
+    ///  Query
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
+    #[staticmethod]
+    fn stop_if_true(a: &MatchQuery) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::StopIfTrue(Box::new(a.0.clone())))
     }
 
     /// True if query executed on children objects of an object returns a number of results
@@ -1106,6 +1126,16 @@ impl MatchQuery {
     #[staticmethod]
     fn frame_is_key_frame() -> MatchQuery {
         MatchQuery(rust::MatchQuery::FrameIsKeyFrame)
+    }
+
+    #[staticmethod]
+    fn frame_width(e: IntExpression) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameWidth(e.0))
+    }
+
+    #[staticmethod]
+    fn frame_height(e: IntExpression) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameHeight(e.0))
     }
 
     #[staticmethod]

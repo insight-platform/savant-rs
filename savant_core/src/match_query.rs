@@ -21,9 +21,10 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 pub use crate::query_and as and;
-pub use crate::query_break_if_false as break_if_false;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
+pub use crate::query_stop_if_false as stop_if_false;
+pub use crate::query_stop_if_true as stop_if_true;
 
 pub type VideoObjectsProxyBatch = HashMap<i64, Vec<VideoObjectProxy>>;
 
@@ -232,8 +233,10 @@ pub enum MatchQuery {
     Not(Box<MatchQuery>),
     #[serde(rename = "pass")]
     Idle,
-    #[serde(rename = "break_false")]
-    BreakIfFalse(Box<MatchQuery>),
+    #[serde(rename = "stop_if_false")]
+    StopIfFalse(Box<MatchQuery>),
+    #[serde(rename = "stop_if_true")]
+    StopIfTrue(Box<MatchQuery>),
     // User-defined plugin function
     #[serde(rename = "user_defined_object_predicate")]
     UserDefinedObjectPredicate(String, String),
@@ -247,6 +250,10 @@ pub enum MatchQuery {
     FrameIsKeyFrame,
     #[serde(rename = "frame.transcoding.is_copy")]
     FrameTranscodingIsCopy,
+    #[serde(rename = "frame.width")]
+    FrameWidth(IntExpression),
+    #[serde(rename = "frame.height")]
+    FrameHeight(IntExpression),
 
     // Frame Attributes
     #[serde(rename = "frame.attribute.exists")]
@@ -393,9 +400,14 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 ControlFlow::Continue(x) => ControlFlow::Continue(!x),
                 ControlFlow::Break(x) => ControlFlow::Break(!x),
             },
-            MatchQuery::BreakIfFalse(x) => match x.execute(o, ctx) {
+            MatchQuery::StopIfFalse(x) => match x.execute(o, ctx) {
                 ControlFlow::Continue(true) => ControlFlow::Continue(true),
                 ControlFlow::Continue(false) => ControlFlow::Break(false),
+                ControlFlow::Break(x) => ControlFlow::Break(x),
+            },
+            MatchQuery::StopIfTrue(x) => match x.execute(o, ctx) {
+                ControlFlow::Continue(true) => ControlFlow::Break(true),
+                ControlFlow::Continue(false) => ControlFlow::Continue(false),
                 ControlFlow::Break(x) => ControlFlow::Break(x),
             },
             MatchQuery::WithChildren(q, n) => {
@@ -475,6 +487,22 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                     VideoFrameTranscodingMethod::Copy => ControlFlow::Continue(true),
                     VideoFrameTranscodingMethod::Encoded => ControlFlow::Continue(false),
                 }
+            }
+            MatchQuery::FrameWidth(x) => {
+                let parent_frame_opt = o.get_frame();
+                if parent_frame_opt.is_none() {
+                    return ControlFlow::Continue(false);
+                }
+                let parent_frame = parent_frame_opt.unwrap();
+                x.execute(&parent_frame.get_width(), &mut ())
+            }
+            MatchQuery::FrameHeight(x) => {
+                let parent_frame_opt = o.get_frame();
+                if parent_frame_opt.is_none() {
+                    return ControlFlow::Continue(false);
+                }
+                let parent_frame = parent_frame_opt.unwrap();
+                x.execute(&parent_frame.get_height(), &mut ())
             }
             MatchQuery::FrameAttributeExists(namespace, label) => {
                 let parent_frame_opt = o.get_frame();
@@ -803,9 +831,16 @@ macro_rules! query_not {
 }
 
 #[macro_export]
-macro_rules! query_break_if_false {
+macro_rules! query_stop_if_false {
     ($arg:expr) => {{
-        MatchQuery::BreakIfFalse(Box::new($arg))
+        MatchQuery::StopIfFalse(Box::new($arg))
+    }};
+}
+
+#[macro_export]
+macro_rules! query_stop_if_true {
+    ($arg:expr) => {{
+        MatchQuery::StopIfTrue(Box::new($arg))
     }};
 }
 
@@ -830,17 +865,32 @@ mod tests {
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
 
     #[test]
-    fn test_break_false() {
-        let expr = query_break_if_false!(Id(eq(1)));
+    fn test_stop_false() {
+        let expr = query_stop_if_false!(Id(eq(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
-        let expr = query_break_if_false!(Id(eq(2)));
+        let expr = query_stop_if_false!(Id(eq(2)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Break(false)
+        ));
+    }
+
+    #[test]
+    fn test_stop_true() {
+        let expr = query_stop_if_true!(Id(eq(1)));
+        assert!(matches!(
+            expr.execute_with_new_context(&gen_object(1)),
+            ControlFlow::Break(true)
+        ));
+
+        let expr = query_stop_if_true!(Id(eq(2)));
+        assert!(matches!(
+            expr.execute_with_new_context(&gen_object(1)),
+            ControlFlow::Continue(false)
         ));
     }
 
@@ -1512,5 +1562,18 @@ mod tests {
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
+    }
+
+    #[test]
+    fn test_frame_ops() {
+        let f = gen_frame();
+        let objects = f.access_objects(&or![stop_if_false!(FrameWidth(gt(1280))), Idle]);
+        assert!(objects.is_empty());
+
+        let objects = f.access_objects(&or![stop_if_false!(FrameWidth(eq(1280))), Idle]);
+        assert_eq!(objects.len(), 3);
+
+        let objects = f.access_objects(&or![stop_if_true!(FrameWidth(eq(1280))), Idle]);
+        assert_eq!(objects.len(), 1);
     }
 }
