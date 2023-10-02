@@ -407,7 +407,7 @@ impl VideoFrameProxy {
             .collect::<Vec<_>>();
         drop(inner);
 
-        fiter_map_with_control_flow(objects.into_iter(), |o| q.execute_with_new_context(o))
+        fiter_map_with_control_flow(objects, |o| q.execute_with_new_context(o))
     }
 
     pub fn get_json(&self) -> String {

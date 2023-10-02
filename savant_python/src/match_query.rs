@@ -651,6 +651,24 @@ impl MatchQuery {
     fn not_(a: &MatchQuery) -> MatchQuery {
         MatchQuery(rust::MatchQuery::Not(Box::new(a.0.clone())))
     }
+    /// Break If False predicate
+    ///
+    /// In JSON/YAML: break_if_false
+    ///
+    /// Parameters
+    /// ----------
+    /// a: :py:class:`Query`
+    ///  Query
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Query`
+    ///   Query
+    ///
+    #[staticmethod]
+    fn break_if_false(a: &MatchQuery) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::BreakIfFalse(Box::new(a.0.clone())))
+    }
 
     /// True if query executed on children objects of an object returns a number of results
     /// matching the given integer expression.
@@ -1078,6 +1096,36 @@ impl MatchQuery {
     #[staticmethod]
     fn attribute_defined(namespace: String, label: String) -> MatchQuery {
         MatchQuery(rust::MatchQuery::AttributeExists(namespace, label))
+    }
+
+    #[staticmethod]
+    fn frame_source_id(e: StringExpression) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameSourceId(e.0))
+    }
+
+    #[staticmethod]
+    fn frame_is_key_frame() -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameIsKeyFrame)
+    }
+
+    #[staticmethod]
+    fn frame_transcoding_is_copy() -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameTranscodingIsCopy)
+    }
+
+    #[staticmethod]
+    fn frame_attribute_exists(namespace: String, label: String) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameAttributeExists(namespace, label))
+    }
+
+    #[staticmethod]
+    fn frame_attributes_empty() -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameAttributesEmpty)
+    }
+
+    #[staticmethod]
+    fn frame_attributes_jmes_query(e: String) -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameAttributesJMESQuery(e))
     }
 
     /// Dumps query to JSON string.

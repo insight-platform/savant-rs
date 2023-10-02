@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 pub use crate::query_and as and;
+pub use crate::query_break_if_false as break_if_false;
 pub use crate::query_not as not;
 pub use crate::query_or as or;
 
@@ -230,8 +231,9 @@ pub enum MatchQuery {
     #[serde(rename = "not")]
     Not(Box<MatchQuery>),
     #[serde(rename = "pass")]
-    // pass-through
     Idle,
+    #[serde(rename = "break_false")]
+    BreakIfFalse(Box<MatchQuery>),
     // User-defined plugin function
     #[serde(rename = "user_defined_object_predicate")]
     UserDefinedObjectPredicate(String, String),
@@ -388,9 +390,13 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
             MatchQuery::And(v) => all_with_control_flow(v.iter(), |x| x.execute(o, ctx)),
             MatchQuery::Or(v) => any_with_control_flow(v.iter(), |x| x.execute(o, ctx)),
             MatchQuery::Not(x) => match x.execute(o, ctx) {
-                ControlFlow::Continue(false) => ControlFlow::Continue(true),
-                ControlFlow::Continue(true) => ControlFlow::Break(false),
+                ControlFlow::Continue(x) => ControlFlow::Continue(!x),
                 ControlFlow::Break(x) => ControlFlow::Break(!x),
+            },
+            MatchQuery::BreakIfFalse(x) => match x.execute(o, ctx) {
+                ControlFlow::Continue(true) => ControlFlow::Continue(true),
+                ControlFlow::Continue(false) => ControlFlow::Break(false),
+                ControlFlow::Break(x) => ControlFlow::Break(x),
             },
             MatchQuery::WithChildren(q, n) => {
                 let children = o.get_children();
@@ -442,75 +448,59 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
             MatchQuery::FrameSourceId(se) => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
-                let res = se.execute(&parent_frame.get_source_id(), &mut ());
-                match res {
-                    ControlFlow::Continue(true) => ControlFlow::Continue(true),
-                    ControlFlow::Continue(false) => ControlFlow::Break(false),
-                    _ => panic!("String expression must return ControlFlow::Continue(boolean)"),
-                }
+                se.execute(&parent_frame.get_source_id(), &mut ())
             }
             MatchQuery::FrameIsKeyFrame => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 if let Some(kf) = parent_frame.get_keyframe() {
-                    if kf {
-                        ControlFlow::Continue(true)
-                    } else {
-                        ControlFlow::Break(false)
-                    }
+                    ControlFlow::Continue(kf)
                 } else {
-                    ControlFlow::Break(false)
+                    ControlFlow::Continue(false)
                 }
             }
             MatchQuery::FrameTranscodingIsCopy => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 match parent_frame.get_transcoding_method() {
                     VideoFrameTranscodingMethod::Copy => ControlFlow::Continue(true),
-                    VideoFrameTranscodingMethod::Encoded => ControlFlow::Break(false),
+                    VideoFrameTranscodingMethod::Encoded => ControlFlow::Continue(false),
                 }
             }
             MatchQuery::FrameAttributeExists(namespace, label) => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 let res = !parent_frame
                     .find_attributes(Some(namespace.to_string()), vec![label.to_string()], None)
                     .is_empty();
-                if res {
-                    ControlFlow::Continue(true)
-                } else {
-                    ControlFlow::Break(false)
-                }
+
+                ControlFlow::Continue(res)
             }
             MatchQuery::FrameAttributesEmpty => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 let res = parent_frame.get_attributes().is_empty();
-                if res {
-                    ControlFlow::Continue(true)
-                } else {
-                    ControlFlow::Break(false)
-                }
+                ControlFlow::Continue(res)
             }
             MatchQuery::FrameAttributesJMESQuery(x) => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
-                    return ControlFlow::Break(false);
+                    return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
 
@@ -531,11 +521,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                     || (json_res.is_boolean() && !json_res.as_boolean().unwrap())
                     || (json_res.is_object()) && json_res.as_object().unwrap().is_empty());
 
-                if res {
-                    ControlFlow::Continue(true)
-                } else {
-                    ControlFlow::Break(false)
-                }
+                ControlFlow::Continue(res)
             }
 
             _ => {
@@ -817,6 +803,13 @@ macro_rules! query_not {
 }
 
 #[macro_export]
+macro_rules! query_break_if_false {
+    ($arg:expr) => {{
+        MatchQuery::BreakIfFalse(Box::new($arg))
+    }};
+}
+
+#[macro_export]
 macro_rules! query_or {
     ($($x:expr),+ $(,)?) => ( MatchQuery::Or(vec![$($x),+]) );
 }
@@ -835,6 +828,22 @@ mod tests {
     use crate::primitives::object::IdCollisionResolutionPolicy;
     use crate::primitives::{Attribute, AttributeMethods};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
+
+    #[test]
+    fn test_break_false() {
+        let expr = query_break_if_false!(Id(eq(1)));
+        assert!(matches!(
+            expr.execute_with_new_context(&gen_object(1)),
+            ControlFlow::Continue(true)
+        ));
+
+        let expr = query_break_if_false!(Id(eq(2)));
+        assert!(matches!(
+            expr.execute_with_new_context(&gen_object(1)),
+            ControlFlow::Break(false)
+        ));
+    }
+
     #[test]
     fn test_int() {
         use IntExpression as IE;
