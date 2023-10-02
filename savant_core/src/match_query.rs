@@ -140,7 +140,7 @@ impl ExecutableMatchQuery<&String, ()> for StringExpression {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename = "match")]
 pub enum MatchQuery {
-    #[serde(rename = "object.id")]
+    #[serde(rename = "id")]
     Id(IntExpression),
     #[serde(rename = "namespace")]
     Namespace(StringExpression),
@@ -152,7 +152,7 @@ pub enum MatchQuery {
     Confidence(FloatExpression),
 
     // track ops
-    #[serde(rename = "track.id.defined")]
+    #[serde(rename = "track.defined")]
     TrackDefined,
     #[serde(rename = "track.id")]
     TrackId(IntExpression),

@@ -14,8 +14,10 @@ use savant_core::primitives::{Attribute, Attributive, RBBox};
 use savant_core::test::gen_empty_frame;
 use test::Bencher;
 
+const COUNT: i64 = 100;
+
 fn get_objects() -> Vec<VideoObject> {
-    (0..100)
+    (0..COUNT)
         .into_iter()
         .map(|i| {
             let mut o = VideoObjectBuilder::default()
@@ -75,6 +77,46 @@ fn bench_filtering(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_filtering_idle(b: &mut Bencher) {
+    let expr = stop_if_false!(Idle);
+
+    let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(
+                &VideoObjectProxy::from(o),
+                IdCollisionResolutionPolicy::Error,
+            )
+            .unwrap();
+    }
+    b.iter(|| {
+        let r = frame.access_objects(&expr);
+        assert_eq!(r.len(), COUNT as usize);
+    });
+}
+
+#[bench]
+fn bench_filtering_idle_quick_break(b: &mut Bencher) {
+    let expr = stop_if_true!(Idle);
+
+    let objs = get_objects();
+    let frame = gen_empty_frame();
+    for o in objs {
+        frame
+            .add_object(
+                &VideoObjectProxy::from(o),
+                IdCollisionResolutionPolicy::Error,
+            )
+            .unwrap();
+    }
+    b.iter(|| {
+        let r = frame.access_objects(&expr);
+        assert_eq!(r.len(), 1);
+    });
+}
+
+#[bench]
 fn bench_filtering_with_eval(b: &mut Bencher) {
     register_utility_resolver();
 
@@ -105,7 +147,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
 
 #[bench]
 fn bench_empty_filtering(b: &mut Bencher) {
-    let expr = MatchQuery::Idle;
+    let expr = Idle;
     let objs = get_objects();
     let frame = gen_empty_frame();
     for o in objs {

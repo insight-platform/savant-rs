@@ -18,6 +18,7 @@ eq = IE.eq
 fgt = FE.gt
 
 q = and_(
+    Q.stop_if_false(Q.frame_width(IE.le(1280))),
     Q.eval("""!is_empty(id) || id == 13 || label == "hello" || namespace == "where" """),
     Q.namespace(SE.one_of('savant', 'deepstream')),
     Q.label(SE.one_of('person', 'cyclist')),
