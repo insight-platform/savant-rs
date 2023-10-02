@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "savant_utils",
     "savant_core",
     "savant_python",
     "etcd_dynamic_state",

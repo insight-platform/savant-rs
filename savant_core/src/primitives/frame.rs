@@ -16,6 +16,7 @@ use derive_builder::Builder;
 use hashbrown::HashMap;
 use parking_lot::RwLock;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use savant_utils::iter::fiter_map_with_control_flow;
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
 use std::mem;
@@ -399,20 +400,14 @@ impl VideoFrameProxy {
 
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
-        let resident_objects = inner.resident_objects.clone();
+        let objects = inner
+            .resident_objects
+            .values()
+            .map(|o| VideoObjectProxy::from(o.clone()))
+            .collect::<Vec<_>>();
         drop(inner);
 
-        resident_objects
-            .iter()
-            .filter_map(|(_, o)| {
-                let obj = VideoObjectProxy::from(o.clone());
-                if q.execute_with_new_context(&obj) {
-                    Some(obj)
-                } else {
-                    None
-                }
-            })
-            .collect()
+        fiter_map_with_control_flow(objects.into_iter(), |o| q.execute_with_new_context(o))
     }
 
     pub fn get_json(&self) -> String {

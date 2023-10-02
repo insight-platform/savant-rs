@@ -1077,7 +1077,7 @@ impl MatchQuery {
 
     #[staticmethod]
     fn attribute_defined(namespace: String, label: String) -> MatchQuery {
-        MatchQuery(rust::MatchQuery::AttributeDefined(namespace, label))
+        MatchQuery(rust::MatchQuery::AttributeExists(namespace, label))
     }
 
     /// Dumps query to JSON string.
