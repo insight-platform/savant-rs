@@ -32,6 +32,7 @@ evalexpr = { version = "11", features = ["rand", "regex_support"] }
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 rkyv = { version = "0.7", features = ["validation", "archive_le"] }
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }
+savant_utils = { path = "../savant_utils" }
 derive_builder = "0.12"
 rayon = "1.7"
 libloading = "0.8"
