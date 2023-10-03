@@ -1,14 +1,18 @@
-pub mod stage;
+use std::sync::Arc;
+
+use anyhow::Result;
+use hashbrown::HashMap;
+use opentelemetry::Context;
+
+pub use implementation::PipelineConfiguration;
 
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
-use anyhow::Result;
-use hashbrown::HashMap;
-use opentelemetry::Context;
-use std::sync::Arc;
+
+pub mod stage;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {
@@ -26,7 +30,6 @@ pub(crate) enum PipelinePayload {
     ),
 }
 
-pub use implementation::PipelineConfiguration;
 #[derive(Clone, Default, Debug)]
 pub struct Pipeline(Arc<implementation::Pipeline>);
 
@@ -150,6 +153,16 @@ impl Pipeline {
 }
 
 pub(super) mod implementation {
+    use std::sync::atomic::Ordering;
+    use std::sync::OnceLock;
+
+    use anyhow::{bail, Result};
+    use derive_builder::Builder;
+    use hashbrown::HashMap;
+    use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
+    use opentelemetry::{Context, KeyValue};
+    use parking_lot::RwLock;
+
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
     use crate::pipeline::stage::PipelineStage;
@@ -158,14 +171,6 @@ pub(super) mod implementation {
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
-    use anyhow::{bail, Result};
-    use derive_builder::Builder;
-    use hashbrown::HashMap;
-    use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
-    use opentelemetry::{Context, KeyValue};
-    use parking_lot::RwLock;
-    use std::sync::atomic::Ordering;
-    use std::sync::OnceLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 
@@ -407,12 +412,13 @@ pub(super) mod implementation {
                 .frame_locations
                 .write()
                 .remove(&id)
-                .ok_or(anyhow::anyhow!("Object location not found"))?;
+                .ok_or(anyhow::anyhow!("Object {} location not found", id))?;
 
             if let Some(stage) = self.stages.get(stage) {
+                log::trace!(target: "savant_rs::pipeline", "Delete object {} from stage {}", id, stage.name);
                 let removed = stage.delete(id);
                 if removed.is_none() {
-                    bail!("Object not found in stage")
+                    bail!("Object {} not found in the stage {}", id, stage.name)
                 }
 
                 let mut bind = self.root_spans.write();
@@ -432,7 +438,12 @@ pub(super) mod implementation {
                                 if let Some(frame) = frame_opt {
                                     self.add_frame_json(&frame, &ctx);
                                 } else {
-                                    bail!("Frame {} not found in batch {}", frame_id, id)
+                                    bail!(
+                                        "Frame {} not found in batch {} in the stage {}",
+                                        frame_id,
+                                        id,
+                                        stage.name
+                                    )
                                 }
                                 ctx.span().end();
                                 let root_ctx = bind.remove(&id).unwrap();
@@ -442,7 +453,7 @@ pub(super) mod implementation {
                     }),
                 }
             } else {
-                bail!("Stage not found")
+                bail!("Stage not found (when removing object {})", id)
             }
         }
 
@@ -478,7 +489,7 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_independent_frame(frame_id)
             } else {
-                bail!("Stage not found")
+                bail!("Stage not found (when getting frame {})", frame_id)
             }
         }
 
@@ -491,7 +502,11 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_batched_frame(batch_id, frame_id)
             } else {
-                bail!("Stage not found")
+                bail!(
+                    "Stage not found (when getting frame {} from batch {})",
+                    frame_id,
+                    batch_id
+                )
             }
         }
 
@@ -500,7 +515,7 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_batch(batch_id)
             } else {
-                bail!("Stage not found")
+                bail!("Stage not found (when getting batch {})", batch_id)
             }
         }
 
@@ -509,7 +524,7 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.apply_updates(id)
             } else {
-                bail!("Stage not found")
+                bail!("Stage not found (when applying updates to object {})", id)
             }
         }
 
@@ -518,7 +533,7 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.clear_updates(id)
             } else {
-                bail!("Stage not found")
+                bail!("Stage not found (when clearing updates to object {})", id)
             }
         }
 
@@ -542,7 +557,11 @@ pub(super) mod implementation {
 
             for current_stage in stages {
                 if current_stage != stage {
-                    bail!("All objects must be in the same stage")
+                    bail!(
+                        "All objects {:?} must be in the same stage with ID={}",
+                        ids,
+                        stage
+                    )
                 }
             }
             Ok(stage)
@@ -552,7 +571,7 @@ pub(super) mod implementation {
             let source_index = self.check_ids_in_the_same_stage(&object_ids)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found")
+                bail!("Source stage not found for object IDs {:?}", object_ids)
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(
@@ -561,7 +580,8 @@ pub(super) mod implementation {
             let (dest_index, dest_stage) = self.find_stage(dest_stage_name, source_index)?;
 
             if source_stage.stage_type != dest_stage.stage_type {
-                bail!("The source stage type must be the same as the destination stage type")
+                bail!("The source stage type for {} ({:?}) must be the same as the destination stage type for {} ({:?})", 
+                    source_stage.name, source_stage.stage_type, dest_stage.name, dest_stage.stage_type)
             }
 
             let removed_objects = source_stage_opt
@@ -612,7 +632,7 @@ pub(super) mod implementation {
             let source_index = self.check_ids_in_the_same_stage(&frame_ids)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found")
+                bail!("Source stage not found for frame IDs {:?}", frame_ids)
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(target: "savant_rs::pipeline", "Moving and packing frames {:?} from stage {} to stage {}", frame_ids, source_stage.name, dest_stage_name);
@@ -685,7 +705,7 @@ pub(super) mod implementation {
             let source_index = self.get_stage_for_id(batch_id)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found")
+                bail!("Source stage not found for batch {}", batch_id)
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(target: "savant_rs::pipeline", "Moving and unpacking batch {} from stage {} to stage {}", batch_id, source_stage.name, dest_stage_name);
@@ -764,6 +784,14 @@ pub(super) mod implementation {
 
     #[cfg(test)]
     mod tests {
+        use std::io::sink;
+        use std::sync::atomic::Ordering;
+
+        use opentelemetry::global;
+        use opentelemetry::sdk::export::trace::stdout;
+        use opentelemetry::sdk::propagation::TraceContextPropagator;
+        use opentelemetry::trace::{TraceContextExt, TraceId};
+
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
@@ -771,12 +799,6 @@ pub(super) mod implementation {
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, AttributeMethods};
         use crate::test::gen_frame;
-        use opentelemetry::global;
-        use opentelemetry::sdk::export::trace::stdout;
-        use opentelemetry::sdk::propagation::TraceContextPropagator;
-        use opentelemetry::trace::{TraceContextExt, TraceId};
-        use std::io::sink;
-        use std::sync::atomic::Ordering;
 
         fn create_pipeline() -> anyhow::Result<Pipeline> {
             let pipeline = Pipeline::new(
