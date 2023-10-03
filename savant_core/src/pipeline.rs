@@ -228,7 +228,7 @@ pub(super) mod implementation {
         pub fn set_root_span_name(&self, name: String) -> Result<()> {
             self.root_span_name.set(name).map_err(|last| {
                 anyhow::anyhow!(
-                    "Root span name can only be set once. Current value: {}",
+                    "The root span name can only be set once. The current value: {}",
                     last
                 )
             })
@@ -237,7 +237,7 @@ pub(super) mod implementation {
         pub fn set_sampling_period(&self, period: i64) -> Result<()> {
             self.sampling_period.set(period).map_err(|last| {
                 anyhow::anyhow!(
-                    "Sampling period can only be set once. Current value: {}",
+                    "The sampling period can only be set once. The current value: {}",
                     last
                 )
             })
@@ -285,8 +285,15 @@ pub(super) mod implementation {
 
         pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> Result<()> {
             let cur_stage = self.get_stage_for_id(frame_id)?;
-            self.stages[cur_stage].add_frame_update(frame_id, update)?;
-            Ok(())
+            if let Some(stage) = self.stages.get(cur_stage) {
+                stage.add_frame_update(frame_id, update)
+            } else {
+                bail!(
+                    "Stage ID={} not found when adding update to frame {}",
+                    cur_stage,
+                    frame_id
+                )
+            }
         }
 
         pub fn add_batched_frame_update(
@@ -295,11 +302,16 @@ pub(super) mod implementation {
             frame_id: i64,
             update: VideoFrameUpdate,
         ) -> Result<()> {
-            let stage = self.get_stage_for_id(batch_id)?;
-            if let Some(stage) = self.stages.get(stage) {
+            let cur_stage = self.get_stage_for_id(batch_id)?;
+            if let Some(stage) = self.stages.get(cur_stage) {
                 stage.add_batched_frame_update(batch_id, frame_id, update)
             } else {
-                bail!("Stage not found")
+                bail!(
+                    "Stage ID={} not found when adding update to frame {} in batch {}",
+                    cur_stage,
+                    frame_id,
+                    batch_id
+                )
             }
         }
 
@@ -415,10 +427,10 @@ pub(super) mod implementation {
                 .ok_or(anyhow::anyhow!("Object {} location not found", id))?;
 
             if let Some(stage) = self.stages.get(stage) {
-                log::trace!(target: "savant_rs::pipeline", "Delete object {} from stage {}", id, stage.name);
+                log::trace!(target: "savant_rs::pipeline", "Delete object {} from the stage {}", id, stage.name);
                 let removed = stage.delete(id);
                 if removed.is_none() {
-                    bail!("Object {} not found in the stage {}", id, stage.name)
+                    bail!("Object {} is not found in the stage {}", id, stage.name)
                 }
 
                 let mut bind = self.root_spans.write();
@@ -453,7 +465,7 @@ pub(super) mod implementation {
                     }),
                 }
             } else {
-                bail!("Stage not found (when removing object {})", id)
+                bail!("Stage ID={} not found (when removing object {})", stage, id)
             }
         }
 
@@ -515,7 +527,11 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.get_batch(batch_id)
             } else {
-                bail!("Stage not found (when getting batch {})", batch_id)
+                bail!(
+                    "Stage ID={} not found (when getting batch {})",
+                    stage,
+                    batch_id
+                )
             }
         }
 
@@ -524,7 +540,11 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.apply_updates(id)
             } else {
-                bail!("Stage not found (when applying updates to object {})", id)
+                bail!(
+                    "Stage ID={} not found (when applying updates to object {})",
+                    stage,
+                    id
+                )
             }
         }
 
@@ -533,7 +553,11 @@ pub(super) mod implementation {
             if let Some(stage) = self.stages.get(stage) {
                 stage.clear_updates(id)
             } else {
-                bail!("Stage not found (when clearing updates to object {})", id)
+                bail!(
+                    "Stage ID={} not found (when clearing updates to object {})",
+                    stage,
+                    id
+                )
             }
         }
 
@@ -571,7 +595,11 @@ pub(super) mod implementation {
             let source_index = self.check_ids_in_the_same_stage(&object_ids)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found for object IDs {:?}", object_ids)
+                bail!(
+                    "Source stage ID={} not found for object IDs {:?}",
+                    source_index,
+                    object_ids
+                )
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(
@@ -632,7 +660,11 @@ pub(super) mod implementation {
             let source_index = self.check_ids_in_the_same_stage(&frame_ids)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found for frame IDs {:?}", frame_ids)
+                bail!(
+                    "Source stage ID={} not found for frame IDs {:?}",
+                    source_index,
+                    frame_ids
+                )
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(target: "savant_rs::pipeline", "Moving and packing frames {:?} from stage {} to stage {}", frame_ids, source_stage.name, dest_stage_name);
@@ -705,7 +737,11 @@ pub(super) mod implementation {
             let source_index = self.get_stage_for_id(batch_id)?;
             let source_stage_opt = self.stages.get(source_index);
             if source_stage_opt.is_none() {
-                bail!("Source stage not found for batch {}", batch_id)
+                bail!(
+                    "Source stage ID={} not found for batch {}",
+                    source_index,
+                    batch_id
+                )
             }
             let source_stage = source_stage_opt.unwrap();
             log::trace!(target: "savant_rs::pipeline", "Moving and unpacking batch {} from stage {} to stage {}", batch_id, source_stage.name, dest_stage_name);
@@ -773,7 +809,7 @@ pub(super) mod implementation {
             let stage = self.get_stage_for_id(frame_id)?;
             let stage_opt = self.stages.get(stage);
             if stage_opt.is_none() {
-                bail!("Stage not found");
+                bail!("Stage ID={} not found", stage);
             }
 
             stage_opt
