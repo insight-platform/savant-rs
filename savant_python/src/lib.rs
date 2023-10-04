@@ -1,6 +1,7 @@
 pub mod capi;
 pub mod logging;
 pub mod match_query;
+pub mod persistent_queue;
 pub mod pipeline;
 /// # Basic objects
 ///
