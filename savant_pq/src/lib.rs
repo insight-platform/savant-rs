@@ -21,6 +21,9 @@ impl PersistentQueue {
     pub fn new(path: String, max_elements: u128) -> Result<Self> {
         let mut db_opts = Options::default();
         db_opts.create_if_missing(true);
+        db_opts.set_write_buffer_size(64 * 1024 * 1024);
+        db_opts.set_max_write_buffer_number(5);
+        db_opts.set_min_write_buffer_number_to_merge(2);
         db_opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(U128_BYTE_LEN));
 
         let db = DB::open(&db_opts, &path)?;
@@ -94,7 +97,7 @@ impl PersistentQueue {
 
         batch.put(
             Self::index_to_key(WRITE_INDEX_CELL),
-            &self.write_index.to_le_bytes(),
+            self.write_index.to_le_bytes(),
         );
 
         self.db.write(batch)?;
@@ -119,7 +122,7 @@ impl PersistentQueue {
             }
             batch.put(
                 Self::index_to_key(READ_INDEX_CELL),
-                &self.read_index.to_le_bytes(),
+                self.read_index.to_le_bytes(),
             );
             self.db.write(batch)?;
             Ok(Some(v))

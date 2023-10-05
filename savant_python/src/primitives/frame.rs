@@ -113,9 +113,14 @@ impl VideoFrameContent {
         matches!(&self.0, rust::VideoFrameContent::None)
     }
 
-    pub fn get_data(&self) -> PyResult<Vec<u8>> {
+    pub fn get_data(&self) -> PyResult<PyObject> {
         match &self.0 {
-            rust::VideoFrameContent::Internal(data) => Ok(data.clone()),
+            rust::VideoFrameContent::Internal(data) => Ok({
+                with_gil!(|py| {
+                    let bytes = PyBytes::new(py, data);
+                    PyObject::from(bytes)
+                })
+            }),
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
             )),
