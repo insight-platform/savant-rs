@@ -738,19 +738,19 @@ impl BBox {
 
         let bbox = self.new_padded(&padding_with_border);
 
-        let left = 0.0f32.max(bbox.get_left()).floor();
-        let top = 0.0f32.max(bbox.get_top()).floor();
-        let right = max_x.min(bbox.get_right()).ceil();
-        let bottom = max_y.min(bbox.get_bottom()).ceil();
+        let left = 2.0f32.max(bbox.get_left()).ceil();
+        let top = 2.0f32.max(bbox.get_top()).ceil();
+        let right = (max_x - 2.0).min(bbox.get_right()).floor();
+        let bottom = (max_y - 2.0).min(bbox.get_bottom()).floor();
 
         let mut width = 1.0f32.max(right - left);
         if width as i64 % 2 != 0 {
-            width += 1.0;
+            width -= 1.0;
         }
 
         let mut height = 1.0f32.max(bottom - top);
         if height as i64 % 2 != 0 {
-            height += 1.0;
+            height -= 1.0;
         }
 
         Ok(BBox::new(

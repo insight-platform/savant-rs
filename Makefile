@@ -1,6 +1,7 @@
 .PHONY: docs clippy build_savant build_etcd_dynamic_state build_savant_release build_etcd_dynamic_state_release clean tests bench
 
-dev: clean clippy build_savant build_etcd_dynamic_state
+# build_etcd_dynamic_state
+dev: clean clippy build_savant
 
 docs: build_savant build_etcd_dynamic_state docs/source/index.rst
 	@echo "Building docs..."

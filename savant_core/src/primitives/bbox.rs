@@ -468,10 +468,10 @@ impl RBBox {
         if self.get_angle().unwrap_or(0.0) != 0.0 {
             bail!("Cannot get left, top, width, height for rotated bounding box",)
         }
-        let top = self.get_top()?.floor();
-        let left = self.get_left()?.floor();
-        let bottom = self.get_bottom()?.ceil();
-        let right = self.get_right()?.ceil();
+        let top = self.get_top()?.ceil();
+        let left = self.get_left()?.ceil();
+        let bottom = self.get_bottom()?.floor();
+        let right = self.get_right()?.floor();
 
         Ok((left as i64, top as i64, right as i64, bottom as i64))
     }
