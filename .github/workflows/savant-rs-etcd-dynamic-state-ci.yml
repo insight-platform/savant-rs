@@ -26,7 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - image: ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.1
+            arch: aarch64
+          - image: ghcr.io/insight-platform/manylinux_2_28_x64:v0.0.1
+            arch: x86_64
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -36,11 +40,12 @@ jobs:
       - name: Install dependencies
         run: sudo sh -e install_deps.sh
 
-      - name: Build wheels
+      - name: Build wheels for ${{ matrix.arch }} with ${{ matrix.image }}
         uses: PyO3/maturin-action@v1
         with:
           working-directory: savant_etcd_dynamic_state
-          target: ${{ matrix.target }}
+          target: ${{ matrix.arch }}
+          container: ${{ matrix.image }}
           args: --release --out dist --find-interpreter
           sccache: 'true'
           manylinux: auto
