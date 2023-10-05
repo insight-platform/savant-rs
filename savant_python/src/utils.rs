@@ -5,7 +5,6 @@ use pyo3::prelude::*;
 pub use fps_meter::FpsMeter;
 
 use crate::logging::{log_level_enabled, LogLevel};
-use crate::persistent_queue::PersistentQueue;
 use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
 use crate::primitives::message::loader::*;
 use crate::primitives::message::loader::{
@@ -159,7 +158,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoObjectBBoxType>()?;
     m.add_class::<VideoObjectBBoxTransformation>()?;
     m.add_class::<BBoxMetricType>()?;
-    m.add_class::<PersistentQueue>()?;
 
     Ok(())
 }

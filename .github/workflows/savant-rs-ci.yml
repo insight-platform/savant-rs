@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Savant Python CI
+name: Savant-RS Python
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref }}

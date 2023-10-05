@@ -17,7 +17,6 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 savant_core = { path = "../savant_core" }
-savant_pq = { path = "../savant_pq" }
 serde_json = "1.0"
 serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }

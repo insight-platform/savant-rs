@@ -13,4 +13,4 @@ fi
 echo "Additional build args: $ARGS"
 
 cd savant_python && maturin build $ARGS --release --out /opt/dist
-cd ../savant_etcd_dynamic_state && maturin build $ARGS --release --out /opt/dist
+
