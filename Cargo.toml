@@ -4,13 +4,13 @@ members = [
     "savant_core",
     "savant_python",
     "etcd_dynamic_state",
-    "savant_etcd_dynamic_state",
-    "savant_algebra"
+    #"savant_etcd_dynamic_state",
+    #"savant_algebra"
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.70"
+version = "0.1.71"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"

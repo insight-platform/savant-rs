@@ -1,8 +1,9 @@
 use crate::primitives::segment::Intersection;
 use crate::primitives::{Point, PolygonalArea, RBBox};
+use crate::with_gil;
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::primitives::attribute_value::AttributeValueVariant;
 use savant_core::primitives::rust;
 use std::collections::hash_map::DefaultHasher;
@@ -514,9 +515,12 @@ impl AttributeValue {
     /// Optional[Tuple[List[int], bytes]]
     ///   The value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
     ///
-    pub fn as_bytes(&self) -> Option<(Vec<i64>, Vec<u8>)> {
+    pub fn as_bytes(&self) -> Option<(Vec<i64>, PyObject)> {
         match &self.0.value {
-            AttributeValueVariant::Bytes(dims, bytes) => Some((dims.clone(), bytes.clone())),
+            AttributeValueVariant::Bytes(dims, bytes) => Some((
+                dims.clone(),
+                with_gil!(|py| PyObject::from(PyBytes::new(py, bytes))),
+            )),
             _ => None,
         }
     }

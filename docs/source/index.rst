@@ -12,13 +12,5 @@ Core Library
 
    modules/savant_rs/module
 
-*********************************
-Dynamic State Library
-*********************************
-
-.. toctree::
-   :maxdepth: 1
-
-   modules/savant_rs_etcd_dynamic_state/module
 
 

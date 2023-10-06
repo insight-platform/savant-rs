@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: Savant Python CI
+name: Savant-RS Python
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref }}
@@ -26,31 +26,40 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - docker_file: docker/Dockerfile.manylinux_2_28_ARM64
+            name: manylinux-arm
+            arch: linux/arm64
+          - docker_file: docker/Dockerfile.manylinux_2_28_X64
+            name: manylinux-x86
+            arch: linux/amd64
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
 
-      - name: Install dependencies
-        run: sudo sh -e install_deps.sh
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
+      - name: Set up docker buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build docker image
+        uses: docker/build-push-action@v4
         with:
-          working-directory: savant_python
-          target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
-          sccache: 'true'
-          manylinux: auto
-          docker-options: -v /usr/bin/protoc:/usr/bin/protoc
+          file: ${{ matrix.docker_file }}
+          platforms: ${{ matrix.arch }}
+          tags: savant-rs
+          push: false
+          load: true
+          context: .
+
+      - name: Copy wheels
+        run: docker run --rm -v $(pwd)/distfiles:/tmp savant-rs cp -R /opt/dist /tmp
 
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
-          name: wheels
-          path: savant_python/dist
+          name: wheels-${{ matrix.name }}
+          path: distfiles/dist
 
   release:
     name: Release
