@@ -363,11 +363,7 @@ impl VideoObject {
     #[setter]
     pub fn set_id(&self, id: i64) -> PyResult<()> {
         self.0.set_id(id).map_err(|e| {
-            PyRuntimeError::new_err(format!(
-                "Failed to set object id to {}: {}",
-                id,
-                e.to_string()
-            ))
+            PyRuntimeError::new_err(format!("Failed to set object id to {}: {}", id, e))
         })
     }
 

@@ -6,7 +6,7 @@ use crate::primitives::user_data::UserData;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, Shutdown, VideoFrameBatch};
 use crate::utils::otlp::PropagatedContext;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use pyo3::{pyclass, pyfunction, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
 
 #[pyclass]
@@ -345,4 +345,9 @@ impl Message {
     pub fn validate_seq_id(&self) -> bool {
         savant_core::message::validate_seq_id(&self.0)
     }
+}
+
+#[pyfunction]
+pub(crate) fn clear_source_seq_id(source: &str) {
+    savant_core::message::clear_source_seq_id(source);
 }

@@ -79,9 +79,8 @@ impl Pipeline {
         configuration: PipelineConfiguration,
     ) -> PyResult<Self> {
         let stages = stages.into_iter().map(|(n, t)| (n, t.into())).collect();
-        let p = rust::Pipeline::new(stages, configuration.0).map_err(|e| {
-            PyValueError::new_err(format!("Failed to create pipeline: {}", e.to_string()))
-        })?;
+        let p = rust::Pipeline::new(stages, configuration.0)
+            .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {}", e)))?;
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(p))

@@ -89,6 +89,11 @@ fn generate_message_seq_id(source: &str) -> u64 {
     seq_store.generate_message_seq_id(source)
 }
 
+pub fn clear_source_seq_id(source: &str) {
+    let mut seq_store = trace!(SEQ_STORE.lock());
+    seq_store.reset_seq_id(source);
+}
+
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub enum MessageEnvelope {
