@@ -35,10 +35,10 @@ impl FrameOrdering {
     }
 
     pub fn delete(&self, frame_id: i64) -> Result<i64> {
-        Ok(self.order.write().remove(&frame_id).ok_or(anyhow::anyhow!(
+        self.order.write().remove(&frame_id).ok_or(anyhow::anyhow!(
             "Frame {} not found in the ordering",
             frame_id
-        ))?)
+        ))
     }
 }
 
