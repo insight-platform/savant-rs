@@ -12,7 +12,8 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 
-pub mod stage;
+pub(crate) mod frame_ordering;
+pub(crate) mod stage;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {
@@ -46,6 +47,14 @@ impl Pipeline {
 
     pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
+    }
+
+    pub fn get_previous_frame_id(&self, source_id: &str, frame_id: i64) -> Result<Option<i64>> {
+        self.0.get_previous_frame_id(source_id, frame_id)
+    }
+
+    pub fn clear_source_ordering(&self, source_id: &str) -> Result<()> {
+        self.0.clear_source_ordering(source_id)
     }
 
     pub fn set_root_span_name(&self, name: String) -> Result<()> {
@@ -156,7 +165,7 @@ pub(super) mod implementation {
     use std::sync::atomic::Ordering;
     use std::sync::OnceLock;
 
-    use anyhow::{bail, Result};
+    use anyhow::{anyhow, bail, Result};
     use derive_builder::Builder;
     use hashbrown::HashMap;
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
@@ -165,6 +174,7 @@ pub(super) mod implementation {
 
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
+    use crate::pipeline::frame_ordering::FrameOrdering;
     use crate::pipeline::stage::PipelineStage;
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame::VideoFrameProxy;
@@ -187,6 +197,7 @@ pub(super) mod implementation {
         root_spans: RwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
         frame_locations: RwLock<HashMap<i64, usize>>,
+        frame_ordering: RwLock<HashMap<String, FrameOrdering>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
@@ -385,6 +396,7 @@ pub(super) mod implementation {
 
             self.frame_counter.fetch_add(1, Ordering::SeqCst);
             let id_counter = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
+            let source_id = frame.get_source_id();
 
             if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
                 self.root_spans
@@ -408,8 +420,42 @@ pub(super) mod implementation {
             stage.add_frame_payload(id_counter, frame_payload)?;
             self.frame_locations.write().insert(id_counter, index);
 
+            let mut ordering = self.frame_ordering.write();
+            ordering
+                .entry(source_id)
+                .or_insert(FrameOrdering::new())
+                .add(id_counter);
+
             log::trace!(target: "savant_rs::pipeline", "Added frame {} to stage {}", id_counter, stage_name);
             Ok(id_counter)
+        }
+
+        pub fn get_previous_frame_id(&self, source_id: &str, frame_id: i64) -> Result<Option<i64>> {
+            let ordering = self.frame_ordering.read();
+            let source_ordering = ordering.get(source_id).ok_or_else(|| {
+                anyhow!("Unable to find ordering info for source id = {}", source_id)
+            })?;
+            source_ordering.get(frame_id)
+        }
+
+        pub fn clear_source_ordering(&self, source_id: &str) -> Result<()> {
+            let mut ordering = self.frame_ordering.write();
+            ordering.remove(source_id).ok_or_else(|| {
+                anyhow!(
+                    "Unable to remove ordering info for source id = {}",
+                    source_id
+                )
+            })?;
+            Ok(())
+        }
+
+        fn delete_frame_from_ordering(&self, source_id: &str, frame_id: i64) -> Result<()> {
+            let mut ordering = self.frame_ordering.write();
+            let source_ordering = ordering.get_mut(source_id).ok_or_else(|| {
+                anyhow!("Unable to find ordering info for source id = {}", source_id)
+            })?;
+            source_ordering.delete(frame_id)?;
+            Ok(())
         }
 
         fn add_frame_json(&self, frame: &VideoFrameProxy, ctx: &Context) {
@@ -439,6 +485,7 @@ pub(super) mod implementation {
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
+                        self.delete_frame_from_ordering(&frame.get_source_id(), id)?;
                         Ok(HashMap::from([(id, root_ctx)]))
                     }
                     PipelinePayload::Batch(batch, _, contexts) => Ok({
@@ -449,6 +496,7 @@ pub(super) mod implementation {
                                 let frame_opt = batch.get(frame_id);
                                 if let Some(frame) = frame_opt {
                                     self.add_frame_json(&frame, &ctx);
+                                    self.delete_frame_from_ordering(&frame.get_source_id(), id)?;
                                 } else {
                                     bail!(
                                         "Frame {} not found in batch {} in the stage {}",
@@ -907,6 +955,28 @@ pub(super) mod implementation {
             assert_eq!(pipeline.get_stage_queue_len("proc1")?, 1);
             pipeline.get_batch(batch_id)?;
             pipeline.get_batched_frame(batch_id, id)?;
+            Ok(())
+        }
+
+        #[test]
+        fn test_ordering() -> anyhow::Result<()> {
+            let pipeline = create_pipeline()?;
+            let frame = gen_frame();
+            let source_id = frame.get_source_id();
+            let id = pipeline.add_frame("input", frame)?;
+            let res = pipeline.get_previous_frame_id(&source_id, id)?;
+            assert_eq!(res, None);
+            let id2 = pipeline.add_frame("input", gen_frame())?;
+            let res = pipeline.get_previous_frame_id(&source_id, id2)?;
+            assert_eq!(res, Some(id));
+
+            pipeline.delete(id)?;
+            let res = pipeline.get_previous_frame_id(&source_id, id);
+            assert!(matches!(res, Err(_)));
+
+            pipeline.clear_source_ordering(&source_id)?;
+            let res = pipeline.get_previous_frame_id(&source_id, id2);
+            assert!(matches!(res, Err(_)));
             Ok(())
         }
 
