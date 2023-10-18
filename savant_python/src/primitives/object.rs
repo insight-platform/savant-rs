@@ -53,7 +53,7 @@ impl VideoObject {
     }
 
     pub fn get_track_id(&self) -> Option<i64> {
-        self.0.get_label_id()
+        self.0.get_track_id()
     }
 
     #[allow(clippy::too_many_arguments)]
