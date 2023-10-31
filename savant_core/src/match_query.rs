@@ -8,7 +8,7 @@ use crate::pluggable_udf_api::{
     call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
     is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
-use crate::primitives::frame::VideoFrameTranscodingMethod;
+use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::{AttributeMethods, BBoxMetricType, RBBox};
 use parking_lot::RwLockReadGuard;
@@ -254,6 +254,8 @@ pub enum MatchQuery {
     FrameWidth(IntExpression),
     #[serde(rename = "frame.height")]
     FrameHeight(IntExpression),
+    #[serde(rename = "frame.no_video")]
+    FrameNoVideo,
 
     // Frame Attributes
     #[serde(rename = "frame.attribute.exists")]
@@ -504,6 +506,20 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let parent_frame = parent_frame_opt.unwrap();
                 x.execute(&parent_frame.get_height(), &mut ())
             }
+
+            MatchQuery::FrameNoVideo => {
+                let parent_frame_opt = o.get_frame();
+                if parent_frame_opt.is_none() {
+                    return ControlFlow::Continue(false);
+                }
+                let parent_frame = parent_frame_opt.unwrap();
+
+                ControlFlow::Continue(matches!(
+                    parent_frame.get_content(),
+                    VideoFrameContent::None
+                ))
+            }
+
             MatchQuery::FrameAttributeExists(namespace, label) => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {

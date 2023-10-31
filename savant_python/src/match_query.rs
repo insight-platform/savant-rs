@@ -1138,6 +1138,15 @@ impl MatchQuery {
         MatchQuery(rust::MatchQuery::FrameHeight(e.0))
     }
 
+    /// When the frame does not have associated video, because of sparsity, for example
+    ///
+    #[staticmethod]
+    fn frame_no_video() -> MatchQuery {
+        MatchQuery(rust::MatchQuery::FrameNoVideo)
+    }
+
+    /// When the processing is configured in pass-through mode
+    ///
     #[staticmethod]
     fn frame_transcoding_is_copy() -> MatchQuery {
         MatchQuery(rust::MatchQuery::FrameTranscodingIsCopy)
