@@ -86,33 +86,6 @@ impl Pipeline {
         Ok(Self(p))
     }
 
-    /// Returns the id of the frame which is the previous to the current one
-    ///
-    /// Parameters
-    /// ----------
-    /// source_id : str
-    ///   The id of the source.
-    /// frame_id : int
-    ///   The id of the frame.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    ///   The id of the previous frame.
-    /// None
-    ///   If the frame is the first one.
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///   If the source does not exist. If the frame does not exist.
-    ///
-    fn get_previous_frame_id(&self, source_id: &str, frame_id: i64) -> PyResult<Option<i64>> {
-        self.0
-            .get_previous_frame_id(source_id, frame_id)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
     /// Clears the ordering for source, called on dead stream eviction.
     ///
     /// Parameters

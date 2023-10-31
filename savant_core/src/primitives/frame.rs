@@ -112,6 +112,8 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
 #[archive(check_bytes)]
 pub struct VideoFrame {
+    #[builder(setter(skip))]
+    pub previous_frame_seq_id: Option<i64>,
     pub source_id: String,
     pub uuid: u128,
     #[builder(setter(skip))]
@@ -151,6 +153,7 @@ const DEFAULT_OBJECTS_COUNT: usize = 64;
 impl Default for VideoFrame {
     fn default() -> Self {
         Self {
+            previous_frame_seq_id: None,
             source_id: String::new(),
             uuid: Uuid::new_v4().as_u128(),
             creation_timestamp_ns: SystemTime::now()
@@ -816,6 +819,15 @@ impl VideoFrameProxy {
 
     pub fn get_source_id(&self) -> String {
         trace!(self.inner.read_recursive()).source_id.clone()
+    }
+
+    pub fn get_previous_frame_seq_id(&self) -> Option<i64> {
+        trace!(self.inner.read_recursive()).previous_frame_seq_id
+    }
+
+    pub(crate) fn set_previous_frame_seq_id(&mut self, previous_frame_seq_id: Option<i64>) {
+        let mut inner = trace!(self.inner.write());
+        inner.previous_frame_seq_id = previous_frame_seq_id;
     }
 
     pub fn set_source_id(&mut self, source_id: String) {
