@@ -7,10 +7,23 @@
 Core Library
 ************************
 
-.. toctree::
-   :maxdepth: 1
+.. automodule:: savant_rs
+   :members:
+   :undoc-members:
 
-   modules/savant_rs/module
+.. toctree::
+   :maxdepth: 2
+
+   modules/savant_rs/draw_spec
+   modules/savant_rs/logging
+   modules/savant_rs/pipeline
+   modules/savant_rs/primitives
+   modules/savant_rs/primitives_geometry
+   modules/savant_rs/utils
+   modules/savant_rs/utils_symbol_mapper
+   modules/savant_rs/utils_udf_api
+   modules/savant_rs/utils_serialization
+   modules/savant_rs/video_object_query
 
 
 
