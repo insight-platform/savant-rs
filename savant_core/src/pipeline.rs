@@ -13,6 +13,7 @@ use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 
 pub(crate) mod stage;
+pub mod stats;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {
@@ -182,6 +183,12 @@ pub(super) mod implementation {
     pub struct PipelineConfiguration {
         #[builder(default = "false")]
         pub append_frame_meta_to_otlp_span: bool,
+        #[builder(default = "None")]
+        pub timestamp_collection_period: Option<i64>,
+        #[builder(default = "None")]
+        pub frame_counter_collection_period: Option<f64>,
+        #[builder(default = "0")]
+        pub collection_history: usize,
     }
 
     #[derive(Debug, Default)]
