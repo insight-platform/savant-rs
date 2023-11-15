@@ -2,8 +2,6 @@ use evalexpr::Value;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-pub use fps_meter::FpsMeter;
-
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
 use crate::primitives::message::loader::*;
@@ -34,7 +32,6 @@ use crate::{release_gil, with_gil};
 
 pub mod byte_buffer;
 pub mod eval_resolvers;
-pub mod fps_meter;
 pub mod otlp;
 pub mod pluggable_udf_api;
 pub mod python;
@@ -154,7 +151,6 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;
     m.add_class::<MaybeTelemetrySpan>()?;
-    m.add_class::<FpsMeter>()?;
     m.add_class::<ByteBuffer>()?;
     m.add_class::<VideoObjectBBoxType>()?;
     m.add_class::<VideoObjectBBoxTransformation>()?;

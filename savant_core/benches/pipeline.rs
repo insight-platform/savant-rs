@@ -4,8 +4,9 @@ extern crate test;
 
 use anyhow::Result;
 use opentelemetry::trace::TraceContextExt;
+use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
-use savant_core::pipeline::{Pipeline, PipelineConfiguration};
+use savant_core::rust::PipelineConfigurationBuilder;
 use savant_core::telemetry::{init_jaeger_tracer, init_noop_tracer};
 use savant_core::test::gen_frame;
 use test::Bencher;
@@ -51,9 +52,9 @@ fn get_pipeline(
         // inter
         (String::from("drop"), PipelineStagePayloadType::Frame),
     ];
-    let conf = PipelineConfiguration {
-        append_frame_meta_to_otlp_span,
-    };
+    let conf = PipelineConfigurationBuilder::default()
+        .append_frame_meta_to_otlp_span(append_frame_meta_to_otlp_span)
+        .build()?;
 
     let pipeline = Pipeline::new(stages.clone(), conf)?;
     stages.pop();
