@@ -19,6 +19,67 @@ pub enum VideoPipelineStagePayloadType {
     Batch,
 }
 
+#[pyclass]
+pub enum FrameProcessingRecordType {
+    Initial,
+    Frame,
+    Timestamp,
+}
+
+impl From<FrameProcessingRecordType> for rust::FrameProcessingRecordType {
+    fn from(t: FrameProcessingRecordType) -> Self {
+        match t {
+            FrameProcessingRecordType::Initial => rust::FrameProcessingRecordType::Initial,
+            FrameProcessingRecordType::Frame => rust::FrameProcessingRecordType::Frame,
+            FrameProcessingRecordType::Timestamp => rust::FrameProcessingRecordType::Timestamp,
+        }
+    }
+}
+
+impl From<rust::FrameProcessingRecordType> for FrameProcessingRecordType {
+    fn from(t: rust::FrameProcessingRecordType) -> Self {
+        match t {
+            rust::FrameProcessingRecordType::Initial => FrameProcessingRecordType::Initial,
+            rust::FrameProcessingRecordType::Frame => FrameProcessingRecordType::Frame,
+            rust::FrameProcessingRecordType::Timestamp => FrameProcessingRecordType::Timestamp,
+        }
+    }
+}
+
+#[pyclass]
+pub struct FrameProcessingRecord(rust::FrameProcessingRecord);
+
+#[pymethods]
+impl FrameProcessingRecord {
+    #[getter]
+    fn id(&self) -> i64 {
+        self.0.id
+    }
+
+    #[getter]
+    fn ts(&self) -> i64 {
+        self.0.ts
+    }
+
+    #[getter]
+    fn frame_no(&self) -> i64 {
+        self.0.frame_no
+    }
+
+    #[getter]
+    fn record_type(&self) -> FrameProcessingRecordType {
+        self.0.record_type.clone().into()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self.0)
+    }
+
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+}
+
 impl From<VideoPipelineStagePayloadType> for rust::PipelineStagePayloadType {
     fn from(p: VideoPipelineStagePayloadType) -> Self {
         match p {
@@ -42,6 +103,8 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
     m.add_class::<PipelineConfiguration>()?;
     m.add_class::<Pipeline>()?;
+    m.add_class::<FrameProcessingRecord>()?;
+    m.add_class::<FrameProcessingRecordType>()?;
     Ok(())
 }
 
@@ -60,13 +123,42 @@ pub(crate) struct PipelineConfiguration(rust::PipelineConfiguration);
 #[pymethods]
 impl PipelineConfiguration {
     #[new]
-    pub fn new() -> Self {
-        Self(rust::PipelineConfiguration::default())
+    pub fn new() -> PyResult<Self> {
+        Ok(Self(
+            rust::PipelineConfigurationBuilder::default()
+                .build()
+                .map_err(|e| {
+                    PyValueError::new_err(format!("Failed to create pipeline configuration: {}", e))
+                })?,
+        ))
     }
 
     #[setter]
     pub fn append_frame_meta_to_otlp_span(&mut self, v: bool) {
         self.0.append_frame_meta_to_otlp_span = v;
+    }
+
+    #[setter]
+    pub fn timestamp_period(&mut self, v: Option<i64>) {
+        self.0.timestamp_period = v;
+    }
+
+    #[setter]
+    pub fn frame_period(&mut self, v: Option<i64>) {
+        self.0.frame_period = v;
+    }
+
+    #[setter]
+    pub fn collection_history(&mut self, v: usize) {
+        self.0.collection_history = v;
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self.0)
+    }
+
+    fn __str__(&self) -> String {
+        format!("{:?}", self.0)
     }
 }
 
@@ -84,6 +176,14 @@ impl Pipeline {
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(p))
+    }
+
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+        self.0
+            .get_stat_records(max_n)
+            .into_iter()
+            .map(FrameProcessingRecord)
+            .collect()
     }
 
     /// Clears the ordering for source, called on dead stream eviction.

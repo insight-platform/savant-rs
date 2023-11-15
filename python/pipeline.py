@@ -24,6 +24,8 @@ if __name__ == "__main__":
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
+    conf.frame_period = 1 # every single frame, insane
+    conf.timestamp_period = 1000 # every sec
 
     p = VideoPipeline("video-pipeline-root", [
         ("input", VideoPipelineStagePayloadType.Frame),
@@ -158,5 +160,7 @@ if __name__ == "__main__":
         log(LogLevel.Error, "root", "Exception: {}".format(e))
 
     time.sleep(0.3)
+    recs = p.get_stat_records(10)
+    print(recs)
 
     # del root_spans_1

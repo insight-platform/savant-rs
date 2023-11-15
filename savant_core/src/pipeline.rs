@@ -5,6 +5,7 @@ use hashbrown::HashMap;
 use opentelemetry::Context;
 
 pub use implementation::PipelineConfiguration;
+pub use implementation::PipelineConfigurationBuilder;
 
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
@@ -43,6 +44,10 @@ impl Pipeline {
             stages,
             configuration,
         )?)))
+    }
+
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingRecord> {
+        self.0.get_stat_records(max_n)
     }
 
     pub fn memory_handle(&self) -> usize {
@@ -171,6 +176,7 @@ pub(super) mod implementation {
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
     use crate::pipeline::stage::PipelineStage;
+    use crate::pipeline::stats::{FrameProcessingRecord, Stats};
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
@@ -183,11 +189,11 @@ pub(super) mod implementation {
     pub struct PipelineConfiguration {
         #[builder(default = "false")]
         pub append_frame_meta_to_otlp_span: bool,
-        #[builder(default = "None")]
-        pub timestamp_collection_period: Option<i64>,
-        #[builder(default = "None")]
-        pub frame_counter_collection_period: Option<f64>,
-        #[builder(default = "0")]
+        #[builder(default = "Some(1000)")]
+        pub timestamp_period: Option<i64>,
+        #[builder(default = "Some(1000)")]
+        pub frame_period: Option<i64>,
+        #[builder(default = "10")]
         pub collection_history: usize,
     }
 
@@ -202,6 +208,7 @@ pub(super) mod implementation {
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
+        stats: Stats,
     }
 
     impl Pipeline {
@@ -222,8 +229,14 @@ pub(super) mod implementation {
             stages: Vec<(String, PipelineStagePayloadType)>,
             configuration: PipelineConfiguration,
         ) -> Result<Self> {
+            let stats = Stats::new(
+                configuration.collection_history,
+                configuration.frame_period,
+                configuration.timestamp_period,
+            );
             let mut pipeline = Self {
                 configuration,
+                stats,
                 ..Default::default()
             };
 
@@ -231,6 +244,10 @@ pub(super) mod implementation {
                 pipeline.add_stage(name, stage_type)?;
             }
             Ok(pipeline)
+        }
+
+        pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+            self.stats.get_records(max_n)
         }
 
         pub fn get_id_locations_len(&self) -> usize {
@@ -459,6 +476,8 @@ pub(super) mod implementation {
                 .remove(&id)
                 .ok_or(anyhow::anyhow!("Object {} location not found", id))?;
 
+            self.stats.kick_off();
+
             if let Some(stage) = self.stages.get(stage) {
                 log::trace!(target: "savant_rs::pipeline", "Delete object {} from the stage {}", id, stage.name);
                 let removed = stage.delete(id);
@@ -469,6 +488,7 @@ pub(super) mod implementation {
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx) => {
+                        self.stats.register_frame();
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
@@ -479,6 +499,7 @@ pub(super) mod implementation {
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
+                                self.stats.register_frame();
                                 let frame_opt = batch.get(frame_id);
                                 if let Some(frame) = frame_opt {
                                     self.add_frame_json(&frame, &ctx);
