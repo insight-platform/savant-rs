@@ -71,6 +71,11 @@ impl FrameProcessingRecord {
         self.0.record_type.clone().into()
     }
 
+    #[getter]
+    fn object_counter(&self) -> usize {
+        self.0.object_counter
+    }
+
     fn __repr__(&self) -> String {
         format!("{:#?}", self.0)
     }

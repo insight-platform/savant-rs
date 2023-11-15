@@ -488,7 +488,7 @@ pub(super) mod implementation {
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx) => {
-                        self.stats.register_frame();
+                        self.stats.register_frame(frame.get_object_count());
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
@@ -499,9 +499,9 @@ pub(super) mod implementation {
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
-                                self.stats.register_frame();
                                 let frame_opt = batch.get(frame_id);
                                 if let Some(frame) = frame_opt {
+                                    self.stats.register_frame(frame.get_object_count());
                                     self.add_frame_json(&frame, &ctx);
                                 } else {
                                     bail!(

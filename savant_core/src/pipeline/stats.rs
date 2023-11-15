@@ -41,10 +41,11 @@ pub enum FrameProcessingRecordType {
 
 #[derive(Debug, Clone)]
 pub struct FrameProcessingRecord {
+    pub id: i64,
     pub record_type: FrameProcessingRecordType,
     pub ts: i64,
     pub frame_no: i64,
-    pub id: i64,
+    pub object_counter: usize,
 }
 
 #[derive(Debug)]
@@ -86,6 +87,7 @@ pub struct StatsGenerator {
     current_frame: i64,
     time_counter: TimeCounter,
     record_counter: i64,
+    object_counter: usize,
 }
 
 impl StatsGenerator {
@@ -119,6 +121,7 @@ impl StatsGenerator {
             record_type: FrameProcessingRecordType::Initial,
             ts,
             frame_no: 0,
+            object_counter: 0,
         })
     }
 
@@ -126,9 +129,10 @@ impl StatsGenerator {
         self.last_ts.is_some()
     }
 
-    pub fn register_frame(&mut self) -> Option<FrameProcessingRecord> {
+    pub fn register_frame(&mut self, object_counter: usize) -> Option<FrameProcessingRecord> {
         if self.is_active() {
             self.current_frame += 1;
+            self.object_counter += object_counter;
         }
 
         match (self.frame_period, self.last_frame) {
@@ -142,6 +146,7 @@ impl StatsGenerator {
                         record_type: FrameProcessingRecordType::Frame,
                         ts,
                         frame_no,
+                        object_counter: self.object_counter,
                     })
                 } else {
                     None
@@ -155,14 +160,15 @@ impl StatsGenerator {
         match (self.timestamp_period, self.last_ts) {
             (Some(timestamp_period), Some(last_ts)) => {
                 let ts = self.time_counter.get_current_time();
-                let frame = self.current_frame;
+                let frame_no = self.current_frame;
                 if ts - last_ts >= timestamp_period {
                     self.last_ts = Some(ts);
                     Some(FrameProcessingRecord {
                         id: self.inc_record_counter(),
                         record_type: FrameProcessingRecordType::Timestamp,
                         ts,
-                        frame_no: frame,
+                        frame_no,
+                        object_counter: self.object_counter,
                     })
                 } else {
                     None
@@ -244,8 +250,8 @@ impl Stats {
         }
     }
 
-    pub fn register_frame(&self) {
-        let res = self.generator.lock().register_frame();
+    pub fn register_frame(&self, object_counter: usize) {
+        let res = self.generator.lock().register_frame(object_counter);
         if let Some(r) = res {
             self.collector.lock().add_record(r);
             let last_records = self.collector.lock().get_records(2);
@@ -295,6 +301,7 @@ mod tests {
                 record_type: FrameProcessingRecordType::Frame,
                 ts: i,
                 frame_no: i,
+                object_counter: 0,
             });
         }
         let records = stats_collector.get_records(20);
@@ -308,7 +315,7 @@ mod tests {
     #[test]
     fn test_frame_based_stats_generator() {
         let mut generator = StatsGenerator::new(Some(5), None);
-        let frame_rec = generator.register_frame();
+        let frame_rec = generator.register_frame(10);
         assert!(frame_rec.is_none(), "Before kick off nothings happens");
         let ts_rec = generator.register_ts();
         assert!(ts_rec.is_none(), "Before kick off nothing happens");
@@ -329,10 +336,10 @@ mod tests {
 
         generator.time_counter.update_time(10);
         for _ in 0..4 {
-            let frame_rec = generator.register_frame();
+            let frame_rec = generator.register_frame(5);
             assert!(frame_rec.is_none(), "Not enough frames ingested");
         }
-        let frame_rec = generator.register_frame();
+        let frame_rec = generator.register_frame(5);
         assert!(frame_rec.is_some(), "Frame record expected");
         assert!(matches!(
             frame_rec,
@@ -340,13 +347,14 @@ mod tests {
                 id,
                 record_type,
                 ts,
-                frame_no
-            }) if record_type == FrameProcessingRecordType::Frame && ts == 10 && frame_no == 5 && id == 1
+                frame_no,
+                object_counter
+            }) if record_type == FrameProcessingRecordType::Frame && ts == 10 && frame_no == 5 && id == 1 && object_counter == 25
         ));
         generator.time_counter.update_time(20);
         let mut frames = (0..5)
             .into_iter()
-            .flat_map(|_| generator.register_frame())
+            .flat_map(|_| generator.register_frame(1))
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 1);
         let frame = frames.pop();
@@ -356,15 +364,16 @@ mod tests {
                 id,
                 record_type,
                 ts,
-                frame_no
-            }) if record_type == FrameProcessingRecordType::Frame && ts == 20 && frame_no == 10 && id == 2
+                frame_no,
+                object_counter
+            }) if record_type == FrameProcessingRecordType::Frame && ts == 20 && frame_no == 10 && id == 2 && object_counter == 30
         ));
     }
 
     #[test]
     fn test_timestamp_based_stats_generator() {
         let mut generator = StatsGenerator::new(None, Some(20));
-        let frame_rec = generator.register_frame();
+        let frame_rec = generator.register_frame(0);
         assert!(frame_rec.is_none(), "Before kick off nothings happens");
         let ts_rec = generator.register_ts();
         assert!(ts_rec.is_none(), "Before kick off nothing happens");
@@ -388,7 +397,7 @@ mod tests {
             let ts_rec = generator.register_ts();
             assert!(ts_rec.is_none(), "Not enough timestamps ingested");
         }
-        generator.register_frame();
+        generator.register_frame(0);
         generator.time_counter.update_time(20);
         let ts_rec = generator.register_ts();
         assert!(ts_rec.is_some(), "Timestamp record expected");
@@ -398,10 +407,11 @@ mod tests {
                 id,
                 record_type,
                 ts,
-                frame_no
+                frame_no,
+                object_counter: _
             }) if record_type == FrameProcessingRecordType::Timestamp && ts == 20 && frame_no == 1 && id == 1
         ));
-        generator.register_frame();
+        generator.register_frame(0);
         generator.time_counter.update_time(40);
         let ts_rec = generator.register_ts();
         assert!(ts_rec.is_some(), "Timestamp record expected");
@@ -411,7 +421,8 @@ mod tests {
                 id,
                 record_type,
                 ts,
-                frame_no
+                frame_no,
+                object_counter: _
             }) if record_type == FrameProcessingRecordType::Timestamp && ts == 40 && frame_no == 2 && id == 2
         ));
     }

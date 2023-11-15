@@ -364,6 +364,11 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 }
 
 impl VideoFrameProxy {
+    pub(crate) fn get_object_count(&self) -> usize {
+        let inner = trace!(self.inner.read_recursive());
+        inner.resident_objects.len()
+    }
+
     pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
     }
