@@ -222,9 +222,12 @@ impl Stats {
                 if last_records.len() == 2 {
                     let time_delta = last_records[0].ts - last_records[1].ts;
                     let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
+                    let object_delta =
+                        last_records[0].object_counter - last_records[1].object_counter;
                     info!(
-                        "Time-based FPS counter triggered: FPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
+                        "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
                         frame_delta as f64 / time_delta as f64,
+                        object_delta as f64 / time_delta as f64,
                         frame_delta,
                         time_delta,
                         last_records[1].ts,
@@ -258,9 +261,11 @@ impl Stats {
             if last_records.len() == 2 {
                 let time_delta = last_records[0].ts - last_records[1].ts;
                 let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
+                let object_delta = last_records[0].object_counter - last_records[1].object_counter;
                 info!(
-                    "Frame-based FPS counter triggered: FPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
+                    "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
                     frame_delta as f64 / time_delta as f64,
+                    object_delta as f64 / time_delta as f64,
                     frame_delta,
                     time_delta,
                     last_records[0].ts,
