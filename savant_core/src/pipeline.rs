@@ -46,7 +46,7 @@ impl Pipeline {
         )?)))
     }
 
-    pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingRecord> {
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingStatRecord> {
         self.0.get_stat_records(max_n)
     }
 
@@ -176,7 +176,7 @@ pub(super) mod implementation {
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
     use crate::pipeline::stage::PipelineStage;
-    use crate::pipeline::stats::{FrameProcessingRecord, Stats};
+    use crate::pipeline::stats::{FrameProcessingStatRecord, Stats};
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
@@ -217,11 +217,10 @@ pub(super) mod implementation {
                 bail!("Stage with name {} already exists", name)
             }
 
-            self.stages.push(PipelineStage {
-                name,
-                stage_type,
-                payload: Default::default(),
-            });
+            let stage = PipelineStage::new(name, stage_type);
+            let stat = stage.get_stat();
+            self.stats.add_stage_stats(stat);
+            self.stages.push(stage);
             Ok(())
         }
 
@@ -246,7 +245,7 @@ pub(super) mod implementation {
             Ok(pipeline)
         }
 
-        pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+        pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
             self.stats.get_records(max_n)
         }
 
@@ -488,7 +487,7 @@ pub(super) mod implementation {
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx) => {
-                        self.stats.register_frame();
+                        self.stats.register_frame(frame.get_object_count());
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
@@ -499,9 +498,9 @@ pub(super) mod implementation {
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
-                                self.stats.register_frame();
                                 let frame_opt = batch.get(frame_id);
                                 if let Some(frame) = frame_opt {
+                                    self.stats.register_frame(frame.get_object_count());
                                     self.add_frame_json(&frame, &ctx);
                                 } else {
                                     bail!(

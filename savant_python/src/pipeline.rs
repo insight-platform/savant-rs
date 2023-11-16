@@ -10,6 +10,17 @@ use pyo3::prelude::*;
 use savant_core::rust;
 use std::collections::HashMap;
 
+#[pymodule]
+pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<VideoPipelineStagePayloadType>()?;
+    m.add_class::<PipelineConfiguration>()?;
+    m.add_class::<Pipeline>()?;
+    m.add_class::<FrameProcessingStatRecord>()?;
+    m.add_class::<StageStat>()?;
+    m.add_class::<FrameProcessingStatRecordType>()?;
+    Ok(())
+}
+
 /// Defines which type of payload a stage handles.
 ///
 #[pyclass]
@@ -20,37 +31,80 @@ pub enum VideoPipelineStagePayloadType {
 }
 
 #[pyclass]
-pub enum FrameProcessingRecordType {
+pub enum FrameProcessingStatRecordType {
     Initial,
     Frame,
     Timestamp,
 }
 
-impl From<FrameProcessingRecordType> for rust::FrameProcessingRecordType {
-    fn from(t: FrameProcessingRecordType) -> Self {
+impl From<FrameProcessingStatRecordType> for rust::FrameProcessingStatRecordType {
+    fn from(t: FrameProcessingStatRecordType) -> Self {
         match t {
-            FrameProcessingRecordType::Initial => rust::FrameProcessingRecordType::Initial,
-            FrameProcessingRecordType::Frame => rust::FrameProcessingRecordType::Frame,
-            FrameProcessingRecordType::Timestamp => rust::FrameProcessingRecordType::Timestamp,
+            FrameProcessingStatRecordType::Initial => rust::FrameProcessingStatRecordType::Initial,
+            FrameProcessingStatRecordType::Frame => rust::FrameProcessingStatRecordType::Frame,
+            FrameProcessingStatRecordType::Timestamp => {
+                rust::FrameProcessingStatRecordType::Timestamp
+            }
         }
     }
 }
 
-impl From<rust::FrameProcessingRecordType> for FrameProcessingRecordType {
-    fn from(t: rust::FrameProcessingRecordType) -> Self {
+impl From<rust::FrameProcessingStatRecordType> for FrameProcessingStatRecordType {
+    fn from(t: rust::FrameProcessingStatRecordType) -> Self {
         match t {
-            rust::FrameProcessingRecordType::Initial => FrameProcessingRecordType::Initial,
-            rust::FrameProcessingRecordType::Frame => FrameProcessingRecordType::Frame,
-            rust::FrameProcessingRecordType::Timestamp => FrameProcessingRecordType::Timestamp,
+            rust::FrameProcessingStatRecordType::Initial => FrameProcessingStatRecordType::Initial,
+            rust::FrameProcessingStatRecordType::Frame => FrameProcessingStatRecordType::Frame,
+            rust::FrameProcessingStatRecordType::Timestamp => {
+                FrameProcessingStatRecordType::Timestamp
+            }
         }
     }
 }
 
 #[pyclass]
-pub struct FrameProcessingRecord(rust::FrameProcessingRecord);
+pub struct StageStat(rust::StageStat);
 
 #[pymethods]
-impl FrameProcessingRecord {
+impl StageStat {
+    #[getter]
+    fn stage_name(&self) -> String {
+        self.0.stage_name.clone()
+    }
+
+    #[getter]
+    fn queue_length(&self) -> usize {
+        self.0.queue_length
+    }
+
+    #[getter]
+    fn frame_counter(&self) -> usize {
+        self.0.frame_counter
+    }
+
+    #[getter]
+    fn object_counter(&self) -> usize {
+        self.0.object_counter
+    }
+
+    #[getter]
+    fn batch_counter(&self) -> usize {
+        self.0.batch_counter
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __str__(&self) -> String {
+        format!("{:#?}", self.0)
+    }
+}
+
+#[pyclass]
+pub struct FrameProcessingStatRecord(rust::FrameProcessingStatRecord);
+
+#[pymethods]
+impl FrameProcessingStatRecord {
     #[getter]
     fn id(&self) -> i64 {
         self.0.id
@@ -62,21 +116,26 @@ impl FrameProcessingRecord {
     }
 
     #[getter]
-    fn frame_no(&self) -> i64 {
+    fn frame_no(&self) -> usize {
         self.0.frame_no
     }
 
     #[getter]
-    fn record_type(&self) -> FrameProcessingRecordType {
+    fn record_type(&self) -> FrameProcessingStatRecordType {
         self.0.record_type.clone().into()
     }
 
+    #[getter]
+    fn object_counter(&self) -> usize {
+        self.0.object_counter
+    }
+
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.0)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("{:#?}", self.0)
     }
 }
 
@@ -96,16 +155,6 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
             rust::PipelineStagePayloadType::Batch => VideoPipelineStagePayloadType::Batch,
         }
     }
-}
-
-#[pymodule]
-pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<VideoPipelineStagePayloadType>()?;
-    m.add_class::<PipelineConfiguration>()?;
-    m.add_class::<Pipeline>()?;
-    m.add_class::<FrameProcessingRecord>()?;
-    m.add_class::<FrameProcessingRecordType>()?;
-    Ok(())
 }
 
 /// A video pipeline.
@@ -154,11 +203,11 @@ impl PipelineConfiguration {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.0)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("{:#?}", self.0)
     }
 }
 
@@ -178,11 +227,11 @@ impl Pipeline {
         Ok(Self(p))
     }
 
-    pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.0
             .get_stat_records(max_n)
             .into_iter()
-            .map(FrameProcessingRecord)
+            .map(FrameProcessingStatRecord)
             .collect()
     }
 
