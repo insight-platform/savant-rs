@@ -10,6 +10,17 @@ use pyo3::prelude::*;
 use savant_core::rust;
 use std::collections::HashMap;
 
+#[pymodule]
+pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<VideoPipelineStagePayloadType>()?;
+    m.add_class::<PipelineConfiguration>()?;
+    m.add_class::<Pipeline>()?;
+    m.add_class::<FrameProcessingStatRecord>()?;
+    m.add_class::<StageStat>()?;
+    m.add_class::<FrameProcessingStatRecordType>()?;
+    Ok(())
+}
+
 /// Defines which type of payload a stage handles.
 ///
 #[pyclass]
@@ -20,28 +31,32 @@ pub enum VideoPipelineStagePayloadType {
 }
 
 #[pyclass]
-pub enum FrameProcessingRecordType {
+pub enum FrameProcessingStatRecordType {
     Initial,
     Frame,
     Timestamp,
 }
 
-impl From<FrameProcessingRecordType> for rust::FrameProcessingRecordType {
-    fn from(t: FrameProcessingRecordType) -> Self {
+impl From<FrameProcessingStatRecordType> for rust::FrameProcessingStatRecordType {
+    fn from(t: FrameProcessingStatRecordType) -> Self {
         match t {
-            FrameProcessingRecordType::Initial => rust::FrameProcessingRecordType::Initial,
-            FrameProcessingRecordType::Frame => rust::FrameProcessingRecordType::Frame,
-            FrameProcessingRecordType::Timestamp => rust::FrameProcessingRecordType::Timestamp,
+            FrameProcessingStatRecordType::Initial => rust::FrameProcessingStatRecordType::Initial,
+            FrameProcessingStatRecordType::Frame => rust::FrameProcessingStatRecordType::Frame,
+            FrameProcessingStatRecordType::Timestamp => {
+                rust::FrameProcessingStatRecordType::Timestamp
+            }
         }
     }
 }
 
-impl From<rust::FrameProcessingRecordType> for FrameProcessingRecordType {
-    fn from(t: rust::FrameProcessingRecordType) -> Self {
+impl From<rust::FrameProcessingStatRecordType> for FrameProcessingStatRecordType {
+    fn from(t: rust::FrameProcessingStatRecordType) -> Self {
         match t {
-            rust::FrameProcessingRecordType::Initial => FrameProcessingRecordType::Initial,
-            rust::FrameProcessingRecordType::Frame => FrameProcessingRecordType::Frame,
-            rust::FrameProcessingRecordType::Timestamp => FrameProcessingRecordType::Timestamp,
+            rust::FrameProcessingStatRecordType::Initial => FrameProcessingStatRecordType::Initial,
+            rust::FrameProcessingStatRecordType::Frame => FrameProcessingStatRecordType::Frame,
+            rust::FrameProcessingStatRecordType::Timestamp => {
+                FrameProcessingStatRecordType::Timestamp
+            }
         }
     }
 }
@@ -86,10 +101,10 @@ impl StageStat {
 }
 
 #[pyclass]
-pub struct FrameProcessingRecord(rust::FrameProcessingRecord);
+pub struct FrameProcessingStatRecord(rust::FrameProcessingStatRecord);
 
 #[pymethods]
-impl FrameProcessingRecord {
+impl FrameProcessingStatRecord {
     #[getter]
     fn id(&self) -> i64 {
         self.0.id
@@ -106,7 +121,7 @@ impl FrameProcessingRecord {
     }
 
     #[getter]
-    fn record_type(&self) -> FrameProcessingRecordType {
+    fn record_type(&self) -> FrameProcessingStatRecordType {
         self.0.record_type.clone().into()
     }
 
@@ -140,17 +155,6 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
             rust::PipelineStagePayloadType::Batch => VideoPipelineStagePayloadType::Batch,
         }
     }
-}
-
-#[pymodule]
-pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<VideoPipelineStagePayloadType>()?;
-    m.add_class::<PipelineConfiguration>()?;
-    m.add_class::<Pipeline>()?;
-    m.add_class::<FrameProcessingRecord>()?;
-    m.add_class::<StageStat>()?;
-    m.add_class::<FrameProcessingRecordType>()?;
-    Ok(())
 }
 
 /// A video pipeline.
@@ -223,11 +227,11 @@ impl Pipeline {
         Ok(Self(p))
     }
 
-    pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.0
             .get_stat_records(max_n)
             .into_iter()
-            .map(FrameProcessingRecord)
+            .map(FrameProcessingStatRecord)
             .collect()
     }
 

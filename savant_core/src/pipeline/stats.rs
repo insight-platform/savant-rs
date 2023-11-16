@@ -34,7 +34,7 @@ impl TimeCounter {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum FrameProcessingRecordType {
+pub enum FrameProcessingStatRecordType {
     Initial,
     Frame,
     Timestamp,
@@ -59,9 +59,9 @@ impl StageStat {
 }
 
 #[derive(Debug, Clone)]
-pub struct FrameProcessingRecord {
+pub struct FrameProcessingStatRecord {
     pub id: i64,
-    pub record_type: FrameProcessingRecordType,
+    pub record_type: FrameProcessingStatRecordType,
     pub ts: i64,
     pub frame_no: usize,
     pub object_counter: usize,
@@ -71,7 +71,7 @@ pub struct FrameProcessingRecord {
 #[derive(Debug)]
 pub struct StatsCollector {
     max_length: usize,
-    processing_history: VecDeque<FrameProcessingRecord>,
+    processing_history: VecDeque<FrameProcessingStatRecord>,
 }
 
 impl StatsCollector {
@@ -82,14 +82,14 @@ impl StatsCollector {
         }
     }
 
-    pub fn add_record(&mut self, r: FrameProcessingRecord) {
+    pub fn add_record(&mut self, r: FrameProcessingStatRecord) {
         self.processing_history.push_front(r);
         if self.processing_history.len() > self.max_length {
             self.processing_history.pop_back();
         }
     }
 
-    pub fn get_records(&mut self, max_n: usize) -> Vec<FrameProcessingRecord> {
+    pub fn get_records(&mut self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.processing_history
             .iter()
             .take(max_n)
@@ -126,7 +126,7 @@ impl StatsGenerator {
         id
     }
 
-    pub fn kick_off(&mut self) -> Option<FrameProcessingRecord> {
+    pub fn kick_off(&mut self) -> Option<FrameProcessingStatRecord> {
         if self.last_ts.is_some() {
             return None;
         }
@@ -136,9 +136,9 @@ impl StatsGenerator {
         self.last_frame = Some(0);
         self.current_frame = 0;
 
-        Some(FrameProcessingRecord {
+        Some(FrameProcessingStatRecord {
             id: self.inc_record_counter(),
-            record_type: FrameProcessingRecordType::Initial,
+            record_type: FrameProcessingStatRecordType::Initial,
             ts,
             frame_no: 0,
             object_counter: 0,
@@ -150,7 +150,7 @@ impl StatsGenerator {
         self.last_ts.is_some()
     }
 
-    pub fn register_frame(&mut self, object_counter: usize) -> Option<FrameProcessingRecord> {
+    pub fn register_frame(&mut self, object_counter: usize) -> Option<FrameProcessingStatRecord> {
         if self.is_active() {
             self.current_frame += 1;
             self.object_counter += object_counter;
@@ -162,9 +162,9 @@ impl StatsGenerator {
                 if frame_no - last_frame >= frame_period {
                     let ts = self.time_counter.get_current_time();
                     self.last_frame = Some(frame_no);
-                    Some(FrameProcessingRecord {
+                    Some(FrameProcessingStatRecord {
                         id: self.inc_record_counter(),
-                        record_type: FrameProcessingRecordType::Frame,
+                        record_type: FrameProcessingStatRecordType::Frame,
                         ts,
                         frame_no: frame_no as usize,
                         object_counter: self.object_counter,
@@ -178,16 +178,16 @@ impl StatsGenerator {
         }
     }
 
-    pub fn register_ts(&mut self) -> Option<FrameProcessingRecord> {
+    pub fn register_ts(&mut self) -> Option<FrameProcessingStatRecord> {
         match (self.timestamp_period, self.last_ts) {
             (Some(timestamp_period), Some(last_ts)) => {
                 let ts = self.time_counter.get_current_time();
                 let frame_no = self.current_frame;
                 if ts - last_ts >= timestamp_period {
                     self.last_ts = Some(ts);
-                    Some(FrameProcessingRecord {
+                    Some(FrameProcessingStatRecord {
                         id: self.inc_record_counter(),
-                        record_type: FrameProcessingRecordType::Timestamp,
+                        record_type: FrameProcessingStatRecordType::Timestamp,
                         ts,
                         frame_no: frame_no as usize,
                         object_counter: self.object_counter,
@@ -311,7 +311,7 @@ impl Stats {
         }
     }
 
-    pub fn get_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+    pub fn get_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.collector.lock().get_records(max_n)
     }
 }
@@ -337,9 +337,9 @@ mod tests {
     fn test_stats_collector() {
         let mut stats_collector = StatsCollector::new(10);
         for i in 0..20 {
-            stats_collector.add_record(FrameProcessingRecord {
+            stats_collector.add_record(FrameProcessingStatRecord {
                 id: 0,
-                record_type: FrameProcessingRecordType::Frame,
+                record_type: FrameProcessingStatRecordType::Frame,
                 ts: i,
                 frame_no: i as usize,
                 object_counter: 0,
@@ -368,7 +368,7 @@ mod tests {
         );
         assert_eq!(
             frame_rec.unwrap().record_type,
-            FrameProcessingRecordType::Initial,
+            FrameProcessingStatRecordType::Initial,
             "Expected initial record"
         );
         assert!(generator.is_active(), "Generator is active after kick off");
@@ -385,14 +385,14 @@ mod tests {
         assert!(frame_rec.is_some(), "Frame record expected");
         assert!(matches!(
             frame_rec,
-            Some(FrameProcessingRecord {
+            Some(FrameProcessingStatRecord {
                 id,
                 record_type,
                 ts,
                 frame_no,
                 object_counter,
                 stage_stats: _
-            }) if record_type == FrameProcessingRecordType::Frame && ts == 10 && frame_no == 5 && id == 1 && object_counter == 25
+            }) if record_type == FrameProcessingStatRecordType::Frame && ts == 10 && frame_no == 5 && id == 1 && object_counter == 25
         ));
         generator.time_counter.update_time(20);
         let mut frames = (0..5)
@@ -403,14 +403,14 @@ mod tests {
         let frame = frames.pop();
         assert!(matches!(
             frame,
-            Some(FrameProcessingRecord {
+            Some(FrameProcessingStatRecord {
                 id,
                 record_type,
                 ts,
                 frame_no,
                 object_counter,
                 stage_stats: _
-            }) if record_type == FrameProcessingRecordType::Frame && ts == 20 && frame_no == 10 && id == 2 && object_counter == 30
+            }) if record_type == FrameProcessingStatRecordType::Frame && ts == 20 && frame_no == 10 && id == 2 && object_counter == 30
         ));
     }
 
@@ -428,7 +428,7 @@ mod tests {
         );
         assert_eq!(
             frame_rec.unwrap().record_type,
-            FrameProcessingRecordType::Initial,
+            FrameProcessingStatRecordType::Initial,
             "Expected initial record"
         );
         assert!(generator.is_active(), "Generator is active after kick off");
@@ -447,14 +447,14 @@ mod tests {
         assert!(ts_rec.is_some(), "Timestamp record expected");
         assert!(matches!(
             ts_rec,
-            Some(FrameProcessingRecord {
+            Some(FrameProcessingStatRecord {
                 id,
                 record_type,
                 ts,
                 frame_no,
                 object_counter: _,
                 stage_stats: _
-            }) if record_type == FrameProcessingRecordType::Timestamp && ts == 20 && frame_no == 1 && id == 1
+            }) if record_type == FrameProcessingStatRecordType::Timestamp && ts == 20 && frame_no == 1 && id == 1
         ));
         generator.register_frame(0);
         generator.time_counter.update_time(40);
@@ -462,14 +462,14 @@ mod tests {
         assert!(ts_rec.is_some(), "Timestamp record expected");
         assert!(matches!(
             ts_rec,
-            Some(FrameProcessingRecord {
+            Some(FrameProcessingStatRecord {
                 id,
                 record_type,
                 ts,
                 frame_no,
                 object_counter: _,
                 stage_stats: _
-            }) if record_type == FrameProcessingRecordType::Timestamp && ts == 40 && frame_no == 2 && id == 2
+            }) if record_type == FrameProcessingStatRecordType::Timestamp && ts == 40 && frame_no == 2 && id == 2
         ));
     }
 }

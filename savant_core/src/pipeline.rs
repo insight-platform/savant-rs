@@ -46,7 +46,7 @@ impl Pipeline {
         )?)))
     }
 
-    pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingRecord> {
+    pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingStatRecord> {
         self.0.get_stat_records(max_n)
     }
 
@@ -176,7 +176,7 @@ pub(super) mod implementation {
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
     use crate::pipeline::stage::PipelineStage;
-    use crate::pipeline::stats::{FrameProcessingRecord, Stats};
+    use crate::pipeline::stats::{FrameProcessingStatRecord, Stats};
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
@@ -245,7 +245,7 @@ pub(super) mod implementation {
             Ok(pipeline)
         }
 
-        pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingRecord> {
+        pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
             self.stats.get_records(max_n)
         }
 

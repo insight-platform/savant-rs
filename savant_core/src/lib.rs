@@ -44,8 +44,8 @@ pub fn get_tracer() -> BoxedTracer {
 
 pub mod rust {
     pub use super::otlp::PropagatedContext;
-    pub use super::pipeline::stats::FrameProcessingRecord;
-    pub use super::pipeline::stats::FrameProcessingRecordType;
+    pub use super::pipeline::stats::FrameProcessingStatRecord;
+    pub use super::pipeline::stats::FrameProcessingStatRecordType;
     pub use super::pipeline::stats::StageStat;
     pub use super::pipeline::Pipeline;
     pub use super::pipeline::PipelineConfiguration;
