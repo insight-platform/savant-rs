@@ -1,4 +1,5 @@
 use log::info;
+use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
@@ -39,13 +40,32 @@ pub enum FrameProcessingRecordType {
     Timestamp,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StageStat {
+    pub stage_name: String,
+    pub queue_length: usize,
+    pub frame_counter: usize,
+    pub object_counter: usize,
+    pub batch_counter: usize,
+}
+
+impl StageStat {
+    pub fn new(name: String) -> Self {
+        StageStat {
+            stage_name: name,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FrameProcessingRecord {
     pub id: i64,
     pub record_type: FrameProcessingRecordType,
     pub ts: i64,
-    pub frame_no: i64,
+    pub frame_no: usize,
     pub object_counter: usize,
+    pub stage_stats: Vec<StageStat>,
 }
 
 #[derive(Debug)]
@@ -122,6 +142,7 @@ impl StatsGenerator {
             ts,
             frame_no: 0,
             object_counter: 0,
+            stage_stats: Vec::new(),
         })
     }
 
@@ -145,8 +166,9 @@ impl StatsGenerator {
                         id: self.inc_record_counter(),
                         record_type: FrameProcessingRecordType::Frame,
                         ts,
-                        frame_no,
+                        frame_no: frame_no as usize,
                         object_counter: self.object_counter,
+                        stage_stats: Vec::new(),
                     })
                 } else {
                     None
@@ -167,8 +189,9 @@ impl StatsGenerator {
                         id: self.inc_record_counter(),
                         record_type: FrameProcessingRecordType::Timestamp,
                         ts,
-                        frame_no,
+                        frame_no: frame_no as usize,
                         object_counter: self.object_counter,
+                        stage_stats: Vec::new(),
                     })
                 } else {
                     None
@@ -181,10 +204,11 @@ impl StatsGenerator {
 
 #[derive(Debug)]
 pub struct Stats {
-    collector: Arc<parking_lot::Mutex<StatsCollector>>,
-    generator: Arc<parking_lot::Mutex<StatsGenerator>>,
+    collector: Arc<Mutex<StatsCollector>>,
+    generator: Arc<Mutex<StatsGenerator>>,
     time_thread: Option<std::thread::JoinHandle<()>>,
     shutdown: Arc<OnceLock<()>>,
+    stage_stats: Arc<Mutex<Vec<Arc<RwLock<StageStat>>>>>,
 }
 
 impl Default for Stats {
@@ -205,18 +229,20 @@ impl Stats {
         )));
         let collector = Arc::new(parking_lot::Mutex::new(StatsCollector::new(stats_history)));
         let shutdown = Arc::new(OnceLock::new());
+        let stage_stats = Arc::new(Mutex::new(Vec::new()));
 
         let thread_generator = generator.clone();
         let thread_collector = collector.clone();
         let thread_shutdown = shutdown.clone();
+        let thread_stage_stats = stage_stats.clone();
 
         let time_thread = Some(std::thread::spawn(move || loop {
             if thread_shutdown.get().is_some() {
                 break;
             }
-
             let res = thread_generator.lock().register_ts();
-            if let Some(r) = res {
+            if let Some(mut r) = res {
+                r.stage_stats = Stats::collect_stage_stats(&thread_stage_stats);
                 thread_collector.lock().add_record(r);
                 let last_records = thread_collector.lock().get_records(2);
                 if last_records.len() == 2 {
@@ -243,7 +269,16 @@ impl Stats {
             generator,
             time_thread,
             shutdown,
+            stage_stats,
         }
+    }
+
+    pub fn add_stage_stats(&self, stat: Arc<RwLock<StageStat>>) {
+        self.stage_stats.lock().push(stat);
+    }
+
+    pub fn collect_stage_stats(stats: &Arc<Mutex<Vec<Arc<RwLock<StageStat>>>>>) -> Vec<StageStat> {
+        stats.lock().iter().map(|s| s.read().clone()).collect()
     }
 
     pub fn kick_off(&self) {
@@ -255,7 +290,8 @@ impl Stats {
 
     pub fn register_frame(&self, object_counter: usize) {
         let res = self.generator.lock().register_frame(object_counter);
-        if let Some(r) = res {
+        if let Some(mut r) = res {
+            r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
             self.collector.lock().add_record(r);
             let last_records = self.collector.lock().get_records(2);
             if last_records.len() == 2 {
@@ -305,15 +341,16 @@ mod tests {
                 id: 0,
                 record_type: FrameProcessingRecordType::Frame,
                 ts: i,
-                frame_no: i,
+                frame_no: i as usize,
                 object_counter: 0,
+                stage_stats: Vec::new(),
             });
         }
         let records = stats_collector.get_records(20);
         assert_eq!(records.len(), 10);
         for i in 0..10 {
             assert_eq!(records[i].ts, 19 - i as i64);
-            assert_eq!(records[i].frame_no, 19 - i as i64);
+            assert_eq!(records[i].frame_no, 19 - i);
         }
     }
 
@@ -353,7 +390,8 @@ mod tests {
                 record_type,
                 ts,
                 frame_no,
-                object_counter
+                object_counter,
+                stage_stats: _
             }) if record_type == FrameProcessingRecordType::Frame && ts == 10 && frame_no == 5 && id == 1 && object_counter == 25
         ));
         generator.time_counter.update_time(20);
@@ -370,7 +408,8 @@ mod tests {
                 record_type,
                 ts,
                 frame_no,
-                object_counter
+                object_counter,
+                stage_stats: _
             }) if record_type == FrameProcessingRecordType::Frame && ts == 20 && frame_no == 10 && id == 2 && object_counter == 30
         ));
     }
@@ -413,7 +452,8 @@ mod tests {
                 record_type,
                 ts,
                 frame_no,
-                object_counter: _
+                object_counter: _,
+                stage_stats: _
             }) if record_type == FrameProcessingRecordType::Timestamp && ts == 20 && frame_no == 1 && id == 1
         ));
         generator.register_frame(0);
@@ -427,7 +467,8 @@ mod tests {
                 record_type,
                 ts,
                 frame_no,
-                object_counter: _
+                object_counter: _,
+                stage_stats: _
             }) if record_type == FrameProcessingRecordType::Timestamp && ts == 40 && frame_no == 2 && id == 2
         ));
     }

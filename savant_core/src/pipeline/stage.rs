@@ -5,20 +5,36 @@ use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
+use crate::rust::StageStat;
 use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::Context;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) struct PipelineStage {
     pub name: String,
     pub stage_type: PipelineStagePayloadType,
     pub payload: RwLock<HashMap<i64, PipelinePayload>>,
+    pub stat: Arc<RwLock<StageStat>>,
 }
 
 impl PipelineStage {
+    pub fn new(name: String, stage_type: PipelineStagePayloadType) -> Self {
+        Self {
+            name: name.clone(),
+            stage_type,
+            payload: Default::default(),
+            stat: Arc::new(RwLock::new(StageStat::new(name))),
+        }
+    }
+
+    pub fn get_stat(&self) -> Arc<RwLock<StageStat>> {
+        self.stat.clone()
+    }
+
     fn with_payload_item_mut<F, T>(&self, id: i64, f: F) -> anyhow::Result<T>
     where
         F: FnOnce(&mut PipelinePayload) -> T,
@@ -82,6 +98,25 @@ impl PipelineStage {
         })?
     }
 
+    fn update_stats_for_frame(&self, f: &VideoFrameProxy) {
+        let mut stat_bind = self.stat.write();
+        stat_bind.frame_counter += 1;
+        stat_bind.queue_length += 1;
+        stat_bind.object_counter += f.get_object_count();
+    }
+
+    fn update_stats_for_batch(&self, b: &VideoFrameBatch) {
+        let mut stat_bind = self.stat.write();
+        stat_bind.batch_counter += 1;
+        stat_bind.frame_counter += b.frames.len();
+        stat_bind.queue_length += 1;
+        stat_bind.object_counter += b
+            .frames
+            .values()
+            .map(|f| f.get_object_count())
+            .sum::<usize>();
+    }
+
     pub fn add_payloads<I>(&self, payloads: I) -> anyhow::Result<()>
     where
         I: IntoIterator<Item = (i64, PipelinePayload)>,
@@ -92,14 +127,18 @@ impl PipelineStage {
                     bail!("Payload {} already exists", id)
                 }
                 match &payload {
-                    PipelinePayload::Frame(_, _, _) => {
+                    PipelinePayload::Frame(f, _, _) => {
                         if self.stage_type == PipelineStagePayloadType::Batch {
                             bail!("Payload must be a batch")
+                        } else {
+                            self.update_stats_for_frame(f);
                         }
                     }
-                    PipelinePayload::Batch(_, _, _) => {
+                    PipelinePayload::Batch(b, _, _) => {
                         if self.stage_type == PipelineStagePayloadType::Frame {
                             bail!("Payload must be a frame")
+                        } else {
+                            self.update_stats_for_batch(b);
                         }
                     }
                 }
@@ -114,10 +153,15 @@ impl PipelineStage {
             if bind.contains_key(&frame_id) {
                 bail!("Frame {} already exists", frame_id)
             }
-            if matches!(payload, PipelinePayload::Batch(_, _, _)) {
-                bail!("Payload must be a frame")
+            match payload {
+                PipelinePayload::Batch(_, _, _) => {
+                    bail!("Payload must be a frame")
+                }
+                PipelinePayload::Frame(f, u, c) => {
+                    self.update_stats_for_frame(&f);
+                    bind.insert(frame_id, PipelinePayload::Frame(f, u, c));
+                }
             }
-            bind.insert(frame_id, payload);
             Ok(())
         })
     }
@@ -127,16 +171,28 @@ impl PipelineStage {
             if bind.contains_key(&batch_id) {
                 bail!("Batch {} already exists", batch_id)
             }
-            if matches!(payload, PipelinePayload::Frame(_, _, _)) {
-                bail!("Payload must be a batch")
+            match payload {
+                PipelinePayload::Frame(_, _, _) => {
+                    bail!("Payload must be a batch")
+                }
+                PipelinePayload::Batch(b, u, c) => {
+                    self.update_stats_for_batch(&b);
+                    bind.insert(batch_id, PipelinePayload::Batch(b, u, c));
+                }
             }
-            bind.insert(batch_id, payload);
             Ok(())
         })
     }
 
     pub fn delete(&self, id: i64) -> Option<PipelinePayload> {
-        self.with_payload_mut(|bind| bind.remove(&id))
+        self.with_payload_mut(|bind| {
+            let res = bind.remove(&id);
+            if res.is_some() {
+                let mut stats_bind = self.stat.write();
+                stats_bind.queue_length = bind.len();
+            }
+            res
+        })
     }
 
     pub fn delete_many(&self, ids: &[i64]) -> Vec<(i64, PipelinePayload)> {
@@ -148,6 +204,8 @@ impl PipelineStage {
                     removed.push((*id, p));
                 }
             }
+            let mut stats_bind = self.stat.write();
+            stats_bind.queue_length = bind.len();
             removed
         })
     }
@@ -290,23 +348,16 @@ mod tests {
     use anyhow::Result;
     use hashbrown::HashMap;
     use opentelemetry::Context;
-    use parking_lot::lock_api::RwLock;
     use std::default::Default;
 
     fn get_frame_stage() -> PipelineStage {
-        PipelineStage {
-            name: "stage".to_string(),
-            stage_type: PipelineStagePayloadType::Frame,
-            payload: RwLock::new(HashMap::default()),
-        }
+        let name = "stage".to_string();
+        PipelineStage::new(name, PipelineStagePayloadType::Frame)
     }
 
     fn get_batch_stage() -> PipelineStage {
-        PipelineStage {
-            name: "stage".to_string(),
-            stage_type: PipelineStagePayloadType::Batch,
-            payload: RwLock::new(HashMap::default()),
-        }
+        let name = "stage".to_string();
+        PipelineStage::new(name, PipelineStagePayloadType::Batch)
     }
 
     #[test]

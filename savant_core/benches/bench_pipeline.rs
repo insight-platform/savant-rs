@@ -54,6 +54,8 @@ fn get_pipeline(
     ];
     let conf = PipelineConfigurationBuilder::default()
         .append_frame_meta_to_otlp_span(append_frame_meta_to_otlp_span)
+        .collection_history(100)
+        .frame_period(Some(100))
         .build()?;
 
     let pipeline = Pipeline::new(stages.clone(), conf)?;

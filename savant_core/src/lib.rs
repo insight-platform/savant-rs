@@ -46,6 +46,7 @@ pub mod rust {
     pub use super::otlp::PropagatedContext;
     pub use super::pipeline::stats::FrameProcessingRecord;
     pub use super::pipeline::stats::FrameProcessingRecordType;
+    pub use super::pipeline::stats::StageStat;
     pub use super::pipeline::Pipeline;
     pub use super::pipeline::PipelineConfiguration;
     pub use super::pipeline::PipelineConfigurationBuilder;

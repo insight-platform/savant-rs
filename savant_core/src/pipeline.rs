@@ -217,11 +217,10 @@ pub(super) mod implementation {
                 bail!("Stage with name {} already exists", name)
             }
 
-            self.stages.push(PipelineStage {
-                name,
-                stage_type,
-                payload: Default::default(),
-            });
+            let stage = PipelineStage::new(name, stage_type);
+            let stat = stage.get_stat();
+            self.stats.add_stage_stats(stat);
+            self.stages.push(stage);
             Ok(())
         }
 

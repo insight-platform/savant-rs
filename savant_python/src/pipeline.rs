@@ -47,6 +47,45 @@ impl From<rust::FrameProcessingRecordType> for FrameProcessingRecordType {
 }
 
 #[pyclass]
+pub struct StageStat(rust::StageStat);
+
+#[pymethods]
+impl StageStat {
+    #[getter]
+    fn stage_name(&self) -> String {
+        self.0.stage_name.clone()
+    }
+
+    #[getter]
+    fn queue_length(&self) -> usize {
+        self.0.queue_length
+    }
+
+    #[getter]
+    fn frame_counter(&self) -> usize {
+        self.0.frame_counter
+    }
+
+    #[getter]
+    fn object_counter(&self) -> usize {
+        self.0.object_counter
+    }
+
+    #[getter]
+    fn batch_counter(&self) -> usize {
+        self.0.batch_counter
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    fn __str__(&self) -> String {
+        format!("{:#?}", self.0)
+    }
+}
+
+#[pyclass]
 pub struct FrameProcessingRecord(rust::FrameProcessingRecord);
 
 #[pymethods]
@@ -62,7 +101,7 @@ impl FrameProcessingRecord {
     }
 
     #[getter]
-    fn frame_no(&self) -> i64 {
+    fn frame_no(&self) -> usize {
         self.0.frame_no
     }
 
@@ -77,11 +116,11 @@ impl FrameProcessingRecord {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.0)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("{:#?}", self.0)
     }
 }
 
@@ -109,6 +148,7 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PipelineConfiguration>()?;
     m.add_class::<Pipeline>()?;
     m.add_class::<FrameProcessingRecord>()?;
+    m.add_class::<StageStat>()?;
     m.add_class::<FrameProcessingRecordType>()?;
     Ok(())
 }
@@ -159,11 +199,11 @@ impl PipelineConfiguration {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:#?}", self.0)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
-        format!("{:?}", self.0)
+        format!("{:#?}", self.0)
     }
 }
 
