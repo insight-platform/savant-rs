@@ -27,9 +27,9 @@ jobs:
     strategy:
       matrix:
         include:
-          #- docker_file: docker/Dockerfile.manylinux_2_28_ARM64
-          #  name: manylinux-arm
-          #  arch: linux/arm64
+          - docker_file: docker/Dockerfile.manylinux_2_28_ARM64
+            name: manylinux-arm
+            arch: linux/arm64
           - docker_file: docker/Dockerfile.manylinux_2_28_X64
             name: manylinux-x86
             arch: linux/amd64
@@ -68,17 +68,17 @@ jobs:
     needs: [linux]
     steps:
       - name: Make directory for download
-        run: mkdir -p distfiles
+        run: mkdir -p artifacts
       - name: Clean up old wheels
-        run: rm -rf distfiles/*.whl
+        run: rm -rf artifacts/*.whl
       - uses: actions/download-artifact@v3
         with:
           name: wheels
-          path: distfiles
+          path: artifacts
       - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           command: upload
-          args: --skip-existing distfiles/*.whl
+          args: --skip-existing artifacts/*.whl
