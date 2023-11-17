@@ -130,6 +130,16 @@ impl FrameProcessingStatRecord {
         self.0.object_counter
     }
 
+    #[getter]
+    fn stage_stats(&self) -> Vec<StageStat> {
+        self.0
+            .stage_stats
+            .clone()
+            .into_iter()
+            .map(StageStat)
+            .collect()
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }
