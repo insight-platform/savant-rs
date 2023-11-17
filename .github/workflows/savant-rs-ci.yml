@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         include:
@@ -63,7 +63,7 @@ jobs:
 
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux]
     steps:
