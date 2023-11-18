@@ -97,6 +97,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             None,
         )],
         Some("test".into()),
+        false,
     ));
 
     f.set_attribute(Attribute::persistent(
@@ -107,6 +108,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             None,
         )],
         None,
+        false,
     ));
 
     f.set_attribute(Attribute::persistent(
@@ -117,6 +119,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             None,
         )],
         Some("test".into()),
+        false,
     ));
 
     f.set_attribute(Attribute::persistent(
@@ -128,6 +131,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             AttributeValue::new(Variant::String("incoming".to_string()), Some(0.56)),
         ],
         Some("hint".to_string()),
+        false,
     ));
     f
 }
@@ -149,6 +153,7 @@ pub fn gen_object(id: i64) -> VideoObjectProxy {
         "attribute".to_string(),
         vec![],
         Some("hint".to_string()),
+        false,
     );
     o.set_attribute(attr);
     o

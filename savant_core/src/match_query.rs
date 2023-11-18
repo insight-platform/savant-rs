@@ -1364,6 +1364,7 @@ mod tests {
                 AttributeValue::new(AttributeValueVariant::Float(15.0), None),
             ],
             Some(s("morphological-classifier")),
+            false,
         ));
 
         let expr = AttributesJMESQuery(s(

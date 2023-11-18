@@ -7,6 +7,7 @@ pub use polygonal_area::*;
 pub mod bbox;
 pub use bbox::*;
 
+pub mod any_object;
 pub mod attribute_value;
 pub mod eos;
 pub mod frame;

@@ -8,7 +8,7 @@ from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.video_object_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
-set_log_level(LogLevel.Trace)
+# set_log_level(LogLevel.Trace)
 
 import json
 from timeit import default_timer as timer
@@ -90,7 +90,14 @@ frame.set_attribute(Attribute(namespace="other", name="attr", values=[
     AttributeValue.integer(1, confidence=0.5),
 ]))
 
-print(frame.attributes)
+frame.set_attribute(
+    Attribute.temporary("hidden", "attribute",
+                        values=[AttributeValue.temporary_python_object(dict(x=5), confidence=0.5)],
+                        is_hidden=True))
+
+print("All public attributes", frame.attributes)  # hidden is not there
+# but we can access it directly
+print("Hidden attribute", frame.get_attribute(namespace="hidden", name="attribute"))
 
 print(frame.find_attributes(names=["attr"]))
 print(frame.find_attributes(namespace="other"))

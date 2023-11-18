@@ -133,6 +133,7 @@ mod tests {
                     None,
                 )],
                 Some("test".into()),
+                false,
             ),
             Attribute::persistent(
                 "system".into(),
@@ -142,6 +143,7 @@ mod tests {
                     None,
                 )],
                 Some("test".into()),
+                false,
             ),
         )
     }

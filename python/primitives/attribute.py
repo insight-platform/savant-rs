@@ -13,3 +13,13 @@ print(attr.json)
 
 attr2 = Attribute.from_json(attr.json)
 print(attr2.json)
+
+x = dict(x=5)
+temp_py_attr = Attribute(namespace="some", name="attr", hint="x", values=[
+    AttributeValue.temporary_python_object(x)
+])
+
+x["y"] = 6
+
+o = temp_py_attr.values[0].as_temporary_python_object()
+print(o)

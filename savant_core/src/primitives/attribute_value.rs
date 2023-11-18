@@ -1,4 +1,5 @@
 use crate::json_api::ToSerdeJsonValue;
+use crate::primitives::any_object::AnyObject;
 use crate::primitives::{Intersection, OwnedRBBoxData, Point, PolygonalArea};
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
@@ -32,6 +33,7 @@ pub enum AttributeValueVariant {
     Polygon(PolygonalArea),
     PolygonVector(Vec<PolygonalArea>),
     Intersection(Intersection),
+    TemporaryValue(AnyObject),
     #[default]
     None,
 }

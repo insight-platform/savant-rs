@@ -48,13 +48,14 @@ impl Attribute {
     }
 
     #[new]
-    #[pyo3(signature = (namespace, name , values, hint = None, is_persistent = true))]
+    #[pyo3(signature = (namespace, name , values, hint = None, is_persistent = true, is_hidden = false))]
     pub fn new(
         namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
         is_persistent: bool,
+        is_hidden: bool,
     ) -> Self {
         let values =
             unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
@@ -65,6 +66,7 @@ impl Attribute {
             values,
             hint,
             is_persistent,
+            is_hidden,
         ))
     }
 
@@ -80,6 +82,8 @@ impl Attribute {
     ///   The values of the attribute.
     /// hint : str, optional
     ///   The hint of the attribute. The hint is a user-defined string that may contain additional information about the attribute.
+    /// is_hidden : bool, optional
+    ///   If ``True``, the attribute is hidden and the user must know its full name to access it.
     ///
     /// Returns
     /// -------
@@ -87,15 +91,19 @@ impl Attribute {
     ///   The created attribute.
     ///
     #[staticmethod]
+    #[pyo3(signature = (namespace, name , values, hint = None, is_hidden = false))]
     pub fn persistent(
         namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
+        is_hidden: bool,
     ) -> Self {
         let values =
             unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
-        Self(rust::Attribute::new(namespace, name, values, hint, true))
+        Self(rust::Attribute::persistent(
+            namespace, name, values, hint, is_hidden,
+        ))
     }
 
     /// Alias to constructor method for non-persistent attributes.
@@ -110,6 +118,8 @@ impl Attribute {
     ///   The values of the attribute.
     /// hint : str, optional
     ///   The hint of the attribute. The hint is a user-defined string that may contain additional information about the attribute.
+    /// is_hidden : bool, optional
+    ///   If ``True``, the attribute is hidden and the user must know its full name to access it.
     ///
     /// Returns
     /// -------
@@ -117,15 +127,20 @@ impl Attribute {
     ///   The created attribute.
     ///
     #[staticmethod]
+    #[pyo3(signature = (namespace, name , values, hint = None, is_hidden = false))]
     pub fn temporary(
         namespace: String,
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
+        is_hidden: bool,
     ) -> Self {
         let values =
             unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
-        Self(rust::Attribute::new(namespace, name, values, hint, false))
+
+        Self(rust::Attribute::temporary(
+            namespace, name, values, hint, is_hidden,
+        ))
     }
 
     /// Returns ``True`` if the attribute is persistent, ``False`` otherwise.
@@ -137,6 +152,17 @@ impl Attribute {
     ///
     pub fn is_temporary(&self) -> bool {
         !self.0.is_persistent
+    }
+
+    /// Checks if the attribute is hidden.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///  ``True`` if the attribute is hidden, ``False`` otherwise.
+    ///
+    pub fn is_hidden(&self) -> bool {
+        self.0.is_hidden
     }
 
     /// Changes the attribute to be persistent.
