@@ -582,12 +582,12 @@ mod tests {
             PipelinePayload::Frame(frame, Vec::default(), Context::default()),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_frame_attribute(Attribute::new(
+        update.add_frame_attribute(Attribute::persistent(
             "new".to_string(),
             "attr".to_string(),
             vec![],
             None,
-            true,
+            false,
         ));
         stage.add_frame_update(1, update)?;
         stage.apply_updates(1)?;
@@ -624,12 +624,12 @@ mod tests {
             ),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_frame_attribute(Attribute::new(
+        update.add_frame_attribute(Attribute::persistent(
             "new".to_string(),
             "attr".to_string(),
             vec![],
             None,
-            true,
+            false,
         ));
         stage.add_batched_frame_update(1, 2, update)?;
         stage.apply_updates(1)?;

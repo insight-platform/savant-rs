@@ -102,7 +102,7 @@ impl ToSerdeJsonValue for VideoObject {
             "label": self.label,
             "draw_label": self.draw_label,
             "bbox": self.detection_box.to_serde_json_value(),
-            "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
+            "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent_id,
             "track_id": self.track_id,
@@ -531,6 +531,7 @@ mod tests {
                                 None,
                             )],
                             None,
+                            false,
                         ),
                         Attribute::persistent(
                             "namespace".to_string(),
@@ -540,6 +541,7 @@ mod tests {
                                 None,
                             )],
                             None,
+                            false,
                         ),
                         Attribute::persistent(
                             "namespace2".to_string(),
@@ -549,6 +551,7 @@ mod tests {
                                 None,
                             )],
                             None,
+                            false,
                         ),
                     ]
                     .into_iter()
