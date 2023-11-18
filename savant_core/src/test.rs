@@ -1,3 +1,4 @@
+use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 use crate::primitives::frame::{
     VideoFrameBuilder, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -7,6 +8,7 @@ use crate::primitives::object::{
 };
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use hashbrown::HashMap;
+
 type Variant = AttributeValueVariant;
 
 pub fn gen_empty_frame() -> VideoFrameProxy {
@@ -129,6 +131,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             AttributeValue::new(Variant::Bytes(vec![8, 3, 8, 8], [0; 192].into()), None),
             AttributeValue::new(Variant::IntegerVector([0, 1, 2, 3, 4, 5].into()), None),
             AttributeValue::new(Variant::String("incoming".to_string()), Some(0.56)),
+            AttributeValue::new(Variant::TemporaryValue(AnyObject::new(Box::new(1.0))), None),
         ],
         Some("hint".to_string()),
         false,

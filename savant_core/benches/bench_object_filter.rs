@@ -39,6 +39,7 @@ fn get_objects() -> Vec<VideoObject> {
                 "test".to_string(),
                 vec![AttributeValue::new(AttributeValueVariant::Integer(1), None)],
                 Some("hint".to_string()),
+                false,
             ));
             o
         })
