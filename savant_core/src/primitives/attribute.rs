@@ -35,6 +35,8 @@ pub struct Attribute {
     pub hint: Option<String>,
     #[builder(default = "true")]
     pub is_persistent: bool,
+    #[builder(default = "false")]
+    pub is_hidden: bool,
 }
 
 impl AttributeBuilder {
@@ -57,14 +59,17 @@ impl Attribute {
         values: Vec<AttributeValue>,
         hint: Option<String>,
         is_persistent: bool,
+        is_hidden: bool,
     ) -> Self {
-        Self {
-            is_persistent,
-            namespace,
-            name,
-            values: Arc::new(values),
-            hint,
-        }
+        AttributeBuilder::default()
+            .is_persistent(is_persistent)
+            .is_hidden(is_hidden)
+            .name(name)
+            .namespace(namespace)
+            .values(values)
+            .hint(hint)
+            .build()
+            .unwrap()
     }
 
     /// Alias to constructor method. Creates a persistent attribute.
@@ -90,14 +95,17 @@ impl Attribute {
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
+        is_hidden: bool,
     ) -> Self {
-        Self {
-            is_persistent: true,
-            namespace,
-            name,
-            values: Arc::new(values),
-            hint,
-        }
+        AttributeBuilder::default()
+            .is_persistent(true)
+            .is_hidden(is_hidden)
+            .name(name)
+            .namespace(namespace)
+            .values(values)
+            .hint(hint)
+            .build()
+            .unwrap()
     }
 
     /// Alias to constructor method for non-persistent attributes.
@@ -123,14 +131,17 @@ impl Attribute {
         name: String,
         values: Vec<AttributeValue>,
         hint: Option<String>,
+        is_hidden: bool,
     ) -> Self {
-        Self {
-            is_persistent: false,
-            namespace,
-            name,
-            values: Arc::new(values),
-            hint,
-        }
+        AttributeBuilder::default()
+            .is_persistent(false)
+            .is_hidden(is_hidden)
+            .name(name)
+            .namespace(namespace)
+            .values(values)
+            .hint(hint)
+            .build()
+            .unwrap()
     }
 
     /// Returns ``True`` if the attribute is persistent, ``False`` otherwise.
@@ -290,7 +301,13 @@ pub trait Attributive: Send {
     fn get_attributes(&self) -> Vec<(String, String)> {
         self.get_attributes_ref()
             .iter()
-            .map(|((namespace, name), _)| (namespace.clone(), name.clone()))
+            .filter_map(|((namespace, name), a)| {
+                if a.is_hidden {
+                    None
+                } else {
+                    Some((namespace.clone(), name.clone()))
+                }
+            })
             .collect()
     }
 
@@ -338,6 +355,10 @@ pub trait Attributive: Send {
         self.get_attributes_ref()
             .iter()
             .filter(|((_, _), a)| {
+                if a.is_hidden {
+                    return false;
+                }
+
                 if let Some(namespace) = &namespace {
                     if a.namespace != *namespace {
                         return false;

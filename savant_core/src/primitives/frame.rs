@@ -202,7 +202,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "duration": self.duration,
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
-                "attributes": self.attributes.values().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
+                "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
                 "objects": self.resident_objects.values().map(|o| trace!(o.read_recursive()).to_serde_json_value()).collect::<Vec<_>>(),
             }
         )

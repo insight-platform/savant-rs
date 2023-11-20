@@ -4,6 +4,7 @@ use crate::with_gil;
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
+use savant_core::primitives::any_object::AnyObject;
 use savant_core::primitives::attribute_value::AttributeValueVariant;
 use savant_core::primitives::rust;
 use std::collections::hash_map::DefaultHasher;
@@ -76,6 +77,7 @@ impl AttributeValue {
             AttributeValueVariant::PolygonVector(_) => AttributeValueType::PolygonList,
             AttributeValueVariant::Intersection(_) => AttributeValueType::Intersection,
             AttributeValueVariant::None => AttributeValueType::None,
+            AttributeValueVariant::TemporaryValue(_) => AttributeValueType::TemporaryValue,
         }
     }
 
@@ -114,6 +116,15 @@ impl AttributeValue {
         Self(rust::AttributeValue {
             confidence: None,
             value: AttributeValueVariant::None,
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (pyobj, confidence = None))]
+    pub fn temporary_python_object(pyobj: PyObject, confidence: Option<f32>) -> Self {
+        Self(rust::AttributeValue {
+            confidence,
+            value: AttributeValueVariant::TemporaryValue(AnyObject::new(Box::new(pyobj))),
         })
     }
 
@@ -567,6 +578,17 @@ impl AttributeValue {
         }
     }
 
+    pub fn as_temporary_python_object(&self) -> Option<PyObject> {
+        match &self.0.value {
+            AttributeValueVariant::TemporaryValue(obj) => {
+                let obj = obj.take()?;
+                let obj = obj.downcast::<PyObject>().ok()?;
+                Some(*obj)
+            }
+            _ => None,
+        }
+    }
+
     /// Returns the value of attribute as an integer or None if not an integer type.
     ///
     /// Returns
@@ -782,6 +804,7 @@ pub enum AttributeValueType {
     Polygon,
     PolygonList,
     Intersection,
+    TemporaryValue,
     None,
 }
 

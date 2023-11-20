@@ -8,7 +8,7 @@ use test::Bencher;
 
 #[bench]
 fn bench_to_json_empty(b: &mut Bencher) {
-    let attr = Attribute::persistent("test".to_string(), "test".to_string(), vec![], None);
+    let attr = Attribute::persistent("test".to_string(), "test".to_string(), vec![], None, false);
     b.iter(|| {
         _ = attr.to_json().unwrap();
     });
@@ -16,7 +16,7 @@ fn bench_to_json_empty(b: &mut Bencher) {
 
 #[bench]
 fn bench_from_json_empty(b: &mut Bencher) {
-    let attr = Attribute::persistent("test".to_string(), "test".to_string(), vec![], None);
+    let attr = Attribute::persistent("test".to_string(), "test".to_string(), vec![], None, false);
     let s = attr.to_json().unwrap();
     b.iter(|| {
         _ = Attribute::from_json(&s).unwrap();
@@ -33,6 +33,7 @@ fn bench_to_json_int(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -49,6 +50,7 @@ fn bench_from_json_int(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
@@ -66,6 +68,7 @@ fn bench_to_json_int_vec(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -82,6 +85,7 @@ fn bench_from_json_int_vec(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
@@ -98,6 +102,7 @@ fn bench_to_json_int_many(b: &mut Bencher) {
             .map(|i| AttributeValue::new(AttributeValueVariant::Integer(i), Some(0.96)))
             .collect(),
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -113,6 +118,7 @@ fn bench_from_json_int_many(b: &mut Bencher) {
             .map(|i| AttributeValue::new(AttributeValueVariant::Integer(i), Some(0.96)))
             .collect(),
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
@@ -130,6 +136,7 @@ fn bench_to_json_float(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -146,6 +153,7 @@ fn bench_from_json_float(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
@@ -162,6 +170,7 @@ fn bench_to_json_float_many(b: &mut Bencher) {
             .map(|i| AttributeValue::new(AttributeValueVariant::Float(i as f64), Some(0.96)))
             .collect(),
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -177,6 +186,7 @@ fn bench_from_json_float_many(b: &mut Bencher) {
             .map(|i| AttributeValue::new(AttributeValueVariant::Float(i as f64), Some(0.96)))
             .collect(),
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
@@ -194,6 +204,7 @@ fn bench_to_json_string(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     b.iter(|| {
         _ = attr.to_json().unwrap();
@@ -210,6 +221,7 @@ fn bench_from_json_string(b: &mut Bencher) {
             Some(0.96),
         )],
         None,
+        false,
     );
     let s = attr.to_json().unwrap();
     b.iter(|| {
