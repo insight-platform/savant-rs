@@ -1,5 +1,5 @@
 use log::info;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
@@ -96,6 +96,10 @@ impl StatsCollector {
             .cloned()
             .collect()
     }
+
+    pub fn get_max_length(&self) -> usize {
+        self.max_length
+    }
 }
 
 #[derive(Default, Debug)]
@@ -150,7 +154,11 @@ impl StatsGenerator {
         self.last_ts.is_some()
     }
 
-    pub fn register_frame(&mut self, object_counter: usize) -> Option<FrameProcessingStatRecord> {
+    pub fn register_frame(
+        &mut self,
+        object_counter: usize,
+        last: bool,
+    ) -> Option<FrameProcessingStatRecord> {
         if self.is_active() {
             self.current_frame += 1;
             self.object_counter += object_counter;
@@ -159,7 +167,7 @@ impl StatsGenerator {
         match (self.frame_period, self.last_frame) {
             (Some(frame_period), Some(last_frame)) => {
                 let frame_no = self.current_frame;
-                if frame_no - last_frame >= frame_period {
+                if frame_no - last_frame >= frame_period || last {
                     let ts = self.time_counter.get_current_time();
                     self.last_frame = Some(frame_no);
                     Some(FrameProcessingStatRecord {
@@ -178,12 +186,12 @@ impl StatsGenerator {
         }
     }
 
-    pub fn register_ts(&mut self) -> Option<FrameProcessingStatRecord> {
+    pub fn register_ts(&mut self, last: bool) -> Option<FrameProcessingStatRecord> {
         match (self.timestamp_period, self.last_ts) {
             (Some(timestamp_period), Some(last_ts)) => {
                 let ts = self.time_counter.get_current_time();
                 let frame_no = self.current_frame;
-                if ts - last_ts >= timestamp_period {
+                if ts - last_ts >= timestamp_period || last {
                     self.last_ts = Some(ts);
                     Some(FrameProcessingStatRecord {
                         id: self.inc_record_counter(),
@@ -217,6 +225,64 @@ impl Default for Stats {
     }
 }
 
+fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
+    let max_rec_len = collector.get_max_length();
+    let last_records = collector
+        .get_records(max_rec_len)
+        .into_iter()
+        .filter(|r| {
+            matches!(
+                r.record_type,
+                FrameProcessingStatRecordType::Timestamp | FrameProcessingStatRecordType::Initial
+            )
+        })
+        .take(2)
+        .collect::<Vec<_>>();
+    if last_records.len() == 2 {
+        let time_delta = last_records[0].ts - last_records[1].ts;
+        let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
+        let object_delta = last_records[0].object_counter - last_records[1].object_counter;
+        info!(
+            "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
+            frame_delta as f64 / time_delta as f64,
+            object_delta as f64 / time_delta as f64,
+            frame_delta,
+            time_delta,
+            last_records[1].ts,
+            last_records[0].ts
+        );
+    }
+}
+
+fn log_frame_fps(collector: &mut MutexGuard<StatsCollector>) {
+    let max_rec_len = collector.get_max_length();
+    let last_records = collector
+        .get_records(max_rec_len)
+        .into_iter()
+        .filter(|r| {
+            matches!(
+                r.record_type,
+                FrameProcessingStatRecordType::Frame | FrameProcessingStatRecordType::Initial
+            )
+        })
+        .take(2)
+        .collect::<Vec<_>>();
+    if last_records.len() == 2 {
+        let time_delta = last_records[0].ts - last_records[1].ts;
+        let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
+        let object_delta = last_records[0].object_counter - last_records[1].object_counter;
+        info!(
+            "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
+            frame_delta as f64 / time_delta as f64,
+            object_delta as f64 / time_delta as f64,
+            frame_delta,
+            time_delta,
+            last_records[1].ts,
+            last_records[0].ts
+        );
+    }
+}
+
 impl Stats {
     pub fn new(
         stats_history: usize,
@@ -240,26 +306,12 @@ impl Stats {
             if thread_shutdown.get().is_some() {
                 break;
             }
-            let res = thread_generator.lock().register_ts();
+            let res = thread_generator.lock().register_ts(false);
             if let Some(mut r) = res {
                 r.stage_stats = Stats::collect_stage_stats(&thread_stage_stats);
-                thread_collector.lock().add_record(r);
-                let last_records = thread_collector.lock().get_records(2);
-                if last_records.len() == 2 {
-                    let time_delta = last_records[0].ts - last_records[1].ts;
-                    let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
-                    let object_delta =
-                        last_records[0].object_counter - last_records[1].object_counter;
-                    info!(
-                        "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
-                        frame_delta as f64 / time_delta as f64,
-                        object_delta as f64 / time_delta as f64,
-                        frame_delta,
-                        time_delta,
-                        last_records[1].ts,
-                        last_records[0].ts
-                    );
-                }
+                let mut thread_collector_bind = thread_collector.lock();
+                thread_collector_bind.add_record(r);
+                log_ts_fps(&mut thread_collector_bind);
             }
             std::thread::sleep(std::time::Duration::from_millis(1));
         }));
@@ -289,25 +341,12 @@ impl Stats {
     }
 
     pub fn register_frame(&self, object_counter: usize) {
-        let res = self.generator.lock().register_frame(object_counter);
+        let res = self.generator.lock().register_frame(object_counter, false);
         if let Some(mut r) = res {
             r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
-            self.collector.lock().add_record(r);
-            let last_records = self.collector.lock().get_records(2);
-            if last_records.len() == 2 {
-                let time_delta = last_records[0].ts - last_records[1].ts;
-                let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
-                let object_delta = last_records[0].object_counter - last_records[1].object_counter;
-                info!(
-                    "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
-                    frame_delta as f64 / time_delta as f64,
-                    object_delta as f64 / time_delta as f64,
-                    frame_delta,
-                    time_delta,
-                    last_records[0].ts,
-                    last_records[1].ts
-                );
-            }
+            let mut collector_bind = self.collector.lock();
+            collector_bind.add_record(r);
+            log_frame_fps(&mut collector_bind);
         }
     }
 
@@ -321,6 +360,27 @@ impl Drop for Stats {
         self.shutdown.get_or_init(|| ());
         let handle = self.time_thread.take().unwrap();
         handle.join().expect("Failed to join stats thread");
+        // add final record for frames if they are configured
+        let mut generator_bind = self.generator.lock();
+        if generator_bind.frame_period.is_some() {
+            let res = generator_bind.register_frame(0, true);
+            if let Some(mut r) = res {
+                r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
+                let mut collector_bind = self.collector.lock();
+                collector_bind.add_record(r);
+                log_frame_fps(&mut collector_bind);
+            }
+        }
+
+        if generator_bind.timestamp_period.is_some() {
+            let res = generator_bind.register_ts(true);
+            if let Some(mut r) = res {
+                r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
+                let mut collector_bind = self.collector.lock();
+                collector_bind.add_record(r);
+                log_ts_fps(&mut collector_bind);
+            }
+        }
     }
 }
 
@@ -357,9 +417,9 @@ mod tests {
     #[test]
     fn test_frame_based_stats_generator() {
         let mut generator = StatsGenerator::new(Some(5), None);
-        let frame_rec = generator.register_frame(10);
+        let frame_rec = generator.register_frame(10, false);
         assert!(frame_rec.is_none(), "Before kick off nothings happens");
-        let ts_rec = generator.register_ts();
+        let ts_rec = generator.register_ts(false);
         assert!(ts_rec.is_none(), "Before kick off nothing happens");
         let frame_rec = generator.kick_off();
         assert!(
@@ -378,10 +438,10 @@ mod tests {
 
         generator.time_counter.update_time(10);
         for _ in 0..4 {
-            let frame_rec = generator.register_frame(5);
+            let frame_rec = generator.register_frame(5, false);
             assert!(frame_rec.is_none(), "Not enough frames ingested");
         }
-        let frame_rec = generator.register_frame(5);
+        let frame_rec = generator.register_frame(5, false);
         assert!(frame_rec.is_some(), "Frame record expected");
         assert!(matches!(
             frame_rec,
@@ -397,7 +457,7 @@ mod tests {
         generator.time_counter.update_time(20);
         let mut frames = (0..5)
             .into_iter()
-            .flat_map(|_| generator.register_frame(1))
+            .flat_map(|_| generator.register_frame(1, false))
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 1);
         let frame = frames.pop();
@@ -417,9 +477,9 @@ mod tests {
     #[test]
     fn test_timestamp_based_stats_generator() {
         let mut generator = StatsGenerator::new(None, Some(20));
-        let frame_rec = generator.register_frame(0);
+        let frame_rec = generator.register_frame(0, false);
         assert!(frame_rec.is_none(), "Before kick off nothings happens");
-        let ts_rec = generator.register_ts();
+        let ts_rec = generator.register_ts(false);
         assert!(ts_rec.is_none(), "Before kick off nothing happens");
         let frame_rec = generator.kick_off();
         assert!(
@@ -438,12 +498,12 @@ mod tests {
 
         for ts in 16..20 {
             generator.time_counter.update_time(ts);
-            let ts_rec = generator.register_ts();
+            let ts_rec = generator.register_ts(false);
             assert!(ts_rec.is_none(), "Not enough timestamps ingested");
         }
-        generator.register_frame(0);
+        generator.register_frame(0, false);
         generator.time_counter.update_time(20);
-        let ts_rec = generator.register_ts();
+        let ts_rec = generator.register_ts(false);
         assert!(ts_rec.is_some(), "Timestamp record expected");
         assert!(matches!(
             ts_rec,
@@ -456,9 +516,9 @@ mod tests {
                 stage_stats: _
             }) if record_type == FrameProcessingStatRecordType::Timestamp && ts == 20 && frame_no == 1 && id == 1
         ));
-        generator.register_frame(0);
+        generator.register_frame(0, false);
         generator.time_counter.update_time(40);
-        let ts_rec = generator.register_ts();
+        let ts_rec = generator.register_ts(false);
         assert!(ts_rec.is_some(), "Timestamp record expected");
         assert!(matches!(
             ts_rec,
