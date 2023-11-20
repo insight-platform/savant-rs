@@ -96,6 +96,10 @@ impl StatsCollector {
             .cloned()
             .collect()
     }
+
+    pub fn get_max_length(&self) -> usize {
+        self.max_length
+    }
 }
 
 #[derive(Default, Debug)]
@@ -243,8 +247,15 @@ impl Stats {
             let res = thread_generator.lock().register_ts();
             if let Some(mut r) = res {
                 r.stage_stats = Stats::collect_stage_stats(&thread_stage_stats);
-                thread_collector.lock().add_record(r);
-                let last_records = thread_collector.lock().get_records(2);
+                let mut thread_collector_bind = thread_collector.lock();
+                thread_collector_bind.add_record(r);
+                let max_rec_len = thread_collector_bind.get_max_length();
+                let last_records = thread_collector_bind
+                    .get_records(max_rec_len)
+                    .into_iter()
+                    .filter(|r| matches!(r.record_type, FrameProcessingStatRecordType::Timestamp))
+                    .take(2)
+                    .collect::<Vec<_>>();
                 if last_records.len() == 2 {
                     let time_delta = last_records[0].ts - last_records[1].ts;
                     let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
@@ -292,8 +303,15 @@ impl Stats {
         let res = self.generator.lock().register_frame(object_counter);
         if let Some(mut r) = res {
             r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
-            self.collector.lock().add_record(r);
-            let last_records = self.collector.lock().get_records(2);
+            let mut collector_bind = self.collector.lock();
+            collector_bind.add_record(r);
+            let max_rec_len = collector_bind.get_max_length();
+            let last_records = collector_bind
+                .get_records(max_rec_len)
+                .into_iter()
+                .filter(|r| matches!(r.record_type, FrameProcessingStatRecordType::Frame))
+                .take(2)
+                .collect::<Vec<_>>();
             if last_records.len() == 2 {
                 let time_delta = last_records[0].ts - last_records[1].ts;
                 let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
