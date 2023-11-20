@@ -89,9 +89,13 @@ impl StatsCollector {
         }
     }
 
-    pub fn get_records(&mut self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
+    pub fn get_records<F>(&mut self, max_n: usize, filter: F) -> Vec<FrameProcessingStatRecord>
+    where
+        F: FnMut(&&FrameProcessingStatRecord) -> bool,
+    {
         self.processing_history
             .iter()
+            .filter(filter)
             .take(max_n)
             .cloned()
             .collect()
@@ -226,18 +230,12 @@ impl Default for Stats {
 }
 
 fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
-    let max_rec_len = collector.get_max_length();
-    let last_records = collector
-        .get_records(max_rec_len)
-        .into_iter()
-        .filter(|r| {
-            matches!(
-                r.record_type,
-                FrameProcessingStatRecordType::Timestamp | FrameProcessingStatRecordType::Initial
-            )
-        })
-        .take(2)
-        .collect::<Vec<_>>();
+    let last_records = collector.get_records(2, |r| {
+        matches!(
+            r.record_type,
+            FrameProcessingStatRecordType::Timestamp | FrameProcessingStatRecordType::Initial
+        )
+    });
     if last_records.len() == 2 {
         let time_delta = last_records[0].ts - last_records[1].ts;
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
@@ -255,18 +253,12 @@ fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
 }
 
 fn log_frame_fps(collector: &mut MutexGuard<StatsCollector>) {
-    let max_rec_len = collector.get_max_length();
-    let last_records = collector
-        .get_records(max_rec_len)
-        .into_iter()
-        .filter(|r| {
-            matches!(
-                r.record_type,
-                FrameProcessingStatRecordType::Frame | FrameProcessingStatRecordType::Initial
-            )
-        })
-        .take(2)
-        .collect::<Vec<_>>();
+    let last_records = collector.get_records(2, |r| {
+        matches!(
+            r.record_type,
+            FrameProcessingStatRecordType::Frame | FrameProcessingStatRecordType::Initial
+        )
+    });
     if last_records.len() == 2 {
         let time_delta = last_records[0].ts - last_records[1].ts;
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
@@ -351,7 +343,7 @@ impl Stats {
     }
 
     pub fn get_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
-        self.collector.lock().get_records(max_n)
+        self.collector.lock().get_records(max_n, |_| true)
     }
 }
 
@@ -406,7 +398,7 @@ mod tests {
                 stage_stats: Vec::new(),
             });
         }
-        let records = stats_collector.get_records(20);
+        let records = stats_collector.get_records(20, |_| true);
         assert_eq!(records.len(), 10);
         for i in 0..10 {
             assert_eq!(records[i].ts, 19 - i as i64);
