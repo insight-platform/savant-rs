@@ -237,13 +237,13 @@ fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
         )
     });
     if last_records.len() == 2 {
-        let time_delta = last_records[0].ts - last_records[1].ts;
+        let time_delta = (last_records[0].ts - last_records[1].ts) as f64 / 1000.0;
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
-            frame_delta as f64 / time_delta as f64,
-            object_delta as f64 / time_delta as f64,
+            "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {} sec , period=[{}, {}] ms",
+            frame_delta as f64 / time_delta,
+            object_delta as f64 / time_delta,
             frame_delta,
             time_delta,
             last_records[1].ts,
@@ -260,13 +260,13 @@ fn log_frame_fps(collector: &mut MutexGuard<StatsCollector>) {
         )
     });
     if last_records.len() == 2 {
-        let time_delta = last_records[0].ts - last_records[1].ts;
+        let time_delta = (last_records[0].ts - last_records[1].ts) as f64 / 1000.0;
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {}, period=[{}, {}]",
-            frame_delta as f64 / time_delta as f64,
-            object_delta as f64 / time_delta as f64,
+            "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {} sec, period=[{}, {}] ms",
+            frame_delta as f64 / time_delta,
+            object_delta as f64 / time_delta,
             frame_delta,
             time_delta,
             last_records[1].ts,
@@ -345,13 +345,8 @@ impl Stats {
     pub fn get_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.collector.lock().get_records(max_n, |_| true)
     }
-}
 
-impl Drop for Stats {
-    fn drop(&mut self) {
-        self.shutdown.get_or_init(|| ());
-        let handle = self.time_thread.take().unwrap();
-        handle.join().expect("Failed to join stats thread");
+    pub fn log_final_fps(&self) {
         // add final record for frames if they are configured
         let mut generator_bind = self.generator.lock();
         if generator_bind.frame_period.is_some() {
@@ -373,6 +368,14 @@ impl Drop for Stats {
                 log_ts_fps(&mut collector_bind);
             }
         }
+    }
+}
+
+impl Drop for Stats {
+    fn drop(&mut self) {
+        self.shutdown.get_or_init(|| ());
+        let handle = self.time_thread.take().unwrap();
+        handle.join().expect("Failed to join stats thread");
     }
 }
 

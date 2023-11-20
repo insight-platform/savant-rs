@@ -245,6 +245,10 @@ impl Pipeline {
             .collect()
     }
 
+    pub fn log_final_fps(&self) {
+        self.0.log_final_fps();
+    }
+
     /// Clears the ordering for source, called on dead stream eviction.
     ///
     /// Parameters

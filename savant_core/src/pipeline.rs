@@ -50,6 +50,10 @@ impl Pipeline {
         self.0.get_stat_records(max_n)
     }
 
+    pub fn log_final_fps(&self) {
+        self.0.log_final_fps()
+    }
+
     pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
     }
@@ -247,6 +251,10 @@ pub(super) mod implementation {
 
         pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
             self.stats.get_records(max_n)
+        }
+
+        pub fn log_final_fps(&self) {
+            self.stats.log_final_fps()
         }
 
         pub fn get_id_locations_len(&self) -> usize {
