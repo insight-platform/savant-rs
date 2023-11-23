@@ -89,7 +89,7 @@ impl StatsCollector {
         }
     }
 
-    pub fn get_records<F>(&mut self, max_n: usize, filter: F) -> Vec<FrameProcessingStatRecord>
+    pub fn get_records<F>(&self, max_n: usize, filter: F) -> Vec<FrameProcessingStatRecord>
     where
         F: FnMut(&&FrameProcessingStatRecord) -> bool,
     {
@@ -241,7 +241,7 @@ fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Time-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {} sec , period=[{}, {}] ms",
+            "Time-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec , period=[{}, {}] ms",
             frame_delta as f64 / time_delta,
             object_delta as f64 / time_delta,
             frame_delta,
@@ -264,7 +264,7 @@ fn log_frame_fps(collector: &mut MutexGuard<StatsCollector>) {
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Frame-based FPS counter triggered: FPS = {}, OPS = {}, frame_delta = {}, time_delta = {} sec, period=[{}, {}] ms",
+            "Frame-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec, period=[{}, {}] ms",
             frame_delta as f64 / time_delta,
             object_delta as f64 / time_delta,
             frame_delta,
@@ -344,6 +344,12 @@ impl Stats {
 
     pub fn get_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
         self.collector.lock().get_records(max_n, |_| true)
+    }
+
+    pub fn get_records_newer_than(&self, id: i64) -> Vec<FrameProcessingStatRecord> {
+        let bind = self.collector.lock();
+        let history_length = bind.get_max_length();
+        bind.get_records(history_length, |r| r.id > id)
     }
 
     pub fn log_final_fps(&self) {

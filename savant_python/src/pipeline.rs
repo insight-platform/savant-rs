@@ -245,6 +245,14 @@ impl Pipeline {
             .collect()
     }
 
+    pub fn get_stat_records_newer_than(&self, id: i64) -> Vec<FrameProcessingStatRecord> {
+        self.0
+            .get_stat_records_newer_than(id)
+            .into_iter()
+            .map(FrameProcessingStatRecord)
+            .collect()
+    }
+
     pub fn log_final_fps(&self) {
         self.0.log_final_fps();
     }
