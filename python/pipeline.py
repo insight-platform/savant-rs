@@ -162,6 +162,8 @@ if __name__ == "__main__":
     time.sleep(0.3)
     recs = p.get_stat_records(10)
     print(recs)
+    recs = p.get_stat_records_newer_than(recs[1].id)
+    print(recs)
     p.log_final_fps()
 
     # del root_spans_1

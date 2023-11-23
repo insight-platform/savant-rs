@@ -50,6 +50,10 @@ impl Pipeline {
         self.0.get_stat_records(max_n)
     }
 
+    pub fn get_stat_records_newer_than(&self, id: i64) -> Vec<stats::FrameProcessingStatRecord> {
+        self.0.get_stat_records_newer_than(id)
+    }
+
     pub fn log_final_fps(&self) {
         self.0.log_final_fps()
     }
@@ -251,6 +255,10 @@ pub(super) mod implementation {
 
         pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
             self.stats.get_records(max_n)
+        }
+
+        pub fn get_stat_records_newer_than(&self, id: i64) -> Vec<FrameProcessingStatRecord> {
+            self.stats.get_records_newer_than(id)
         }
 
         pub fn log_final_fps(&self) {
