@@ -392,9 +392,11 @@ impl VideoFrameProxy {
     }
 
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
-        VideoFrameProxy {
+        let res = VideoFrameProxy {
             inner: Arc::new(RwLock::new(Box::new(inner))),
-        }
+        };
+        res.fix_object_owned_frame();
+        res
     }
 
     pub fn get_all_objects(&self) -> Vec<VideoObjectProxy> {
@@ -1168,6 +1170,10 @@ mod tests {
         f.restore_from_snapshot();
         let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
         assert_eq!(o.get_namespace(), s("test"));
+
+        // ensure objects are not attached to the frame
+        let o = f.get_object(0).unwrap();
+        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &f.inner));
     }
 
     #[test]
@@ -1336,6 +1342,10 @@ mod tests {
         let saved_frame = o.get_frame();
         assert!(saved_frame.is_some());
         assert!(Arc::ptr_eq(&frame.inner, &saved_frame.unwrap().inner));
+
+        // check that objects have properly set owning frame
+        let o = frame.get_object(0).unwrap();
+        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &frame.inner));
     }
 
     #[test]
@@ -1407,6 +1417,11 @@ mod tests {
         f.clear_attributes();
         assert!(f.get_attributes().is_empty());
         assert!(!new_f.get_attributes().is_empty());
+
+        // check that the objects are attached to the new frame
+        let o = new_f.get_object(0).unwrap();
+        assert!(o.get_frame().is_some());
+        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &new_f.inner));
     }
 
     #[test]

@@ -343,6 +343,7 @@ mod tests {
     use crate::primitives::userdata::UserData;
     use crate::primitives::Attribute;
     use crate::test::gen_frame;
+    use std::sync::Arc;
 
     #[test]
     fn test_save_load_eos() {
@@ -377,6 +378,11 @@ mod tests {
         let res = save_message(&m);
         let m = load_message(&res);
         assert!(m.is_video_frame());
+        let frame = m.as_video_frame().unwrap();
+
+        // ensure objects belong the frame
+        let obj = frame.get_object(0).unwrap();
+        assert!(Arc::ptr_eq(&obj.get_frame().unwrap().inner, &frame.inner));
     }
 
     #[test]
