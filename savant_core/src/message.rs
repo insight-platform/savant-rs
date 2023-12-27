@@ -206,6 +206,10 @@ impl Message {
         }
     }
 
+    pub fn payload(&self) -> &MessageEnvelope {
+        &self.payload
+    }
+
     pub fn meta(&self) -> &MessageMeta {
         &self.meta
     }

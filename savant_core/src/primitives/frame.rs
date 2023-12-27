@@ -249,6 +249,10 @@ impl VideoFrame {
         frame.restore();
         frame
     }
+
+    pub fn get_resident_objects(&self) -> &HashMap<i64, Arc<RwLock<VideoObject>>> {
+        &self.resident_objects
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1220,10 +1224,10 @@ mod tests {
         let frame = gen_frame();
         frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
-        assert_eq!(parent_object.get_draw_label(), s("draw"));
+        assert_eq!(parent_object.calculate_draw_label(), s("draw"));
 
         let child_object = frame.get_object(1).unwrap();
-        assert_ne!(child_object.get_draw_label(), s("draw"));
+        assert_ne!(child_object.calculate_draw_label(), s("draw"));
     }
 
     #[test]
@@ -1231,13 +1235,13 @@ mod tests {
         let frame = gen_frame();
         frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
-        assert_eq!(parent_object.get_draw_label(), s("draw"));
+        assert_eq!(parent_object.calculate_draw_label(), s("draw"));
 
         let child_object = frame.get_object(1).unwrap();
-        assert_eq!(child_object.get_draw_label(), s("draw"));
+        assert_eq!(child_object.calculate_draw_label(), s("draw"));
 
         let child_object = frame.get_object(2).unwrap();
-        assert_eq!(child_object.get_draw_label(), s("draw"));
+        assert_eq!(child_object.calculate_draw_label(), s("draw"));
     }
 
     #[test]

@@ -48,11 +48,11 @@ impl Default for VideoFrameUpdate {
 }
 
 impl VideoFrameUpdate {
-    pub(crate) fn get_frame_attributes(&self) -> &Vec<Attribute> {
+    pub fn get_frame_attributes(&self) -> &Vec<Attribute> {
         &self.frame_attributes
     }
 
-    pub(crate) fn get_object_attributes(&self) -> &Vec<(i64, Attribute)> {
+    pub fn get_object_attributes(&self) -> &Vec<(i64, Attribute)> {
         &self.object_attributes
     }
 

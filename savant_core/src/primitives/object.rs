@@ -411,7 +411,12 @@ impl VideoObjectProxy {
         }
     }
 
-    pub fn get_draw_label(&self) -> String {
+    pub fn get_draw_label(&self) -> Option<String> {
+        let inner = trace!(self.inner.read_recursive());
+        inner.draw_label.clone()
+    }
+
+    pub fn calculate_draw_label(&self) -> String {
         let inner = trace!(self.inner.read_recursive());
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }

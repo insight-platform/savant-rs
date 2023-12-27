@@ -94,4 +94,8 @@ impl VideoFrameBatch {
     pub fn del(&mut self, id: i64) -> Option<VideoFrameProxy> {
         self.frames.remove(&id)
     }
+
+    pub fn frames(&self) -> &HashMap<i64, VideoFrameProxy> {
+        &self.frames
+    }
 }

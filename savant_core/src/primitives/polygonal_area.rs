@@ -42,6 +42,14 @@ impl ToSerdeJsonValue for PolygonalArea {
 }
 
 impl PolygonalArea {
+    pub fn get_vertices(&self) -> &[Point] {
+        &self.vertices
+    }
+
+    pub fn get_tags(&self) -> Option<&[Option<String>]> {
+        self.tags.as_ref().map(|t| t.as_slice())
+    }
+
     pub fn contains_many_points(&mut self, points: &[Point]) -> Vec<bool> {
         self.build_polygon();
         points.iter().map(|p| self.contains(p)).collect::<Vec<_>>()
