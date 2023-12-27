@@ -20,8 +20,8 @@ use serde_json::Value;
 )]
 #[archive(check_bytes)]
 pub struct PolygonalArea {
-    pub(self) vertices: Vec<Point>,
-    pub(self) tags: Option<Vec<Option<String>>>,
+    pub(crate) vertices: Vec<Point>,
+    pub(crate) tags: Option<Vec<Option<String>>>,
     #[with(Skip)]
     #[serde(skip_deserializing, skip_serializing)]
     polygon: Option<geo::Polygon>,
@@ -47,7 +47,7 @@ impl PolygonalArea {
     }
 
     pub fn get_tags(&self) -> Option<&[Option<String>]> {
-        self.tags.as_ref().map(|t| t.as_slice())
+        self.tags.as_deref()
     }
 
     pub fn contains_many_points(&mut self, points: &[Point]) -> Vec<bool> {

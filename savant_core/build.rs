@@ -15,10 +15,11 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
     let out_path = out_dir.join("protocol.rs");
-    let module_path = src_dir.join("protocol").join("generated.rs");
+    let module_path = src_dir.join("protobuf").join("generated.rs");
 
     let mut config = prost_build::Config::new();
     config.protoc_arg("--experimental_allow_proto3_optional");
+    config.enum_attribute(".", "#[allow(clippy::large_enum_variant)]");
     config
         .compile_protos(
             &[proto_path.to_str().unwrap()],

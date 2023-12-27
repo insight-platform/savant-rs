@@ -1,22 +1,24 @@
-use crate::protocol::generated;
-use savant_core::message::MessageEnvelope;
-use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-use savant_core::primitives::eos::EndOfStream;
-use savant_core::primitives::frame::{
+use crate::message::MessageEnvelope;
+use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use crate::primitives::eos::EndOfStream;
+use crate::primitives::frame::{
     VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
     VideoFrameTransformation,
 };
-use savant_core::primitives::frame_batch::VideoFrameBatch;
-use savant_core::primitives::frame_update::{
+use crate::primitives::frame_batch::VideoFrameBatch;
+use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use savant_core::primitives::object::VideoObjectProxy;
-use savant_core::primitives::rust::UserData;
-use savant_core::primitives::shutdown::Shutdown;
-use savant_core::primitives::{
+use crate::primitives::object::{VideoObject, VideoObjectProxy};
+use crate::primitives::rust::UserData;
+use crate::primitives::shutdown::Shutdown;
+use crate::primitives::{
     Attribute, AttributeMethods, IntersectionKind, OwnedRBBoxData, PolygonalArea, RBBox,
 };
-use std::mem::transmute;
+
+use crate::protobuf::generated;
+
+use hashbrown::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -69,7 +71,7 @@ impl From<generated::video_frame::Content> for VideoFrameContent {
     fn from(value: generated::video_frame::Content) -> Self {
         match value {
             generated::video_frame::Content::External(e) => {
-                VideoFrameContent::External(savant_core::primitives::frame::ExternalFrame {
+                VideoFrameContent::External(crate::primitives::frame::ExternalFrame {
                     method: e.method,
                     location: e.location,
                 })
@@ -168,12 +170,12 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
             transcoding_method: generated::VideoFrameTranscodingMethod::from(&vf.transcoding_method)
                 as i32,
             codec: vf.codec.clone(),
-            keyframe: vf.keyframe.clone(),
+            keyframe: vf.keyframe,
             time_base_numerator: vf.time_base.0,
             time_base_denominator: vf.time_base.1,
             pts: vf.pts,
-            dts: vf.dts.clone(),
-            duration: vf.duration.clone(),
+            dts: vf.dts,
+            duration: vf.duration,
             attributes: vf.attributes.values().map(|a| a.into()).collect(),
             objects: vf
                 .get_resident_objects()
@@ -265,14 +267,36 @@ impl From<&(VideoObjectProxy, Option<i64>)> for generated::VideoObjectWithForeig
     fn from(p: &(VideoObjectProxy, Option<i64>)) -> Self {
         generated::VideoObjectWithForeignParent {
             object: Some(generated::VideoObject::from(&p.0)),
-            parent_id: p.1.clone(),
+            parent_id: p.1,
         }
     }
 }
 
-impl From<&generated::VideoObjectWithForeignParent> for VideoObjectProxy {
-    fn from(value: &generated::VideoObjectWithForeignParent) -> Self {
-        todo!()
+impl TryFrom<&generated::VideoObjectWithForeignParent> for VideoObject {
+    type Error = prost::DecodeError;
+    fn try_from(value: &generated::VideoObjectWithForeignParent) -> Result<Self, Self::Error> {
+        let obj = value.object.as_ref().unwrap();
+        let attributes = obj
+            .attributes
+            .iter()
+            .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
+            .collect::<Result<HashMap<(String, String), Attribute>, _>>()?;
+
+        Ok(VideoObject {
+            id: obj.id,
+            namespace: obj.namespace.clone(),
+            label: obj.label.clone(),
+            draw_label: obj.draw_label.clone(),
+            detection_box: obj.detection_box.as_ref().unwrap().into(),
+            attributes,
+            confidence: obj.confidence,
+            parent_id: value.parent_id,
+            track_box: obj.track_box.as_ref().map(|rbbox| rbbox.into()),
+            track_id: obj.track_id,
+            namespace_id: None,
+            label_id: None,
+            frame: None,
+        })
     }
 }
 
@@ -360,9 +384,42 @@ impl From<&VideoFrameUpdate> for generated::VideoFrameUpdate {
     }
 }
 
-impl From<&generated::VideoFrameUpdate> for VideoFrameUpdate {
-    fn from(value: &generated::VideoFrameUpdate) -> Self {
-        todo!()
+impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
+    type Error = prost::DecodeError;
+
+    fn try_from(value: &generated::VideoFrameUpdate) -> Result<Self, Self::Error> {
+        let frame_attribute_policy = value.frame_attribute_policy.try_into()?;
+        let object_attribute_policy = value.object_attribute_policy.try_into()?;
+        let object_policy = value.object_policy.try_into()?;
+
+        let object_attributes = value
+            .object_attributes
+            .iter()
+            .map(|oa| {
+                Attribute::try_from(oa.attribute.as_ref().unwrap()).map(|a| (oa.object_id, a))
+            })
+            .collect::<Result<Vec<(i64, Attribute)>, _>>()?;
+
+        let frame_attributes = value
+            .frame_attributes
+            .iter()
+            .map(Attribute::try_from)
+            .collect::<Result<Vec<Attribute>, _>>()?;
+
+        let objects = value
+            .objects
+            .iter()
+            .map(|so| VideoObject::try_from(so).map(|o| (o, so.parent_id.clone())))
+            .collect::<Result<Vec<(VideoObject, Option<i64>)>, _>>()?;
+
+        Ok(VideoFrameUpdate {
+            frame_attributes,
+            object_attributes,
+            objects,
+            frame_attribute_policy: AttributeUpdatePolicy::from(&frame_attribute_policy),
+            object_attribute_policy: AttributeUpdatePolicy::from(&object_attribute_policy),
+            object_policy: ObjectUpdatePolicy::from(&object_policy),
+        })
     }
 }
 
@@ -386,7 +443,19 @@ impl From<&PolygonalArea> for generated::PolygonalArea {
 
 impl From<&generated::PolygonalArea> for PolygonalArea {
     fn from(value: &generated::PolygonalArea) -> Self {
-        todo!()
+        PolygonalArea::new(
+            value
+                .points
+                .iter()
+                .map(|p| crate::primitives::Point::new(p.x, p.y))
+                .collect(),
+            value.tags.as_ref().map(|tags| {
+                tags.tags
+                    .iter()
+                    .map(|t| t.tag.clone())
+                    .collect::<Vec<Option<String>>>()
+            }),
+        )
     }
 }
 
@@ -421,7 +490,7 @@ impl From<&OwnedRBBoxData> for generated::BoundingBox {
             yc: value.yc,
             width: value.width,
             height: value.height,
-            angle: value.angle.clone(),
+            angle: value.angle,
         }
     }
 }
@@ -433,7 +502,7 @@ impl From<&generated::BoundingBox> for OwnedRBBoxData {
             yc: value.yc,
             width: value.width,
             height: value.height,
-            angle: value.angle.clone(),
+            angle: value.angle,
             has_modifications: false,
         }
     }
@@ -492,10 +561,7 @@ impl From<&AttributeValueVariant> for generated::attribute_value::Value {
             AttributeValueVariant::BBoxVector(bbv) => {
                 generated::attribute_value::Value::BoundingBoxVector(
                     generated::BoundingBoxVectorAttributeValueVariant {
-                        data: bbv
-                            .iter()
-                            .map(|bb| generated::BoundingBox::from(bb))
-                            .collect(),
+                        data: bbv.iter().map(generated::BoundingBox::from).collect(),
                     },
                 )
             }
@@ -553,9 +619,11 @@ impl From<&AttributeValueVariant> for generated::attribute_value::Value {
     }
 }
 
-impl From<&generated::attribute_value::Value> for AttributeValueVariant {
-    fn from(value: &generated::attribute_value::Value) -> Self {
-        match value {
+impl TryFrom<&generated::attribute_value::Value> for AttributeValueVariant {
+    type Error = prost::DecodeError;
+
+    fn try_from(value: &generated::attribute_value::Value) -> Result<Self, Self::Error> {
+        Ok(match value {
             generated::attribute_value::Value::Bytes(b) => {
                 AttributeValueVariant::Bytes(b.dims.clone(), b.data.clone())
             }
@@ -565,21 +633,15 @@ impl From<&generated::attribute_value::Value> for AttributeValueVariant {
             generated::attribute_value::Value::StringVector(sv) => {
                 AttributeValueVariant::StringVector(sv.data.clone())
             }
-            generated::attribute_value::Value::Integer(i) => {
-                AttributeValueVariant::Integer(i.data.clone())
-            }
+            generated::attribute_value::Value::Integer(i) => AttributeValueVariant::Integer(i.data),
             generated::attribute_value::Value::IntegerVector(iv) => {
                 AttributeValueVariant::IntegerVector(iv.data.clone())
             }
-            generated::attribute_value::Value::Float(f) => {
-                AttributeValueVariant::Float(f.data.clone())
-            }
+            generated::attribute_value::Value::Float(f) => AttributeValueVariant::Float(f.data),
             generated::attribute_value::Value::FloatVector(fv) => {
                 AttributeValueVariant::FloatVector(fv.data.clone())
             }
-            generated::attribute_value::Value::Boolean(b) => {
-                AttributeValueVariant::Boolean(b.data.clone())
-            }
+            generated::attribute_value::Value::Boolean(b) => AttributeValueVariant::Boolean(b.data),
             generated::attribute_value::Value::BooleanVector(bv) => {
                 AttributeValueVariant::BooleanVector(bv.data.clone())
             }
@@ -590,7 +652,7 @@ impl From<&generated::attribute_value::Value> for AttributeValueVariant {
                 AttributeValueVariant::BBoxVector(bbv.data.iter().map(|bb| bb.into()).collect())
             }
             generated::attribute_value::Value::Point(p) => {
-                AttributeValueVariant::Point(savant_core::primitives::Point::new(
+                AttributeValueVariant::Point(crate::primitives::Point::new(
                     p.data.as_ref().unwrap().x,
                     p.data.as_ref().unwrap().y,
                 ))
@@ -599,7 +661,7 @@ impl From<&generated::attribute_value::Value> for AttributeValueVariant {
                 AttributeValueVariant::PointVector(
                     pv.data
                         .iter()
-                        .map(|p| savant_core::primitives::Point::new(p.x, p.y))
+                        .map(|p| crate::primitives::Point::new(p.x, p.y))
                         .collect(),
                 )
             }
@@ -612,11 +674,8 @@ impl From<&generated::attribute_value::Value> for AttributeValueVariant {
                 )
             }
             generated::attribute_value::Value::Intersection(i) => {
-                AttributeValueVariant::Intersection(savant_core::primitives::Intersection {
-                    kind: IntersectionKind::from(&unsafe {
-                        transmute::<i32, generated::IntersectionKind>(i.data.as_ref().unwrap().kind)
-                    }),
-
+                AttributeValueVariant::Intersection(crate::primitives::Intersection {
+                    kind: IntersectionKind::from(&i.data.as_ref().unwrap().kind.try_into()?),
                     edges: i
                         .data
                         .as_ref()
@@ -628,7 +687,7 @@ impl From<&generated::attribute_value::Value> for AttributeValueVariant {
                 })
             }
             generated::attribute_value::Value::None(_) => AttributeValueVariant::None,
-        }
+        })
     }
 }
 
@@ -641,12 +700,13 @@ impl From<&AttributeValue> for generated::AttributeValue {
     }
 }
 
-impl From<&generated::AttributeValue> for AttributeValue {
-    fn from(value: &generated::AttributeValue) -> Self {
-        AttributeValue {
-            confidence: value.confidence.clone(),
-            value: AttributeValueVariant::from(value.value.as_ref().unwrap()),
-        }
+impl TryFrom<&generated::AttributeValue> for AttributeValue {
+    type Error = prost::DecodeError;
+    fn try_from(value: &generated::AttributeValue) -> Result<Self, Self::Error> {
+        Ok(AttributeValue {
+            confidence: value.confidence,
+            value: AttributeValueVariant::try_from(value.value.as_ref().unwrap())?,
+        })
     }
 }
 
@@ -657,22 +717,29 @@ impl From<&Attribute> for generated::Attribute {
             name: a.name.clone(),
             values: a.values.iter().map(|v| v.into()).collect(),
             hint: a.hint.clone(),
-            is_persistent: a.is_persistent.clone(),
-            is_hidden: a.is_hidden.clone(),
+            is_persistent: a.is_persistent,
+            is_hidden: a.is_hidden,
         }
     }
 }
 
-impl From<&generated::Attribute> for Attribute {
-    fn from(value: &generated::Attribute) -> Self {
-        Attribute {
+impl TryFrom<&generated::Attribute> for Attribute {
+    type Error = prost::DecodeError;
+    fn try_from(value: &generated::Attribute) -> Result<Self, Self::Error> {
+        Ok(Attribute {
             namespace: value.namespace.clone(),
             name: value.name.clone(),
-            values: Arc::new(value.values.iter().map(|v| v.into()).collect()),
+            values: Arc::new(
+                value
+                    .values
+                    .iter()
+                    .map(|v| v.try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
             hint: value.hint.clone(),
-            is_persistent: value.is_persistent.clone(),
-            is_hidden: value.is_hidden.clone(),
-        }
+            is_persistent: value.is_persistent,
+            is_hidden: value.is_hidden,
+        })
     }
 }
 
@@ -685,16 +752,18 @@ impl From<&UserData> for generated::UserData {
     }
 }
 
-impl From<&generated::UserData> for UserData {
-    fn from(value: &generated::UserData) -> Self {
-        UserData {
+impl TryFrom<&generated::UserData> for UserData {
+    type Error = prost::DecodeError;
+
+    fn try_from(value: &generated::UserData) -> Result<Self, Self::Error> {
+        Ok(UserData {
             source_id: value.source_id.clone(),
             attributes: value
                 .attributes
                 .iter()
-                .map(|a| ((a.namespace.clone(), a.name.clone()), a.into()))
-                .collect(),
-        }
+                .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
+                .collect::<Result<HashMap<(String, String), Attribute>, _>>()?,
+        })
     }
 }
 
@@ -727,9 +796,11 @@ impl From<&MessageEnvelope> for generated::message::Content {
     }
 }
 
-impl From<&generated::message::Content> for MessageEnvelope {
-    fn from(value: &generated::message::Content) -> Self {
-        match value {
+impl TryFrom<&generated::message::Content> for MessageEnvelope {
+    type Error = prost::DecodeError;
+
+    fn try_from(value: &generated::message::Content) -> Result<Self, Self::Error> {
+        Ok(match value {
             generated::message::Content::EndOfStream(eos) => {
                 MessageEnvelope::EndOfStream(EndOfStream {
                     source_id: eos.source_id.clone(),
@@ -742,15 +813,15 @@ impl From<&generated::message::Content> for MessageEnvelope {
                 MessageEnvelope::VideoFrameBatch(VideoFrameBatch::from(vfb))
             }
             generated::message::Content::VideoFrameUpdate(vfu) => {
-                MessageEnvelope::VideoFrameUpdate(VideoFrameUpdate::from(vfu))
+                MessageEnvelope::VideoFrameUpdate(VideoFrameUpdate::try_from(vfu)?)
             }
             generated::message::Content::UserData(ud) => {
-                MessageEnvelope::UserData(UserData::from(ud))
+                MessageEnvelope::UserData(UserData::try_from(ud)?)
             }
             generated::message::Content::Shutdown(s) => MessageEnvelope::Shutdown(Shutdown {
                 auth: s.auth.clone(),
             }),
             generated::message::Content::Unknown(u) => MessageEnvelope::Unknown(u.message.clone()),
-        }
+        })
     }
 }

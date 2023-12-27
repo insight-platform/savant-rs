@@ -26,7 +26,7 @@ pub enum AttributeUpdatePolicy {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
 pub struct VideoFrameUpdate {
-    frame_attributes: Vec<Attribute>,
+    pub(crate) frame_attributes: Vec<Attribute>,
     pub(crate) object_attributes: Vec<(i64, Attribute)>,
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
     pub(crate) frame_attribute_policy: AttributeUpdatePolicy,

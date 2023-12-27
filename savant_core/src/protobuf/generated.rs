@@ -170,6 +170,7 @@ pub struct AttributeValue {
 }
 /// Nested message and enum types in `AttributeValue`.
 pub mod attribute_value {
+    #[allow(clippy::large_enum_variant)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Value {
@@ -367,6 +368,7 @@ pub struct VideoFrameTransformation {
 }
 /// Nested message and enum types in `VideoFrameTransformation`.
 pub mod video_frame_transformation {
+    #[allow(clippy::large_enum_variant)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Transformation {
@@ -426,6 +428,7 @@ pub struct VideoFrame {
 }
 /// Nested message and enum types in `VideoFrame`.
 pub mod video_frame {
+    #[allow(clippy::large_enum_variant)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Content {
@@ -462,6 +465,7 @@ pub struct Message {
 }
 /// Nested message and enum types in `Message`.
 pub mod message {
+    #[allow(clippy::large_enum_variant)]
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Content {
@@ -481,6 +485,7 @@ pub mod message {
         Shutdown(super::Shutdown),
     }
 }
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum IntersectionKind {
@@ -516,6 +521,7 @@ impl IntersectionKind {
         }
     }
 }
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum AttributeUpdatePolicy {
@@ -545,6 +551,7 @@ impl AttributeUpdatePolicy {
         }
     }
 }
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum ObjectUpdatePolicy {
@@ -574,6 +581,7 @@ impl ObjectUpdatePolicy {
         }
     }
 }
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum VideoFrameTranscodingMethod {

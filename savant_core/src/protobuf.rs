@@ -1,4 +1,4 @@
-use savant_core::message::Message;
+use crate::message::Message;
 
 pub(crate) mod generated;
 mod serialize;
@@ -13,4 +13,20 @@ impl From<Message> for generated::Message {
             content: Some(m.payload().into()),
         }
     }
+}
+
+impl TryFrom<generated::Message> for Message {
+    type Error = String;
+
+    fn try_from(_: generated::Message) -> Result<Self, Self::Error> {
+        todo!()
+    }
+}
+
+pub fn serialize(_: Message) -> Vec<u8> {
+    todo!()
+}
+
+pub fn deserialize(_: &[u8]) -> Message {
+    todo!()
 }

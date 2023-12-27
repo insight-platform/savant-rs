@@ -38,10 +38,17 @@ rayon = "1.7"
 libloading = "0.8"
 log = "0.4"
 uuid = {version = "1.4", features = ["fast-rng", "v4"]}
+prost = "0.12"
+prost-types = "0.12"
+bytes = "1.5"
+
 
 [dependencies.tokio]
 version = "1.29"
 features = ["rt-multi-thread"]
+
+[build-dependencies]
+prost-build = "0.12"
 
 [lib]
 crate-type = ["cdylib", "lib"]
