@@ -3,7 +3,9 @@ use crate::primitives::Attribute;
 use crate::trace;
 use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
+#[derive(
+    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
@@ -11,7 +13,9 @@ pub enum ObjectUpdatePolicy {
     ReplaceSameLabelObjects,
 }
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
+#[derive(
+    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeign,

@@ -136,6 +136,20 @@ impl RBBox {
 }
 
 impl RBBox {
+    pub fn to_owned(&self) -> Option<OwnedRBBoxData> {
+        match &self.data {
+            BBoxVariant::Owned(d) => Some(d.clone()),
+            BBoxVariant::BorrowedDetectionBox(d) => {
+                let lock = trace!(d.read());
+                Some(lock.detection_box.clone())
+            }
+            BBoxVariant::BorrowedTrackingBox(d) => {
+                let lock = trace!(d.read());
+                lock.track_box.as_ref().map(|t| t.clone())
+            }
+        }
+    }
+
     pub fn get_area(&self) -> f32 {
         self.get_width() * self.get_height()
     }
