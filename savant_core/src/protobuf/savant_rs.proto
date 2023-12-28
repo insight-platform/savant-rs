@@ -1,5 +1,8 @@
 syntax = "proto3";
 
+// This file defines protobuf scheme for Savant protocol.
+// It is used to communicate between Savant and 3rd-party programs.
+
 package protocol;
 
 message BytesAttributeValueVariant {
@@ -246,10 +249,10 @@ message ResultingSize {
 
 message VideoFrameTransformation {
   oneof transformation {
-    InitialSize initial_size = 20;
-    Scale scale = 21;
-    Padding padding = 22;
-    ResultingSize resulting_size = 23;
+    InitialSize initial_size = 1;
+    Scale scale = 2;
+    Padding padding = 3;
+    ResultingSize resulting_size = 4;
   }
 }
 

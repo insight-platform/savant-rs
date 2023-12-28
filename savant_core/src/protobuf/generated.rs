@@ -363,10 +363,7 @@ pub struct ResultingSize {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct VideoFrameTransformation {
-    #[prost(
-        oneof = "video_frame_transformation::Transformation",
-        tags = "20, 21, 22, 23"
-    )]
+    #[prost(oneof = "video_frame_transformation::Transformation", tags = "1, 2, 3, 4")]
     pub transformation: ::core::option::Option<
         video_frame_transformation::Transformation,
     >,
@@ -377,13 +374,13 @@ pub mod video_frame_transformation {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Transformation {
-        #[prost(message, tag = "20")]
+        #[prost(message, tag = "1")]
         InitialSize(super::InitialSize),
-        #[prost(message, tag = "21")]
+        #[prost(message, tag = "2")]
         Scale(super::Scale),
-        #[prost(message, tag = "22")]
+        #[prost(message, tag = "3")]
         Padding(super::Padding),
-        #[prost(message, tag = "23")]
+        #[prost(message, tag = "4")]
         ResultingSize(super::ResultingSize),
     }
 }

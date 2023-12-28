@@ -11,7 +11,7 @@ fn main() {
     //     .unwrap();
     //prost_build::compile_protos(&["src/savant_rs.proto"], &["src/"]).unwrap();
 
-    let proto_path = PathBuf::from("src/savant_rs.proto");
+    let proto_path = PathBuf::from("src/protobuf/savant_rs.proto");
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
     let out_path = out_dir.join("protocol.rs");
