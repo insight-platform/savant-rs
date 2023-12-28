@@ -125,13 +125,21 @@ pub fn udf_api_module(_py: Python, m: &PyModule) -> PyResult<()> {
 #[pymodule]
 pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
     // ser deser
-    m.add_function(wrap_pyfunction!(save_message, m)?)?;
+    m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(save_message_to_bytebuffer_gil, m)?)?;
     m.add_function(wrap_pyfunction!(save_message_to_bytes_gil, m)?)?;
 
-    m.add_function(wrap_pyfunction!(load_message, m)?)?;
+    m.add_function(wrap_pyfunction!(save_pb_message_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(save_pb_message_to_bytebuffer_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(save_pb_message_to_bytes_gil, m)?)?;
+
+    m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytebuffer_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytes_gil, m)?)?;
+
+    m.add_function(wrap_pyfunction!(load_pb_message_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(load_pb_message_from_bytebuffer_gil, m)?)?;
+    m.add_function(wrap_pyfunction!(load_pb_message_from_bytes_gil, m)?)?;
 
     m.add_class::<Message>()?;
     m.add_function(wrap_pyfunction!(clear_source_seq_id, m)?)?;

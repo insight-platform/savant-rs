@@ -5,8 +5,8 @@ use crate::protobuf::serialize::Error;
 pub(crate) mod generated;
 mod serialize;
 
-impl From<Message> for generated::Message {
-    fn from(m: Message) -> Self {
+impl From<&Message> for generated::Message {
+    fn from(m: &Message) -> Self {
         generated::Message {
             lib_version: m.meta().lib_version.clone(),
             routing_labels: m.meta().routing_labels.clone(),
@@ -17,14 +17,14 @@ impl From<Message> for generated::Message {
     }
 }
 
-impl TryFrom<generated::Message> for Message {
+impl TryFrom<&generated::Message> for Message {
     type Error = Error;
 
-    fn try_from(m: generated::Message) -> Result<Self, Self::Error> {
+    fn try_from(m: &generated::Message) -> Result<Self, Self::Error> {
         let (lib_version, routing_labels, propagated_context, seq_id) = (
-            m.lib_version,
-            m.routing_labels,
-            PropagatedContext(m.propagated_context),
+            m.lib_version.clone(),
+            m.routing_labels.clone(),
+            PropagatedContext(m.propagated_context.clone()),
             m.seq_id,
         );
 
@@ -35,14 +35,17 @@ impl TryFrom<generated::Message> for Message {
             seq_id,
         };
 
-        let message_content = m.content.expect("Unexpected absense of message content");
-        let payload = MessageEnvelope::try_from(&message_content)?;
+        let message_content = m
+            .content
+            .as_ref()
+            .expect("Unexpected absense of message content");
+        let payload = MessageEnvelope::try_from(message_content)?;
 
         Ok(Message { meta, payload })
     }
 }
 
-pub fn serialize(m: Message) -> Result<Vec<u8>, Error> {
+pub fn serialize(m: &Message) -> Result<Vec<u8>, Error> {
     use prost::Message as ProstMessage;
     let message = generated::Message::from(m);
     let mut buf = Vec::new();
@@ -53,7 +56,7 @@ pub fn serialize(m: Message) -> Result<Vec<u8>, Error> {
 pub fn deserialize(bytes: &[u8]) -> Result<Message, Error> {
     use prost::Message as ProstMessage;
     let message = generated::Message::decode(bytes)?;
-    let m = Message::try_from(message)?;
+    let m = Message::try_from(&message)?;
     Ok(m)
 }
 
@@ -66,7 +69,7 @@ mod tests {
     fn test_eos_message() {
         let source = "source_id".to_string();
         let eos = crate::message::Message::end_of_stream(EndOfStream::new(source.clone()));
-        let serialized = serialize(eos.clone()).unwrap();
+        let serialized = serialize(&eos).unwrap();
         let restored = deserialize(&serialized).unwrap();
         assert_eq!(eos.meta.seq_id, restored.meta.seq_id);
         assert_eq!(eos.meta.routing_labels, restored.meta.routing_labels);
