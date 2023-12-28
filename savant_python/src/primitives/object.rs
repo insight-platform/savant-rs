@@ -398,7 +398,10 @@ impl VideoObject {
     fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
         let bytes = release_gil!(no_gil, || {
             self.0.to_pb().map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to serialize object to protobuf: {}", e))
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video object to protobuf: {}",
+                    e
+                ))
             })
         })?;
         with_gil!(|py| {
