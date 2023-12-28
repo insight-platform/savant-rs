@@ -215,7 +215,7 @@ impl VideoObject {
     ///
     #[getter]
     pub fn get_draw_label(&self) -> String {
-        self.0.get_draw_label()
+        self.0.calculate_draw_label()
     }
 
     /// finds and returns names of attributes by expression based on namespace, names and hint.

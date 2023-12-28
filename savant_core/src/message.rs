@@ -137,8 +137,8 @@ impl MessageMeta {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct Message {
-    meta: MessageMeta,
-    payload: MessageEnvelope,
+    pub(crate) meta: MessageMeta,
+    pub(crate) payload: MessageEnvelope,
 }
 
 impl Message {
@@ -204,6 +204,10 @@ impl Message {
             meta: MessageMeta::new(0),
             payload: MessageEnvelope::VideoFrameUpdate(update),
         }
+    }
+
+    pub fn payload(&self) -> &MessageEnvelope {
+        &self.payload
     }
 
     pub fn meta(&self) -> &MessageMeta {

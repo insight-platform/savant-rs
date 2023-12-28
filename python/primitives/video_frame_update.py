@@ -26,10 +26,8 @@ for (namespace, label) in attributes:
     update.add_frame_attribute(attr)
 
 print(update.json)
-jp = update.json_pretty
-print(jp)
+print(update.json_pretty)
 
-update = VideoFrameUpdate.from_json(jp)
 
 m = Message.video_frame_update(update)
 binary = save_message(m)

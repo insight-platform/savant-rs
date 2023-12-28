@@ -1,9 +1,12 @@
+use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
 use crate::trace;
 use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
+#[derive(
+    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
@@ -11,7 +14,9 @@ pub enum ObjectUpdatePolicy {
     ReplaceSameLabelObjects,
 }
 
-#[derive(Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize)]
+#[derive(
+    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeign,
@@ -26,12 +31,28 @@ pub enum AttributeUpdatePolicy {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
 pub struct VideoFrameUpdate {
-    frame_attributes: Vec<Attribute>,
+    pub(crate) frame_attributes: Vec<Attribute>,
     pub(crate) object_attributes: Vec<(i64, Attribute)>,
+    #[serde(skip)]
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
     pub(crate) frame_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_policy: ObjectUpdatePolicy,
+}
+
+impl ToSerdeJsonValue for VideoFrameUpdate {
+    fn to_serde_json_value(&self) -> serde_json::Value {
+        serde_json::json!(
+            {
+                "frame_attributes": self.frame_attributes.iter().map(|a| a.to_serde_json_value()).collect::<Vec<_>>(),
+                "object_attributes": self.object_attributes.iter().map(|(id, a)| (id, a.to_serde_json_value())).collect::<Vec<_>>(),
+                "objects": self.objects.iter().map(|(o, p)| (o.to_serde_json_value(), p)).collect::<Vec<_>>(),
+                "frame_attribute_policy": self.frame_attribute_policy,
+                "object_attribute_policy": self.object_attribute_policy,
+                "object_policy": self.object_policy,
+            }
+        )
+    }
 }
 
 impl Default for VideoFrameUpdate {
@@ -48,11 +69,11 @@ impl Default for VideoFrameUpdate {
 }
 
 impl VideoFrameUpdate {
-    pub(crate) fn get_frame_attributes(&self) -> &Vec<Attribute> {
+    pub fn get_frame_attributes(&self) -> &Vec<Attribute> {
         &self.frame_attributes
     }
 
-    pub(crate) fn get_object_attributes(&self) -> &Vec<(i64, Attribute)> {
+    pub fn get_object_attributes(&self) -> &Vec<(i64, Attribute)> {
         &self.object_attributes
     }
 
@@ -102,15 +123,15 @@ impl VideoFrameUpdate {
 
     pub fn to_json(&self, pretty: bool) -> anyhow::Result<String> {
         Ok(if pretty {
-            serde_json::to_string_pretty(self)?
+            serde_json::to_string_pretty(&self.to_serde_json_value())?
         } else {
-            serde_json::to_string(self)?
+            serde_json::to_string(&self.to_serde_json_value())?
         })
     }
 
-    pub fn from_json(json: &str) -> anyhow::Result<Self> {
-        Ok(serde_json::from_str(json)?)
-    }
+    //pub fn from_json(json: &str) -> anyhow::Result<Self> {
+    //    Ok(serde_json::from_str(json)?)
+    //}
 }
 
 #[cfg(test)]
