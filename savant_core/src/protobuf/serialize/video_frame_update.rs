@@ -114,10 +114,7 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
         let objects = value
             .objects
             .iter()
-            .map(|so| {
-                VideoObject::try_from(so.object.as_ref().unwrap())
-                    .map(|o| (o, so.parent_id.clone()))
-            })
+            .map(|so| VideoObject::try_from(so.object.as_ref().unwrap()).map(|o| (o, so.parent_id)))
             .collect::<Result<Vec<(VideoObject, Option<i64>)>, _>>()?;
 
         Ok(VideoFrameUpdate {
@@ -133,8 +130,13 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::frame_update::{AttributeUpdatePolicy, ObjectUpdatePolicy};
+    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::frame_update::{
+        AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
+    };
+    use crate::primitives::Attribute;
     use crate::protobuf::generated;
+    use crate::test::gen_object;
 
     #[test]
     fn test_attribute_update_policy() {
@@ -189,6 +191,34 @@ mod tests {
         assert_eq!(
             ObjectUpdatePolicy::ReplaceSameLabelObjects,
             ObjectUpdatePolicy::from(&generated::ObjectUpdatePolicy::ReplaceSameLabelObjects)
+        );
+    }
+
+    #[test]
+    fn test_video_frame_update() {
+        let obj = gen_object(0);
+        let frame_attr = Attribute::persistent(
+            "system2".into(),
+            "test2".into(),
+            vec![AttributeValue::new(
+                AttributeValueVariant::String("2".into()),
+                None,
+            )],
+            None,
+            false,
+        );
+        let mut update = VideoFrameUpdate::default();
+        update.add_frame_attribute(frame_attr.clone());
+        update.add_object_attribute(obj.get_id(), frame_attr.clone());
+        update.add_object(&obj, None);
+        update.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
+        update.set_object_attribute_policy(AttributeUpdatePolicy::KeepOwn);
+        update.set_frame_attribute_policy(AttributeUpdatePolicy::Error);
+        let generated_update = generated::VideoFrameUpdate::from(&update);
+        let restored_update = VideoFrameUpdate::try_from(&generated_update).unwrap();
+        assert_eq!(
+            update.to_json(false).unwrap(),
+            restored_update.to_json(false).unwrap()
         );
     }
 }

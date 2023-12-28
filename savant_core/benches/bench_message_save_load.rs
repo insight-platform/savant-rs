@@ -22,12 +22,55 @@ fn bench_save_load_video_frame(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_save_load_video_frame_pb(b: &mut Bencher) {
+    let message = Message::video_frame(&gen_frame());
+    b.iter(|| {
+        let res = savant_core::protobuf::serialize(message.clone()).unwrap();
+        let m = savant_core::protobuf::deserialize(&res).unwrap();
+        assert!(m.is_video_frame());
+    });
+}
+
+#[bench]
+fn bench_relay_video_frame_from_srs_to_pb(b: &mut Bencher) {
+    let message = Message::video_frame(&gen_frame());
+    let binary = save_message(&message);
+
+    b.iter(|| {
+        let m = load_message(&binary);
+        let _ = savant_core::protobuf::serialize(m).unwrap();
+    });
+}
+
+#[bench]
+fn bench_relay_video_frame_from_pb_to_srs(b: &mut Bencher) {
+    let message = Message::video_frame(&gen_frame());
+    let binary = savant_core::protobuf::serialize(message.clone()).unwrap();
+
+    b.iter(|| {
+        let m = savant_core::protobuf::deserialize(&binary).unwrap();
+        let _ = save_message(&m);
+    });
+}
+
+#[bench]
 fn bench_save_load_eos(b: &mut Bencher) {
     let eos = EndOfStream::new("test".to_string());
     let message = Message::end_of_stream(eos);
     b.iter(|| {
         let res = save_message(&message);
         let m = load_message(&res);
+        assert!(m.is_end_of_stream());
+    });
+}
+
+#[bench]
+fn bench_save_load_eos_pb(b: &mut Bencher) {
+    let eos = EndOfStream::new("test".to_string());
+    let message = Message::end_of_stream(eos);
+    b.iter(|| {
+        let res = savant_core::protobuf::serialize(message.clone()).unwrap();
+        let m = savant_core::protobuf::deserialize(&res).unwrap();
         assert!(m.is_end_of_stream());
     });
 }
@@ -43,6 +86,21 @@ fn bench_save_load_batch(b: &mut Bencher) {
     b.iter(|| {
         let res = save_message(&message);
         let m = load_message(&res);
+        assert!(m.is_video_frame_batch());
+    });
+}
+
+#[bench]
+fn bench_save_load_batch_pb(b: &mut Bencher) {
+    let mut batch = VideoFrameBatch::new();
+    batch.add(1, gen_frame());
+    batch.add(2, gen_frame());
+    batch.add(3, gen_frame());
+    batch.add(4, gen_frame());
+    let message = Message::video_frame_batch(&batch);
+    b.iter(|| {
+        let res = savant_core::protobuf::serialize(message.clone()).unwrap();
+        let m = savant_core::protobuf::deserialize(&res).unwrap();
         assert!(m.is_video_frame_batch());
     });
 }
@@ -64,6 +122,27 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     b.iter(|| {
         let res = save_message(&message);
         let m = load_message(&res);
+        assert!(m.is_video_frame_update());
+    });
+}
+
+#[bench]
+fn bench_save_load_frame_update_pb(b: &mut Bencher) {
+    let f = gen_frame();
+    let mut update = VideoFrameUpdate::default();
+    for o in f.access_objects(&MatchQuery::Idle) {
+        update.add_object(&o, None);
+    }
+    let attrs = f.get_attributes();
+    for (namespace, label) in attrs {
+        update.add_frame_attribute(f.get_attribute(namespace, label).unwrap());
+    }
+
+    let message = Message::video_frame_update(update);
+
+    b.iter(|| {
+        let res = savant_core::protobuf::serialize(message.clone()).unwrap();
+        let m = savant_core::protobuf::deserialize(&res).unwrap();
         assert!(m.is_video_frame_update());
     });
 }

@@ -254,11 +254,4 @@ impl VideoFrameUpdate {
             .to_json(true)
             .map_err(|e| PyValueError::new_err(e.to_string())))
     }
-
-    #[staticmethod]
-    pub fn from_json(json: &str) -> PyResult<Self> {
-        release_gil!(true, || rust::VideoFrameUpdate::from_json(json)
-            .map(VideoFrameUpdate)
-            .map_err(|e| PyValueError::new_err(e.to_string())))
-    }
 }

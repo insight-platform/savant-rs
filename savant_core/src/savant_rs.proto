@@ -114,6 +114,8 @@ message IntersectionAttributeValueVariant {
 message NoneAttributeValueVariant {
 }
 
+message TemporaryValueVariant {}
+
 message AttributeValue {
   optional float confidence = 1;
   oneof value {
@@ -134,6 +136,7 @@ message AttributeValue {
     PolygonVectorAttributeValueVariant polygon_vector = 16;
     IntersectionAttributeValueVariant intersection = 17;
     NoneAttributeValueVariant none = 18;
+    TemporaryValueVariant temporary = 19;
   }
 }
 

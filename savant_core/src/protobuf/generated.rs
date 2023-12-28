@@ -159,12 +159,15 @@ pub struct IntersectionAttributeValueVariant {
 pub struct NoneAttributeValueVariant {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TemporaryValueVariant {}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AttributeValue {
     #[prost(float, optional, tag = "1")]
     pub confidence: ::core::option::Option<f32>,
     #[prost(
         oneof = "attribute_value::Value",
-        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18"
+        tags = "2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
     )]
     pub value: ::core::option::Option<attribute_value::Value>,
 }
@@ -208,6 +211,8 @@ pub mod attribute_value {
         Intersection(super::IntersectionAttributeValueVariant),
         #[prost(message, tag = "18")]
         None(super::NoneAttributeValueVariant),
+        #[prost(message, tag = "19")]
+        Temporary(super::TemporaryValueVariant),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

@@ -145,7 +145,7 @@ impl RBBox {
             }
             BBoxVariant::BorrowedTrackingBox(d) => {
                 let lock = trace!(d.read());
-                lock.track_box.as_ref().map(|t| t.clone())
+                lock.track_box.as_ref().cloned()
             }
         }
     }

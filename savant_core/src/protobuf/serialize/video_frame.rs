@@ -4,8 +4,8 @@ use crate::primitives::frame::{
 };
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
+use crate::protobuf::generated;
 use crate::protobuf::serialize::Error;
-use crate::protobuf::{generated, serialize};
 use hashbrown::{HashMap, HashSet};
 use parking_lot::RwLock;
 use std::str::FromStr;
@@ -90,11 +90,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
             }
         }
 
-        let max_object_id = resident_objects
-            .keys()
-            .max()
-            .map(|k| *k)
-            .unwrap_or_default();
+        let max_object_id = resident_objects.keys().max().copied().unwrap_or_default();
 
         Ok(VideoFrame {
             previous_frame_seq_id: value.previous_frame_seq_id,
@@ -125,7 +121,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
 }
 
 impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
-    type Error = serialize::Error;
+    type Error = Error;
 
     fn try_from(value: &generated::VideoFrame) -> Result<Self, Self::Error> {
         Ok(VideoFrameProxy::from_inner(VideoFrame::try_from(value)?))
@@ -133,4 +129,17 @@ impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::json_api::ToSerdeJsonValue;
+    use crate::primitives::frame::VideoFrameProxy;
+    use crate::protobuf::generated;
+    use crate::test::gen_frame;
+
+    #[test]
+    fn test_video_frame() {
+        let frame = gen_frame();
+        let serialized = generated::VideoFrame::from(&frame);
+        let restored = VideoFrameProxy::try_from(&serialized).unwrap();
+        assert_eq!(frame.to_serde_json_value(), restored.to_serde_json_value());
+    }
+}

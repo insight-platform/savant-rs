@@ -61,3 +61,23 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::json_api::ToSerdeJsonValue;
+    use crate::primitives::object::VideoObject;
+    use crate::primitives::rust::VideoObjectProxy;
+    use crate::protobuf::generated;
+    use crate::test::gen_object;
+
+    #[test]
+    fn test_object() {
+        let obj = gen_object(1);
+        let serialized = generated::VideoObject::from(&obj);
+        let deserialized = VideoObjectProxy::from(VideoObject::try_from(&serialized).unwrap());
+        assert_eq!(
+            obj.to_serde_json_value(),
+            deserialized.to_serde_json_value()
+        );
+    }
+}

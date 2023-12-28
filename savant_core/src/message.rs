@@ -137,8 +137,8 @@ impl MessageMeta {
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct Message {
-    meta: MessageMeta,
-    payload: MessageEnvelope,
+    pub(crate) meta: MessageMeta,
+    pub(crate) payload: MessageEnvelope,
 }
 
 impl Message {

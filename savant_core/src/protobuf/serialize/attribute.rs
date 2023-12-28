@@ -1,3 +1,4 @@
+use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 use crate::primitives::{Attribute, IntersectionKind};
 use crate::protobuf::{generated, serialize};
@@ -105,7 +106,7 @@ impl From<&AttributeValueVariant> for generated::attribute_value::Value {
                 )
             }
             AttributeValueVariant::TemporaryValue(_) => {
-                unreachable!("TemporaryValue is not supported")
+                generated::attribute_value::Value::Temporary(generated::TemporaryValueVariant {})
             }
             AttributeValueVariant::None => {
                 generated::attribute_value::Value::None(generated::NoneAttributeValueVariant {})
@@ -182,6 +183,9 @@ impl TryFrom<&generated::attribute_value::Value> for AttributeValueVariant {
                 })
             }
             generated::attribute_value::Value::None(_) => AttributeValueVariant::None,
+            generated::attribute_value::Value::Temporary(_) => {
+                AttributeValueVariant::TemporaryValue(AnyObject::new(Box::new(())))
+            }
         })
     }
 }
