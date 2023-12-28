@@ -1,3 +1,8 @@
+use crate::primitives::frame::VideoFrameProxy;
+use crate::primitives::frame_batch::VideoFrameBatch;
+use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::rust::{UserData, VideoObjectProxy};
+use crate::protobuf::generated;
 use std::convert::Infallible;
 
 mod attribute;
@@ -47,5 +52,58 @@ impl From<prost::EncodeError> for Error {
 impl From<Infallible> for Error {
     fn from(infallible: Infallible) -> Self {
         match infallible {}
+    }
+}
+
+pub trait ToProtobuf<'a, T>
+where
+    T: prost::Message + From<&'a Self>,
+    Self: Sized + 'a,
+{
+    fn to_pb<'b>(&'b self) -> Result<Vec<u8>, Error>
+    where
+        'b: 'a,
+    {
+        let pb = T::from(self);
+        let mut buf = Vec::new();
+        pb.encode(&mut buf)?;
+        Ok(buf)
+    }
+}
+
+pub fn from_pb<T, U>(bytes: &[u8]) -> Result<U, Error>
+where
+    T: prost::Message + Default,
+    U: for<'a> TryFrom<&'a T>,
+    Error: for<'a> From<<U as TryFrom<&'a T>>::Error>,
+{
+    let pb = T::decode(bytes)?;
+    let obj = U::try_from(&pb)?;
+    Ok(obj)
+}
+
+impl ToProtobuf<'_, generated::VideoFrame> for VideoFrameProxy {}
+impl ToProtobuf<'_, generated::VideoFrameUpdate> for VideoFrameUpdate {}
+impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
+impl ToProtobuf<'_, generated::VideoObject> for VideoObjectProxy {}
+impl ToProtobuf<'_, generated::UserData> for UserData {}
+
+#[cfg(test)]
+mod tests {
+    use crate::json_api::ToSerdeJsonValue;
+    use crate::primitives::rust::VideoFrameProxy;
+    use crate::protobuf::generated;
+    use crate::protobuf::serialize::{from_pb, ToProtobuf};
+    use crate::test::gen_frame;
+
+    #[test]
+    fn test() {
+        let frame = gen_frame();
+        let bytes = frame.to_pb().unwrap();
+        let restored_frame = from_pb::<generated::VideoFrame, VideoFrameProxy>(&bytes).unwrap();
+        assert_eq!(
+            frame.to_serde_json_value(),
+            restored_frame.to_serde_json_value()
+        );
     }
 }

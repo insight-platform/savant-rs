@@ -35,6 +35,15 @@ impl From<&(VideoObjectProxy, Option<i64>)> for generated::VideoObjectWithForeig
     }
 }
 
+impl TryFrom<&generated::VideoObject> for VideoObjectProxy {
+    type Error = serialize::Error;
+
+    fn try_from(value: &crate::protobuf::VideoObject) -> Result<Self, Self::Error> {
+        let vo = VideoObject::try_from(value)?;
+        Ok(VideoObjectProxy::from(vo))
+    }
+}
+
 impl TryFrom<&generated::VideoObject> for VideoObject {
     type Error = serialize::Error;
     fn try_from(obj: &generated::VideoObject) -> Result<Self, Self::Error> {

@@ -17,7 +17,7 @@ update.object_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDup
 objects = frame.access_objects(Q.idle())
 
 for o in objects:
-    update.add_object(o, None)
+    update.add_object(o.detached_copy(), None)
 
 attributes = frame.attributes
 
@@ -28,6 +28,9 @@ for (namespace, label) in attributes:
 print(update.json)
 print(update.json_pretty)
 
+pb = update.to_protobuf()
+restored = VideoFrameUpdate.from_protobuf(pb)
+assert update.json == restored.json
 
 m = Message.video_frame_update(update)
 binary = save_message(m)
