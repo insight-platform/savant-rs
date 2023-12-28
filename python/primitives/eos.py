@@ -1,8 +1,5 @@
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import EndOfStream
 from savant_rs.utils.serialization import save_message_to_bytes, load_message_from_bytes, Message
-
-set_log_level(LogLevel.Trace)
 
 e = EndOfStream("abc")
 

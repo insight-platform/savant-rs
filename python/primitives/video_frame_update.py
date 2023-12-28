@@ -1,11 +1,8 @@
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.video_object_query import MatchQuery as Q
-
-set_log_level(LogLevel.Trace)
 
 frame = gen_frame()
 update = VideoFrameUpdate()

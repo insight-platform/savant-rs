@@ -1,10 +1,6 @@
 from savant_rs.draw_spec import BoundingBoxDraw, ColorDraw, LabelDraw, DotDraw, PaddingDraw, ObjectDraw, LabelPosition, \
     LabelPositionKind
 
-from savant_rs.logging import LogLevel, set_log_level
-
-set_log_level(LogLevel.Trace)
-
 spec = ObjectDraw(
     bounding_box=BoundingBoxDraw(
         border_color=ColorDraw(

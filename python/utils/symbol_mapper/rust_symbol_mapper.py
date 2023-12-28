@@ -1,10 +1,6 @@
 from random import choice
 from timeit import default_timer as timer
 
-from savant_rs.logging import LogLevel, set_log_level
-
-set_log_level(LogLevel.Trace)
-
 from savant_rs.utils.symbol_mapper import RegistrationPolicy, \
     build_model_object_key, \
     is_model_registered, \
