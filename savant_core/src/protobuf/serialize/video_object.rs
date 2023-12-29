@@ -5,6 +5,14 @@ use hashbrown::HashMap;
 
 impl From<&VideoObjectProxy> for generated::VideoObject {
     fn from(vop: &VideoObjectProxy) -> Self {
+        let attributes = vop
+            .get_attributes()
+            .iter()
+            .map(|(ns, l)| {
+                generated::Attribute::from(&vop.get_attribute(ns.clone(), l.clone()).unwrap())
+            })
+            .collect();
+
         generated::VideoObject {
             id: vop.get_id(),
             parent_id: vop.get_parent_id(),
@@ -12,13 +20,7 @@ impl From<&VideoObjectProxy> for generated::VideoObject {
             label: vop.get_label(),
             draw_label: vop.get_draw_label(),
             detection_box: Some(generated::BoundingBox::from(&vop.get_detection_box())),
-            attributes: vop
-                .get_attributes()
-                .iter()
-                .map(|(ns, l)| {
-                    generated::Attribute::from(&vop.get_attribute(ns.clone(), l.clone()).unwrap())
-                })
-                .collect(),
+            attributes,
             confidence: vop.get_confidence(),
             track_box: vop
                 .get_track_box()
