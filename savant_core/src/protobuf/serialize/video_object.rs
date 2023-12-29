@@ -1,5 +1,5 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{Attribute, AttributeMethods};
+use crate::primitives::{Attribute, AttributeMethods, OwnedRBBoxData};
 use crate::protobuf::{generated, serialize};
 use hashbrown::HashMap;
 
@@ -11,7 +11,7 @@ impl From<&VideoObjectProxy> for generated::VideoObject {
             namespace: vop.get_namespace(),
             label: vop.get_label(),
             draw_label: vop.get_draw_label(),
-            detection_box: Some(vop.get_detection_box().into()),
+            detection_box: Some(generated::BoundingBox::from(&vop.get_detection_box())),
             attributes: vop
                 .get_attributes()
                 .iter()
@@ -20,7 +20,10 @@ impl From<&VideoObjectProxy> for generated::VideoObject {
                 })
                 .collect(),
             confidence: vop.get_confidence(),
-            track_box: vop.get_track_box().map(|rbbox| rbbox.into()),
+            track_box: vop
+                .get_track_box()
+                .as_ref()
+                .map(generated::BoundingBox::from),
             track_id: vop.get_track_id(),
         }
     }
@@ -58,11 +61,15 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
             namespace: obj.namespace.clone(),
             label: obj.label.clone(),
             draw_label: obj.draw_label.clone(),
-            detection_box: obj.detection_box.as_ref().unwrap().into(),
+            detection_box: obj
+                .detection_box
+                .as_ref()
+                .map(OwnedRBBoxData::from)
+                .unwrap(),
             attributes,
             confidence: obj.confidence,
             parent_id: obj.parent_id,
-            track_box: obj.track_box.as_ref().map(|rbbox| rbbox.into()),
+            track_box: obj.track_box.as_ref().map(OwnedRBBoxData::from),
             track_id: obj.track_id,
             namespace_id: None,
             label_id: None,
