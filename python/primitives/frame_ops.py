@@ -21,6 +21,10 @@ assert len(f.get_children(0)) == 2
 print(f.uuid)
 print(f.creation_timestamp_ns)
 
+pb = f.to_protobuf()
+restored = VideoFrame.from_protobuf(pb)
+assert f.uuid == restored.uuid
+
 t = timer()
 for _ in range(1_00):
     r = f.json
@@ -111,7 +115,7 @@ print(frame.get_attribute(namespace="other", name="attr"))
 deleted = frame.delete_attribute(namespace="some", name="attr")
 print(deleted)
 
-frame.add_object(VideoObject(
+obj = VideoObject(
     id=1,
     namespace="some",
     label="person",
@@ -120,7 +124,15 @@ frame.add_object(VideoObject(
     attributes={},
     track_id=None,
     track_box=None
-), IdCollisionResolutionPolicy.Error)
+)
+
+# demonstrates protobuf serialization
+#
+pb = obj.to_protobuf()
+restored = VideoObject.from_protobuf(pb)
+assert obj.id == restored.id
+
+frame.add_object(obj, IdCollisionResolutionPolicy.Error)
 
 f = gen_frame()
 print("Raw address to pass to C-funcs: ", f.memory_handle)
@@ -134,64 +146,7 @@ one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 
 
 print("One", one)
 print("Two", two)
-# #
-# # # demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
-# # #
-# # lib = cdll.LoadLibrary("../../target/debug/libsavant_rs.so")
-# # lib.object_vector_len.argtypes = [c_uint64]
-# # lib.object_vector_len.rettype = c_uint64
-# # print("Length:", lib.object_vector_len(vec.memory_handle))
-#
-#
-# # Demonstrates Rust/Python/C interoperability with descriptor passing between Rust to C through Python
-# # Return complex object from C-compatible Rust-function
-# #
-# #     pub id: i64,
-# #     pub namespace_id: i64,
-# #     pub label_id: i64,
-# #     pub confidence: f64,
-# #     pub parent_id: i64,
-# #     pub box_xc: f64,
-# #     pub box_yx: f64,
-# #     pub box_width: f64,
-# #     pub box_height: f64,
-# #     pub box_angle: f64,
-# #     pub track_id: i64,
-# #     pub track_box_xc: f64,
-# #     pub track_box_yx: f64,
-# #     pub track_box_width: f64,
-# #     pub track_box_height: f64,
-# #     pub track_box_angle: f64,
-#
-# class InferenceMeta(Structure):
-#     _fields_ = [
-#         ("id", c_int64),
-#         ("namespace_id", c_int64),
-#         ("label_id", c_int64),
-#         ("confidence", c_double),
-#         ("parent_id", c_int64),
-#         ("box_xc", c_double),
-#         ("box_yx", c_double),
-#         ("box_width", c_double),
-#         ("box_height", c_double),
-#         ("box_angle", c_double),
-#         ("track_id", c_int64),
-#         ("track_box_xc", c_double),
-#         ("track_box_yx", c_double),
-#         ("track_box_width", c_double),
-#         ("track_box_height", c_double),
-#         ("track_box_angle", c_double),
-#     ]
-#
-#
-# lib.get_inference_meta.argtypes = [c_uint64, c_uint64]
-# lib.get_inference_meta.restype = InferenceMeta
-# meta = lib.get_inference_meta(vec.memory_handle, 0)
-#
-# print("C-struct: ", meta)
-# for field_name, field_type in meta._fields_:
-#     print("\t", field_name, getattr(meta, field_name))
-#
+
 # demonstrates ObjectsView len() op
 print("ObjectsView len() op", len(vec))
 

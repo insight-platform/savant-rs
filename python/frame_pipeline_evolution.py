@@ -1,6 +1,6 @@
 import savant_rs
-from savant_rs.logging import log, LogLevel, set_log_level
 
+from savant_rs.logging import log, LogLevel, set_log_level
 set_log_level(LogLevel.Trace)
 
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration

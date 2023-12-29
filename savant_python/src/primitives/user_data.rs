@@ -1,10 +1,13 @@
 use crate::primitives::attribute::Attribute;
 use crate::primitives::message::Message;
-use crate::release_gil;
-use pyo3::{pyclass, pymethods, Py, PyAny};
+use crate::{release_gil, with_gil};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::types::PyBytes;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust as rust_primitives;
 use savant_core::primitives::{rust, Attributive};
+use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::mem;
 
@@ -120,11 +123,44 @@ impl UserData {
         }
     }
 
+    #[getter]
     pub fn json(&self) -> String {
         self.0.json()
     }
 
+    #[getter]
     pub fn json_pretty(&self) -> String {
         self.0.json_pretty()
+    }
+
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes = release_gil!(no_gil, || {
+            self.0.to_pb().map_err(|e| {
+                PyRuntimeError::new_err(format!("Failed to serialize user data to protobuf: {}", e))
+            })
+        })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_protobuf")]
+    #[pyo3(signature = (bytes, no_gil = true))]
+    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+        let bytes = bytes.as_bytes();
+        release_gil!(no_gil, || {
+            let obj =
+                from_pb::<savant_core::protobuf::UserData, rust::UserData>(bytes).map_err(|e| {
+                    PyRuntimeError::new_err(format!(
+                        "Failed to deserialize user data from protobuf: {}",
+                        e
+                    ))
+                })?;
+            Ok(Self(obj))
+        })
     }
 }

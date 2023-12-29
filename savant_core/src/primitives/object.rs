@@ -44,28 +44,28 @@ pub enum IdCollisionResolutionPolicy {
 )]
 #[archive(check_bytes)]
 pub struct VideoObject {
-    pub id: i64,
-    pub namespace: String,
-    pub label: String,
+    pub(crate) id: i64,
+    pub(crate) namespace: String,
+    pub(crate) label: String,
     #[builder(default)]
-    pub draw_label: Option<String>,
-    pub detection_box: OwnedRBBoxData,
+    pub(crate) draw_label: Option<String>,
+    pub(crate) detection_box: OwnedRBBoxData,
     #[builder(default)]
-    pub attributes: HashMap<(String, String), Attribute>,
+    pub(crate) attributes: HashMap<(String, String), Attribute>,
     #[builder(default)]
-    pub confidence: Option<f32>,
+    pub(crate) confidence: Option<f32>,
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
     pub(crate) track_box: Option<OwnedRBBoxData>,
     #[builder(default)]
-    pub track_id: Option<i64>,
+    pub(crate) track_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
-    pub namespace_id: Option<i64>,
+    pub(crate) namespace_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
-    pub label_id: Option<i64>,
+    pub(crate) label_id: Option<i64>,
     #[with(Skip)]
     #[builder(default)]
     #[serde(skip_deserializing, skip_serializing)]

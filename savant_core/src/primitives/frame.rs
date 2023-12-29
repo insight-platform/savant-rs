@@ -111,7 +111,7 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
 #[archive(check_bytes)]
-pub struct VideoFrame {
+pub(crate) struct VideoFrame {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
     pub source_id: String,
@@ -187,7 +187,7 @@ impl ToSerdeJsonValue for VideoFrame {
             {
                 "version": version(),
                 "uuid": frame_uuid,
-                "creation_timestamp_ns": self.creation_timestamp_ns,
+                "creation_timestamp_ns": if self.creation_timestamp_ns > 2^53 { 2^53 } else { self.creation_timestamp_ns },
                 "type": "VideoFrame",
                 "source_id": self.source_id,
                 "framerate": self.framerate,
@@ -391,7 +391,7 @@ impl VideoFrameProxy {
         Self::from_inner(inner_copy)
     }
 
-    pub fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
+    pub(crate) fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
         self.inner.clone()
     }
 

@@ -27,6 +27,7 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
             .values()
             .map(|o| generated::VideoObject::from(&VideoObjectProxy::from(o.clone())))
             .collect();
+
         generated::VideoFrame {
             previous_frame_seq_id: vf.previous_frame_seq_id,
             source_id: vf.source_id.clone(),
@@ -48,7 +49,11 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
             attributes: vf.attributes.values().map(|a| a.into()).collect(),
             objects,
             content: Some((&vf.content).into()),
-            transformations: vf.transformations.iter().map(|t| t.into()).collect(),
+            transformations: vf
+                .transformations
+                .iter()
+                .map(generated::VideoFrameTransformation::from)
+                .collect(),
         }
     }
 }
@@ -138,8 +143,11 @@ mod tests {
     #[test]
     fn test_video_frame() {
         let frame = gen_frame();
+        let pattern = 0x10213243_54657687_98A9BACB_DCEDFE0F_u128;
+        frame.inner.write().creation_timestamp_ns = pattern;
         let serialized = generated::VideoFrame::from(&frame);
         let restored = VideoFrameProxy::try_from(&serialized).unwrap();
+        assert_eq!(restored.inner.read().creation_timestamp_ns, pattern);
         assert_eq!(frame.to_serde_json_value(), restored.to_serde_json_value());
     }
 }

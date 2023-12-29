@@ -1,9 +1,5 @@
 from pprint import pprint
 
-from savant_rs.logging import LogLevel, set_log_level
-
-set_log_level(LogLevel.Trace)
-
 from savant_rs.primitives.geometry import PolygonalArea, Point, Segment, IntersectionKind
 from timeit import default_timer as timer
 

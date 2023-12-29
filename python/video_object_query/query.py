@@ -1,4 +1,3 @@
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
 from savant_rs.video_object_query import FloatExpression as FE, \
@@ -6,7 +5,6 @@ from savant_rs.video_object_query import FloatExpression as FE, \
     StringExpression as SE, \
     MatchQuery as Q
 
-set_log_level(LogLevel.Trace)
 
 and_ = Q.and_
 or_ = Q.or_
