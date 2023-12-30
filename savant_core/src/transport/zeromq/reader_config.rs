@@ -1,6 +1,6 @@
 use super::{
-    parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefix, RECEIVE_HWM, RECEIVE_TIMEOUT,
-    ROUTING_ID_CACHE_SIZE,
+    parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefix, IPC_PERMISSIONS, RECEIVE_HWM,
+    RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE,
 };
 use anyhow::bail;
 use savant_utils::default_once::DefaultOnceCell;
@@ -9,40 +9,40 @@ use savant_utils::default_once::DefaultOnceCell;
 pub struct ReaderConfig(ReaderConfigBuilder);
 
 impl ReaderConfig {
-    pub fn new() -> anyhow::Result<ReaderConfigBuilder> {
-        Ok(ReaderConfigBuilder::default())
+    pub fn new() -> ReaderConfigBuilder {
+        ReaderConfigBuilder::default()
     }
 
     pub fn endpoint(&self) -> &String {
-        &self.0.endpoint.get_or_init()
+        self.0.endpoint.get_or_init()
     }
 
     pub fn socket_type(&self) -> &ReaderSocketType {
-        &self.0.socket_type.get_or_init()
+        self.0.socket_type.get_or_init()
     }
 
     pub fn bind(&self) -> &bool {
-        &self.0.bind.get_or_init()
+        self.0.bind.get_or_init()
     }
 
-    pub fn receive_timeout(&self) -> &usize {
-        &self.0.receive_timeout.get_or_init()
+    pub fn receive_timeout(&self) -> &i32 {
+        self.0.receive_timeout.get_or_init()
     }
 
-    pub fn receive_hwm(&self) -> &usize {
+    pub fn receive_hwm(&self) -> &i32 {
         &self.0.receive_hwm.get_or_init()
     }
 
     pub fn topic_prefix(&self) -> &TopicPrefix {
-        &self.0.topic_prefix.get_or_init()
+        self.0.topic_prefix.get_or_init()
     }
 
     pub fn routing_ids_cache_size(&self) -> &usize {
-        &self.0.routing_ids_cache_size.get_or_init()
+        self.0.routing_ids_cache_size.get_or_init()
     }
 
-    pub fn fix_ipc_permissions(&self) -> &bool {
-        &self.0.fix_ipc_permissions.get_or_init()
+    pub fn fix_ipc_permissions(&self) -> &Option<u32> {
+        self.0.fix_ipc_permissions.get_or_init()
     }
 }
 
@@ -51,11 +51,11 @@ pub struct ReaderConfigBuilder {
     endpoint: DefaultOnceCell<String>,
     socket_type: DefaultOnceCell<ReaderSocketType>,
     bind: DefaultOnceCell<bool>,
-    receive_timeout: DefaultOnceCell<usize>,
-    receive_hwm: DefaultOnceCell<usize>,
+    receive_timeout: DefaultOnceCell<i32>,
+    receive_hwm: DefaultOnceCell<i32>,
     topic_prefix: DefaultOnceCell<TopicPrefix>,
     routing_ids_cache_size: DefaultOnceCell<usize>,
-    fix_ipc_permissions: DefaultOnceCell<bool>,
+    fix_ipc_permissions: DefaultOnceCell<Option<u32>>,
 }
 
 impl Default for ReaderConfigBuilder {
@@ -68,7 +68,7 @@ impl Default for ReaderConfigBuilder {
             receive_hwm: DefaultOnceCell::new(RECEIVE_HWM),
             topic_prefix: DefaultOnceCell::new(TopicPrefix::None),
             routing_ids_cache_size: DefaultOnceCell::new(ROUTING_ID_CACHE_SIZE),
-            fix_ipc_permissions: DefaultOnceCell::new(true),
+            fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
         }
     }
 }
@@ -110,12 +110,18 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_receive_timeout(self, receive_timeout: usize) -> anyhow::Result<Self> {
+    pub fn with_receive_timeout(self, receive_timeout: i32) -> anyhow::Result<Self> {
+        if receive_timeout <= 0 {
+            bail!("Receive timeout must be non-negative");
+        }
         self.receive_timeout.set(receive_timeout)?;
         Ok(self)
     }
 
-    pub fn with_receive_hwm(self, receive_hwm: usize) -> anyhow::Result<Self> {
+    pub fn with_receive_hwm(self, receive_hwm: i32) -> anyhow::Result<Self> {
+        if receive_hwm <= 0 {
+            bail!("Receive HWM must be non-negative.");
+        }
         self.receive_hwm.set(receive_hwm)?;
         Ok(self)
     }
@@ -133,7 +139,10 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_fix_ipc_permissions(self, fix_ipc_permissions: bool) -> anyhow::Result<Self> {
+    pub fn with_fix_ipc_permissions(
+        self,
+        fix_ipc_permissions: Option<u32>,
+    ) -> anyhow::Result<Self> {
         self.fix_ipc_permissions.set(fix_ipc_permissions)?;
         Ok(self)
     }
@@ -147,21 +156,21 @@ mod tests {
     #[test]
     fn test_reader_config_with_endpoint() -> anyhow::Result<()> {
         let url = String::from("tcp:///abc");
-        let config = ReaderConfig::new()?.with_endpoint(&url)?.build()?;
+        let config = ReaderConfig::new().with_endpoint(&url)?.build()?;
         assert_eq!(config.endpoint(), &url);
         Ok(())
     }
 
     #[test]
     fn test_duplicate_configuration_fails() -> anyhow::Result<()> {
-        let config = ReaderConfig::new()?.with_endpoint("tcp:///abc")?;
+        let config = ReaderConfig::new().with_endpoint("tcp:///abc")?;
         assert!(config.with_endpoint("tcp:///abc").is_err());
         Ok(())
     }
 
     #[test]
     fn test_build_empty_config_fails() -> anyhow::Result<()> {
-        let config = ReaderConfig::new()?;
+        let config = ReaderConfig::new();
         assert!(config.build().is_err());
         Ok(())
     }
@@ -170,7 +179,7 @@ mod tests {
     fn test_full_uri() -> anyhow::Result<()> {
         let endpoint = String::from("ipc:///abc/def");
         let url = format!("sub+connect:{}", endpoint);
-        let config = ReaderConfig::new()?.url(&url)?.build()?;
+        let config = ReaderConfig::new().url(&url)?.build()?;
         assert_eq!(config.endpoint(), &endpoint);
         assert_eq!(config.bind(), &false);
         assert_eq!(config.socket_type(), &ReaderSocketType::Sub);
@@ -181,7 +190,7 @@ mod tests {
     fn test_writer_results_in_error() -> anyhow::Result<()> {
         let endpoint = String::from("ipc:///abc/def");
         let url = format!("pub+connect:{}", endpoint);
-        let config = ReaderConfig::new()?.url(&url);
+        let config = ReaderConfig::new().url(&url);
         assert!(config.is_err());
         Ok(())
     }

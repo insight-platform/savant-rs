@@ -3,22 +3,27 @@ use lazy_static::lazy_static;
 use log::debug;
 use lru::LruCache;
 use std::num::NonZeroUsize;
-use zmq;
 
+pub mod reader;
 mod reader_config;
+
+pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 
-const RECEIVE_TIMEOUT: usize = 1000;
-const SENDER_RECEIVE_TIMEOUT: usize = 5000;
-const RECEIVE_HWM: usize = 50;
-const SEND_HWM: usize = 50;
-const REQ_RECEIVE_RETRIES: usize = 3;
+const RECEIVE_TIMEOUT: i32 = 1000;
+const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
+const RECEIVE_HWM: i32 = 50;
+const SEND_HWM: i32 = 50;
+const REQ_RECEIVE_RETRIES: i32 = 3;
 const EOS_CONFIRMATION_RETRIES: usize = 3;
 
 const ROUTING_ID_CACHE_SIZE: usize = 512;
 
 const CONFIRMATION_MESSAGE: &[u8] = b"OK";
 const END_OF_STREAM_MESSAGE: &[u8] = b"EOS";
+const IPC_PERMISSIONS: u32 = 0o777;
+
+const ZMQ_ACK_LINGER: i32 = 100;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReaderSocketType {
@@ -41,7 +46,7 @@ pub enum SocketType {
 
 lazy_static! {
     static ref SOCKET_URI_PATTERN: regex::Regex =
-        regex::Regex::new(r"([a-z]+\+[a-z]+:)?([a-z]+://[^:]+)(:.+)?").unwrap();
+        regex::Regex::new(r"([a-z]+\+[a-z]+:)?((?:tcp|ipc)://[^:]+)(:.+)?").unwrap();
     static ref SOCKET_OPTIONS_PATTERN: regex::Regex =
         regex::Regex::new(r"(pub|sub|req|rep|dealer|router)\+(bind|connect):").unwrap();
 }
@@ -54,8 +59,8 @@ pub struct ZmqSocketUri {
 }
 
 pub fn parse_zmq_socket_uri(uri: String) -> anyhow::Result<ZmqSocketUri> {
-    let mut endpoint = uri.clone();
-    let mut source = None;
+    let endpoint;
+    let source;
     let mut socket_type = None;
     let mut bind = None;
     if let Some(captures) = SOCKET_URI_PATTERN.captures(&uri) {
@@ -97,6 +102,8 @@ pub fn parse_zmq_socket_uri(uri: String) -> anyhow::Result<ZmqSocketUri> {
         } else {
             None
         };
+    } else {
+        bail!("Invalid ZeroMQ socket URI {}", uri);
     }
 
     Ok(ZmqSocketUri {
@@ -137,8 +144,8 @@ impl TopicPrefix {
 }
 
 struct RoutingIdFilter {
-    pub(self) ids: hashbrown::HashMap<Vec<u8>, Vec<u8>>,
-    pub(self) expired_routing_ids: LruCache<(Vec<u8>, Vec<u8>), ()>,
+    ids: hashbrown::HashMap<Vec<u8>, Vec<u8>>,
+    expired_routing_ids: LruCache<(Vec<u8>, Vec<u8>), ()>,
 }
 
 impl RoutingIdFilter {
@@ -188,12 +195,6 @@ impl RoutingIdFilter {
     }
 }
 
-pub struct Reader {
-    context: zmq::Context,
-    socket: zmq::Socket,
-    routing_id_filter: RoutingIdFilter,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,6 +241,13 @@ mod tests {
     }
 
     #[test]
+    fn test_wrong_protocol() {
+        let uri = "sub+bind:udp://address".to_string();
+        let res = parse_zmq_socket_uri(uri);
+        assert!(res.is_err());
+    }
+
+    #[test]
     fn test_routing_id_filter() {
         let mut filter = RoutingIdFilter::new(2).unwrap();
 
@@ -264,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_reader_config_default_build_fails() -> anyhow::Result<()> {
-        let config = ReaderConfig::new()?.build();
+        let config = ReaderConfig::new().build();
         assert!(config.is_err());
         Ok(())
     }
