@@ -63,28 +63,38 @@ impl From<&generated::ObjectUpdatePolicy> for ObjectUpdatePolicy {
 
 impl From<&VideoFrameUpdate> for generated::VideoFrameUpdate {
     fn from(vfu: &VideoFrameUpdate) -> Self {
+        let frame_attributes = vfu
+            .get_frame_attributes()
+            .iter()
+            .map(|a| a.into())
+            .collect();
+
+        let object_attributes = vfu
+            .get_object_attributes()
+            .iter()
+            .map(|oa| generated::ObjectAttribute {
+                object_id: oa.0,
+                attribute: Some(generated::Attribute::from(&oa.1)),
+            })
+            .collect();
+
+        let objects = vfu.get_objects().iter().map(|o| o.into()).collect();
+
+        let frame_attribute_policy =
+            generated::AttributeUpdatePolicy::from(vfu.get_frame_attribute_policy()) as i32;
+
+        let object_attribute_policy =
+            generated::AttributeUpdatePolicy::from(vfu.get_object_attribute_policy()) as i32;
+
+        let object_policy = generated::ObjectUpdatePolicy::from(vfu.get_object_policy()) as i32;
+
         generated::VideoFrameUpdate {
-            frame_attributes: vfu
-                .get_frame_attributes()
-                .iter()
-                .map(|a| a.into())
-                .collect(),
-            object_attributes: vfu
-                .get_object_attributes()
-                .iter()
-                .map(|oa| generated::ObjectAttribute {
-                    object_id: oa.0,
-                    attribute: Some(generated::Attribute::from(&oa.1)),
-                })
-                .collect(),
-            objects: vfu.get_objects().iter().map(|o| o.into()).collect(),
-            frame_attribute_policy: generated::AttributeUpdatePolicy::from(
-                vfu.get_frame_attribute_policy(),
-            ) as i32,
-            object_attribute_policy: generated::AttributeUpdatePolicy::from(
-                vfu.get_object_attribute_policy(),
-            ) as i32,
-            object_policy: generated::ObjectUpdatePolicy::from(vfu.get_object_policy()) as i32,
+            frame_attributes,
+            object_attributes,
+            objects,
+            frame_attribute_policy,
+            object_attribute_policy,
+            object_policy,
         }
     }
 }
@@ -93,9 +103,13 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
     type Error = serialize::Error;
 
     fn try_from(value: &generated::VideoFrameUpdate) -> Result<Self, Self::Error> {
-        let frame_attribute_policy = value.frame_attribute_policy.try_into()?;
-        let object_attribute_policy = value.object_attribute_policy.try_into()?;
-        let object_policy = value.object_policy.try_into()?;
+        let frame_attribute_policy =
+            AttributeUpdatePolicy::from(&value.frame_attribute_policy.try_into()?);
+
+        let object_attribute_policy =
+            AttributeUpdatePolicy::from(&value.object_attribute_policy.try_into()?);
+
+        let object_policy = ObjectUpdatePolicy::from(&value.object_policy.try_into()?);
 
         let object_attributes = value
             .object_attributes
@@ -103,27 +117,27 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
             .map(|oa| {
                 Attribute::try_from(oa.attribute.as_ref().unwrap()).map(|a| (oa.object_id, a))
             })
-            .collect::<Result<Vec<(i64, Attribute)>, _>>()?;
+            .collect::<Result<_, _>>()?;
 
         let frame_attributes = value
             .frame_attributes
             .iter()
             .map(Attribute::try_from)
-            .collect::<Result<Vec<Attribute>, _>>()?;
+            .collect::<Result<_, _>>()?;
 
         let objects = value
             .objects
             .iter()
             .map(|so| VideoObject::try_from(so.object.as_ref().unwrap()).map(|o| (o, so.parent_id)))
-            .collect::<Result<Vec<(VideoObject, Option<i64>)>, _>>()?;
+            .collect::<Result<_, _>>()?;
 
         Ok(VideoFrameUpdate {
             frame_attributes,
             object_attributes,
             objects,
-            frame_attribute_policy: AttributeUpdatePolicy::from(&frame_attribute_policy),
-            object_attribute_policy: AttributeUpdatePolicy::from(&object_attribute_policy),
-            object_policy: ObjectUpdatePolicy::from(&object_policy),
+            frame_attribute_policy,
+            object_attribute_policy,
+            object_policy,
         })
     }
 }

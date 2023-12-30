@@ -1,7 +1,4 @@
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.utils import gen_frame, VideoObjectBBoxTransformation
-
-set_log_level(LogLevel.Trace)
 
 f = gen_frame()
 obj = f.get_object(0)

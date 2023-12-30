@@ -1,8 +1,8 @@
 use crate::primitives::{OwnedRBBoxData, RBBox};
 use crate::protobuf::generated;
 
-impl From<RBBox> for generated::BoundingBox {
-    fn from(value: RBBox) -> Self {
+impl From<&RBBox> for generated::BoundingBox {
+    fn from(value: &RBBox) -> Self {
         generated::BoundingBox {
             xc: value.get_xc(),
             yc: value.get_yc(),
@@ -69,7 +69,7 @@ mod tests {
                 height: 4.0,
                 angle: Some(5.0),
             },
-            generated::BoundingBox::from(RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0)))
+            generated::BoundingBox::from(&RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0)))
         );
     }
 

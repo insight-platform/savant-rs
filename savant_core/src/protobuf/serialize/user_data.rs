@@ -1,13 +1,18 @@
 use crate::primitives::rust::UserData;
 use crate::primitives::Attribute;
 use crate::protobuf::{generated, serialize};
-use hashbrown::HashMap;
 
 impl From<&UserData> for generated::UserData {
     fn from(ud: &UserData) -> Self {
+        let attributes = ud
+            .attributes
+            .values()
+            .map(generated::Attribute::from)
+            .collect();
+
         generated::UserData {
             source_id: ud.source_id.clone(),
-            attributes: ud.attributes.values().map(|a| a.into()).collect(),
+            attributes,
         }
     }
 }
@@ -16,13 +21,15 @@ impl TryFrom<&generated::UserData> for UserData {
     type Error = serialize::Error;
 
     fn try_from(value: &generated::UserData) -> Result<Self, Self::Error> {
+        let attributes = value
+            .attributes
+            .iter()
+            .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
+            .collect::<Result<_, _>>()?;
+
         Ok(UserData {
             source_id: value.source_id.clone(),
-            attributes: value
-                .attributes
-                .iter()
-                .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
-                .collect::<Result<HashMap<(String, String), Attribute>, _>>()?,
+            attributes,
         })
     }
 }

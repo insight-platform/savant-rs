@@ -2,9 +2,12 @@ use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::object::VideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
-use crate::release_gil;
-use pyo3::{pyclass, pymethods};
+use crate::{release_gil, with_gil};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::types::PyBytes;
+use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::primitives::rust;
+use savant_core::protobuf::{from_pb, ToProtobuf};
 use std::collections::HashMap;
 
 #[pyclass]
@@ -72,5 +75,40 @@ impl VideoFrameBatch {
     #[pyo3(signature = (q, no_gil = true))]
     pub fn delete_objects_gil(&mut self, q: MatchQuery, no_gil: bool) {
         release_gil!(no_gil, || self.0.delete_objects(&q.0))
+    }
+
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes = release_gil!(no_gil, || {
+            self.0.to_pb().map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video frame batch to protobuf: {}",
+                    e
+                ))
+            })
+        })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_protobuf")]
+    #[pyo3(signature = (bytes, no_gil = true))]
+    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+        let bytes = bytes.as_bytes();
+        release_gil!(no_gil, || {
+            let obj =
+                from_pb::<savant_core::protobuf::VideoFrameBatch, rust::VideoFrameBatch>(bytes)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Failed to deserialize video frame batch from protobuf: {}",
+                            e
+                        ))
+                    })?;
+            Ok(Self(obj))
+        })
     }
 }

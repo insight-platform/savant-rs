@@ -1,9 +1,11 @@
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
-use crate::release_gil;
-use pyo3::exceptions::PyValueError;
+use crate::{release_gil, with_gil};
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use savant_core::primitives::frame_update as rust;
+use savant_core::protobuf::{from_pb, ToProtobuf};
 
 /// Allows setting the policy for resolving collisions when updating objects in the frame with :class:`VideoFrameUpdate`.
 ///
@@ -253,5 +255,40 @@ impl VideoFrameUpdate {
             .0
             .to_json(true)
             .map_err(|e| PyValueError::new_err(e.to_string())))
+    }
+
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes = release_gil!(no_gil, || {
+            self.0.to_pb().map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video frame update to protobuf: {}",
+                    e
+                ))
+            })
+        })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_protobuf")]
+    #[pyo3(signature = (bytes, no_gil = true))]
+    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+        let bytes = bytes.as_bytes();
+        release_gil!(no_gil, || {
+            let obj =
+                from_pb::<savant_core::protobuf::VideoFrameUpdate, rust::VideoFrameUpdate>(bytes)
+                    .map_err(|e| {
+                    PyRuntimeError::new_err(format!(
+                        "Failed to deserialize video frame update from protobuf: {}",
+                        e
+                    ))
+                })?;
+            Ok(Self(obj))
+        })
     }
 }

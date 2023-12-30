@@ -3,37 +3,37 @@ use crate::protobuf::generated;
 
 impl From<&PolygonalArea> for generated::PolygonalArea {
     fn from(poly: &PolygonalArea) -> Self {
-        generated::PolygonalArea {
-            points: poly
-                .get_vertices()
+        let points = poly
+            .get_vertices()
+            .iter()
+            .map(|p| generated::Point { x: p.x, y: p.y })
+            .collect();
+
+        let tags = poly.get_tags().map(|tags| generated::PolygonalAreaTags {
+            tags: tags
                 .iter()
-                .map(|p| generated::Point { x: p.x, y: p.y })
+                .map(|t| generated::PolygonalAreaTag { tag: t.clone() })
                 .collect(),
-            tags: poly.get_tags().map(|tags| generated::PolygonalAreaTags {
-                tags: tags
-                    .iter()
-                    .map(|t| generated::PolygonalAreaTag { tag: t.clone() })
-                    .collect(),
-            }),
-        }
+        });
+
+        generated::PolygonalArea { points, tags }
     }
 }
 
 impl From<&generated::PolygonalArea> for PolygonalArea {
     fn from(value: &generated::PolygonalArea) -> Self {
-        PolygonalArea::new(
-            value
-                .points
-                .iter()
-                .map(|p| crate::primitives::Point::new(p.x, p.y))
-                .collect(),
-            value.tags.as_ref().map(|tags| {
-                tags.tags
-                    .iter()
-                    .map(|t| t.tag.clone())
-                    .collect::<Vec<Option<String>>>()
-            }),
-        )
+        let points = value
+            .points
+            .iter()
+            .map(|p| crate::primitives::Point::new(p.x, p.y))
+            .collect();
+
+        let tags = value
+            .tags
+            .as_ref()
+            .map(|tags| tags.tags.iter().map(|t| t.tag.clone()).collect());
+
+        PolygonalArea::new(points, tags)
     }
 }
 

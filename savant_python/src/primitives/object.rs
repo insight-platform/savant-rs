@@ -1,11 +1,13 @@
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
-use crate::release_gil;
+use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::types::PyBytes;
+use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::{rust, AttributeMethods};
+use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -388,6 +390,40 @@ impl VideoObject {
         release_gil!(no_gil, || {
             let inner_ops = ops.iter().map(|op| op.0).collect::<Vec<_>>();
             self.0.transform_geometry(&inner_ops);
+        })
+    }
+
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes = release_gil!(no_gil, || {
+            self.0.to_pb().map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video object to protobuf: {}",
+                    e
+                ))
+            })
+        })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_protobuf")]
+    #[pyo3(signature = (bytes, no_gil = true))]
+    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+        let bytes = bytes.as_bytes();
+        release_gil!(no_gil, || {
+            let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObjectProxy>(bytes)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!(
+                        "Failed to deserialize video object from protobuf: {}",
+                        e
+                    ))
+                })?;
+            Ok(Self(obj))
         })
     }
 }
