@@ -18,7 +18,9 @@ pub fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
 }
 
 pub fn init_noop_tracer() {
-    let exporter = opentelemetry_stdout::SpanExporter::default();
+    let exporter = opentelemetry_stdout::SpanExporter::builder()
+        .with_writer(std::io::sink())
+        .build();
     let p = TracerProvider::builder()
         .with_simple_exporter(exporter)
         .build();

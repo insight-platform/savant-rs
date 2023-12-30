@@ -33,7 +33,7 @@ lazy_static = "1.4"
 parking_lot = {version = "0.12", features = ["deadlock_detection"]}
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 log = "0.4"
-opentelemetry = "0.19"
+opentelemetry = "0.21"
 colored = "2"
 
 
