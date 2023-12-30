@@ -889,21 +889,17 @@ pub(super) mod implementation {
 
     #[cfg(test)]
     mod tests {
-        use std::io::sink;
-        use std::sync::atomic::Ordering;
-
-        use opentelemetry::global;
-        use opentelemetry::sdk::export::trace::stdout;
-        use opentelemetry::sdk::propagation::TraceContextPropagator;
-        use opentelemetry::trace::{TraceContextExt, TraceId};
-
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
         use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, AttributeMethods};
+        use crate::telemetry::init_noop_tracer;
         use crate::test::gen_frame;
+
+        use opentelemetry::trace::{TraceContextExt, TraceId};
+        use std::sync::atomic::Ordering;
 
         fn create_pipeline() -> anyhow::Result<Pipeline> {
             let pipeline = Pipeline::new(
@@ -1081,8 +1077,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_sampling() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(2)?;
@@ -1108,8 +1103,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_no_tracing() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(0)?;
@@ -1127,8 +1121,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_tracing_every() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(1)?;

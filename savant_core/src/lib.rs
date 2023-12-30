@@ -19,6 +19,7 @@ pub mod symbol_mapper;
 pub mod telemetry;
 pub mod test;
 pub mod transmutes;
+pub mod transport;
 
 use opentelemetry::global;
 use opentelemetry::global::BoxedTracer;
