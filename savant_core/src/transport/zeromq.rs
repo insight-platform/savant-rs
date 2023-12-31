@@ -115,13 +115,13 @@ pub fn parse_zmq_socket_uri(uri: String) -> anyhow::Result<ZmqSocketUri> {
 }
 
 #[derive(Debug, Clone)]
-pub enum TopicPrefix {
+pub enum TopicPrefixSpec {
     SourceId(String),
     Prefix(String),
     None,
 }
 
-impl TopicPrefix {
+impl TopicPrefixSpec {
     pub fn source_id(source_id: &str) -> Self {
         Self::SourceId(source_id.to_string())
     }
@@ -136,9 +136,17 @@ impl TopicPrefix {
 
     pub fn get(&self) -> String {
         match self {
-            Self::SourceId(source_id) => format!("{}/", source_id),
+            Self::SourceId(source_id) => format!("{}", source_id),
             Self::Prefix(prefix) => prefix.clone(),
             Self::None => "".to_string(),
+        }
+    }
+
+    pub fn matches(&self, topic: &[u8]) -> bool {
+        match self {
+            Self::SourceId(source_id) => topic.eq(source_id.as_bytes()),
+            Self::Prefix(prefix) => topic.starts_with(prefix.as_bytes()),
+            Self::None => true,
         }
     }
 }
@@ -157,19 +165,19 @@ impl RoutingIdFilter {
         })
     }
 
-    pub fn allow(&mut self, topic: &[u8], routing_id: &Option<Vec<u8>>) -> bool {
+    pub fn allow(&mut self, topic: &[u8], routing_id: &Option<&Vec<u8>>) -> bool {
         if routing_id.is_none() {
             debug!(target: "savant_rs.zeromq.routing-filter", "Message without routing id always allowed");
             return true;
         }
-        let routing_id = routing_id.clone().unwrap();
+        let routing_id = routing_id.unwrap();
         let current_valid_routing_id = self.ids.entry(topic.to_vec()).or_insert(routing_id.clone());
         debug!(target: "savant_rs.zeromq.routing-filter",
             "The current registered routing id: {:?}, the received routing id: {:?}",
             current_valid_routing_id, routing_id
         );
 
-        if current_valid_routing_id == &routing_id {
+        if current_valid_routing_id == routing_id {
             debug!(target: "savant_rs.zeromq.routing-filter", "The current routing id {:?} is the same as the received one {:?}. Message is allowed.", 
                 current_valid_routing_id, routing_id);
             true
@@ -258,16 +266,16 @@ mod tests {
         let routing_id2 = vec![7, 8, 9];
 
         assert!(filter.allow(&topic1, &None));
-        assert!(filter.allow(&topic1, &Some(routing_id.clone())));
-        assert!(filter.allow(&topic1, &Some(routing_id2.clone())));
-        assert!(!filter.allow(&topic1, &Some(routing_id.clone())));
-        assert!(filter.allow(&topic1, &Some(routing_id2.clone())));
+        assert!(filter.allow(&topic1, &Some(&routing_id)));
+        assert!(filter.allow(&topic1, &Some(&routing_id2)));
+        assert!(!filter.allow(&topic1, &Some(&routing_id)));
+        assert!(filter.allow(&topic1, &Some(&routing_id2)));
 
         assert!(filter.allow(&topic2, &None));
-        assert!(filter.allow(&topic2, &Some(routing_id2.clone())));
-        assert!(filter.allow(&topic2, &Some(routing_id.clone())));
-        assert!(!filter.allow(&topic2, &Some(routing_id2.clone())));
-        assert!(filter.allow(&topic2, &Some(routing_id.clone())));
+        assert!(filter.allow(&topic2, &Some(&routing_id2)));
+        assert!(filter.allow(&topic2, &Some(&routing_id)));
+        assert!(!filter.allow(&topic2, &Some(&routing_id2)));
+        assert!(filter.allow(&topic2, &Some(&routing_id)));
     }
 
     #[test]
@@ -275,5 +283,30 @@ mod tests {
         let config = ReaderConfig::new().build();
         assert!(config.is_err());
         Ok(())
+    }
+
+    #[test]
+    fn test_topic_prefix_spec() {
+        let spec = TopicPrefixSpec::source_id("source_id");
+        assert!(spec.matches(b"source_id"));
+        assert!(!spec.matches(b"source_id2"));
+        assert!(!spec.matches(b"source_id/abc"));
+        assert!(!spec.matches(b"source_id/abc/def"));
+
+        let spec = TopicPrefixSpec::prefix("prefix");
+        assert!(spec.matches(b"prefix"));
+        assert!(spec.matches(b"prefix/abc"));
+        assert!(spec.matches(b"prefix/abc/def"));
+        assert!(!spec.matches(b"prefi"));
+        assert!(!spec.matches(b"prefi/abc"));
+        assert!(!spec.matches(b"prefi/abc/def"));
+
+        let spec = TopicPrefixSpec::none();
+        assert!(spec.matches(b"prefix"));
+        assert!(spec.matches(b"prefix/abc"));
+        assert!(spec.matches(b"prefix/abc/def"));
+        assert!(spec.matches(b"source_id"));
+        assert!(spec.matches(b"source_id/abc"));
+        assert!(spec.matches(b"source_id/abc/def"));
     }
 }

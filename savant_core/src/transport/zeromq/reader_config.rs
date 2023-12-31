@@ -1,12 +1,18 @@
 use super::{
-    parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefix, IPC_PERMISSIONS, RECEIVE_HWM,
-    RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE,
+    parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefixSpec, IPC_PERMISSIONS,
+    RECEIVE_HWM, RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE,
 };
 use anyhow::bail;
 use savant_utils::default_once::DefaultOnceCell;
 
 #[derive(Clone, Debug, Default)]
 pub struct ReaderConfig(ReaderConfigBuilder);
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Protocol {
+    SavantRs,
+    Protobuf,
+}
 
 impl ReaderConfig {
     pub fn new() -> ReaderConfigBuilder {
@@ -30,11 +36,11 @@ impl ReaderConfig {
     }
 
     pub fn receive_hwm(&self) -> &i32 {
-        &self.0.receive_hwm.get_or_init()
+        self.0.receive_hwm.get_or_init()
     }
 
-    pub fn topic_prefix(&self) -> &TopicPrefix {
-        self.0.topic_prefix.get_or_init()
+    pub fn topic_prefix_spec(&self) -> &TopicPrefixSpec {
+        self.0.topic_prefix_spec.get_or_init()
     }
 
     pub fn routing_ids_cache_size(&self) -> &usize {
@@ -43,6 +49,10 @@ impl ReaderConfig {
 
     pub fn fix_ipc_permissions(&self) -> &Option<u32> {
         self.0.fix_ipc_permissions.get_or_init()
+    }
+
+    pub fn protocol(&self) -> &Protocol {
+        self.0.protocol.get_or_init()
     }
 }
 
@@ -53,9 +63,10 @@ pub struct ReaderConfigBuilder {
     bind: DefaultOnceCell<bool>,
     receive_timeout: DefaultOnceCell<i32>,
     receive_hwm: DefaultOnceCell<i32>,
-    topic_prefix: DefaultOnceCell<TopicPrefix>,
+    topic_prefix_spec: DefaultOnceCell<TopicPrefixSpec>,
     routing_ids_cache_size: DefaultOnceCell<usize>,
     fix_ipc_permissions: DefaultOnceCell<Option<u32>>,
+    protocol: DefaultOnceCell<Protocol>,
 }
 
 impl Default for ReaderConfigBuilder {
@@ -66,9 +77,10 @@ impl Default for ReaderConfigBuilder {
             bind: DefaultOnceCell::new(true),
             receive_timeout: DefaultOnceCell::new(RECEIVE_TIMEOUT),
             receive_hwm: DefaultOnceCell::new(RECEIVE_HWM),
-            topic_prefix: DefaultOnceCell::new(TopicPrefix::None),
+            topic_prefix_spec: DefaultOnceCell::new(TopicPrefixSpec::None),
             routing_ids_cache_size: DefaultOnceCell::new(ROUTING_ID_CACHE_SIZE),
             fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
+            protocol: DefaultOnceCell::new(Protocol::SavantRs),
         }
     }
 }
@@ -92,6 +104,11 @@ impl ReaderConfigBuilder {
                 _ => bail!("Invalid socket type for reader: {:?}", socket_type),
             })?;
         }
+        Ok(self)
+    }
+
+    pub fn with_protocol(self, protocol: Protocol) -> anyhow::Result<Self> {
+        self.protocol.set(protocol)?;
         Ok(self)
     }
 
@@ -126,8 +143,8 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_topic_prefix(self, topic_prefix: TopicPrefix) -> anyhow::Result<Self> {
-        self.topic_prefix.set(topic_prefix)?;
+    pub fn with_topic_prefix_spec(self, topic_prefix: TopicPrefixSpec) -> anyhow::Result<Self> {
+        self.topic_prefix_spec.set(topic_prefix)?;
         Ok(self)
     }
 
