@@ -301,19 +301,17 @@ impl Message {
         if let MessageEnvelope::VideoFrame(vf) = &self.payload {
             let copy = vf.smart_copy();
             copy.exclude_all_temporary_attributes();
-            let res = func(&Message {
+            func(&Message {
                 meta: self.meta.clone(),
                 payload: MessageEnvelope::VideoFrame(copy),
-            });
-            res
+            })
         } else if let MessageEnvelope::VideoFrameBatch(vfb) = &self.payload {
             let mut copy = vfb.clone();
             copy.exclude_all_temporary_attributes();
-            let res = func(&Message {
+            func(&Message {
                 meta: self.meta.clone(),
                 payload: MessageEnvelope::VideoFrameBatch(copy),
-            });
-            res
+            })
         } else {
             func(self)
         }

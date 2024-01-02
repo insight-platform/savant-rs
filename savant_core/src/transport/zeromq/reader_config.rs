@@ -15,6 +15,7 @@ pub enum Protocol {
 }
 
 impl ReaderConfig {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ReaderConfigBuilder {
         ReaderConfigBuilder::default()
     }

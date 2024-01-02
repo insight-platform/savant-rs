@@ -27,7 +27,7 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
         let objects = copy
             .get_objects()
             .values()
-            .map(|o| generated::VideoObject::from(o))
+            .map(generated::VideoObject::from)
             .collect();
 
         generated::VideoFrame {

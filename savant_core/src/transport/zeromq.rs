@@ -137,7 +137,7 @@ impl TopicPrefixSpec {
 
     pub fn get(&self) -> String {
         match self {
-            Self::SourceId(source_id) => format!("{}", source_id),
+            Self::SourceId(source_id) => source_id.to_string(),
             Self::Prefix(prefix) => prefix.clone(),
             Self::None => "".to_string(),
         }
@@ -197,7 +197,7 @@ impl RoutingIdFilter {
             self.expired_routing_ids
                 .put((topic.to_vec(), current_valid_routing_id.clone()), ());
             self.ids.entry(topic.to_vec()).and_modify(|id| {
-                id.clone_from_slice(&routing_id);
+                id.clone_from_slice(routing_id);
             });
             true
         }
@@ -237,10 +237,7 @@ impl Socket {
     fn recv_multipart(&mut self, flags: i32) -> Result<Vec<Vec<u8>>, zmq::Error> {
         match self {
             Socket::ZmqSocket(socket) => socket.recv_multipart(flags),
-            Socket::MockSocket(data) => {
-                let data = mem::replace(data, vec![]);
-                Ok(data)
-            }
+            Socket::MockSocket(data) => Ok(mem::take(data)),
         }
     }
 
@@ -289,7 +286,7 @@ impl Socket {
     fn take_buffer(&mut self) -> Vec<Vec<u8>> {
         match self {
             Socket::ZmqSocket(_) => unreachable!("Cannot take buffer from ZMQ socket. The function is implemented only for testing purposes."),
-            Socket::MockSocket(data) => mem::replace(data, vec![]),
+            Socket::MockSocket(data) => mem::take(data),
         }
     }
 }

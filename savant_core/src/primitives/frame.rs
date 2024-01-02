@@ -427,22 +427,13 @@ impl VideoFrameProxy {
 
     pub fn get_all_objects(&self) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
-        inner
-            .objects
-            .values()
-            .map(|o| VideoObjectProxy::from(o.clone()))
-            .collect()
+        inner.objects.values().cloned().collect()
     }
 
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
-        let objects = inner
-            .objects
-            .values()
-            .map(|o| VideoObjectProxy::from(o.clone()))
-            .collect::<Vec<_>>();
+        let objects = inner.objects.values().cloned().collect::<Vec<_>>();
         drop(inner);
-
         fiter_map_with_control_flow(objects, |o| q.execute_with_new_context(o))
     }
 
@@ -461,9 +452,7 @@ impl VideoFrameProxy {
 
         ids.iter()
             .flat_map(|id| {
-                let o = resident_objects
-                    .get(id)
-                    .map(|o| VideoObjectProxy::from(o.clone()));
+                let o = resident_objects.get(id).cloned();
                 o
             })
             .collect()
@@ -477,13 +466,7 @@ impl VideoFrameProxy {
         inner.objects = retained;
         drop(inner);
 
-        removed
-            .into_values()
-            .map(|o| {
-                let o = VideoObjectProxy::from(o);
-                o.detached_copy()
-            })
-            .collect()
+        removed.into_values().map(|o| o.detached_copy()).collect()
     }
 
     pub fn object_exists(&self, id: i64) -> bool {
@@ -499,10 +482,7 @@ impl VideoFrameProxy {
 
     pub fn get_object(&self, id: i64) -> Option<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
-        inner
-            .objects
-            .get(&id)
-            .map(|o| VideoObjectProxy::from(o.clone()))
+        inner.objects.get(&id).cloned()
     }
 
     fn fix_object_owned_frame(&self) {

@@ -28,7 +28,7 @@ impl From<&ReaderSocketType> for zmq::SocketType {
 #[derive(Debug)]
 pub enum ReaderResult {
     Message {
-        message: Message,
+        message: Box<Message>,
         topic: Vec<u8>,
         routing_id: Option<Vec<u8>>,
         data: Vec<Vec<u8>>,
@@ -51,13 +51,13 @@ pub enum ReaderResult {
 impl ReaderResult {
     pub fn message(
         message: Message,
-        topic: &Vec<u8>,
+        topic: &[u8],
         routing_id: &Option<&Vec<u8>>,
         data: &[Vec<u8>],
     ) -> Self {
         Self::Message {
-            message,
-            topic: topic.clone(),
+            message: Box::new(message),
+            topic: topic.to_vec(),
             routing_id: routing_id.cloned(),
             data: data.to_vec(),
         }
@@ -68,16 +68,16 @@ impl ReaderResult {
         }
     }
 
-    pub fn prefix_mismatch(topic: &Vec<u8>, routing_id: &Option<&Vec<u8>>) -> Self {
+    pub fn prefix_mismatch(topic: &[u8], routing_id: &Option<&Vec<u8>>) -> Self {
         Self::PrefixMismatch {
-            topic: topic.clone(),
+            topic: topic.to_vec(),
             routing_id: routing_id.cloned(),
         }
     }
 
-    pub fn routing_id_mismatch(topic: &Vec<u8>, routing_id: &Option<&Vec<u8>>) -> Self {
+    pub fn routing_id_mismatch(topic: &[u8], routing_id: &Option<&Vec<u8>>) -> Self {
         Self::RoutingIdMismatch {
-            topic: topic.clone(),
+            topic: topic.to_vec(),
             routing_id: routing_id.cloned(),
         }
     }
@@ -129,7 +129,7 @@ impl Reader {
         socket.set_rcvhwm(*config.receive_hwm())?;
         socket.set_rcvtimeo(*config.receive_timeout())?;
         socket.set_linger(ZMQ_ACK_LINGER)?;
-        socket.set_subscribe(&config.topic_prefix_spec().get().as_bytes())?;
+        socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
 
         if config.endpoint().starts_with("ipc://") {
             Self::create_ipc_dirs(config.endpoint())?;
@@ -264,10 +264,10 @@ impl Reader {
 
         if self.routing_id_filter.allow(topic, &routing_id) {
             Ok(ReaderResult::Message {
-                message: match self.config.protocol() {
+                message: Box::new(match self.config.protocol() {
                     Protocol::SavantRs => crate::message::load_message(&message[1]),
                     Protocol::Protobuf => crate::protobuf::deserialize(&message[1])?,
-                },
+                }),
                 topic: topic.to_vec(),
                 routing_id: routing_id.cloned(),
                 data: if message.len() > 2 {
