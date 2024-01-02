@@ -1,14 +1,12 @@
 use crate::message::Message;
 use crate::transport::zeromq::reader_config::Protocol;
 use crate::transport::zeromq::{
-    ReaderConfig, ReaderSocketType, RoutingIdFilter, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE,
-    ZMQ_ACK_LINGER,
+    ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket, CONFIRMATION_MESSAGE,
+    END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
 };
 use anyhow::bail;
 use log::{debug, info, warn};
-use std::mem;
 use std::os::unix::prelude::PermissionsExt;
-use zmq::SocketType;
 
 pub struct Reader {
     context: Option<zmq::Context>,
@@ -47,6 +45,7 @@ pub enum ReaderResult {
         topic: Vec<u8>,
         routing_id: Option<Vec<u8>>,
     },
+    TooShort(Vec<Vec<u8>>),
 }
 
 impl ReaderResult {
@@ -80,87 +79,6 @@ impl ReaderResult {
         Self::RoutingIdMismatch {
             topic: topic.clone(),
             routing_id: routing_id.cloned(),
-        }
-    }
-}
-
-enum Socket {
-    ZmqSocket(zmq::Socket),
-    MockSocket(Vec<Vec<u8>>),
-}
-
-impl Socket {
-    fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags).map_err(|e| e.into()),
-            Socket::MockSocket(data) => {
-                data.clear();
-                data.extend(parts.iter().map(|p| p.to_vec()));
-                Ok(())
-            }
-        }
-    }
-
-    fn send(&mut self, m: &[u8], flags: i32) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.send(m, flags).map_err(|e| e.into()),
-            Socket::MockSocket(data) => {
-                data.clear();
-                data.push(m.to_vec());
-                Ok(())
-            }
-        }
-    }
-
-    fn recv_multipart(&mut self, flags: i32) -> Result<Vec<Vec<u8>>, zmq::Error> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.recv_multipart(flags),
-            Socket::MockSocket(data) => {
-                let data = mem::replace(data, vec![]);
-                Ok(data)
-            }
-        }
-    }
-
-    fn set_rcvhwm(&self, hwm: i32) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.set_rcvhwm(hwm).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
-        }
-    }
-
-    fn set_rcvtimeo(&self, timeout: i32) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.set_rcvtimeo(timeout).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
-        }
-    }
-
-    fn set_linger(&self, linger: i32) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.set_linger(linger).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
-        }
-    }
-
-    fn set_subscribe(&self, topic: &[u8]) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.set_subscribe(topic).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
-        }
-    }
-
-    fn bind(&self, endpoint: &str) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.bind(endpoint).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
-        }
-    }
-
-    fn connect(&self, endpoint: &str) -> anyhow::Result<()> {
-        match self {
-            Socket::ZmqSocket(socket) => socket.connect(endpoint).map_err(|e| e.into()),
-            Socket::MockSocket(_) => Ok(()),
         }
     }
 }
@@ -200,7 +118,7 @@ impl Reader {
         ))
     }
     #[cfg(test)]
-    fn new_socket(config: &ReaderConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
+    fn new_socket(_config: &ReaderConfig, _context: &zmq::Context) -> anyhow::Result<Socket> {
         Ok(Socket::MockSocket(vec![]))
     }
 
@@ -213,20 +131,17 @@ impl Reader {
         socket.set_linger(ZMQ_ACK_LINGER)?;
         socket.set_subscribe(&config.topic_prefix_spec().get().as_bytes())?;
 
-        #[cfg(not(test))]
-        {
-            if config.endpoint().starts_with("ipc://") {
-                Self::create_ipc_dirs(config.endpoint())?;
-                if let Some(permissions) = config.fix_ipc_permissions() {
-                    Self::set_ipc_permissions(config.endpoint(), *permissions)?;
-                }
+        if config.endpoint().starts_with("ipc://") {
+            Self::create_ipc_dirs(config.endpoint())?;
+            if let Some(permissions) = config.fix_ipc_permissions() {
+                Self::set_ipc_permissions(config.endpoint(), *permissions)?;
             }
+        }
 
-            if *config.bind() {
-                socket.bind(config.endpoint())?;
-            } else {
-                socket.connect(config.endpoint())?;
-            }
+        if *config.bind() {
+            socket.bind(config.endpoint())?;
+        } else {
+            socket.connect(config.endpoint())?;
         }
 
         Ok(Self {
@@ -264,6 +179,7 @@ impl Reader {
         }
         let socket = self.socket.as_mut().unwrap();
         let parts = socket.recv_multipart(0);
+
         if let Err(e) = parts {
             warn!(
                 "Failed to receive message from ZeroMQ socket. Error is {:?}",
@@ -280,6 +196,23 @@ impl Reader {
         }
 
         let parts = parts.unwrap();
+
+        let min_required_parts = match self.config.socket_type() {
+            ReaderSocketType::Sub => 1,
+            ReaderSocketType::Router => 2,
+            ReaderSocketType::Rep => 1,
+        };
+
+        if parts.len() < min_required_parts {
+            warn!(
+                target: "savant_rs.zeromq.reader",
+                "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least {} parts, but got {}",
+                self.config.endpoint(),
+                min_required_parts,
+                parts.len()
+            );
+            return Ok(ReaderResult::TooShort(parts));
+        };
 
         let (routing_id, message) = if self.config.socket_type() == &ReaderSocketType::Router {
             let routing_id = &parts[0];
@@ -300,10 +233,11 @@ impl Reader {
                 socket.send(CONFIRMATION_MESSAGE, 0)?;
             }
 
-            if self.config.socket_type() == &ReaderSocketType::Rep {
-                socket.send(CONFIRMATION_MESSAGE, 0)?;
-            }
             return Ok(ReaderResult::end_of_stream(&routing_id));
+        }
+
+        if self.config.socket_type() == &ReaderSocketType::Rep {
+            socket.send(CONFIRMATION_MESSAGE, 0)?;
         }
 
         let topic = &message[0];
@@ -361,7 +295,9 @@ mod tests {
         use crate::message::Message;
         use crate::primitives::eos::EndOfStream;
         use crate::transport::zeromq::reader::ReaderResult;
-        use crate::transport::zeromq::{Reader, ReaderConfig, TopicPrefixSpec};
+        use crate::transport::zeromq::{
+            Reader, ReaderConfig, TopicPrefixSpec, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE,
+        };
 
         #[test]
         fn test_ok() -> anyhow::Result<()> {
@@ -390,6 +326,71 @@ mod tests {
                     data
                 } if message.is_end_of_stream() && topic == b"topic" && routing_id == &Some(b"routing-id".to_vec()) && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                Vec::<Vec<u8>>::new()
+            );
+            Ok(())
+        }
+        #[test]
+        fn test_empty_multipart() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let mut reader = Reader::new(&conf)?;
+            reader.socket.as_mut().unwrap().send_multipart(&[], 0)?;
+            let m = reader.receive()?;
+            assert!(matches!(m, ReaderResult::TooShort(_)));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                Vec::<Vec<u8>>::new()
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_too_short_routing_id() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let mut reader = Reader::new(&conf)?;
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id"], 0)?;
+            let m = reader.receive()?;
+            assert!(matches!(m, ReaderResult::TooShort(_)));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                Vec::<Vec<u8>>::new()
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_eos() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let mut reader = Reader::new(&conf)?;
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", END_OF_STREAM_MESSAGE], 0)?;
+            let m = reader.receive()?;
+            assert!(matches!(m, ReaderResult::EndOfStream { .. }));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                vec![b"routing-id", CONFIRMATION_MESSAGE]
+            );
             Ok(())
         }
     }

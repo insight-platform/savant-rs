@@ -6,19 +6,19 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 use crate::rust::StageStat;
+use crate::savant_rwlock::SavantRwLock;
 use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::Context;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) struct PipelineStage {
     pub name: String,
     pub stage_type: PipelineStagePayloadType,
-    pub payload: RwLock<HashMap<i64, PipelinePayload>>,
-    pub stat: Arc<RwLock<StageStat>>,
+    pub payload: SavantRwLock<HashMap<i64, PipelinePayload>>,
+    pub stat: Arc<SavantRwLock<StageStat>>,
 }
 
 impl PipelineStage {
@@ -27,11 +27,11 @@ impl PipelineStage {
             name: name.clone(),
             stage_type,
             payload: Default::default(),
-            stat: Arc::new(RwLock::new(StageStat::new(name))),
+            stat: Arc::new(SavantRwLock::new(StageStat::new(name))),
         }
     }
 
-    pub fn get_stat(&self) -> Arc<RwLock<StageStat>> {
+    pub fn get_stat(&self) -> Arc<SavantRwLock<StageStat>> {
         self.stat.clone()
     }
 

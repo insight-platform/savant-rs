@@ -3,14 +3,13 @@ use crate::draw::PaddingDraw;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::object::VideoObject;
 use crate::primitives::{Point, PolygonalArea};
+use crate::savant_rwlock::SavantArcRwLock;
 use crate::{round_2_digits, trace};
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
-use parking_lot::RwLock;
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::f32::consts::PI;
-use std::sync::Arc;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename = "bbox.metric.type")]
@@ -84,8 +83,8 @@ impl TryFrom<&RBBox> for OwnedRBBoxData {
 #[derive(Debug, Clone)]
 enum BBoxVariant {
     Owned(OwnedRBBoxData),
-    BorrowedDetectionBox(Arc<RwLock<VideoObject>>),
-    BorrowedTrackingBox(Arc<RwLock<VideoObject>>),
+    BorrowedDetectionBox(SavantArcRwLock<VideoObject>),
+    BorrowedTrackingBox(SavantArcRwLock<VideoObject>),
 }
 
 /// Represents a bounding box with an optional rotation angle in degrees.
@@ -122,13 +121,13 @@ impl From<OwnedRBBoxData> for RBBox {
 }
 
 impl RBBox {
-    pub fn borrowed_detection_box(object: Arc<RwLock<VideoObject>>) -> Self {
+    pub fn borrowed_detection_box(object: SavantArcRwLock<VideoObject>) -> Self {
         Self {
             data: BBoxVariant::BorrowedDetectionBox(object),
         }
     }
 
-    pub fn borrowed_track_box(object: Arc<RwLock<VideoObject>>) -> Self {
+    pub fn borrowed_track_box(object: SavantArcRwLock<VideoObject>) -> Self {
         Self {
             data: BBoxVariant::BorrowedTrackingBox(object),
         }

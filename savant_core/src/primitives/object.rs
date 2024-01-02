@@ -1,13 +1,13 @@
 use anyhow::bail;
 use hashbrown::HashMap;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use std::sync::Arc;
+use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
+use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 
 use crate::consts::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
 use crate::primitives::{Attribute, AttributeMethods, Attributive, OwnedRBBoxData, RBBox};
+use crate::savant_rwlock::SavantArcRwLock;
 use crate::symbol_mapper::get_object_id;
 use crate::trace;
 use serde_json::Value;
@@ -129,9 +129,11 @@ impl VideoObject {
 ///
 /// :py:class:`VideoObject` is a part of :py:class:`VideoFrame` and may outlive it if there are references.
 ///
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
 pub struct VideoObjectProxy {
-    pub inner: Arc<RwLock<VideoObject>>,
+    #[with(Lock)]
+    pub inner: SavantArcRwLock<VideoObject>,
 }
 
 impl ToSerdeJsonValue for VideoObjectProxy {
@@ -213,13 +215,13 @@ impl AttributeMethods for VideoObjectProxy {
 impl From<VideoObject> for VideoObjectProxy {
     fn from(value: VideoObject) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(value)),
+            inner: SavantArcRwLock::new(value),
         }
     }
 }
 
-impl From<Arc<RwLock<VideoObject>>> for VideoObjectProxy {
-    fn from(value: Arc<RwLock<VideoObject>>) -> Self {
+impl From<SavantArcRwLock<VideoObject>> for VideoObjectProxy {
+    fn from(value: SavantArcRwLock<VideoObject>) -> Self {
         Self { inner: value }
     }
 }
@@ -230,7 +232,7 @@ impl VideoObjectProxy {
         inner.parent_id
     }
 
-    pub fn get_inner(&self) -> Arc<RwLock<VideoObject>> {
+    pub fn get_inner(&self) -> SavantArcRwLock<VideoObject> {
         self.inner.clone()
     }
 
@@ -363,7 +365,7 @@ impl VideoObjectProxy {
             ..Default::default()
         };
         Self {
-            inner: Arc::new(RwLock::new(object)),
+            inner: SavantArcRwLock::new(object),
         }
     }
     pub fn get_detection_box(&self) -> RBBox {
@@ -402,12 +404,12 @@ impl VideoObjectProxy {
     }
 
     pub fn detached_copy(&self) -> Self {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner.read());
         let mut new_inner = inner.clone();
         new_inner.parent_id = None;
         new_inner.frame = None;
         Self {
-            inner: Arc::new(RwLock::new(new_inner)),
+            inner: SavantArcRwLock::new(new_inner),
         }
     }
 

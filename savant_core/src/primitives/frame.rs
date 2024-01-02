@@ -9,13 +9,13 @@ use crate::primitives::object::{
     VideoObjectProxy,
 };
 use crate::primitives::{Attribute, Attributive};
+use crate::savant_rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
 use hashbrown::HashMap;
-use parking_lot::RwLock;
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 use savant_utils::iter::fiter_map_with_control_flow;
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
@@ -111,7 +111,7 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
 #[archive(check_bytes)]
-pub(crate) struct VideoFrame {
+pub struct VideoFrame {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
     pub source_id: String,
@@ -131,16 +131,13 @@ pub(crate) struct VideoFrame {
     pub dts: Option<i64>,
     #[builder(setter(skip))]
     pub duration: Option<i64>,
-    pub content: VideoFrameContent,
+    pub content: Arc<VideoFrameContent>,
     #[builder(setter(skip))]
     pub transformations: Vec<VideoFrameTransformation>,
     #[builder(setter(skip))]
     pub attributes: HashMap<(String, String), Attribute>,
     #[builder(setter(skip))]
-    pub offline_objects: Vec<(i64, VideoObject)>,
-    #[with(Skip)]
-    #[builder(setter(skip))]
-    pub(crate) resident_objects: HashMap<i64, Arc<RwLock<VideoObject>>>,
+    pub(crate) objects: HashMap<i64, VideoObjectProxy>,
     #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) max_object_id: i64,
@@ -170,11 +167,10 @@ impl Default for VideoFrame {
             pts: 0,
             dts: None,
             duration: None,
-            content: VideoFrameContent::None,
+            content: Arc::new(VideoFrameContent::None),
             transformations: Vec::with_capacity(DEFAULT_TRANSFORMATIONS_COUNT),
             attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
-            offline_objects: Vec::with_capacity(DEFAULT_OBJECTS_COUNT),
-            resident_objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
+            objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
             max_object_id: 0,
         }
     }
@@ -183,9 +179,10 @@ impl Default for VideoFrame {
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
         let frame_uuid = Uuid::from_u128(self.uuid).to_string();
+        let version = version();
         serde_json::json!(
             {
-                "version": version(),
+                "version": version,
                 "uuid": frame_uuid,
                 "creation_timestamp_ns": if self.creation_timestamp_ns > 2^53 { 2^53 } else { self.creation_timestamp_ns },
                 "type": "VideoFrame",
@@ -203,13 +200,13 @@ impl ToSerdeJsonValue for VideoFrame {
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
-                "objects": self.resident_objects.values().map(|o| trace!(o.read_recursive()).to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": self.objects.values().map(|o| o.to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
     }
 }
 
-impl Attributive for Box<VideoFrame> {
+impl Attributive for VideoFrame {
     fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
         &self.attributes
     }
@@ -228,42 +225,53 @@ impl Attributive for Box<VideoFrame> {
 }
 
 impl VideoFrame {
-    pub(crate) fn preserve(&mut self) {
-        self.offline_objects = self
-            .resident_objects
-            .iter()
-            .map(|(id, o)| (*id, trace!(o.read_recursive()).clone()))
-            .collect();
+    pub fn get_objects(&self) -> &HashMap<i64, VideoObjectProxy> {
+        &self.objects
     }
 
-    pub(crate) fn restore(&mut self) {
-        self.resident_objects = mem::take(&mut self.offline_objects)
-            .into_iter()
-            .map(|(id, o)| (id, Arc::new(RwLock::new(o))))
-            .collect();
-    }
-
-    pub fn deep_copy(&self) -> Self {
+    pub fn smart_copy(&self) -> Self {
         let mut frame = self.clone();
-        frame.preserve();
-        frame.restore();
+        frame.objects.clear();
+        for (id, o) in self.get_objects() {
+            let copy = o.detached_copy();
+            copy.inner.write().parent_id = o.get_parent_id();
+            frame.objects.insert(*id, copy);
+        }
         frame
     }
+    pub fn exclude_all_temporary_attributes(&mut self) {
+        self.exclude_temporary_attributes();
+        self.objects.values().for_each(|o| {
+            let mut object_bind = trace!(o.inner.write());
+            object_bind.exclude_temporary_attributes();
+        });
+    }
 
-    pub fn get_resident_objects(&self) -> &HashMap<i64, Arc<RwLock<VideoObject>>> {
-        &self.resident_objects
+    pub fn restore_all_temporary_attributes(
+        &mut self,
+        frame_attributes: Vec<Attribute>,
+        object_attributes: HashMap<i64, Vec<Attribute>>,
+    ) {
+        self.restore_attributes(frame_attributes);
+        for (id, attrs) in object_attributes {
+            let o = self.objects.get_mut(&id).unwrap();
+            let mut object_bind = trace!(o.inner.write());
+            object_bind.restore_attributes(attrs);
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
+#[archive(check_bytes)]
 #[repr(C)]
 pub struct VideoFrameProxy {
-    pub(crate) inner: Arc<RwLock<Box<VideoFrame>>>,
+    #[with(Lock)]
+    pub(crate) inner: SavantArcRwLock<Box<VideoFrame>>,
 }
 
 #[derive(Clone)]
 pub struct BelongingVideoFrame {
-    pub(crate) inner: Weak<RwLock<Box<VideoFrame>>>,
+    pub(crate) inner: Weak<SavantRwLock<Box<VideoFrame>>>,
 }
 
 impl Debug for BelongingVideoFrame {
@@ -281,7 +289,7 @@ impl Debug for BelongingVideoFrame {
 impl From<VideoFrameProxy> for BelongingVideoFrame {
     fn from(value: VideoFrameProxy) -> Self {
         Self {
-            inner: Arc::downgrade(&value.inner),
+            inner: Arc::downgrade(&value.inner.0),
         }
     }
 }
@@ -292,7 +300,8 @@ impl From<BelongingVideoFrame> for VideoFrameProxy {
             inner: value
                 .inner
                 .upgrade()
-                .expect("Frame is dropped, you cannot use attached objects anymore"),
+                .expect("Frame is dropped, you cannot use attached objects anymore")
+                .into(),
         }
     }
 }
@@ -303,7 +312,8 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
             inner: value
                 .inner
                 .upgrade()
-                .expect("Frame is dropped, you cannot use attached objects anymore"),
+                .expect("Frame is dropped, you cannot use attached objects anymore")
+                .into(),
         }
     }
 }
@@ -368,9 +378,14 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 }
 
 impl VideoFrameProxy {
+    pub fn exclude_all_temporary_attributes(&self) {
+        let mut inner = trace!(self.inner.write());
+        inner.exclude_all_temporary_attributes()
+    }
+
     pub(crate) fn get_object_count(&self) -> usize {
         let inner = trace!(self.inner.read_recursive());
-        inner.resident_objects.len()
+        inner.objects.len()
     }
 
     pub fn memory_handle(&self) -> usize {
@@ -384,20 +399,27 @@ impl VideoFrameProxy {
         }
     }
 
-    pub fn deep_copy(&self) -> Self {
-        let inner = trace!(self.inner.read_recursive());
-        let inner_copy = inner.deep_copy();
+    pub fn smart_copy(&self) -> Self {
+        let inner = trace!(self.inner.read());
+        let inner_copy = inner.smart_copy();
         drop(inner);
         Self::from_inner(inner_copy)
     }
 
-    pub(crate) fn get_inner(&self) -> Arc<RwLock<Box<VideoFrame>>> {
+    pub fn prepare_after_load(&self) {
+        let objects = self.get_all_objects();
+        for o in objects {
+            o.attach_to_video_frame(self.clone());
+        }
+    }
+
+    pub(crate) fn get_inner(&self) -> SavantArcRwLock<Box<VideoFrame>> {
         self.inner.clone()
     }
 
     pub(crate) fn from_inner(inner: VideoFrame) -> Self {
         let res = VideoFrameProxy {
-            inner: Arc::new(RwLock::new(Box::new(inner))),
+            inner: SavantArcRwLock::from(Arc::new(SavantRwLock::new(Box::new(inner)))),
         };
         res.fix_object_owned_frame();
         res
@@ -406,7 +428,7 @@ impl VideoFrameProxy {
     pub fn get_all_objects(&self) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
         inner
-            .resident_objects
+            .objects
             .values()
             .map(|o| VideoObjectProxy::from(o.clone()))
             .collect()
@@ -415,7 +437,7 @@ impl VideoFrameProxy {
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
         let objects = inner
-            .resident_objects
+            .objects
             .values()
             .map(|o| VideoObjectProxy::from(o.clone()))
             .collect::<Vec<_>>();
@@ -434,7 +456,7 @@ impl VideoFrameProxy {
 
     pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
-        let resident_objects = inner.resident_objects.clone();
+        let resident_objects = inner.objects.clone();
         drop(inner);
 
         ids.iter()
@@ -450,9 +472,9 @@ impl VideoFrameProxy {
     pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
         self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = trace!(self.inner.write());
-        let objects = mem::take(&mut inner.resident_objects);
+        let objects = mem::take(&mut inner.objects);
         let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
-        inner.resident_objects = retained;
+        inner.objects = retained;
         drop(inner);
 
         removed
@@ -466,7 +488,7 @@ impl VideoFrameProxy {
 
     pub fn object_exists(&self, id: i64) -> bool {
         let inner = trace!(self.inner.read_recursive());
-        inner.resident_objects.contains_key(&id)
+        inner.objects.contains_key(&id)
     }
 
     pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
@@ -478,37 +500,15 @@ impl VideoFrameProxy {
     pub fn get_object(&self, id: i64) -> Option<VideoObjectProxy> {
         let inner = trace!(self.inner.read_recursive());
         inner
-            .resident_objects
+            .objects
             .get(&id)
             .map(|o| VideoObjectProxy::from(o.clone()))
-    }
-
-    pub fn make_snapshot(&self) {
-        let mut inner = trace!(self.inner.write());
-        inner.preserve();
     }
 
     fn fix_object_owned_frame(&self) {
         self.get_all_objects()
             .iter()
             .for_each(|o| o.attach_to_video_frame(self.clone()));
-    }
-
-    pub fn restore_from_snapshot(&self) {
-        {
-            let inner = trace!(self.inner.write());
-            let resident_objects = inner.resident_objects.clone();
-            drop(inner);
-
-            resident_objects.iter().for_each(|(_, o)| {
-                let mut o = trace!(o.write());
-                o.frame = None
-            });
-
-            let mut inner = trace!(self.inner.write());
-            inner.restore();
-        }
-        self.fix_object_owned_frame();
     }
 
     pub fn set_draw_label(&self, q: &MatchQuery, label: DrawLabelKind) {
@@ -532,7 +532,7 @@ impl VideoFrameProxy {
     ) -> anyhow::Result<Vec<VideoObjectProxy>> {
         let frame_opt = parent.get_frame();
         if let Some(frame) = frame_opt {
-            if !Arc::ptr_eq(&frame.inner, &self.inner) {
+            if !Arc::ptr_eq(&frame.inner.0, &self.inner.0) {
                 bail!(
                     "Parent object ID={} must be attached to the same frame.",
                     parent.get_id()
@@ -599,29 +599,25 @@ impl VideoFrameProxy {
         let object_id = object.get_id();
         let new_id = self.get_max_object_id() + 1;
         let mut inner = trace!(self.inner.write());
-        if inner.resident_objects.contains_key(&object_id) {
+        if inner.objects.contains_key(&object_id) {
             match policy {
                 IdCollisionResolutionPolicy::GenerateNewId => {
                     object.set_id(new_id)?;
-                    inner.resident_objects.insert(new_id, object.inner.clone());
+                    inner.objects.insert(new_id, object.clone());
                 }
                 IdCollisionResolutionPolicy::Overwrite => {
-                    let old = inner.resident_objects.remove(&object_id).unwrap();
-                    let mut guard = trace!(old.write());
+                    let old = inner.objects.remove(&object_id).unwrap();
+                    let mut guard = trace!(old.inner.write());
                     guard.frame = None;
                     guard.parent_id = None;
-                    inner
-                        .resident_objects
-                        .insert(object_id, object.inner.clone());
+                    inner.objects.insert(object_id, object.clone());
                 }
                 IdCollisionResolutionPolicy::Error => {
                     bail!("Object with ID {} already exists in the frame.", object_id);
                 }
             }
         } else {
-            inner
-                .resident_objects
-                .insert(object_id, object.inner.clone());
+            inner.objects.insert(object_id, object.clone());
         }
 
         object.attach_to_video_frame(self.clone());
@@ -819,7 +815,7 @@ impl VideoFrameProxy {
             transcoding_method,
             codec,
             keyframe,
-            content,
+            content: Arc::new(content),
             ..Default::default()
         })
     }
@@ -982,19 +978,19 @@ impl VideoFrameProxy {
         inner.keyframe = keyframe;
     }
 
-    pub fn get_content(&self) -> VideoFrameContent {
+    pub fn get_content(&self) -> Arc<VideoFrameContent> {
         let inner = trace!(self.inner.read_recursive());
         inner.content.clone()
     }
 
     pub fn set_content(&mut self, content: VideoFrameContent) {
         let mut inner = trace!(self.inner.write());
-        inner.content = content;
+        inner.content = Arc::new(content);
     }
 
     pub fn clear_objects(&self) {
         let mut frame = trace!(self.inner.write());
-        frame.resident_objects.clear();
+        frame.objects.clear();
     }
 
     pub fn check_frame_fit(
@@ -1166,46 +1162,6 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_simple() {
-        let f = gen_frame();
-        f.make_snapshot();
-        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        o.set_namespace(s("modified"));
-        f.restore_from_snapshot();
-        let o = f.access_objects_by_id(&vec![0]).pop().unwrap();
-        assert_eq!(o.get_namespace(), s("test"));
-
-        // ensure objects are not attached to the frame
-        let o = f.get_object(0).unwrap();
-        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &f.inner));
-    }
-
-    #[test]
-    fn test_snapshot_with_parent_added_to_frame() -> anyhow::Result<()> {
-        let parent = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .parent_id(None)
-                .namespace(s("some-model"))
-                .label(s("some-label"))
-                .id(155)
-                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
-                .build()
-                .unwrap(),
-        );
-        let frame = gen_frame();
-        frame
-            .add_object(&parent, IdCollisionResolutionPolicy::Error)
-            .unwrap();
-        let obj = frame.get_object(0).unwrap();
-        obj.set_parent(Some(parent.get_id()))?;
-        frame.make_snapshot();
-        frame.restore_from_snapshot();
-        let obj = frame.get_object(0).unwrap();
-        assert_eq!(obj.get_parent().unwrap().inner.read_recursive().id, 155);
-        Ok(())
-    }
-
-    #[test]
     fn test_no_children() {
         let frame = gen_frame();
         let obj = frame.get_object(2).unwrap();
@@ -1338,38 +1294,6 @@ mod tests {
     }
 
     #[test]
-    fn frame_is_properly_set_after_snapshotting() {
-        let frame = gen_frame();
-        frame.make_snapshot();
-        frame.restore_from_snapshot();
-        let o = frame.get_object(0).unwrap();
-        let saved_frame = o.get_frame();
-        assert!(saved_frame.is_some());
-        assert!(Arc::ptr_eq(&frame.inner, &saved_frame.unwrap().inner));
-
-        // check that objects have properly set owning frame
-        let o = frame.get_object(0).unwrap();
-        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &frame.inner));
-    }
-
-    #[test]
-    fn ensure_owned_objects_detached_after_snapshot() {
-        let frame = gen_frame();
-        frame
-            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
-            .unwrap();
-        frame.make_snapshot();
-        let object = frame.get_object(111).unwrap();
-        assert!(!object.is_detached(), "Object is expected to be attached");
-
-        frame.restore_from_snapshot();
-        assert!(object.is_detached(), "Object is expected to be detached");
-
-        let o = frame.get_object(0).unwrap();
-        assert!(!o.is_detached(), "Object is expected to be attached");
-    }
-
-    #[test]
     fn ensure_object_spoiled_when_frame_is_dropped() {
         let frame = gen_frame();
         let object = frame.get_object(0).unwrap();
@@ -1408,7 +1332,7 @@ mod tests {
     #[test]
     fn deep_copy() {
         let f = gen_frame();
-        let new_f = f.deep_copy();
+        let new_f = f.smart_copy();
 
         // check that objects are copied
         let o = f.get_object(0).unwrap();
@@ -1425,7 +1349,7 @@ mod tests {
         // check that the objects are attached to the new frame
         let o = new_f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
-        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner, &new_f.inner));
+        assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner.0, &new_f.inner.0));
     }
 
     #[test]

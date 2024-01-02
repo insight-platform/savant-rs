@@ -515,7 +515,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let parent_frame = parent_frame_opt.unwrap();
 
                 ControlFlow::Continue(matches!(
-                    parent_frame.get_content(),
+                    &*parent_frame.get_content(),
                     VideoFrameContent::None
                 ))
             }

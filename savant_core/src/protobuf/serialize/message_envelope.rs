@@ -1,6 +1,6 @@
 use crate::message::MessageEnvelope;
 use crate::primitives::eos::EndOfStream;
-use crate::primitives::frame::VideoFrame;
+use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::rust::{Shutdown, UserData};
@@ -46,7 +46,7 @@ impl TryFrom<&generated::message::Content> for MessageEnvelope {
                 })
             }
             generated::message::Content::VideoFrame(vf) => {
-                MessageEnvelope::VideoFrame(Box::new(VideoFrame::try_from(vf)?))
+                MessageEnvelope::VideoFrame(VideoFrameProxy::from_inner(VideoFrame::try_from(vf)?))
             }
             generated::message::Content::VideoFrameBatch(vfb) => {
                 MessageEnvelope::VideoFrameBatch(VideoFrameBatch::try_from(vfb)?)

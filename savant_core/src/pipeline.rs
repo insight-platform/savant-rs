@@ -179,7 +179,6 @@ pub(super) mod implementation {
     use hashbrown::HashMap;
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
     use opentelemetry::{Context, KeyValue};
-    use parking_lot::RwLock;
 
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
@@ -190,6 +189,7 @@ pub(super) mod implementation {
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
+    use crate::savant_rwlock::SavantRwLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 
@@ -209,10 +209,10 @@ pub(super) mod implementation {
     pub struct Pipeline {
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
-        root_spans: RwLock<HashMap<i64, Context>>,
+        root_spans: SavantRwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
-        frame_locations: RwLock<HashMap<i64, usize>>,
-        frame_ordering: RwLock<HashMap<String, i64>>,
+        frame_locations: SavantRwLock<HashMap<i64, usize>>,
+        frame_ordering: SavantRwLock<HashMap<String, i64>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,

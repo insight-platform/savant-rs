@@ -1,11 +1,11 @@
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;
-use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
+use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
-use crate::primitives::{AttributeMethods, Attributive};
+use crate::primitives::Attributive;
 use crate::{trace, version};
 use lazy_static::lazy_static;
 use lru::LruCache;
@@ -72,7 +72,9 @@ impl SeqStore {
                 self.reset_seq_id(&eos.source_id);
                 true
             }
-            MessageEnvelope::VideoFrame(vf) => self.validate_seq_i_raw(&vf.source_id, seq_id),
+            MessageEnvelope::VideoFrame(vf) => {
+                self.validate_seq_i_raw(&vf.inner.read().source_id, seq_id)
+            }
             MessageEnvelope::UserData(ud) => self.validate_seq_i_raw(&ud.source_id, seq_id),
             _ => true,
         }
@@ -98,7 +100,7 @@ pub fn clear_source_seq_id(source: &str) {
 #[archive(check_bytes)]
 pub(crate) enum MessageEnvelope {
     EndOfStream(EndOfStream),
-    VideoFrame(Box<VideoFrame>),
+    VideoFrame(VideoFrameProxy),
     VideoFrameBatch(VideoFrameBatch),
     VideoFrameUpdate(VideoFrameUpdate),
     UserData(UserData),
@@ -175,24 +177,20 @@ impl Message {
 
     pub fn video_frame(frame: &VideoFrameProxy) -> Self {
         let seq_id = generate_message_seq_id(frame.get_source_id().as_str());
-        let frame_copy = frame.deep_copy();
-        frame_copy.exclude_temporary_attributes();
-        frame_copy.get_all_objects().iter().for_each(|o| {
-            o.exclude_temporary_attributes();
-        });
-        frame_copy.make_snapshot();
-
-        let inner = trace!(frame_copy.inner.read()).clone();
-
+        let frame_ref = frame.clone();
+        // let frame_copy = frame.deep_copy();
+        // frame_copy.exclude_temporary_attributes();
+        // frame_copy.get_all_objects().iter().for_each(|o| {
+        //     o.exclude_temporary_attributes();
+        // });
         Self {
             meta: MessageMeta::new(seq_id),
-            payload: MessageEnvelope::VideoFrame(inner),
+            payload: MessageEnvelope::VideoFrame(frame_ref),
         }
     }
 
     pub fn video_frame_batch(batch: &VideoFrameBatch) -> Self {
-        let mut batch_copy = batch.deep_copy();
-        batch_copy.prepare_before_save();
+        let batch_copy = batch.clone();
         Self {
             meta: MessageMeta::new(0),
             payload: MessageEnvelope::VideoFrameBatch(batch_copy),
@@ -279,7 +277,7 @@ impl Message {
     }
     pub fn as_video_frame(&self) -> Option<VideoFrameProxy> {
         match &self.payload {
-            MessageEnvelope::VideoFrame(frame) => Some(VideoFrameProxy::from_inner(*frame.clone())),
+            MessageEnvelope::VideoFrame(frame) => Some(frame.clone()),
             _ => None,
         }
     }
@@ -293,6 +291,31 @@ impl Message {
         match &self.payload {
             MessageEnvelope::VideoFrameBatch(batch) => Some(batch),
             _ => None,
+        }
+    }
+
+    fn with_excluded_temporary_elements<F, T>(&self, func: F) -> T
+    where
+        F: Fn(&Self) -> T,
+    {
+        if let MessageEnvelope::VideoFrame(vf) = &self.payload {
+            let copy = vf.smart_copy();
+            copy.exclude_all_temporary_attributes();
+            let res = func(&Message {
+                meta: self.meta.clone(),
+                payload: MessageEnvelope::VideoFrame(copy),
+            });
+            res
+        } else if let MessageEnvelope::VideoFrameBatch(vfb) = &self.payload {
+            let mut copy = vfb.clone();
+            copy.exclude_all_temporary_attributes();
+            let res = func(&Message {
+                meta: self.meta.clone(),
+                payload: MessageEnvelope::VideoFrameBatch(copy),
+            });
+            res
+        } else {
+            func(self)
         }
     }
 }
@@ -316,10 +339,12 @@ pub fn load_message(bytes: &[u8]) -> Message {
 
     match &mut m.payload {
         MessageEnvelope::VideoFrame(f) => {
-            f.restore();
+            f.prepare_after_load();
         }
         MessageEnvelope::VideoFrameBatch(b) => {
-            b.prepare_after_load();
+            b.frames.iter_mut().for_each(|(_, f)| {
+                f.prepare_after_load();
+            });
         }
         _ => {}
     }
@@ -328,13 +353,15 @@ pub fn load_message(bytes: &[u8]) -> Message {
 }
 
 pub fn save_message(m: &Message) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(1024);
-    buf.extend_from_slice(
-        rkyv::to_bytes::<_, 1024>(m)
-            .expect("Failed to serialize Message")
-            .as_ref(),
-    );
-    buf
+    m.with_excluded_temporary_elements(|m| {
+        let mut buf = Vec::with_capacity(1024);
+        buf.extend_from_slice(
+            rkyv::to_bytes::<_, 1024>(m)
+                .expect("Failed to serialize Message")
+                .as_ref(),
+        );
+        buf
+    })
 }
 
 #[cfg(test)]
@@ -383,10 +410,12 @@ mod tests {
         let m = load_message(&res);
         assert!(m.is_video_frame());
         let frame = m.as_video_frame().unwrap();
-
         // ensure objects belong the frame
         let obj = frame.get_object(0).unwrap();
-        assert!(Arc::ptr_eq(&obj.get_frame().unwrap().inner, &frame.inner));
+        assert!(Arc::ptr_eq(
+            &obj.get_frame().unwrap().inner.0,
+            &frame.inner.0
+        ));
     }
 
     #[test]

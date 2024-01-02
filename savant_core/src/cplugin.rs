@@ -9,7 +9,7 @@ pub fn binary_op_parent(objs: &[&VideoObjectProxy]) -> bool {
 
     let left_inner = left.get_inner();
     let right_inner = right.get_inner();
-    if Arc::ptr_eq(&left_inner, &right_inner) {
+    if Arc::ptr_eq(&left_inner.0, &right_inner.0) {
         false
     } else {
         left.get_parent().is_some()

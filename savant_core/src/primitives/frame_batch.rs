@@ -1,62 +1,29 @@
 use crate::match_query::MatchQuery;
-use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
+use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::object::VideoObjectProxy;
-use crate::primitives::AttributeMethods;
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
+use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
 #[archive(check_bytes)]
 pub struct VideoFrameBatch {
-    offline_frames: Vec<(i64, VideoFrame)>,
-    #[with(Skip)]
     pub(crate) frames: HashMap<i64, VideoFrameProxy>,
 }
 
 impl VideoFrameBatch {
-    pub fn deep_copy(&self) -> Self {
+    pub fn exclude_all_temporary_attributes(&mut self) {
+        self.frames.iter_mut().for_each(|(_, frame)| {
+            frame.exclude_all_temporary_attributes();
+        });
+    }
+    pub fn smart_copy(&self) -> Self {
         let frames = self
             .frames
             .iter()
-            .map(|(id, frame)| (*id, frame.deep_copy()))
+            .map(|(id, frame)| (*id, frame.smart_copy()))
             .collect();
 
-        Self {
-            offline_frames: Default::default(),
-            frames,
-        }
-    }
-
-    pub(crate) fn prepare_after_load(&mut self) {
-        let offline_frames = std::mem::take(&mut self.offline_frames);
-        for (id, inner) in offline_frames.into_iter() {
-            let frame = VideoFrameProxy::from_inner(inner);
-            frame.restore_from_snapshot();
-            self.frames.insert(id, frame);
-        }
-    }
-
-    pub(crate) fn prepare_before_save(&mut self) {
-        self.offline_frames.clear();
-        for (id, frame) in self.frames.iter() {
-            let frame = frame.deep_copy();
-            frame.exclude_temporary_attributes();
-            frame.get_all_objects().iter().for_each(|o| {
-                o.exclude_temporary_attributes();
-            });
-            frame.make_snapshot();
-            let inner = Arc::try_unwrap(frame.inner).unwrap().into_inner(); //..into_inner();
-            self.offline_frames.push((*id, *inner));
-        }
-    }
-
-    pub fn snapshot(&mut self) {
-        self.prepare_before_save();
-    }
-
-    pub fn restore(&mut self) {
-        self.prepare_after_load();
+        Self { frames }
     }
 
     pub fn access_objects(&self, q: &MatchQuery) -> hashbrown::HashMap<i64, Vec<VideoObjectProxy>> {
@@ -78,7 +45,6 @@ impl VideoFrameBatch {
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            offline_frames: Vec::with_capacity(capacity),
             frames: HashMap::with_capacity(capacity),
         }
     }

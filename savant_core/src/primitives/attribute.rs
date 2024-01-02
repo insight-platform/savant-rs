@@ -255,7 +255,7 @@ impl Attribute {
 
 pub trait AttributeMethods {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
-    fn restore_attributes(&self, attributes: Vec<Attribute>);
+    fn restore_attributes(&self, frame_attributes: Vec<Attribute>);
     fn get_attributes(&self) -> Vec<(String, String)>;
     fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
     fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute>;

@@ -9,6 +9,7 @@ mod reader_config;
 
 pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
+use std::mem;
 
 const RECEIVE_TIMEOUT: i32 = 1000;
 const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
@@ -199,6 +200,96 @@ impl RoutingIdFilter {
                 id.clone_from_slice(&routing_id);
             });
             true
+        }
+    }
+}
+
+#[allow(dead_code)]
+enum Socket {
+    ZmqSocket(zmq::Socket),
+    MockSocket(Vec<Vec<u8>>),
+}
+
+#[allow(dead_code)]
+impl Socket {
+    fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags).map_err(|e| e.into()),
+            Socket::MockSocket(data) => {
+                data.clear();
+                data.extend(parts.iter().map(|p| p.to_vec()));
+                Ok(())
+            }
+        }
+    }
+
+    fn send(&mut self, m: &[u8], flags: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.send(m, flags).map_err(|e| e.into()),
+            Socket::MockSocket(data) => {
+                data.clear();
+                data.push(m.to_vec());
+                Ok(())
+            }
+        }
+    }
+
+    fn recv_multipart(&mut self, flags: i32) -> Result<Vec<Vec<u8>>, zmq::Error> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.recv_multipart(flags),
+            Socket::MockSocket(data) => {
+                let data = mem::replace(data, vec![]);
+                Ok(data)
+            }
+        }
+    }
+
+    fn set_rcvhwm(&self, hwm: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_rcvhwm(hwm).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn set_rcvtimeo(&self, timeout: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_rcvtimeo(timeout).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn set_linger(&self, linger: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_linger(linger).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn set_subscribe(&self, topic: &[u8]) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_subscribe(topic).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn bind(&self, endpoint: &str) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.bind(endpoint).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn connect(&self, endpoint: &str) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.connect(endpoint).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn take_buffer(&mut self) -> Vec<Vec<u8>> {
+        match self {
+            Socket::ZmqSocket(_) => unreachable!("Cannot take buffer from ZMQ socket. The function is implemented only for testing purposes."),
+            Socket::MockSocket(data) => mem::replace(data, vec![]),
         }
     }
 }

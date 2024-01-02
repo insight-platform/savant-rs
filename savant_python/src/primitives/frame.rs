@@ -560,7 +560,7 @@ impl VideoFrame {
 
     #[getter]
     pub fn get_content(&self) -> VideoFrameContent {
-        VideoFrameContent(self.0.get_content())
+        VideoFrameContent(self.0.get_content().as_ref().clone())
     }
 
     #[setter]
@@ -689,18 +689,6 @@ impl VideoFrame {
         self.0.clear_objects()
     }
 
-    #[pyo3(name = "make_snapshot")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn make_snapshot_gil(&self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.make_snapshot())
-    }
-
-    #[pyo3(name = "restore_from_snapshot")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn restore_from_snapshot_gil(&self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.restore_from_snapshot())
-    }
-
     #[pyo3(name = "get_children")]
     pub fn get_children_py(&self, id: i64) -> VideoObjectsView {
         self.0.get_children(id).into()
@@ -709,7 +697,7 @@ impl VideoFrame {
     #[pyo3(name = "copy")]
     #[pyo3(signature = (no_gil = true))]
     pub fn copy_gil(&self, no_gil: bool) -> VideoFrame {
-        release_gil!(no_gil, || VideoFrame(self.0.deep_copy()))
+        release_gil!(no_gil, || VideoFrame(self.0.smart_copy()))
     }
 
     /// Updates the frame with the given update. The function is GIL-free.

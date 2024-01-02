@@ -8,6 +8,7 @@ use crate::primitives::object::{
 };
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use hashbrown::HashMap;
+use std::sync::Arc;
 
 type Variant = AttributeValueVariant;
 
@@ -20,7 +21,7 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
             .width(0)
             .uuid(uuid::Uuid::new_v4().as_u128())
             .height(0)
-            .content(VideoFrameContent::None)
+            .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
             .codec(None)
             .keyframe(None)
@@ -38,7 +39,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .width(1280)
             .uuid(uuid::Uuid::new_v4().as_u128())
             .height(720)
-            .content(VideoFrameContent::None)
+            .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
             .codec(None)
             .keyframe(None)
