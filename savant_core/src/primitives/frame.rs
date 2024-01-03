@@ -234,7 +234,7 @@ impl VideoFrame {
         frame.objects.clear();
         for (id, o) in self.get_objects() {
             let copy = o.detached_copy();
-            copy.inner.write().parent_id = o.get_parent_id();
+            copy.0.write().parent_id = o.get_parent_id();
             frame.objects.insert(*id, copy);
         }
         frame
@@ -242,7 +242,7 @@ impl VideoFrame {
     pub fn exclude_all_temporary_attributes(&mut self) {
         self.exclude_temporary_attributes();
         self.objects.values().for_each(|o| {
-            let mut object_bind = trace!(o.inner.write());
+            let mut object_bind = trace!(o.0.write());
             object_bind.exclude_temporary_attributes();
         });
     }
@@ -255,7 +255,7 @@ impl VideoFrame {
         self.restore_attributes(frame_attributes);
         for (id, attrs) in object_attributes {
             let o = self.objects.get_mut(&id).unwrap();
-            let mut object_bind = trace!(o.inner.write());
+            let mut object_bind = trace!(o.0.write());
             object_bind.restore_attributes(attrs);
         }
     }
@@ -587,7 +587,7 @@ impl VideoFrameProxy {
                 }
                 IdCollisionResolutionPolicy::Overwrite => {
                     let old = inner.objects.remove(&object_id).unwrap();
-                    let mut guard = trace!(old.inner.write());
+                    let mut guard = trace!(old.0.write());
                     guard.frame = None;
                     guard.parent_id = None;
                     inner.objects.insert(object_id, object.clone());

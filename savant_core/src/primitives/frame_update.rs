@@ -111,7 +111,7 @@ impl VideoFrameUpdate {
 
     pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
         self.objects
-            .push((trace!(object.inner.read()).clone(), parent_id));
+            .push((trace!(object.0.read()).clone(), parent_id));
     }
 
     pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {

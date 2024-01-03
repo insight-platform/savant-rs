@@ -3,10 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Archive, Deserialize, Serialize, Debug, serde::Serialize, serde::Deserialize)]
 #[archive(check_bytes)]
-pub struct AtomicF32 {
-    #[with(Atomic)]
-    data: AtomicU32,
-}
+pub struct AtomicF32(#[with(Atomic)] AtomicU32);
 
 impl PartialEq for AtomicF32 {
     fn eq(&self, other: &Self) -> bool {
@@ -23,16 +20,14 @@ impl Clone for AtomicF32 {
 impl AtomicF32 {
     pub fn new(value: f32) -> Self {
         let as_u32 = value.to_bits();
-        Self {
-            data: AtomicU32::new(as_u32),
-        }
+        Self(AtomicU32::new(as_u32))
     }
     pub fn set(&self, value: f32) {
         let as_u32 = value.to_bits();
-        self.data.store(as_u32, Ordering::SeqCst)
+        self.0.store(as_u32, Ordering::SeqCst)
     }
     pub fn get(&self) -> f32 {
-        let as_u32 = self.data.load(Ordering::SeqCst);
+        let as_u32 = self.0.load(Ordering::SeqCst);
         f32::from_bits(as_u32)
     }
 }

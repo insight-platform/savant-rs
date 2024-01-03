@@ -1,6 +1,6 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::any_object::AnyObject;
-use crate::primitives::{Intersection, OwnedRBBoxData, Point, PolygonalArea};
+use crate::primitives::{Intersection, Point, PolygonalArea, RBBoxData};
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
 
@@ -26,8 +26,8 @@ pub enum AttributeValueVariant {
     FloatVector(Vec<f64>),
     Boolean(bool),
     BooleanVector(Vec<bool>),
-    BBox(OwnedRBBoxData),
-    BBoxVector(Vec<OwnedRBBoxData>),
+    BBox(RBBoxData),
+    BBoxVector(Vec<RBBoxData>),
     Point(Point),
     PointVector(Vec<Point>),
     Polygon(PolygonalArea),

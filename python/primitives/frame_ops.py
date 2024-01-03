@@ -14,6 +14,7 @@ import json
 from timeit import default_timer as timer
 
 f = gen_frame()
+print(f.json_pretty)
 f.creation_timestamp_ns = 1_000_000_000
 
 assert len(f.get_children(0)) == 2

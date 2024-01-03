@@ -24,8 +24,8 @@ pub mod rust {
     pub use super::attribute::Attribute;
     pub use super::attribute_value::AttributeValue;
     pub use super::bbox::BBoxMetricType;
-    pub use super::bbox::OwnedRBBoxData;
     pub use super::bbox::RBBox;
+    pub use super::bbox::RBBoxData;
     pub use super::eos::EndOfStream;
     pub use super::frame::BelongingVideoFrame;
     pub use super::frame::VideoFrameContent;
