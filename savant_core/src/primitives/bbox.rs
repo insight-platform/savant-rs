@@ -1,15 +1,17 @@
+use crate::atomic_f32::AtomicF32;
 use crate::consts::EPS;
 use crate::draw::PaddingDraw;
 use crate::json_api::ToSerdeJsonValue;
-use crate::primitives::object::VideoObject;
 use crate::primitives::{Point, PolygonalArea};
-use crate::savant_rwlock::SavantArcRwLock;
-use crate::{round_2_digits, trace};
+use crate::round_2_digits;
+use crate::savant_rwlock::SavantRwLock;
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
-use rkyv::{Archive, Deserialize, Serialize};
+use rkyv::{with::Atomic, with::Lock, Archive, Deserialize, Serialize};
 use serde_json::Value;
 use std::f32::consts::PI;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename = "bbox.metric.type")]
@@ -19,28 +21,64 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Archive, Deserialize, Serialize, Debug)]
 #[archive(check_bytes)]
 pub struct OwnedRBBoxData {
-    pub xc: f32,
-    pub yc: f32,
-    pub width: f32,
-    pub height: f32,
-    pub angle: Option<f32>,
-    pub has_modifications: bool,
+    pub xc: AtomicF32,
+    pub yc: AtomicF32,
+    pub width: AtomicF32,
+    pub height: AtomicF32,
+    #[with(Lock)]
+    pub angle: SavantRwLock<Option<f32>>,
+    #[with(Atomic)]
+    pub has_modifications: AtomicBool,
+}
+
+impl PartialEq for OwnedRBBoxData {
+    fn eq(&self, other: &Self) -> bool {
+        self.xc == other.xc
+            && self.yc == other.yc
+            && self.width == other.width
+            && self.height == other.height
+            && *self.angle.read() == *other.angle.read()
+    }
+}
+
+impl OwnedRBBoxData {
+    pub fn new(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
+        Self {
+            xc: xc.into(),
+            yc: yc.into(),
+            width: width.into(),
+            height: height.into(),
+            angle: SavantRwLock::new(angle),
+            has_modifications: false.into(),
+        }
+    }
+}
+
+impl Clone for OwnedRBBoxData {
+    fn clone(&self) -> Self {
+        Self {
+            xc: self.xc.clone(),
+            yc: self.yc.clone(),
+            width: self.width.clone(),
+            height: self.height.clone(),
+            angle: SavantRwLock::new(*self.angle.read()),
+            has_modifications: AtomicBool::new(self.has_modifications.load(Ordering::SeqCst)),
+        }
+    }
 }
 
 impl Default for OwnedRBBoxData {
     fn default() -> Self {
         Self {
-            xc: 0.0,
-            yc: 0.0,
-            width: 0.0,
-            height: 0.0,
-            angle: None,
-            has_modifications: false,
+            xc: 0.0.into(),
+            yc: 0.0.into(),
+            width: 0.0.into(),
+            height: 0.0.into(),
+            angle: SavantRwLock::default(),
+            has_modifications: AtomicBool::new(false),
         }
     }
 }
@@ -48,50 +86,74 @@ impl Default for OwnedRBBoxData {
 impl ToSerdeJsonValue for OwnedRBBoxData {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!({
-            "xc": self.xc,
-            "yc": self.yc,
-            "width": self.width,
-            "height": self.height,
-            "angle": self.angle,
+            "xc": self.xc.get(),
+            "yc": self.yc.get(),
+            "width": self.width.get(),
+            "height": self.height.get(),
+            "angle": *self.angle.read(),
         })
     }
 }
 
-impl TryFrom<RBBox> for OwnedRBBoxData {
-    type Error = anyhow::Error;
-
-    fn try_from(value: RBBox) -> Result<Self, Self::Error> {
-        OwnedRBBoxData::try_from(&value)
+impl From<RBBox> for OwnedRBBoxData {
+    fn from(value: RBBox) -> Self {
+        OwnedRBBoxData::from(&value)
     }
 }
 
-impl TryFrom<&RBBox> for OwnedRBBoxData {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &RBBox) -> Result<Self, Self::Error> {
-        match &value.data {
-            BBoxVariant::Owned(d) => Ok(d.clone()),
-            BBoxVariant::BorrowedDetectionBox(d) => Ok(trace!(d.read()).detection_box.clone()),
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read()).track_box.as_ref().map_or_else(
-                || Err(anyhow::anyhow!("Cannot convert tracking box to RBBoxData")),
-                |t| Ok(t.clone()),
-            ),
-        }
+impl From<&RBBox> for OwnedRBBoxData {
+    fn from(value: &RBBox) -> Self {
+        value.0.as_ref().clone()
     }
-}
-
-#[derive(Debug, Clone)]
-enum BBoxVariant {
-    Owned(OwnedRBBoxData),
-    BorrowedDetectionBox(SavantArcRwLock<VideoObject>),
-    BorrowedTrackingBox(SavantArcRwLock<VideoObject>),
 }
 
 /// Represents a bounding box with an optional rotation angle in degrees.
 ///
-#[derive(Debug, Clone)]
-pub struct RBBox {
-    data: BBoxVariant,
+#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
+#[archive(check_bytes)]
+pub struct RBBox(Arc<OwnedRBBoxData>);
+
+impl serde::Serialize for RBBox {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let data_tuple = (
+            self.get_xc(),
+            self.get_yc(),
+            self.get_width(),
+            self.get_height(),
+            self.get_angle(),
+        );
+        serde::Serialize::serialize(&data_tuple, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RBBox {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (xc, yc, width, heigth, angle) =
+            <(f32, f32, f32, f32, Option<f32>) as serde::Deserialize>::deserialize(deserializer)?;
+        let data = OwnedRBBoxData::new(xc, yc, width, heigth, angle);
+        Ok(Self::from(data))
+    }
+}
+
+impl serde::Serialize for OwnedRBBoxData {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let data_tuple = (
+            self.xc.get(),
+            self.yc.get(),
+            self.width.get(),
+            self.height.get(),
+            *self.angle.read(),
+        );
+        serde::Serialize::serialize(&data_tuple, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for OwnedRBBoxData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (xc, yc, width, heigth, angle) =
+            <(f32, f32, f32, f32, Option<f32>) as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(OwnedRBBoxData::new(xc, yc, width, heigth, angle))
+    }
 }
 
 impl PartialEq for RBBox {
@@ -114,41 +176,17 @@ impl ToSerdeJsonValue for RBBox {
 
 impl From<OwnedRBBoxData> for RBBox {
     fn from(value: OwnedRBBoxData) -> Self {
-        Self {
-            data: BBoxVariant::Owned(value),
-        }
+        Self(Arc::new(value))
+    }
+}
+
+impl From<&OwnedRBBoxData> for RBBox {
+    fn from(value: &OwnedRBBoxData) -> Self {
+        Self(Arc::new(value.clone()))
     }
 }
 
 impl RBBox {
-    pub fn borrowed_detection_box(object: SavantArcRwLock<VideoObject>) -> Self {
-        Self {
-            data: BBoxVariant::BorrowedDetectionBox(object),
-        }
-    }
-
-    pub fn borrowed_track_box(object: SavantArcRwLock<VideoObject>) -> Self {
-        Self {
-            data: BBoxVariant::BorrowedTrackingBox(object),
-        }
-    }
-}
-
-impl RBBox {
-    pub fn to_owned(&self) -> Option<OwnedRBBoxData> {
-        match &self.data {
-            BBoxVariant::Owned(d) => Some(d.clone()),
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let lock = trace!(d.read());
-                Some(lock.detection_box.clone())
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let lock = trace!(d.read());
-                lock.track_box.as_ref().cloned()
-            }
-        }
-    }
-
     pub fn get_area(&self) -> f32 {
         self.get_width() * self.get_height()
     }
@@ -168,59 +206,19 @@ impl RBBox {
             && (self.get_angle().unwrap_or(0.0) - other.get_angle().unwrap_or(0.0)).abs() < eps
     }
     pub fn get_xc(&self) -> f32 {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.xc,
-            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.xc,
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.xc)
-                .unwrap_or(0.0),
-        }
+        self.0.xc.get()
     }
     pub fn get_yc(&self) -> f32 {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.yc,
-            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.yc,
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.yc)
-                .unwrap_or(0.0),
-        }
+        self.0.yc.get()
     }
     pub fn get_width(&self) -> f32 {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.width,
-            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.width,
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.width)
-                .unwrap_or(0.0),
-        }
+        self.0.width.get()
     }
     pub fn get_height(&self) -> f32 {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.height,
-            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.height,
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.height)
-                .unwrap_or(0.0),
-        }
+        self.0.height.get()
     }
     pub fn get_angle(&self) -> Option<f32> {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.angle,
-            BBoxVariant::BorrowedDetectionBox(d) => trace!(d.read_recursive()).detection_box.angle,
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.angle)
-                .unwrap_or(None),
-        }
+        *self.0.angle.read()
     }
     pub fn get_width_to_height_ratio(&self) -> f32 {
         let height = self.get_height();
@@ -231,167 +229,45 @@ impl RBBox {
         self.get_width() / self.get_height()
     }
     pub fn is_modified(&self) -> bool {
-        match &self.data {
-            BBoxVariant::Owned(d) => d.has_modifications,
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                trace!(d.read_recursive()).detection_box.has_modifications
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => trace!(d.read_recursive())
-                .track_box
-                .as_ref()
-                .map(|t| t.has_modifications)
-                .unwrap_or(false),
-        }
+        self.0.has_modifications.load(Ordering::SeqCst)
     }
-    pub fn set_modifications(&mut self, value: bool) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => d.has_modifications = value,
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.has_modifications = value;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.has_modifications = value;
-                }
-            }
-        }
+    pub fn set_modifications(&self, value: bool) {
+        self.0.has_modifications.store(value, Ordering::SeqCst);
     }
-    pub fn set_xc(&mut self, xc: f32) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.xc = xc;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.xc = xc;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.xc = xc;
-                    b.has_modifications = true;
-                }
-            }
-        }
+    pub fn set_xc(&self, xc: f32) {
+        self.0.xc.set(xc);
+        self.set_modifications(true);
     }
-    pub fn set_yc(&mut self, yc: f32) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.yc = yc;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.yc = yc;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.yc = yc;
-                    b.has_modifications = true;
-                }
-            }
-        }
+    pub fn set_yc(&self, yc: f32) {
+        self.0.yc.set(yc);
+        self.set_modifications(true);
     }
-    pub fn set_width(&mut self, width: f32) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.width = width;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.width = width;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.width = width;
-                    b.has_modifications = true;
-                }
-            }
-        }
+    pub fn set_width(&self, width: f32) {
+        self.0.width.set(width);
+        self.set_modifications(true);
     }
-    pub fn set_height(&mut self, height: f32) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.height = height;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.height = height;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.height = height;
-                    b.has_modifications = true;
-                }
-            }
-        }
+    pub fn set_height(&self, height: f32) {
+        self.0.height.set(height);
+        self.set_modifications(true);
     }
-    pub fn set_angle(&mut self, angle: Option<f32>) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.angle = angle;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.angle = angle;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(b) = &mut lock.track_box {
-                    b.angle = angle;
-                    b.has_modifications = true;
-                }
-            }
-        }
+    pub fn set_angle(&self, angle: Option<f32>) {
+        *self.0.angle.write() = angle;
+        self.set_modifications(true);
     }
     pub fn new(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
-        Self {
-            data: BBoxVariant::Owned(OwnedRBBoxData {
-                xc,
-                yc,
-                width,
-                height,
-                angle,
-                has_modifications: false,
-            }),
-        }
+        Self::from(OwnedRBBoxData {
+            xc: xc.into(),
+            yc: yc.into(),
+            width: width.into(),
+            height: height.into(),
+            angle: SavantRwLock::new(angle),
+            has_modifications: AtomicBool::new(false),
+        })
     }
-    pub fn shift(&mut self, dx: f32, dy: f32) {
-        match &mut self.data {
-            BBoxVariant::Owned(d) => {
-                d.xc += dx;
-                d.yc += dy;
-                d.has_modifications = true;
-            }
-            BBoxVariant::BorrowedDetectionBox(d) => {
-                let mut lock = trace!(d.write());
-                lock.detection_box.xc += dx;
-                lock.detection_box.yc += dy;
-                lock.detection_box.has_modifications = true;
-            }
-            BBoxVariant::BorrowedTrackingBox(d) => {
-                let mut lock = trace!(d.write());
-                if let Some(track_box) = &mut lock.track_box {
-                    track_box.xc += dx;
-                    track_box.yc += dy;
-                    track_box.has_modifications = true;
-                }
-            }
-        }
+    pub fn shift(&self, dx: f32, dy: f32) {
+        self.0.xc.set(self.0.xc.get() + dx);
+        self.0.yc.set(self.0.yc.get() + dy);
+        self.set_modifications(true);
     }
 
     pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
@@ -416,7 +292,7 @@ impl RBBox {
             bail!("Cannot get top for rotated bounding box",);
         }
     }
-    pub fn set_top(&mut self, top: f32) -> anyhow::Result<()> {
+    pub fn set_top(&self, top: f32) -> anyhow::Result<()> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
             self.set_modifications(true);
             let h = self.get_height();
@@ -434,7 +310,7 @@ impl RBBox {
         }
     }
 
-    pub fn set_left(&mut self, left: f32) -> Result<()> {
+    pub fn set_left(&self, left: f32) -> Result<()> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
             self.set_modifications(true);
             let w = self.get_width();
@@ -541,9 +417,10 @@ impl RBBox {
         if self.get_angle().unwrap_or(0.0) != other.get_angle().unwrap_or(0.0) {
             return None;
         }
-        let mut bb1 = self.clone();
+        let bb1 = RBBox::from(self.0.as_ref().clone());
         bb1.set_angle(None);
-        let mut bb2 = other.clone();
+
+        let bb2 = RBBox::from(other.0.as_ref().clone());
         bb2.set_angle(None);
 
         let (xmin1, ymin1, xmax1, ymax1) = bb1.as_ltrb().unwrap();
@@ -622,7 +499,7 @@ impl RBBox {
         Ok(intersection / (self.get_area() + other.get_area() - intersection))
     }
 
-    pub fn scale(&mut self, scale_x: f32, scale_y: f32) {
+    pub fn scale(&self, scale_x: f32, scale_y: f32) {
         let angle = self.get_angle().unwrap_or(0.0);
         let xc = self.get_xc();
         let yc = self.get_yc();
@@ -767,7 +644,7 @@ mod tests {
 
     #[test]
     fn test_scale_no_angle() {
-        let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
+        let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, None);
         bbox.scale(2.0, 2.0);
         assert_eq!(bbox.get_xc(), 0.0);
         assert_eq!(bbox.get_yc(), 0.0);
@@ -778,7 +655,7 @@ mod tests {
 
     #[test]
     fn test_scale_with_angle() {
-        let mut bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
+        let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
         bbox.scale(2.0, 3.0);
         //dbg!(&bbox);
         assert_eq!(bbox.get_xc(), 0.0);
@@ -832,31 +709,31 @@ mod tests {
 
     #[test]
     fn check_modifications() {
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_xc(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_yc(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_width(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_height(10.0);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_angle(Some(10.0));
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.set_angle(None);
         assert!(bb.is_modified());
 
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.scale(2.0, 2.0);
         assert!(bb.is_modified());
     }
@@ -934,7 +811,7 @@ mod tests {
 
     #[test]
     fn test_shift() {
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         bb.shift(10.0, 20.0);
         assert_eq!(bb.get_xc(), 10.0);
         assert_eq!(bb.get_yc(), 20.0);
@@ -942,7 +819,7 @@ mod tests {
 
     #[test]
     fn test_various_reprs_non_zero_angle() {
-        let mut bb = get_bbox(Some(45.0));
+        let bb = get_bbox(Some(45.0));
         assert!(bb.as_ltrb().is_err());
         assert!(bb.as_ltrb_int().is_err());
         assert!(bb.as_ltwh().is_err());
@@ -958,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_various_reprs_zero_angle() {
-        let mut bb = get_bbox(Some(0.0));
+        let bb = get_bbox(Some(0.0));
         assert!(bb.as_ltrb().is_ok());
         assert!(bb.as_ltrb_int().is_ok());
         assert!(bb.as_ltwh().is_ok());
@@ -974,7 +851,7 @@ mod tests {
 
     #[test]
     fn test_various_reprs_none_angle() {
-        let mut bb = get_bbox(None);
+        let bb = get_bbox(None);
         assert!(bb.as_ltrb().is_ok());
         assert!(bb.as_ltrb_int().is_ok());
         assert!(bb.as_ltwh().is_ok());
@@ -990,7 +867,7 @@ mod tests {
 
     #[test]
     fn test_reprs_correct_values() {
-        let mut bb = get_bbox(None);
+        let bb = get_bbox(None);
         bb.set_xc(10.0);
         bb.set_yc(20.0);
         bb.set_width(30.0);
@@ -1073,5 +950,13 @@ mod tests {
 
         let int = bb2.intersection_coaxial(&bb1).unwrap();
         assert_eq!(int, 2000.0);
+    }
+
+    #[test]
+    fn test_iou() {
+        let bb1 = RBBox::new(50.0, 50.0, 50.0, 50.0, Some(30.0));
+        let bb2 = RBBox::new(50.0, 50.0, 50.0, 50.0, Some(30.001));
+        let iou = bb1.iou(&bb2).unwrap();
+        assert!(iou > 0.9);
     }
 }

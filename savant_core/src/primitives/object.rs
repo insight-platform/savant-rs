@@ -6,7 +6,7 @@ use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 use crate::consts::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
-use crate::primitives::{Attribute, AttributeMethods, Attributive, OwnedRBBoxData, RBBox};
+use crate::primitives::{Attribute, AttributeMethods, Attributive, RBBox};
 use crate::savant_rwlock::SavantArcRwLock;
 use crate::symbol_mapper::get_object_id;
 use crate::trace;
@@ -49,7 +49,7 @@ pub struct VideoObject {
     pub(crate) label: String,
     #[builder(default)]
     pub(crate) draw_label: Option<String>,
-    pub(crate) detection_box: OwnedRBBoxData,
+    pub(crate) detection_box: RBBox,
     #[builder(default)]
     pub(crate) attributes: HashMap<(String, String), Attribute>,
     #[builder(default)]
@@ -57,7 +57,7 @@ pub struct VideoObject {
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
-    pub(crate) track_box: Option<OwnedRBBoxData>,
+    pub(crate) track_box: Option<RBBox>,
     #[builder(default)]
     pub(crate) track_id: Option<i64>,
     #[with(Skip)]
@@ -81,7 +81,7 @@ impl Default for VideoObject {
             namespace: "".to_string(),
             label: "".to_string(),
             draw_label: None,
-            detection_box: BBOX_UNDEFINED.clone().try_into().unwrap(),
+            detection_box: BBOX_UNDEFINED.clone(),
             attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             confidence: None,
             parent_id: None,
@@ -316,13 +316,13 @@ impl VideoObjectProxy {
             match o {
                 VideoObjectBBoxTransformation::Scale(kx, ky) => {
                     self.get_detection_box().scale(*kx, *ky);
-                    if let Some(mut t) = self.get_track_box() {
+                    if let Some(t) = self.get_track_box() {
                         t.scale(*kx, *ky);
                     }
                 }
                 VideoObjectBBoxTransformation::Shift(dx, dy) => {
                     self.get_detection_box().shift(*dx, *dy);
-                    if let Some(mut t) = self.get_track_box() {
+                    if let Some(t) = self.get_track_box() {
                         t.shift(*dx, *dy);
                     }
                 }
@@ -352,14 +352,11 @@ impl VideoObjectProxy {
             id,
             namespace,
             label,
-            detection_box: detection_box
-                .try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
+            detection_box: detection_box.clone(),
             attributes,
             confidence,
             track_id,
-            track_box: track_box
-                .map(|b| b.try_into().expect("Failed to convert RBBox to RBBoxData")),
+            track_box: track_box.clone(),
             namespace_id,
             label_id,
             ..Default::default()
@@ -369,15 +366,13 @@ impl VideoObjectProxy {
         }
     }
     pub fn get_detection_box(&self) -> RBBox {
-        RBBox::borrowed_detection_box(self.inner.clone())
+        let inner = trace!(self.inner.read_recursive());
+        inner.detection_box.clone()
     }
 
     pub fn get_track_box(&self) -> Option<RBBox> {
-        if self.get_track_id().is_some() {
-            Some(RBBox::borrowed_track_box(self.inner.clone()))
-        } else {
-            None
-        }
+        let inner = trace!(self.inner.read_recursive());
+        inner.track_box.clone()
     }
 
     pub fn get_confidence(&self) -> Option<f32> {
@@ -404,7 +399,7 @@ impl VideoObjectProxy {
     }
 
     pub fn detached_copy(&self) -> Self {
-        let inner = trace!(self.inner.read());
+        let inner = trace!(self.inner.read_recursive());
         let mut new_inner = inner.clone();
         new_inner.parent_id = None;
         new_inner.frame = None;
@@ -446,26 +441,18 @@ impl VideoObjectProxy {
     }
     pub fn set_detection_box(&self, bbox: RBBox) {
         let mut inner = trace!(self.inner.write());
-        inner.detection_box = bbox
-            .try_into()
-            .expect("Failed to convert RBBox to RBBoxData");
+        inner.detection_box = bbox;
     }
 
     pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
         let mut inner = trace!(self.inner.write());
-        inner.track_box = Some(
-            bbox.try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
-        );
+        inner.track_box = Some(bbox);
         inner.track_id = Some(track_id);
     }
 
     pub fn set_track_box(&self, bbox: RBBox) {
         let mut inner = trace!(self.inner.write());
-        inner.track_box = Some(
-            bbox.try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
-        );
+        inner.track_box = Some(bbox);
     }
 
     pub fn clear_track_info(&self) {

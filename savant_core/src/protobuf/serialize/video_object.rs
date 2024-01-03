@@ -1,5 +1,5 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{Attribute, AttributeMethods, OwnedRBBoxData};
+use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use crate::protobuf::{generated, serialize};
 use hashbrown::HashMap;
 
@@ -63,15 +63,11 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
             namespace: obj.namespace.clone(),
             label: obj.label.clone(),
             draw_label: obj.draw_label.clone(),
-            detection_box: obj
-                .detection_box
-                .as_ref()
-                .map(OwnedRBBoxData::from)
-                .unwrap(),
+            detection_box: obj.detection_box.as_ref().map(RBBox::from).unwrap(),
             attributes,
             confidence: obj.confidence,
             parent_id: obj.parent_id,
-            track_box: obj.track_box.as_ref().map(OwnedRBBoxData::from),
+            track_box: obj.track_box.as_ref().map(RBBox::from),
             track_id: obj.track_id,
             namespace_id: None,
             label_id: None,

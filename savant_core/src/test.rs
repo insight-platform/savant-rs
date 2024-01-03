@@ -50,7 +50,7 @@ pub fn gen_frame() -> VideoFrameProxy {
     let parent_object = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(0)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
+            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
             .attributes(HashMap::default())
             .confidence(None)
             .namespace("test".to_string())
@@ -62,7 +62,7 @@ pub fn gen_frame() -> VideoFrameProxy {
     let c1 = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(1)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
+            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
             .parent_id(Some(parent_object.get_id()))
             .attributes(HashMap::default())
             .confidence(None)
@@ -75,7 +75,7 @@ pub fn gen_frame() -> VideoFrameProxy {
     let c2 = VideoObjectProxy::from(
         VideoObjectBuilder::default()
             .id(2)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
+            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
             .parent_id(Some(parent_object.get_id()))
             .attributes(HashMap::default())
             .confidence(None)
@@ -146,9 +146,9 @@ pub fn gen_object(id: i64) -> VideoObjectProxy {
         namespace: s("peoplenet"),
         label: s("face"),
         confidence: Some(0.5),
-        detection_box: RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap(),
+        detection_box: RBBox::new(1.0, 2.0, 10.0, 20.0, None),
         track_id: Some(id),
-        track_box: RBBox::new(100.0, 200.0, 10.0, 20.0, None).try_into().ok(),
+        track_box: Some(RBBox::new(100.0, 200.0, 10.0, 20.0, None)),
         ..Default::default()
     });
 

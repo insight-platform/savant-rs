@@ -97,10 +97,7 @@ impl<F: Archive> ArchiveWith<SavantRwLock<F>> for Lock {
     }
 }
 
-impl<F: Serialize<S>, S: Fallible + ?Sized> SerializeWith<SavantRwLock<F>, S> for Lock
-where
-    S::Error: From<()>,
-{
+impl<F: Serialize<S>, S: Fallible + ?Sized> SerializeWith<SavantRwLock<F>, S> for Lock {
     #[inline]
     fn serialize_with(
         field: &SavantRwLock<F>,

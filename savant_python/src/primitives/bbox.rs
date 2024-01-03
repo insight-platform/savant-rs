@@ -357,11 +357,7 @@ impl RBBox {
     ///
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
-        let data: OwnedRBBoxData = self
-            .0
-            .clone()
-            .try_into()
-            .expect("Failed to convert RBBox to RBBoxData");
+        let data: OwnedRBBoxData = OwnedRBBoxData::from(&self.0);
 
         let mut new_self = Self(rust::RBBox::from(data));
 

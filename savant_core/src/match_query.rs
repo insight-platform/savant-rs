@@ -268,8 +268,8 @@ pub enum MatchQuery {
 
 impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery {
     fn execute(&self, o: &RwLockReadGuard<VideoObject>, _: &mut ()) -> ControlFlow<bool, bool> {
-        let detection_box = RBBox::from(o.detection_box.clone());
-        let tracking_box = o.track_box.clone().map(RBBox::from);
+        let detection_box = o.detection_box.clone();
+        let tracking_box = o.track_box.clone();
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, &mut ()),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, &mut ()),

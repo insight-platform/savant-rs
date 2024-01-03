@@ -379,11 +379,7 @@ impl AttributeValue {
     pub fn bbox(bbox: RBBox, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
-            value: AttributeValueVariant::BBox(
-                bbox.0
-                    .try_into()
-                    .expect("Unable to convert RBBox to RBBoxData."),
-            ),
+            value: AttributeValueVariant::BBox(bbox.0.into()),
         })
     }
 
@@ -406,13 +402,7 @@ impl AttributeValue {
         Self(rust::AttributeValue {
             confidence,
             value: AttributeValueVariant::BBoxVector(
-                bboxes
-                    .into_iter()
-                    .map(|b| {
-                        b.0.try_into()
-                            .expect("Unable to convert RBBox to RBBoxData")
-                    })
-                    .collect(),
+                bboxes.into_iter().map(|b| b.0.into()).collect(),
             ),
         })
     }

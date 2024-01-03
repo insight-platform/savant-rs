@@ -1,3 +1,4 @@
+pub mod atomic_f32;
 pub mod consts;
 pub mod cplugin;
 pub mod deadlock_detection;
