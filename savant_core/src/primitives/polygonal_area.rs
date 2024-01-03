@@ -1,11 +1,9 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::point::Point;
 use crate::primitives::{Intersection, IntersectionKind, Segment};
 use anyhow::bail;
 use geo::line_intersection::line_intersection;
 use geo::{Contains, EuclideanDistance, Line, LineIntersection, LineString};
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(
     Archive,
@@ -25,20 +23,6 @@ pub struct PolygonalArea {
     #[with(Skip)]
     #[serde(skip_deserializing, skip_serializing)]
     polygon: Option<geo::Polygon>,
-}
-
-impl ToSerdeJsonValue for PolygonalArea {
-    fn to_serde_json_value(&self) -> Value {
-        let mut vertices = Vec::new();
-        for v in self.vertices.iter() {
-            vertices.push(v.to_serde_json_value());
-        }
-        let tags = self.tags.as_ref();
-        serde_json::json!({
-            "vertices": vertices,
-            "tags": tags.unwrap_or(&Vec::new()),
-        })
-    }
 }
 
 impl PolygonalArea {

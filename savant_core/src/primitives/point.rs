@@ -1,6 +1,4 @@
-use crate::json_api::ToSerdeJsonValue;
 use rkyv::{Archive, Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(
     Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
@@ -9,15 +7,6 @@ use serde_json::Value;
 pub struct Point {
     pub x: f32,
     pub y: f32,
-}
-
-impl ToSerdeJsonValue for Point {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "x": self.x,
-            "y": self.y,
-        })
-    }
 }
 
 impl Point {

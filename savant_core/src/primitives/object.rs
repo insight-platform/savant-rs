@@ -241,21 +241,48 @@ impl From<SavantArcRwLock<VideoObject>> for VideoObjectProxy {
 }
 
 impl VideoObjectProxy {
-    pub fn get_parent_id(&self) -> Option<i64> {
-        let inner = trace!(self.0.read_recursive());
-        inner.parent_id
-    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: i64,
+        namespace: String,
+        label: String,
+        detection_box: RBBox,
+        attributes: HashMap<(String, String), Attribute>,
+        confidence: Option<f32>,
+        track_id: Option<i64>,
+        track_box: Option<RBBox>,
+    ) -> Self {
+        let (namespace_id, label_id) =
+            get_object_id(&namespace, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
-    pub fn get_inner(&self) -> SavantArcRwLock<VideoObject> {
-        self.0.clone()
+        let object = VideoObject {
+            id,
+            namespace,
+            label,
+            detection_box: detection_box.clone(),
+            attributes,
+            confidence,
+            track_id,
+            track_box: track_box.clone(),
+            namespace_id,
+            label_id,
+            ..Default::default()
+        };
+        Self(SavantArcRwLock::new(object))
     }
-
-    pub fn get_inner_read(&self) -> RwLockReadGuard<VideoObject> {
+    pub fn inner_read_lock(&self) -> RwLockReadGuard<VideoObject> {
         trace!(self.0.read_recursive())
     }
 
-    pub fn get_inner_write(&self) -> RwLockWriteGuard<VideoObject> {
+    pub fn inner_write_lock(&self) -> RwLockWriteGuard<VideoObject> {
         trace!(self.0.write())
+    }
+    pub fn get_parent_id(&self) -> Option<i64> {
+        let inner = trace!(self.inner_read_lock());
+        inner.parent_id
+    }
+    pub fn get_inner(&self) -> SavantArcRwLock<VideoObject> {
+        self.0.clone()
     }
 
     pub(crate) fn set_parent(&self, parent_opt: Option<i64>) -> anyhow::Result<()> {
@@ -304,7 +331,7 @@ impl VideoObjectProxy {
 
     pub fn get_parent(&self) -> Option<VideoObjectProxy> {
         let frame = self.get_frame();
-        let id = trace!(self.0.read_recursive()).parent_id?;
+        let id = trace!(self.inner_read_lock()).parent_id?;
         match frame {
             Some(f) => f.get_object(id),
             None => None,
@@ -344,74 +371,45 @@ impl VideoObjectProxy {
         }
     }
     pub fn get_track_id(&self) -> Option<i64> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.track_id
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: i64,
-        namespace: String,
-        label: String,
-        detection_box: RBBox,
-        attributes: HashMap<(String, String), Attribute>,
-        confidence: Option<f32>,
-        track_id: Option<i64>,
-        track_box: Option<RBBox>,
-    ) -> Self {
-        let (namespace_id, label_id) =
-            get_object_id(&namespace, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
-
-        let object = VideoObject {
-            id,
-            namespace,
-            label,
-            detection_box: detection_box.clone(),
-            attributes,
-            confidence,
-            track_id,
-            track_box: track_box.clone(),
-            namespace_id,
-            label_id,
-            ..Default::default()
-        };
-        Self(SavantArcRwLock::new(object))
-    }
     pub fn get_detection_box(&self) -> RBBox {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.detection_box.clone()
     }
 
     pub fn get_track_box(&self) -> Option<RBBox> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.track_box.clone()
     }
 
     pub fn get_confidence(&self) -> Option<f32> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.confidence
     }
 
     pub fn get_namespace(&self) -> String {
-        trace!(self.0.read_recursive()).namespace.clone()
+        trace!(self.inner_read_lock()).namespace.clone()
     }
 
     pub fn get_namespace_id(&self) -> Option<i64> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.namespace_id
     }
 
     pub fn get_label(&self) -> String {
-        trace!(self.0.read_recursive()).label.clone()
+        trace!(self.inner_read_lock()).label.clone()
     }
 
     pub fn get_label_id(&self) -> Option<i64> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.label_id
     }
 
     pub fn detached_copy(&self) -> Self {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         let mut new_inner = inner.clone();
         new_inner.parent_id = None;
         new_inner.frame = None;
@@ -419,60 +417,60 @@ impl VideoObjectProxy {
     }
 
     pub fn get_draw_label(&self) -> Option<String> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.draw_label.clone()
     }
 
     pub fn calculate_draw_label(&self) -> String {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
     pub fn get_frame(&self) -> Option<VideoFrameProxy> {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.frame.as_ref().map(|f| f.into())
     }
 
     pub fn get_id(&self) -> i64 {
-        trace!(self.0.read_recursive()).id
+        trace!(self.inner_read_lock()).id
     }
 
     pub fn is_detached(&self) -> bool {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.frame.is_none()
     }
 
     pub fn is_spoiled(&self) -> bool {
-        let inner = trace!(self.0.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         match inner.frame {
             Some(ref f) => f.inner.upgrade().is_none(),
             None => false,
         }
     }
     pub fn set_detection_box(&self, bbox: RBBox) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.detection_box = bbox;
     }
 
     pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.track_box = Some(bbox);
         inner.track_id = Some(track_id);
     }
 
     pub fn set_track_box(&self, bbox: RBBox) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.track_box = Some(bbox);
     }
 
     pub fn clear_track_info(&self) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.track_box = None;
         inner.track_id = None;
     }
 
     pub fn set_draw_label(&self, draw_label: Option<String>) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.draw_label = draw_label;
     }
 
@@ -481,23 +479,23 @@ impl VideoObjectProxy {
             bail!("When object is attached to a frame, it is impossible to change its ID",);
         }
 
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.id = id;
         Ok(())
     }
 
     pub fn set_namespace(&self, namespace: String) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.namespace = namespace;
     }
 
     pub fn set_label(&self, label: String) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.label = label;
     }
 
     pub fn set_confidence(&self, confidence: Option<f32>) {
-        let mut inner = trace!(self.0.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.confidence = confidence;
     }
 }
@@ -572,7 +570,7 @@ mod tests {
     fn test_delete_attributes() {
         let obj = get_object(1);
         obj.delete_attributes(None, vec![]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 0);
+        assert_eq!(obj.inner_read_lock().attributes.len(), 0);
 
         let obj = get_object(1);
         obj.delete_attributes(Some(s("namespace")), vec![]);
@@ -580,11 +578,11 @@ mod tests {
 
         let obj = get_object(1);
         obj.delete_attributes(None, vec![s("name")]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 1);
+        assert_eq!(obj.inner_read_lock().attributes.len(), 1);
 
         let t = get_object(1);
         t.delete_attributes(None, vec![s("name"), s("name2")]);
-        assert_eq!(t.get_inner_read().attributes.len(), 0);
+        assert_eq!(t.inner_read_lock().attributes.len(), 0);
     }
 
     #[test]

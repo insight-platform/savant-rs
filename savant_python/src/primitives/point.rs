@@ -1,7 +1,5 @@
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use serde_json::Value;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
@@ -43,11 +41,5 @@ impl Point {
     #[setter]
     fn set_y(&mut self, y: f32) {
         self.0.y = y;
-    }
-}
-
-impl ToSerdeJsonValue for Point {
-    fn to_serde_json_value(&self) -> Value {
-        self.0.to_serde_json_value()
     }
 }

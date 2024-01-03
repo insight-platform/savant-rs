@@ -1038,9 +1038,7 @@ mod tests {
         let attribute = t.get_attribute("system".to_string(), "test".to_string());
         assert!(attribute.is_some());
         let v = attribute.as_ref().unwrap().get_values().get(0).unwrap();
-        assert!(
-            matches!(v.get_value(), AttributeValueVariant::String(s) if s == &String::from("1"))
-        );
+        assert!(matches!(v.get(), AttributeValueVariant::String(s) if s == &String::from("1")));
     }
 
     #[test]

@@ -207,7 +207,7 @@ mod tests {
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.get_value(), AttributeValueVariant::Integer(10)));
+        assert!(matches!(v.get(), AttributeValueVariant::Integer(10)));
     }
 
     #[test]
@@ -250,10 +250,7 @@ mod tests {
         let attr = f.get_attribute(s("system"), s("test")).unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(
-            v.get_value(),
-            AttributeValueVariant::Boolean(true)
-        ));
+        assert!(matches!(v.get(), AttributeValueVariant::Boolean(true)));
     }
 
     #[test]

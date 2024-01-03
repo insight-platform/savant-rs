@@ -569,7 +569,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
             }
 
             _ => {
-                let inner = o.get_inner_read();
+                let inner = o.inner_read_lock();
                 self.execute(&inner, &mut ())
             }
         }

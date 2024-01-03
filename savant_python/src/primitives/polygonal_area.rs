@@ -3,20 +3,12 @@ use crate::primitives::{Intersection, Segment};
 use crate::release_gil;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use serde_json::Value;
 use std::mem;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
 pub struct PolygonalArea(pub(crate) rust::PolygonalArea);
-
-impl ToSerdeJsonValue for PolygonalArea {
-    fn to_serde_json_value(&self) -> Value {
-        self.0.to_serde_json_value()
-    }
-}
 
 impl PolygonalArea {
     pub fn get_polygon(&mut self) -> geo::Polygon {

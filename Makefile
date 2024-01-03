@@ -2,6 +2,8 @@
 
 dev: clean clippy build_savant
 
+release: clean clippy build_savant_release
+
 docs: build_savant docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html

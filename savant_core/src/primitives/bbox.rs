@@ -56,34 +56,6 @@ pub struct RBBoxData {
     pub has_modifications: AtomicBool,
 }
 
-impl serde::Serialize for RBBoxAngle {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let angle = self.get();
-        if angle.is_none() {
-            serializer.serialize_none()
-        } else {
-            serializer.serialize_some(&angle)
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for RBBoxAngle {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let angle = <Option<f32> as serde::Deserialize>::deserialize(deserializer)?;
-        Ok(Self::new(angle))
-    }
-}
-
-impl PartialEq for RBBoxData {
-    fn eq(&self, other: &Self) -> bool {
-        self.xc == other.xc
-            && self.yc == other.yc
-            && self.width == other.width
-            && self.height == other.height
-            && self.angle.get() == other.angle.get()
-    }
-}
-
 impl RBBoxData {
     pub fn new(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
         Self {
@@ -94,6 +66,22 @@ impl RBBoxData {
             angle: RBBoxAngle::new(angle),
             has_modifications: false.into(),
         }
+    }
+}
+
+impl Default for RBBoxData {
+    fn default() -> Self {
+        Self::new(0.0, 0.0, 0.0, 0.0, None)
+    }
+}
+
+impl PartialEq for RBBoxData {
+    fn eq(&self, other: &Self) -> bool {
+        self.xc == other.xc
+            && self.yc == other.yc
+            && self.width == other.width
+            && self.height == other.height
+            && self.angle.get() == other.angle.get()
     }
 }
 
@@ -110,9 +98,21 @@ impl Clone for RBBoxData {
     }
 }
 
-impl Default for RBBoxData {
-    fn default() -> Self {
-        Self::new(0.0, 0.0, 0.0, 0.0, None)
+impl serde::Serialize for RBBoxAngle {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let angle = self.get();
+        if angle.is_none() {
+            serializer.serialize_none()
+        } else {
+            serializer.serialize_some(&angle)
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RBBoxAngle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let angle = <Option<f32> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Self::new(angle))
     }
 }
 

@@ -1,7 +1,7 @@
-use crate::json_api::ToSerdeJsonValue;
 use rkyv::{Archive, Deserialize, Serialize};
-use serde_json::Value;
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
+#[derive(
+    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+)]
 #[archive(check_bytes)]
 pub struct EndOfStream {
     pub source_id: String,
@@ -10,15 +10,5 @@ pub struct EndOfStream {
 impl EndOfStream {
     pub fn new(source_id: String) -> Self {
         Self { source_id }
-    }
-}
-
-impl ToSerdeJsonValue for EndOfStream {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(
-        {
-            "type": "EndOfStream",
-            "source_id": self.source_id,
-        })
     }
 }

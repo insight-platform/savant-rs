@@ -4,8 +4,6 @@ use hashbrown::HashMap;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::sync::Arc;
 
-pub type AttributeRs = Attribute;
-
 /// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
 /// The attribute value is a list of values, each of which has a confidence score. The attribute may include additional information in the form of a hint.
 /// There are two kinds of attributes: persistent and non-persistent. Persistent attributes are serialized, while non-persistent are not.

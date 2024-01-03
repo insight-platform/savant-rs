@@ -1,7 +1,5 @@
-use crate::json_api::ToSerdeJsonValue;
 use parking_lot::Mutex;
 use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use serde_json::Value;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -24,12 +22,6 @@ impl Default for AnyObject {
 impl PartialEq for AnyObject {
     fn eq(&self, _: &Self) -> bool {
         false
-    }
-}
-
-impl ToSerdeJsonValue for AnyObject {
-    fn to_serde_json_value(&self) -> Value {
-        Value::Null
     }
 }
 

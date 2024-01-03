@@ -1,18 +1,10 @@
 use crate::primitives::point::Point;
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
-use serde_json::Value;
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Segment(pub(crate) rust::Segment);
-
-impl ToSerdeJsonValue for Segment {
-    fn to_serde_json_value(&self) -> Value {
-        self.0.to_serde_json_value()
-    }
-}
 
 #[pymethods]
 impl Segment {
@@ -77,12 +69,6 @@ impl From<rust::IntersectionKind> for IntersectionKind {
     }
 }
 
-impl ToSerdeJsonValue for IntersectionKind {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(format!("{:?}", self))
-    }
-}
-
 #[pymethods]
 impl IntersectionKind {
     #[classattr]
@@ -100,12 +86,6 @@ impl IntersectionKind {
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct Intersection(pub(crate) rust::Intersection);
-
-impl ToSerdeJsonValue for Intersection {
-    fn to_serde_json_value(&self) -> Value {
-        self.0.to_serde_json_value()
-    }
-}
 
 #[pymethods]
 impl Intersection {

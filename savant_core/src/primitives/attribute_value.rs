@@ -1,8 +1,6 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBoxData};
 use rkyv::{Archive, Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(
     Archive,
@@ -38,12 +36,6 @@ pub enum AttributeValueVariant {
     None,
 }
 
-impl ToSerdeJsonValue for AttributeValueVariant {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::to_value(self).unwrap()
-    }
-}
-
 #[derive(
     Archive,
     Deserialize,
@@ -61,18 +53,12 @@ pub struct AttributeValue {
     pub value: AttributeValueVariant,
 }
 
-impl ToSerdeJsonValue for AttributeValue {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::to_value(self).unwrap()
-    }
-}
-
 impl AttributeValue {
     pub fn new(value: AttributeValueVariant, confidence: Option<f32>) -> Self {
         Self { confidence, value }
     }
 
-    pub fn get_value(&self) -> &AttributeValueVariant {
+    pub fn get(&self) -> &AttributeValueVariant {
         &self.value
     }
 
