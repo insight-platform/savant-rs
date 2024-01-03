@@ -1,5 +1,4 @@
 pub mod atomic_f32;
-pub mod consts;
 pub mod cplugin;
 pub mod deadlock_detection;
 pub mod draw;
@@ -16,7 +15,7 @@ pub mod pipeline;
 pub mod pluggable_udf_api;
 pub mod primitives;
 pub mod protobuf;
-mod savant_rwlock;
+mod rwlock;
 pub mod symbol_mapper;
 pub mod telemetry;
 pub mod test;
@@ -25,6 +24,8 @@ pub mod transport;
 
 use opentelemetry::global;
 use opentelemetry::global::BoxedTracer;
+
+pub const EPS: f32 = 0.00001;
 
 #[inline]
 pub fn round_2_digits(v: f32) -> f32 {

@@ -1,15 +1,28 @@
 use crate::atomic_f32::AtomicF32;
-use crate::consts::EPS;
 use crate::draw::PaddingDraw;
 use crate::primitives::{Point, PolygonalArea};
 use crate::round_2_digits;
-use crate::savant_rwlock::SavantRwLock;
+use crate::rwlock::SavantRwLock;
+use crate::EPS;
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
+use lazy_static::lazy_static;
 use rkyv::{with::Atomic, with::Lock, Archive, Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+pub const BBOX_ELEMENT_UNDEFINED: f32 = 3.402_823_5e38_f32;
+
+lazy_static! {
+    pub static ref BBOX_UNDEFINED: RBBox = RBBox::new(
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        BBOX_ELEMENT_UNDEFINED,
+        None,
+    );
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename = "bbox.metric.type")]

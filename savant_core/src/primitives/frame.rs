@@ -9,7 +9,7 @@ use crate::primitives::object::{
     VideoObjectProxy,
 };
 use crate::primitives::{Attribute, Attributive};
-use crate::savant_rwlock::{SavantArcRwLock, SavantRwLock};
+use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::version;
 use anyhow::{anyhow, bail};

@@ -189,7 +189,7 @@ pub(super) mod implementation {
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
-    use crate::savant_rwlock::SavantRwLock;
+    use crate::rwlock::SavantRwLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 

@@ -356,7 +356,7 @@ pub(crate) mod singleton {
         ConfigSymbolResolver, EnvSymbolResolver, EtcdSymbolResolver, SymbolResolver,
         UtilityResolver,
     };
-    use crate::savant_rwlock::SavantRwLock;
+    use crate::rwlock::SavantRwLock;
     use crate::trace;
     use anyhow::Result;
     use hashbrown::HashMap;

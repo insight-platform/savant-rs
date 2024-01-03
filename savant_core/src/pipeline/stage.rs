@@ -6,7 +6,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 use crate::rust::StageStat;
-use crate::savant_rwlock::SavantRwLock;
+use crate::rwlock::SavantRwLock;
 use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
 use opentelemetry::trace::TraceContextExt;

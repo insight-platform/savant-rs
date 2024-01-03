@@ -3,11 +3,11 @@ use hashbrown::HashMap;
 use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 
-use crate::consts::BBOX_UNDEFINED;
+use super::bbox::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
 use crate::primitives::{Attribute, AttributeMethods, Attributive, RBBox};
-use crate::savant_rwlock::SavantArcRwLock;
+use crate::rwlock::SavantArcRwLock;
 use crate::symbol_mapper::get_object_id;
 use crate::trace;
 use serde_json::Value;

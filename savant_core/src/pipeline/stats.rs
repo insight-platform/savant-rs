@@ -1,4 +1,4 @@
-use crate::savant_rwlock::SavantRwLock;
+use crate::rwlock::SavantRwLock;
 use log::info;
 use parking_lot::{Mutex, MutexGuard};
 use std::collections::VecDeque;
