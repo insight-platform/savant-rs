@@ -1,4 +1,3 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
 use crate::trace;
@@ -38,21 +37,6 @@ pub struct VideoFrameUpdate {
     pub(crate) frame_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_policy: ObjectUpdatePolicy,
-}
-
-impl ToSerdeJsonValue for VideoFrameUpdate {
-    fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::json!(
-            {
-                "frame_attributes": self.frame_attributes.iter().map(|a| a.to_serde_json_value()).collect::<Vec<_>>(),
-                "object_attributes": self.object_attributes.iter().map(|(id, a)| (id, a.to_serde_json_value())).collect::<Vec<_>>(),
-                "objects": self.objects.iter().map(|(o, p)| (o.to_serde_json_value(), p)).collect::<Vec<_>>(),
-                "frame_attribute_policy": self.frame_attribute_policy,
-                "object_attribute_policy": self.object_attribute_policy,
-                "object_policy": self.object_policy,
-            }
-        )
-    }
 }
 
 impl Default for VideoFrameUpdate {
@@ -123,9 +107,9 @@ impl VideoFrameUpdate {
 
     pub fn to_json(&self, pretty: bool) -> anyhow::Result<String> {
         Ok(if pretty {
-            serde_json::to_string_pretty(&self.to_serde_json_value())?
+            serde_json::to_string_pretty(self)?
         } else {
-            serde_json::to_string(&self.to_serde_json_value())?
+            serde_json::to_string(self)?
         })
     }
 
