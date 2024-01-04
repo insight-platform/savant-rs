@@ -240,14 +240,15 @@ impl Reader {
             socket.send(CONFIRMATION_MESSAGE, 0)?;
         }
 
-        let topic = &message[0];
         if message.len() < 2 {
-            bail!(
+            info!(
                 "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least 2 parts, but got {}",
                 self.config.endpoint(),
                 message.len()
             );
+            return Ok(ReaderResult::TooShort(parts));
         }
+        let topic = &message[0];
         if !self.config.topic_prefix_spec().matches(topic) {
             debug!(
                 "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {:?}",
@@ -391,6 +392,54 @@ mod tests {
                 reader.socket.as_mut().unwrap().take_buffer(),
                 vec![b"routing-id", CONFIRMATION_MESSAGE]
             );
+            Ok(())
+        }
+
+        #[test]
+        fn test_too_short_routing_and_topic() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let mut reader = Reader::new(&conf)?;
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic"], 0)?;
+            let m = reader.receive()?;
+            assert!(matches!(m, ReaderResult::TooShort(_)));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                Vec::<Vec<u8>>::new()
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_prefix_mismatch() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic2".into()))?
+                .build()?;
+
+            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let binary = crate::message::save_message(&message);
+
+            let mut reader = Reader::new(&conf)?;
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(
+                m,
+                ReaderResult::PrefixMismatch { topic, routing_id } if topic == b"topic" && routing_id == Some(b"routing-id".to_vec())
+            ));
             Ok(())
         }
     }
