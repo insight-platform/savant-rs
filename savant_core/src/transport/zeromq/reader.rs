@@ -418,7 +418,7 @@ mod tests {
         }
 
         #[test]
-        fn test_prefix_mismatch() -> anyhow::Result<()> {
+        fn test_prefix_mismatch_source_id() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
                 .with_endpoint("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic2".into()))?
@@ -439,6 +439,107 @@ mod tests {
             assert!(matches!(
                 m,
                 ReaderResult::PrefixMismatch { topic, routing_id } if topic == b"topic" && routing_id == Some(b"routing-id".to_vec())
+            ));
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic22", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(
+                m,
+                ReaderResult::PrefixMismatch { topic, routing_id } if topic == b"topic22" && routing_id == Some(b"routing-id".to_vec())
+            ));
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic2", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(m, ReaderResult::Message { .. }));
+            Ok(())
+        }
+
+        #[test]
+        fn test_prefix_mismatch_prefix() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::Prefix("topic2".into()))?
+                .build()?;
+
+            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let binary = crate::message::save_message(&message);
+
+            let mut reader = Reader::new(&conf)?;
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(
+                m,
+                ReaderResult::PrefixMismatch { topic, routing_id } if topic == b"topic" && routing_id == Some(b"routing-id".to_vec())
+            ));
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic22", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(m, ReaderResult::Message { .. }));
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic2", binary.as_slice()], 0)?;
+
+            let m = reader.receive()?;
+
+            assert!(matches!(m, ReaderResult::Message { .. }));
+            Ok(())
+        }
+
+        #[test]
+        fn test_message_and_extra_parts() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .build()
+                .unwrap();
+
+            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let binary = crate::message::save_message(&message);
+
+            let mut reader = Reader::new(&conf).unwrap();
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic2", binary.as_slice(), b"extra"], 0)
+                .unwrap();
+
+            let m = reader.receive().unwrap();
+
+            assert!(matches!(
+                m,
+                ReaderResult::Message {
+                    message,
+                    topic,
+                    routing_id,
+                    data
+                } if message.is_end_of_stream() && topic == b"topic2" && routing_id == Some(b"routing-id".to_vec()) && data == vec![b"extra"]
             ));
             Ok(())
         }
