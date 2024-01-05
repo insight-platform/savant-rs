@@ -135,7 +135,7 @@ pub struct VideoFrame {
     #[builder(setter(skip))]
     pub transformations: Vec<VideoFrameTransformation>,
     #[builder(setter(skip))]
-    pub attributes: HashMap<(String, String), Attribute>,
+    pub attributes: Vec<Attribute>,
     #[builder(setter(skip))]
     pub(crate) objects: HashMap<i64, VideoObjectProxy>,
     #[with(Skip)]
@@ -169,7 +169,7 @@ impl Default for VideoFrame {
             duration: None,
             content: Arc::new(VideoFrameContent::None),
             transformations: Vec::with_capacity(DEFAULT_TRANSFORMATIONS_COUNT),
-            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
+            attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             objects: HashMap::with_capacity(DEFAULT_OBJECTS_COUNT),
             max_object_id: 0,
         }
@@ -199,7 +199,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "duration": self.duration,
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
-                "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
+                "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
                 "objects": self.objects.values().map(|o| o.to_serde_json_value()).collect::<Vec<_>>(),
             }
         )
@@ -207,20 +207,20 @@ impl ToSerdeJsonValue for VideoFrame {
 }
 
 impl Attributive for VideoFrame {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &Vec<Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
     }
 
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+    fn take_attributes(&mut self) -> Vec<Attribute> {
         mem::take(&mut self.attributes)
     }
 
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
-        self.attributes = attributes;
+    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
+        self.attributes.append(&mut attributes);
     }
 }
 
@@ -334,12 +334,12 @@ impl AttributeMethods for VideoFrameProxy {
         inner.get_attributes()
     }
 
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         let inner = trace!(self.inner.read_recursive());
         inner.get_attribute(namespace, name)
     }
 
-    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         let mut inner = trace!(self.inner.write());
         inner.delete_attribute(namespace, name)
     }
@@ -354,16 +354,16 @@ impl AttributeMethods for VideoFrameProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, namespace: &Option<&str>, names: &[&str]) {
         let mut inner = trace!(self.inner.write());
         inner.delete_attributes(namespace, names)
     }
 
     fn find_attributes(
         &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+        namespace: &Option<&str>,
+        names: &[&str],
+        hint: &Option<&str>,
     ) -> Vec<(String, String)> {
         let inner = trace!(self.inner.read_recursive());
         inner.find_attributes(namespace, names, hint)
@@ -689,18 +689,17 @@ impl VideoFrameProxy {
             ReplaceWithForeign => {
                 let mut inner = trace!(self.inner.write());
                 let other_inner = update.get_frame_attributes().clone();
-                inner.attributes.extend(
-                    other_inner
-                        .into_iter()
-                        .map(|a| ((a.namespace.clone(), a.name.clone()), a)),
-                );
+                other_inner.iter().for_each(|a| {
+                    inner.set_attribute(a.clone());
+                });
             }
             KeepOwn => {
                 let mut inner = trace!(self.inner.write());
-                let other_inner = update.get_frame_attributes().clone();
+                let other_inner = update.get_frame_attributes();
                 for attr in other_inner {
-                    let key = (attr.namespace.clone(), attr.name.clone());
-                    inner.attributes.entry(key).or_insert(attr);
+                    if inner.get_attribute(&attr.namespace, &attr.name).is_none() {
+                        inner.set_attribute(attr.clone());
+                    }
                 }
             }
             Error => {
@@ -708,14 +707,14 @@ impl VideoFrameProxy {
                 let other_inner = update.get_frame_attributes().clone();
                 for attr in other_inner {
                     let key = (attr.namespace.clone(), attr.name.clone());
-                    if inner.attributes.contains_key(&key) {
+                    if inner.get_attribute(&attr.namespace, &attr.name).is_some() {
                         bail!(
                             "Attribute with name '{}' created by '{}' already exists in the frame.",
                             key.1,
                             key.0
                         );
                     }
-                    inner.attributes.insert(key, attr);
+                    inner.set_attribute(attr.clone());
                 }
             }
         }
@@ -736,18 +735,12 @@ impl VideoFrameProxy {
                     obj.set_attribute(attr);
                 }
                 KeepOwn => {
-                    if obj
-                        .get_attribute(attr.namespace.clone(), attr.name.clone())
-                        .is_none()
-                    {
+                    if obj.get_attribute(&attr.namespace, &attr.name).is_none() {
                         obj.set_attribute(attr);
                     }
                 }
                 Error => {
-                    if obj
-                        .get_attribute(attr.namespace.clone(), attr.name.clone())
-                        .is_some()
-                    {
+                    if obj.get_attribute(&attr.namespace, &attr.name).is_some() {
                         bail!(
                             "Attribute with name '{}.{}' already exists in the object with ID {}.",
                             attr.namespace,
@@ -1005,7 +998,6 @@ impl VideoFrameProxy {
 mod tests {
     use crate::draw::DrawLabelKind;
     use crate::match_query::{eq, one_of, MatchQuery};
-    use crate::primitives::attribute_value::AttributeValueVariant;
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
@@ -1030,44 +1022,6 @@ mod tests {
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
-    }
-
-    #[test]
-    fn test_get_attribute() {
-        let t = gen_frame();
-        let attribute = t.get_attribute("system".to_string(), "test".to_string());
-        assert!(attribute.is_some());
-        let v = attribute.as_ref().unwrap().get_values().get(0).unwrap();
-        assert!(matches!(v.get(), AttributeValueVariant::String(s) if s == &String::from("1")));
-    }
-
-    #[test]
-    fn test_find_attributes() {
-        let t = gen_frame();
-        let mut attributes = t.find_attributes(Some("system".to_string()), vec![], None);
-        attributes.sort();
-        assert_eq!(attributes.len(), 2);
-        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-        assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
-
-        let attributes =
-            t.find_attributes(Some("system".to_string()), vec!["test".to_string()], None);
-        assert_eq!(attributes.len(), 1);
-        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-
-        let attributes = t.find_attributes(
-            Some("system".to_string()),
-            vec!["test".to_string()],
-            Some("test".to_string()),
-        );
-        assert_eq!(attributes.len(), 1);
-        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-
-        let mut attributes = t.find_attributes(None, vec![], Some("test".to_string()));
-        attributes.sort();
-        assert_eq!(attributes.len(), 2);
-        assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-        assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
     }
 
     #[test]

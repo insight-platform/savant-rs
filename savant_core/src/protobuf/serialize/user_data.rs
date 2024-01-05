@@ -6,7 +6,7 @@ impl From<&UserData> for generated::UserData {
     fn from(ud: &UserData) -> Self {
         let attributes = ud
             .attributes
-            .values()
+            .iter()
             .map(generated::Attribute::from)
             .collect();
 
@@ -24,7 +24,7 @@ impl TryFrom<&generated::UserData> for UserData {
         let attributes = value
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
+            .map(|a| Attribute::try_from(a))
             .collect::<Result<_, _>>()?;
 
         Ok(UserData {
@@ -47,22 +47,19 @@ mod tests {
         assert_eq!(
             UserData {
                 source_id: "source_id".to_string(),
-                attributes: vec![(
-                    ("namespace".to_string(), "name".to_string()),
-                    Attribute::new(
-                        "namespace".to_string(),
-                        "name".to_string(),
+                attributes: vec![
+                    (Attribute::new(
+                        "namespace",
+                        "name",
                         vec![AttributeValue::new(
                             AttributeValueVariant::String("value".to_string()),
                             Some(1.0)
                         )],
-                        Some("hint".to_string()),
+                        &Some("hint"),
                         true,
                         true
-                    )
-                )]
-                .into_iter()
-                .collect(),
+                    ))
+                ]
             },
             UserData::try_from(&generated::UserData {
                 source_id: "source_id".to_string(),
@@ -109,22 +106,19 @@ mod tests {
             },
             generated::UserData::from(&UserData {
                 source_id: "source_id".to_string(),
-                attributes: vec![(
-                    ("namespace".to_string(), "name".to_string()),
-                    Attribute::new(
-                        "namespace".to_string(),
-                        "name".to_string(),
+                attributes: vec![
+                    (Attribute::new(
+                        "namespace",
+                        "name",
                         vec![AttributeValue::new(
                             AttributeValueVariant::String("value".to_string()),
                             Some(1.0)
                         )],
-                        Some("hint".to_string()),
+                        &Some("hint"),
                         true,
                         true
-                    )
-                )]
-                .into_iter()
-                .collect(),
+                    ))
+                ]
             })
         );
     }

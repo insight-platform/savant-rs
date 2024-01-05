@@ -49,7 +49,7 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
             pts: copy.pts,
             dts: copy.dts,
             duration: copy.duration,
-            attributes: copy.attributes.values().map(|a| a.into()).collect(),
+            attributes: copy.attributes.iter().map(|a| a.into()).collect(),
             objects,
             content: Some((&*copy.content).into()),
             transformations: copy
@@ -74,11 +74,8 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let attributes = value
             .attributes
             .iter()
-            .map(|a| {
-                let key = (a.namespace.clone(), a.name.clone());
-                Attribute::try_from(a).map(|v| (key, v))
-            })
-            .collect::<Result<HashMap<(String, String), Attribute>, _>>()?;
+            .map(|a| Attribute::try_from(a))
+            .collect::<Result<Vec<Attribute>, _>>()?;
 
         let objects = value
             .objects

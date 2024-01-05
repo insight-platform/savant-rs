@@ -7,7 +7,6 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder, VideoObjectProxy,
 };
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
-use hashbrown::HashMap;
 use std::sync::Arc;
 
 type Variant = AttributeValueVariant;
@@ -51,7 +50,7 @@ pub fn gen_frame() -> VideoFrameProxy {
         VideoObjectBuilder::default()
             .id(0)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-            .attributes(HashMap::default())
+            .attributes(Vec::default())
             .confidence(None)
             .namespace("test".to_string())
             .label("test2".to_string())
@@ -64,7 +63,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .id(1)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
             .parent_id(Some(parent_object.get_id()))
-            .attributes(HashMap::default())
+            .attributes(Vec::default())
             .confidence(None)
             .namespace("test2".to_string())
             .label("test".to_string())
@@ -77,7 +76,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .id(2)
             .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
             .parent_id(Some(parent_object.get_id()))
-            .attributes(HashMap::default())
+            .attributes(Vec::default())
             .confidence(None)
             .namespace("test2".to_string())
             .label("test2".to_string())

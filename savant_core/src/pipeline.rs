@@ -1053,9 +1053,7 @@ pub(super) mod implementation {
             pipeline.add_frame_update(id, update)?;
             pipeline.apply_updates(id)?;
             let (frame, _) = pipeline.get_independent_frame(id)?;
-            frame
-                .get_attribute("update".to_string(), "attribute".to_string())
-                .unwrap();
+            frame.get_attribute("update", "attribute").unwrap();
             Ok(())
         }
 
@@ -1069,9 +1067,7 @@ pub(super) mod implementation {
             pipeline.apply_updates(batch_id)?;
             pipeline.clear_updates(batch_id)?;
             let (frame, _) = pipeline.get_batched_frame(batch_id, id)?;
-            frame
-                .get_attribute("update".to_string(), "attribute".to_string())
-                .unwrap();
+            frame.get_attribute("update", "attribute").unwrap();
             Ok(())
         }
 

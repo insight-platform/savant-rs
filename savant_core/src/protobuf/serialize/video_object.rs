@@ -1,16 +1,13 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use crate::protobuf::{generated, serialize};
-use hashbrown::HashMap;
 
 impl From<&VideoObjectProxy> for generated::VideoObject {
     fn from(vop: &VideoObjectProxy) -> Self {
         let attributes = vop
             .get_attributes()
             .iter()
-            .map(|(ns, l)| {
-                generated::Attribute::from(&vop.get_attribute(ns.clone(), l.clone()).unwrap())
-            })
+            .map(|(ns, l)| generated::Attribute::from(&vop.get_attribute(ns, l).unwrap()))
             .collect();
 
         generated::VideoObject {
@@ -55,8 +52,8 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
         let attributes = obj
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
-            .collect::<Result<HashMap<(String, String), Attribute>, _>>()?;
+            .map(|a| Attribute::try_from(a))
+            .collect::<Result<Vec<Attribute>, _>>()?;
 
         Ok(VideoObject {
             id: obj.id,

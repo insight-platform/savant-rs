@@ -204,7 +204,7 @@ mod tests {
 
         let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let attr = f.get_attribute("system", "test").unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
         assert!(matches!(v.get(), AttributeValueVariant::Integer(10)));
@@ -230,7 +230,7 @@ mod tests {
 
         for (id, attr) in attrs {
             let o = f.get_object(id).unwrap();
-            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            let attr = o.get_attribute(&attr.namespace, &attr.name).unwrap();
             assert!(attr.is_persistent);
         }
     }
@@ -247,7 +247,7 @@ mod tests {
 
         let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let attr = f.get_attribute("system", "test").unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
         assert!(matches!(v.get(), AttributeValueVariant::Boolean(true)));
@@ -273,7 +273,7 @@ mod tests {
 
         for (id, attr) in attrs {
             let o = f.get_object(id).unwrap();
-            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            let attr = o.get_attribute(&attr.namespace, &attr.name).unwrap();
             assert!(!attr.is_persistent);
         }
     }

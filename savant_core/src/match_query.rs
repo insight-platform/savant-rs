@@ -10,7 +10,7 @@ use crate::pluggable_udf_api::{
 };
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{AttributeMethods, BBoxMetricType, RBBox};
+use crate::primitives::{AttributeMethods, Attributive, BBoxMetricType, RBBox};
 use parking_lot::RwLockReadGuard;
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
@@ -365,17 +365,15 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             }
 
             // attributes
-            MatchQuery::AttributeExists(namespace, label) => ControlFlow::Continue(
-                o.attributes
-                    .get(&(namespace.to_string(), label.to_string()))
-                    .is_some(),
-            ),
+            MatchQuery::AttributeExists(namespace, label) => {
+                ControlFlow::Continue(o.contains_attribute(namespace, label))
+            }
             MatchQuery::AttributesEmpty => ControlFlow::Continue(o.attributes.is_empty()),
             MatchQuery::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = &serde_json::json!(o
                     .attributes
-                    .values()
+                    .iter()
                     .map(|v| v.to_serde_json_value())
                     .collect::<Vec<_>>());
                 let res = filter.search(json).unwrap();
@@ -527,7 +525,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 let res = !parent_frame
-                    .find_attributes(Some(namespace.to_string()), vec![label.to_string()], None)
+                    .find_attributes(&Some(namespace), &[label], &None)
                     .is_empty();
 
                 ControlFlow::Continue(res)
@@ -551,7 +549,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let attributes = parent_frame
                     .get_attributes()
-                    .into_iter()
+                    .iter()
                     .flat_map(|(ns, l)| parent_frame.get_attribute(ns, l))
                     .collect::<Vec<_>>();
 
@@ -1247,7 +1245,7 @@ mod tests {
 
         let expr = AttributesEmpty;
         let o = gen_object(1);
-        o.delete_attributes(Some("some".to_string()), vec![]);
+        o.delete_attributes(&Some("some"), &[]);
         // assert!(expr.execute_with_new_context(&o));
         assert!(matches!(
             expr.execute_with_new_context(&o),

@@ -592,19 +592,13 @@ mod tests {
         stage.add_frame_update(1, update)?;
         stage.apply_updates(1)?;
         let frame = stage.get_independent_frame(1)?.0;
-        frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .unwrap();
-        assert!(frame
-            .delete_attribute("new".to_string(), "attr".to_string())
-            .is_some());
+        frame.get_attribute("new", "attr").unwrap();
+        assert!(frame.delete_attribute("new", "attr").is_some());
 
         stage.clear_updates(1)?;
         stage.apply_updates(1)?;
 
-        assert!(frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .is_none());
+        assert!(frame.get_attribute("new", "attr").is_none());
 
         Ok(())
     }
@@ -634,19 +628,13 @@ mod tests {
         stage.add_batched_frame_update(1, 2, update)?;
         stage.apply_updates(1)?;
         let frame = stage.get_batched_frame(1, 2)?.0;
-        frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .unwrap();
-        assert!(frame
-            .delete_attribute("new".to_string(), "attr".to_string())
-            .is_some());
+        frame.get_attribute("new", "attr").unwrap();
+        assert!(frame.delete_attribute("new", "attr").is_some());
 
         stage.clear_updates(1)?;
         stage.apply_updates(1)?;
 
-        assert!(frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .is_none());
+        assert!(frame.get_attribute("new", "attr").is_none());
 
         Ok(())
     }

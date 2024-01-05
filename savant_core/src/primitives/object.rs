@@ -1,5 +1,4 @@
 use anyhow::bail;
-use hashbrown::HashMap;
 use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 
@@ -50,7 +49,7 @@ pub struct VideoObject {
     pub(crate) draw_label: Option<String>,
     pub(crate) detection_box: RBBox,
     #[builder(default)]
-    pub(crate) attributes: HashMap<(String, String), Attribute>,
+    pub(crate) attributes: Vec<Attribute>,
     #[builder(default)]
     pub(crate) confidence: Option<f32>,
     #[builder(default)]
@@ -101,7 +100,7 @@ impl Default for VideoObject {
             label: "".to_string(),
             draw_label: None,
             detection_box: BBOX_UNDEFINED.clone(),
-            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
+            attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             confidence: None,
             parent_id: None,
             track_id: None,
@@ -121,7 +120,7 @@ impl ToSerdeJsonValue for VideoObject {
             "label": self.label,
             "draw_label": self.draw_label,
             "bbox": self.detection_box,
-            "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
+            "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent_id,
             "track_id": self.track_id,
@@ -159,20 +158,20 @@ impl ToSerdeJsonValue for VideoObjectProxy {
 }
 
 impl Attributive for VideoObject {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &Vec<Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
     }
 
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
+    fn take_attributes(&mut self) -> Vec<Attribute> {
         std::mem::take(&mut self.attributes)
     }
 
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
-        self.attributes = attributes;
+    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
+        self.attributes.append(&mut attributes);
     }
 }
 
@@ -192,12 +191,12 @@ impl AttributeMethods for VideoObjectProxy {
         inner.get_attributes()
     }
 
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         let inner = trace!(self.0.read_recursive());
         inner.get_attribute(namespace, name)
     }
 
-    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         let mut inner = trace!(self.0.write());
         inner.delete_attribute(namespace, name)
     }
@@ -212,16 +211,16 @@ impl AttributeMethods for VideoObjectProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
+    fn delete_attributes(&self, namespace: &Option<&str>, names: &[&str]) {
         let mut inner = trace!(self.0.write());
         inner.delete_attributes(namespace, names)
     }
 
     fn find_attributes(
         &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+        namespace: &Option<&str>,
+        names: &[&str],
+        hint: &Option<&str>,
     ) -> Vec<(String, String)> {
         let inner = trace!(self.0.read_recursive());
         inner.find_attributes(namespace, names, hint)
@@ -247,7 +246,7 @@ impl VideoObjectProxy {
         namespace: String,
         label: String,
         detection_box: RBBox,
-        attributes: HashMap<(String, String), Attribute>,
+        attributes: Vec<Attribute>,
         confidence: Option<f32>,
         track_id: Option<i64>,
         track_box: Option<RBBox>,
@@ -509,7 +508,7 @@ mod tests {
         VideoObjectProxy,
     };
     use crate::primitives::{Attribute, RBBox};
-    use crate::test::{gen_empty_frame, gen_frame, s};
+    use crate::test::{gen_empty_frame, gen_frame};
 
     fn get_object(id: i64) -> VideoObjectProxy {
         VideoObjectProxy::from(
@@ -523,43 +522,38 @@ mod tests {
                         .expect("Failed to convert RBBox to RBBoxData"),
                 )
                 .confidence(Some(0.5))
-                .attributes(
-                    vec![
-                        Attribute::persistent(
-                            "namespace".to_string(),
-                            "name".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value".to_string()),
-                                None,
-                            )],
+                .attributes(vec![
+                    Attribute::persistent(
+                        "namespace".to_string(),
+                        "name".to_string(),
+                        vec![AttributeValue::new(
+                            AttributeValueVariant::String("value".to_string()),
                             None,
-                            false,
-                        ),
-                        Attribute::persistent(
-                            "namespace".to_string(),
-                            "name2".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value2".to_string()),
-                                None,
-                            )],
+                        )],
+                        None,
+                        false,
+                    ),
+                    Attribute::persistent(
+                        "namespace".to_string(),
+                        "name2".to_string(),
+                        vec![AttributeValue::new(
+                            AttributeValueVariant::String("value2".to_string()),
                             None,
-                            false,
-                        ),
-                        Attribute::persistent(
-                            "namespace2".to_string(),
-                            "name".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value".to_string()),
-                                None,
-                            )],
+                        )],
+                        None,
+                        false,
+                    ),
+                    Attribute::persistent(
+                        "namespace2".to_string(),
+                        "name".to_string(),
+                        vec![AttributeValue::new(
+                            AttributeValueVariant::String("value".to_string()),
                             None,
-                            false,
-                        ),
-                    ]
-                    .into_iter()
-                    .map(|a| ((a.get_namespace().into(), a.get_name().into()), a))
-                    .collect(),
-                )
+                        )],
+                        None,
+                        false,
+                    ),
+                ])
                 .parent_id(None)
                 .build()
                 .unwrap(),
@@ -569,19 +563,19 @@ mod tests {
     #[test]
     fn test_delete_attributes() {
         let obj = get_object(1);
-        obj.delete_attributes(None, vec![]);
+        obj.delete_attributes(&None, &[]);
         assert_eq!(obj.inner_read_lock().attributes.len(), 0);
 
         let obj = get_object(1);
-        obj.delete_attributes(Some(s("namespace")), vec![]);
+        obj.delete_attributes(&Some("namespace"), &[]);
         assert_eq!(obj.get_attributes().len(), 1);
 
         let obj = get_object(1);
-        obj.delete_attributes(None, vec![s("name")]);
+        obj.delete_attributes(&None, &["name"]);
         assert_eq!(obj.inner_read_lock().attributes.len(), 1);
 
         let t = get_object(1);
-        t.delete_attributes(None, vec![s("name"), s("name2")]);
+        t.delete_attributes(&None, &["name", "name2"]);
         assert_eq!(t.inner_read_lock().attributes.len(), 0);
     }
 
