@@ -2,7 +2,6 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Attributive};
 use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
-use std::mem;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
 #[archive(check_bytes)]
@@ -52,13 +51,5 @@ impl Attributive for UserData {
 
     fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
-    }
-
-    fn take_attributes(&mut self) -> Vec<Attribute> {
-        mem::take(&mut self.attributes)
-    }
-
-    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
-        self.attributes.append(&mut attributes);
     }
 }

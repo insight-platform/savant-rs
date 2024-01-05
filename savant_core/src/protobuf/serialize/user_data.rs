@@ -24,7 +24,7 @@ impl TryFrom<&generated::UserData> for UserData {
         let attributes = value
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a))
+            .map(Attribute::try_from)
             .collect::<Result<_, _>>()?;
 
         Ok(UserData {

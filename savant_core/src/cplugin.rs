@@ -31,7 +31,7 @@ pub fn unary_op_even(objs: &[&VideoObjectProxy]) -> bool {
 pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
     for obj in objs {
         let label = obj.get_label();
-        obj.set_label(format!("modified_{}", label));
+        obj.set_label(&format!("modified_{}", label));
     }
 
     Ok(())
@@ -41,6 +41,6 @@ pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
 pub fn map_modifier(obj: &VideoObjectProxy) -> anyhow::Result<VideoObjectProxy> {
     let label = obj.get_label();
     let new_obj = obj.detached_copy();
-    new_obj.set_label(format!("modified_{}", label));
+    new_obj.set_label(&format!("modified_{}", label));
     Ok(new_obj)
 }

@@ -74,7 +74,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let attributes = value
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a))
+            .map(Attribute::try_from)
             .collect::<Result<Vec<Attribute>, _>>()?;
 
         let objects = value

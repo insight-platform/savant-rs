@@ -41,8 +41,11 @@ impl ToSerdeJsonValue for ExternalFrame {
 }
 
 impl ExternalFrame {
-    pub fn new(method: String, location: Option<String>) -> Self {
-        Self { method, location }
+    pub fn new(method: &str, location: &Option<&str>) -> Self {
+        Self {
+            method: method.to_string(),
+            location: location.map(String::from),
+        }
     }
 }
 
@@ -213,14 +216,6 @@ impl Attributive for VideoFrame {
 
     fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
-    }
-
-    fn take_attributes(&mut self) -> Vec<Attribute> {
-        mem::take(&mut self.attributes)
-    }
-
-    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
-        self.attributes.append(&mut attributes);
     }
 }
 
@@ -763,13 +758,13 @@ impl VideoFrameProxy {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        source_id: String,
-        framerate: String,
+        source_id: &str,
+        framerate: &str,
         width: i64,
         height: i64,
         content: VideoFrameContent,
         transcoding_method: VideoFrameTranscodingMethod,
-        codec: Option<String>,
+        codec: &Option<&str>,
         keyframe: Option<bool>,
         time_base: (i64, i64),
         pts: i64,
@@ -777,16 +772,16 @@ impl VideoFrameProxy {
         duration: Option<i64>,
     ) -> Self {
         VideoFrameProxy::from_inner(VideoFrame {
-            source_id,
+            source_id: source_id.to_string(),
             pts,
-            framerate,
+            framerate: framerate.to_string(),
             width,
             height,
             time_base: (time_base.0 as i32, time_base.1 as i32),
             dts,
             duration,
             transcoding_method,
-            codec,
+            codec: codec.map(String::from),
             keyframe,
             content: Arc::new(content),
             ..Default::default()
@@ -810,9 +805,9 @@ impl VideoFrameProxy {
         inner.previous_frame_seq_id = previous_frame_seq_id;
     }
 
-    pub fn set_source_id(&mut self, source_id: String) {
+    pub fn set_source_id(&mut self, source_id: &str) {
         let mut inner = trace!(self.inner.write());
-        inner.source_id = source_id;
+        inner.source_id = source_id.to_string();
     }
 
     pub fn set_time_base(&mut self, time_base: (i32, i32)) {
@@ -853,9 +848,9 @@ impl VideoFrameProxy {
         trace!(self.inner.read_recursive()).framerate.clone()
     }
 
-    pub fn set_framerate(&mut self, framerate: String) {
+    pub fn set_framerate(&mut self, framerate: &str) {
         let mut inner = trace!(self.inner.write());
-        inner.framerate = framerate;
+        inner.framerate = framerate.to_string();
     }
 
     pub fn get_width(&self) -> i64 {
@@ -1269,8 +1264,8 @@ mod tests {
         // check that objects are copied
         let o = f.get_object(0).unwrap();
         let new_o = new_f.get_object(0).unwrap();
-        let label = s("new label");
-        o.set_label(label.clone());
+        let label = "new label";
+        o.set_label(label);
         assert_ne!(new_o.get_label(), label);
 
         // check that attributes are copied

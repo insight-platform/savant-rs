@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn test_save_load_shutdown() {
-        let s = Shutdown::new("test".to_string());
+        let s = Shutdown::new("test");
         let m = Message::shutdown(s);
         let res = save_message(&m);
         let m = load_message(&res);
@@ -483,7 +483,7 @@ mod tests {
     #[test]
     fn test_save_load_seq_ids() {
         let mut f = gen_frame();
-        f.set_source_id("test_save_load_seq_ids".to_string());
+        f.set_source_id("test_save_load_seq_ids");
         let ud = UserData::new(f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
         let mf = Message::video_frame(&f);
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn test_validate_sequence_ids() {
         let mut f = gen_frame();
-        f.set_source_id("test_validate_sequence_ids".to_string());
+        f.set_source_id("test_validate_sequence_ids");
         let ud = UserData::new(f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
 
@@ -528,7 +528,7 @@ mod tests {
     #[test]
     fn test_validate_sequence_ids_with_misses() {
         let mut f = gen_frame();
-        f.set_source_id("test_validate_sequence_ids_with_misses".to_string());
+        f.set_source_id("test_validate_sequence_ids_with_misses");
 
         let ud = UserData::new(f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn test_validate_sequence_id_reset_on_eos() {
         let mut f = gen_frame();
-        f.set_source_id("test_validate_sequence_id_reset_on_eos".to_string());
+        f.set_source_id("test_validate_sequence_id_reset_on_eos");
 
         let eos = EndOfStream::new(f.get_source_id());
 

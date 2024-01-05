@@ -25,7 +25,7 @@ impl From<&MessageEnvelope> for generated::message::Content {
             MessageEnvelope::UserData(ud) => generated::message::Content::UserData(ud.into()),
             MessageEnvelope::Shutdown(s) => {
                 generated::message::Content::Shutdown(generated::Shutdown {
-                    auth: s.auth.clone(),
+                    auth: s.get_auth().to_string(),
                 })
             }
             MessageEnvelope::Unknown(m) => {
@@ -57,9 +57,9 @@ impl TryFrom<&generated::message::Content> for MessageEnvelope {
             generated::message::Content::UserData(ud) => {
                 MessageEnvelope::UserData(UserData::try_from(ud)?)
             }
-            generated::message::Content::Shutdown(s) => MessageEnvelope::Shutdown(Shutdown {
-                auth: s.auth.clone(),
-            }),
+            generated::message::Content::Shutdown(s) => {
+                MessageEnvelope::Shutdown(Shutdown::new(&s.auth))
+            }
             generated::message::Content::Unknown(u) => MessageEnvelope::Unknown(u.message.clone()),
         })
     }

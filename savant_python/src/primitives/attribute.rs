@@ -50,10 +50,10 @@ impl Attribute {
     #[new]
     #[pyo3(signature = (namespace, name , values, hint = None, is_persistent = true, is_hidden = false))]
     pub fn new(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: Option<&str>,
         is_persistent: bool,
         is_hidden: bool,
     ) -> Self {
@@ -64,7 +64,7 @@ impl Attribute {
             namespace,
             name,
             values,
-            hint,
+            &hint,
             is_persistent,
             is_hidden,
         ))

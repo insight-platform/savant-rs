@@ -165,14 +165,6 @@ impl Attributive for VideoObject {
     fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
     }
-
-    fn take_attributes(&mut self) -> Vec<Attribute> {
-        std::mem::take(&mut self.attributes)
-    }
-
-    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
-        self.attributes.append(&mut attributes);
-    }
 }
 
 impl AttributeMethods for VideoObjectProxy {
@@ -243,8 +235,8 @@ impl VideoObjectProxy {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: i64,
-        namespace: String,
-        label: String,
+        namespace: &str,
+        label: &str,
         detection_box: RBBox,
         attributes: Vec<Attribute>,
         confidence: Option<f32>,
@@ -252,12 +244,12 @@ impl VideoObjectProxy {
         track_box: Option<RBBox>,
     ) -> Self {
         let (namespace_id, label_id) =
-            get_object_id(&namespace, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
+            get_object_id(namespace, label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
 
         let object = VideoObject {
             id,
-            namespace,
-            label,
+            namespace: namespace.to_string(),
+            label: label.to_string(),
             detection_box: detection_box.clone(),
             attributes,
             confidence,
@@ -483,14 +475,14 @@ impl VideoObjectProxy {
         Ok(())
     }
 
-    pub fn set_namespace(&self, namespace: String) {
+    pub fn set_namespace(&self, namespace: &str) {
         let mut inner = trace!(self.inner_write_lock());
-        inner.namespace = namespace;
+        inner.namespace = namespace.to_string();
     }
 
-    pub fn set_label(&self, label: String) {
+    pub fn set_label(&self, label: &str) {
         let mut inner = trace!(self.inner_write_lock());
-        inner.label = label;
+        inner.label = label.to_string();
     }
 
     pub fn set_confidence(&self, confidence: Option<f32>) {

@@ -1,6 +1,7 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::attribute_value::AttributeValue;
 use rkyv::{Archive, Deserialize, Serialize};
+use std::mem;
 use std::sync::Arc;
 
 /// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
@@ -270,8 +271,12 @@ pub trait AttributeMethods {
 pub trait Attributive: Send {
     fn get_attributes_ref(&self) -> &Vec<Attribute>;
     fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute>;
-    fn take_attributes(&mut self) -> Vec<Attribute>;
-    fn place_attributes(&mut self, attributes: Vec<Attribute>);
+    fn take_attributes(&mut self) -> Vec<Attribute> {
+        mem::take(self.get_attributes_ref_mut())
+    }
+    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
+        self.get_attributes_ref_mut().append(&mut attributes);
+    }
 
     fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
         let attributes = self.take_attributes();
@@ -305,21 +310,21 @@ pub trait Attributive: Send {
     fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.get_attributes_ref()
             .iter()
-            .find(|a| &a.namespace == namespace && &a.name == name)
+            .find(|a| a.namespace == namespace && a.name == name)
             .cloned()
     }
 
     fn contains_attribute(&self, namespace: &str, name: &str) -> bool {
         self.get_attributes_ref()
             .iter()
-            .any(|a| &a.namespace == namespace && &a.name == name)
+            .any(|a| a.namespace == namespace && a.name == name)
     }
 
     fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
         let index = self
             .get_attributes_ref()
             .iter()
-            .position(|a| &a.namespace == namespace && &a.name == name)?;
+            .position(|a| a.namespace == namespace && a.name == name)?;
         Some(self.get_attributes_ref_mut().swap_remove(index))
     }
 
@@ -327,7 +332,7 @@ pub trait Attributive: Send {
         let index = self
             .get_attributes_ref()
             .iter()
-            .position(|a| &a.namespace == &attribute.namespace && &a.name == &attribute.name);
+            .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
 
         if let Some(index) = index {
             Some(std::mem::replace(
@@ -461,10 +466,11 @@ mod tests {
 
         let attr_opt = t.set_attribute(replacement);
         let attr = attr_opt.unwrap();
+        assert_eq!(t.attributes.len(), 1);
         assert_eq!(attr.values.len(), 1);
         assert!(matches!(
             attr.values[0].get(),
-            AttributeValueVariant::Float(1.0)
+            AttributeValueVariant::Float(v) if *v == 1.0
         ));
 
         let replacement = t.get_attribute("system", "test");
@@ -472,9 +478,51 @@ mod tests {
         assert_eq!(replacement.values.len(), 1);
         assert!(matches!(
             replacement.values[0].get(),
-            AttributeValueVariant::Float(2.0)
+            AttributeValueVariant::Float(v) if *v == 2.0
         ));
     }
+
+    #[test]
+    fn test_delete_attribute() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        let attribute = t.delete_attribute("system", "test");
+        assert!(attribute.is_some());
+        assert_eq!(t.attributes.len(), 0);
+    }
+
+    #[test]
+    fn test_contains_attribute() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        assert!(t.contains_attribute("system", "test"));
+        assert!(!t.contains_attribute("system", "test2"));
+        assert!(!t.contains_attribute("system2", "test"));
+    }
+
+    #[test]
+    fn test_take_place_attributes() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute.clone());
+
+        let attributes = t.take_attributes();
+        assert_eq!(attributes.len(), 1);
+        assert_eq!(attributes[0], attribute);
+        assert_eq!(t.attributes.len(), 0);
+
+        t.place_attributes(attributes);
+        assert_eq!(t.attributes.len(), 1);
+        assert_eq!(t.attributes[0], attribute);
+    }
+
     //
     //     #[test]
     //     fn test_find_attributes() {

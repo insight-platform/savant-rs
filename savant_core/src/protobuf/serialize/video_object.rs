@@ -52,7 +52,7 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
         let attributes = obj
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a))
+            .map(Attribute::try_from)
             .collect::<Result<Vec<Attribute>, _>>()?;
 
         Ok(VideoObject {

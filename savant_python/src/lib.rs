@@ -105,3 +105,9 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {}
+}
