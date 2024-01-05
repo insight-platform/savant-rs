@@ -58,3 +58,8 @@ pub mod rust {
     pub use super::symbol_mapper::RegistrationPolicy;
     pub use super::symbol_mapper::SymbolMapper;
 }
+
+#[cfg(test)]
+const TEST_ENV: bool = true;
+#[cfg(not(test))]
+const TEST_ENV: bool = false;

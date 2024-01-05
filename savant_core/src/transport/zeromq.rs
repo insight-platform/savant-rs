@@ -6,6 +6,8 @@ use std::num::NonZeroUsize;
 
 pub mod reader;
 mod reader_config;
+mod writer;
+mod writer_config;
 
 pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};

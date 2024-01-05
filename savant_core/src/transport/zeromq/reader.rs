@@ -4,6 +4,7 @@ use crate::transport::zeromq::{
     ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket, CONFIRMATION_MESSAGE,
     END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
 };
+use crate::TEST_ENV;
 use anyhow::bail;
 use log::{debug, info, warn};
 use std::os::unix::prelude::PermissionsExt;
@@ -131,7 +132,7 @@ impl Reader {
         socket.set_linger(ZMQ_ACK_LINGER)?;
         socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
 
-        if config.endpoint().starts_with("ipc://") {
+        if !TEST_ENV && config.endpoint().starts_with("ipc://") {
             Self::create_ipc_dirs(config.endpoint())?;
             if let Some(permissions) = config.fix_ipc_permissions() {
                 Self::set_ipc_permissions(config.endpoint(), *permissions)?;
@@ -221,7 +222,6 @@ impl Reader {
         } else {
             (None, &parts[..])
         };
-
         if message[0] == END_OF_STREAM_MESSAGE {
             debug!(
                 "Received end of stream message from ZeroMQ socket for endpoint {}",
@@ -303,7 +303,7 @@ mod tests {
         #[test]
         fn test_ok() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
@@ -336,7 +336,7 @@ mod tests {
         #[test]
         fn test_empty_multipart() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
@@ -354,7 +354,7 @@ mod tests {
         #[test]
         fn test_too_short_routing_id() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
@@ -376,7 +376,7 @@ mod tests {
         #[test]
         fn test_eos() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
@@ -398,7 +398,7 @@ mod tests {
         #[test]
         fn test_too_short_routing_and_topic() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
@@ -420,7 +420,7 @@ mod tests {
         #[test]
         fn test_prefix_mismatch_source_id() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic2".into()))?
                 .build()?;
 
@@ -469,7 +469,7 @@ mod tests {
         #[test]
         fn test_prefix_mismatch_prefix() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .with_topic_prefix_spec(TopicPrefixSpec::Prefix("topic2".into()))?
                 .build()?;
 
@@ -515,7 +515,7 @@ mod tests {
         #[test]
         fn test_message_and_extra_parts() -> anyhow::Result<()> {
             let conf = ReaderConfig::new()
-                .with_endpoint("router+bind:ipc:///tmp/test")?
+                .url("router+bind:ipc:///tmp/test")?
                 .build()
                 .unwrap();
 
@@ -541,6 +541,49 @@ mod tests {
                     data
                 } if message.is_end_of_stream() && topic == b"topic2" && routing_id == Some(b"routing-id".to_vec()) && data == vec![b"extra"]
             ));
+            Ok(())
+        }
+    }
+
+    mod rep_tests {
+        use crate::message::Message;
+        use crate::primitives::eos::EndOfStream;
+        use crate::transport::zeromq::reader::ReaderResult;
+        use crate::transport::zeromq::{
+            Reader, ReaderConfig, TopicPrefixSpec, CONFIRMATION_MESSAGE,
+        };
+
+        #[test]
+        fn test_ok() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .url("rep+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let mut reader = Reader::new(&conf)?;
+            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let binary = crate::message::save_message(&message);
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+
+            let m = reader.receive()?;
+            assert!(matches!(
+                &m,
+                ReaderResult::Message {
+                    message,
+                    topic,
+                    routing_id,
+                    data
+                } if message.is_end_of_stream() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
+            ));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                vec![CONFIRMATION_MESSAGE]
+            );
             Ok(())
         }
     }
