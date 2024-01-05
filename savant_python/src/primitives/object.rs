@@ -172,27 +172,23 @@ impl VideoObject {
         self.0.delete_attribute(namespace, name).map(Attribute)
     }
 
-    /// Deletes attributes from the object.
-    ///
-    /// Parameters
-    /// ----------
-    /// namespace : str or None
-    ///   Attribute namespace. If None, it is ignored when candidates are selected for removal.
-    /// names : List[str]
-    ///   Attribute names. If empty, it is ignored when candidates are selected for removal.
-    ///
-    #[pyo3(name = "delete_attributes")]
-    #[pyo3(signature = (namespace=None, names=vec![], no_gil=false))]
-    pub fn delete_attributes_gil(
-        &mut self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        no_gil: bool,
-    ) {
-        release_gil!(no_gil, || {
-            let names_ref = names.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-            self.0.delete_attributes(&namespace.as_deref(), &names_ref)
-        })
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
+    }
+
+    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
+        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().map(|v| v).collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     /// Returns a copy of the object with the same properties but detached from the frame and without a parent set.

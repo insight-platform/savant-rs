@@ -122,7 +122,7 @@ obj = VideoObject(
     label="person",
     detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
-    attributes={},
+    attributes=[],
     track_id=None,
     track_box=None
 )

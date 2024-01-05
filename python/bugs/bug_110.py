@@ -24,7 +24,7 @@ frame.add_object(VideoObject(
     label="Car",
     detection_box=BBox(485, 675, 886, 690).as_rbbox(),
     confidence=0.933,
-    attributes={},
+    attributes=[],
     track_id=None,
     track_box=None
 ), IdCollisionResolutionPolicy.Error)
@@ -35,7 +35,7 @@ frame.add_object(VideoObject(
     label="lpd",
     detection_box=BBox(557.58374, 883.9291, 298.5735, 84.460144).as_rbbox(),
     confidence=0.39770508,
-    attributes={},
+    attributes=[],
     track_id=None,
     track_box=None
 ), IdCollisionResolutionPolicy.Error)

@@ -203,11 +203,6 @@ impl AttributeMethods for VideoObjectProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, namespace: &Option<&str>, names: &[&str]) {
-        let mut inner = trace!(self.0.write());
-        inner.delete_attributes(namespace, names)
-    }
-
     fn find_attributes(
         &self,
         namespace: &Option<&str>,
@@ -216,6 +211,21 @@ impl AttributeMethods for VideoObjectProxy {
     ) -> Vec<(String, String)> {
         let inner = trace!(self.0.read_recursive());
         inner.find_attributes(namespace, names, hint)
+    }
+
+    fn delete_attributes_with_ns(&self, namespace: &str) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_ns(namespace)
+    }
+
+    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_names(labels)
+    }
+
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_hints(hints)
     }
 }
 
@@ -493,7 +503,6 @@ impl VideoObjectProxy {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, VideoObjectBBoxTransformation, VideoObjectBuilder,
@@ -550,25 +559,6 @@ mod tests {
                 .build()
                 .unwrap(),
         )
-    }
-
-    #[test]
-    fn test_delete_attributes() {
-        let obj = get_object(1);
-        obj.delete_attributes(&None, &[]);
-        assert_eq!(obj.inner_read_lock().attributes.len(), 0);
-
-        let obj = get_object(1);
-        obj.delete_attributes(&Some("namespace"), &[]);
-        assert_eq!(obj.get_attributes().len(), 1);
-
-        let obj = get_object(1);
-        obj.delete_attributes(&None, &["name"]);
-        assert_eq!(obj.inner_read_lock().attributes.len(), 1);
-
-        let t = get_object(1);
-        t.delete_attributes(&None, &["name", "name2"]);
-        assert_eq!(t.inner_read_lock().attributes.len(), 0);
     }
 
     #[test]

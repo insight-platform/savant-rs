@@ -1245,7 +1245,7 @@ mod tests {
 
         let expr = AttributesEmpty;
         let o = gen_object(1);
-        o.delete_attributes(&Some("some"), &[]);
+        o.delete_attributes_with_ns("some");
         // assert!(expr.execute_with_new_context(&o));
         assert!(matches!(
             expr.execute_with_new_context(&o),

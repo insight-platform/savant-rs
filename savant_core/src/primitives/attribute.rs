@@ -259,7 +259,9 @@ pub trait AttributeMethods {
     fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute>;
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
     fn clear_attributes(&self);
-    fn delete_attributes(&self, namespace: &Option<&str>, names: &[&str]);
+    fn delete_attributes_with_ns(&self, namespace: &str);
+    fn delete_attributes_with_names(&mut self, labels: &[&str]);
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]);
     fn find_attributes(
         &self,
         namespace: &Option<&str>,
@@ -349,20 +351,19 @@ pub trait Attributive: Send {
         self.get_attributes_ref_mut().clear();
     }
 
-    fn delete_attributes(&mut self, namespace: &Option<&str>, names: &[&str]) {
-        self.get_attributes_ref_mut().retain(|a| {
-            if let Some(namespace) = namespace {
-                if a.namespace != *namespace {
-                    return true;
-                }
-            }
+    fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.get_attributes_ref_mut()
+            .retain(|a| a.namespace != *namespace);
+    }
 
-            if !names.is_empty() && !names.contains(&a.name.as_str()) {
-                return true;
-            }
+    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+        self.get_attributes_ref_mut()
+            .retain(|a| !labels.contains(&a.name.as_str()))
+    }
 
-            false
-        });
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
+        self.get_attributes_ref_mut()
+            .retain(|a| !hints.contains(&&a.hint.as_deref()))
     }
 
     fn find_attributes(
@@ -517,15 +518,18 @@ mod tests {
         t.set_attribute(attribute3.clone());
         let mut tmp_t = t.clone();
 
-        tmp_t.delete_attributes(&Some("system"), &["test"]);
-        assert_eq!(tmp_t.attributes.len(), 2);
-        assert_eq!(tmp_t.attributes[0], attribute2);
-        assert_eq!(tmp_t.attributes[1], attribute3);
-
-        let mut tmp_t = t.clone();
-        tmp_t.delete_attributes(&Some("system"), &[]);
+        tmp_t.delete_attributes_with_ns("system");
         assert_eq!(tmp_t.attributes.len(), 1);
         assert_eq!(tmp_t.attributes[0], attribute3);
+
+        let mut tmp_t = t.clone();
+        tmp_t.delete_attributes_with_names(&["test"]);
+        assert_eq!(tmp_t.attributes.len(), 1);
+        assert_eq!(tmp_t.attributes[0], attribute2);
+
+        let mut tmp_t = t.clone();
+        tmp_t.delete_attributes_with_hints(&[&None]);
+        assert_eq!(tmp_t.attributes.len(), 0);
     }
     #[test]
     fn test_contains_attribute() {

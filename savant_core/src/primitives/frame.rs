@@ -349,9 +349,19 @@ impl AttributeMethods for VideoFrameProxy {
         inner.clear_attributes()
     }
 
-    fn delete_attributes(&self, namespace: &Option<&str>, names: &[&str]) {
+    fn delete_attributes_with_ns(&self, namespace: &str) {
         let mut inner = trace!(self.inner.write());
-        inner.delete_attributes(namespace, names)
+        inner.delete_attributes_with_ns(namespace)
+    }
+
+    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+        let mut inner = trace!(self.inner.write());
+        inner.delete_attributes_with_names(labels)
+    }
+
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
+        let mut inner = trace!(self.inner.write());
+        inner.delete_attributes_with_hints(hints)
     }
 
     fn find_attributes(

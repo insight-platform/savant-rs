@@ -589,10 +589,23 @@ impl VideoFrame {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
 
-    #[pyo3(signature = (namespace=None, names=vec![]))]
-    pub fn delete_attributes(&mut self, namespace: Option<String>, names: Vec<String>) {
-        let names_ref = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
-        self.0.delete_attributes(&namespace.as_deref(), &names_ref)
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
+    }
+
+    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
+        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().map(|v| v).collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
