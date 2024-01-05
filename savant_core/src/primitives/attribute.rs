@@ -407,7 +407,7 @@ mod tests {
     use crate::primitives::{Attribute, Attributive};
     use std::mem;
 
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct AttrStor {
         attributes: Vec<Attribute>,
     }
@@ -483,6 +483,17 @@ mod tests {
     }
 
     #[test]
+    fn test_clear_attributes() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        t.clear_attributes();
+        assert_eq!(t.attributes.len(), 0);
+    }
+
+    #[test]
     fn test_delete_attribute() {
         let attribute = Attribute::new("system", "test", vec![], &None, true, false);
 
@@ -494,6 +505,28 @@ mod tests {
         assert_eq!(t.attributes.len(), 0);
     }
 
+    #[test]
+    fn test_delete_attributes() {
+        let attribute1 = Attribute::new("system", "test", vec![], &None, true, false);
+        let attribute2 = Attribute::new("system", "test2", vec![], &None, true, false);
+        let attribute3 = Attribute::new("system2", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute1.clone());
+        t.set_attribute(attribute2.clone());
+        t.set_attribute(attribute3.clone());
+        let mut tmp_t = t.clone();
+
+        tmp_t.delete_attributes(&Some("system"), &["test"]);
+        assert_eq!(tmp_t.attributes.len(), 2);
+        assert_eq!(tmp_t.attributes[0], attribute2);
+        assert_eq!(tmp_t.attributes[1], attribute3);
+
+        let mut tmp_t = t.clone();
+        tmp_t.delete_attributes(&Some("system"), &[]);
+        assert_eq!(tmp_t.attributes.len(), 1);
+        assert_eq!(tmp_t.attributes[0], attribute3);
+    }
     #[test]
     fn test_contains_attribute() {
         let attribute = Attribute::new("system", "test", vec![], &None, true, false);
