@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn test_object_with_tmp_attribute() {
-        let mut obj = gen_object(1);
+        let obj = gen_object(1);
         let tmp_attr = Attribute::temporary(
             "tmp",
             "label",

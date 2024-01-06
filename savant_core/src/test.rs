@@ -119,7 +119,7 @@ pub fn gen_frame() -> VideoFrameProxy {
         "test",
         "test",
         vec![
-            AttributeValue::bytes(&vec![8, 3, 8, 8], &[0; 192], None),
+            AttributeValue::bytes(&[8, 3, 8, 8], &[0; 192], None),
             AttributeValue::new(Variant::IntegerVector([0, 1, 2, 3, 4, 5].into()), None),
             AttributeValue::new(Variant::String("incoming".to_string()), Some(0.56)),
             AttributeValue::new(Variant::TemporaryValue(AnyObject::new(Box::new(1.0))), None),
