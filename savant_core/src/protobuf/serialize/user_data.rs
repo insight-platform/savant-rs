@@ -37,7 +37,7 @@ impl TryFrom<&generated::UserData> for UserData {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::Attribute;
 
     #[test]
@@ -52,10 +52,7 @@ mod tests {
                     (Attribute::new(
                         "namespace",
                         "name",
-                        vec![AttributeValue::new(
-                            AttributeValueVariant::String("value".to_string()),
-                            Some(1.0)
-                        )],
+                        vec![AttributeValue::string("value", Some(1.0))],
                         &Some("hint"),
                         true,
                         true
@@ -111,10 +108,7 @@ mod tests {
                     (Attribute::new(
                         "namespace",
                         "name",
-                        vec![AttributeValue::new(
-                            AttributeValueVariant::String("value".to_string()),
-                            Some(1.0)
-                        )],
+                        vec![AttributeValue::string("value", Some(1.0))],
                         &Some("hint"),
                         true,
                         true

@@ -1,5 +1,5 @@
 use crate::primitives::any_object::AnyObject;
-use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::frame::{
     VideoFrameBuilder, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
@@ -8,9 +8,6 @@ use crate::primitives::object::{
 };
 use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use std::sync::Arc;
-
-type Variant = AttributeValueVariant;
-
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
         VideoFrameBuilder::default()
@@ -120,9 +117,9 @@ pub fn gen_frame() -> VideoFrameProxy {
         "test",
         vec![
             AttributeValue::bytes(&[8, 3, 8, 8], &[0; 192], None),
-            AttributeValue::new(Variant::IntegerVector([0, 1, 2, 3, 4, 5].into()), None),
-            AttributeValue::new(Variant::String("incoming".to_string()), Some(0.56)),
-            AttributeValue::new(Variant::TemporaryValue(AnyObject::new(Box::new(1.0))), None),
+            AttributeValue::integer_vector([0, 1, 2, 3, 4, 5].into(), None),
+            AttributeValue::string("incoming", Some(0.56)),
+            AttributeValue::temporary_value(AnyObject::new(Box::new(1.0)), None),
         ],
         &Some("hint"),
         false,

@@ -873,7 +873,7 @@ mod tests {
     use super::*;
     use crate::eval_resolvers::register_env_resolver;
     use crate::match_query::MatchQuery::*;
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::IdCollisionResolutionPolicy;
     use crate::primitives::{Attribute, AttributeMethods};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
@@ -1357,9 +1357,9 @@ mod tests {
             "classifier",
             "age-min-max-avg",
             vec![
-                AttributeValue::new(AttributeValueVariant::Float(10.0), Some(0.7)),
-                AttributeValue::new(AttributeValueVariant::Float(20.0), Some(0.8)),
-                AttributeValue::new(AttributeValueVariant::Float(15.0), None),
+                AttributeValue::float(10.0, Some(0.7)),
+                AttributeValue::float(20.0, Some(0.8)),
+                AttributeValue::float(15.0, None),
             ],
             &Some("morphological-classifier"),
             false,
