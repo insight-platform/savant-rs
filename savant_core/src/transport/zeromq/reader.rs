@@ -1,12 +1,11 @@
 use crate::message::Message;
 use crate::transport::zeromq::{
-    ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket, CONFIRMATION_MESSAGE,
-    END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
+    create_ipc_dirs, set_ipc_permissions, ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket,
+    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
 use log::{debug, info, warn};
-use std::os::unix::prelude::PermissionsExt;
 
 pub struct Reader {
     context: Option<zmq::Context>,
@@ -84,33 +83,6 @@ impl ReaderResult {
 }
 
 impl Reader {
-    fn create_ipc_dirs(endpoint: &str) -> anyhow::Result<()> {
-        let endpoint = endpoint.strip_prefix("ipc://").unwrap();
-        if endpoint.is_empty() {
-            bail!("Invalid IPC endpoint: {}", endpoint);
-        }
-        let path = std::path::Path::new(endpoint);
-        if !path.is_file() {
-            bail!("IPC endpoint is not a file: {}", endpoint);
-        }
-        let parent = path.parent().unwrap();
-        std::fs::create_dir_all(parent)?;
-        Ok(())
-    }
-
-    fn set_ipc_permissions(endpoint: &str, permissions: u32) -> anyhow::Result<()> {
-        let endpoint = endpoint.strip_prefix("ipc://").unwrap();
-        if endpoint.is_empty() {
-            bail!("Invalid IPC endpoint: {}", endpoint);
-        }
-        let path = std::path::Path::new(endpoint);
-        if !path.is_file() {
-            bail!("IPC endpoint is not a file: {}", endpoint);
-        }
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(permissions))?;
-        Ok(())
-    }
-
     #[cfg(not(test))]
     fn new_socket(config: &ReaderConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
         Ok(Socket::ZmqSocket(
@@ -132,9 +104,9 @@ impl Reader {
         socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
 
         if !TEST_ENV && config.endpoint().starts_with("ipc://") {
-            Self::create_ipc_dirs(config.endpoint())?;
+            create_ipc_dirs(config.endpoint())?;
             if let Some(permissions) = config.fix_ipc_permissions() {
-                Self::set_ipc_permissions(config.endpoint(), *permissions)?;
+                set_ipc_permissions(config.endpoint(), *permissions)?;
             }
         }
 

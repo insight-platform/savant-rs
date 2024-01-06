@@ -12,6 +12,7 @@ mod writer_config;
 pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;
+use std::os::unix::fs::PermissionsExt;
 pub use writer_config::{WriterConfig, WriterConfigBuilder};
 
 const RECEIVE_TIMEOUT: i32 = 1000;
@@ -292,6 +293,33 @@ impl Socket {
             Socket::MockSocket(data) => mem::take(data),
         }
     }
+}
+
+fn create_ipc_dirs(endpoint: &str) -> anyhow::Result<()> {
+    let endpoint = endpoint.strip_prefix("ipc://").unwrap();
+    if endpoint.is_empty() {
+        bail!("Invalid IPC endpoint: {}", endpoint);
+    }
+    let path = std::path::Path::new(endpoint);
+    if !path.is_file() {
+        bail!("IPC endpoint is not a file: {}", endpoint);
+    }
+    let parent = path.parent().unwrap();
+    std::fs::create_dir_all(parent)?;
+    Ok(())
+}
+
+fn set_ipc_permissions(endpoint: &str, permissions: u32) -> anyhow::Result<()> {
+    let endpoint = endpoint.strip_prefix("ipc://").unwrap();
+    if endpoint.is_empty() {
+        bail!("Invalid IPC endpoint: {}", endpoint);
+    }
+    let path = std::path::Path::new(endpoint);
+    if !path.is_file() {
+        bail!("IPC endpoint is not a file: {}", endpoint);
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(permissions))?;
+    Ok(())
 }
 
 #[cfg(test)]
