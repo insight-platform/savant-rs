@@ -11,7 +11,7 @@ use log::{debug, info, warn};
 pub struct Writer {
     context: Option<zmq::Context>,
     config: WriterConfig,
-    socket: Option<Socket<MockWriterCompanion>>,
+    socket: Option<Socket<WriterCompanion>>,
 }
 
 impl From<&WriterSocketType> for zmq::SocketType {
@@ -36,9 +36,10 @@ pub enum WriterResult {
 }
 
 #[derive(Default)]
-struct MockWriterCompanion;
+struct WriterCompanion;
 
-impl SocketCompanion for MockWriterCompanion {
+#[cfg(test)]
+impl SocketCompanion for WriterCompanion {
     fn modify_data(&mut self, data: &mut Vec<Vec<u8>>) {
         if data.len() == 2 && data[1] == END_OF_STREAM_MESSAGE {
             data.pop();
@@ -51,12 +52,14 @@ impl SocketCompanion for MockWriterCompanion {
         }
     }
 }
+#[cfg(not(test))]
+impl SocketCompanion for WriterCompanion {}
 
 #[cfg(not(test))]
 fn new_socket(
     config: &WriterConfig,
     context: &zmq::Context,
-) -> anyhow::Result<Socket<MockWriterCompanion>> {
+) -> anyhow::Result<Socket<WriterCompanion>> {
     Ok(Socket::ZmqSocket(
         context.socket(config.socket_type().into())?,
     ))
@@ -65,7 +68,7 @@ fn new_socket(
 fn new_socket(
     _config: &WriterConfig,
     _context: &zmq::Context,
-) -> anyhow::Result<Socket<MockWriterCompanion>> {
+) -> anyhow::Result<Socket<WriterCompanion>> {
     Ok(Socket::MockSocket(vec![]))
 }
 
@@ -179,6 +182,16 @@ impl Writer {
                         bail!(
                             "Failed to receive message from ZeroMQ socket. Error is {:?}",
                             e
+                        );
+                    }
+                }
+                if m == END_OF_STREAM_MESSAGE {
+                    let res = res.as_ref().unwrap();
+                    if res.last().unwrap().as_slice() != CONFIRMATION_MESSAGE {
+                        bail!(
+                            "Failed to receive confirmation message from ZeroMQ socket. \
+                            Received message is {:?}",
+                            res
                         );
                     }
                 }
