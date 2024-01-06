@@ -12,6 +12,7 @@ mod writer_config;
 pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;
+pub use writer_config::{WriterConfig, WriterConfigBuilder};
 
 const RECEIVE_TIMEOUT: i32 = 1000;
 const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
@@ -19,7 +20,7 @@ const RECEIVE_HWM: i32 = 50;
 const SEND_HWM: i32 = 50;
 const REQ_RECEIVE_RETRIES: i32 = 3;
 const EOS_CONFIRMATION_RETRIES: usize = 3;
-
+const SEND_TIMEOUT: i32 = 5000;
 const ROUTING_ID_CACHE_SIZE: usize = 512;
 
 const CONFIRMATION_MESSAGE: &[u8] = b"OK";
