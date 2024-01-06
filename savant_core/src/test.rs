@@ -92,48 +92,39 @@ pub fn gen_frame() -> VideoFrameProxy {
         .unwrap();
 
     f.set_attribute(Attribute::persistent(
-        "system".into(),
-        "test".into(),
-        vec![AttributeValue::new(
-            AttributeValueVariant::String("1".into()),
-            None,
-        )],
-        Some("test".into()),
+        "system",
+        "test",
+        vec![AttributeValue::string("1", None)],
+        &Some("test"),
         false,
     ));
 
     f.set_attribute(Attribute::persistent(
-        "system2".into(),
-        "test2".into(),
-        vec![AttributeValue::new(
-            AttributeValueVariant::String("2".into()),
-            None,
-        )],
-        None,
+        "system2",
+        "test2",
+        vec![AttributeValue::string("2", None)],
+        &None,
         false,
     ));
 
     f.set_attribute(Attribute::persistent(
-        "system".into(),
-        "test2".into(),
-        vec![AttributeValue::new(
-            AttributeValueVariant::String("3".into()),
-            None,
-        )],
-        Some("test".into()),
+        "system",
+        "test2",
+        vec![AttributeValue::string("3", None)],
+        &Some("test"),
         false,
     ));
 
     f.set_attribute(Attribute::persistent(
-        "test".to_string(),
-        "test".to_string(),
+        "test",
+        "test",
         vec![
-            AttributeValue::new(Variant::Bytes(vec![8, 3, 8, 8], [0; 192].into()), None),
+            AttributeValue::bytes(&vec![8, 3, 8, 8], &[0; 192], None),
             AttributeValue::new(Variant::IntegerVector([0, 1, 2, 3, 4, 5].into()), None),
             AttributeValue::new(Variant::String("incoming".to_string()), Some(0.56)),
             AttributeValue::new(Variant::TemporaryValue(AnyObject::new(Box::new(1.0))), None),
         ],
-        Some("hint".to_string()),
+        &Some("hint"),
         false,
     ));
     f
@@ -151,13 +142,7 @@ pub fn gen_object(id: i64) -> VideoObjectProxy {
         ..Default::default()
     });
 
-    let attr = Attribute::persistent(
-        "some".to_string(),
-        "attribute".to_string(),
-        vec![],
-        Some("hint".to_string()),
-        false,
-    );
+    let attr = Attribute::persistent("some", "attribute", vec![], &Some("hint"), false);
     o.set_attribute(attr);
     o
 }

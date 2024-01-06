@@ -123,23 +123,17 @@ mod tests {
     fn get_attributes() -> (Attribute, Attribute) {
         (
             Attribute::persistent(
-                "system".into(),
-                "test".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::Boolean(true),
-                    None,
-                )],
-                Some("test".into()),
+                "system",
+                "test",
+                vec![AttributeValue::boolean(true, None)],
+                &Some("test"),
                 false,
             ),
             Attribute::persistent(
-                "system".into(),
-                "test".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::Integer(10),
-                    None,
-                )],
-                Some("test".into()),
+                "system",
+                "test",
+                vec![AttributeValue::integer(10, None)],
+                &Some("test"),
                 false,
             ),
         )

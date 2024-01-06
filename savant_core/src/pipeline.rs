@@ -892,7 +892,7 @@ pub(super) mod implementation {
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
-        use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+        use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, AttributeMethods};
         use crate::telemetry::init_noop_tracer;
@@ -1033,13 +1033,10 @@ pub(super) mod implementation {
         fn get_update() -> VideoFrameUpdate {
             let mut update = VideoFrameUpdate::default();
             update.add_frame_attribute(Attribute::persistent(
-                "update".into(),
-                "attribute".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::String("1".into()),
-                    None,
-                )],
-                Some("test".into()),
+                "update",
+                "attribute",
+                vec![AttributeValue::string("1".into(), None)],
+                &Some("test"),
                 false,
             ));
             update

@@ -78,19 +78,19 @@ impl Attribute {
     ///   The created attribute.
     ///
     pub fn persistent(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: &Option<&str>,
         is_hidden: bool,
     ) -> Self {
         AttributeBuilder::default()
             .is_persistent(true)
             .is_hidden(is_hidden)
-            .name(name)
-            .namespace(namespace)
+            .name(name.to_string())
+            .namespace(namespace.to_string())
             .values(values)
-            .hint(hint)
+            .hint(hint.map(|s| s.to_string()))
             .build()
             .unwrap()
     }
@@ -114,19 +114,19 @@ impl Attribute {
     ///   The created attribute.
     ///
     pub fn temporary(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: &Option<&str>,
         is_hidden: bool,
     ) -> Self {
         AttributeBuilder::default()
             .is_persistent(false)
             .is_hidden(is_hidden)
-            .name(name)
-            .namespace(namespace)
+            .name(name.to_string())
+            .namespace(namespace.to_string())
             .values(values)
-            .hint(hint)
+            .hint(hint.map(|s| s.to_string()))
             .build()
             .unwrap()
     }

@@ -146,7 +146,7 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::frame_update::{
         AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
     };
@@ -214,13 +214,10 @@ mod tests {
     fn test_video_frame_update() {
         let obj = gen_object(0);
         let frame_attr = Attribute::persistent(
-            "system2".into(),
-            "test2".into(),
-            vec![AttributeValue::new(
-                AttributeValueVariant::String("2".into()),
-                None,
-            )],
-            None,
+            "system2",
+            "test2",
+            vec![AttributeValue::string("2", None)],
+            &None,
             false,
         );
         let mut update = VideoFrameUpdate::default();

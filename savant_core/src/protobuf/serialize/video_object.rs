@@ -78,7 +78,8 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::object::VideoObject;
-    use crate::primitives::rust::VideoObjectProxy;
+    use crate::primitives::rust::{AttributeValue, VideoObjectProxy};
+    use crate::primitives::{Attribute, AttributeMethods};
     use crate::protobuf::generated;
     use crate::test::gen_object;
 
@@ -90,6 +91,34 @@ mod tests {
         assert_eq!(
             obj.to_serde_json_value(),
             deserialized.to_serde_json_value()
+        );
+    }
+
+    #[test]
+    fn test_object_with_tmp_attribute() {
+        let mut obj = gen_object(1);
+        let tmp_attr = Attribute::temporary(
+            "tmp",
+            "label",
+            vec![AttributeValue::float(1.0, None)],
+            &None,
+            false,
+        );
+        let persistent_attr = Attribute::persistent(
+            "pers",
+            "label",
+            vec![AttributeValue::integer(1, None)],
+            &None,
+            false,
+        );
+        obj.set_attribute(tmp_attr.clone());
+        obj.set_attribute(persistent_attr.clone());
+        let serialized = generated::VideoObject::from(&obj);
+        let deserialized = VideoObjectProxy::from(VideoObject::try_from(&serialized).unwrap());
+        assert!(deserialized.get_attribute("tmp", "label").is_none());
+        assert_eq!(
+            deserialized.get_attribute("pers", "label").unwrap(),
+            persistent_attr
         );
     }
 }

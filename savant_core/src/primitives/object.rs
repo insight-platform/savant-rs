@@ -489,7 +489,7 @@ impl VideoObjectProxy {
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, VideoObjectBBoxTransformation, VideoObjectBuilder,
         VideoObjectProxy,
@@ -511,33 +511,24 @@ mod tests {
                 .confidence(Some(0.5))
                 .attributes(vec![
                     Attribute::persistent(
-                        "namespace".to_string(),
-                        "name".to_string(),
-                        vec![AttributeValue::new(
-                            AttributeValueVariant::String("value".to_string()),
-                            None,
-                        )],
-                        None,
+                        "namespace",
+                        "name",
+                        vec![AttributeValue::string("value", None)],
+                        &None,
                         false,
                     ),
                     Attribute::persistent(
-                        "namespace".to_string(),
-                        "name2".to_string(),
-                        vec![AttributeValue::new(
-                            AttributeValueVariant::String("value2".to_string()),
-                            None,
-                        )],
-                        None,
+                        "namespace",
+                        "name2",
+                        vec![AttributeValue::string("value2", None)],
+                        &None,
                         false,
                     ),
                     Attribute::persistent(
-                        "namespace2".to_string(),
-                        "name".to_string(),
-                        vec![AttributeValue::new(
-                            AttributeValueVariant::String("value".to_string()),
-                            None,
-                        )],
-                        None,
+                        "namespace2",
+                        "name",
+                        vec![AttributeValue::string("value", None)],
+                        &None,
                         false,
                     ),
                 ])

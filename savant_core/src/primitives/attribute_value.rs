@@ -51,8 +51,8 @@ impl AttributeValue {
         Self::new(AttributeValueVariant::IntegerVector(value), confidence)
     }
 
-    pub fn string(value: String, confidence: Option<f32>) -> Self {
-        Self::new(AttributeValueVariant::String(value), confidence)
+    pub fn string(value: &str, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::String(value.to_string()), confidence)
     }
 
     pub fn string_vector(value: Vec<String>, confidence: Option<f32>) -> Self {
@@ -103,8 +103,11 @@ impl AttributeValue {
         Self::new(AttributeValueVariant::None, None)
     }
 
-    pub fn bytes(value: Vec<i64>, confidence: Option<f32>) -> Self {
-        Self::new(AttributeValueVariant::Bytes(value, Vec::new()), confidence)
+    pub fn bytes(dims: &[i64], bytes: &[u8], confidence: Option<f32>) -> Self {
+        Self::new(
+            AttributeValueVariant::Bytes(dims.to_vec(), bytes.to_vec()),
+            confidence,
+        )
     }
 
     pub fn get(&self) -> &AttributeValueVariant {

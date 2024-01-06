@@ -93,8 +93,8 @@ impl Attribute {
     #[staticmethod]
     #[pyo3(signature = (namespace, name , values, hint = None, is_hidden = false))]
     pub fn persistent(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
         hint: Option<String>,
         is_hidden: bool,
@@ -102,7 +102,11 @@ impl Attribute {
         let values =
             unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
         Self(rust::Attribute::persistent(
-            namespace, name, values, hint, is_hidden,
+            namespace,
+            name,
+            values,
+            &hint.as_deref(),
+            is_hidden,
         ))
     }
 
@@ -129,8 +133,8 @@ impl Attribute {
     #[staticmethod]
     #[pyo3(signature = (namespace, name , values, hint = None, is_hidden = false))]
     pub fn temporary(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
         hint: Option<String>,
         is_hidden: bool,
@@ -139,7 +143,11 @@ impl Attribute {
             unsafe { mem::transmute::<Vec<AttributeValue>, Vec<rust::AttributeValue>>(values) };
 
         Self(rust::Attribute::temporary(
-            namespace, name, values, hint, is_hidden,
+            namespace,
+            name,
+            values,
+            &hint.as_deref(),
+            is_hidden,
         ))
     }
 

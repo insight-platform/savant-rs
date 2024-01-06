@@ -1354,14 +1354,14 @@ mod tests {
         ));
 
         object.set_attribute(Attribute::persistent(
-            s("classifier"),
-            s("age-min-max-avg"),
+            "classifier",
+            "age-min-max-avg",
             vec![
                 AttributeValue::new(AttributeValueVariant::Float(10.0), Some(0.7)),
                 AttributeValue::new(AttributeValueVariant::Float(20.0), Some(0.8)),
                 AttributeValue::new(AttributeValueVariant::Float(15.0), None),
             ],
-            Some(s("morphological-classifier")),
+            &Some("morphological-classifier"),
             false,
         ));
 

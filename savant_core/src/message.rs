@@ -413,13 +413,7 @@ mod tests {
     #[test]
     fn test_save_load_frame_with_temp_attributes() {
         let f = gen_frame();
-        let tmp_attr = Attribute::temporary(
-            "chronos".to_string(),
-            "temp".to_string(),
-            vec![],
-            None,
-            false,
-        );
+        let tmp_attr = Attribute::temporary("chronos", "temp", vec![], &None, false);
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);
         f.set_attribute(tmp_attr);
