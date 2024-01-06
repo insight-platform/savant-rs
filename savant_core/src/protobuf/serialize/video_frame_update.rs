@@ -66,12 +66,14 @@ impl From<&VideoFrameUpdate> for generated::VideoFrameUpdate {
         let frame_attributes = vfu
             .get_frame_attributes()
             .iter()
+            .filter(|a| a.is_persistent)
             .map(|a| a.into())
             .collect();
 
         let object_attributes = vfu
             .get_object_attributes()
             .iter()
+            .filter(|oa| oa.1.is_persistent)
             .map(|oa| generated::ObjectAttribute {
                 object_id: oa.0,
                 attribute: Some(generated::Attribute::from(&oa.1)),

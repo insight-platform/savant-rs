@@ -8,12 +8,6 @@ use savant_utils::default_once::DefaultOnceCell;
 #[derive(Clone, Debug, Default)]
 pub struct ReaderConfig(ReaderConfigBuilder);
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Protocol {
-    SavantRs,
-    Protobuf,
-}
-
 impl ReaderConfig {
     #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ReaderConfigBuilder {
@@ -51,10 +45,6 @@ impl ReaderConfig {
     pub fn fix_ipc_permissions(&self) -> &Option<u32> {
         self.0.fix_ipc_permissions.get_or_init()
     }
-
-    pub fn protocol(&self) -> &Protocol {
-        self.0.protocol.get_or_init()
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -67,7 +57,6 @@ pub struct ReaderConfigBuilder {
     topic_prefix_spec: DefaultOnceCell<TopicPrefixSpec>,
     routing_ids_cache_size: DefaultOnceCell<usize>,
     fix_ipc_permissions: DefaultOnceCell<Option<u32>>,
-    protocol: DefaultOnceCell<Protocol>,
 }
 
 impl Default for ReaderConfigBuilder {
@@ -81,7 +70,6 @@ impl Default for ReaderConfigBuilder {
             topic_prefix_spec: DefaultOnceCell::new(TopicPrefixSpec::None),
             routing_ids_cache_size: DefaultOnceCell::new(ROUTING_ID_CACHE_SIZE),
             fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
-            protocol: DefaultOnceCell::new(Protocol::SavantRs),
         }
     }
 }
@@ -105,11 +93,6 @@ impl ReaderConfigBuilder {
                 _ => bail!("Invalid socket type for reader: {:?}", socket_type),
             })?;
         }
-        Ok(self)
-    }
-
-    pub fn with_protocol(self, protocol: Protocol) -> anyhow::Result<Self> {
-        self.protocol.set(protocol)?;
         Ok(self)
     }
 

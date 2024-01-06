@@ -4,14 +4,10 @@ use pyo3::prelude::*;
 
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
+
 use crate::primitives::message::loader::*;
-use crate::primitives::message::loader::{
-    load_message_from_bytebuffer_gil, load_message_from_bytes_gil,
-};
 use crate::primitives::message::saver::*;
-use crate::primitives::message::saver::{
-    save_message_to_bytebuffer_gil, save_message_to_bytes_gil,
-};
+
 use crate::primitives::message::{clear_source_seq_id, Message};
 use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::test::utils::{gen_empty_frame, gen_frame};
@@ -129,17 +125,9 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(save_message_to_bytebuffer_gil, m)?)?;
     m.add_function(wrap_pyfunction!(save_message_to_bytes_gil, m)?)?;
 
-    m.add_function(wrap_pyfunction!(save_pb_message_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(save_pb_message_to_bytebuffer_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(save_pb_message_to_bytes_gil, m)?)?;
-
     m.add_function(wrap_pyfunction!(load_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytebuffer_gil, m)?)?;
     m.add_function(wrap_pyfunction!(load_message_from_bytes_gil, m)?)?;
-
-    m.add_function(wrap_pyfunction!(load_pb_message_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(load_pb_message_from_bytebuffer_gil, m)?)?;
-    m.add_function(wrap_pyfunction!(load_pb_message_from_bytes_gil, m)?)?;
 
     m.add_class::<Message>()?;
     m.add_function(wrap_pyfunction!(clear_source_seq_id, m)?)?;

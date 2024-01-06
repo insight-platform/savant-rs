@@ -15,7 +15,6 @@ use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
 use hashbrown::HashMap;
-use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 use savant_utils::iter::fiter_map_with_control_flow;
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
@@ -24,8 +23,7 @@ use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ExternalFrame {
     pub method: String,
     pub location: Option<String>,
@@ -49,8 +47,7 @@ impl ExternalFrame {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum VideoFrameContent {
     External(ExternalFrame),
     Internal(Vec<u8>),
@@ -71,8 +68,7 @@ impl ToSerdeJsonValue for VideoFrameContent {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum VideoFrameTranscodingMethod {
     Copy,
     Encoded,
@@ -84,8 +80,7 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum VideoFrameTransformation {
     InitialSize(u64, u64),
     Scale(u64, u64),
@@ -112,8 +107,7 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Builder)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, Builder)]
 pub struct VideoFrame {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
@@ -141,7 +135,6 @@ pub struct VideoFrame {
     pub attributes: Vec<Attribute>,
     #[builder(setter(skip))]
     pub(crate) objects: HashMap<i64, VideoObjectProxy>,
-    #[with(Skip)]
     #[builder(setter(skip))]
     pub(crate) max_object_id: i64,
 }
@@ -256,11 +249,9 @@ impl VideoFrame {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct VideoFrameProxy {
-    #[with(Lock)]
     pub(crate) inner: SavantArcRwLock<Box<VideoFrame>>,
 }
 

@@ -3,24 +3,11 @@ use crate::primitives::{Intersection, IntersectionKind, Segment};
 use anyhow::bail;
 use geo::line_intersection::line_intersection;
 use geo::{Contains, EuclideanDistance, Line, LineIntersection, LineString};
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    Default,
-    Clone,
-    PartialEq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PolygonalArea {
     pub(crate) vertices: Vec<Point>,
     pub(crate) tags: Option<Vec<Option<String>>>,
-    #[with(Skip)]
     #[serde(skip_deserializing, skip_serializing)]
     polygon: Option<geo::Polygon>,
 }
@@ -251,48 +238,6 @@ mod tests {
         assert_eq!(
             PolygonalArea::points_positions(&mut vec![area1, area2], &vec![p1, p2, p3]),
             vec![vec![true, true, false], vec![false, false, false]]
-        )
-    }
-
-    #[test]
-    fn archive() {
-        let area = PolygonalArea::new(
-            get_square_area(0.0, 0.0, 2.0),
-            Some(vec![Some("1".into()), None, None, None]),
-        );
-        let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
-        let area2 = rkyv::from_bytes::<PolygonalArea>(&bytes[..]);
-        assert!(area2.is_ok());
-        assert_eq!(area2.as_ref().unwrap().vertices, area.vertices);
-        assert_eq!(
-            area2.as_ref().unwrap().tags.as_ref().unwrap(),
-            &vec![Some("1".into()), None, None, None]
-        );
-
-        let area_err = rkyv::from_bytes::<PolygonalArea>(vec![].as_slice());
-        assert!(area_err.is_err());
-
-        let area_err = rkyv::from_bytes::<PolygonalArea>(vec![1, 2, 3].as_slice());
-        assert!(area_err.is_err());
-    }
-
-    #[test]
-    fn contains_after_archive() {
-        let area = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
-
-        let bytes = rkyv::to_bytes::<_, 256>(&area).unwrap();
-        let area = rkyv::from_bytes::<PolygonalArea>(&bytes[..]).unwrap();
-        let p1 = Point::new(0.0, 0.0);
-        assert!(area.clone().contains(&p1));
-
-        assert_eq!(
-            area.clone().contains_many_points(&vec![p1.clone()]),
-            vec![true]
-        );
-
-        assert_eq!(
-            PolygonalArea::points_positions(&mut vec![area], &vec![p1]),
-            vec![vec![true]]
         )
     }
 

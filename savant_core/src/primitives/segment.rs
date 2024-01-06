@@ -1,10 +1,6 @@
 use crate::primitives::point::Point;
-use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Segment {
     pub begin: Point,
     pub end: Point,
@@ -16,10 +12,7 @@ impl Segment {
     }
 }
 
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum IntersectionKind {
     Enter,
     Inside,
@@ -28,10 +21,7 @@ pub enum IntersectionKind {
     Outside,
 }
 
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Intersection {
     pub kind: IntersectionKind,
     pub edges: Vec<(usize, Option<String>)>,

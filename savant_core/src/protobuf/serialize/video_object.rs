@@ -52,6 +52,7 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
         let attributes = obj
             .attributes
             .iter()
+            .filter(|a| a.is_persistent)
             .map(Attribute::try_from)
             .collect::<Result<Vec<Attribute>, _>>()?;
 

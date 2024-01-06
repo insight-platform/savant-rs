@@ -21,38 +21,41 @@ impl From<&VideoFrameProxy> for generated::VideoFrame {
 
 impl From<&Box<VideoFrame>> for generated::VideoFrame {
     fn from(video_frame: &Box<VideoFrame>) -> Self {
-        let mut copy = video_frame.smart_copy();
-        copy.exclude_all_temporary_attributes();
-
-        let objects = copy
+        let objects = video_frame
             .get_objects()
             .values()
             .map(generated::VideoObject::from)
             .collect();
 
         generated::VideoFrame {
-            previous_frame_seq_id: copy.previous_frame_seq_id,
-            source_id: copy.source_id.clone(),
-            uuid: Uuid::from_u128(copy.uuid).to_string(),
-            creation_timestamp_ns_high: (copy.creation_timestamp_ns >> 64) as u64,
-            creation_timestamp_ns_low: (copy.creation_timestamp_ns & 0xFFFFFFFFFFFFFFFF) as u64,
-            framerate: copy.framerate.clone(),
-            width: copy.width,
-            height: copy.height,
+            previous_frame_seq_id: video_frame.previous_frame_seq_id,
+            source_id: video_frame.source_id.clone(),
+            uuid: Uuid::from_u128(video_frame.uuid).to_string(),
+            creation_timestamp_ns_high: (video_frame.creation_timestamp_ns >> 64) as u64,
+            creation_timestamp_ns_low: (video_frame.creation_timestamp_ns & 0xFFFFFFFFFFFFFFFF)
+                as u64,
+            framerate: video_frame.framerate.clone(),
+            width: video_frame.width,
+            height: video_frame.height,
             transcoding_method: generated::VideoFrameTranscodingMethod::from(
-                &copy.transcoding_method,
+                &video_frame.transcoding_method,
             ) as i32,
-            codec: copy.codec.clone(),
-            keyframe: copy.keyframe,
-            time_base_numerator: copy.time_base.0,
-            time_base_denominator: copy.time_base.1,
-            pts: copy.pts,
-            dts: copy.dts,
-            duration: copy.duration,
-            attributes: copy.attributes.iter().map(|a| a.into()).collect(),
+            codec: video_frame.codec.clone(),
+            keyframe: video_frame.keyframe,
+            time_base_numerator: video_frame.time_base.0,
+            time_base_denominator: video_frame.time_base.1,
+            pts: video_frame.pts,
+            dts: video_frame.dts,
+            duration: video_frame.duration,
+            attributes: video_frame
+                .attributes
+                .iter()
+                .filter(|a| a.is_persistent)
+                .map(|a| a.into())
+                .collect(),
             objects,
-            content: Some((&*copy.content).into()),
-            transformations: copy
+            content: Some((&*video_frame.content).into()),
+            transformations: video_frame
                 .transformations
                 .iter()
                 .map(generated::VideoFrameTransformation::from)

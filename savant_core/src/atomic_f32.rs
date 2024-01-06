@@ -1,9 +1,7 @@
-use rkyv::{with::Atomic, Archive, Deserialize, Serialize};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-#[derive(Archive, Deserialize, Serialize, Debug, serde::Serialize, serde::Deserialize)]
-#[archive(check_bytes)]
-pub struct AtomicF32(#[with(Atomic)] AtomicU32);
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct AtomicF32(AtomicU32);
 
 impl PartialEq for AtomicF32 {
     fn eq(&self, other: &Self) -> bool {

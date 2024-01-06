@@ -1,5 +1,4 @@
 use crate::message::Message;
-use crate::transport::zeromq::reader_config::Protocol;
 use crate::transport::zeromq::{
     ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket, CONFIRMATION_MESSAGE,
     END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
@@ -265,10 +264,7 @@ impl Reader {
 
         if self.routing_id_filter.allow(topic, &routing_id) {
             Ok(ReaderResult::Message {
-                message: Box::new(match self.config.protocol() {
-                    Protocol::SavantRs => crate::message::load_message(&message[1]),
-                    Protocol::Protobuf => crate::protobuf::deserialize(&message[1])?,
-                }),
+                message: Box::new(crate::protobuf::deserialize(&message[1])?),
                 topic: topic.to_vec(),
                 routing_id: routing_id.cloned(),
                 data: if message.len() > 2 {
@@ -309,7 +305,7 @@ mod tests {
 
             let mut reader = Reader::new(&conf)?;
             let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
-            let binary = crate::message::save_message(&message);
+            let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket
@@ -425,7 +421,7 @@ mod tests {
                 .build()?;
 
             let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
-            let binary = crate::message::save_message(&message);
+            let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::new(&conf)?;
             reader
@@ -474,7 +470,7 @@ mod tests {
                 .build()?;
 
             let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
-            let binary = crate::message::save_message(&message);
+            let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::new(&conf)?;
             reader
@@ -520,7 +516,7 @@ mod tests {
                 .unwrap();
 
             let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
-            let binary = crate::message::save_message(&message);
+            let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::new(&conf).unwrap();
             reader
@@ -562,7 +558,7 @@ mod tests {
 
             let mut reader = Reader::new(&conf)?;
             let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
-            let binary = crate::message::save_message(&message);
+            let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket

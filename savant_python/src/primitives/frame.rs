@@ -603,7 +603,7 @@ impl VideoFrame {
             .iter()
             .map(|v| v.as_deref())
             .collect::<Vec<Option<&str>>>();
-        let hint_refs = hint_opts_refs.iter().map(|v| v).collect::<Vec<_>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
 
         self.0.delete_attributes_with_hints(&hint_refs)
     }

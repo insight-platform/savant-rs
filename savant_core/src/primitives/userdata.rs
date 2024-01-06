@@ -1,10 +1,8 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, Attributive};
-use rkyv::{Archive, Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct UserData {
     pub source_id: String,
     pub attributes: Vec<Attribute>,

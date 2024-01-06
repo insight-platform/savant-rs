@@ -1,22 +1,15 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
 use crate::trace;
-use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(
-    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
     ErrorIfLabelsCollide,
     ReplaceSameLabelObjects,
 }
 
-#[derive(
-    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeign,
     KeepOwn,
@@ -27,8 +20,7 @@ pub enum AttributeUpdatePolicy {
 ///
 /// It contains a list of attributes and a list of objects.
 ///
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VideoFrameUpdate {
     pub(crate) frame_attributes: Vec<Attribute>,
     pub(crate) object_attributes: Vec<(i64, Attribute)>,

@@ -7,7 +7,6 @@ use crate::EPS;
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
 use lazy_static::lazy_static;
-use rkyv::{with::Atomic, with::Lock, Archive, Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,9 +31,8 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug)]
-#[archive(check_bytes)]
-pub struct RBBoxAngle(#[with(Lock)] SavantRwLock<Option<f32>>);
+#[derive(Debug)]
+pub struct RBBoxAngle(SavantRwLock<Option<f32>>);
 
 impl RBBoxAngle {
     pub fn new(angle: Option<f32>) -> Self {
@@ -57,15 +55,13 @@ impl Clone for RBBoxAngle {
     }
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, serde::Serialize, serde::Deserialize)]
-#[archive(check_bytes)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RBBoxData {
     pub xc: AtomicF32,
     pub yc: AtomicF32,
     pub width: AtomicF32,
     pub height: AtomicF32,
     pub angle: RBBoxAngle,
-    #[with(Atomic)]
     pub has_modifications: AtomicBool,
 }
 
@@ -143,8 +139,7 @@ impl From<&RBBox> for RBBoxData {
 
 /// Represents a bounding box with an optional rotation angle in degrees.
 ///
-#[derive(Debug, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct RBBox(Arc<RBBoxData>);
 
 impl PartialEq for RBBox {

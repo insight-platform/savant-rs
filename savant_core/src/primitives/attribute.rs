@@ -1,6 +1,5 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::attribute_value::AttributeValue;
-use rkyv::{Archive, Deserialize, Serialize};
 use std::mem;
 use std::sync::Arc;
 
@@ -13,18 +12,8 @@ use std::sync::Arc;
 /// list is :class:`AttributeValue`.
 ///
 #[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    derive_builder::Builder,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, Clone, derive_builder::Builder, Default, serde::Serialize, serde::Deserialize,
 )]
-#[archive(check_bytes)]
 pub struct Attribute {
     pub namespace: String,
     pub name: String,

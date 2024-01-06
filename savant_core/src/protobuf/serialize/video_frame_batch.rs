@@ -4,10 +4,8 @@ use crate::protobuf::{generated, serialize};
 
 impl From<&VideoFrameBatch> for generated::VideoFrameBatch {
     fn from(batch: &VideoFrameBatch) -> Self {
-        let mut copy = batch.smart_copy();
-        copy.exclude_all_temporary_attributes();
         generated::VideoFrameBatch {
-            batch: copy
+            batch: batch
                 .frames()
                 .iter()
                 .map(|(id, f)| (*id, generated::VideoFrame::from(f)))

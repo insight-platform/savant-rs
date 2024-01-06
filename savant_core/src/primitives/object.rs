@@ -1,6 +1,5 @@
 use anyhow::bail;
 use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
-use rkyv::{with::Lock, with::Skip, Archive, Deserialize, Serialize};
 
 use super::bbox::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
@@ -31,16 +30,7 @@ pub enum IdCollisionResolutionPolicy {
     Error,
 }
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    derive_builder::Builder,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, derive_builder::Builder, serde::Serialize, serde::Deserialize)]
 pub struct VideoObject {
     pub(crate) id: i64,
     pub(crate) namespace: String,
@@ -58,13 +48,10 @@ pub struct VideoObject {
     pub(crate) track_box: Option<RBBox>,
     #[builder(default)]
     pub(crate) track_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     pub(crate) namespace_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     pub(crate) label_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     #[serde(skip_deserializing, skip_serializing)]
     pub(crate) frame: Option<BelongingVideoFrame>,
@@ -147,9 +134,8 @@ impl VideoObject {
 ///
 /// :py:class:`VideoObject` is a part of :py:class:`VideoFrame` and may outlive it if there are references.
 ///
-#[derive(Debug, Clone, Archive, Deserialize, Serialize)]
-#[archive(check_bytes)]
-pub struct VideoObjectProxy(#[with(Lock)] pub(crate) SavantArcRwLock<VideoObject>);
+#[derive(Debug, Clone)]
+pub struct VideoObjectProxy(pub(crate) SavantArcRwLock<VideoObject>);
 
 impl ToSerdeJsonValue for VideoObjectProxy {
     fn to_serde_json_value(&self) -> Value {

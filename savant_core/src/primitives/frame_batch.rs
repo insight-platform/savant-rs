@@ -1,11 +1,9 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::object::VideoObjectProxy;
-use rkyv::{Archive, Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, Default)]
 pub struct VideoFrameBatch {
     pub(crate) frames: HashMap<i64, VideoFrameProxy>,
 }

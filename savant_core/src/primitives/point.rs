@@ -1,9 +1,4 @@
-use rkyv::{Archive, Deserialize, Serialize};
-
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub x: f32,
     pub y: f32,

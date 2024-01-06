@@ -1,12 +1,9 @@
 use parking_lot::Mutex;
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
 use std::any::Any;
 use std::sync::Arc;
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AnyObject {
-    #[with(Skip)]
     #[serde(skip_deserializing, skip_serializing)]
     pub value: Arc<Mutex<Option<Box<dyn Any + Send>>>>,
 }

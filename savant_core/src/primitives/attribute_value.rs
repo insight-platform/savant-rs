@@ -1,19 +1,7 @@
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::{Intersection, Point, PolygonalArea, RBBoxData};
-use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum AttributeValueVariant {
     Bytes(Vec<i64>, Vec<u8>),
     String(String),
@@ -36,18 +24,7 @@ pub enum AttributeValueVariant {
     None,
 }
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AttributeValue {
     pub confidence: Option<f32>,
     pub value: AttributeValueVariant,

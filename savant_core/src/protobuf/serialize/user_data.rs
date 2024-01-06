@@ -24,6 +24,7 @@ impl TryFrom<&generated::UserData> for UserData {
         let attributes = value
             .attributes
             .iter()
+            .filter(|a| a.is_persistent)
             .map(Attribute::try_from)
             .collect::<Result<_, _>>()?;
 
