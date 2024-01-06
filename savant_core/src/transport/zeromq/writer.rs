@@ -1,8 +1,8 @@
 use crate::message::Message;
 use crate::protobuf::serialize;
 use crate::transport::zeromq::{
-    create_ipc_dirs, set_ipc_permissions, Socket, WriterConfig, WriterSocketType,
-    END_OF_STREAM_MESSAGE, ZMQ_LINGER,
+    create_ipc_dirs, set_ipc_permissions, Socket, SocketCompanion, WriterConfig, WriterSocketType,
+    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
@@ -11,7 +11,7 @@ use log::{debug, info, warn};
 pub struct Writer {
     context: Option<zmq::Context>,
     config: WriterConfig,
-    socket: Option<Socket>,
+    socket: Option<Socket<MockWriterCompanion>>,
 }
 
 impl From<&WriterSocketType> for zmq::SocketType {
@@ -35,21 +35,44 @@ pub enum WriterResult {
     Success(u128),
 }
 
+#[derive(Default)]
+struct MockWriterCompanion;
+
+impl SocketCompanion for MockWriterCompanion {
+    fn modify_data(&mut self, data: &mut Vec<Vec<u8>>) {
+        if data.len() == 2 && data[1] == END_OF_STREAM_MESSAGE {
+            data.pop();
+            data.push(CONFIRMATION_MESSAGE.to_vec());
+        } else if data.len() == 1 && data[0] == END_OF_STREAM_MESSAGE {
+            data.clear();
+            data.push(CONFIRMATION_MESSAGE.to_vec());
+        } else {
+            panic!("Unexpected situation: {:?}", data)
+        }
+    }
+}
+
 #[cfg(not(test))]
-fn new_socket(config: &WriterConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
+fn new_socket(
+    config: &WriterConfig,
+    context: &zmq::Context,
+) -> anyhow::Result<Socket<MockWriterCompanion>> {
     Ok(Socket::ZmqSocket(
         context.socket(config.socket_type().into())?,
     ))
 }
 #[cfg(test)]
-fn new_socket(_config: &WriterConfig, _context: &zmq::Context) -> anyhow::Result<Socket> {
+fn new_socket(
+    _config: &WriterConfig,
+    _context: &zmq::Context,
+) -> anyhow::Result<Socket<MockWriterCompanion>> {
     Ok(Socket::MockSocket(vec![]))
 }
 
 impl Writer {
     pub fn new(config: &WriterConfig) -> anyhow::Result<Self> {
         let context = zmq::Context::new();
-        let socket: Socket = new_socket(config, &context)?;
+        let socket = new_socket(config, &context)?;
 
         socket.set_sndhwm(*config.send_hwm())?;
         socket.set_sndtimeo(*config.send_timeout())?;
@@ -170,4 +193,11 @@ impl Writer {
         debug!("Message sent to ZeroMQ socket. Time spent: {} ms", spent);
         Ok(WriterResult::Success(spent))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    mod tests_with_response {}
+
+    mod tests_without_response {}
 }

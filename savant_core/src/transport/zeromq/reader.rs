@@ -1,7 +1,7 @@
 use crate::message::Message;
 use crate::transport::zeromq::{
-    create_ipc_dirs, set_ipc_permissions, ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket,
-    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
+    create_ipc_dirs, set_ipc_permissions, NoopCompanion, ReaderConfig, ReaderSocketType,
+    RoutingIdFilter, Socket, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
@@ -10,7 +10,7 @@ use log::{debug, info, warn};
 pub struct Reader {
     context: Option<zmq::Context>,
     config: ReaderConfig,
-    socket: Option<Socket>,
+    socket: Option<Socket<NoopCompanion>>,
     routing_id_filter: RoutingIdFilter,
 }
 
@@ -83,20 +83,26 @@ impl ReaderResult {
 }
 
 #[cfg(not(test))]
-fn new_socket(config: &ReaderConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
+fn new_socket(
+    config: &ReaderConfig,
+    context: &zmq::Context,
+) -> anyhow::Result<Socket<NoopCompanion>> {
     Ok(Socket::ZmqSocket(
         context.socket(config.socket_type().into())?,
     ))
 }
 #[cfg(test)]
-fn new_socket(_config: &ReaderConfig, _context: &zmq::Context) -> anyhow::Result<Socket> {
-    Ok(Socket::MockSocket(vec![]))
+fn new_socket(
+    _config: &ReaderConfig,
+    _context: &zmq::Context,
+) -> anyhow::Result<Socket<NoopCompanion>> {
+    Ok(Socket::MockSocket(vec![], NoopCompanion))
 }
 
 impl Reader {
     pub fn new(config: &ReaderConfig) -> anyhow::Result<Self> {
         let context = zmq::Context::new();
-        let socket: Socket = new_socket(config, &context)?;
+        let socket = new_socket(config, &context)?;
 
         socket.set_rcvhwm(*config.receive_hwm())?;
         socket.set_rcvtimeo(*config.receive_timeout())?;
