@@ -1,7 +1,7 @@
 use crate::message::Message;
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, ReaderConfig, ReaderSocketType, RoutingIdFilter, Socket,
-    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_ACK_LINGER,
+    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
@@ -82,25 +82,25 @@ impl ReaderResult {
     }
 }
 
-impl Reader {
-    #[cfg(not(test))]
-    fn new_socket(config: &ReaderConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
-        Ok(Socket::ZmqSocket(
-            context.socket(config.socket_type().into())?,
-        ))
-    }
-    #[cfg(test)]
-    fn new_socket(_config: &ReaderConfig, _context: &zmq::Context) -> anyhow::Result<Socket> {
-        Ok(Socket::MockSocket(vec![]))
-    }
+#[cfg(not(test))]
+fn new_socket(config: &ReaderConfig, context: &zmq::Context) -> anyhow::Result<Socket> {
+    Ok(Socket::ZmqSocket(
+        context.socket(config.socket_type().into())?,
+    ))
+}
+#[cfg(test)]
+fn new_socket(_config: &ReaderConfig, _context: &zmq::Context) -> anyhow::Result<Socket> {
+    Ok(Socket::MockSocket(vec![]))
+}
 
+impl Reader {
     pub fn new(config: &ReaderConfig) -> anyhow::Result<Self> {
         let context = zmq::Context::new();
-        let socket: Socket = Self::new_socket(config, &context)?;
+        let socket: Socket = new_socket(config, &context)?;
 
         socket.set_rcvhwm(*config.receive_hwm())?;
         socket.set_rcvtimeo(*config.receive_timeout())?;
-        socket.set_linger(ZMQ_ACK_LINGER)?;
+        socket.set_linger(ZMQ_LINGER)?;
         socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
 
         if !TEST_ENV && config.endpoint().starts_with("ipc://") {
@@ -193,7 +193,9 @@ impl Reader {
         } else {
             (None, &parts[..])
         };
-        if message[0] == END_OF_STREAM_MESSAGE {
+        if message[0] == END_OF_STREAM_MESSAGE
+            && self.config.socket_type() != &ReaderSocketType::Sub
+        {
             debug!(
                 "Received end of stream message from ZeroMQ socket for endpoint {}",
                 self.config.endpoint()

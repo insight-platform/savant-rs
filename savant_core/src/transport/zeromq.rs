@@ -13,6 +13,7 @@ pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;
 use std::os::unix::fs::PermissionsExt;
+pub use writer::{Writer, WriterResult};
 pub use writer_config::{WriterConfig, WriterConfigBuilder};
 
 const RECEIVE_TIMEOUT: i32 = 1000;
@@ -20,7 +21,6 @@ const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
 const RECEIVE_HWM: i32 = 50;
 const SEND_HWM: i32 = 50;
 const REQ_RECEIVE_RETRIES: i32 = 3;
-const EOS_CONFIRMATION_RETRIES: usize = 3;
 const SEND_TIMEOUT: i32 = 5000;
 const ROUTING_ID_CACHE_SIZE: usize = 512;
 
@@ -28,7 +28,7 @@ const CONFIRMATION_MESSAGE: &[u8] = b"OK";
 const END_OF_STREAM_MESSAGE: &[u8] = b"EOS";
 const IPC_PERMISSIONS: u32 = 0o777;
 
-const ZMQ_ACK_LINGER: i32 = 100;
+const ZMQ_LINGER: i32 = 100;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReaderSocketType {
@@ -216,7 +216,7 @@ enum Socket {
 
 #[allow(dead_code)]
 impl Socket {
-    fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> anyhow::Result<()> {
+    fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> Result<(), zmq::Error> {
         match self {
             Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags).map_err(|e| e.into()),
             Socket::MockSocket(data) => {
@@ -227,7 +227,7 @@ impl Socket {
         }
     }
 
-    fn send(&mut self, m: &[u8], flags: i32) -> anyhow::Result<()> {
+    fn send(&mut self, m: &[u8], flags: i32) -> Result<(), zmq::Error> {
         match self {
             Socket::ZmqSocket(socket) => socket.send(m, flags).map_err(|e| e.into()),
             Socket::MockSocket(data) => {
@@ -252,9 +252,23 @@ impl Socket {
         }
     }
 
+    fn set_sndhwm(&self, hwm: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_sndhwm(hwm).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
     fn set_rcvtimeo(&self, timeout: i32) -> anyhow::Result<()> {
         match self {
             Socket::ZmqSocket(socket) => socket.set_rcvtimeo(timeout).map_err(|e| e.into()),
+            Socket::MockSocket(_) => Ok(()),
+        }
+    }
+
+    fn set_sndtimeo(&self, timeout: i32) -> anyhow::Result<()> {
+        match self {
+            Socket::ZmqSocket(socket) => socket.set_sndtimeo(timeout).map_err(|e| e.into()),
             Socket::MockSocket(_) => Ok(()),
         }
     }
