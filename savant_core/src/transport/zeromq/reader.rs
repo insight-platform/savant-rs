@@ -1,6 +1,6 @@
 use crate::message::Message;
 use crate::transport::zeromq::{
-    create_ipc_dirs, set_ipc_permissions, NoopCompanion, ReaderConfig, ReaderSocketType,
+    create_ipc_dirs, set_ipc_permissions, NoopResponder, ReaderConfig, ReaderSocketType,
     RoutingIdFilter, Socket, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
@@ -10,7 +10,7 @@ use log::{debug, info, warn};
 pub struct Reader {
     context: Option<zmq::Context>,
     config: ReaderConfig,
-    socket: Option<Socket<NoopCompanion>>,
+    socket: Option<Socket<NoopResponder>>,
     routing_id_filter: RoutingIdFilter,
 }
 
@@ -86,7 +86,7 @@ impl ReaderResult {
 fn new_socket(
     config: &ReaderConfig,
     context: &zmq::Context,
-) -> anyhow::Result<Socket<NoopCompanion>> {
+) -> anyhow::Result<Socket<NoopResponder>> {
     Ok(Socket::ZmqSocket(
         context.socket(config.socket_type().into())?,
     ))
@@ -95,8 +95,8 @@ fn new_socket(
 fn new_socket(
     _config: &ReaderConfig,
     _context: &zmq::Context,
-) -> anyhow::Result<Socket<NoopCompanion>> {
-    Ok(Socket::MockSocket(vec![], NoopCompanion))
+) -> anyhow::Result<Socket<NoopResponder>> {
+    Ok(Socket::MockSocket(vec![], NoopResponder))
 }
 
 impl Reader {

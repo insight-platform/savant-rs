@@ -208,32 +208,32 @@ impl RoutingIdFilter {
     }
 }
 
-trait SocketCompanion
+trait MockSocketResponder
 where
     Self: Sized,
 {
-    fn modify_data(&mut self, _: &mut Vec<Vec<u8>>) {}
+    fn respond(&mut self, _: &mut Vec<Vec<u8>>) {}
 }
 
 #[derive(Default)]
-struct NoopCompanion;
-impl SocketCompanion for NoopCompanion {}
+struct NoopResponder;
+impl MockSocketResponder for NoopResponder {}
 
 #[allow(dead_code)]
-enum Socket<C: SocketCompanion> {
+enum Socket<C: MockSocketResponder> {
     ZmqSocket(zmq::Socket),
     MockSocket(Vec<Vec<u8>>, C),
 }
 
 #[allow(dead_code)]
-impl<C: SocketCompanion> Socket<C> {
+impl<C: MockSocketResponder> Socket<C> {
     fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> Result<(), zmq::Error> {
         match self {
             Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags).map_err(|e| e.into()),
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.extend(parts.iter().map(|p| p.to_vec()));
-                c.modify_data(data);
+                c.respond(data);
                 Ok(())
             }
         }
@@ -245,7 +245,7 @@ impl<C: SocketCompanion> Socket<C> {
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.push(m.to_vec());
-                c.modify_data(data);
+                c.respond(data);
                 Ok(())
             }
         }

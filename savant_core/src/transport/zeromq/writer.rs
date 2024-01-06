@@ -1,8 +1,8 @@
 use crate::message::Message;
 use crate::protobuf::serialize;
 use crate::transport::zeromq::{
-    create_ipc_dirs, set_ipc_permissions, Socket, SocketCompanion, WriterConfig, WriterSocketType,
-    CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
+    create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, WriterConfig,
+    WriterSocketType, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
@@ -11,7 +11,7 @@ use log::{debug, info, warn};
 pub struct Writer {
     context: Option<zmq::Context>,
     config: WriterConfig,
-    socket: Option<Socket<WriterCompanion>>,
+    socket: Option<Socket<MockResponder>>,
 }
 
 impl From<&WriterSocketType> for zmq::SocketType {
@@ -36,11 +36,11 @@ pub enum WriterResult {
 }
 
 #[derive(Default)]
-struct WriterCompanion;
+struct MockResponder;
 
 #[cfg(test)]
-impl SocketCompanion for WriterCompanion {
-    fn modify_data(&mut self, data: &mut Vec<Vec<u8>>) {
+impl MockSocketResponder for MockResponder {
+    fn respond(&mut self, data: &mut Vec<Vec<u8>>) {
         if data.len() == 2 && data[1] == END_OF_STREAM_MESSAGE {
             data.pop();
             data.push(CONFIRMATION_MESSAGE.to_vec());
@@ -53,13 +53,13 @@ impl SocketCompanion for WriterCompanion {
     }
 }
 #[cfg(not(test))]
-impl SocketCompanion for WriterCompanion {}
+impl MockSocketResponder for MockResponder {}
 
 #[cfg(not(test))]
 fn new_socket(
     config: &WriterConfig,
     context: &zmq::Context,
-) -> anyhow::Result<Socket<WriterCompanion>> {
+) -> anyhow::Result<Socket<MockResponder>> {
     Ok(Socket::ZmqSocket(
         context.socket(config.socket_type().into())?,
     ))
@@ -68,8 +68,8 @@ fn new_socket(
 fn new_socket(
     _config: &WriterConfig,
     _context: &zmq::Context,
-) -> anyhow::Result<Socket<WriterCompanion>> {
-    Ok(Socket::MockSocket(vec![]))
+) -> anyhow::Result<Socket<MockResponder>> {
+    Ok(Socket::MockSocket(vec![], MockResponder {}))
 }
 
 impl Writer {
