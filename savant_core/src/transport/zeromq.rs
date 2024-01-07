@@ -526,7 +526,7 @@ mod integration_tests {
         let m = Message::video_frame(&gen_frame());
         let res = writer.send_message(b"test", &m, &[])?;
         assert!(
-            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+            matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
         let res = rx.recv().unwrap()?;
         assert!(
@@ -535,7 +535,7 @@ mod integration_tests {
         );
         let res = writer.send_eos(b"test")?;
         assert!(
-            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+            matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
         let res = rx.recv().unwrap()?;
         assert!(
@@ -574,7 +574,13 @@ mod integration_tests {
 
         let m = Message::video_frame(&gen_frame());
         let res = writer.send_message(b"test", &m, &[])?;
-        assert!(matches!(res, WriterResult::Success(_)));
+        assert!(matches!(
+            res,
+            WriterResult::Success {
+                retries_spent: _,
+                time_spent: _
+            }
+        ));
         let res = rx.recv().unwrap()?;
         assert!(
             matches!(res, ReaderResult::Message {message,topic,routing_id,data}
@@ -582,7 +588,7 @@ mod integration_tests {
         );
         let res = writer.send_eos(b"test")?;
         assert!(
-            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+            matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
         let res = rx.recv().unwrap()?;
         assert!(
@@ -645,14 +651,14 @@ mod integration_tests {
         });
         let m = Message::video_frame(&gen_frame());
         let res = writer.send_message(b"test", &m, &[])?;
-        assert!(matches!(res, WriterResult::Success(_)));
+        assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(
             matches!(res, ReaderResult::Message {message,topic,routing_id,data}
                 if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_none() && data.is_empty())
         );
         let res = writer.send_eos(b"test")?;
-        assert!(matches!(res, WriterResult::Success(_)));
+        assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(
             matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())

@@ -29,10 +29,14 @@ pub enum WriterResult {
     SendTimeout,
     AckTimeout(u128),
     Ack {
+        send_retries_spent: i32,
+        receive_retries_spent: i32,
+        time_spent: u128,
+    },
+    Success {
         retries_spent: i32,
         time_spent: u128,
     },
-    Success(u128),
 }
 
 #[derive(Default)]
@@ -204,7 +208,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                     }
                 }
                 return Ok(WriterResult::Ack {
-                    retries_spent: *self.config.receive_retries() - receive_retries,
+                    send_retries_spent: *self.config.send_retries() - send_retries,
+                    receive_retries_spent: *self.config.receive_retries() - receive_retries,
                     time_spent: start.elapsed().as_millis(),
                 });
             }
@@ -214,7 +219,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         debug!(
             target: "savant_rs::zeromq::writer",
             "Message sent to ZeroMQ socket. Time spent: {} ms", spent);
-        Ok(WriterResult::Success(spent))
+        Ok(WriterResult::Success {
+            retries_spent: *self.config.send_retries() - send_retries,
+            time_spent: spent,
+        })
     }
 }
 
@@ -237,9 +245,10 @@ mod tests {
             )?;
             let res = writer.send_eos(b"test")?;
             assert!(matches!(res, WriterResult::Ack {
-                retries_spent,
+                receive_retries_spent,
+                send_retries_spent,
                 time_spent: _
-            } if retries_spent == 0));
+            } if receive_retries_spent == 0 && send_retries_spent == 0));
             Ok(())
         }
         #[test]
@@ -252,9 +261,10 @@ mod tests {
             )?;
             let res = writer.send_eos(b"test")?;
             assert!(matches!(res, WriterResult::Ack {
-                retries_spent,
+                receive_retries_spent,
+                send_retries_spent,
                 time_spent: _
-            } if retries_spent == 0));
+            } if receive_retries_spent == 0 && send_retries_spent == 0));
             Ok(())
         }
         #[test]
@@ -268,9 +278,10 @@ mod tests {
             let m = Message::video_frame(&gen_frame());
             let res = writer.send_message(b"test", &m, &[b"abc"])?;
             assert!(matches!(res, WriterResult::Ack {
-                retries_spent,
+                receive_retries_spent,
+                send_retries_spent,
                 time_spent: _
-            } if retries_spent == 0));
+            } if receive_retries_spent == 0 && send_retries_spent == 0));
             Ok(())
         }
     }
@@ -291,7 +302,10 @@ mod tests {
             )?;
             let m = Message::video_frame(&gen_frame());
             let res = writer.send_message(b"test", &m, &[b"abc"])?;
-            assert!(matches!(res, WriterResult::Success(_)));
+            assert!(matches!(res, WriterResult::Success {
+                retries_spent,
+                time_spent: _
+            } if retries_spent == 0));
             Ok(())
         }
     }
