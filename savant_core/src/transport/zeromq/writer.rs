@@ -4,7 +4,6 @@ use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, SocketProvider,
     WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
-use crate::TEST_ENV;
 use anyhow::bail;
 use log::{debug, info, warn};
 
@@ -66,17 +65,20 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         socket.set_sndtimeo(*config.send_timeout())?;
         socket.set_linger(ZMQ_LINGER)?;
 
-        if !TEST_ENV && config.endpoint().starts_with("ipc://") {
+        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
             create_ipc_dirs(config.endpoint())?;
-            if let Some(permissions) = config.fix_ipc_permissions() {
-                set_ipc_permissions(config.endpoint(), *permissions)?;
-            }
         }
 
         if *config.bind() {
             socket.bind(config.endpoint())?;
         } else {
             socket.connect(config.endpoint())?;
+        }
+
+        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
+            if let Some(permissions) = config.fix_ipc_permissions() {
+                set_ipc_permissions(config.endpoint(), *permissions)?;
+            }
         }
 
         Ok(Self {

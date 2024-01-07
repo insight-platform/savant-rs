@@ -96,7 +96,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         socket.set_rcvhwm(*config.receive_hwm())?;
         socket.set_rcvtimeo(*config.receive_timeout())?;
         socket.set_linger(ZMQ_LINGER)?;
-        socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
+
+        if config.socket_type() == &ReaderSocketType::Sub {
+            socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
+        }
 
         if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
             create_ipc_dirs(config.endpoint())?;
@@ -197,20 +200,19 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             (None, &parts[0], &parts[1..])
         };
 
-        if message[0] == END_OF_STREAM_MESSAGE
-            && self.config.socket_type() != &ReaderSocketType::Sub
-        {
-            debug!(
-                target: "savant_rs::zeromq::reader",
-                "Received end of stream message from ZeroMQ socket for endpoint {}",
-                self.config.endpoint()
-            );
-            if let Some(routing_id) = routing_id {
-                socket.send_multipart(&[routing_id, CONFIRMATION_MESSAGE], 0)?;
-            } else {
-                socket.send(CONFIRMATION_MESSAGE, 0)?;
+        if message[0] == END_OF_STREAM_MESSAGE {
+            if self.config.socket_type() != &ReaderSocketType::Sub {
+                debug!(
+                    target: "savant_rs::zeromq::reader",
+                    "Received end of stream message from ZeroMQ socket for endpoint {}",
+                    self.config.endpoint()
+                );
+                if let Some(routing_id) = routing_id {
+                    socket.send_multipart(&[routing_id, CONFIRMATION_MESSAGE], 0)?;
+                } else {
+                    socket.send(CONFIRMATION_MESSAGE, 0)?;
+                }
             }
-
             return Ok(ReaderResult::end_of_stream(topic, &routing_id));
         }
 

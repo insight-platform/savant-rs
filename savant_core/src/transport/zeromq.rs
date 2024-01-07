@@ -316,9 +316,9 @@ impl<C: MockSocketResponder> Socket<C> {
     }
 
     fn set_subscribe(&self, prefix: &[u8]) -> anyhow::Result<()> {
-        if prefix.is_empty() {
-            return Ok(());
-        }
+        // if prefix.is_empty() {
+        //     return Ok(());
+        // }
         match self {
             Socket::ZmqSocket(socket) => socket.set_subscribe(prefix).map_err(|e| e.into()),
             Socket::MockSocket(_, _) => Ok(()),
@@ -489,9 +489,12 @@ mod integration_tests {
     use crate::transport::zeromq::reader::ReaderResult;
     use crate::transport::zeromq::reader_config::ReaderConfig;
     use crate::transport::zeromq::writer_config::WriterConfig;
-    use crate::transport::zeromq::{NoopResponder, WriterResult, ZmqSocketProvider};
+    use crate::transport::zeromq::{
+        NoopResponder, TopicPrefixSpec, WriterResult, ZmqSocketProvider,
+    };
     use crate::transport::zeromq::{Reader, Writer};
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn test_req_rep() -> anyhow::Result<()> {
@@ -534,6 +537,122 @@ mod integration_tests {
         assert!(
             matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
         );
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())
+        );
+        reader_thread.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn test_dealer_router() -> anyhow::Result<()> {
+        let path = "/tmp/test/dealer-router";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+            &ReaderConfig::new()
+                .url(&format!("router+bind:ipc://{}", path))?
+                .with_fix_ipc_permissions(Some(0o777))?
+                .build()?,
+        )?;
+
+        let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
+            &WriterConfig::new()
+                .url(&format!("dealer+connect:ipc://{}", path))?
+                .build()?,
+        )?;
+
+        let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
+        let reader_thread = thread::spawn(move || {
+            let mut reader = reader;
+            let res = reader.receive();
+            tx.send(res).unwrap();
+            let res = reader.receive();
+            tx.send(res).unwrap();
+        });
+
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message(b"test", &m, &[])?;
+        assert!(matches!(res, WriterResult::Success(_)));
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data}
+                if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_some() && data.is_empty())
+        );
+        let res = writer.send_eos(b"test")?;
+        assert!(
+            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+        );
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_some())
+        );
+        reader_thread.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    fn test_receive_timeout() -> anyhow::Result<()> {
+        let path = "/tmp/test/pub-sub";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+            &ReaderConfig::new()
+                .url(&format!("sub+bind:ipc://{}", path))?
+                .with_fix_ipc_permissions(Some(0o777))?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("test".to_string()))?
+                .with_receive_timeout(100)?
+                .build()?,
+        )?;
+        let now = std::time::Instant::now();
+        let message = reader.receive()?;
+        let spent = now.elapsed().as_millis();
+        assert!(matches!(message, ReaderResult::Timeout));
+        assert!(spent >= 100);
+        Ok(())
+    }
+
+    #[test]
+    fn test_pub_sub() -> anyhow::Result<()> {
+        let path = "/tmp/test/pub-sub-2";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
+            &WriterConfig::new()
+                .url(&format!("pub+bind:ipc://{}", path))?
+                .build()?,
+        )?;
+
+        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+            &ReaderConfig::new()
+                .url(&format!("sub+connect:ipc://{}", path))?
+                .with_fix_ipc_permissions(Some(0o777))?
+                .with_receive_timeout(500)?
+                .build()?,
+        )?;
+
+        thread::sleep(Duration::from_millis(1000));
+
+        let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
+
+        let reader_thread = thread::spawn(move || {
+            let mut reader = reader;
+            let res = reader.receive();
+            tx.send(res).unwrap();
+            let res = reader.receive();
+            tx.send(res).unwrap();
+        });
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message(b"test", &m, &[])?;
+        assert!(matches!(res, WriterResult::Success(_)));
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data}
+                if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_none() && data.is_empty())
+        );
+        let res = writer.send_eos(b"test")?;
+        assert!(matches!(res, WriterResult::Success(_)));
         let res = rx.recv().unwrap()?;
         assert!(
             matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())
