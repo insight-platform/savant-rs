@@ -20,7 +20,8 @@ const RECEIVE_TIMEOUT: i32 = 1000;
 const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
 const RECEIVE_HWM: i32 = 50;
 const SEND_HWM: i32 = 50;
-const REQ_RECEIVE_RETRIES: i32 = 3;
+const ACK_RECEIVE_RETRIES: i32 = 3;
+const SEND_RETRIES: i32 = 3;
 const SEND_TIMEOUT: i32 = 5000;
 const ROUTING_ID_CACHE_SIZE: usize = 512;
 
@@ -163,7 +164,7 @@ struct RoutingIdFilter {
 
 impl RoutingIdFilter {
     pub fn new(size: usize) -> anyhow::Result<Self> {
-        debug!(target: "savant_rs.zeromq.routing-filter", "Creating routing id filter with LRU cache size = {}", size);
+        debug!(target: "savant_rs::zeromq::routing-filter", "Creating routing id filter with LRU cache size = {}", size);
         Ok(Self {
             ids: hashbrown::HashMap::with_capacity(size),
             expired_routing_ids: LruCache::new(NonZeroUsize::try_from(size)?),
@@ -172,31 +173,31 @@ impl RoutingIdFilter {
 
     pub fn allow(&mut self, topic: &[u8], routing_id: &Option<&Vec<u8>>) -> bool {
         if routing_id.is_none() {
-            debug!(target: "savant_rs.zeromq.routing-filter", "Message without routing id always allowed");
+            debug!(target: "savant_rs::zeromq::routing-filter", "Message without routing id always allowed");
             return true;
         }
         let routing_id = routing_id.unwrap();
         let current_valid_routing_id = self.ids.entry(topic.to_vec()).or_insert(routing_id.clone());
-        debug!(target: "savant_rs.zeromq.routing-filter",
+        debug!(target: "savant_rs::zeromq::routing-filter",
             "The current registered routing id: {:?}, the received routing id: {:?}",
             current_valid_routing_id, routing_id
         );
 
         if current_valid_routing_id == routing_id {
-            debug!(target: "savant_rs.zeromq.routing-filter", "The current routing id {:?} is the same as the received one {:?}. Message is allowed.", 
+            debug!(target: "savant_rs::zeromq::routing-filter", "The current routing id {:?} is the same as the received one {:?}. Message is allowed.", 
                 current_valid_routing_id, routing_id);
             true
         } else if self
             .expired_routing_ids
             .contains(&(topic.to_vec(), routing_id.clone()))
         {
-            debug!(target: "savant_rs.zeromq.routing-filter", "The received routing id {:?} is found among old routing ids. Message is not allowed.", 
+            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {:?} is found among old routing ids. Message is not allowed.", 
                 routing_id);
             // routing id is outdated and we do not allow it anymore
             false
         } else {
             // routing id is new (because it is not in the cache) and we allow it.
-            debug!(target: "savant_rs.zeromq.routing-filter", "The received routing id {:?} is new. The previous routing id {:?} is added to the expired. Message is allowed.", 
+            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {:?} is new. The previous routing id {:?} is added to the expired. Message is allowed.", 
                 routing_id, current_valid_routing_id);
             self.expired_routing_ids
                 .put((topic.to_vec(), current_valid_routing_id.clone()), ());
@@ -212,7 +213,7 @@ trait MockSocketResponder
 where
     Self: Sized,
 {
-    fn respond(&mut self, _: &mut Vec<Vec<u8>>) {}
+    fn fix(&mut self, _: &mut Vec<Vec<u8>>) {}
 }
 
 #[derive(Default)]
@@ -233,7 +234,7 @@ impl<C: MockSocketResponder> Socket<C> {
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.extend(parts.iter().map(|p| p.to_vec()));
-                c.respond(data);
+                c.fix(data);
                 Ok(())
             }
         }
@@ -245,7 +246,7 @@ impl<C: MockSocketResponder> Socket<C> {
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.push(m.to_vec());
-                c.respond(data);
+                c.fix(data);
                 Ok(())
             }
         }

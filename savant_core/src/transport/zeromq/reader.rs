@@ -132,12 +132,14 @@ impl Reader {
 
     pub fn destroy(&mut self) -> anyhow::Result<()> {
         info!(
+            target: "savant_rs::zeromq::reader",
             "Destroying ZeroMQ socket for endpoint {}",
             self.config.endpoint()
         );
         self.socket.take();
         self.context.take();
         info!(
+            target: "savant_rs::zeromq::reader",
             "ZeroMQ socket for endpoint {} destroyed",
             self.config.endpoint()
         );
@@ -160,6 +162,7 @@ impl Reader {
 
         if let Err(e) = parts {
             warn!(
+                target: "savant_rs::zeromq::reader",
                 "Failed to receive message from ZeroMQ socket. Error is {:?}",
                 e
             );
@@ -183,7 +186,7 @@ impl Reader {
 
         if parts.len() < min_required_parts {
             warn!(
-                target: "savant_rs.zeromq.reader",
+                target: "savant_rs::zeromq::reader",
                 "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least {} parts, but got {}",
                 self.config.endpoint(),
                 min_required_parts,
@@ -203,6 +206,7 @@ impl Reader {
             && self.config.socket_type() != &ReaderSocketType::Sub
         {
             debug!(
+                target: "savant_rs::zeromq::reader",
                 "Received end of stream message from ZeroMQ socket for endpoint {}",
                 self.config.endpoint()
             );
@@ -221,6 +225,7 @@ impl Reader {
 
         if message.len() < 2 {
             info!(
+                target: "savant_rs::zeromq::reader",
                 "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least 2 parts, but got {}",
                 self.config.endpoint(),
                 message.len()
@@ -230,6 +235,7 @@ impl Reader {
         let topic = &message[0];
         if !self.config.topic_prefix_spec().matches(topic) {
             debug!(
+                target: "savant_rs::zeromq::reader",
                 "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {:?}",
                 self.config.endpoint(),
                 self.config.topic_prefix_spec(),
@@ -255,6 +261,7 @@ impl Reader {
             })
         } else {
             debug!(
+                target: "savant_rs::zeromq::reader",
                 "Received message with invalid routing ID from ZeroMQ socket for endpoint {}. Got topic = {:?}, routing_id = {:?}",
                 self.config.endpoint(),
                 topic,

@@ -40,15 +40,15 @@ struct MockResponder;
 
 #[cfg(test)]
 impl MockSocketResponder for MockResponder {
-    fn respond(&mut self, data: &mut Vec<Vec<u8>>) {
+    fn fix(&mut self, data: &mut Vec<Vec<u8>>) {
         if data.len() == 2 && data[1] == END_OF_STREAM_MESSAGE {
             data.pop();
             data.push(CONFIRMATION_MESSAGE.to_vec());
         } else if data.len() == 1 && data[0] == END_OF_STREAM_MESSAGE {
+            panic!("Wrong data format, topic is missing");
+        } else {
             data.clear();
             data.push(CONFIRMATION_MESSAGE.to_vec());
-        } else {
-            panic!("Unexpected situation: {:?}", data)
         }
     }
 }
@@ -103,12 +103,14 @@ impl Writer {
 
     pub fn destroy(&mut self) -> anyhow::Result<()> {
         info!(
+            target: "savant_rs::zeromq::writer",
             "Destroying ZeroMQ socket for endpoint {}",
             self.config.endpoint()
         );
         self.socket.take();
         self.context.take();
         info!(
+            target: "savant_rs::zeromq::writer",
             "ZeroMQ socket for endpoint {} destroyed",
             self.config.endpoint()
         );
@@ -148,15 +150,29 @@ impl Writer {
             .into_iter()
             .chain(extra_parts_iter)
             .collect::<Vec<_>>();
-        debug!("Sending message to ZeroMQ socket: {:?}", parts);
-        let res = socket.send_multipart(&parts, 0);
-        if let Err(e) = res {
-            warn!("Failed to send message to ZeroMQ socket. Error is {:?}", e);
-            if let zmq::Error::EAGAIN = e {
-                return Ok(WriterResult::SendTimeout);
-            } else {
-                bail!("Failed to send message to ZeroMQ socket. Error is {:?}", e);
+        debug!(
+            target: "savant_rs::zeromq::writer",
+            "Sending message to ZeroMQ socket: {:?}", parts);
+        let mut send_retries = *self.config.send_retries();
+        while send_retries >= 0 {
+            let res = socket.send_multipart(&parts, 0);
+            if let Err(e) = res {
+                warn!(
+                    target: "savant_rs::zeromq::writer",
+                    "Failed to send message to ZeroMQ socket. Error is {:?}", e);
+                if let zmq::Error::EAGAIN = e {
+                    warn!(
+                        target: "savant_rs::zeromq::writer",
+                        "Retrying to send message to ZeroMQ socket, retries left: {}",
+                        send_retries
+                    );
+                    send_retries -= 1;
+                    continue;
+                } else {
+                    bail!("Failed to send message to ZeroMQ socket. Error is {:?}", e);
+                }
             }
+            break;
         }
         let start = std::time::Instant::now();
         if self.config.socket_type() == &WriterSocketType::Req
@@ -165,14 +181,18 @@ impl Writer {
             let mut receive_retries = *self.config.receive_retries();
             while receive_retries >= 0 {
                 let res = socket.recv_multipart(0);
-                debug!("Received message from ZeroMQ socket: {:?}", res);
+                debug!(
+                    target: "savant_rs::zeromq::writer",
+                    "Received message from ZeroMQ socket: {:?}", res);
                 if let Err(e) = res {
                     warn!(
+                        target: "savant_rs::zeromq::writer",
                         "Failed to receive message from ZeroMQ socket. Error is {:?}",
                         e
                     );
                     if let zmq::Error::EAGAIN = e {
                         warn!(
+                            target: "savant_rs::zeromq::writer",
                             "Retrying to receive message from ZeroMQ socket, retries left: {}",
                             receive_retries
                         );
@@ -203,14 +223,85 @@ impl Writer {
             return Ok(WriterResult::AckTimeout(start.elapsed().as_millis()));
         }
         let spent = start.elapsed().as_millis();
-        debug!("Message sent to ZeroMQ socket. Time spent: {} ms", spent);
+        debug!(
+            target: "savant_rs::zeromq::writer",
+            "Message sent to ZeroMQ socket. Time spent: {} ms", spent);
         Ok(WriterResult::Success(spent))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    mod tests_with_response {}
+    mod tests_with_response {
+        use super::super::{Writer, WriterConfig};
+        use crate::message::Message;
+        use crate::test::gen_frame;
+        use crate::transport::zeromq::WriterResult;
+        #[test]
+        fn test_dealer_eos_op() -> anyhow::Result<()> {
+            let mut writer = Writer::new(
+                &WriterConfig::new()
+                    .url("dealer+bind:ipc:///tmp/test")?
+                    .with_receive_retries(3)?
+                    .build()?,
+            )?;
+            let res = writer.send_eos(b"test")?;
+            assert!(matches!(res, WriterResult::Ack {
+                retries_spent,
+                time_spent: _
+            } if retries_spent == 0));
+            Ok(())
+        }
+        #[test]
+        fn test_req_eos_op() -> anyhow::Result<()> {
+            let mut writer = Writer::new(
+                &WriterConfig::new()
+                    .url("req+bind:ipc:///tmp/test")?
+                    .with_receive_retries(3)?
+                    .build()?,
+            )?;
+            let res = writer.send_eos(b"test")?;
+            assert!(matches!(res, WriterResult::Ack {
+                retries_spent,
+                time_spent: _
+            } if retries_spent == 0));
+            Ok(())
+        }
+        #[test]
+        fn test_req_message_op() -> anyhow::Result<()> {
+            let mut writer = Writer::new(
+                &WriterConfig::new()
+                    .url("req+bind:ipc:///tmp/test")?
+                    .with_receive_retries(3)?
+                    .build()?,
+            )?;
+            let m = Message::video_frame(&gen_frame());
+            let res = writer.send_message(b"test", &m, &[b"abc"])?;
+            assert!(matches!(res, WriterResult::Ack {
+                retries_spent,
+                time_spent: _
+            } if retries_spent == 0));
+            Ok(())
+        }
+    }
 
-    mod tests_without_response {}
+    mod tests_without_response {
+        use crate::message::Message;
+        use crate::test::gen_frame;
+        use crate::transport::zeromq::{Writer, WriterConfig, WriterResult};
+
+        #[test]
+        fn test_dealer_op() -> anyhow::Result<()> {
+            let mut writer = Writer::new(
+                &WriterConfig::new()
+                    .url("dealer+bind:ipc:///tmp/test")?
+                    .with_receive_retries(3)?
+                    .build()?,
+            )?;
+            let m = Message::video_frame(&gen_frame());
+            let res = writer.send_message(b"test", &m, &[b"abc"])?;
+            assert!(matches!(res, WriterResult::Success(_)));
+            Ok(())
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use super::{
-    parse_zmq_socket_uri, SocketType, WriterSocketType, IPC_PERMISSIONS, REQ_RECEIVE_RETRIES,
-    SENDER_RECEIVE_TIMEOUT, SEND_HWM, SEND_TIMEOUT,
+    parse_zmq_socket_uri, SocketType, WriterSocketType, ACK_RECEIVE_RETRIES, IPC_PERMISSIONS,
+    SENDER_RECEIVE_TIMEOUT, SEND_HWM, SEND_RETRIES, SEND_TIMEOUT,
 };
 use anyhow::bail;
 use savant_utils::default_once::DefaultOnceCell;
@@ -38,6 +38,10 @@ impl WriterConfig {
         self.0.receive_retries.get_or_init()
     }
 
+    pub fn send_retries(&self) -> &i32 {
+        self.0.send_retries.get_or_init()
+    }
+
     pub fn send_hwm(&self) -> &i32 {
         self.0.send_hwm.get_or_init()
     }
@@ -53,6 +57,7 @@ pub struct WriterConfigBuilder {
     socket_type: DefaultOnceCell<WriterSocketType>,
     bind: DefaultOnceCell<bool>,
     send_timeout: DefaultOnceCell<i32>,
+    send_retries: DefaultOnceCell<i32>,
     receive_timeout: DefaultOnceCell<i32>,
     receive_retries: DefaultOnceCell<i32>,
     send_hwm: DefaultOnceCell<i32>,
@@ -67,7 +72,8 @@ impl Default for WriterConfigBuilder {
             bind: DefaultOnceCell::new(true),
             send_timeout: DefaultOnceCell::new(SEND_TIMEOUT),
             receive_timeout: DefaultOnceCell::new(SENDER_RECEIVE_TIMEOUT),
-            receive_retries: DefaultOnceCell::new(REQ_RECEIVE_RETRIES),
+            receive_retries: DefaultOnceCell::new(ACK_RECEIVE_RETRIES),
+            send_retries: DefaultOnceCell::new(SEND_RETRIES),
             send_hwm: DefaultOnceCell::new(SEND_HWM),
             fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
         }
@@ -132,6 +138,14 @@ impl WriterConfigBuilder {
             bail!("Receive retries must be non-negative");
         }
         self.receive_retries.set(receive_retries)?;
+        Ok(self)
+    }
+
+    pub fn with_send_retries(self, send_retries: i32) -> anyhow::Result<Self> {
+        if send_retries < 0 {
+            bail!("Send retries must be non-negative");
+        }
+        self.send_retries.set(send_retries)?;
         Ok(self)
     }
 
