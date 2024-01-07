@@ -218,7 +218,7 @@ where
 }
 
 #[derive(Default)]
-struct NoopResponder;
+pub struct NoopResponder;
 impl MockSocketResponder for NoopResponder {}
 
 #[allow(dead_code)]
@@ -232,7 +232,7 @@ pub trait SocketProvider<T: MockSocketResponder> {
 }
 
 #[derive(Default)]
-struct ZmqSocketProvider;
+pub struct ZmqSocketProvider;
 impl<T: MockSocketResponder> SocketProvider<T> for ZmqSocketProvider {
     fn new_socket(&self, context: &Context, t: zmq::SocketType) -> anyhow::Result<Socket<T>> {
         Ok(Socket::ZmqSocket(context.socket(t)?))
