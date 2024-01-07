@@ -1,17 +1,18 @@
 use crate::message::Message;
 use crate::protobuf::serialize;
 use crate::transport::zeromq::{
-    create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, WriterConfig,
-    WriterSocketType, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
+    create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, SocketProvider,
+    WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
 };
 use crate::TEST_ENV;
 use anyhow::bail;
 use log::{debug, info, warn};
 
-pub struct Writer {
+pub struct Writer<R: MockSocketResponder, P: SocketProvider<R>> {
     context: Option<zmq::Context>,
     config: WriterConfig,
-    socket: Option<Socket<MockResponder>>,
+    socket: Option<Socket<R>>,
+    phony: std::marker::PhantomData<P>,
 }
 
 impl From<&WriterSocketType> for zmq::SocketType {
@@ -55,27 +56,11 @@ impl MockSocketResponder for MockResponder {
 #[cfg(not(test))]
 impl MockSocketResponder for MockResponder {}
 
-#[cfg(not(test))]
-fn new_socket(
-    config: &WriterConfig,
-    context: &zmq::Context,
-) -> anyhow::Result<Socket<MockResponder>> {
-    Ok(Socket::ZmqSocket(
-        context.socket(config.socket_type().into())?,
-    ))
-}
-#[cfg(test)]
-fn new_socket(
-    _config: &WriterConfig,
-    _context: &zmq::Context,
-) -> anyhow::Result<Socket<MockResponder>> {
-    Ok(Socket::MockSocket(vec![], MockResponder {}))
-}
-
-impl Writer {
+impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
     pub fn new(config: &WriterConfig) -> anyhow::Result<Self> {
         let context = zmq::Context::new();
-        let socket = new_socket(config, &context)?;
+        let p = P::default();
+        let socket = p.new_socket(&context, config.socket_type().into())?;
 
         socket.set_sndhwm(*config.send_hwm())?;
         socket.set_sndtimeo(*config.send_timeout())?;
@@ -98,6 +83,7 @@ impl Writer {
             context: Some(context),
             config: config.clone(),
             socket: Some(socket),
+            phony: std::marker::PhantomData,
         })
     }
 
@@ -236,10 +222,12 @@ mod tests {
         use super::super::{Writer, WriterConfig};
         use crate::message::Message;
         use crate::test::gen_frame;
-        use crate::transport::zeromq::WriterResult;
+        use crate::transport::zeromq::writer::MockResponder;
+        use crate::transport::zeromq::{MockSocketProvider, WriterResult};
+
         #[test]
         fn test_dealer_eos_op() -> anyhow::Result<()> {
-            let mut writer = Writer::new(
+            let mut writer = Writer::<MockResponder, MockSocketProvider>::new(
                 &WriterConfig::new()
                     .url("dealer+bind:ipc:///tmp/test")?
                     .with_receive_retries(3)?
@@ -254,7 +242,7 @@ mod tests {
         }
         #[test]
         fn test_req_eos_op() -> anyhow::Result<()> {
-            let mut writer = Writer::new(
+            let mut writer = Writer::<MockResponder, MockSocketProvider>::new(
                 &WriterConfig::new()
                     .url("req+bind:ipc:///tmp/test")?
                     .with_receive_retries(3)?
@@ -269,7 +257,7 @@ mod tests {
         }
         #[test]
         fn test_req_message_op() -> anyhow::Result<()> {
-            let mut writer = Writer::new(
+            let mut writer = Writer::<MockResponder, MockSocketProvider>::new(
                 &WriterConfig::new()
                     .url("req+bind:ipc:///tmp/test")?
                     .with_receive_retries(3)?
@@ -288,11 +276,12 @@ mod tests {
     mod tests_without_response {
         use crate::message::Message;
         use crate::test::gen_frame;
-        use crate::transport::zeromq::{Writer, WriterConfig, WriterResult};
+        use crate::transport::zeromq::writer::MockResponder;
+        use crate::transport::zeromq::{MockSocketProvider, Writer, WriterConfig, WriterResult};
 
         #[test]
         fn test_dealer_op() -> anyhow::Result<()> {
-            let mut writer = Writer::new(
+            let mut writer = Writer::<MockResponder, MockSocketProvider>::new(
                 &WriterConfig::new()
                     .url("dealer+bind:ipc:///tmp/test")?
                     .with_receive_retries(3)?

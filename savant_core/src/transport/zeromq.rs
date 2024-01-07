@@ -15,6 +15,7 @@ use std::mem;
 use std::os::unix::fs::PermissionsExt;
 pub use writer::{Writer, WriterResult};
 pub use writer_config::{WriterConfig, WriterConfigBuilder};
+use zmq::Context;
 
 const RECEIVE_TIMEOUT: i32 = 1000;
 const SENDER_RECEIVE_TIMEOUT: i32 = 5000;
@@ -209,7 +210,7 @@ impl RoutingIdFilter {
     }
 }
 
-trait MockSocketResponder
+pub trait MockSocketResponder
 where
     Self: Sized,
 {
@@ -221,9 +222,29 @@ struct NoopResponder;
 impl MockSocketResponder for NoopResponder {}
 
 #[allow(dead_code)]
-enum Socket<C: MockSocketResponder> {
+pub enum Socket<C: MockSocketResponder> {
     ZmqSocket(zmq::Socket),
     MockSocket(Vec<Vec<u8>>, C),
+}
+
+pub trait SocketProvider<T: MockSocketResponder> {
+    fn new_socket(&self, context: &Context, t: zmq::SocketType) -> anyhow::Result<Socket<T>>;
+}
+
+#[derive(Default)]
+struct ZmqSocketProvider;
+impl<T: MockSocketResponder> SocketProvider<T> for ZmqSocketProvider {
+    fn new_socket(&self, context: &Context, t: zmq::SocketType) -> anyhow::Result<Socket<T>> {
+        Ok(Socket::ZmqSocket(context.socket(t)?))
+    }
+}
+
+#[derive(Default)]
+struct MockSocketProvider;
+impl<T: MockSocketResponder + Default> SocketProvider<T> for MockSocketProvider {
+    fn new_socket(&self, _context: &Context, _t: zmq::SocketType) -> anyhow::Result<Socket<T>> {
+        Ok(Socket::MockSocket(vec![], T::default()))
+    }
 }
 
 #[allow(dead_code)]
@@ -294,9 +315,12 @@ impl<C: MockSocketResponder> Socket<C> {
         }
     }
 
-    fn set_subscribe(&self, topic: &[u8]) -> anyhow::Result<()> {
+    fn set_subscribe(&self, prefix: &[u8]) -> anyhow::Result<()> {
+        if prefix.is_empty() {
+            return Ok(());
+        }
         match self {
-            Socket::ZmqSocket(socket) => socket.set_subscribe(topic).map_err(|e| e.into()),
+            Socket::ZmqSocket(socket) => socket.set_subscribe(prefix).map_err(|e| e.into()),
             Socket::MockSocket(_, _) => Ok(()),
         }
     }
@@ -329,7 +353,7 @@ fn create_ipc_dirs(endpoint: &str) -> anyhow::Result<()> {
         bail!("Invalid IPC endpoint: {}", endpoint);
     }
     let path = std::path::Path::new(endpoint);
-    if !path.is_file() {
+    if path.exists() && path.is_dir() {
         bail!("IPC endpoint is not a file: {}", endpoint);
     }
     let parent = path.parent().unwrap();
@@ -343,8 +367,8 @@ fn set_ipc_permissions(endpoint: &str, permissions: u32) -> anyhow::Result<()> {
         bail!("Invalid IPC endpoint: {}", endpoint);
     }
     let path = std::path::Path::new(endpoint);
-    if !path.is_file() {
-        bail!("IPC endpoint is not a file: {}", endpoint);
+    if !path.exists() {
+        bail!("IPC endpoint does not exist: {}", endpoint);
     }
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(permissions))?;
     Ok(())
@@ -455,5 +479,66 @@ mod tests {
         assert!(spec.matches(b"source_id"));
         assert!(spec.matches(b"source_id/abc"));
         assert!(spec.matches(b"source_id/abc/def"));
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use crate::message::Message;
+    use crate::test::gen_frame;
+    use crate::transport::zeromq::reader::ReaderResult;
+    use crate::transport::zeromq::reader_config::ReaderConfig;
+    use crate::transport::zeromq::writer_config::WriterConfig;
+    use crate::transport::zeromq::{NoopResponder, WriterResult, ZmqSocketProvider};
+    use crate::transport::zeromq::{Reader, Writer};
+    use std::thread;
+
+    #[test]
+    fn test_req_rep() -> anyhow::Result<()> {
+        let path = "/tmp/test/req_rep";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+            &ReaderConfig::new()
+                .url(&format!("rep+bind:ipc://{}", path))?
+                .with_fix_ipc_permissions(Some(0o777))?
+                .build()?,
+        )?;
+
+        let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
+            &WriterConfig::new()
+                .url(&format!("req+connect:ipc://{}", path))?
+                .build()?,
+        )?;
+
+        let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
+        let reader_thread = thread::spawn(move || {
+            let mut reader = reader;
+            let res = reader.receive();
+            tx.send(res).unwrap();
+            let res = reader.receive();
+            tx.send(res).unwrap();
+        });
+
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message(b"test", &m, &[])?;
+        assert!(
+            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+        );
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data}
+                if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_none() && data.is_empty())
+        );
+        let res = writer.send_eos(b"test")?;
+        assert!(
+            matches!(res, WriterResult::Ack {retries_spent,time_spent: _} if retries_spent == 0)
+        );
+        let res = rx.recv().unwrap()?;
+        assert!(
+            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())
+        );
+        reader_thread.join().unwrap();
+        Ok(())
     }
 }
