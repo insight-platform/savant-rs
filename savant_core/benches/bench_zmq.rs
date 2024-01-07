@@ -46,7 +46,7 @@ fn bench_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
                         topic,
                         routing_id,
                         data,
-                    } if topic == b"test" && routing_id.is_some() && data.is_empty() => {}
+                    } if topic == b"test" && routing_id.is_some() && data.len() == 1 => {}
                     _ => {
                         panic!("Unexpected result: {:?}", res);
                     }
@@ -58,10 +58,13 @@ fn bench_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
     let m = Message::video_frame(&gen_frame());
 
     b.iter(|| {
-        let res = writer.send_message(b"test", &m, &[])?;
-        assert!(matches!(res, WriterResult::Success(_)));
+        for _ in 0..1000 {
+            let res = writer.send_message(b"test", &m, &[&[0; 128 * 1024]])?;
+            assert!(matches!(res, WriterResult::Success(_)));
+        }
         Ok::<(), anyhow::Error>(())
     });
+
     writer.send_eos(b"test")?;
     reader_thread.join().unwrap();
     Ok(())
