@@ -127,24 +127,18 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_topic_prefix_spec(self, topic_prefix: TopicPrefixSpec) -> anyhow::Result<Self> {
-        self.topic_prefix_spec.set(topic_prefix)?;
+    pub fn with_topic_prefix_spec(self, prefix: TopicPrefixSpec) -> anyhow::Result<Self> {
+        self.topic_prefix_spec.set(prefix)?;
         Ok(self)
     }
 
-    pub fn with_routing_ids_cache_size(
-        self,
-        routing_ids_cache_size: usize,
-    ) -> anyhow::Result<Self> {
-        self.routing_ids_cache_size.set(routing_ids_cache_size)?;
+    pub fn with_routing_cache_size(self, size: usize) -> anyhow::Result<Self> {
+        self.routing_ids_cache_size.set(size)?;
         Ok(self)
     }
 
-    pub fn with_fix_ipc_permissions(
-        self,
-        fix_ipc_permissions: Option<u32>,
-    ) -> anyhow::Result<Self> {
-        self.fix_ipc_permissions.set(fix_ipc_permissions)?;
+    pub fn with_fix_ipc_permissions(self, permissions: Option<u32>) -> anyhow::Result<Self> {
+        self.fix_ipc_permissions.set(permissions)?;
         Ok(self)
     }
 }

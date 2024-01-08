@@ -9,6 +9,7 @@ pub mod test;
 /// # Utility functions
 ///
 pub mod utils;
+mod zmq;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;

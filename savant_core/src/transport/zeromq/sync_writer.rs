@@ -27,12 +27,12 @@ impl SyncWriter {
         writer.send_message(topic, message, data)
     }
 
-    pub fn is_alive(&self) -> bool {
+    pub fn is_started(&self) -> bool {
         let writer = self.0.lock();
-        writer.is_alive()
+        writer.is_started()
     }
 
-    pub fn destroy(&self) -> anyhow::Result<()> {
+    pub fn shutdown(&self) -> anyhow::Result<()> {
         let mut writer = self.0.lock();
         writer.destroy()
     }

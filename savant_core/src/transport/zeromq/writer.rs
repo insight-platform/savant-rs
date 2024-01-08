@@ -110,7 +110,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         Ok(())
     }
 
-    pub fn is_alive(&self) -> bool {
+    pub fn is_started(&self) -> bool {
         self.socket.is_some()
     }
 
