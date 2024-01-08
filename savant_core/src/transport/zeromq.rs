@@ -15,7 +15,7 @@ mod writer_config;
 
 pub use nonblocking_reader::NonblockingReader;
 pub use nonblocking_writer::NonblockingWriter;
-pub use reader::Reader;
+pub use reader::{Reader, ReaderResult};
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;
 use std::os::unix::fs::PermissionsExt;

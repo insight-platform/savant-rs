@@ -572,6 +572,132 @@ impl WriterResultSuccess {
     }
 }
 
+// pub enum ReaderResult {
+//     Message {
+//         message: Box<Message>,
+//         topic: Vec<u8>,
+//         routing_id: Option<Vec<u8>>,
+//         data: Vec<Vec<u8>>,
+//     },
+//     EndOfStream {
+//         topic: Vec<u8>,
+//         routing_id: Option<Vec<u8>>,
+//     },
+//     Timeout,
+//     PrefixMismatch {
+//         topic: Vec<u8>,
+//         routing_id: Option<Vec<u8>>,
+//     },
+//     RoutingIdMismatch {
+//         topic: Vec<u8>,
+//         routing_id: Option<Vec<u8>>,
+//     },
+//     TooShort(Vec<Vec<u8>>),
+// }
+
+#[pyclass]
+#[derive(Clone)]
+pub struct ReaderResultMessage {
+    #[pyo3(get)]
+    message: Message,
+    #[pyo3(get)]
+    topic: Vec<u8>,
+    #[pyo3(get)]
+    routing_id: Option<Vec<u8>>,
+    #[pyo3(get)]
+    data: Vec<Vec<u8>>,
+}
+
+#[pymethods]
+impl ReaderResultMessage {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ReaderResultMessage [ message = {:?}, topic = {:?}, routing_id = {:?}, data = ... ]",
+            &self.message.0, &self.topic, &self.routing_id
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Hash)]
+pub struct ReaderResultEndOfStream {
+    #[pyo3(get)]
+    topic: Vec<u8>,
+    #[pyo3(get)]
+    routing_id: Option<Vec<u8>>,
+}
+
+#[pymethods]
+impl ReaderResultEndOfStream {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Hash)]
+pub struct ReaderResultTimeout;
+
+#[pymethods]
+impl ReaderResultTimeout {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone, Hash)]
+pub struct ReaderResultPrefixMismatch {
+    #[pyo3(get)]
+    topic: Vec<u8>,
+    #[pyo3(get)]
+    routing_id: Option<Vec<u8>>,
+}
+
+#[pymethods]
+impl ReaderResultPrefixMismatch {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
 fn process_writer_result(res: rust_zmq::WriterResult) -> PyResult<PyObject> {
     with_gil!(|py| {
         match res {
@@ -597,6 +723,36 @@ fn process_writer_result(res: rust_zmq::WriterResult) -> PyResult<PyObject> {
                 Ok(WriterResultAckTimeout { timeout }.into_py(py))
             }
             rust_zmq::WriterResult::SendTimeout => Ok(WriterResultSendTimeout {}.into_py(py)),
+        }
+    })
+}
+
+fn process_reader_result(res: rust_zmq::ReaderResult) -> PyResult<PyObject> {
+    with_gil!(|py| {
+        match res {
+            rust_zmq::ReaderResult::Message {
+                message,
+                topic,
+                routing_id,
+                data,
+            } => Ok(ReaderResultMessage {
+                message: Message(*message),
+                topic,
+                routing_id,
+                data,
+            }
+            .into_py(py)),
+            rust_zmq::ReaderResult::EndOfStream { topic, routing_id } => {
+                Ok(ReaderResultEndOfStream { topic, routing_id }.into_py(py))
+            }
+            rust_zmq::ReaderResult::Timeout => Ok(ReaderResultTimeout {}.into_py(py)),
+            rust_zmq::ReaderResult::PrefixMismatch { topic, routing_id } => {
+                Ok(ReaderResultPrefixMismatch { topic, routing_id }.into_py(py))
+            }
+            rust_zmq::ReaderResult::RoutingIdMismatch { topic, routing_id } => {
+                Ok(ReaderResultPrefixMismatch { topic, routing_id }.into_py(py))
+            }
+            rust_zmq::ReaderResult::TooShort(data) => Ok(data.into_py(py)),
         }
     })
 }
@@ -665,3 +821,6 @@ impl Writer {
         process_writer_result(res)
     }
 }
+
+#[pyclass]
+pub struct Reader(Option<rust_zmq::SyncReader>, ReaderConfig);

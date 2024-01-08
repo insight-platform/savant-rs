@@ -10,6 +10,7 @@ use pyo3::{pyclass, pyfunction, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
 
 #[pyclass]
+#[derive(Clone, Debug)]
 pub struct Message(pub(crate) rust_primitives::Message);
 
 #[pymethods]
