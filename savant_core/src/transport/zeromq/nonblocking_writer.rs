@@ -18,14 +18,14 @@ enum Command {
 pub struct WriteOperationResult(Option<Receiver<anyhow::Result<WriterResult>>>);
 
 impl WriteOperationResult {
-    pub fn wait(&self) -> anyhow::Result<WriterResult> {
+    pub fn get(&self) -> anyhow::Result<WriterResult> {
         if let Some(receiver) = &self.0 {
             receiver.recv()?
         } else {
             anyhow::bail!("Write operation result is no longer available.")
         }
     }
-    pub fn try_wait(&self) -> anyhow::Result<Option<anyhow::Result<WriterResult>>> {
+    pub fn try_get(&self) -> anyhow::Result<Option<anyhow::Result<WriterResult>>> {
         if let Some(receiver) = &self.0 {
             match receiver.try_recv() {
                 Ok(res) => Ok(Some(res)),
@@ -78,7 +78,11 @@ impl NonblockingWriter {
         if !self.is_started() {
             anyhow::bail!("Writer is not started.");
         }
-        self.ops_queue.as_ref().unwrap().send(Command::Shutdown)?;
+        self.ops_queue
+            .as_ref()
+            .unwrap()
+            .send(Command::Shutdown)
+            .map_err(|e| anyhow::anyhow!("Failed to send shutdown command to channel: {:?}", e))?;
         if let Some(thread) = self.thread.take() {
             _ = self.is_shutdown.set(());
             thread
@@ -99,7 +103,6 @@ impl NonblockingWriter {
         }
         _ = self.is_started.set(());
         let (sender, receiver) = crossbeam::channel::bounded(self.max_inflight_messages);
-        let ops_queue = sender.clone();
         let is_shutdown = self.is_shutdown.clone();
         let writer = SyncWriter::new(&self.config)?;
         let thread = std::thread::spawn(move || {
@@ -110,11 +113,11 @@ impl NonblockingWriter {
                 }
                 match command {
                     Command::Message(topic, message, payload, resp_channel) => {
-                        resp_channel.send(writer.send_message(
+                        let _ = resp_channel.send(writer.send_message(
                             &topic,
                             &message,
                             &payload.iter().map(|e| e.as_slice()).collect::<Vec<_>>(),
-                        ))?;
+                        ));
                     }
                     Command::Shutdown => {
                         break;
@@ -124,7 +127,7 @@ impl NonblockingWriter {
             Ok(())
         });
         self.thread = Some(thread);
-        self.ops_queue = Some(ops_queue);
+        self.ops_queue = Some(sender);
         Ok(())
     }
 
@@ -197,7 +200,7 @@ mod tests {
             &Message::user_data(UserData::new("test")),
             &[b"test"],
         )?;
-        let result = channel.wait()?;
+        let result = channel.get()?;
         assert!(
             matches!(result, WriterResult::Ack {send_retries_spent,receive_retries_spent,time_spent: _}
                 if send_retries_spent == 0 && receive_retries_spent == 0)
