@@ -175,7 +175,7 @@ impl WriterConfigBuilder {
             self.0
                 .take()
                 .unwrap()
-                .with_endpoint(&endpoint)
+                .with_endpoint(endpoint)
                 .map_err(|e| {
                     PyValueError::new_err(format!("Failed to set ZeroMQ socket endpoint: {:?}", e))
                 })?,
@@ -353,7 +353,7 @@ impl ReaderConfigBuilder {
             self.0
                 .take()
                 .unwrap()
-                .with_endpoint(&endpoint)
+                .with_endpoint(endpoint)
                 .map_err(|e| {
                     PyValueError::new_err(format!("Failed to set ZeroMQ socket endpoint: {:?}", e))
                 })?,

@@ -15,21 +15,13 @@ def server():
     socket = context.socket(zmq.REP)
     socket.connect(socket_name)
     while True:
-        message = socket.recv()
-        if message == b'end':
+        message = socket.recv_multipart()
+        if message[0] == b'end':
             print("Received end")
             break
 
-        _ = load_message_from_bytes(message)
-
-        update = VideoFrameUpdate()
-        update.object_policy = ObjectUpdatePolicy.AddForeignObjects
-        update.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
-
-        m = Message.video_frame_update(update)
-        binary = save_message_to_bytes(m)
-        socket.send(binary)
-
+        _ = load_message_from_bytes(message[0])
+        socket.send(b'OK')
 
 frame = gen_frame()
 p1 = Process(target=server)
@@ -39,18 +31,19 @@ context = zmq.Context()
 socket = context.socket(zmq.REQ)
 socket.bind(socket_name)
 
+buf_1024b = bytes(1024*1024)
+
 start = time()
 wait_time = 0
-for _ in range(1):
+for _ in range(1000):
     m = Message.video_frame(frame)
     s = save_message_to_bytes(m)
-    socket.send(s)
+    socket.send_multipart([s, buf_1024b])
     wait = time()
     m = socket.recv()
     wait_time += (time() - wait)
-    m = load_message_from_bytes(m)
-    assert m.is_video_frame_update()
+    assert m == b'OK'
 
 print("Time taken", time() - start, wait_time)
-socket.send(b'end')
+socket.send_multipart([b'end'])
 p1.join()

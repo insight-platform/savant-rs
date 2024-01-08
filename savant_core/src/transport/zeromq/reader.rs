@@ -153,7 +153,15 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             );
         }
         let socket = self.socket.as_mut().unwrap();
+        debug!(
+            target: "savant_rs::zeromq::reader",
+            "Waiting for message from ZeroMQ socket for endpoint {}",
+            self.config.endpoint());
         let parts = socket.recv_multipart(0);
+        debug!(
+            target: "savant_rs::zeromq::reader",
+            "Received message from ZeroMQ socket for endpoint {}",
+            self.config.endpoint());
         if let Err(e) = parts {
             warn!(
                 target: "savant_rs::zeromq::reader",
