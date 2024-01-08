@@ -9,7 +9,7 @@ pub mod test;
 /// # Utility functions
 ///
 pub mod utils;
-mod zmq;
+pub mod zmq;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -74,6 +74,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(video_object_query))?;
     m.add_wrapped(wrap_pymodule!(logging::logging))?;
+    m.add_wrapped(wrap_pymodule!(zmq::zmq))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
@@ -86,6 +87,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
     sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;
+    sys_modules.set_item("savant_rs.zmq", m.getattr("zmq")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.symbol_mapper",

@@ -16,12 +16,12 @@ impl SyncReader {
         reader.receive()
     }
 
-    pub fn is_alive(&self) -> bool {
+    pub fn is_started(&self) -> bool {
         let reader = self.0.lock();
         reader.is_alive()
     }
 
-    pub fn destroy(&self) -> anyhow::Result<()> {
+    pub fn shutdown(&self) -> anyhow::Result<()> {
         let mut reader = self.0.lock();
         reader.destroy()
     }
