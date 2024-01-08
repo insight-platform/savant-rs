@@ -1,7 +1,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use std::hash::{DefaultHasher, Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use crate::primitives::message::Message;
 use crate::{release_gil, with_gil};
