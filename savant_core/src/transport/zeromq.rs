@@ -4,8 +4,11 @@ use log::debug;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
+mod nonblocking_reader;
 pub mod reader;
 mod reader_config;
+mod sync_reader;
+mod sync_writer;
 mod writer;
 mod writer_config;
 
@@ -13,6 +16,8 @@ pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;
 use std::os::unix::fs::PermissionsExt;
+pub use sync_reader::SyncReader;
+pub use sync_writer::SyncWriter;
 pub use writer::{Writer, WriterResult};
 pub use writer_config::{WriterConfig, WriterConfigBuilder};
 use zmq::Context;
@@ -27,7 +32,6 @@ const SEND_TIMEOUT: i32 = 5000;
 const ROUTING_ID_CACHE_SIZE: usize = 512;
 
 const CONFIRMATION_MESSAGE: &[u8] = b"OK";
-const END_OF_STREAM_MESSAGE: &[u8] = b"EOS";
 const IPC_PERMISSIONS: u32 = 0o777;
 
 const ZMQ_LINGER: i32 = 100;
@@ -524,7 +528,7 @@ mod integration_tests {
         });
 
         let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message(b"test", &m, &[])?;
+        let res = writer.send_message("test", &m, &[])?;
         assert!(
             matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
@@ -533,7 +537,7 @@ mod integration_tests {
             matches!(res, ReaderResult::Message {message,topic,routing_id,data}
                 if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_none() && data.is_empty())
         );
-        let res = writer.send_eos(b"test")?;
+        let res = writer.send_eos("test")?;
         assert!(
             matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
@@ -573,7 +577,7 @@ mod integration_tests {
         });
 
         let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message(b"test", &m, &[])?;
+        let res = writer.send_message("test", &m, &[])?;
         assert!(matches!(
             res,
             WriterResult::Success {
@@ -586,7 +590,7 @@ mod integration_tests {
             matches!(res, ReaderResult::Message {message,topic,routing_id,data}
                 if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_some() && data.is_empty())
         );
-        let res = writer.send_eos(b"test")?;
+        let res = writer.send_eos("test")?;
         assert!(
             matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
@@ -650,14 +654,14 @@ mod integration_tests {
             tx.send(res).unwrap();
         });
         let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message(b"test", &m, &[])?;
+        let res = writer.send_message("test", &m, &[])?;
         assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(
             matches!(res, ReaderResult::Message {message,topic,routing_id,data}
                 if message.meta.seq_id == m.meta.seq_id && topic == b"test" && routing_id.is_none() && data.is_empty())
         );
-        let res = writer.send_eos(b"test")?;
+        let res = writer.send_eos("test")?;
         assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(

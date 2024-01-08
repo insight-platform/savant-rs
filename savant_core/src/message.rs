@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_save_load_user_data() {
-        let t = UserData::new("test".to_string());
+        let t = UserData::new("test");
         let m = Message::user_data(t);
         let res = save_message(&m).unwrap();
         let m = load_message(&res);
@@ -432,7 +432,7 @@ mod tests {
     fn test_save_load_seq_ids() {
         let mut f = gen_frame();
         f.set_source_id("test_save_load_seq_ids");
-        let ud = UserData::new(f.get_source_id());
+        let ud = UserData::new(&f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
         let mf = Message::video_frame(&f);
         assert_eq!(mf.meta.seq_id, 1);
@@ -441,7 +441,7 @@ mod tests {
         let meos = Message::end_of_stream(eos);
         assert_eq!(meos.meta.seq_id, 3);
 
-        let ud = UserData::new(format!("{}-2", f.get_source_id()));
+        let ud = UserData::new(&format!("{}-2", f.get_source_id()));
         let eos = EndOfStream::new(format!("{}-2", f.get_source_id()));
         let mud = Message::user_data(ud);
         assert_eq!(mud.meta.seq_id, 1);
@@ -453,7 +453,7 @@ mod tests {
     fn test_validate_sequence_ids() {
         let mut f = gen_frame();
         f.set_source_id("test_validate_sequence_ids");
-        let ud = UserData::new(f.get_source_id());
+        let ud = UserData::new(&f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
 
         let mf = Message::video_frame(&f);
@@ -478,7 +478,7 @@ mod tests {
         let mut f = gen_frame();
         f.set_source_id("test_validate_sequence_ids_with_misses");
 
-        let ud = UserData::new(f.get_source_id());
+        let ud = UserData::new(&f.get_source_id());
         let eos = EndOfStream::new(f.get_source_id());
 
         let mf = Message::video_frame(&f);

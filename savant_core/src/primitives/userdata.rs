@@ -22,9 +22,9 @@ impl ToSerdeJsonValue for UserData {
 const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
 
 impl UserData {
-    pub fn new(source_id: String) -> Self {
+    pub fn new(source_id: &str) -> Self {
         Self {
-            source_id,
+            source_id: source_id.to_string(),
             attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
         }
     }

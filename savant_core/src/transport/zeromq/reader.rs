@@ -1,8 +1,7 @@
 use crate::message::Message;
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, ReaderConfig, ReaderSocketType,
-    RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE,
-    ZMQ_LINGER,
+    RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
 
 use anyhow::bail;
@@ -190,17 +189,34 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             return Ok(ReaderResult::TooShort(parts));
         };
 
-        let (routing_id, topic, message) = if self.config.socket_type() == &ReaderSocketType::Router
-        {
-            let routing_id = &parts[0];
-            let topic = &parts[1];
-            let message = &parts[2..];
-            (Some(routing_id), topic, message)
-        } else {
-            (None, &parts[0], &parts[1..])
-        };
+        let (routing_id, topic, command, extra) =
+            if self.config.socket_type() == &ReaderSocketType::Router {
+                let routing_id = &parts[0];
+                let topic = &parts[1];
+                let command = &parts[2];
+                let message = &parts[3..];
+                (Some(routing_id), topic, command, message)
+            } else {
+                (None, &parts[0], &parts[1], &parts[2..])
+            };
 
-        if message[0] == END_OF_STREAM_MESSAGE {
+        if !self.config.topic_prefix_spec().matches(topic) {
+            debug!(
+                target: "savant_rs::zeromq::reader",
+                "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {:?}",
+                self.config.endpoint(),
+                self.config.topic_prefix_spec(),
+                topic
+            );
+
+            return Ok(ReaderResult::PrefixMismatch {
+                topic: topic.to_vec(),
+                routing_id: routing_id.cloned(),
+            });
+        }
+
+        let message = Box::new(crate::protobuf::deserialize(command)?);
+        if message.is_end_of_stream() {
             if self.config.socket_type() != &ReaderSocketType::Sub {
                 debug!(
                     target: "savant_rs::zeromq::reader",
@@ -220,40 +236,12 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             socket.send(CONFIRMATION_MESSAGE, 0)?;
         }
 
-        if message.is_empty() {
-            info!(
-                target: "savant_rs::zeromq::reader",
-                "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least 2 parts, but got {}",
-                self.config.endpoint(),
-                message.len()
-            );
-            return Ok(ReaderResult::TooShort(parts));
-        }
-        if !self.config.topic_prefix_spec().matches(topic) {
-            debug!(
-                target: "savant_rs::zeromq::reader",
-                "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {:?}",
-                self.config.endpoint(),
-                self.config.topic_prefix_spec(),
-                topic
-            );
-
-            return Ok(ReaderResult::PrefixMismatch {
-                topic: topic.to_vec(),
-                routing_id: routing_id.cloned(),
-            });
-        }
-
         if self.routing_id_filter.allow(topic, &routing_id) {
             Ok(ReaderResult::Message {
-                message: Box::new(crate::protobuf::deserialize(&message[0])?),
+                message,
                 topic: topic.to_vec(),
                 routing_id: routing_id.cloned(),
-                data: if message.len() > 1 {
-                    message[1..].to_vec()
-                } else {
-                    vec![]
-                },
+                data: extra.iter().map(|e| e.to_vec()).collect(),
             })
         } else {
             debug!(
@@ -274,10 +262,12 @@ mod tests {
     mod router_tests {
         use crate::message::Message;
         use crate::primitives::eos::EndOfStream;
+        use crate::primitives::userdata::UserData;
+        use crate::protobuf::serialize;
         use crate::transport::zeromq::reader::ReaderResult;
         use crate::transport::zeromq::{
             MockSocketProvider, NoopResponder, Reader, ReaderConfig, TopicPrefixSpec,
-            CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE,
+            CONFIRMATION_MESSAGE,
         };
 
         #[test]
@@ -288,7 +278,7 @@ mod tests {
                 .build()?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
             reader
@@ -305,7 +295,7 @@ mod tests {
                     topic,
                     routing_id,
                     data
-                } if message.is_end_of_stream() && topic == b"topic" && routing_id == &Some(b"routing-id".to_vec()) && data == &vec![vec![0x0, 0x1, 0x2]]
+                } if message.is_user_data() && topic == b"topic" && routing_id == &Some(b"routing-id".to_vec()) && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
                 reader.socket.as_mut().unwrap().take_buffer(),
@@ -361,11 +351,14 @@ mod tests {
                 .build()?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            reader
-                .socket
-                .as_mut()
-                .unwrap()
-                .send_multipart(&[b"routing-id", b"topic", END_OF_STREAM_MESSAGE], 0)?;
+            reader.socket.as_mut().unwrap().send_multipart(
+                &[
+                    b"routing-id",
+                    b"topic",
+                    &serialize(&Message::end_of_stream(EndOfStream::new("topic".into())))?,
+                ],
+                0,
+            )?;
             let m = reader.receive()?;
             assert!(matches!(m, ReaderResult::EndOfStream { .. }));
             assert_eq!(
@@ -404,7 +397,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic2".into()))?
                 .build()?;
 
-            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
@@ -453,7 +446,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::Prefix("topic2".into()))?
                 .build()?;
 
-            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
@@ -499,7 +492,7 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf).unwrap();
@@ -519,7 +512,7 @@ mod tests {
                     topic,
                     routing_id,
                     data
-                } if message.is_end_of_stream() && topic == b"topic2" && routing_id == Some(b"routing-id".to_vec()) && data == vec![b"extra"]
+                } if message.is_user_data() && topic == b"topic2" && routing_id == Some(b"routing-id".to_vec()) && data == vec![b"extra"]
             ));
             Ok(())
         }
@@ -527,7 +520,7 @@ mod tests {
 
     mod rep_tests {
         use crate::message::Message;
-        use crate::primitives::eos::EndOfStream;
+        use crate::primitives::userdata::UserData;
         use crate::transport::zeromq::reader::ReaderResult;
         use crate::transport::zeromq::{
             MockSocketProvider, NoopResponder, Reader, ReaderConfig, TopicPrefixSpec,
@@ -542,7 +535,7 @@ mod tests {
                 .build()?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            let message = Message::end_of_stream(EndOfStream::new("test".to_string()));
+            let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
             reader
@@ -559,7 +552,7 @@ mod tests {
                     topic,
                     routing_id,
                     data
-                } if message.is_end_of_stream() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
+                } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
                 reader.socket.as_mut().unwrap().take_buffer(),

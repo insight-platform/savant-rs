@@ -1,8 +1,9 @@
 use crate::message::Message;
-use crate::protobuf::serialize;
+use crate::primitives::eos::EndOfStream;
+use crate::protobuf::{deserialize, serialize};
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, SocketProvider,
-    WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, END_OF_STREAM_MESSAGE, ZMQ_LINGER,
+    WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
 use anyhow::bail;
 use log::{debug, info, warn};
@@ -42,13 +43,15 @@ pub enum WriterResult {
 #[derive(Default)]
 struct MockResponder;
 
-#[cfg(test)]
 impl MockSocketResponder for MockResponder {
     fn fix(&mut self, data: &mut Vec<Vec<u8>>) {
-        if data.len() == 2 && data[1] == END_OF_STREAM_MESSAGE {
-            data.pop();
-            data.push(CONFIRMATION_MESSAGE.to_vec());
-        } else if data.len() == 1 && data[0] == END_OF_STREAM_MESSAGE {
+        if data.len() == 2 {
+            let eos = deserialize(&data[1]);
+            if eos.is_ok() {
+                data.pop();
+                data.push(CONFIRMATION_MESSAGE.to_vec());
+            }
+        } else if data.len() == 1 {
             panic!("Wrong data format, topic is missing");
         } else {
             data.clear();
@@ -56,8 +59,6 @@ impl MockSocketResponder for MockResponder {
         }
     }
 }
-#[cfg(not(test))]
-impl MockSocketResponder for MockResponder {}
 
 impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
     pub fn new(config: &WriterConfig) -> anyhow::Result<Self> {
@@ -113,24 +114,24 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         self.socket.is_some()
     }
 
-    pub fn send_eos(&mut self, topic: &[u8]) -> anyhow::Result<WriterResult> {
-        self.send(topic, END_OF_STREAM_MESSAGE, &[])
+    pub fn send_eos(&mut self, topic: &str) -> anyhow::Result<WriterResult> {
+        let m = Message::end_of_stream(EndOfStream::new(topic.to_string()));
+        self.send(topic.as_bytes(), &m, &[])
     }
 
     pub fn send_message(
         &mut self,
-        topic: &[u8],
+        topic: &str,
         m: &Message,
         extra_parts: &[&[u8]],
     ) -> anyhow::Result<WriterResult> {
-        let serialized = serialize(m)?;
-        self.send(topic, &serialized, extra_parts)
+        self.send(topic.as_bytes(), m, extra_parts)
     }
 
     fn send(
         &mut self,
         topic: &[u8],
-        m: &[u8],
+        m: &Message,
         extra_parts: &[&[u8]],
     ) -> anyhow::Result<WriterResult> {
         if self.socket.is_none() {
@@ -138,7 +139,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         }
         let socket = self.socket.as_mut().unwrap();
         let extra_parts_iter = extra_parts.iter().cloned();
-        let parts = vec![topic, &m]
+        let serialized_message = serialize(m)?;
+        let parts = vec![topic, &serialized_message]
             .into_iter()
             .chain(extra_parts_iter)
             .collect::<Vec<_>>();
@@ -168,7 +170,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         }
         let start = std::time::Instant::now();
         if self.config.socket_type() == &WriterSocketType::Req
-            || (m == END_OF_STREAM_MESSAGE && self.config.socket_type() != &WriterSocketType::Pub)
+            || (m.is_end_of_stream() && self.config.socket_type() != &WriterSocketType::Pub)
         {
             let mut receive_retries = *self.config.receive_retries();
             while receive_retries >= 0 {
@@ -197,7 +199,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                         );
                     }
                 }
-                if m == END_OF_STREAM_MESSAGE {
+                if m.is_end_of_stream() {
                     let res = res.as_ref().unwrap();
                     if res.last().unwrap().as_slice() != CONFIRMATION_MESSAGE {
                         bail!(
@@ -243,7 +245,7 @@ mod tests {
                     .with_receive_retries(3)?
                     .build()?,
             )?;
-            let res = writer.send_eos(b"test")?;
+            let res = writer.send_eos("test")?;
             assert!(matches!(res, WriterResult::Ack {
                 receive_retries_spent,
                 send_retries_spent,
@@ -259,7 +261,7 @@ mod tests {
                     .with_receive_retries(3)?
                     .build()?,
             )?;
-            let res = writer.send_eos(b"test")?;
+            let res = writer.send_eos("test")?;
             assert!(matches!(res, WriterResult::Ack {
                 receive_retries_spent,
                 send_retries_spent,
@@ -276,7 +278,7 @@ mod tests {
                     .build()?,
             )?;
             let m = Message::video_frame(&gen_frame());
-            let res = writer.send_message(b"test", &m, &[b"abc"])?;
+            let res = writer.send_message("test", &m, &[b"abc"])?;
             assert!(matches!(res, WriterResult::Ack {
                 receive_retries_spent,
                 send_retries_spent,
@@ -301,7 +303,7 @@ mod tests {
                     .build()?,
             )?;
             let m = Message::video_frame(&gen_frame());
-            let res = writer.send_message(b"test", &m, &[b"abc"])?;
+            let res = writer.send_message("test", &m, &[b"abc"])?;
             assert!(matches!(res, WriterResult::Success {
                 retries_spent,
                 time_spent: _
