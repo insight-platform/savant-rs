@@ -35,7 +35,7 @@ impl UserData {
     }
 
     #[new]
-    pub fn new(source_id: String) -> Self {
+    pub fn new(source_id: &str) -> Self {
         Self(rust_primitives::UserData::new(source_id))
     }
 

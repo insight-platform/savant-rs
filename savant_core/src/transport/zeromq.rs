@@ -5,6 +5,7 @@ use lru::LruCache;
 use std::num::NonZeroUsize;
 
 mod nonblocking_reader;
+mod nonblocking_writer;
 pub mod reader;
 mod reader_config;
 mod sync_reader;
@@ -12,6 +13,8 @@ mod sync_writer;
 mod writer;
 mod writer_config;
 
+pub use nonblocking_reader::NonblockingReader;
+pub use nonblocking_writer::NonblockingWriter;
 pub use reader::Reader;
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;

@@ -18,7 +18,7 @@ rust-version.workspace = true
 anyhow = "1"
 bytes = "1.5"
 crc32fast = "1"
-crossbeam-channel = "0.5"
+crossbeam = "0.8"
 derive_builder = "0.12"
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }

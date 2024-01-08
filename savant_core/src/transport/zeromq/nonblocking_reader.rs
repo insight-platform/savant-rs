@@ -1,6 +1,6 @@
 use crate::transport::zeromq::reader::ReaderResult;
 use crate::transport::zeromq::{ReaderConfig, SyncReader};
-use crossbeam_channel::Receiver;
+use crossbeam::channel::Receiver;
 use std::sync::{Arc, OnceLock};
 
 pub struct NonblockingReader {
@@ -30,7 +30,7 @@ impl NonblockingReader {
             anyhow::bail!("Reader is already started.");
         }
         _ = self.is_started.set(());
-        let (sender, receiver) = crossbeam_channel::unbounded();
+        let (sender, receiver) = crossbeam::channel::unbounded();
         let reader = SyncReader::new(&self.config)?;
         let is_shutdown = self.is_shutdown.clone();
         let thread = std::thread::spawn(move || loop {
@@ -98,8 +98,8 @@ impl NonblockingReader {
             match receiver.try_recv() {
                 Ok(res) => Some(res),
                 Err(e) => match e {
-                    crossbeam_channel::TryRecvError::Empty => None,
-                    crossbeam_channel::TryRecvError::Disconnected => {
+                    crossbeam::channel::TryRecvError::Empty => None,
+                    crossbeam::channel::TryRecvError::Disconnected => {
                         Some(Err(anyhow::anyhow!("Failed to receive message: {:?}", e)))
                     }
                 },
