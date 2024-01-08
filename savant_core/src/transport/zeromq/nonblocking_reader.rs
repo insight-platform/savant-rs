@@ -84,3 +84,47 @@ impl NonblockingReader {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::transport::zeromq::reader::ReaderResult;
+    use crate::transport::zeromq::{ReaderConfig, TopicPrefixSpec};
+
+    #[test]
+    fn test_blocking_idling() -> anyhow::Result<()> {
+        let conf = ReaderConfig::new()
+            .url("router+bind:ipc:///tmp/test/nonblocking-reader-idling")?
+            .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+            .with_receive_timeout(100)?
+            .build()?;
+        let mut reader = super::NonblockingReader::new(&conf)?;
+        reader.start()?;
+        let now = std::time::Instant::now();
+        let recv = reader.receive();
+        let elapsed = now.elapsed().as_millis();
+        assert!(elapsed >= 100 && elapsed < 200);
+        assert!(recv.is_ok());
+        let recv = recv.unwrap();
+        assert!(matches!(recv, ReaderResult::Timeout));
+        reader.shutdown()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_nonblocking_idling() -> anyhow::Result<()> {
+        let conf = ReaderConfig::new()
+            .url("router+bind:ipc:///tmp/test/nonblocking-reader-idling")?
+            .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+            .with_receive_timeout(100)?
+            .build()?;
+        let mut reader = super::NonblockingReader::new(&conf)?;
+        reader.start()?;
+        let now = std::time::Instant::now();
+        let recv = reader.try_receive();
+        let elapsed = now.elapsed().as_millis();
+        assert!(elapsed < 100);
+        assert!(recv.is_none());
+        reader.shutdown()?;
+        Ok(())
+    }
+}

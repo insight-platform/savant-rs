@@ -255,7 +255,7 @@ impl<T: MockSocketResponder + Default> SocketProvider<T> for MockSocketProvider 
 impl<C: MockSocketResponder> Socket<C> {
     fn send_multipart(&mut self, parts: &[&[u8]], flags: i32) -> Result<(), zmq::Error> {
         match self {
-            Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags).map_err(|e| e.into()),
+            Socket::ZmqSocket(socket) => socket.send_multipart(parts, flags),
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.extend(parts.iter().map(|p| p.to_vec()));
@@ -267,7 +267,7 @@ impl<C: MockSocketResponder> Socket<C> {
 
     fn send(&mut self, m: &[u8], flags: i32) -> Result<(), zmq::Error> {
         match self {
-            Socket::ZmqSocket(socket) => socket.send(m, flags).map_err(|e| e.into()),
+            Socket::ZmqSocket(socket) => socket.send(m, flags),
             Socket::MockSocket(data, ref mut c) => {
                 data.clear();
                 data.push(m.to_vec());
