@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   linux:
+    timeout-minutes: 600
     runs-on: self-hosted
     strategy:
       matrix:
