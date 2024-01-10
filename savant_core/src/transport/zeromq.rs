@@ -13,8 +13,8 @@ mod sync_writer;
 mod writer;
 mod writer_config;
 
-pub use nonblocking_reader::NonblockingReader;
-pub use nonblocking_writer::{NonblockingWriter, WriteOperationResult};
+pub use nonblocking_reader::NonBlockingReader;
+pub use nonblocking_writer::{NonBlockingWriter, WriteOperationResult};
 pub use reader::{Reader, ReaderResult};
 pub use reader_config::{ReaderConfig, ReaderConfigBuilder};
 use std::mem;

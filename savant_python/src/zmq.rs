@@ -23,7 +23,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<WriterResultSuccess>()?;
 
     m.add_class::<sync::Writer>()?;
-    m.add_class::<nonblocking::Writer>()?;
+    m.add_class::<nonblocking::NonBlockingWriter>()?;
     m.add_class::<nonblocking::WriteOperationResult>()?;
 
     m.add_class::<ReaderSocketType>()?;
@@ -36,7 +36,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ReaderResultPrefixMismatch>()?;
 
     m.add_class::<sync::Reader>()?;
-    m.add_class::<nonblocking::Reader>()?;
+    m.add_class::<nonblocking::NonBlockingReader>()?;
 
     Ok(())
 }

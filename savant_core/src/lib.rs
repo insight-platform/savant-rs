@@ -15,7 +15,7 @@ pub mod pipeline;
 pub mod pluggable_udf_api;
 pub mod primitives;
 pub mod protobuf;
-mod rwlock;
+pub mod rwlock;
 pub mod symbol_mapper;
 pub mod telemetry;
 pub mod test;

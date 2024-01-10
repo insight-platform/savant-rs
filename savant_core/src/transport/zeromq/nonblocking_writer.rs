@@ -42,7 +42,7 @@ impl WriteOperationResult {
     }
 }
 
-pub struct NonblockingWriter {
+pub struct NonBlockingWriter {
     config: WriterConfig,
     max_inflight_messages: usize,
     thread: Option<std::thread::JoinHandle<anyhow::Result<()>>>,
@@ -51,7 +51,7 @@ pub struct NonblockingWriter {
     is_shutdown: Arc<OnceLock<()>>,
 }
 
-impl NonblockingWriter {
+impl NonBlockingWriter {
     pub fn new(config: &WriterConfig, max_inflight_messages: usize) -> anyhow::Result<Self> {
         Ok(Self {
             config: config.clone(),
@@ -173,18 +173,19 @@ mod tests {
     use crate::primitives::userdata::UserData;
     use crate::transport::zeromq::reader::ReaderResult;
     use crate::transport::zeromq::{
-        NonblockingReader, NonblockingWriter, ReaderConfig, WriterConfig, WriterResult,
+        NonBlockingReader, NonBlockingWriter, ReaderConfig, WriterConfig, WriterResult,
     };
 
     #[test]
     fn test_send_message_to_reader() -> anyhow::Result<()> {
-        let mut reader = NonblockingReader::new(
+        let mut reader = NonBlockingReader::new(
             &ReaderConfig::new()
                 .url("rep+bind:ipc:///tmp/test/req-rep-nowhere-writer")?
                 .build()?,
+            1,
         )?;
-        reader.start(1)?;
-        let mut writer = NonblockingWriter::new(
+        reader.start()?;
+        let mut writer = NonBlockingWriter::new(
             &WriterConfig::new()
                 .url("req+connect:ipc:///tmp/test/req-rep-nowhere-writer")?
                 .with_send_timeout(100)?

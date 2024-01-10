@@ -6,7 +6,7 @@ use savant_core::message::Message;
 use savant_core::test::gen_frame;
 use savant_core::transport::zeromq::reader::ReaderResult;
 use savant_core::transport::zeromq::{
-    NonblockingReader, NonblockingWriter, NoopResponder, Reader, ReaderConfig, Writer,
+    NonBlockingReader, NonBlockingWriter, NoopResponder, Reader, ReaderConfig, Writer,
     WriterConfig, WriterResult, ZmqSocketProvider,
 };
 use std::thread;
@@ -75,7 +75,7 @@ fn bench_nonblocking_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
     let path = "/tmp/test/dealer-router";
     std::fs::remove_dir_all(path).unwrap_or_default();
 
-    let mut reader = NonblockingReader::new(
+    let mut reader = NonBlockingReader::new(
         &ReaderConfig::new()
             .url(&format!("router+bind:ipc://{}", path))?
             .with_fix_ipc_permissions(Some(0o777))?
@@ -84,7 +84,7 @@ fn bench_nonblocking_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
     )?;
     reader.start()?;
 
-    let mut writer = NonblockingWriter::new(
+    let mut writer = NonBlockingWriter::new(
         &WriterConfig::new()
             .url(&format!("dealer+connect:ipc://{}", path))?
             .build()?,

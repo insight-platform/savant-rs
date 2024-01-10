@@ -7,15 +7,14 @@ use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::transport::zeromq;
 
 #[pyclass]
-#[pyo3(name = "NonblockingReader")]
-pub struct Reader(zeromq::NonblockingReader);
+pub struct NonBlockingReader(zeromq::NonBlockingReader);
 
 #[pymethods]
-impl Reader {
+impl NonBlockingReader {
     #[new]
     pub fn new(config: ReaderConfig, results_queue_size: usize) -> PyResult<Self> {
         Ok(Self(
-            zeromq::NonblockingReader::new(&config.0, results_queue_size)
+            zeromq::NonBlockingReader::new(&config.0, results_queue_size)
                 .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
         ))
     }
@@ -64,8 +63,7 @@ impl Reader {
 }
 
 #[pyclass]
-#[pyo3(name = "NonblockingWriter")]
-pub struct Writer(zeromq::NonblockingWriter);
+pub struct NonBlockingWriter(zeromq::NonBlockingWriter);
 
 #[pyclass]
 pub struct WriteOperationResult(zeromq::WriteOperationResult);
@@ -99,11 +97,11 @@ impl WriteOperationResult {
 }
 
 #[pymethods]
-impl Writer {
+impl NonBlockingWriter {
     #[new]
     pub fn new(config: WriterConfig, max_infight_messages: usize) -> PyResult<Self> {
         Ok(Self(
-            zeromq::NonblockingWriter::new(&config.0, max_infight_messages)
+            zeromq::NonBlockingWriter::new(&config.0, max_infight_messages)
                 .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
         ))
     }

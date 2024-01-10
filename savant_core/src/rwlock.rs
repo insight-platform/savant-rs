@@ -27,11 +27,6 @@ impl<T> SavantArcRwLock<T> {
     }
 
     #[inline]
-    pub fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-
-    #[inline]
     pub fn read(&self) -> parking_lot::RwLockReadGuard<'_, T> {
         self.0.read()
     }
