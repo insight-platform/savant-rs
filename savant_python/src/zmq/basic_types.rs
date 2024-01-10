@@ -3,6 +3,8 @@ use savant_core::transport::zeromq;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+/// Represents a socket type for a writer socket.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub enum WriterSocketType {
@@ -48,6 +50,8 @@ impl From<WriterSocketType> for zeromq::WriterSocketType {
     }
 }
 
+/// Represents a socket type for a reader socket.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub enum ReaderSocketType {
@@ -93,6 +97,9 @@ impl From<ReaderSocketType> for zeromq::ReaderSocketType {
     }
 }
 
+/// The object is used to configure the rules to pass messages from a writer to a reader
+/// based on either exact topic match or a prefix match.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct TopicPrefixSpec(pub(crate) zeromq::TopicPrefixSpec);
@@ -109,16 +116,33 @@ impl TopicPrefixSpec {
     fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    /// Creates a match rule for exact topic match
+    ///
+    /// Parameters
+    /// ----------
+    /// id: str
+    ///   The topic to match
+    ///
     #[staticmethod]
     pub fn source_id(id: &str) -> Self {
         Self(zeromq::TopicPrefixSpec::SourceId(id.to_string()))
     }
 
+    /// Creates a match rule for prefix match
+    ///
+    /// Parameters
+    /// ----------
+    /// prefix: str
+    ///   The prefix to match
+    ///
     #[staticmethod]
     pub fn prefix(prefix: &str) -> Self {
         Self(zeromq::TopicPrefixSpec::Prefix(prefix.to_string()))
     }
 
+    /// Creates a match rule for no match
+    ///
     #[staticmethod]
     pub fn none() -> Self {
         Self(zeromq::TopicPrefixSpec::None)

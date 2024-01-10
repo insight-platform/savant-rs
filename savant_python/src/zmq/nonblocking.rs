@@ -1,4 +1,5 @@
 use crate::primitives::message::Message;
+use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
 use pyo3::exceptions::PyRuntimeError;
@@ -71,7 +72,7 @@ pub struct WriteOperationResult(zeromq::WriteOperationResult);
 #[pymethods]
 impl WriteOperationResult {
     pub fn get(&self) -> PyResult<PyObject> {
-        results::process_writer_result(self.0.get().map_err(|e| {
+        results::process_writer_result(release_gil!(true, || self.0.get()).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get write operation result: {:?}", e))
         })?)
     }

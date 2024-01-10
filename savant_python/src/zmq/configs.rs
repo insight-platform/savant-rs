@@ -3,10 +3,12 @@ use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
 
+/// A builder class for a writer config
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct WriterConfigBuilder(Option<zeromq::WriterConfigBuilder>);
 
+/// A writer configuration
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct WriterConfig(pub(crate) zeromq::WriterConfig);
@@ -37,6 +39,33 @@ impl WriterConfigBuilder {
     fn __str__(&self) -> String {
         self.__repr__()
     }
+
+    /// Creates a new configuration builder based on the provided URL
+    ///
+    /// The URL can have the following formats:
+    ///
+    ///   * ``tcp://1.2.3.4:5678``
+    ///   * ``ipc:///tmp/test``
+    ///   * ``(pub|req|dealer)+(bind|connect):(tcp|ipc)://...``
+    ///
+    /// Parameters
+    /// ----------
+    /// url: str
+    ///   The URL to use
+    ///
+    /// Returns
+    /// -------
+    /// WriterConfigBuilder
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the URL is invalid
+    ///
+    #[staticmethod]
+    fn constructor(url: &str) -> PyResult<Self> {
+        Self::new(url)
+    }
     #[new]
     pub fn new(url: &str) -> PyResult<Self> {
         Ok(Self(Some(zeromq::WriterConfig::new().url(url).map_err(
@@ -44,6 +73,13 @@ impl WriterConfigBuilder {
         )?)))
     }
 
+    /// Sets the endpoint for the socket
+    ///
+    /// Parameters
+    /// ----------
+    /// endpoint: str
+    ///   The endpoint to use in the format ``ipc://`` or ``tcp://``
+    ///
     pub fn with_endpoint(&mut self, endpoint: &str) -> PyResult<()> {
         self.0 = Some(
             self.0
@@ -57,6 +93,13 @@ impl WriterConfigBuilder {
         Ok(())
     }
 
+    /// Sets the socket type
+    ///
+    /// Parameters
+    /// ----------
+    /// socket_type: :py:class:`WriterSocketType`
+    ///   The socket type to use
+    ///
     pub fn with_socket_type(&mut self, socket_type: WriterSocketType) -> PyResult<()> {
         self.0 = Some(
             self.0
