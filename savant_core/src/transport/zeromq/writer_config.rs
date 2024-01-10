@@ -1,6 +1,6 @@
 use super::{
     parse_zmq_socket_uri, SocketType, WriterSocketType, ACK_RECEIVE_RETRIES, IPC_PERMISSIONS,
-    SENDER_RECEIVE_TIMEOUT, SEND_HWM, SEND_RETRIES, SEND_TIMEOUT,
+    RECEIVE_HWM, SENDER_RECEIVE_TIMEOUT, SEND_HWM, SEND_RETRIES, SEND_TIMEOUT,
 };
 use anyhow::bail;
 use savant_utils::default_once::DefaultOnceCell;
@@ -46,6 +46,10 @@ impl WriterConfig {
         self.0.send_hwm.get_or_init()
     }
 
+    pub fn receive_hwm(&self) -> &i32 {
+        self.0.receive_hwm.get_or_init()
+    }
+
     pub fn fix_ipc_permissions(&self) -> &Option<u32> {
         self.0.fix_ipc_permissions.get_or_init()
     }
@@ -61,6 +65,7 @@ pub struct WriterConfigBuilder {
     receive_timeout: DefaultOnceCell<i32>,
     receive_retries: DefaultOnceCell<i32>,
     send_hwm: DefaultOnceCell<i32>,
+    receive_hwm: DefaultOnceCell<i32>,
     fix_ipc_permissions: DefaultOnceCell<Option<u32>>,
 }
 
@@ -75,6 +80,7 @@ impl Default for WriterConfigBuilder {
             receive_retries: DefaultOnceCell::new(ACK_RECEIVE_RETRIES),
             send_retries: DefaultOnceCell::new(SEND_RETRIES),
             send_hwm: DefaultOnceCell::new(SEND_HWM),
+            receive_hwm: DefaultOnceCell::new(RECEIVE_HWM),
             fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
         }
     }
@@ -154,6 +160,14 @@ impl WriterConfigBuilder {
             bail!("Receive HWM must be non-negative.");
         }
         self.send_hwm.set(send_hwm)?;
+        Ok(self)
+    }
+
+    pub fn with_receive_hwm(self, receive_hwm: i32) -> anyhow::Result<Self> {
+        if receive_hwm <= 0 {
+            bail!("Receive HWM must be non-negative.");
+        }
+        self.receive_hwm.set(receive_hwm)?;
         Ok(self)
     }
 

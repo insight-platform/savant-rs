@@ -70,6 +70,11 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         socket.set_sndtimeo(*config.send_timeout())?;
         socket.set_linger(ZMQ_LINGER)?;
 
+        if *config.socket_type() != WriterSocketType::Pub {
+            socket.set_rcvtimeo(*config.receive_timeout())?;
+            socket.set_rcvhwm(*config.receive_hwm())?;
+        }
+
         if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
             create_ipc_dirs(config.endpoint())?;
         }
