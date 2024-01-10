@@ -9,16 +9,18 @@ pub struct NonblockingReader {
     receiver: Option<Receiver<anyhow::Result<ReaderResult>>>,
     is_started: OnceLock<()>,
     is_shutdown: Arc<OnceLock<()>>,
+    results_queue_size: usize,
 }
 
 impl NonblockingReader {
-    pub fn new(config: &ReaderConfig) -> anyhow::Result<Self> {
+    pub fn new(config: &ReaderConfig, results_queue_size: usize) -> anyhow::Result<Self> {
         Ok(Self {
             config: config.clone(),
             thread: None,
             receiver: None,
             is_started: OnceLock::new(),
             is_shutdown: Arc::new(OnceLock::new()),
+            results_queue_size,
         })
     }
 
@@ -30,7 +32,7 @@ impl NonblockingReader {
             anyhow::bail!("Reader is already started.");
         }
         _ = self.is_started.set(());
-        let (sender, receiver) = crossbeam::channel::unbounded();
+        let (sender, receiver) = crossbeam::channel::bounded(self.results_queue_size);
         let reader = SyncReader::new(&self.config)?;
         let is_shutdown = self.is_shutdown.clone();
         let thread = std::thread::spawn(move || loop {
@@ -122,7 +124,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let mut reader = super::NonblockingReader::new(&conf)?;
+        let mut reader = super::NonblockingReader::new(&conf, 1)?;
         reader.start()?;
         let now = std::time::Instant::now();
         let recv = reader.receive();
@@ -142,7 +144,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let mut reader = super::NonblockingReader::new(&conf)?;
+        let mut reader = super::NonblockingReader::new(&conf, 1)?;
         reader.start()?;
         let now = std::time::Instant::now();
         let recv = reader.try_receive();
@@ -160,7 +162,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let mut reader = super::NonblockingReader::new(&conf)?;
+        let mut reader = super::NonblockingReader::new(&conf, 1)?;
         reader.start()?;
         let res = reader.start();
         assert!(res.is_err());
@@ -175,7 +177,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let mut reader = super::NonblockingReader::new(&conf)?;
+        let mut reader = super::NonblockingReader::new(&conf, 1)?;
         reader.start()?;
         reader.shutdown()?;
         let res = reader.shutdown();
@@ -190,7 +192,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let mut reader = super::NonblockingReader::new(&conf)?;
+        let mut reader = super::NonblockingReader::new(&conf, 1)?;
         let res = reader.shutdown();
         assert!(res.is_err());
         Ok(())
@@ -203,7 +205,7 @@ mod tests {
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;
-        let reader = super::NonblockingReader::new(&conf)?;
+        let reader = super::NonblockingReader::new(&conf, 1)?;
         let res = reader.receive();
         assert!(res.is_err());
         let res = reader.try_receive().unwrap();

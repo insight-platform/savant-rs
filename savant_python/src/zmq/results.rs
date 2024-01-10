@@ -1,9 +1,11 @@
 use crate::primitives::message::Message;
 use crate::with_gil;
+use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, IntoPy, Py, PyAny, PyObject, PyResult};
 use savant_core::transport::zeromq;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
@@ -113,8 +115,7 @@ pub struct ReaderResultMessage {
     pub topic: Vec<u8>,
     #[pyo3(get)]
     pub routing_id: Option<Vec<u8>>,
-    #[pyo3(get)]
-    pub data: Vec<Vec<u8>>,
+    pub data: Arc<Vec<Vec<u8>>>,
 }
 
 #[pymethods]
@@ -131,6 +132,24 @@ impl ReaderResultMessage {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    fn data_len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn data(&self, index: usize) -> PyResult<Option<PyObject>> {
+        if index < self.data.len() {
+            with_gil!(|py| {
+                let pybytes = PyBytes::new_with(py, self.data[index].len(), |b: &mut [u8]| {
+                    b.copy_from_slice(&self.data[index]);
+                    Ok(())
+                })?;
+                Ok(Some(pybytes.into()))
+            })
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -248,7 +267,7 @@ pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObj
                 message: Message(*message),
                 topic,
                 routing_id,
-                data,
+                data: Arc::new(data),
             }
             .into_py(py)),
             zeromq::ReaderResult::EndOfStream { topic, routing_id } => {

@@ -183,7 +183,7 @@ mod tests {
                 .url("rep+bind:ipc:///tmp/test/req-rep-nowhere-writer")?
                 .build()?,
         )?;
-        reader.start()?;
+        reader.start(1)?;
         let mut writer = NonblockingWriter::new(
             &WriterConfig::new()
                 .url("req+connect:ipc:///tmp/test/req-rep-nowhere-writer")?
