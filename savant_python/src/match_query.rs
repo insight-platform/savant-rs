@@ -13,7 +13,7 @@ JMES Query Syntax can be found here: `JMESPath <https://jmespath.org/>`__.
 
  */
 #[pymodule]
-pub fn video_object_query(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn match_query(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FloatExpression>()?;
     m.add_class::<IntExpression>()?;
     m.add_class::<StringExpression>()?;

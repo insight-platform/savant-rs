@@ -17,7 +17,6 @@ use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
 use crate::logging::{set_log_level, LogLevel};
-use crate::match_query::video_object_query;
 
 /// Initializes Jaeger tracer.
 ///
@@ -72,7 +71,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(utils::symbol_mapper_module))?;
     m.add_wrapped(wrap_pymodule!(utils::udf_api_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
-    m.add_wrapped(wrap_pymodule!(video_object_query))?;
+    m.add_wrapped(wrap_pymodule!(match_query::match_query))?;
     m.add_wrapped(wrap_pymodule!(logging::logging))?;
     m.add_wrapped(wrap_pymodule!(zmq::zmq))?;
 
@@ -101,10 +100,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
         m.getattr("serialization_module")?,
     )?;
 
-    sys_modules.set_item(
-        "savant_rs.video_object_query",
-        m.getattr("video_object_query")?,
-    )?;
+    sys_modules.set_item("savant_rs.match_query", m.getattr("match_query")?)?;
 
     Ok(())
 }
