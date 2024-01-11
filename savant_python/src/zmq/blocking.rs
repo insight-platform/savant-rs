@@ -139,6 +139,13 @@ impl BlockingWriter {
     }
 }
 
+/// Blocking Reader with GIL release on long-lasting `receive` operations.
+///
+/// Parameters
+/// ----------
+/// config : :py:class:`ReaderConfig`
+///   Reader configuration.
+///
 #[pyclass]
 pub struct BlockingReader(Option<zeromq::SyncReader>, ReaderConfig);
 
@@ -149,6 +156,8 @@ impl BlockingReader {
         Ok(Self(None, config))
     }
 
+    /// Starts the reader. If the reader is already started, returns an error.
+    ///
     pub fn start(&mut self) -> PyResult<()> {
         if self.0.is_some() {
             return Err(PyRuntimeError::new_err("Reader is already started."));
@@ -160,6 +169,8 @@ impl BlockingReader {
         Ok(())
     }
 
+    /// Returns `true` if the reader is started.
+    ///
     pub fn is_started(&self) -> bool {
         if self.0.is_none() {
             return false;
@@ -168,6 +179,8 @@ impl BlockingReader {
         reader.is_started()
     }
 
+    /// Shuts down the reader. If the reader is not started, returns an error.
+    ///
     pub fn shutdown(&mut self) -> PyResult<()> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Reader is not started."));
@@ -179,6 +192,22 @@ impl BlockingReader {
         Ok(())
     }
 
+    /// Receives a message. Blocks until a message is received. Releases GIL while waiting for the
+    /// result.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`ReaderResultEndOfStream`
+    /// :py:class:`ReaderResultMessage`
+    /// :py:class:`ReaderResultTimeout`
+    /// :py:class:`ReaderResultPrefixMismatch`
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When the reader receives an error. Generally means that the reader is no longer
+    ///   usable and should be shutdown.
+    ///
     pub fn receive(&self) -> PyResult<PyObject> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Reader is not started."));

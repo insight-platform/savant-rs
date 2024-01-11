@@ -96,11 +96,6 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_endpoint(self, endpoint: &str) -> anyhow::Result<Self> {
-        self.endpoint.set(endpoint.to_string())?;
-        Ok(self)
-    }
-
     pub fn with_socket_type(self, socket_type: ReaderSocketType) -> anyhow::Result<Self> {
         self.socket_type.set(socket_type)?;
         Ok(self)
