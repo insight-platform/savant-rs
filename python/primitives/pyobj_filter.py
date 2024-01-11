@@ -4,7 +4,7 @@ from timeit import default_timer as timer
 from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import gen_frame, enable_dl_detection
-from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
+from savant_rs.match_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
     register_utility_resolver
 
 enable_dl_detection()

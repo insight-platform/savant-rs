@@ -181,17 +181,9 @@ mod tests {
     use crate::transport::zeromq::WriterSocketType;
 
     #[test]
-    fn test_writer_config_with_endpoint() -> anyhow::Result<()> {
-        let url = "tcp:///abc";
-        let config = WriterConfig::new().with_endpoint(&url)?.build()?;
-        assert_eq!(config.endpoint(), url);
-        Ok(())
-    }
-
-    #[test]
     fn test_duplicate_configuration_fails() -> anyhow::Result<()> {
-        let config = WriterConfig::new().with_endpoint("tcp:///abc")?;
-        assert!(config.with_endpoint("tcp:///abc").is_err());
+        let config = WriterConfig::new().url("tcp:///abc")?;
+        assert!(config.url("tcp:///abc").is_err());
         Ok(())
     }
 

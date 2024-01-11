@@ -1,6 +1,6 @@
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
-from savant_rs.video_object_query import FloatExpression as FE, \
+from savant_rs.match_query import FloatExpression as FE, \
     IntExpression as IE, \
     StringExpression as SE, \
     MatchQuery as Q

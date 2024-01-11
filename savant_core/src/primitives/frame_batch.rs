@@ -1,7 +1,9 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::object::VideoObjectProxy;
-use std::collections::HashMap;
+use hashbrown::HashMap;
+
+const DEFAULT_BATCH_SIZE: usize = 64;
 
 #[derive(Debug, Clone, Default)]
 pub struct VideoFrameBatch {
@@ -38,7 +40,9 @@ impl VideoFrameBatch {
     }
 
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            frames: HashMap::with_capacity(DEFAULT_BATCH_SIZE),
+        }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {

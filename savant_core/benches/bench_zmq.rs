@@ -81,6 +81,7 @@ fn bench_nonblocking_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
             .with_fix_ipc_permissions(Some(0o777))?
             .with_receive_timeout(1000)?
             .build()?,
+        100,
     )?;
     reader.start()?;
 

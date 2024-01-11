@@ -4,7 +4,7 @@ from savant_rs.primitives import VideoObject, AttributeValue, \
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
-from savant_rs.video_object_query import MatchQuery as Q, \
+from savant_rs.match_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
 # set_log_level(LogLevel.Trace)

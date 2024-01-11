@@ -146,15 +146,15 @@ mod tests {
     #[test]
     fn test_reader_config_with_endpoint() -> anyhow::Result<()> {
         let url = String::from("tcp:///abc");
-        let config = ReaderConfig::new().with_endpoint(&url)?.build()?;
+        let config = ReaderConfig::new().url(&url)?.build()?;
         assert_eq!(config.endpoint(), &url);
         Ok(())
     }
 
     #[test]
     fn test_duplicate_configuration_fails() -> anyhow::Result<()> {
-        let config = ReaderConfig::new().with_endpoint("tcp:///abc")?;
-        assert!(config.with_endpoint("tcp:///abc").is_err());
+        let config = ReaderConfig::new().url("tcp:///abc")?;
+        assert!(config.url("tcp:///abc").is_err());
         Ok(())
     }
 

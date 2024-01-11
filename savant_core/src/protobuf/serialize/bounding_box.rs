@@ -1,4 +1,4 @@
-use crate::primitives::{RBBox, RBBoxAngle, RBBoxData};
+use crate::primitives::{RBBox, RBBoxData, BBOX_ELEMENT_UNDEFINED};
 use crate::protobuf::generated;
 
 impl From<&RBBox> for generated::BoundingBox {
@@ -26,7 +26,7 @@ impl From<&generated::BoundingBox> for RBBoxData {
             yc: value.yc.into(),
             width: value.width.into(),
             height: value.height.into(),
-            angle: RBBoxAngle::new(value.angle),
+            angle: value.angle.unwrap_or(BBOX_ELEMENT_UNDEFINED).into(),
             has_modifications: false.into(),
         }
     }
@@ -39,7 +39,14 @@ impl From<&RBBoxData> for generated::BoundingBox {
             yc: value.yc.get(),
             width: value.width.get(),
             height: value.height.get(),
-            angle: value.angle.get(),
+            angle: {
+                let angle = value.angle.get();
+                if angle == BBOX_ELEMENT_UNDEFINED {
+                    None
+                } else {
+                    Some(angle)
+                }
+            },
         }
     }
 }

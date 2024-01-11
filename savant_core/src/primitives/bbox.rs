@@ -2,7 +2,6 @@ use crate::atomic_f32::AtomicF32;
 use crate::draw::PaddingDraw;
 use crate::primitives::{Point, PolygonalArea};
 use crate::round_2_digits;
-use crate::rwlock::SavantRwLock;
 use crate::EPS;
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
@@ -31,37 +30,13 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-#[derive(Debug)]
-pub struct RBBoxAngle(SavantRwLock<Option<f32>>);
-
-impl RBBoxAngle {
-    pub fn new(angle: Option<f32>) -> Self {
-        Self(SavantRwLock::new(angle))
-    }
-
-    pub fn get(&self) -> Option<f32> {
-        *self.0.read()
-    }
-
-    pub fn set(&self, arg: Option<f32>) {
-        let mut bind = self.0.write();
-        *bind = arg;
-    }
-}
-
-impl Clone for RBBoxAngle {
-    fn clone(&self) -> Self {
-        Self(SavantRwLock::new(*self.0.read()))
-    }
-}
-
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct RBBoxData {
     pub xc: AtomicF32,
     pub yc: AtomicF32,
     pub width: AtomicF32,
     pub height: AtomicF32,
-    pub angle: RBBoxAngle,
+    pub angle: AtomicF32,
     pub has_modifications: AtomicBool,
 }
 
@@ -72,7 +47,7 @@ impl RBBoxData {
             yc: yc.into(),
             width: width.into(),
             height: height.into(),
-            angle: RBBoxAngle::new(angle),
+            angle: angle.unwrap_or(BBOX_ELEMENT_UNDEFINED).into(),
             has_modifications: false.into(),
         }
     }
@@ -90,7 +65,7 @@ impl PartialEq for RBBoxData {
             && self.yc == other.yc
             && self.width == other.width
             && self.height == other.height
-            && self.angle.get() == other.angle.get()
+            && self.angle == other.angle
     }
 }
 
@@ -104,24 +79,6 @@ impl Clone for RBBoxData {
             height: self.height.clone(),
             angle: self.angle.clone(),
         }
-    }
-}
-
-impl serde::Serialize for RBBoxAngle {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let angle = self.get();
-        if angle.is_none() {
-            serializer.serialize_none()
-        } else {
-            serializer.serialize_some(&angle)
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for RBBoxAngle {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let angle = <Option<f32> as serde::Deserialize>::deserialize(deserializer)?;
-        Ok(Self::new(angle))
     }
 }
 
@@ -201,7 +158,12 @@ impl RBBox {
         self.0.height.get()
     }
     pub fn get_angle(&self) -> Option<f32> {
-        self.0.angle.get()
+        let angle = self.0.angle.get();
+        if angle == BBOX_ELEMENT_UNDEFINED {
+            None
+        } else {
+            Some(angle)
+        }
     }
     pub fn get_width_to_height_ratio(&self) -> f32 {
         let height = self.get_height();
@@ -234,7 +196,11 @@ impl RBBox {
         self.set_modifications(true);
     }
     pub fn set_angle(&self, angle: Option<f32>) {
-        self.0.angle.set(angle);
+        if let Some(angle) = angle {
+            self.0.angle.set(angle);
+        } else {
+            self.0.angle.set(BBOX_ELEMENT_UNDEFINED);
+        }
         self.set_modifications(true);
     }
     pub fn new(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
@@ -243,7 +209,7 @@ impl RBBox {
             yc: yc.into(),
             width: width.into(),
             height: height.into(),
-            angle: RBBoxAngle::new(angle),
+            angle: angle.unwrap_or(BBOX_ELEMENT_UNDEFINED).into(),
             has_modifications: AtomicBool::new(false),
         })
     }
@@ -955,8 +921,8 @@ mod tests {
         assert_eq!(bb.width.get(), 100.0);
         bb2.height.set(40.0);
         assert_eq!(bb.height.get(), 100.0);
-        bb2.angle.set(Some(10.0));
-        assert_eq!(bb.angle.get(), Some(45.0));
+        bb2.angle.set(10.0);
+        assert_eq!(bb.angle.get(), 45.0);
     }
 
     #[test]
