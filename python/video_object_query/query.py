@@ -5,7 +5,6 @@ from savant_rs.video_object_query import FloatExpression as FE, \
     StringExpression as SE, \
     MatchQuery as Q
 
-
 and_ = Q.and_
 or_ = Q.or_
 not_ = Q.not_

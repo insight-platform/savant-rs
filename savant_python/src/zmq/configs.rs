@@ -60,6 +60,13 @@ impl WriterConfigBuilder {
         self.__repr__()
     }
 
+    #[new]
+    pub fn new(url: &str) -> PyResult<Self> {
+        Ok(Self(Some(zeromq::WriterConfig::new().url(url).map_err(
+            |e| PyValueError::new_err(format!("Failed to set ZeroMQ socket URL: {:?}", e)),
+        )?)))
+    }
+
     /// Sets the socket type
     ///
     /// Parameters

@@ -1,5 +1,4 @@
 from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea

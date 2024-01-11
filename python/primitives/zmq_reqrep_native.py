@@ -10,18 +10,23 @@ socket_name = "ipc:///tmp/test_hello"
 NUMBER = 1000
 BLOCK_SIZE = 1024 * 1024
 
-writer_config = WriterConfigBuilder("req+bind:" + socket_name).build()
+writer_config = WriterConfigBuilder("dealer+bind:" + socket_name).build()
 writer = BlockingWriter(writer_config)
 writer.start()
 
 
 def server():
-    reader_config = ReaderConfigBuilder("rep+connect:" + socket_name).build()
+    reader_config = ReaderConfigBuilder("router+connect:" + socket_name).build()
     reader = BlockingReader(reader_config)
     reader.start()
+    wait_time = 0
     for _ in range(NUMBER):
+        wait = time()
         m = reader.receive()
+        wait_time += (time() - wait)
         assert len(m.data(0)) == BLOCK_SIZE
+    print("Reader time awaited", wait_time)
+
 
 frame = gen_frame()
 p1 = Thread(target=server)
@@ -37,5 +42,5 @@ for _ in range(NUMBER):
     writer.send_message("topic", m, buf)
     wait_time += (time() - wait)
 
-print("Time taken", time() - start, wait_time)
+print("Writer time taken", time() - start, "awaited", wait_time)
 p1.join()

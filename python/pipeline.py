@@ -24,8 +24,8 @@ if __name__ == "__main__":
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
-    conf.frame_period = 1 # every single frame, insane
-    conf.timestamp_period = 1000 # every sec
+    conf.frame_period = 1  # every single frame, insane
+    conf.timestamp_period = 1000  # every sec
 
     p = VideoPipeline("video-pipeline-root", [
         ("input", VideoPipelineStagePayloadType.Frame),

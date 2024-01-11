@@ -1,9 +1,6 @@
-from savant_rs.primitives import VideoObject, AttributeValue, \
-    Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
-from savant_rs.utils.serialization import load_message, save_message, Message
-
+from savant_rs.primitives import VideoObject, VideoFrame, VideoFrameContent, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import BBox
-
+from savant_rs.utils.serialization import load_message, save_message, Message
 
 frame = VideoFrame(
     source_id="Test",

@@ -1,12 +1,12 @@
 from savant_rs.draw_spec import PaddingDraw
 from savant_rs.primitives.geometry import BBox
 
-padding = PaddingDraw(0,0,0,0)
+padding = PaddingDraw(0, 0, 0, 0)
 
 max_col = 1279
 max_row = 719
 
-bbox = BBox(1279,719,2,2)
+bbox = BBox(1279, 719, 2, 2)
 
 vis_bbox = bbox.visual_box(padding, 0, max_col, max_row)
 print(vis_bbox)

@@ -1,4 +1,4 @@
-from savant_rs.primitives import AttributeValueType, AttributeValue, Attribute
+from savant_rs.primitives import AttributeValue, Attribute
 
 attr = Attribute(namespace="some", name="attr", hint="x", values=[
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
