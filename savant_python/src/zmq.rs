@@ -7,10 +7,10 @@ use crate::zmq::results::{
 use pyo3::prelude::*;
 
 pub mod basic_types;
+pub mod blocking;
 pub mod configs;
 pub mod nonblocking;
 pub mod results;
-pub mod sync;
 
 #[pymodule]
 pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -22,7 +22,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<WriterResultAck>()?;
     m.add_class::<WriterResultSuccess>()?;
 
-    m.add_class::<sync::Writer>()?;
+    m.add_class::<blocking::BlockingWriter>()?;
     m.add_class::<nonblocking::NonBlockingWriter>()?;
     m.add_class::<nonblocking::WriteOperationResult>()?;
 
@@ -35,7 +35,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ReaderResultTimeout>()?;
     m.add_class::<ReaderResultPrefixMismatch>()?;
 
-    m.add_class::<sync::Reader>()?;
+    m.add_class::<blocking::BlockingReader>()?;
     m.add_class::<nonblocking::NonBlockingReader>()?;
 
     Ok(())

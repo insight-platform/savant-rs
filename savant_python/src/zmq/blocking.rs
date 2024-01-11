@@ -7,16 +7,25 @@ use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::transport::zeromq;
 
+/// Blocking Writer with GIL release on long-lasting `send_*` operations.
+///
+/// Parameters
+/// ----------
+/// config : WriterConfig
+///   Writer configuration.
+///   
 #[pyclass]
-pub struct Writer(Option<zeromq::SyncWriter>, WriterConfig);
+pub struct BlockingWriter(Option<zeromq::SyncWriter>, WriterConfig);
 
 #[pymethods]
-impl Writer {
+impl BlockingWriter {
     #[new]
     pub fn new(config: WriterConfig) -> PyResult<Self> {
         Ok(Self(None, config))
     }
 
+    /// Returns `true` if the writer is started.
+    ///
     pub fn is_started(&self) -> bool {
         if self.0.is_none() {
             return false;
@@ -25,6 +34,8 @@ impl Writer {
         writer.is_started()
     }
 
+    /// Starts the writer. If the writer is already started, returns an error.
+    ///
     pub fn start(&mut self) -> PyResult<()> {
         if self.0.is_some() {
             return Err(PyRuntimeError::new_err("Writer is already started."));
@@ -36,6 +47,8 @@ impl Writer {
         Ok(())
     }
 
+    /// Shuts down the writer. If the writer is not started, returns an error.
+    ///
     pub fn shutdown(&mut self) -> PyResult<()> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
@@ -47,6 +60,27 @@ impl Writer {
         Ok(())
     }
 
+    /// Sends EOS to the specified topic. If the writer is not started, returns an error.
+    /// Releases GIL while waiting for the result.
+    ///
+    /// Parameters
+    /// ----------
+    /// topic : str
+    ///   Topic to send EOS to.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`WriterResultAck`
+    /// :py:class:`WriterResultAckTimeout`
+    /// :py:class:`WriterResultSendTimeout`
+    /// :py:class:`WriterResultSuccess`
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When underlying ZeroMQ writer fails and no longer functional. Usually means that the
+    ///   writer must be restarted.
+    ///
     pub fn send_eos(&mut self, topic: &str) -> PyResult<PyObject> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
@@ -60,6 +94,31 @@ impl Writer {
         results::process_writer_result(res)
     }
 
+    /// Sends a message to the specified topic. If the writer is not started, returns an error.
+    /// Releases GIL while waiting for the result.
+    ///
+    /// Parameters
+    /// ----------
+    /// topic : str
+    ///   Topic to send EOS to.
+    /// message : :py:class:`savant_rs.utils.serialization.Message`
+    ///   Message to send.
+    /// extra : bytes
+    ///   Extra data to send with the message.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`WriterResultAck`
+    /// :py:class:`WriterResultAckTimeout`
+    /// :py:class:`WriterResultSendTimeout`
+    /// :py:class:`WriterResultSuccess`
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When underlying ZeroMQ writer fails and no longer functional. Usually means that the
+    ///   writer must be restarted.
+    ///
     pub fn send_message(
         &mut self,
         topic: &str,
@@ -81,10 +140,10 @@ impl Writer {
 }
 
 #[pyclass]
-pub struct Reader(Option<zeromq::SyncReader>, ReaderConfig);
+pub struct BlockingReader(Option<zeromq::SyncReader>, ReaderConfig);
 
 #[pymethods]
-impl Reader {
+impl BlockingReader {
     #[new]
     pub fn new(config: ReaderConfig) -> PyResult<Self> {
         Ok(Self(None, config))

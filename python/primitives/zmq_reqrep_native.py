@@ -3,7 +3,7 @@ from time import time
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, Writer, Reader
+from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, BlockingWriter, BlockingReader
 
 socket_name = "ipc:///tmp/test_hello"
 
@@ -11,13 +11,13 @@ NUMBER = 1000
 BLOCK_SIZE = 1024 * 1024
 
 writer_config = WriterConfigBuilder("req+bind:" + socket_name).build()
-writer = Writer(writer_config)
+writer = BlockingWriter(writer_config)
 writer.start()
 
 
 def server():
     reader_config = ReaderConfigBuilder("rep+connect:" + socket_name).build()
-    reader = Reader(reader_config)
+    reader = BlockingReader(reader_config)
     reader.start()
     for _ in range(NUMBER):
         m = reader.receive()
