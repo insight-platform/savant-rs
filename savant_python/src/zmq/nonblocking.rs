@@ -7,6 +7,18 @@ use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::transport::zeromq;
 
+/// A non-blocking reader. Does not release GIL when uses `receive` convenience method, which is blocking.
+/// For non-blocking operations use `try_receive`.
+///
+/// Parameters
+/// ----------
+/// config : ReaderConfig
+///   Reader configuration.
+/// results_queue_size : int
+///   Size of the queue for storing results. If the queue is full, the reader's internal operation will block.
+///   and depending on the socket type can cause either drop or backpressure. The user can use `enqueued_results` to
+///   check the number of enqueued results and read them either with `receive` or `try_receive`.
+///
 #[pyclass]
 pub struct NonBlockingReader(zeromq::NonBlockingReader);
 
@@ -20,6 +32,8 @@ impl NonBlockingReader {
         ))
     }
 
+    /// Starts the reader. If the reader is already started, returns an error.
+    ///
     pub fn start(&mut self) -> PyResult<()> {
         if self.0.is_started() {
             return Err(PyRuntimeError::new_err("Reader is already started."));
@@ -30,20 +44,50 @@ impl NonBlockingReader {
         Ok(())
     }
 
+    /// Returns the number of enqueued results. Those results require fetching to avoid the reader
+    /// blocking.
+    ///
+    pub fn enqueued_results(&self) -> usize {
+        self.0.enqueued_results()
+    }
+
+    /// Returns `true` if the reader is started.
+    ///
     pub fn is_started(&self) -> bool {
         self.0.is_started()
     }
 
+    /// Returns `true` if the reader is shutdown.
+    ///
     pub fn is_shutdown(&self) -> bool {
         self.0.is_shutdown()
     }
 
+    /// Shuts down the reader. If the reader is already shutdown, returns an error.
+    ///
     pub fn shutdown(&mut self) -> PyResult<()> {
         self.0
             .shutdown()
             .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
     }
 
+    /// Receives a message. Blocks until a message is received. Does not release GIL.
+    /// This is a convenience method which normally should not be used with such a reader.
+    /// For non-blocking operations use `try_receive`.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`ReaderResultEndOfStream`
+    /// :py:class:`ReaderResultMessage`
+    /// :py:class:`ReaderResultPrefixMismatch`
+    /// :py:class:`ReaderResultTimeout`
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When the reader receives an error. Generally means that the reader is no longer
+    ///   usable and should be shutdown.
+    ///
     pub fn receive(&self) -> PyResult<PyObject> {
         let res = self
             .0
@@ -62,9 +106,6 @@ impl NonBlockingReader {
         }
     }
 }
-
-#[pyclass]
-pub struct NonBlockingWriter(zeromq::NonBlockingWriter);
 
 #[pyclass]
 pub struct WriteOperationResult(zeromq::WriteOperationResult);
@@ -97,6 +138,19 @@ impl WriteOperationResult {
     }
 }
 
+/// A non-blocking writer. Sends the message to the internal command queue with returning a
+/// Future-like object :py:class:`WriteOperationResult`. The user can use `get` or `try_get` to get the result of the operation.
+///
+/// Parameters
+/// ----------
+/// config : WriterConfig
+///   Writer configuration.
+/// max_infight_messages : int
+///   Maximum number of inflight messages. If the number of inflight messages is equal to this value, the writer's internal operation will block.
+///
+#[pyclass]
+pub struct NonBlockingWriter(zeromq::NonBlockingWriter);
+
 #[pymethods]
 impl NonBlockingWriter {
     #[new]
@@ -107,32 +161,92 @@ impl NonBlockingWriter {
         ))
     }
 
+    /// Returns `true` if the writer is started.
+    ///
     pub fn is_started(&self) -> bool {
         self.0.is_started()
     }
 
+    /// Returns `true` if the writer is shutdown.
+    ///
     pub fn is_shutdown(&self) -> bool {
         self.0.is_shutdown()
     }
 
+    /// Returns the number of inflight messages.
+    pub fn inflight_messages(&self) -> usize {
+        self.0.inflight_messages()
+    }
+
+    /// Returns `true` if the writer has capacity to send more messages.
+    pub fn has_capacity(&self) -> bool {
+        self.0.has_capacity()
+    }
+
+    /// Starts the writer. If the writer is already started, returns an error.
+    ///
     pub fn start(&mut self) -> PyResult<()> {
         self.0
             .start()
             .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
     }
 
+    /// Shuts down the writer. If the writer is already shutdown, returns an error.
+    ///
     pub fn shutdown(&mut self) -> PyResult<()> {
         self.0
             .shutdown()
             .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
     }
 
+    /// Sends EOS to the specified topic.
+    ///
+    /// Parameters
+    /// ----------
+    /// topic : str
+    ///   Topic to send EOS to.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`WriteOperationResult`
+    ///   Write operation result - a future-like object
+    ///   which can be used to get the result of the operation.
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When the writer receives an error. Generally means that the writer is no longer
+    ///   usable and should be shutdown.
+    ///
     pub fn send_eos(&mut self, topic: &str) -> PyResult<WriteOperationResult> {
         Ok(WriteOperationResult(self.0.send_eos(topic).map_err(
             |e| PyRuntimeError::new_err(format!("{:?}", e)),
         )?))
     }
 
+    /// Sends a message to the specified topic.
+    ///
+    /// Parameters
+    /// ----------
+    /// topic : str
+    ///   Topic to send the message to.
+    /// message : :py:class:`savant_rs.utils.serialization.Message`
+    ///   Message to send.
+    /// extra : bytes
+    ///   Extra data to send with the message.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`WriteOperationResult`
+    ///   Write operation result - a future-like object
+    ///   which can be used to get the result of the operation.
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   When the writer receives an error. Generally means that the writer is no longer
+    ///   usable and should be shutdown.
+    ///
     pub fn send_message(
         &mut self,
         topic: &str,

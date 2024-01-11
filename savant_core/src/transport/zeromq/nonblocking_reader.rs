@@ -47,6 +47,14 @@ impl NonBlockingReader {
         Ok(())
     }
 
+    pub fn enqueued_results(&self) -> usize {
+        if let Some(receiver) = &self.receiver {
+            receiver.len()
+        } else {
+            0
+        }
+    }
+
     pub fn is_shutdown(&self) -> bool {
         self.is_shutdown.get().is_some()
     }

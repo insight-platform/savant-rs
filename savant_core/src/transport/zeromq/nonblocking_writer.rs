@@ -63,6 +63,13 @@ impl NonBlockingWriter {
         })
     }
 
+    pub fn inflight_messages(&self) -> usize {
+        self.ops_queue.as_ref().unwrap().len()
+    }
+    pub fn has_capacity(&self) -> bool {
+        self.ops_queue.as_ref().unwrap().len() < self.max_inflight_messages
+    }
+
     pub fn is_started(&self) -> bool {
         self.is_started.get().is_some()
     }

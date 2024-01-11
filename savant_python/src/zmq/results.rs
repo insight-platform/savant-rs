@@ -7,6 +7,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+/// Returned when a writer is unable to send a message due to a timeout on ZMQ.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultSendTimeout;
@@ -28,6 +30,9 @@ impl WriterResultSendTimeout {
     }
 }
 
+/// Returned when a writer is unable to receive an ack due to a timeout on ZMQ.
+/// Contains a field holding the accumulated timeout (receive_retries x receive_timeout).
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultAckTimeout {
@@ -52,6 +57,10 @@ impl WriterResultAckTimeout {
     }
 }
 
+/// Returned when a writer is able to send a message and receive an ack.
+/// The result is expected for every Req/Rep message and for only for EOS when
+/// using Dealer/Router. Pub/Sub does not use acks.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultAck {
@@ -80,6 +89,10 @@ impl WriterResultAck {
     }
 }
 
+/// Returned when a writer is able to send a message without receiving an ack.
+/// For Dealer/Router when the message is not EOS, for Pub/Sub always. Req/Rep does not
+/// use this result.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultSuccess {
@@ -106,13 +119,18 @@ impl WriterResultSuccess {
     }
 }
 
+/// Returned when a reader received a message.
+///
 #[pyclass]
 #[derive(Clone)]
 pub struct ReaderResultMessage {
+    /// The :py:class:`savant_rs.utils.serialization.Message` received.
     #[pyo3(get)]
     pub message: Message,
+    /// The topic of the message.
     #[pyo3(get)]
     pub topic: Vec<u8>,
+    /// The routing id of the message. The field is only filled for Router socket.
     #[pyo3(get)]
     pub routing_id: Option<Vec<u8>>,
     pub data: Arc<Vec<Vec<u8>>>,
@@ -134,10 +152,30 @@ impl ReaderResultMessage {
         self.__repr__()
     }
 
+    /// Returns the length o the data vector stored in the message.
     fn data_len(&self) -> usize {
         self.data.len()
     }
 
+    /// Returns the data stored in the message at the given index.
+    ///
+    /// Parameters
+    /// ----------
+    /// index: int
+    ///   The index of the data to return.
+    ///
+    /// Returns
+    /// -------
+    ///  bytes
+    ///     The data stored in the message at the given index.
+    ///  None
+    ///     If the index is out of bounds.
+    ///
+    /// Raises
+    /// ------
+    /// MemoryError
+    ///   if the data cannot be allocated in Python.
+    ///
     fn data(&self, index: usize) -> PyResult<Option<PyObject>> {
         if index < self.data.len() {
             with_gil!(|py| {
@@ -153,11 +191,15 @@ impl ReaderResultMessage {
     }
 }
 
+/// The message is returned when a reader receives the end of the stream.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultEndOfStream {
+    /// The topic of the message.
     #[pyo3(get)]
     pub topic: Vec<u8>,
+    /// The routing id of the message. The field is only filled for Router socket.
     #[pyo3(get)]
     pub routing_id: Option<Vec<u8>>,
 }
@@ -179,6 +221,8 @@ impl ReaderResultEndOfStream {
     }
 }
 
+/// Returned when a reader is unable to receive a message due to a timeout on ZMQ.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultTimeout;
@@ -200,11 +244,15 @@ impl ReaderResultTimeout {
     }
 }
 
+/// Returned when a reader received a message not matching the topic prefix configured.
+///
 #[pyclass]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultPrefixMismatch {
+    /// The topic of the message.
     #[pyo3(get)]
     pub topic: Vec<u8>,
+    /// The routing id of the message. The field is only filled for Router socket.
     #[pyo3(get)]
     pub routing_id: Option<Vec<u8>>,
 }

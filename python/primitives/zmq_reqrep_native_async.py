@@ -7,7 +7,7 @@ from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, NonBlockingR
 
 socket_name = "ipc:///tmp/test_hello"
 
-NUMBER = 1000
+NUMBER = 10000
 BLOCK_SIZE = 1024 * 1024
 
 
@@ -24,7 +24,7 @@ async def reader():
             assert len(m.data(0)) == BLOCK_SIZE
 
             if counter % 1000 == 0:
-                print("Read counter", counter)
+                print("Read counter", counter, ", enqueued results", reader.enqueued_results())
 
             counter -= 1
 
