@@ -9,7 +9,7 @@ o = VideoObject(
     label="person",
     detection_box=RBBox(0.1, 0.2, 0.3, 0.4, None),
     confidence=0.5,
-    attributes={},
+    attributes=[],
     track_id=None,
     track_box=None
 )

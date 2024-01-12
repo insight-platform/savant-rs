@@ -1,6 +1,5 @@
 use opentelemetry::propagation::{Extractor, Injector};
 use opentelemetry::{global, Context};
-use rkyv::{Archive, Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -41,8 +40,7 @@ where
     })
 }
 
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, Default)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, Default)]
 pub struct PropagatedContext(pub HashMap<String, String>);
 
 impl Injector for PropagatedContext {

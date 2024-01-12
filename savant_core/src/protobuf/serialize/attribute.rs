@@ -1,6 +1,6 @@
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-use crate::primitives::{Attribute, IntersectionKind};
+use crate::primitives::{Attribute, IntersectionKind, RBBox};
 use crate::protobuf::{generated, serialize};
 use std::sync::Arc;
 
@@ -51,13 +51,16 @@ impl From<&AttributeValueVariant> for generated::attribute_value::Value {
             }
             AttributeValueVariant::BBox(bb) => generated::attribute_value::Value::BoundingBox(
                 generated::BoundingBoxAttributeValueVariant {
-                    data: Some(generated::BoundingBox::from(bb)),
+                    data: Some(generated::BoundingBox::from(&RBBox::from(bb))),
                 },
             ),
             AttributeValueVariant::BBoxVector(bbv) => {
                 generated::attribute_value::Value::BoundingBoxVector(
                     generated::BoundingBoxVectorAttributeValueVariant {
-                        data: bbv.iter().map(generated::BoundingBox::from).collect(),
+                        data: bbv
+                            .iter()
+                            .map(|bb| generated::BoundingBox::from(&RBBox::from(bb)))
+                            .collect(),
                     },
                 )
             }
@@ -427,10 +430,8 @@ mod tests {
 
     #[test]
     fn test_attribute_value_variant_bbox() {
-        let bb = crate::primitives::RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0))
-            .to_owned()
-            .unwrap();
-        let av = AttributeValueVariant::BBox(bb.clone());
+        let bb = crate::primitives::RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0));
+        let av = AttributeValueVariant::BBox(bb.clone().into());
         assert_eq!(
             av,
             AttributeValueVariant::try_from(&generated::attribute_value::Value::BoundingBox(
@@ -453,12 +454,8 @@ mod tests {
     #[test]
     fn test_attribute_value_variant_bbox_vector() {
         let bbv = vec![
-            crate::primitives::RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0))
-                .to_owned()
-                .unwrap(),
-            crate::primitives::RBBox::new(6.0, 7.0, 8.0, 9.0, Some(10.0))
-                .to_owned()
-                .unwrap(),
+            crate::primitives::RBBox::new(1.0, 2.0, 3.0, 4.0, Some(5.0)).into(),
+            crate::primitives::RBBox::new(6.0, 7.0, 8.0, 9.0, Some(10.0)).into(),
         ];
         let av = AttributeValueVariant::BBoxVector(bbv.clone());
         assert_eq!(

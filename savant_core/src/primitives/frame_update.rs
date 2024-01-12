@@ -1,23 +1,15 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
 use crate::primitives::Attribute;
 use crate::trace;
-use rkyv::{Archive, Deserialize, Serialize};
 
-#[derive(
-    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
     ErrorIfLabelsCollide,
     ReplaceSameLabelObjects,
 }
 
-#[derive(
-    PartialEq, Debug, Clone, Archive, Deserialize, Serialize, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeign,
     KeepOwn,
@@ -28,8 +20,7 @@ pub enum AttributeUpdatePolicy {
 ///
 /// It contains a list of attributes and a list of objects.
 ///
-#[derive(Archive, Deserialize, Serialize, Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[archive(check_bytes)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VideoFrameUpdate {
     pub(crate) frame_attributes: Vec<Attribute>,
     pub(crate) object_attributes: Vec<(i64, Attribute)>,
@@ -38,21 +29,6 @@ pub struct VideoFrameUpdate {
     pub(crate) frame_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_policy: ObjectUpdatePolicy,
-}
-
-impl ToSerdeJsonValue for VideoFrameUpdate {
-    fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::json!(
-            {
-                "frame_attributes": self.frame_attributes.iter().map(|a| a.to_serde_json_value()).collect::<Vec<_>>(),
-                "object_attributes": self.object_attributes.iter().map(|(id, a)| (id, a.to_serde_json_value())).collect::<Vec<_>>(),
-                "objects": self.objects.iter().map(|(o, p)| (o.to_serde_json_value(), p)).collect::<Vec<_>>(),
-                "frame_attribute_policy": self.frame_attribute_policy,
-                "object_attribute_policy": self.object_attribute_policy,
-                "object_policy": self.object_policy,
-            }
-        )
-    }
 }
 
 impl Default for VideoFrameUpdate {
@@ -111,7 +87,7 @@ impl VideoFrameUpdate {
 
     pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
         self.objects
-            .push((trace!(object.inner.read()).clone(), parent_id));
+            .push((trace!(object.0.read()).clone(), parent_id));
     }
 
     pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {
@@ -123,9 +99,9 @@ impl VideoFrameUpdate {
 
     pub fn to_json(&self, pretty: bool) -> anyhow::Result<String> {
         Ok(if pretty {
-            serde_json::to_string_pretty(&self.to_serde_json_value())?
+            serde_json::to_string_pretty(self)?
         } else {
-            serde_json::to_string(&self.to_serde_json_value())?
+            serde_json::to_string(self)?
         })
     }
 
@@ -147,23 +123,17 @@ mod tests {
     fn get_attributes() -> (Attribute, Attribute) {
         (
             Attribute::persistent(
-                "system".into(),
-                "test".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::Boolean(true),
-                    None,
-                )],
-                Some("test".into()),
+                "system",
+                "test",
+                vec![AttributeValue::boolean(true, None)],
+                &Some("test"),
                 false,
             ),
             Attribute::persistent(
-                "system".into(),
-                "test".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::Integer(10),
-                    None,
-                )],
-                Some("test".into()),
+                "system",
+                "test",
+                vec![AttributeValue::integer(10, None)],
+                &Some("test"),
                 false,
             ),
         )
@@ -220,10 +190,10 @@ mod tests {
 
         let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let attr = f.get_attribute("system", "test").unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(v.get_value(), AttributeValueVariant::Integer(10)));
+        assert!(matches!(v.get(), AttributeValueVariant::Integer(10)));
     }
 
     #[test]
@@ -246,7 +216,7 @@ mod tests {
 
         for (id, attr) in attrs {
             let o = f.get_object(id).unwrap();
-            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            let attr = o.get_attribute(&attr.namespace, &attr.name).unwrap();
             assert!(attr.is_persistent);
         }
     }
@@ -263,13 +233,10 @@ mod tests {
 
         let res = f.update_frame_attributes(&upd);
         assert!(res.is_ok());
-        let attr = f.get_attribute(s("system"), s("test")).unwrap();
+        let attr = f.get_attribute("system", "test").unwrap();
         let vals = attr.get_values();
         let v = &vals[0];
-        assert!(matches!(
-            v.get_value(),
-            AttributeValueVariant::Boolean(true)
-        ));
+        assert!(matches!(v.get(), AttributeValueVariant::Boolean(true)));
     }
 
     #[test]
@@ -292,7 +259,7 @@ mod tests {
 
         for (id, attr) in attrs {
             let o = f.get_object(id).unwrap();
-            let attr = o.get_attribute(attr.namespace, attr.name).unwrap();
+            let attr = o.get_attribute(&attr.namespace, &attr.name).unwrap();
             assert!(!attr.is_persistent);
         }
     }

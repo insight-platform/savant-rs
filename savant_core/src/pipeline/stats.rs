@@ -1,5 +1,6 @@
+use crate::rwlock::SavantRwLock;
 use log::info;
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::{Mutex, MutexGuard};
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
@@ -220,7 +221,7 @@ pub struct Stats {
     generator: Arc<Mutex<StatsGenerator>>,
     time_thread: Option<std::thread::JoinHandle<()>>,
     shutdown: Arc<OnceLock<()>>,
-    stage_stats: Arc<Mutex<Vec<Arc<RwLock<StageStat>>>>>,
+    stage_stats: Arc<Mutex<Vec<Arc<SavantRwLock<StageStat>>>>>,
 }
 
 impl Default for Stats {
@@ -317,11 +318,13 @@ impl Stats {
         }
     }
 
-    pub fn add_stage_stats(&self, stat: Arc<RwLock<StageStat>>) {
+    pub fn add_stage_stats(&self, stat: Arc<SavantRwLock<StageStat>>) {
         self.stage_stats.lock().push(stat);
     }
 
-    pub fn collect_stage_stats(stats: &Arc<Mutex<Vec<Arc<RwLock<StageStat>>>>>) -> Vec<StageStat> {
+    pub fn collect_stage_stats(
+        stats: &Arc<Mutex<Vec<Arc<SavantRwLock<StageStat>>>>>,
+    ) -> Vec<StageStat> {
         stats.lock().iter().map(|s| s.read().clone()).collect()
     }
 

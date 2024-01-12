@@ -1,12 +1,12 @@
 use crate::message::{Message, MessageEnvelope, MessageMeta};
 use crate::otlp::PropagatedContext;
-use crate::protobuf::serialize::Error;
 
 pub(crate) mod generated;
 mod serialize;
 
 pub use generated::{UserData, VideoFrame, VideoFrameBatch, VideoFrameUpdate, VideoObject};
 pub use serialize::from_pb;
+pub use serialize::Error;
 pub use serialize::ToProtobuf;
 
 impl From<&Message> for generated::Message {

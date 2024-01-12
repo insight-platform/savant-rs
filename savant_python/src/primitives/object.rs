@@ -9,7 +9,6 @@ use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::{rust, AttributeMethods};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
-use std::collections::HashMap;
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -62,10 +61,10 @@ impl VideoObject {
     #[new]
     pub fn new(
         id: i64,
-        namespace: String,
-        label: String,
+        namespace: &str,
+        label: &str,
         detection_box: RBBox,
-        attributes: HashMap<(String, String), Attribute>,
+        attributes: Vec<Attribute>,
         confidence: Option<f32>,
         track_id: Option<i64>,
         track_box: Option<RBBox>,
@@ -75,10 +74,7 @@ impl VideoObject {
             namespace,
             label,
             detection_box.0,
-            attributes
-                .into_iter()
-                .map(|(k, v)| (k.clone(), v.0))
-                .collect(),
+            attributes.into_iter().map(|a| a.0).collect(),
             confidence,
             track_id,
             track_box.map(|b| b.0),
@@ -172,28 +168,27 @@ impl VideoObject {
     /// :py:class:`Attribute` or None
     ///   Deleted attribute or None if the attribute is not found.
     ///
-    pub fn delete_attribute(&mut self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.delete_attribute(namespace, name).map(Attribute)
     }
 
-    /// Deletes attributes from the object.
-    ///
-    /// Parameters
-    /// ----------
-    /// namespace : str or None
-    ///   Attribute namespace. If None, it is ignored when candidates are selected for removal.
-    /// names : List[str]
-    ///   Attribute names. If empty, it is ignored when candidates are selected for removal.
-    ///
-    #[pyo3(name = "delete_attributes")]
-    #[pyo3(signature = (namespace=None, names=vec![], no_gil=false))]
-    pub fn delete_attributes_gil(
-        &mut self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        no_gil: bool,
-    ) {
-        release_gil!(no_gil, || { self.0.delete_attributes(namespace, names) })
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
+    }
+
+    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
+        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     /// Returns a copy of the object with the same properties but detached from the frame and without a parent set.
@@ -243,7 +238,9 @@ impl VideoObject {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.0.find_attributes(namespace, names, hint)
+        let names_ref = names.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        self.0
+            .find_attributes(&namespace.as_deref(), &names_ref, &hint.as_deref())
     }
 
     /// Fetches attribute by namespace and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,
@@ -264,7 +261,7 @@ impl VideoObject {
     /// :py:class:`Attribute` or None
     ///   Attribute or None if the attribute is not found.
     ///
-    pub fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
 
@@ -370,12 +367,12 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_namespace(&self, namespace: String) {
+    pub fn set_namespace(&self, namespace: &str) {
         self.0.set_namespace(namespace);
     }
 
     #[setter]
-    pub fn set_label(&self, label: String) {
+    pub fn set_label(&self, label: &str) {
         self.0.set_label(label);
     }
 

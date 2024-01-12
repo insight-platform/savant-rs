@@ -179,7 +179,6 @@ pub(super) mod implementation {
     use hashbrown::HashMap;
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
     use opentelemetry::{Context, KeyValue};
-    use parking_lot::RwLock;
 
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
@@ -190,6 +189,7 @@ pub(super) mod implementation {
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
     use crate::primitives::object::VideoObjectProxy;
+    use crate::rwlock::SavantRwLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
 
@@ -209,10 +209,10 @@ pub(super) mod implementation {
     pub struct Pipeline {
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
-        root_spans: RwLock<HashMap<i64, Context>>,
+        root_spans: SavantRwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
-        frame_locations: RwLock<HashMap<i64, usize>>,
-        frame_ordering: RwLock<HashMap<String, i64>>,
+        frame_locations: SavantRwLock<HashMap<i64, usize>>,
+        frame_ordering: SavantRwLock<HashMap<String, i64>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
@@ -889,21 +889,17 @@ pub(super) mod implementation {
 
     #[cfg(test)]
     mod tests {
-        use std::io::sink;
-        use std::sync::atomic::Ordering;
-
-        use opentelemetry::global;
-        use opentelemetry::sdk::export::trace::stdout;
-        use opentelemetry::sdk::propagation::TraceContextPropagator;
-        use opentelemetry::trace::{TraceContextExt, TraceId};
-
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
-        use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+        use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, AttributeMethods};
+        use crate::telemetry::init_noop_tracer;
         use crate::test::gen_frame;
+
+        use opentelemetry::trace::{TraceContextExt, TraceId};
+        use std::sync::atomic::Ordering;
 
         fn create_pipeline() -> anyhow::Result<Pipeline> {
             let pipeline = Pipeline::new(
@@ -1037,13 +1033,10 @@ pub(super) mod implementation {
         fn get_update() -> VideoFrameUpdate {
             let mut update = VideoFrameUpdate::default();
             update.add_frame_attribute(Attribute::persistent(
-                "update".into(),
-                "attribute".into(),
-                vec![AttributeValue::new(
-                    AttributeValueVariant::String("1".into()),
-                    None,
-                )],
-                Some("test".into()),
+                "update",
+                "attribute",
+                vec![AttributeValue::string("1".into(), None)],
+                &Some("test"),
                 false,
             ));
             update
@@ -1057,9 +1050,7 @@ pub(super) mod implementation {
             pipeline.add_frame_update(id, update)?;
             pipeline.apply_updates(id)?;
             let (frame, _) = pipeline.get_independent_frame(id)?;
-            frame
-                .get_attribute("update".to_string(), "attribute".to_string())
-                .unwrap();
+            frame.get_attribute("update", "attribute").unwrap();
             Ok(())
         }
 
@@ -1073,16 +1064,13 @@ pub(super) mod implementation {
             pipeline.apply_updates(batch_id)?;
             pipeline.clear_updates(batch_id)?;
             let (frame, _) = pipeline.get_batched_frame(batch_id, id)?;
-            frame
-                .get_attribute("update".to_string(), "attribute".to_string())
-                .unwrap();
+            frame.get_attribute("update", "attribute").unwrap();
             Ok(())
         }
 
         #[test]
         fn test_sampling() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(2)?;
@@ -1108,8 +1096,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_no_tracing() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(0)?;
@@ -1127,8 +1114,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_tracing_every() -> anyhow::Result<()> {
-            stdout::new_pipeline().with_writer(sink()).install_simple();
-            global::set_text_map_propagator(TraceContextPropagator::new());
+            init_noop_tracer();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(1)?;

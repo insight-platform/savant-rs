@@ -2,7 +2,7 @@ from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
-from savant_rs.video_object_query import MatchQuery as Q
+from savant_rs.match_query import MatchQuery as Q
 
 frame = gen_frame()
 update = VideoFrameUpdate()

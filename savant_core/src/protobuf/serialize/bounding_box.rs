@@ -1,4 +1,4 @@
-use crate::primitives::{OwnedRBBoxData, RBBox};
+use crate::primitives::{RBBox, RBBoxData, BBOX_ELEMENT_UNDEFINED};
 use crate::protobuf::generated;
 
 impl From<&RBBox> for generated::BoundingBox {
@@ -19,34 +19,41 @@ impl From<&generated::BoundingBox> for RBBox {
     }
 }
 
-impl From<&OwnedRBBoxData> for generated::BoundingBox {
-    fn from(value: &OwnedRBBoxData) -> Self {
-        generated::BoundingBox {
-            xc: value.xc,
-            yc: value.yc,
-            width: value.width,
-            height: value.height,
-            angle: value.angle,
+impl From<&generated::BoundingBox> for RBBoxData {
+    fn from(value: &generated::BoundingBox) -> Self {
+        RBBoxData {
+            xc: value.xc.into(),
+            yc: value.yc.into(),
+            width: value.width.into(),
+            height: value.height.into(),
+            angle: value.angle.unwrap_or(BBOX_ELEMENT_UNDEFINED).into(),
+            has_modifications: false.into(),
         }
     }
 }
 
-impl From<&generated::BoundingBox> for OwnedRBBoxData {
-    fn from(value: &generated::BoundingBox) -> Self {
-        OwnedRBBoxData {
-            xc: value.xc,
-            yc: value.yc,
-            width: value.width,
-            height: value.height,
-            angle: value.angle,
-            has_modifications: false,
+impl From<&RBBoxData> for generated::BoundingBox {
+    fn from(value: &RBBoxData) -> Self {
+        generated::BoundingBox {
+            xc: value.xc.get(),
+            yc: value.yc.get(),
+            width: value.width.get(),
+            height: value.height.get(),
+            angle: {
+                let angle = value.angle.get();
+                if angle == BBOX_ELEMENT_UNDEFINED {
+                    None
+                } else {
+                    Some(angle)
+                }
+            },
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::{OwnedRBBoxData, RBBox};
+    use crate::primitives::{RBBox, RBBoxData};
     use crate::protobuf::generated;
 
     #[test]
@@ -76,15 +83,8 @@ mod tests {
     #[test]
     fn test_owned_bounding_box() {
         assert_eq!(
-            OwnedRBBoxData {
-                xc: 1.0,
-                yc: 2.0,
-                width: 3.0,
-                height: 4.0,
-                angle: Some(5.0),
-                has_modifications: false,
-            },
-            OwnedRBBoxData::from(&generated::BoundingBox {
+            RBBoxData::new(1.0, 2.0, 3.0, 4.0, Some(5.0)),
+            RBBoxData::from(&generated::BoundingBox {
                 xc: 1.0,
                 yc: 2.0,
                 width: 3.0,
@@ -100,14 +100,7 @@ mod tests {
                 height: 4.0,
                 angle: Some(5.0),
             },
-            generated::BoundingBox::from(&OwnedRBBoxData {
-                xc: 1.0,
-                yc: 2.0,
-                width: 3.0,
-                height: 4.0,
-                angle: Some(5.0),
-                has_modifications: false,
-            })
+            generated::BoundingBox::from(&RBBoxData::new(1.0, 2.0, 3.0, 4.0, Some(5.0)))
         );
     }
 }

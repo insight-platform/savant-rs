@@ -21,13 +21,13 @@ impl Shutdown {
     }
 
     #[new]
-    pub fn new(auth: String) -> Self {
-        Self(rust::Shutdown { auth })
+    pub fn new(auth: &str) -> Self {
+        Self(rust::Shutdown::new(auth))
     }
 
     #[getter]
     pub fn get_auth(&self) -> String {
-        self.0.auth.clone()
+        self.0.get_auth().to_string()
     }
 
     #[getter]

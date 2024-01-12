@@ -35,7 +35,7 @@ impl UserData {
     }
 
     #[new]
-    pub fn new(source_id: String) -> Self {
+    pub fn new(source_id: &str) -> Self {
         Self(rust_primitives::UserData::new(source_id))
     }
 
@@ -53,10 +53,9 @@ impl UserData {
         Message::user_data(self.clone())
     }
 
-    #[pyo3(name = "attributes")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn attributes_gil(&self, no_gil: bool) -> Vec<(String, String)> {
-        release_gil!(no_gil, || self.0.get_attributes())
+    #[getter]
+    pub fn attributes(&self) -> Vec<(String, String)> {
+        self.0.get_attributes()
     }
 
     #[pyo3(name = "find_attributes")]
@@ -68,51 +67,50 @@ impl UserData {
         hint: Option<String>,
         no_gil: bool,
     ) -> Vec<(String, String)> {
-        release_gil!(no_gil, || self.0.find_attributes(namespace, names, hint))
+        let names_ref = names.iter().map(|s| s.as_str()).collect::<Vec<_>>();
+        release_gil!(no_gil, || self.0.find_attributes(
+            &namespace.as_deref(),
+            &names_ref,
+            &hint.as_deref()
+        ))
     }
 
-    #[pyo3(name = "get_attribute")]
-    #[pyo3(signature = (namespace, name, no_gil=true))]
-    pub fn get_attribute_gil(
-        &self,
-        namespace: String,
-        name: String,
-        no_gil: bool,
-    ) -> Option<Attribute> {
-        let res = release_gil!(no_gil, || self.0.get_attribute(namespace, name));
+    pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        let res = self.0.get_attribute(namespace, name);
         res.map(Attribute)
     }
 
-    #[pyo3(name = "delete_attributes")]
-    #[pyo3(signature = (namespace=None, names=vec![], no_gil=true))]
-    pub fn delete_attributes_gil(
-        &mut self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        no_gil: bool,
-    ) {
-        release_gil!(no_gil, || self.0.delete_attributes(namespace, names))
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
     }
 
-    #[pyo3(name = "delete_attribute")]
-    #[pyo3(signature = (namespace, name, no_gil=true))]
-    pub fn delete_attribute_gil(
-        &mut self,
-        namespace: String,
-        name: String,
-        no_gil: bool,
-    ) -> Option<Attribute> {
-        let res = release_gil!(no_gil, || self.0.delete_attribute(namespace, name));
+    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
+        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
+    }
+
+    pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
+        let res = self.0.delete_attribute(namespace, name);
         res.map(Attribute)
     }
 
-    pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let res = self.0.set_attribute(attribute.0);
+    pub fn set_attribute(&mut self, attribute: &Attribute) -> Option<Attribute> {
+        let res = self.0.set_attribute(attribute.0.clone());
         res.map(Attribute)
     }
 
-    pub fn clear_attributes(&mut self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.clear_attributes())
+    pub fn clear_attributes(&mut self) {
+        self.0.clear_attributes()
     }
 
     pub fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {

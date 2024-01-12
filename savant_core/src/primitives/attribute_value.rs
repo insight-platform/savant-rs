@@ -1,21 +1,7 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::any_object::AnyObject;
-use crate::primitives::{Intersection, OwnedRBBoxData, Point, PolygonalArea};
-use rkyv::{Archive, Deserialize, Serialize};
-use serde_json::Value;
+use crate::primitives::{Intersection, Point, PolygonalArea, RBBoxData};
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum AttributeValueVariant {
     Bytes(Vec<i64>, Vec<u8>),
     String(String),
@@ -26,8 +12,8 @@ pub enum AttributeValueVariant {
     FloatVector(Vec<f64>),
     Boolean(bool),
     BooleanVector(Vec<bool>),
-    BBox(OwnedRBBoxData),
-    BBoxVector(Vec<OwnedRBBoxData>),
+    BBox(RBBoxData),
+    BBoxVector(Vec<RBBoxData>),
     Point(Point),
     PointVector(Vec<Point>),
     Polygon(PolygonalArea),
@@ -38,33 +24,10 @@ pub enum AttributeValueVariant {
     None,
 }
 
-impl ToSerdeJsonValue for AttributeValueVariant {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::to_value(self).unwrap()
-    }
-}
-
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AttributeValue {
     pub confidence: Option<f32>,
     pub value: AttributeValueVariant,
-}
-
-impl ToSerdeJsonValue for AttributeValue {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::to_value(self).unwrap()
-    }
 }
 
 impl AttributeValue {
@@ -72,7 +35,82 @@ impl AttributeValue {
         Self { confidence, value }
     }
 
-    pub fn get_value(&self) -> &AttributeValueVariant {
+    pub fn float(value: f64, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Float(value), confidence)
+    }
+
+    pub fn float_vector(value: Vec<f64>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::FloatVector(value), confidence)
+    }
+
+    pub fn integer(value: i64, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Integer(value), confidence)
+    }
+
+    pub fn integer_vector(value: Vec<i64>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::IntegerVector(value), confidence)
+    }
+
+    pub fn string(value: &str, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::String(value.to_string()), confidence)
+    }
+
+    pub fn string_vector(value: Vec<String>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::StringVector(value), confidence)
+    }
+
+    pub fn boolean(value: bool, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Boolean(value), confidence)
+    }
+
+    pub fn boolean_vector(value: Vec<bool>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::BooleanVector(value), confidence)
+    }
+
+    pub fn bbox(value: RBBoxData, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::BBox(value), confidence)
+    }
+
+    pub fn bbox_vector(value: Vec<RBBoxData>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::BBoxVector(value), confidence)
+    }
+
+    pub fn point(value: Point, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Point(value), confidence)
+    }
+
+    pub fn point_vector(value: Vec<Point>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::PointVector(value), confidence)
+    }
+
+    pub fn polygon(value: PolygonalArea, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Polygon(value), confidence)
+    }
+
+    pub fn polygon_vector(value: Vec<PolygonalArea>, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::PolygonVector(value), confidence)
+    }
+
+    pub fn intersection(value: Intersection, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::Intersection(value), confidence)
+    }
+
+    pub fn temporary_value(value: AnyObject, confidence: Option<f32>) -> Self {
+        Self::new(AttributeValueVariant::TemporaryValue(value), confidence)
+    }
+
+    pub fn none() -> Self {
+        Self::new(AttributeValueVariant::None, None)
+    }
+
+    pub fn bytes(dims: &[i64], bytes: &[u8], confidence: Option<f32>) -> Self {
+        Self::new(
+            AttributeValueVariant::Bytes(dims.to_vec(), bytes.to_vec()),
+            confidence,
+        )
+    }
+
+    pub fn get(&self) -> &AttributeValueVariant {
         &self.value
     }
 

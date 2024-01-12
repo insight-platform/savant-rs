@@ -60,7 +60,7 @@ fn get_pipeline(
 
     let pipeline = Pipeline::new(stages.clone(), conf)?;
     stages.pop();
-    pipeline.set_root_span_name("bench_batch_snapshot".to_owned())?;
+    pipeline.set_root_span_name("bench".to_owned())?;
     Ok((pipeline, stages))
 }
 

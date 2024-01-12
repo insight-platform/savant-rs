@@ -1,10 +1,7 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::attribute_value::AttributeValue;
-use hashbrown::HashMap;
-use rkyv::{Archive, Deserialize, Serialize};
+use std::mem;
 use std::sync::Arc;
-
-pub type AttributeRs = Attribute;
 
 /// Attribute represents a specific knowledge about certain entity. The attribute is identified by ``(creator, label)`` pair which is unique within the entity.
 /// The attribute value is a list of values, each of which has a confidence score. The attribute may include additional information in the form of a hint.
@@ -15,18 +12,8 @@ pub type AttributeRs = Attribute;
 /// list is :class:`AttributeValue`.
 ///
 #[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    PartialEq,
-    Clone,
-    derive_builder::Builder,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
+    Debug, PartialEq, Clone, derive_builder::Builder, Default, serde::Serialize, serde::Deserialize,
 )]
-#[archive(check_bytes)]
 pub struct Attribute {
     pub namespace: String,
     pub name: String,
@@ -54,20 +41,20 @@ impl ToSerdeJsonValue for Attribute {
 
 impl Attribute {
     pub fn new(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: &Option<&str>,
         is_persistent: bool,
         is_hidden: bool,
     ) -> Self {
         AttributeBuilder::default()
             .is_persistent(is_persistent)
             .is_hidden(is_hidden)
-            .name(name)
-            .namespace(namespace)
+            .name(name.to_string())
+            .namespace(namespace.to_string())
             .values(values)
-            .hint(hint)
+            .hint(hint.map(|s| s.to_string()))
             .build()
             .unwrap()
     }
@@ -91,19 +78,19 @@ impl Attribute {
     ///   The created attribute.
     ///
     pub fn persistent(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: &Option<&str>,
         is_hidden: bool,
     ) -> Self {
         AttributeBuilder::default()
             .is_persistent(true)
             .is_hidden(is_hidden)
-            .name(name)
-            .namespace(namespace)
+            .name(name.to_string())
+            .namespace(namespace.to_string())
             .values(values)
-            .hint(hint)
+            .hint(hint.map(|s| s.to_string()))
             .build()
             .unwrap()
     }
@@ -127,19 +114,19 @@ impl Attribute {
     ///   The created attribute.
     ///
     pub fn temporary(
-        namespace: String,
-        name: String,
+        namespace: &str,
+        name: &str,
         values: Vec<AttributeValue>,
-        hint: Option<String>,
+        hint: &Option<&str>,
         is_hidden: bool,
     ) -> Self {
         AttributeBuilder::default()
             .is_persistent(false)
             .is_hidden(is_hidden)
-            .name(name)
-            .namespace(namespace)
+            .name(name.to_string())
+            .namespace(namespace.to_string())
             .values(values)
-            .hint(hint)
+            .hint(hint.map(|s| s.to_string()))
             .build()
             .unwrap()
     }
@@ -255,106 +242,128 @@ impl Attribute {
 
 pub trait AttributeMethods {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
-    fn restore_attributes(&self, attributes: Vec<Attribute>);
+    fn restore_attributes(&self, frame_attributes: Vec<Attribute>);
     fn get_attributes(&self) -> Vec<(String, String)>;
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
-    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute>;
+    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute>;
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
     fn clear_attributes(&self);
-    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>);
+    fn delete_attributes_with_ns(&self, namespace: &str);
+    fn delete_attributes_with_names(&mut self, labels: &[&str]);
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]);
     fn find_attributes(
         &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+        namespace: &Option<&str>,
+        names: &[&str],
+        hint: &Option<&str>,
     ) -> Vec<(String, String)>;
 }
 
 pub trait Attributive: Send {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute>;
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute>;
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute>;
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>);
+    fn get_attributes_ref(&self) -> &Vec<Attribute>;
+    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute>;
+    fn take_attributes(&mut self) -> Vec<Attribute> {
+        mem::take(self.get_attributes_ref_mut())
+    }
+    fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
+        self.get_attributes_ref_mut().append(&mut attributes);
+    }
 
     fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
         let attributes = self.take_attributes();
         let (retained, removed): (Vec<Attribute>, Vec<Attribute>) =
-            attributes.into_values().partition(|a| !a.is_temporary());
+            attributes.into_iter().partition(|a| !a.is_temporary());
 
-        self.place_attributes(
-            retained
-                .into_iter()
-                .map(|a| ((a.namespace.clone(), a.name.clone()), a))
-                .collect(),
-        );
+        self.place_attributes(retained);
 
         removed
     }
 
     fn restore_attributes(&mut self, attributes: Vec<Attribute>) {
-        let attrs = self.get_attributes_ref_mut();
         attributes.into_iter().for_each(|a| {
-            attrs.insert((a.namespace.clone(), a.name.clone()), a);
-        })
+            self.set_attribute(a);
+        });
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
         self.get_attributes_ref()
             .iter()
-            .filter_map(|((namespace, name), a)| {
+            .filter_map(|a| {
                 if a.is_hidden {
                     None
                 } else {
-                    Some((namespace.clone(), name.clone()))
+                    Some((a.namespace.clone(), a.name.clone()))
                 }
             })
             .collect()
     }
 
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref().get(&(namespace, name)).cloned()
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        self.get_attributes_ref()
+            .iter()
+            .find(|a| a.namespace == namespace && a.name == name)
+            .cloned()
     }
 
-    fn delete_attribute(&mut self, namespace: String, name: String) -> Option<Attribute> {
-        self.get_attributes_ref_mut().remove(&(namespace, name))
+    fn contains_attribute(&self, namespace: &str, name: &str) -> bool {
+        self.get_attributes_ref()
+            .iter()
+            .any(|a| a.namespace == namespace && a.name == name)
+    }
+
+    fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
+        let index = self
+            .get_attributes_ref()
+            .iter()
+            .position(|a| a.namespace == namespace && a.name == name)?;
+        Some(self.get_attributes_ref_mut().swap_remove(index))
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        self.get_attributes_ref_mut().insert(
-            (attribute.namespace.clone(), attribute.name.clone()),
-            attribute,
-        )
+        let index = self
+            .get_attributes_ref()
+            .iter()
+            .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
+
+        if let Some(index) = index {
+            Some(std::mem::replace(
+                &mut self.get_attributes_ref_mut()[index],
+                attribute,
+            ))
+        } else {
+            self.get_attributes_ref_mut().push(attribute);
+            None
+        }
     }
 
     fn clear_attributes(&mut self) {
         self.get_attributes_ref_mut().clear();
     }
 
-    fn delete_attributes(&mut self, namespace: Option<String>, names: Vec<String>) {
-        self.get_attributes_ref_mut().retain(|(c, label), _| {
-            if let Some(namespace) = &namespace {
-                if c != namespace {
-                    return true;
-                }
-            }
+    fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.get_attributes_ref_mut()
+            .retain(|a| a.namespace != *namespace);
+    }
 
-            if !names.is_empty() && !names.contains(label) {
-                return true;
-            }
+    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+        self.get_attributes_ref_mut()
+            .retain(|a| !labels.contains(&a.name.as_str()))
+    }
 
-            false
-        });
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
+        self.get_attributes_ref_mut()
+            .retain(|a| !hints.contains(&&a.hint.as_deref()))
     }
 
     fn find_attributes(
         &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+        namespace: &Option<&str>,
+        names: &[&str],
+        hint: &Option<&str>,
     ) -> Vec<(String, String)> {
         self.get_attributes_ref()
             .iter()
-            .filter(|((_, _), a)| {
+            .filter(|a| {
                 if a.is_hidden {
                     return false;
                 }
@@ -365,19 +374,203 @@ pub trait Attributive: Send {
                     }
                 }
 
-                if !names.is_empty() && !names.contains(&a.name) {
+                if !names.is_empty() && !names.contains(&a.name.as_str()) {
                     return false;
                 }
 
-                if let Some(hint) = &hint {
-                    if a.hint.as_ref() != Some(hint) {
+                if let (Some(l), Some(r)) = (&hint, &a.hint) {
+                    if l != &r.as_str() {
                         return false;
                     }
                 }
 
                 true
             })
-            .map(|((c, n), _)| (c.clone(), n.clone()))
+            .map(|a| (a.namespace.clone(), a.name.clone()))
             .collect()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::{Attribute, Attributive};
+    use std::mem;
+
+    #[derive(Default, Clone)]
+    struct AttrStor {
+        attributes: Vec<Attribute>,
+    }
+
+    impl Attributive for AttrStor {
+        fn get_attributes_ref(&self) -> &Vec<Attribute> {
+            &self.attributes
+        }
+
+        fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
+            &mut self.attributes
+        }
+
+        fn take_attributes(&mut self) -> Vec<Attribute> {
+            mem::take(&mut self.attributes)
+        }
+
+        fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
+            self.attributes.append(&mut attributes);
+        }
+    }
+
+    #[test]
+    fn test_get_attribute() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        let attribute = t.get_attribute("system", "test");
+        assert!(attribute.is_some());
+    }
+
+    #[test]
+    fn test_replace_attribute() {
+        let attribute = Attribute::new(
+            "system",
+            "test",
+            vec![AttributeValue::float(1.0, None)],
+            &None,
+            true,
+            false,
+        );
+
+        let replacement = Attribute::new(
+            "system",
+            "test",
+            vec![AttributeValue::float(2.0, None)],
+            &None,
+            true,
+            false,
+        );
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        let attr_opt = t.set_attribute(replacement);
+        let attr = attr_opt.unwrap();
+        assert_eq!(t.attributes.len(), 1);
+        assert_eq!(attr.values.len(), 1);
+        assert!(matches!(
+            attr.values[0].get(),
+            AttributeValueVariant::Float(v) if *v == 1.0
+        ));
+
+        let replacement = t.get_attribute("system", "test");
+        let replacement = replacement.unwrap();
+        assert_eq!(replacement.values.len(), 1);
+        assert!(matches!(
+            replacement.values[0].get(),
+            AttributeValueVariant::Float(v) if *v == 2.0
+        ));
+    }
+
+    #[test]
+    fn test_clear_attributes() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        t.clear_attributes();
+        assert_eq!(t.attributes.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_attribute() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        let attribute = t.delete_attribute("system", "test");
+        assert!(attribute.is_some());
+        assert_eq!(t.attributes.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_attributes() {
+        let attribute1 = Attribute::new("system", "test", vec![], &None, true, false);
+        let attribute2 = Attribute::new("system", "test2", vec![], &None, true, false);
+        let attribute3 = Attribute::new("system2", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute1.clone());
+        t.set_attribute(attribute2.clone());
+        t.set_attribute(attribute3.clone());
+        let mut tmp_t = t.clone();
+
+        tmp_t.delete_attributes_with_ns("system");
+        assert_eq!(tmp_t.attributes.len(), 1);
+        assert_eq!(tmp_t.attributes[0], attribute3);
+
+        let mut tmp_t = t.clone();
+        tmp_t.delete_attributes_with_names(&["test"]);
+        assert_eq!(tmp_t.attributes.len(), 1);
+        assert_eq!(tmp_t.attributes[0], attribute2);
+
+        let mut tmp_t = t.clone();
+        tmp_t.delete_attributes_with_hints(&[&None]);
+        assert_eq!(tmp_t.attributes.len(), 0);
+    }
+    #[test]
+    fn test_contains_attribute() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute);
+
+        assert!(t.contains_attribute("system", "test"));
+        assert!(!t.contains_attribute("system", "test2"));
+        assert!(!t.contains_attribute("system2", "test"));
+    }
+
+    #[test]
+    fn test_take_place_attributes() {
+        let attribute = Attribute::new("system", "test", vec![], &None, true, false);
+
+        let mut t = AttrStor::default();
+        t.set_attribute(attribute.clone());
+
+        let attributes = t.take_attributes();
+        assert_eq!(attributes.len(), 1);
+        assert_eq!(attributes[0], attribute);
+        assert_eq!(t.attributes.len(), 0);
+
+        t.place_attributes(attributes);
+        assert_eq!(t.attributes.len(), 1);
+        assert_eq!(t.attributes[0], attribute);
+    }
+
+    //
+    //     #[test]
+    //     fn test_find_attributes() {
+    //         let t = gen_frame();
+    //         let mut attributes = t.find_attributes(&Some("system"), &[], &None);
+    //         attributes.sort();
+    //         assert_eq!(attributes.len(), 2);
+    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+    //         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
+    //
+    //         let attributes = t.find_attributes(&Some("system"), &["test"], &None);
+    //         assert_eq!(attributes.len(), 1);
+    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+    //
+    //         let attributes = t.find_attributes(&Some("system"), &["test"], &Some("test"));
+    //         assert_eq!(attributes.len(), 1);
+    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+    //
+    //         let mut attributes = t.find_attributes(&None, &[], &Some("test"));
+    //         attributes.sort();
+    //         assert_eq!(attributes.len(), 2);
+    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
+    //         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
+    //     }
 }

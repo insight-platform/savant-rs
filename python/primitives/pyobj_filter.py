@@ -3,9 +3,11 @@ from timeit import default_timer as timer
 
 from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.utils import gen_frame
-from savant_rs.video_object_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
+from savant_rs.utils import gen_frame, enable_dl_detection
+from savant_rs.match_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
     register_utility_resolver
+
+enable_dl_detection()
 
 import random
 
@@ -56,7 +58,7 @@ def thread_python(barrier):
         label="person_{}".format(i),
         detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
         confidence=random.random(),
-        attributes={},
+        attributes=[],
         track_id=None,
         track_box=None
     ) for i in range(N)]
@@ -97,7 +99,7 @@ def thread_full(barrier):
             label="person_{}".format(i),
             detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
-            attributes={},
+            attributes=[],
             track_id=None,
             track_box=None
 
@@ -144,7 +146,7 @@ def thread_decomposed(barrier):
             label="person_{}".format(i),
             detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
             confidence=random.random(),
-            attributes={},
+            attributes=[],
             track_id=None,
             track_box=None
         ), IdCollisionResolutionPolicy.Error)
@@ -196,7 +198,7 @@ def measure_batch_full():
                 label="person_{}".format(i),
                 detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
-                attributes={},
+                attributes=[],
                 track_id=None,
                 track_box=None
             ), IdCollisionResolutionPolicy.Error)
@@ -229,7 +231,7 @@ def measure_batch_full_dsl():
                 label="person_{}".format(i),
                 detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
                 confidence=random.random(),
-                attributes={},
+                attributes=[],
                 track_id=None,
                 track_box=None
             ), IdCollisionResolutionPolicy.Error)

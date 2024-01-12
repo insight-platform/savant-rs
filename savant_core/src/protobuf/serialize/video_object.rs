@@ -1,16 +1,13 @@
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{Attribute, AttributeMethods, OwnedRBBoxData};
+use crate::primitives::{Attribute, AttributeMethods, RBBox};
 use crate::protobuf::{generated, serialize};
-use hashbrown::HashMap;
 
 impl From<&VideoObjectProxy> for generated::VideoObject {
     fn from(vop: &VideoObjectProxy) -> Self {
         let attributes = vop
             .get_attributes()
             .iter()
-            .map(|(ns, l)| {
-                generated::Attribute::from(&vop.get_attribute(ns.clone(), l.clone()).unwrap())
-            })
+            .map(|(ns, l)| generated::Attribute::from(&vop.get_attribute(ns, l).unwrap()))
             .collect();
 
         generated::VideoObject {
@@ -55,23 +52,20 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
         let attributes = obj
             .attributes
             .iter()
-            .map(|a| Attribute::try_from(a).map(|a| ((a.namespace.clone(), a.name.clone()), a)))
-            .collect::<Result<HashMap<(String, String), Attribute>, _>>()?;
+            .filter(|a| a.is_persistent)
+            .map(Attribute::try_from)
+            .collect::<Result<Vec<Attribute>, _>>()?;
 
         Ok(VideoObject {
             id: obj.id,
             namespace: obj.namespace.clone(),
             label: obj.label.clone(),
             draw_label: obj.draw_label.clone(),
-            detection_box: obj
-                .detection_box
-                .as_ref()
-                .map(OwnedRBBoxData::from)
-                .unwrap(),
+            detection_box: obj.detection_box.as_ref().map(RBBox::from).unwrap(),
             attributes,
             confidence: obj.confidence,
             parent_id: obj.parent_id,
-            track_box: obj.track_box.as_ref().map(OwnedRBBoxData::from),
+            track_box: obj.track_box.as_ref().map(RBBox::from),
             track_id: obj.track_id,
             namespace_id: None,
             label_id: None,
@@ -84,7 +78,8 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::object::VideoObject;
-    use crate::primitives::rust::VideoObjectProxy;
+    use crate::primitives::rust::{AttributeValue, VideoObjectProxy};
+    use crate::primitives::{Attribute, AttributeMethods};
     use crate::protobuf::generated;
     use crate::test::gen_object;
 
@@ -96,6 +91,34 @@ mod tests {
         assert_eq!(
             obj.to_serde_json_value(),
             deserialized.to_serde_json_value()
+        );
+    }
+
+    #[test]
+    fn test_object_with_tmp_attribute() {
+        let obj = gen_object(1);
+        let tmp_attr = Attribute::temporary(
+            "tmp",
+            "label",
+            vec![AttributeValue::float(1.0, None)],
+            &None,
+            false,
+        );
+        let persistent_attr = Attribute::persistent(
+            "pers",
+            "label",
+            vec![AttributeValue::integer(1, None)],
+            &None,
+            false,
+        );
+        obj.set_attribute(tmp_attr.clone());
+        obj.set_attribute(persistent_attr.clone());
+        let serialized = generated::VideoObject::from(&obj);
+        let deserialized = VideoObjectProxy::from(VideoObject::try_from(&serialized).unwrap());
+        assert!(deserialized.get_attribute("tmp", "label").is_none());
+        assert_eq!(
+            deserialized.get_attribute("pers", "label").unwrap(),
+            persistent_attr
         );
     }
 }

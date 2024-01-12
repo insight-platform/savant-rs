@@ -12,7 +12,7 @@ from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
 from savant_rs import init_jaeger_tracer
-from savant_rs.video_object_query import MatchQuery as Q
+from savant_rs.match_query import MatchQuery as Q
 
 # LOGLEVEL=info,a=error,a::b=debug python python/pipeline.py
 
@@ -24,8 +24,8 @@ if __name__ == "__main__":
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
-    conf.frame_period = 1 # every single frame, insane
-    conf.timestamp_period = 1000 # every sec
+    conf.frame_period = 1  # every single frame, insane
+    conf.timestamp_period = 1000  # every sec
 
     p = VideoPipeline("video-pipeline-root", [
         ("input", VideoPipelineStagePayloadType.Frame),

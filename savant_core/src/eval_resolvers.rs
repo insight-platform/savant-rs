@@ -356,18 +356,18 @@ pub(crate) mod singleton {
         ConfigSymbolResolver, EnvSymbolResolver, EtcdSymbolResolver, SymbolResolver,
         UtilityResolver,
     };
+    use crate::rwlock::SavantRwLock;
     use crate::trace;
     use anyhow::Result;
     use hashbrown::HashMap;
     use lazy_static::lazy_static;
-    use parking_lot::RwLock;
     use std::sync::Arc;
 
     pub type ResolverValue = (String, Arc<dyn SymbolResolver>);
 
     lazy_static! {
-        static ref RESOLVERS: RwLock<HashMap<String, ResolverValue>> =
-            RwLock::new(HashMap::default());
+        static ref RESOLVERS: SavantRwLock<HashMap<String, ResolverValue>> =
+            SavantRwLock::new(HashMap::default());
     }
 
     pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {

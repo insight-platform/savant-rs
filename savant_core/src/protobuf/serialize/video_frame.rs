@@ -7,7 +7,6 @@ use crate::primitives::Attribute;
 use crate::protobuf::generated;
 use crate::protobuf::serialize::Error;
 use hashbrown::{HashMap, HashSet};
-use parking_lot::RwLock;
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -21,35 +20,42 @@ impl From<&VideoFrameProxy> for generated::VideoFrame {
 }
 
 impl From<&Box<VideoFrame>> for generated::VideoFrame {
-    fn from(vf: &Box<VideoFrame>) -> Self {
-        let objects = vf
-            .get_resident_objects()
+    fn from(video_frame: &Box<VideoFrame>) -> Self {
+        let objects = video_frame
+            .get_objects()
             .values()
-            .map(|o| generated::VideoObject::from(&VideoObjectProxy::from(o.clone())))
+            .map(generated::VideoObject::from)
             .collect();
 
         generated::VideoFrame {
-            previous_frame_seq_id: vf.previous_frame_seq_id,
-            source_id: vf.source_id.clone(),
-            uuid: Uuid::from_u128(vf.uuid).to_string(),
-            creation_timestamp_ns_high: (vf.creation_timestamp_ns >> 64) as u64,
-            creation_timestamp_ns_low: (vf.creation_timestamp_ns & 0xFFFFFFFFFFFFFFFF) as u64,
-            framerate: vf.framerate.clone(),
-            width: vf.width,
-            height: vf.height,
-            transcoding_method: generated::VideoFrameTranscodingMethod::from(&vf.transcoding_method)
-                as i32,
-            codec: vf.codec.clone(),
-            keyframe: vf.keyframe,
-            time_base_numerator: vf.time_base.0,
-            time_base_denominator: vf.time_base.1,
-            pts: vf.pts,
-            dts: vf.dts,
-            duration: vf.duration,
-            attributes: vf.attributes.values().map(|a| a.into()).collect(),
+            previous_frame_seq_id: video_frame.previous_frame_seq_id,
+            source_id: video_frame.source_id.clone(),
+            uuid: Uuid::from_u128(video_frame.uuid).to_string(),
+            creation_timestamp_ns_high: (video_frame.creation_timestamp_ns >> 64) as u64,
+            creation_timestamp_ns_low: (video_frame.creation_timestamp_ns & 0xFFFFFFFFFFFFFFFF)
+                as u64,
+            framerate: video_frame.framerate.clone(),
+            width: video_frame.width,
+            height: video_frame.height,
+            transcoding_method: generated::VideoFrameTranscodingMethod::from(
+                &video_frame.transcoding_method,
+            ) as i32,
+            codec: video_frame.codec.clone(),
+            keyframe: video_frame.keyframe,
+            time_base_numerator: video_frame.time_base.0,
+            time_base_denominator: video_frame.time_base.1,
+            pts: video_frame.pts,
+            dts: video_frame.dts,
+            duration: video_frame.duration,
+            attributes: video_frame
+                .attributes
+                .iter()
+                .filter(|a| a.is_persistent)
+                .map(|a| a.into())
+                .collect(),
             objects,
-            content: Some((&vf.content).into()),
-            transformations: vf
+            content: Some((&*video_frame.content).into()),
+            transformations: video_frame
                 .transformations
                 .iter()
                 .map(generated::VideoFrameTransformation::from)
@@ -71,17 +77,14 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let attributes = value
             .attributes
             .iter()
-            .map(|a| {
-                let key = (a.namespace.clone(), a.name.clone());
-                Attribute::try_from(a).map(|v| (key, v))
-            })
-            .collect::<Result<HashMap<(String, String), Attribute>, _>>()?;
+            .map(Attribute::try_from)
+            .collect::<Result<Vec<Attribute>, _>>()?;
 
-        let resident_objects = value
+        let objects = value
             .objects
             .iter()
-            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, Arc::new(RwLock::new(vo)))))
-            .collect::<Result<HashMap<i64, Arc<RwLock<VideoObject>>>, _>>()?;
+            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, VideoObjectProxy::from(vo))))
+            .collect::<Result<HashMap<i64, _>, _>>()?;
 
         let object_parents = value
             .objects
@@ -90,12 +93,12 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
             .collect::<HashSet<i64>>();
 
         for parent_id in object_parents {
-            if !resident_objects.contains_key(&parent_id) {
+            if !objects.contains_key(&parent_id) {
                 return Err(Error::InvalidVideoFrameParentObject(parent_id));
             }
         }
 
-        let max_object_id = resident_objects.keys().max().copied().unwrap_or_default();
+        let max_object_id = objects.keys().max().copied().unwrap_or_default();
 
         Ok(VideoFrame {
             previous_frame_seq_id: value.previous_frame_seq_id,
@@ -115,11 +118,10 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
             pts: value.pts,
             dts: value.dts,
             duration: value.duration,
-            content: VideoFrameContent::from(value.content.as_ref().unwrap()),
+            content: Arc::new(VideoFrameContent::from(value.content.as_ref().unwrap())),
             transformations,
             attributes,
-            offline_objects: vec![],
-            resident_objects,
+            objects,
             max_object_id,
         })
     }

@@ -2,8 +2,7 @@ use crate::primitives::{PaddingDraw, PolygonalArea};
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
-use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::{rust, OwnedRBBoxData};
+use savant_core::primitives::{rust, RBBoxData};
 
 /// Allows configuring what kind of Intersection over Something to use.
 ///
@@ -48,12 +47,6 @@ pub struct RBBox(pub(crate) rust::RBBox);
 impl PartialEq for RBBox {
     fn eq(&self, other: &Self) -> bool {
         self.0.geometric_eq(&other.0)
-    }
-}
-
-impl ToSerdeJsonValue for RBBox {
-    fn to_serde_json_value(&self) -> serde_json::Value {
-        self.0.to_serde_json_value()
     }
 }
 
@@ -357,11 +350,7 @@ impl RBBox {
     ///
     #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
-        let data: OwnedRBBoxData = self
-            .0
-            .clone()
-            .try_into()
-            .expect("Failed to convert RBBox to RBBoxData");
+        let data: RBBoxData = RBBoxData::from(&self.0);
 
         let mut new_self = Self(rust::RBBox::from(data));
 

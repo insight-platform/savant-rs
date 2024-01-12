@@ -1,11 +1,10 @@
 from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
-from savant_rs.video_object_query import MatchQuery as Q, \
+from savant_rs.match_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
 # set_log_level(LogLevel.Trace)
@@ -14,6 +13,7 @@ import json
 from timeit import default_timer as timer
 
 f = gen_frame()
+print(f.json_pretty)
 f.creation_timestamp_ns = 1_000_000_000
 
 assert len(f.get_children(0)) == 2
@@ -121,7 +121,7 @@ obj = VideoObject(
     label="person",
     detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
     confidence=0.5,
-    attributes={},
+    attributes=[],
     track_id=None,
     track_box=None
 )

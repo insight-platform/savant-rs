@@ -3,9 +3,9 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::protobuf::{generated, serialize};
 
 impl From<&VideoFrameBatch> for generated::VideoFrameBatch {
-    fn from(b: &VideoFrameBatch) -> Self {
+    fn from(batch: &VideoFrameBatch) -> Self {
         generated::VideoFrameBatch {
-            batch: b
+            batch: batch
                 .frames()
                 .iter()
                 .map(|(id, f)| (*id, generated::VideoFrame::from(f)))

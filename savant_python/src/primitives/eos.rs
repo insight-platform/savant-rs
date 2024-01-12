@@ -1,6 +1,5 @@
 use crate::primitives::message::Message;
 use pyo3::{pyclass, pymethods, Py, PyAny};
-use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
 
 #[pyclass]
@@ -32,7 +31,7 @@ impl EndOfStream {
 
     #[getter]
     pub fn get_json(&self) -> String {
-        serde_json::to_string(&self.0.to_serde_json_value()).unwrap()
+        serde_json::json!(&self.0).to_string()
     }
 
     pub fn to_message(&self) -> Message {

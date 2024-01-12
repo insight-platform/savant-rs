@@ -6,19 +6,19 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObjectProxy;
 use crate::rust::StageStat;
+use crate::rwlock::SavantRwLock;
 use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::Context;
-use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[derive(Debug)]
 pub(super) struct PipelineStage {
     pub name: String,
     pub stage_type: PipelineStagePayloadType,
-    pub payload: RwLock<HashMap<i64, PipelinePayload>>,
-    pub stat: Arc<RwLock<StageStat>>,
+    pub payload: SavantRwLock<HashMap<i64, PipelinePayload>>,
+    pub stat: Arc<SavantRwLock<StageStat>>,
 }
 
 impl PipelineStage {
@@ -27,11 +27,11 @@ impl PipelineStage {
             name: name.clone(),
             stage_type,
             payload: Default::default(),
-            stat: Arc::new(RwLock::new(StageStat::new(name))),
+            stat: Arc::new(SavantRwLock::new(StageStat::new(name))),
         }
     }
 
-    pub fn get_stat(&self) -> Arc<RwLock<StageStat>> {
+    pub fn get_stat(&self) -> Arc<SavantRwLock<StageStat>> {
         self.stat.clone()
     }
 
@@ -582,29 +582,17 @@ mod tests {
             PipelinePayload::Frame(frame, Vec::default(), Context::default()),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_frame_attribute(Attribute::persistent(
-            "new".to_string(),
-            "attr".to_string(),
-            vec![],
-            None,
-            false,
-        ));
+        update.add_frame_attribute(Attribute::persistent("new", "attr", vec![], &None, false));
         stage.add_frame_update(1, update)?;
         stage.apply_updates(1)?;
         let frame = stage.get_independent_frame(1)?.0;
-        frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .unwrap();
-        assert!(frame
-            .delete_attribute("new".to_string(), "attr".to_string())
-            .is_some());
+        frame.get_attribute("new", "attr").unwrap();
+        assert!(frame.delete_attribute("new", "attr").is_some());
 
         stage.clear_updates(1)?;
         stage.apply_updates(1)?;
 
-        assert!(frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .is_none());
+        assert!(frame.get_attribute("new", "attr").is_none());
 
         Ok(())
     }
@@ -624,29 +612,17 @@ mod tests {
             ),
         )?;
         let mut update = VideoFrameUpdate::default();
-        update.add_frame_attribute(Attribute::persistent(
-            "new".to_string(),
-            "attr".to_string(),
-            vec![],
-            None,
-            false,
-        ));
+        update.add_frame_attribute(Attribute::persistent("new", "attr", vec![], &None, false));
         stage.add_batched_frame_update(1, 2, update)?;
         stage.apply_updates(1)?;
         let frame = stage.get_batched_frame(1, 2)?.0;
-        frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .unwrap();
-        assert!(frame
-            .delete_attribute("new".to_string(), "attr".to_string())
-            .is_some());
+        frame.get_attribute("new", "attr").unwrap();
+        assert!(frame.delete_attribute("new", "attr").is_some());
 
         stage.clear_updates(1)?;
         stage.apply_updates(1)?;
 
-        assert!(frame
-            .get_attribute("new".to_string(), "attr".to_string())
-            .is_none());
+        assert!(frame.get_attribute("new", "attr").is_none());
 
         Ok(())
     }

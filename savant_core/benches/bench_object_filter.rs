@@ -5,7 +5,7 @@ extern crate test;
 use savant_core::eval_resolvers::register_utility_resolver;
 use savant_core::match_query::MatchQuery::*;
 use savant_core::match_query::*;
-use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use savant_core::primitives::attribute_value::AttributeValue;
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder,
 };
@@ -35,10 +35,10 @@ fn get_objects() -> Vec<VideoObject> {
                 .build()
                 .unwrap();
             o.set_attribute(Attribute::persistent(
-                "test".to_string(),
-                "test".to_string(),
-                vec![AttributeValue::new(AttributeValueVariant::Integer(1), None)],
-                Some("hint".to_string()),
+                "test",
+                "test",
+                vec![AttributeValue::integer(1, None)],
+                &Some("hint"),
                 false,
             ));
             o

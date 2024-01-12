@@ -1,13 +1,11 @@
 use anyhow::bail;
-use hashbrown::HashMap;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use rkyv::{with::Skip, Archive, Deserialize, Serialize};
-use std::sync::Arc;
+use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 
-use crate::consts::BBOX_UNDEFINED;
+use super::bbox::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
-use crate::primitives::{Attribute, AttributeMethods, Attributive, OwnedRBBoxData, RBBox};
+use crate::primitives::{Attribute, AttributeMethods, Attributive, RBBox};
+use crate::rwlock::SavantArcRwLock;
 use crate::symbol_mapper::get_object_id;
 use crate::trace;
 use serde_json::Value;
@@ -32,44 +30,51 @@ pub enum IdCollisionResolutionPolicy {
     Error,
 }
 
-#[derive(
-    Archive,
-    Deserialize,
-    Serialize,
-    Debug,
-    Clone,
-    derive_builder::Builder,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, derive_builder::Builder, serde::Serialize, serde::Deserialize)]
 pub struct VideoObject {
     pub(crate) id: i64,
     pub(crate) namespace: String,
     pub(crate) label: String,
     #[builder(default)]
     pub(crate) draw_label: Option<String>,
-    pub(crate) detection_box: OwnedRBBoxData,
+    pub(crate) detection_box: RBBox,
     #[builder(default)]
-    pub(crate) attributes: HashMap<(String, String), Attribute>,
+    pub(crate) attributes: Vec<Attribute>,
     #[builder(default)]
     pub(crate) confidence: Option<f32>,
     #[builder(default)]
     pub(crate) parent_id: Option<i64>,
     #[builder(default)]
-    pub(crate) track_box: Option<OwnedRBBoxData>,
+    pub(crate) track_box: Option<RBBox>,
     #[builder(default)]
     pub(crate) track_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     pub(crate) namespace_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     pub(crate) label_id: Option<i64>,
-    #[with(Skip)]
     #[builder(default)]
     #[serde(skip_deserializing, skip_serializing)]
     pub(crate) frame: Option<BelongingVideoFrame>,
+}
+
+impl Clone for VideoObject {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            namespace: self.namespace.clone(),
+            label: self.label.clone(),
+            draw_label: self.draw_label.clone(),
+            detection_box: self.detection_box.copy(),
+            attributes: self.attributes.clone(),
+            confidence: self.confidence,
+            parent_id: self.parent_id,
+            track_id: self.track_id,
+            track_box: self.track_box.as_ref().map(|tb| tb.copy()),
+            namespace_id: self.namespace_id,
+            label_id: self.label_id,
+            frame: self.frame.clone(),
+        }
+    }
 }
 
 const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
@@ -81,8 +86,8 @@ impl Default for VideoObject {
             namespace: "".to_string(),
             label: "".to_string(),
             draw_label: None,
-            detection_box: BBOX_UNDEFINED.clone().try_into().unwrap(),
-            attributes: HashMap::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
+            detection_box: BBOX_UNDEFINED.clone(),
+            attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
             confidence: None,
             parent_id: None,
             track_id: None,
@@ -101,12 +106,12 @@ impl ToSerdeJsonValue for VideoObject {
             "namespace": self.namespace,
             "label": self.label,
             "draw_label": self.draw_label,
-            "bbox": self.detection_box.to_serde_json_value(),
-            "attributes": self.attributes.values().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
+            "bbox": self.detection_box,
+            "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
             "confidence": self.confidence,
             "parent": self.parent_id,
             "track_id": self.track_id,
-            "track_box": self.track_box.as_ref().map(|x| x.to_serde_json_value()),
+            "track_box": self.track_box,
             "frame": self.get_parent_frame_source(),
             "pyobjects": "not_implemented",
         })
@@ -130,116 +135,141 @@ impl VideoObject {
 /// :py:class:`VideoObject` is a part of :py:class:`VideoFrame` and may outlive it if there are references.
 ///
 #[derive(Debug, Clone)]
-pub struct VideoObjectProxy {
-    pub inner: Arc<RwLock<VideoObject>>,
-}
+pub struct VideoObjectProxy(pub(crate) SavantArcRwLock<VideoObject>);
 
 impl ToSerdeJsonValue for VideoObjectProxy {
     fn to_serde_json_value(&self) -> Value {
-        trace!(self.inner.read_recursive()).to_serde_json_value()
+        trace!(self.0.read_recursive()).to_serde_json_value()
     }
 }
 
 impl Attributive for VideoObject {
-    fn get_attributes_ref(&self) -> &HashMap<(String, String), Attribute> {
+    fn get_attributes_ref(&self) -> &Vec<Attribute> {
         &self.attributes
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut HashMap<(String, String), Attribute> {
+    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
         &mut self.attributes
-    }
-
-    fn take_attributes(&mut self) -> HashMap<(String, String), Attribute> {
-        std::mem::take(&mut self.attributes)
-    }
-
-    fn place_attributes(&mut self, attributes: HashMap<(String, String), Attribute>) {
-        self.attributes = attributes;
     }
 }
 
 impl AttributeMethods for VideoObjectProxy {
     fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.exclude_temporary_attributes()
     }
 
     fn restore_attributes(&self, attributes: Vec<Attribute>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.restore_attributes(attributes)
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.get_attributes()
     }
 
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        let inner = trace!(self.inner.read_recursive());
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        let inner = trace!(self.0.read_recursive());
         inner.get_attribute(namespace, name)
     }
 
-    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
-        let mut inner = trace!(self.inner.write());
+    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        let mut inner = trace!(self.0.write());
         inner.delete_attribute(namespace, name)
     }
 
     fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.set_attribute(attribute)
     }
 
     fn clear_attributes(&self) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.clear_attributes()
-    }
-
-    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>) {
-        let mut inner = trace!(self.inner.write());
-        inner.delete_attributes(namespace, names)
     }
 
     fn find_attributes(
         &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+        namespace: &Option<&str>,
+        names: &[&str],
+        hint: &Option<&str>,
     ) -> Vec<(String, String)> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.0.read_recursive());
         inner.find_attributes(namespace, names, hint)
+    }
+
+    fn delete_attributes_with_ns(&self, namespace: &str) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_ns(namespace)
+    }
+
+    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_names(labels)
+    }
+
+    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
+        let mut inner = trace!(self.0.write());
+        inner.delete_attributes_with_hints(hints)
     }
 }
 
 impl From<VideoObject> for VideoObjectProxy {
     fn from(value: VideoObject) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(value)),
-        }
+        Self(SavantArcRwLock::new(value))
     }
 }
 
-impl From<Arc<RwLock<VideoObject>>> for VideoObjectProxy {
-    fn from(value: Arc<RwLock<VideoObject>>) -> Self {
-        Self { inner: value }
+impl From<SavantArcRwLock<VideoObject>> for VideoObjectProxy {
+    fn from(value: SavantArcRwLock<VideoObject>) -> Self {
+        Self(value)
     }
 }
 
 impl VideoObjectProxy {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: i64,
+        namespace: &str,
+        label: &str,
+        detection_box: RBBox,
+        attributes: Vec<Attribute>,
+        confidence: Option<f32>,
+        track_id: Option<i64>,
+        track_box: Option<RBBox>,
+    ) -> Self {
+        let (namespace_id, label_id) =
+            get_object_id(namespace, label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
+
+        let object = VideoObject {
+            id,
+            namespace: namespace.to_string(),
+            label: label.to_string(),
+            detection_box: detection_box.clone(),
+            attributes,
+            confidence,
+            track_id,
+            track_box: track_box.clone(),
+            namespace_id,
+            label_id,
+            ..Default::default()
+        };
+        Self(SavantArcRwLock::new(object))
+    }
+    pub fn inner_read_lock(&self) -> RwLockReadGuard<VideoObject> {
+        trace!(self.0.read_recursive())
+    }
+
+    pub fn inner_write_lock(&self) -> RwLockWriteGuard<VideoObject> {
+        trace!(self.0.write())
+    }
     pub fn get_parent_id(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.parent_id
     }
-
-    pub fn get_inner(&self) -> Arc<RwLock<VideoObject>> {
-        self.inner.clone()
-    }
-
-    pub fn get_inner_read(&self) -> RwLockReadGuard<VideoObject> {
-        trace!(self.inner.read_recursive())
-    }
-
-    pub fn get_inner_write(&self) -> RwLockWriteGuard<VideoObject> {
-        trace!(self.inner.write())
+    pub fn get_inner(&self) -> SavantArcRwLock<VideoObject> {
+        self.0.clone()
     }
 
     pub(crate) fn set_parent(&self, parent_opt: Option<i64>) -> anyhow::Result<()> {
@@ -281,14 +311,14 @@ impl VideoObjectProxy {
             }
         }
 
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.parent_id = parent_opt;
         Ok(())
     }
 
     pub fn get_parent(&self) -> Option<VideoObjectProxy> {
         let frame = self.get_frame();
-        let id = trace!(self.inner.read_recursive()).parent_id?;
+        let id = trace!(self.inner_read_lock()).parent_id?;
         match frame {
             Some(f) => f.get_object(id),
             None => None,
@@ -305,7 +335,7 @@ impl VideoObjectProxy {
     }
 
     pub(crate) fn attach_to_video_frame(&self, frame: VideoFrameProxy) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.0.write());
         inner.frame = Some(frame.into());
     }
 
@@ -314,13 +344,13 @@ impl VideoObjectProxy {
             match o {
                 VideoObjectBBoxTransformation::Scale(kx, ky) => {
                     self.get_detection_box().scale(*kx, *ky);
-                    if let Some(mut t) = self.get_track_box() {
+                    if let Some(t) = self.get_track_box() {
                         t.scale(*kx, *ky);
                     }
                 }
                 VideoObjectBBoxTransformation::Shift(dx, dy) => {
                     self.get_detection_box().shift(*dx, *dy);
-                    if let Some(mut t) = self.get_track_box() {
+                    if let Some(t) = self.get_track_box() {
                         t.shift(*dx, *dy);
                     }
                 }
@@ -328,152 +358,106 @@ impl VideoObjectProxy {
         }
     }
     pub fn get_track_id(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.track_id
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: i64,
-        namespace: String,
-        label: String,
-        detection_box: RBBox,
-        attributes: HashMap<(String, String), Attribute>,
-        confidence: Option<f32>,
-        track_id: Option<i64>,
-        track_box: Option<RBBox>,
-    ) -> Self {
-        let (namespace_id, label_id) =
-            get_object_id(&namespace, &label).map_or((None, None), |(c, o)| (Some(c), Some(o)));
-
-        let object = VideoObject {
-            id,
-            namespace,
-            label,
-            detection_box: detection_box
-                .try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
-            attributes,
-            confidence,
-            track_id,
-            track_box: track_box
-                .map(|b| b.try_into().expect("Failed to convert RBBox to RBBoxData")),
-            namespace_id,
-            label_id,
-            ..Default::default()
-        };
-        Self {
-            inner: Arc::new(RwLock::new(object)),
-        }
-    }
     pub fn get_detection_box(&self) -> RBBox {
-        RBBox::borrowed_detection_box(self.inner.clone())
+        let inner = trace!(self.inner_read_lock());
+        inner.detection_box.clone()
     }
 
     pub fn get_track_box(&self) -> Option<RBBox> {
-        if self.get_track_id().is_some() {
-            Some(RBBox::borrowed_track_box(self.inner.clone()))
-        } else {
-            None
-        }
+        let inner = trace!(self.inner_read_lock());
+        inner.track_box.clone()
     }
 
     pub fn get_confidence(&self) -> Option<f32> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.confidence
     }
 
     pub fn get_namespace(&self) -> String {
-        trace!(self.inner.read_recursive()).namespace.clone()
+        trace!(self.inner_read_lock()).namespace.clone()
     }
 
     pub fn get_namespace_id(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.namespace_id
     }
 
     pub fn get_label(&self) -> String {
-        trace!(self.inner.read_recursive()).label.clone()
+        trace!(self.inner_read_lock()).label.clone()
     }
 
     pub fn get_label_id(&self) -> Option<i64> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.label_id
     }
 
     pub fn detached_copy(&self) -> Self {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         let mut new_inner = inner.clone();
         new_inner.parent_id = None;
         new_inner.frame = None;
-        Self {
-            inner: Arc::new(RwLock::new(new_inner)),
-        }
+        Self(SavantArcRwLock::new(new_inner))
     }
 
     pub fn get_draw_label(&self) -> Option<String> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.draw_label.clone()
     }
 
     pub fn calculate_draw_label(&self) -> String {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.draw_label.as_ref().unwrap_or(&inner.label).clone()
     }
 
     pub fn get_frame(&self) -> Option<VideoFrameProxy> {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.frame.as_ref().map(|f| f.into())
     }
 
     pub fn get_id(&self) -> i64 {
-        trace!(self.inner.read_recursive()).id
+        trace!(self.inner_read_lock()).id
     }
 
     pub fn is_detached(&self) -> bool {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         inner.frame.is_none()
     }
 
     pub fn is_spoiled(&self) -> bool {
-        let inner = trace!(self.inner.read_recursive());
+        let inner = trace!(self.inner_read_lock());
         match inner.frame {
             Some(ref f) => f.inner.upgrade().is_none(),
             None => false,
         }
     }
     pub fn set_detection_box(&self, bbox: RBBox) {
-        let mut inner = trace!(self.inner.write());
-        inner.detection_box = bbox
-            .try_into()
-            .expect("Failed to convert RBBox to RBBoxData");
+        let mut inner = trace!(self.inner_write_lock());
+        inner.detection_box = bbox;
     }
 
     pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
-        let mut inner = trace!(self.inner.write());
-        inner.track_box = Some(
-            bbox.try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
-        );
+        let mut inner = trace!(self.inner_write_lock());
+        inner.track_box = Some(bbox);
         inner.track_id = Some(track_id);
     }
 
     pub fn set_track_box(&self, bbox: RBBox) {
-        let mut inner = trace!(self.inner.write());
-        inner.track_box = Some(
-            bbox.try_into()
-                .expect("Failed to convert RBBox to RBBoxData"),
-        );
+        let mut inner = trace!(self.inner_write_lock());
+        inner.track_box = Some(bbox);
     }
 
     pub fn clear_track_info(&self) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.track_box = None;
         inner.track_id = None;
     }
 
     pub fn set_draw_label(&self, draw_label: Option<String>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.draw_label = draw_label;
     }
 
@@ -482,37 +466,36 @@ impl VideoObjectProxy {
             bail!("When object is attached to a frame, it is impossible to change its ID",);
         }
 
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.id = id;
         Ok(())
     }
 
-    pub fn set_namespace(&self, namespace: String) {
-        let mut inner = trace!(self.inner.write());
-        inner.namespace = namespace;
+    pub fn set_namespace(&self, namespace: &str) {
+        let mut inner = trace!(self.inner_write_lock());
+        inner.namespace = namespace.to_string();
     }
 
-    pub fn set_label(&self, label: String) {
-        let mut inner = trace!(self.inner.write());
-        inner.label = label;
+    pub fn set_label(&self, label: &str) {
+        let mut inner = trace!(self.inner_write_lock());
+        inner.label = label.to_string();
     }
 
     pub fn set_confidence(&self, confidence: Option<f32>) {
-        let mut inner = trace!(self.inner.write());
+        let mut inner = trace!(self.inner_write_lock());
         inner.confidence = confidence;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::primitives::attribute::AttributeMethods;
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, VideoObjectBBoxTransformation, VideoObjectBuilder,
         VideoObjectProxy,
     };
     use crate::primitives::{Attribute, RBBox};
-    use crate::test::{gen_empty_frame, gen_frame, s};
+    use crate::test::{gen_empty_frame, gen_frame};
 
     fn get_object(id: i64) -> VideoObjectProxy {
         VideoObjectProxy::from(
@@ -526,66 +509,33 @@ mod tests {
                         .expect("Failed to convert RBBox to RBBoxData"),
                 )
                 .confidence(Some(0.5))
-                .attributes(
-                    vec![
-                        Attribute::persistent(
-                            "namespace".to_string(),
-                            "name".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value".to_string()),
-                                None,
-                            )],
-                            None,
-                            false,
-                        ),
-                        Attribute::persistent(
-                            "namespace".to_string(),
-                            "name2".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value2".to_string()),
-                                None,
-                            )],
-                            None,
-                            false,
-                        ),
-                        Attribute::persistent(
-                            "namespace2".to_string(),
-                            "name".to_string(),
-                            vec![AttributeValue::new(
-                                AttributeValueVariant::String("value".to_string()),
-                                None,
-                            )],
-                            None,
-                            false,
-                        ),
-                    ]
-                    .into_iter()
-                    .map(|a| ((a.get_namespace().into(), a.get_name().into()), a))
-                    .collect(),
-                )
+                .attributes(vec![
+                    Attribute::persistent(
+                        "namespace",
+                        "name",
+                        vec![AttributeValue::string("value", None)],
+                        &None,
+                        false,
+                    ),
+                    Attribute::persistent(
+                        "namespace",
+                        "name2",
+                        vec![AttributeValue::string("value2", None)],
+                        &None,
+                        false,
+                    ),
+                    Attribute::persistent(
+                        "namespace2",
+                        "name",
+                        vec![AttributeValue::string("value", None)],
+                        &None,
+                        false,
+                    ),
+                ])
                 .parent_id(None)
                 .build()
                 .unwrap(),
         )
-    }
-
-    #[test]
-    fn test_delete_attributes() {
-        let obj = get_object(1);
-        obj.delete_attributes(None, vec![]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 0);
-
-        let obj = get_object(1);
-        obj.delete_attributes(Some(s("namespace")), vec![]);
-        assert_eq!(obj.get_attributes().len(), 1);
-
-        let obj = get_object(1);
-        obj.delete_attributes(None, vec![s("name")]);
-        assert_eq!(obj.get_inner_read().attributes.len(), 1);
-
-        let t = get_object(1);
-        t.delete_attributes(None, vec![s("name"), s("name2")]);
-        assert_eq!(t.get_inner_read().attributes.len(), 0);
     }
 
     #[test]

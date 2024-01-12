@@ -1,7 +1,4 @@
-from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import BBox, RBBox
-
-set_log_level(LogLevel.Trace)
 
 box1 = BBox(50, 50, 50, 50)
 box2 = BBox(50, 50, 50, 50)
@@ -24,7 +21,6 @@ assert box1.almost_eq(box2, 0.1)
 
 assert box1 != box3
 assert box1.almost_eq(box3, 0.1)
-
 iou = box1.iou(box2)
 assert iou == 1.0
 

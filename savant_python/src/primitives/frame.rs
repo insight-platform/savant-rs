@@ -24,8 +24,8 @@ pub struct ExternalFrame(pub(crate) rust::ExternalFrame);
 #[pymethods]
 impl ExternalFrame {
     #[new]
-    pub fn new(method: String, location: Option<String>) -> Self {
-        Self(rust::ExternalFrame::new(method, location))
+    pub fn new(method: &str, location: Option<String>) -> Self {
+        Self(rust::ExternalFrame::new(method, &location.as_deref()))
     }
 
     #[getter]
@@ -362,8 +362,8 @@ impl VideoFrame {
         signature = (source_id, framerate, width, height, content, transcoding_method=VideoFrameTranscodingMethod::Copy, codec=None, keyframe=None, time_base=(1, 1000000), pts=0, dts=None, duration=None)
     )]
     pub fn new(
-        source_id: String,
-        framerate: String,
+        source_id: &str,
+        framerate: &str,
         width: i64,
         height: i64,
         content: VideoFrameContent,
@@ -382,7 +382,7 @@ impl VideoFrame {
             height,
             content.0,
             transcoding_method.into(),
-            codec,
+            &codec.as_deref(),
             keyframe,
             time_base,
             pts,
@@ -422,7 +422,7 @@ impl VideoFrame {
     }
 
     #[setter]
-    pub fn set_source_id(&mut self, source_id: String) {
+    pub fn set_source_id(&mut self, source_id: &str) {
         self.0.set_source_id(source_id)
     }
 
@@ -467,7 +467,7 @@ impl VideoFrame {
     }
 
     #[setter]
-    pub fn set_framerate(&mut self, framerate: String) {
+    pub fn set_framerate(&mut self, framerate: &str) {
         self.0.set_framerate(framerate)
     }
 
@@ -560,7 +560,7 @@ impl VideoFrame {
 
     #[getter]
     pub fn get_content(&self) -> VideoFrameContent {
-        VideoFrameContent(self.0.get_content())
+        VideoFrameContent(self.0.get_content().as_ref().clone())
     }
 
     #[setter]
@@ -580,16 +580,32 @@ impl VideoFrame {
         names: Vec<String>,
         hint: Option<String>,
     ) -> Vec<(String, String)> {
-        self.0.find_attributes(namespace, names, hint)
+        let names_ref = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0
+            .find_attributes(&namespace.as_deref(), &names_ref, &hint.as_deref())
     }
 
-    pub fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
 
-    #[pyo3(signature = (namespace=None, names=vec![]))]
-    pub fn delete_attributes(&mut self, namespace: Option<String>, names: Vec<String>) {
-        self.0.delete_attributes(namespace, names)
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
+    }
+
+    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
+        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
@@ -598,7 +614,7 @@ impl VideoFrame {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn delete_attribute(&mut self, namespace: String, name: String) -> Option<Attribute> {
+    pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.delete_attribute(namespace, name).map(Attribute)
     }
 
@@ -689,18 +705,6 @@ impl VideoFrame {
         self.0.clear_objects()
     }
 
-    #[pyo3(name = "make_snapshot")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn make_snapshot_gil(&self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.make_snapshot())
-    }
-
-    #[pyo3(name = "restore_from_snapshot")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn restore_from_snapshot_gil(&self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.restore_from_snapshot())
-    }
-
     #[pyo3(name = "get_children")]
     pub fn get_children_py(&self, id: i64) -> VideoObjectsView {
         self.0.get_children(id).into()
@@ -709,7 +713,7 @@ impl VideoFrame {
     #[pyo3(name = "copy")]
     #[pyo3(signature = (no_gil = true))]
     pub fn copy_gil(&self, no_gil: bool) -> VideoFrame {
-        release_gil!(no_gil, || VideoFrame(self.0.deep_copy()))
+        release_gil!(no_gil, || VideoFrame(self.0.smart_copy()))
     }
 
     /// Updates the frame with the given update. The function is GIL-free.

@@ -38,18 +38,6 @@ impl VideoFrameBatch {
         self.0.del(id).map(|x| VideoFrame(x.clone()))
     }
 
-    #[pyo3(name = "snapshot")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn snapshot_gil(&mut self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.snapshot())
-    }
-
-    #[pyo3(name = "restore")]
-    #[pyo3(signature = (no_gil = true))]
-    pub fn restore_gil(&mut self, no_gil: bool) {
-        release_gil!(no_gil, || self.0.restore())
-    }
-
     #[pyo3(name = "access_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(

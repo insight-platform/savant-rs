@@ -1,7 +1,7 @@
 from pprint import pprint
+from timeit import default_timer as timer
 
 from savant_rs.primitives.geometry import PolygonalArea, Point, Segment, IntersectionKind
-from timeit import default_timer as timer
 
 area = PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])
 assert area.is_self_intersecting() == False

@@ -9,7 +9,7 @@ pub fn binary_op_parent(objs: &[&VideoObjectProxy]) -> bool {
 
     let left_inner = left.get_inner();
     let right_inner = right.get_inner();
-    if Arc::ptr_eq(&left_inner, &right_inner) {
+    if Arc::ptr_eq(&left_inner.0, &right_inner.0) {
         false
     } else {
         left.get_parent().is_some()
@@ -31,7 +31,7 @@ pub fn unary_op_even(objs: &[&VideoObjectProxy]) -> bool {
 pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
     for obj in objs {
         let label = obj.get_label();
-        obj.set_label(format!("modified_{}", label));
+        obj.set_label(&format!("modified_{}", label));
     }
 
     Ok(())
@@ -41,6 +41,6 @@ pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
 pub fn map_modifier(obj: &VideoObjectProxy) -> anyhow::Result<VideoObjectProxy> {
     let label = obj.get_label();
     let new_obj = obj.detached_copy();
-    new_obj.set_label(format!("modified_{}", label));
+    new_obj.set_label(&format!("modified_{}", label));
     Ok(new_obj)
 }

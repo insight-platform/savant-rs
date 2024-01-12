@@ -10,7 +10,7 @@ use crate::pluggable_udf_api::{
 };
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{AttributeMethods, BBoxMetricType, RBBox};
+use crate::primitives::{AttributeMethods, Attributive, BBoxMetricType, RBBox};
 use parking_lot::RwLockReadGuard;
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
@@ -268,8 +268,8 @@ pub enum MatchQuery {
 
 impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery {
     fn execute(&self, o: &RwLockReadGuard<VideoObject>, _: &mut ()) -> ControlFlow<bool, bool> {
-        let detection_box = RBBox::from(o.detection_box.clone());
-        let tracking_box = o.track_box.clone().map(RBBox::from);
+        let detection_box = o.detection_box.clone();
+        let tracking_box = o.track_box.clone();
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, &mut ()),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, &mut ()),
@@ -365,17 +365,15 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             }
 
             // attributes
-            MatchQuery::AttributeExists(namespace, label) => ControlFlow::Continue(
-                o.attributes
-                    .get(&(namespace.to_string(), label.to_string()))
-                    .is_some(),
-            ),
+            MatchQuery::AttributeExists(namespace, label) => {
+                ControlFlow::Continue(o.contains_attribute(namespace, label))
+            }
             MatchQuery::AttributesEmpty => ControlFlow::Continue(o.attributes.is_empty()),
             MatchQuery::AttributesJMESQuery(x) => {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let json = &serde_json::json!(o
                     .attributes
-                    .values()
+                    .iter()
                     .map(|v| v.to_serde_json_value())
                     .collect::<Vec<_>>());
                 let res = filter.search(json).unwrap();
@@ -515,7 +513,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let parent_frame = parent_frame_opt.unwrap();
 
                 ControlFlow::Continue(matches!(
-                    parent_frame.get_content(),
+                    &*parent_frame.get_content(),
                     VideoFrameContent::None
                 ))
             }
@@ -527,7 +525,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 }
                 let parent_frame = parent_frame_opt.unwrap();
                 let res = !parent_frame
-                    .find_attributes(Some(namespace.to_string()), vec![label.to_string()], None)
+                    .find_attributes(&Some(namespace), &[label], &None)
                     .is_empty();
 
                 ControlFlow::Continue(res)
@@ -551,7 +549,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let filter = get_compiled_jmp_filter(x).unwrap();
                 let attributes = parent_frame
                     .get_attributes()
-                    .into_iter()
+                    .iter()
                     .flat_map(|(ns, l)| parent_frame.get_attribute(ns, l))
                     .collect::<Vec<_>>();
 
@@ -569,7 +567,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
             }
 
             _ => {
-                let inner = o.get_inner_read();
+                let inner = o.inner_read_lock();
                 self.execute(&inner, &mut ())
             }
         }
@@ -875,7 +873,7 @@ mod tests {
     use super::*;
     use crate::eval_resolvers::register_env_resolver;
     use crate::match_query::MatchQuery::*;
-    use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+    use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::IdCollisionResolutionPolicy;
     use crate::primitives::{Attribute, AttributeMethods};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
@@ -1247,7 +1245,7 @@ mod tests {
 
         let expr = AttributesEmpty;
         let o = gen_object(1);
-        o.delete_attributes(Some("some".to_string()), vec![]);
+        o.delete_attributes_with_ns("some");
         // assert!(expr.execute_with_new_context(&o));
         assert!(matches!(
             expr.execute_with_new_context(&o),
@@ -1356,14 +1354,14 @@ mod tests {
         ));
 
         object.set_attribute(Attribute::persistent(
-            s("classifier"),
-            s("age-min-max-avg"),
+            "classifier",
+            "age-min-max-avg",
             vec![
-                AttributeValue::new(AttributeValueVariant::Float(10.0), Some(0.7)),
-                AttributeValue::new(AttributeValueVariant::Float(20.0), Some(0.8)),
-                AttributeValue::new(AttributeValueVariant::Float(15.0), None),
+                AttributeValue::float(10.0, Some(0.7)),
+                AttributeValue::float(20.0, Some(0.8)),
+                AttributeValue::float(15.0, None),
             ],
-            Some(s("morphological-classifier")),
+            &Some("morphological-classifier"),
             false,
         ));
 

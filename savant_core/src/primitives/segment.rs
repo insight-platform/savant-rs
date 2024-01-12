@@ -1,22 +1,9 @@
-use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::point::Point;
-use rkyv::{Archive, Deserialize, Serialize};
-use serde_json::Value;
 
-#[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Clone)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Segment {
     pub begin: Point,
     pub end: Point,
-}
-
-impl ToSerdeJsonValue for Segment {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "begin": self.begin.to_serde_json_value(),
-            "end": self.end.to_serde_json_value(),
-        })
-    }
 }
 
 impl Segment {
@@ -25,10 +12,7 @@ impl Segment {
     }
 }
 
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum IntersectionKind {
     Enter,
     Inside,
@@ -37,28 +21,10 @@ pub enum IntersectionKind {
     Outside,
 }
 
-impl ToSerdeJsonValue for IntersectionKind {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(format!("{:?}", self))
-    }
-}
-
-#[derive(
-    Archive, Deserialize, Serialize, Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize,
-)]
-#[archive(check_bytes)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Intersection {
     pub kind: IntersectionKind,
     pub edges: Vec<(usize, Option<String>)>,
-}
-
-impl ToSerdeJsonValue for Intersection {
-    fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "kind": self.kind.to_serde_json_value(),
-            "edges": self.edges,
-        })
-    }
 }
 
 impl Intersection {
