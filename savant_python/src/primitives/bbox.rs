@@ -1,4 +1,5 @@
-use crate::primitives::{PaddingDraw, PolygonalArea};
+use crate::draw_spec::PaddingDraw;
+use crate::primitives::polygonal_area::PolygonalArea;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};

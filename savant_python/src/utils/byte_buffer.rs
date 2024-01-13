@@ -27,11 +27,8 @@ pub struct ByteBuffer {
 #[pymethods]
 impl ByteBuffer {
     #[new]
-    pub fn new(v: Vec<u8>, checksum: Option<u32>) -> Self {
-        Self {
-            inner: Arc::new(v),
-            checksum,
-        }
+    fn create(v: &PyBytes, checksum: Option<u32>) -> PyResult<Self> {
+        Ok(Self::new(v.as_bytes().to_vec(), checksum))
     }
 
     /// Returns the length of the byte buffer.
@@ -96,5 +93,12 @@ impl ByteBuffer {
 
     pub fn bytes(&self) -> &[u8] {
         self.inner.as_slice()
+    }
+
+    pub fn new(v: Vec<u8>, checksum: Option<u32>) -> Self {
+        Self {
+            inner: Arc::new(v),
+            checksum,
+        }
     }
 }

@@ -1,5 +1,8 @@
+from savant_rs import version
 from savant_rs.primitives import EndOfStream
 from savant_rs.utils.serialization import save_message_to_bytes, load_message_from_bytes, Message
+
+print("Savant version:", version())
 
 e = EndOfStream("abc")
 

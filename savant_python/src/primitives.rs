@@ -6,8 +6,6 @@ pub mod batch;
 /// Here are decleared bounding boxes
 ///
 pub mod bbox;
-/// The draw specification used to draw objects on the frame when they are visualized.
-pub mod draw;
 pub mod eos;
 pub mod frame;
 pub mod frame_update;
@@ -33,10 +31,7 @@ use crate::primitives::attribute::Attribute;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueType, AttributeValuesView};
 use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::bbox::{BBox, RBBox};
-use crate::primitives::draw::{
-    BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, LabelPositionKind, ObjectDraw,
-    PaddingDraw, SetDrawLabelKind,
-};
+
 use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
@@ -60,20 +55,6 @@ pub fn geometry(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PolygonalArea>()?;
     m.add_class::<RBBox>()?;
     m.add_class::<BBox>()?;
-    Ok(())
-}
-
-#[pymodule]
-pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<ColorDraw>()?;
-    m.add_class::<BoundingBoxDraw>()?;
-    m.add_class::<DotDraw>()?;
-    m.add_class::<LabelDraw>()?;
-    m.add_class::<LabelPositionKind>()?;
-    m.add_class::<LabelPosition>()?;
-    m.add_class::<PaddingDraw>()?;
-    m.add_class::<ObjectDraw>()?;
-    m.add_class::<SetDrawLabelKind>()?;
     Ok(())
 }
 

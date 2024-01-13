@@ -1,7 +1,7 @@
+use crate::draw_spec::SetDrawLabelKind;
 use crate::match_query::MatchQuery;
 use crate::primitives::attribute::Attribute;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
-use crate::primitives::draw::SetDrawLabelKind;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::message::Message;
 use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
