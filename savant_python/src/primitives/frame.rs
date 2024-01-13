@@ -593,8 +593,8 @@ impl VideoFrame {
         self.0.delete_attributes_with_ns(namespace)
     }
 
-    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
-        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+    pub fn delete_attributes_with_names(&mut self, names: Vec<String>) {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
         self.0.delete_attributes_with_names(&label_refs)
     }
 
@@ -606,12 +606,6 @@ impl VideoFrame {
         let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
 
         self.0.delete_attributes_with_hints(&hint_refs)
-    }
-
-    pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
-        self.0
-            .add_object(&o.0, policy.into())
-            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
@@ -632,6 +626,12 @@ impl VideoFrame {
         release_gil!(no_gil, || self.0.set_draw_label(&q.0, draw_label.0))
     }
 
+    pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
+        self.0
+            .add_object(&o.0, policy.into())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
     pub fn get_object(&self, id: i64) -> Option<VideoObject> {
         self.0.get_object(id).map(VideoObject)
     }
@@ -648,7 +648,7 @@ impl VideoFrame {
         self.0.get_all_objects().into()
     }
 
-    pub fn access_objects_by_id(&self, ids: Vec<i64>) -> VideoObjectsView {
+    pub fn access_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
         self.0.access_objects_by_id(&ids).into()
     }
 

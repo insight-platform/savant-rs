@@ -1,7 +1,10 @@
 from enum import Enum
 from typing import Optional
 
+from savant_rs.draw_spec import SetDrawLabelKind
+from savant_rs.match_query import MatchQuery
 from savant_rs.primitives.geometry import Intersection, RBBox, Point, PolygonalArea
+from savant_rs.utils import VideoObjectBBoxTransformation
 from savant_rs.utils.serialization import Message
 
 
@@ -296,10 +299,9 @@ class UserData:
 
     def delete_attributes_with_ns(self, namespace: str): ...
 
-    def delete_attributes_with_names(self, namespace: str, names: list[str]): ...
+    def delete_attributes_with_names(self, names: list[str]): ...
 
     def delete_attributes_with_hints(self,
-                                     namespace: str,
                                      hints: list[Optional[str]]): ...
 
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
@@ -322,3 +324,233 @@ class UserData:
     def from_protobuf(cls,
                       protobuf: bytes,
                       no_gil: bool = True) -> UserData: ...
+
+
+class ExternalFrame:
+    method: str
+    location: Optional[str]
+
+    def __init__(self,
+                 method: str,
+                 location: Optional[str]): ...
+
+
+class VideoFrameContent:
+    @classmethod
+    def external(cls, method: str, location: Optional[str]) -> VideoFrameContent: ...
+
+    @classmethod
+    def internal(cls, data: bytes) -> VideoFrameContent: ...
+
+    @classmethod
+    def none(cls) -> VideoFrameContent: ...
+
+    def is_external(self) -> bool: ...
+
+    def is_internal(self) -> bool: ...
+
+    def is_none(self) -> bool: ...
+
+    def get_data(self) -> bytes: ...
+
+    def get_data_as_bytes(self) -> bytes: ...
+
+    def get_method(self) -> str: ...
+
+    def get_location(self) -> Optional[str]: ...
+
+
+class VideoFrameTranscodingMethod(Enum):
+    Copy: ...
+    Encoded: ...
+
+
+class VideoFrameTransformation:
+    @classmethod
+    def initial_size(cls, width: int, height: int) -> VideoFrameTransformation: ...
+
+    @classmethod
+    def resulting_size(cls, width: int, height: int) -> VideoFrameTransformation: ...
+
+    @classmethod
+    def scale(cls, width: int, height: int) -> VideoFrameTransformation: ...
+
+    @classmethod
+    def padding(cls, left: int, top: int, right: int, bottom: int) -> VideoFrameTransformation: ...
+
+    @property
+    def is_initial_size(self) -> bool: ...
+
+    @property
+    def is_resulting_size(self) -> bool: ...
+
+    @property
+    def is_scale(self) -> bool: ...
+
+    @property
+    def is_padding(self) -> bool: ...
+
+    @property
+    def as_initial_size(self) -> Optional[tuple[int, int]]: ...
+
+    @property
+    def as_resulting_size(self) -> Optional[tuple[int, int]]: ...
+
+    @property
+    def as_scale(self) -> Optional[tuple[int, int]]: ...
+
+    @property
+    def as_padding(self) -> Optional[tuple[int, int, int, int]]: ...
+
+
+class BelongingVideoFrame:
+    pass
+
+
+class VideoFrame:
+    source_id: str
+    time_base: tuple[int, int]
+    pts: int
+    dts: Optional[int]
+    uuid: str
+    creation_timestamp_ns: int
+    framerate: str
+    width: int
+    height: int
+    duration: Optional[int]
+    transcoding_method: VideoFrameTranscodingMethod
+    codec: Optional[str]
+    content: VideoFrameContent
+
+    @classmethod
+    def transform_geometry(cls,
+                           ops: list[VideoObjectBBoxTransformation],
+                           no_gil: bool = True): ...
+
+    @property
+    def memory_handle(self) -> int: ...
+
+    def __init__(self,
+                 source_id: str,
+                 framerate: str,
+                 width: int,
+                 height: int,
+                 content: VideoFrameContent,
+                 transcoding_method: VideoFrameTranscodingMethod,
+                 codec: Optional[str],
+                 keyframe: Optional[bool],
+                 time_base: tuple[int, int],
+                 pts: int,
+                 dts: Optional[int],
+                 duration: Optional[int],
+                 ): ...
+
+    def to_message(self) -> Message: ...
+
+    @property
+    def previous_frame_seq_id(self) -> Optional[int]: ...
+
+    @property
+    def json(self) -> str: ...
+
+    @property
+    def json_pretty(self) -> str: ...
+
+    def clear_transformations(self): ...
+
+    def add_transformation(self, transformation: VideoFrameTransformation): ...
+
+    @property
+    def transformations(self) -> list[VideoFrameTransformation]: ...
+
+    @property
+    def attributes(self) -> list[(str, str)]: ...
+
+    def find_attributes(self,
+                        namespace: Optional[str],
+                        names: list[str] = [],
+                        hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def get_attribute(self,
+                      namespace: str,
+                      name: str) -> Optional[Attribute]: ...
+
+    def delete_attributes_with_ns(self, namespace: str): ...
+
+    def delete_attributes_with_names(self, names: list[str]): ...
+
+    def delete_attributes_with_hints(self,
+                                     hints: list[Optional[str]]): ...
+
+    def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
+
+    def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
+
+    def clear_attributes(self): ...
+
+    def set_draw_label(self,
+                       q: MatchQuery,
+                       draw_label: SetDrawLabelKind,
+                       no_gil: bool = False): ...
+
+    def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
+
+    def get_object(self, id: int) -> Optional[VideoObject]: ...
+
+    def access_objects(self,
+                       q: MatchQuery,
+                       no_gil: bool = True) -> VideoObjectsView: ...
+
+    def get_all_objects(self) -> VideoObjectsView: ...
+
+    def access_objects_by_ids(self,
+                              ids: list[int],
+                              no_gil: bool = True) -> VideoObjectsView: ...
+
+    def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
+
+    def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
+
+    def set_parent(self,
+                   q: MatchQuery,
+                   parent: VideoObject,
+                   no_gil: bool = True) -> VideoObjectsView: ...
+
+    def set_parent_by_id(self,
+                         object_id: int,
+                         parent_id: int): ...
+
+    def clear_parent(self,
+                     q: MatchQuery,
+                     no_gil: bool = True) -> VideoObjectsView: ...
+
+    def clear_objects(self): ...
+
+    def get_children(self, id: int) -> VideoObjectsView: ...
+
+    def copy(self, no_gil: bool = True) -> VideoFrame: ...
+
+    def update(self, update: VideoFrameUpdate, no_gil: bool = True): ...
+
+    def to_protobuf(self, no_gil: bool = True) -> bytes: ...
+
+    @classmethod
+    def from_protobuf(cls,
+                      protobuf: bytes,
+                      no_gil: bool = True) -> VideoFrame: ...
+
+
+class VideoFrameUpdate:
+    pass
+
+
+class IdCollisionResolutionPolicy:
+    pass
+
+
+class VideoObject:
+    pass
+
+
+class VideoObjectsView:
+    pass

@@ -84,8 +84,8 @@ impl UserData {
         self.0.delete_attributes_with_ns(namespace)
     }
 
-    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
-        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+    pub fn delete_attributes_with_names(&mut self, names: Vec<String>) {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
         self.0.delete_attributes_with_names(&label_refs)
     }
 

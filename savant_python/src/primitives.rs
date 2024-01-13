@@ -24,7 +24,8 @@ pub mod shutdown;
 pub mod user_data;
 
 use crate::primitives::frame::{
-    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    BelongingVideoFrame, VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod,
+    VideoFrameTransformation,
 };
 
 use crate::primitives::attribute::Attribute;
@@ -73,12 +74,13 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Shutdown>()?; // PYI
     m.add_class::<UserData>()?; // PYI
 
-    m.add_class::<VideoFrame>()?;
+    m.add_class::<BelongingVideoFrame>()?; // PYI
+    m.add_class::<VideoFrame>()?; // PYI
     m.add_class::<VideoFrameBatch>()?;
-    m.add_class::<VideoFrameContent>()?;
-    m.add_class::<VideoFrameTranscodingMethod>()?;
+    m.add_class::<VideoFrameContent>()?; // PYI
+    m.add_class::<VideoFrameTranscodingMethod>()?; // PYI
     m.add_class::<VideoFrameUpdate>()?;
-    m.add_class::<VideoFrameTransformation>()?;
+    m.add_class::<VideoFrameTransformation>()?; // PYI
 
     m.add_class::<VideoObject>()?;
     m.add_class::<VideoObjectsView>()?;
