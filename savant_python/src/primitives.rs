@@ -63,15 +63,15 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     use VideoFrameContent;
     use VideoFrameTransformation;
 
-    m.add_class::<Attribute>()?;
-    m.add_class::<AttributeUpdatePolicy>()?;
-    m.add_class::<ObjectUpdatePolicy>()?;
-    m.add_class::<AttributeValue>()?;
-    m.add_class::<AttributeValueType>()?;
-    m.add_class::<AttributeValuesView>()?;
-    m.add_class::<EndOfStream>()?;
-    m.add_class::<Shutdown>()?;
-    m.add_class::<UserData>()?;
+    m.add_class::<Attribute>()?; // PYI
+    m.add_class::<AttributeUpdatePolicy>()?; // PYI
+    m.add_class::<ObjectUpdatePolicy>()?; // PYI
+    m.add_class::<AttributeValue>()?; // PYI
+    m.add_class::<AttributeValueType>()?; // PYI
+    m.add_class::<AttributeValuesView>()?; // PYI
+    m.add_class::<EndOfStream>()?; // PYI
+    m.add_class::<Shutdown>()?; // PYI
+    m.add_class::<UserData>()?; // PYI
 
     m.add_class::<VideoFrame>()?;
     m.add_class::<VideoFrameBatch>()?;

@@ -76,7 +76,7 @@ impl AttributeValue {
             AttributeValueVariant::Polygon(_) => AttributeValueType::Polygon,
             AttributeValueVariant::PolygonVector(_) => AttributeValueType::PolygonList,
             AttributeValueVariant::Intersection(_) => AttributeValueType::Intersection,
-            AttributeValueVariant::None => AttributeValueType::None,
+            AttributeValueVariant::None => AttributeValueType::None_,
             AttributeValueVariant::TemporaryValue(_) => AttributeValueType::TemporaryValue,
         }
     }
@@ -795,7 +795,7 @@ pub enum AttributeValueType {
     PolygonList,
     Intersection,
     TemporaryValue,
-    None,
+    None_,
 }
 
 #[pymethods]
@@ -821,9 +821,7 @@ impl AttributeValueType {
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct AttributeValuesView {
-    pub inner: Arc<Vec<rust::AttributeValue>>,
-}
+pub struct AttributeValuesView(pub Arc<Vec<rust::AttributeValue>>);
 
 #[pymethods]
 impl AttributeValuesView {
@@ -831,7 +829,7 @@ impl AttributeValuesView {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
@@ -840,7 +838,7 @@ impl AttributeValuesView {
 
     fn __getitem__(&self, index: usize) -> PyResult<AttributeValue> {
         let v = self
-            .inner
+            .0
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))
             .map(|x| x.clone())?;
@@ -853,6 +851,6 @@ impl AttributeValuesView {
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        Ok(self.inner.len())
+        Ok(self.0.len())
     }
 }

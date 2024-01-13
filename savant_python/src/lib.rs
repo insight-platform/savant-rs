@@ -73,7 +73,7 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(primitives::primitives))?;
     m.add_wrapped(wrap_pymodule!(pipeline::pipeline))?;
     m.add_wrapped(wrap_pymodule!(primitives::geometry))?;
-    m.add_wrapped(wrap_pymodule!(draw_spec::draw_spec))?;
+    m.add_wrapped(wrap_pymodule!(draw_spec::draw_spec))?; // PYI
     m.add_wrapped(wrap_pymodule!(utils::utils))?; // PYI
     m.add_wrapped(wrap_pymodule!(utils::symbol_mapper_module))?;
     m.add_wrapped(wrap_pymodule!(utils::udf_api_module))?;

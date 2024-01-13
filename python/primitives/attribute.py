@@ -8,6 +8,12 @@ attr = Attribute(namespace="some", name="attr", hint="x", values=[
 ])
 print(attr.json)
 
+vals = attr.values
+
+view = attr.values_view
+print(len(view))
+print(view[2])
+
 attr2 = Attribute.from_json(attr.json)
 print(attr2.json)
 
