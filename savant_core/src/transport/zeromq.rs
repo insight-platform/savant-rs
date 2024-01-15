@@ -606,6 +606,62 @@ mod integration_tests {
     }
 
     #[test]
+    fn test_dealer_router_wrong_topic() -> anyhow::Result<()> {
+        let path = "/tmp/test/dealer-router";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+            &ReaderConfig::new()
+                .url(&format!("router+bind:ipc://{}", path))?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("fo".to_string()))?
+                .with_fix_ipc_permissions(Some(0o777))?
+                .build()?,
+        )?;
+
+        let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
+            &WriterConfig::new()
+                .url(&format!("dealer+connect:ipc://{}", path))?
+                .build()?,
+        )?;
+
+        let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
+        let reader_thread = thread::spawn(move || {
+            let mut reader = reader;
+            let res = reader.receive();
+            tx.send(res).unwrap();
+            let res = reader.receive();
+            tx.send(res).unwrap();
+        });
+
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &m, &[])?;
+        assert!(matches!(
+            res,
+            WriterResult::Success {
+                retries_spent: _,
+                time_spent: _
+            }
+        ));
+        let res = rx.recv().unwrap()?;
+        assert!(matches!(res, ReaderResult::PrefixMismatch { .. }));
+
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test2", &m, &[])?;
+        assert!(matches!(
+            res,
+            WriterResult::Success {
+                retries_spent: _,
+                time_spent: _
+            }
+        ));
+        let res = rx.recv().unwrap()?;
+        assert!(matches!(res, ReaderResult::PrefixMismatch { .. }));
+
+        reader_thread.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
     fn test_receive_timeout() -> anyhow::Result<()> {
         let path = "/tmp/test/pub-sub";
         std::fs::remove_dir_all(path).unwrap_or_default();

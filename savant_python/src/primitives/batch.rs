@@ -34,7 +34,7 @@ impl VideoFrameBatch {
         self.0.get(id).map(|x| VideoFrame(x.clone()))
     }
 
-    pub fn del(&mut self, id: i64) -> Option<VideoFrame> {
+    pub fn del_(&mut self, id: i64) -> Option<VideoFrame> {
         self.0.del(id).map(|x| VideoFrame(x.clone()))
     }
 

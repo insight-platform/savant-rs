@@ -362,6 +362,11 @@ impl VideoObjectProxy {
         inner.track_id
     }
 
+    pub fn set_track_id(&self, track_id: Option<i64>) {
+        let mut inner = trace!(self.inner_write_lock());
+        inner.track_id = track_id;
+    }
+
     pub fn get_detection_box(&self) -> RBBox {
         let inner = trace!(self.inner_read_lock());
         inner.detection_box.clone()
