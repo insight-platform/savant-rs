@@ -158,7 +158,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             if let Err(e) = res {
                 warn!(
                     target: "savant_rs::zeromq::writer",
-                    "Failed to send message to ZeroMQ socket. Error is {:?}", e);
+                    "Failed to send message to ZeroMQ socket. Error is [{}] {:?}", e.to_raw(), e);
                 if let zmq::Error::EAGAIN = e {
                     warn!(
                         target: "savant_rs::zeromq::writer",
@@ -168,7 +168,11 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                     send_retries -= 1;
                     continue;
                 } else {
-                    bail!("Failed to send message to ZeroMQ socket. Error is {:?}", e);
+                    bail!(
+                        "Failed to send message to ZeroMQ socket. Error is [{}] {:?}",
+                        e.to_raw(),
+                        e
+                    );
                 }
             }
             break;
@@ -186,7 +190,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                 if let Err(e) = res {
                     warn!(
                         target: "savant_rs::zeromq::writer",
-                        "Failed to receive message from ZeroMQ socket. Error is {:?}",
+                        "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                        e.to_raw(),
                         e
                     );
                     if let zmq::Error::EAGAIN = e {
@@ -199,7 +204,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                         continue;
                     } else {
                         bail!(
-                            "Failed to receive message from ZeroMQ socket. Error is {:?}",
+                            "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                            e.to_raw(),
                             e
                         );
                     }
