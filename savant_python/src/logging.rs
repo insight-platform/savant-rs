@@ -6,6 +6,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use savant_core::otlp::with_current_context;
 
+/// Allows defining a log level for a logging subsystem
+///
+/// Returns
+/// -------
+/// :py:class:`LogLevel`
+///   The log level. By default, the log level is set to Info.
+///
 #[pyclass]
 #[derive(Debug, Clone, Copy)]
 pub enum LogLevel {

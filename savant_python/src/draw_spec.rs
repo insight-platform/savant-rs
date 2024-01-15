@@ -756,3 +756,17 @@ impl SetDrawLabelKind {
         }
     }
 }
+
+#[pymodule]
+pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<ColorDraw>()?; // PYI
+    m.add_class::<BoundingBoxDraw>()?; // PYI
+    m.add_class::<DotDraw>()?; // PYI
+    m.add_class::<LabelDraw>()?; // PYI
+    m.add_class::<LabelPositionKind>()?; // PYI
+    m.add_class::<LabelPosition>()?; // PYI
+    m.add_class::<PaddingDraw>()?; // PYI
+    m.add_class::<ObjectDraw>()?; // PYI
+    m.add_class::<SetDrawLabelKind>()?;
+    Ok(())
+}

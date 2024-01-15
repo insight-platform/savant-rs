@@ -2,6 +2,7 @@ use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
 use crate::{release_gil, with_gil};
+use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
@@ -53,10 +54,6 @@ impl VideoObject {
         self.__repr__()
     }
 
-    pub fn get_track_id(&self) -> Option<i64> {
-        self.0.get_track_id()
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[new]
     pub fn new(
@@ -93,24 +90,6 @@ impl VideoObject {
         self.0.get_attributes()
     }
 
-    /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
-    /// When used as setter, allows setting object's bbox by value.
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`savant_rs.primitives.geometry.RBBox`
-    ///   Object's bounding box.
-    ///
-    #[getter]
-    pub fn get_detection_box(&self) -> RBBox {
-        RBBox(self.0.get_detection_box())
-    }
-
-    #[getter]
-    pub fn get_track_box(&self) -> Option<RBBox> {
-        self.0.get_track_box().map(RBBox)
-    }
-
     /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
     ///
     /// Returns
@@ -141,6 +120,11 @@ impl VideoObject {
         self.0.get_confidence()
     }
 
+    #[setter]
+    pub fn set_confidence(&self, confidence: Option<f32>) {
+        self.0.set_confidence(confidence);
+    }
+
     /// Returns object's namespace. When used as setter, allows setting object's namespace.
     ///
     /// Returns
@@ -151,6 +135,19 @@ impl VideoObject {
     #[getter]
     pub fn get_namespace(&self) -> String {
         self.0.get_namespace()
+    }
+    #[setter]
+    pub fn set_namespace(&self, namespace: &str) {
+        self.0.set_namespace(namespace);
+    }
+
+    #[getter]
+    pub fn get_label(&self) -> String {
+        self.0.get_label()
+    }
+    #[setter]
+    pub fn set_label(&self, label: &str) {
+        self.0.set_label(label);
     }
 
     /// Deletes an attribute from the object.
@@ -176,8 +173,8 @@ impl VideoObject {
         self.0.delete_attributes_with_ns(namespace)
     }
 
-    pub fn delete_attributes_with_names(&mut self, labels: Vec<String>) {
-        let label_refs = labels.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+    pub fn delete_attributes_with_names(&mut self, names: Vec<String>) {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
         self.0.delete_attributes_with_names(&label_refs)
     }
 
@@ -213,6 +210,11 @@ impl VideoObject {
     #[getter]
     pub fn get_draw_label(&self) -> String {
         self.0.calculate_draw_label()
+    }
+
+    #[setter]
+    pub fn set_draw_label(&self, draw_label: Option<String>) {
+        self.0.set_draw_label(draw_label);
     }
 
     /// finds and returns names of attributes by expression based on namespace, names and hint.
@@ -287,6 +289,12 @@ impl VideoObject {
     pub fn get_id(&self) -> i64 {
         self.0.get_id()
     }
+    #[setter]
+    pub fn set_id(&self, id: i64) -> PyResult<()> {
+        self.0.set_id(id).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to set object id to {}: {}", id, e))
+        })
+    }
 
     /// The object is detached if it is not attached to any frame. Such state may cause it impossible to operate with certain object properties.
     ///
@@ -309,18 +317,6 @@ impl VideoObject {
         self.0.is_spoiled()
     }
 
-    /// Returns the object's label. The setter allows setting object's label.
-    ///
-    /// Returns
-    /// -------
-    /// str
-    ///   Object's label.
-    ///
-    #[getter]
-    pub fn get_label(&self) -> String {
-        self.0.get_label()
-    }
-
     /// Sets the attribute for the object. If the attribute is already set, it is replaced.
     ///
     /// Parameters
@@ -337,57 +333,55 @@ impl VideoObject {
         self.0.set_attribute(attribute.0.clone()).map(Attribute)
     }
 
+    /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.
+    /// When used as setter, allows setting object's bbox by value.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`savant_rs.primitives.geometry.RBBox`
+    ///   Object's bounding box.
+    ///
+    #[getter]
+    pub fn get_detection_box(&self) -> RBBox {
+        RBBox(self.0.get_detection_box())
+    }
+
     #[setter]
     pub fn set_detection_box(&self, bbox: RBBox) {
         self.0.set_detection_box(bbox.0);
+    }
+
+    pub fn get_track_id(&self) -> Option<i64> {
+        warn!("get_track_id is deprecated, use track_id instead");
+        self.0.get_track_id()
+    }
+
+    #[setter]
+    pub fn set_track_id(&self, track_id: Option<i64>) {
+        self.0.set_track_id(track_id);
+    }
+
+    #[getter]
+    pub fn get_track_box(&self) -> Option<RBBox> {
+        self.0.get_track_box().map(RBBox)
+    }
+
+    #[setter]
+    pub fn set_track_box(&self, bbox: RBBox) {
+        self.0.set_track_box(bbox.0);
     }
 
     pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
         self.0.set_track_info(track_id, bbox.0);
     }
 
-    pub fn set_track_box(&self, bbox: RBBox) {
-        self.0.set_track_box(bbox.0);
-    }
-
     pub fn clear_track_info(&self) {
         self.0.clear_track_info()
     }
 
-    #[setter]
-    pub fn set_draw_label(&self, draw_label: Option<String>) {
-        self.0.set_draw_label(draw_label);
-    }
-
-    #[setter]
-    pub fn set_id(&self, id: i64) -> PyResult<()> {
-        self.0.set_id(id).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to set object id to {}: {}", id, e))
-        })
-    }
-
-    #[setter]
-    pub fn set_namespace(&self, namespace: &str) {
-        self.0.set_namespace(namespace);
-    }
-
-    #[setter]
-    pub fn set_label(&self, label: &str) {
-        self.0.set_label(label);
-    }
-
-    #[setter]
-    pub fn set_confidence(&self, confidence: Option<f32>) {
-        self.0.set_confidence(confidence);
-    }
-
-    #[pyo3(name = "transform_geometry")]
-    #[pyo3(signature = (ops, no_gil = false))]
-    fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformation>, no_gil: bool) {
-        release_gil!(no_gil, || {
-            let inner_ops = ops.iter().map(|op| op.0).collect::<Vec<_>>();
-            self.0.transform_geometry(&inner_ops);
-        })
+    fn transform_geometry(&self, ops: Vec<VideoObjectBBoxTransformation>) {
+        let inner_ops = ops.iter().map(|op| op.0).collect::<Vec<_>>();
+        self.0.transform_geometry(&inner_ops);
     }
 
     #[pyo3(name = "to_protobuf")]

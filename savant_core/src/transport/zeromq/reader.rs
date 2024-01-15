@@ -1,12 +1,12 @@
+use anyhow::bail;
+use log::{debug, info, warn};
+use zmq::Context;
+
 use crate::message::Message;
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, ReaderConfig, ReaderSocketType,
     RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
-
-use anyhow::bail;
-use log::{debug, info, warn};
-use zmq::Context;
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
     context: Option<Context>,
@@ -165,14 +165,15 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         if let Err(e) = parts {
             warn!(
                 target: "savant_rs::zeromq::reader",
-                "Failed to receive message from ZeroMQ socket. Error is {:?}",
-                e
+                "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                e.to_raw(), e
             );
             if let zmq::Error::EAGAIN = e {
                 return Ok(ReaderResult::Timeout);
             } else {
                 bail!(
-                    "Failed to receive message from ZeroMQ socket. Error is {:?}",
+                    "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                    e.to_raw(),
                     e
                 );
             }
@@ -216,6 +217,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 self.config.topic_prefix_spec(),
                 topic
             );
+
+            if self.config.socket_type() == &ReaderSocketType::Rep {
+                socket.send(CONFIRMATION_MESSAGE, 0)?;
+            }
 
             return Ok(ReaderResult::PrefixMismatch {
                 topic: topic.to_vec(),

@@ -345,9 +345,9 @@ pub trait Attributive: Send {
             .retain(|a| a.namespace != *namespace);
     }
 
-    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
+    fn delete_attributes_with_names(&mut self, names: &[&str]) {
         self.get_attributes_ref_mut()
-            .retain(|a| !labels.contains(&a.name.as_str()))
+            .retain(|a| !names.contains(&a.name.as_str()))
     }
 
     fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {

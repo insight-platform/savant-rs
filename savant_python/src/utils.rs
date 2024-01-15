@@ -4,10 +4,8 @@ use pyo3::prelude::*;
 
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::primitives::bbox::{BBoxMetricType, VideoObjectBBoxTransformation};
-
 use crate::primitives::message::loader::*;
 use crate::primitives::message::saver::*;
-
 use crate::primitives::message::{clear_source_seq_id, Message};
 use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::test::utils::{gen_empty_frame, gen_frame};
@@ -136,21 +134,21 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 
 #[pymodule]
 pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(eval_expr, m)?)?;
-    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
-    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
-    // utility
-    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
-    m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
-    m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?;
+    m.add_function(wrap_pyfunction!(eval_expr, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(gen_frame, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?; // PYI
+                                                            // utility
+    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?; // PYI
 
-    m.add_class::<PropagatedContext>()?;
-    m.add_class::<TelemetrySpan>()?;
-    m.add_class::<MaybeTelemetrySpan>()?;
-    m.add_class::<ByteBuffer>()?;
-    m.add_class::<VideoObjectBBoxType>()?;
-    m.add_class::<VideoObjectBBoxTransformation>()?;
-    m.add_class::<BBoxMetricType>()?;
+    m.add_class::<PropagatedContext>()?; // PYI
+    m.add_class::<TelemetrySpan>()?; // PYI
+    m.add_class::<MaybeTelemetrySpan>()?; // PYI
+    m.add_class::<ByteBuffer>()?; // PYI
+    m.add_class::<VideoObjectBBoxType>()?; // PYI
+    m.add_class::<VideoObjectBBoxTransformation>()?; // PYI
+    m.add_class::<BBoxMetricType>()?; // PYI
 
     Ok(())
 }

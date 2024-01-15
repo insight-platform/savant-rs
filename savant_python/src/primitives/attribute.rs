@@ -243,9 +243,7 @@ impl Attribute {
     ///
     #[getter]
     pub fn values_view(&self) -> AttributeValuesView {
-        AttributeValuesView {
-            inner: self.0.values.clone(),
-        }
+        AttributeValuesView(self.0.values.clone())
     }
 
     /// Returns the hint of the attribute.
@@ -301,21 +299,4 @@ impl Attribute {
             rust::Attribute::from_json(json).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(res))
     }
-}
-
-pub trait AttributeMethods {
-    fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
-    fn restore_attributes(&self, attributes: Vec<Attribute>);
-    fn get_attributes(&self) -> Vec<(String, String)>;
-    fn get_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
-    fn delete_attribute(&self, namespace: String, name: String) -> Option<Attribute>;
-    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
-    fn clear_attributes(&self);
-    fn delete_attributes(&self, namespace: Option<String>, names: Vec<String>);
-    fn find_attributes(
-        &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
-    ) -> Vec<(String, String)>;
 }
