@@ -14,10 +14,11 @@ from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
 from savant_rs import init_jaeger_tracer
 from savant_rs.match_query import MatchQuery as Q
 
+
 # LOGLEVEL=info,a=error,a::b=debug python python/pipeline.py
 
 if __name__ == "__main__":
-    savant_rs.version()
+    savant_rs.savant_rs.version()
     enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
     init_jaeger_tracer("demo-pipeline", "localhost:6831")
