@@ -1,5 +1,5 @@
 use anyhow::bail;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use zmq::Context;
 
 use crate::message::Message;
@@ -163,14 +163,18 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             "Received message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
         if let Err(e) = parts {
-            debug!(
-                target: "savant_rs::zeromq::reader",
-                "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
-                e.to_raw(), e
-            );
             if let zmq::Error::EAGAIN = e {
+                debug!(
+                    target: "savant_rs::zeromq::reader",
+                    "Failed to receive message from ZeroMQ socket due to timeout (EAGAIN)"
+                );
                 return Ok(ReaderResult::Timeout);
             } else {
+                error!(
+                    target: "savant_rs::zeromq::reader",
+                    "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
+                    e.to_raw(), e
+                );
                 bail!(
                     "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
                     e.to_raw(),
