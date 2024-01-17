@@ -28,7 +28,35 @@ class TopicPrefixSpec:
 
 
 class WriterConfig:
-    pass
+    @property
+    def endpoint(self) -> str: ...
+
+    @property
+    def socket_type(self) -> WriterSocketType: ...
+
+    @property
+    def bind(self) -> bool: ...
+
+    @property
+    def send_timeout(self) -> int: ...
+
+    @property
+    def receive_timeout(self) -> int: ...
+
+    @property
+    def receive_retries(self) -> int: ...
+
+    @property
+    def send_retries(self) -> int: ...
+
+    @property
+    def send_hwm(self) -> int: ...
+
+    @property
+    def receive_hwm(self) -> int: ...
+
+    @property
+    def fix_ipc_permissions(self) -> Optional[bool]: ...
 
 
 class WriterConfigBuilder:
@@ -56,7 +84,29 @@ class WriterConfigBuilder:
 
 
 class ReaderConfig:
-    pass
+    @property
+    def endpoint(self) -> str: ...
+
+    @property
+    def socket_type(self) -> ReaderSocketType: ...
+
+    @property
+    def bind(self) -> bool: ...
+
+    @property
+    def receive_timeout(self) -> int: ...
+
+    @property
+    def receive_hwm(self) -> int: ...
+
+    @property
+    def topic_prefix_spec(self) -> TopicPrefixSpec: ...
+
+    @property
+    def routing_cache_size(self) -> int: ...
+
+    @property
+    def fix_ipc_permissions(self) -> Optional[bool]: ...
 
 
 class ReaderConfigBuilder:

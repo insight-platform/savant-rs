@@ -38,7 +38,7 @@ impl ReaderConfig {
         self.0.topic_prefix_spec.get_or_init()
     }
 
-    pub fn routing_ids_cache_size(&self) -> &usize {
+    pub fn routing_cache_size(&self) -> &usize {
         self.0.routing_ids_cache_size.get_or_init()
     }
 

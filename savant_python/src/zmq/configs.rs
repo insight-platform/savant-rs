@@ -35,6 +35,56 @@ pub struct WriterConfig(pub(crate) zeromq::WriterConfig);
 
 #[pymethods]
 impl WriterConfig {
+    #[getter]
+    fn endpoint(&self) -> String {
+        self.0.endpoint().to_string()
+    }
+
+    #[getter]
+    fn socket_type(&self) -> WriterSocketType {
+        self.0.socket_type().clone().into()
+    }
+
+    #[getter]
+    fn bind(&self) -> bool {
+        *self.0.bind()
+    }
+
+    #[getter]
+    fn send_timeout(&self) -> i32 {
+        *self.0.send_timeout()
+    }
+
+    #[getter]
+    fn receive_timeout(&self) -> i32 {
+        *self.0.receive_timeout()
+    }
+
+    #[getter]
+    fn receive_retries(&self) -> i32 {
+        *self.0.receive_retries()
+    }
+
+    #[getter]
+    fn send_retries(&self) -> i32 {
+        *self.0.send_retries()
+    }
+
+    #[getter]
+    fn send_hwm(&self) -> i32 {
+        *self.0.send_hwm()
+    }
+
+    #[getter]
+    fn receive_hwm(&self) -> i32 {
+        *self.0.receive_hwm()
+    }
+
+    #[getter]
+    fn fix_ipc_permissions(&self) -> Option<u32> {
+        *self.0.fix_ipc_permissions()
+    }
+
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
@@ -329,6 +379,46 @@ impl ReaderConfig {
 
     fn __str__(&self) -> String {
         self.__repr__()
+    }
+
+    #[getter]
+    fn endpoint(&self) -> String {
+        self.0.endpoint().to_string()
+    }
+
+    #[getter]
+    fn socket_type(&self) -> ReaderSocketType {
+        self.0.socket_type().clone().into()
+    }
+
+    #[getter]
+    fn bind(&self) -> bool {
+        *self.0.bind()
+    }
+
+    #[getter]
+    fn receive_timeout(&self) -> i32 {
+        *self.0.receive_timeout()
+    }
+
+    #[getter]
+    fn receive_hwm(&self) -> i32 {
+        *self.0.receive_hwm()
+    }
+
+    #[getter]
+    fn topic_prefix_spec(&self) -> TopicPrefixSpec {
+        TopicPrefixSpec(self.0.topic_prefix_spec().clone())
+    }
+
+    #[getter]
+    fn routing_cache_size(&self) -> usize {
+        *self.0.routing_cache_size()
+    }
+
+    #[getter]
+    fn fix_ipc_permissions(&self) -> Option<u32> {
+        *self.0.fix_ipc_permissions()
     }
 }
 

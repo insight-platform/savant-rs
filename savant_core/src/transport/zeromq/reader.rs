@@ -120,7 +120,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             context: Some(context),
             config: config.clone(),
             socket: Some(socket),
-            routing_id_filter: RoutingIdFilter::new(*config.routing_ids_cache_size())?,
+            routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
             phony: std::marker::PhantomData,
         })
     }
