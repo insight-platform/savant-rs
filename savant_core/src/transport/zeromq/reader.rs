@@ -163,7 +163,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             "Received message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
         if let Err(e) = parts {
-            warn!(
+            debug!(
                 target: "savant_rs::zeromq::reader",
                 "Failed to receive message from ZeroMQ socket. Error is [{}] {:?}",
                 e.to_raw(), e
