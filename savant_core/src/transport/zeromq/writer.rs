@@ -75,20 +75,20 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             socket.set_rcvhwm(*config.receive_hwm())?;
         }
 
-        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
-            create_ipc_dirs(config.endpoint())?;
-        }
-
         if *config.bind() {
+            if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
+                create_ipc_dirs(config.endpoint())?;
+            }
+
             socket.bind(config.endpoint())?;
+
+            if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
+                if let Some(permissions) = config.fix_ipc_permissions() {
+                    set_ipc_permissions(config.endpoint(), *permissions)?;
+                }
+            }
         } else {
             socket.connect(config.endpoint())?;
-        }
-
-        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
-            if let Some(permissions) = config.fix_ipc_permissions() {
-                set_ipc_permissions(config.endpoint(), *permissions)?;
-            }
         }
 
         Ok(Self {
@@ -151,7 +151,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             .collect::<Vec<_>>();
         debug!(
             target: "savant_rs::zeromq::writer",
-            "Sending message to ZeroMQ socket: {:?}", parts);
+            "Sending message to ZeroMQ socket: {:?} {:?}", topic, m);
         let mut send_retries = *self.config.send_retries();
         while send_retries >= 0 {
             let res = socket.send_multipart(&parts, 0);

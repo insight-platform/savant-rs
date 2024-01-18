@@ -1,8 +1,8 @@
 use crate::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use crate::zmq::configs::{ReaderConfig, ReaderConfigBuilder, WriterConfig, WriterConfigBuilder};
 use crate::zmq::results::{
-    ReaderResultEndOfStream, ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout,
-    WriterResultAck, WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
+    ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout, WriterResultAck,
+    WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
 };
 use pyo3::prelude::*;
 
@@ -31,7 +31,6 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ReaderConfigBuilder>()?; // PYI
     m.add_class::<ReaderConfig>()?; // PYI
     m.add_class::<ReaderResultMessage>()?; // PYI
-    m.add_class::<ReaderResultEndOfStream>()?; // PYI
     m.add_class::<ReaderResultTimeout>()?; // PYI
     m.add_class::<ReaderResultPrefixMismatch>()?; // PYI
 

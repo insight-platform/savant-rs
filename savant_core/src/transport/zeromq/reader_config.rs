@@ -101,11 +101,6 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
-        self.bind.set(bind)?;
-        Ok(self)
-    }
-
     pub fn with_receive_timeout(self, receive_timeout: i32) -> anyhow::Result<Self> {
         if receive_timeout <= 0 {
             bail!("Receive timeout must be non-negative");
@@ -132,7 +127,15 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
+    pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
+        self.bind.set(bind)?;
+        Ok(self)
+    }
+
     pub fn with_fix_ipc_permissions(self, permissions: Option<u32>) -> anyhow::Result<Self> {
+        if !self.bind.get_or_init() {
+            bail!("IPC permissions can only be set for bind sockets.");
+        }
         self.fix_ipc_permissions.set(permissions)?;
         Ok(self)
     }
@@ -182,6 +185,23 @@ mod tests {
         let url = format!("pub+connect:{}", endpoint);
         let config = ReaderConfig::new().url(&url);
         assert!(config.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn set_fix_perms_without_bind_fails() -> anyhow::Result<()> {
+        let config = ReaderConfig::new()
+            .with_bind(false)?
+            .with_fix_ipc_permissions(Some(0777));
+        assert!(config.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn set_fix_ipc_permissions_with_bind_ok() -> anyhow::Result<()> {
+        let _ = ReaderConfig::new()
+            .with_bind(true)?
+            .with_fix_ipc_permissions(Some(0777))?;
         Ok(())
     }
 }

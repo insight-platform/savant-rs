@@ -191,36 +191,6 @@ impl ReaderResultMessage {
     }
 }
 
-/// The message is returned when a reader receives the end of the stream.
-///
-#[pyclass]
-#[derive(Debug, Clone, Hash)]
-pub struct ReaderResultEndOfStream {
-    /// The topic of the message.
-    #[pyo3(get)]
-    pub topic: Vec<u8>,
-    /// The routing id of the message. The field is only filled for Router socket.
-    #[pyo3(get)]
-    pub routing_id: Option<Vec<u8>>,
-}
-
-#[pymethods]
-impl ReaderResultEndOfStream {
-    fn __hash__(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-}
-
 /// Returned when a reader is unable to receive a message due to a timeout on ZMQ.
 ///
 #[pyclass]
@@ -318,9 +288,6 @@ pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObj
                 data: Arc::new(data),
             }
             .into_py(py)),
-            zeromq::ReaderResult::EndOfStream { topic, routing_id } => {
-                Ok(ReaderResultEndOfStream { topic, routing_id }.into_py(py))
-            }
             zeromq::ReaderResult::Timeout => Ok(ReaderResultTimeout {}.into_py(py)),
             zeromq::ReaderResult::PrefixMismatch { topic, routing_id } => {
                 Ok(ReaderResultPrefixMismatch { topic, routing_id }.into_py(py))

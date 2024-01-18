@@ -546,7 +546,8 @@ mod integration_tests {
         );
         let res = rx.recv().unwrap()?;
         assert!(
-            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data} 
+                if message.is_end_of_stream() && topic == b"test" && routing_id.is_none() && data.is_empty())
         );
         reader_thread.join().unwrap();
         Ok(())
@@ -599,7 +600,7 @@ mod integration_tests {
         );
         let res = rx.recv().unwrap()?;
         assert!(
-            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_some())
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data} if message.is_end_of_stream() && topic == b"test" && routing_id.is_some() && data.is_empty())
         );
         reader_thread.join().unwrap();
         Ok(())
@@ -607,7 +608,7 @@ mod integration_tests {
 
     #[test]
     fn test_dealer_router_wrong_topic() -> anyhow::Result<()> {
-        let path = "/tmp/test/dealer-router";
+        let path = "/tmp/test/dealer-router-wrong-topic";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
@@ -690,13 +691,13 @@ mod integration_tests {
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
                 .url(&format!("pub+bind:ipc://{}", path))?
+                .with_fix_ipc_permissions(Some(0o777))?
                 .build()?,
         )?;
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("sub+connect:ipc://{}", path))?
-                .with_fix_ipc_permissions(Some(0o777))?
                 .with_receive_timeout(500)?
                 .build()?,
         )?;
@@ -724,7 +725,7 @@ mod integration_tests {
         assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(
-            matches!(res, ReaderResult::EndOfStream {topic, routing_id} if topic == b"test" && routing_id.is_none())
+            matches!(res, ReaderResult::Message {message,topic,routing_id,data} if message.is_end_of_stream() && topic == b"test" && routing_id.is_none() && data.is_empty())
         );
         reader_thread.join().unwrap();
         Ok(())

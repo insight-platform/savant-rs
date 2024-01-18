@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_blocking_idling() -> anyhow::Result<()> {
         let conf = ReaderConfig::new()
-            .url("router+bind:ipc:///tmp/test/nonblocking-reader-idling")?
+            .url("router+bind:ipc:///tmp/test/blocking-reader-idling")?
             .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
             .with_receive_timeout(100)?
             .build()?;

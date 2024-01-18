@@ -126,6 +126,12 @@ obj = VideoObject(
     track_box=None
 )
 
+tid = obj.track_id
+rb = obj.track_box
+
+obj.track_id = 1
+obj.track_box = BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()
+
 # demonstrates protobuf serialization
 #
 pb = obj.to_protobuf()

@@ -34,10 +34,6 @@ pub enum ReaderResult {
         routing_id: Option<Vec<u8>>,
         data: Vec<Vec<u8>>,
     },
-    EndOfStream {
-        topic: Vec<u8>,
-        routing_id: Option<Vec<u8>>,
-    },
     Timeout,
     PrefixMismatch {
         topic: Vec<u8>,
@@ -62,12 +58,6 @@ impl ReaderResult {
             topic: topic.to_vec(),
             routing_id: routing_id.cloned(),
             data: data.to_vec(),
-        }
-    }
-    pub fn end_of_stream(topic: &[u8], routing_id: &Option<&Vec<u8>>) -> Self {
-        Self::EndOfStream {
-            topic: topic.to_vec(),
-            routing_id: routing_id.cloned(),
         }
     }
 
@@ -100,20 +90,20 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             socket.set_subscribe(config.topic_prefix_spec().get().as_bytes())?;
         }
 
-        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
-            create_ipc_dirs(config.endpoint())?;
-        }
-
         if *config.bind() {
+            if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
+                create_ipc_dirs(config.endpoint())?;
+            }
+
             socket.bind(config.endpoint())?;
+
+            if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
+                if let Some(permissions) = config.fix_ipc_permissions() {
+                    set_ipc_permissions(config.endpoint(), *permissions)?;
+                }
+            }
         } else {
             socket.connect(config.endpoint())?;
-        }
-
-        if matches!(&socket, Socket::ZmqSocket(_)) && config.endpoint().starts_with("ipc://") {
-            if let Some(permissions) = config.fix_ipc_permissions() {
-                set_ipc_permissions(config.endpoint(), *permissions)?;
-            }
         }
 
         Ok(Self {
@@ -246,7 +236,13 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                     socket.send(CONFIRMATION_MESSAGE, 0)?;
                 }
             }
-            return Ok(ReaderResult::end_of_stream(topic, &routing_id));
+
+            return Ok(ReaderResult::Message {
+                message,
+                topic: topic.to_vec(),
+                routing_id: routing_id.cloned(),
+                data: vec![],
+            });
         }
 
         if self.config.socket_type() == &ReaderSocketType::Rep {
@@ -377,7 +373,10 @@ mod tests {
                 0,
             )?;
             let m = reader.receive()?;
-            assert!(matches!(m, ReaderResult::EndOfStream { .. }));
+            assert!(
+                matches!(m, ReaderResult::Message {message,topic,routing_id,data }
+                    if message.is_end_of_stream() && topic == b"topic" && routing_id == Some(b"routing-id".to_vec()) && data.is_empty())
+            );
             assert_eq!(
                 reader.socket.as_mut().unwrap().take_buffer(),
                 vec![b"routing-id", CONFIRMATION_MESSAGE]

@@ -113,11 +113,6 @@ impl WriterConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
-        self.bind.set(bind)?;
-        Ok(self)
-    }
-
     pub fn with_send_timeout(self, send_timeout: i32) -> anyhow::Result<Self> {
         if send_timeout <= 0 {
             bail!("Send timeout must be non-negative");
@@ -166,11 +161,16 @@ impl WriterConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_fix_ipc_permissions(
-        self,
-        fix_ipc_permissions: Option<u32>,
-    ) -> anyhow::Result<Self> {
-        self.fix_ipc_permissions.set(fix_ipc_permissions)?;
+    pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
+        self.bind.set(bind)?;
+        Ok(self)
+    }
+
+    pub fn with_fix_ipc_permissions(self, permissions: Option<u32>) -> anyhow::Result<Self> {
+        if !self.bind.get_or_init() {
+            bail!("IPC permissions can only be set for bind sockets.");
+        }
+        self.fix_ipc_permissions.set(permissions)?;
         Ok(self)
     }
 }
@@ -211,6 +211,23 @@ mod tests {
         let url = format!("sub+connect:{}", endpoint);
         let config = WriterConfig::new().url(&url);
         assert!(config.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn set_fix_perms_without_bind_fails() -> anyhow::Result<()> {
+        let config = WriterConfig::new()
+            .with_bind(false)?
+            .with_fix_ipc_permissions(Some(0777));
+        assert!(config.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn set_fix_ipc_permissions_with_bind_ok() -> anyhow::Result<()> {
+        let _ = WriterConfig::new()
+            .with_bind(true)?
+            .with_fix_ipc_permissions(Some(0777))?;
         Ok(())
     }
 }

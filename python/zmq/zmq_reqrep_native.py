@@ -1,5 +1,5 @@
 from threading import Thread
-from time import time
+from time import time, sleep
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
@@ -9,11 +9,6 @@ socket_name = "ipc:///tmp/test_hello"
 
 NUMBER = 1000
 BLOCK_SIZE = 1024 * 1024
-
-writer_config = WriterConfigBuilder("dealer+bind:" + socket_name).build()
-writer = BlockingWriter(writer_config)
-writer.start()
-
 
 def server():
     reader_config = ReaderConfigBuilder("router+connect:" + socket_name).build()
@@ -33,6 +28,13 @@ p1 = Thread(target=server)
 p1.start()
 
 buf = bytes(BLOCK_SIZE)
+
+# test late start up for bind socket
+sleep(0.1)
+
+writer_config = WriterConfigBuilder("dealer+bind:" + socket_name).build()
+writer = BlockingWriter(writer_config)
+writer.start()
 
 start = time()
 wait_time = 0
