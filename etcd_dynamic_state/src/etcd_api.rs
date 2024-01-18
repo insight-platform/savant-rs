@@ -127,9 +127,9 @@ impl EtcdClient {
     }
 
     pub async fn new(
-        uris: Vec<String>,
-        credentials: Option<(String, String)>,
-        path: String,
+        uris: &[&str],
+        credentials: &Option<(&str, &str)>,
+        path: &str,
         lease_timeout: i64,
         connect_timeout: u64,
     ) -> Result<EtcdClient> {
@@ -139,17 +139,16 @@ impl EtcdClient {
             Some({
                 let mut opts = ConnectOptions::new();
                 if let Some((user, password)) = credentials {
-                    opts = opts.with_user(user, password);
+                    opts = opts.with_user(*user, *password);
                 }
                 opts.with_timeout(Duration::from_secs(connect_timeout))
             }),
         )
         .await?;
 
-        let watch_path = path.clone();
-        info!("Watching for {} for configuration changes", &watch_path);
+        info!("Watching for {} for configuration changes", &path);
         let (watcher, watch_stream) = client
-            .watch(watch_path, Some(WatchOptions::new().with_prefix()))
+            .watch(path, Some(WatchOptions::new().with_prefix()))
             .await?;
 
         let lease = client.lease_grant(lease_timeout, None).await?;
@@ -306,14 +305,7 @@ mod tests {
     #[ignore]
     async fn test_monitor() -> Result<()> {
         _ = env_logger::try_init();
-        let mut client = EtcdClient::new(
-            vec!["127.0.0.1:2379".into()],
-            None,
-            "local/node".into(),
-            5,
-            10,
-        )
-        .await?;
+        let mut client = EtcdClient::new(&["127.0.0.1:2379"], &None, "local/node", 5, 10).await?;
 
         client
             .kv_operations(vec![

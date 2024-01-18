@@ -123,8 +123,8 @@ pub enum StringExpression {
     OneOf(Vec<String>),
 }
 
-impl ExecutableMatchQuery<&String, ()> for StringExpression {
-    fn execute(&self, o: &String, _: &mut ()) -> ControlFlow<bool, bool> {
+impl ExecutableMatchQuery<&str, ()> for StringExpression {
+    fn execute(&self, o: &str, _: &mut ()) -> ControlFlow<bool, bool> {
         ControlFlow::Continue(match self {
             StringExpression::EQ(x) => x == o,
             StringExpression::NE(x) => x != o,
@@ -132,7 +132,7 @@ impl ExecutableMatchQuery<&String, ()> for StringExpression {
             StringExpression::NotContains(x) => !o.contains(x),
             StringExpression::StartsWith(x) => o.starts_with(x),
             StringExpression::EndsWith(x) => o.ends_with(x),
-            StringExpression::OneOf(v) => v.contains(o),
+            StringExpression::OneOf(v) => v.iter().any(|e| e.as_str() == o),
         })
     }
 }
