@@ -2,13 +2,12 @@ use crate::draw::DrawLabelKind;
 use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
-use crate::primitives::attribute::AttributeMethods;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBBoxTransformation, VideoObjectBBoxType,
-    VideoObjectProxy,
+    VideoObjectBuilder, VideoObjectProxy,
 };
-use crate::primitives::{Attribute, Attributive};
+use crate::primitives::{Attribute, Attributive, RBBox};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::version;
@@ -203,12 +202,18 @@ impl ToSerdeJsonValue for VideoFrame {
 }
 
 impl Attributive for VideoFrame {
-    fn get_attributes_ref(&self) -> &Vec<Attribute> {
-        &self.attributes
+    fn with_attributes_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Vec<Attribute>) -> R,
+    {
+        f(&self.attributes)
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
-        &mut self.attributes
+    fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<Attribute>) -> R,
+    {
+        f(&mut self.attributes)
     }
 }
 
@@ -304,65 +309,21 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
     }
 }
 
-impl AttributeMethods for VideoFrameProxy {
-    fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
-        let mut inner = trace!(self.inner.write());
-        inner.exclude_temporary_attributes()
+impl Attributive for VideoFrameProxy {
+    fn with_attributes_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Vec<Attribute>) -> R,
+    {
+        let bind = trace!(self.inner.read_recursive());
+        f(&bind.attributes)
     }
 
-    fn restore_attributes(&self, attributes: Vec<Attribute>) {
-        let mut inner = trace!(self.inner.write());
-        inner.restore_attributes(attributes);
-    }
-
-    fn get_attributes(&self) -> Vec<(String, String)> {
-        let inner = trace!(self.inner.read_recursive());
-        inner.get_attributes()
-    }
-
-    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        let inner = trace!(self.inner.read_recursive());
-        inner.get_attribute(namespace, name)
-    }
-
-    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        let mut inner = trace!(self.inner.write());
-        inner.delete_attribute(namespace, name)
-    }
-
-    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
-        let mut inner = trace!(self.inner.write());
-        inner.set_attribute(attribute)
-    }
-
-    fn clear_attributes(&self) {
-        let mut inner = trace!(self.inner.write());
-        inner.clear_attributes()
-    }
-
-    fn delete_attributes_with_ns(&self, namespace: &str) {
-        let mut inner = trace!(self.inner.write());
-        inner.delete_attributes_with_ns(namespace)
-    }
-
-    fn delete_attributes_with_names(&mut self, names: &[&str]) {
-        let mut inner = trace!(self.inner.write());
-        inner.delete_attributes_with_names(names)
-    }
-
-    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
-        let mut inner = trace!(self.inner.write());
-        inner.delete_attributes_with_hints(hints)
-    }
-
-    fn find_attributes(
-        &self,
-        namespace: &Option<&str>,
-        names: &[&str],
-        hint: &Option<&str>,
-    ) -> Vec<(String, String)> {
-        let inner = trace!(self.inner.read_recursive());
-        inner.find_attributes(namespace, names, hint)
+    fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<Attribute>) -> R,
+    {
+        let mut bind = trace!(self.inner.write());
+        f(&mut bind.attributes)
     }
 }
 
@@ -553,6 +514,45 @@ impl VideoFrameProxy {
         self.access_objects(&MatchQuery::ParentId(IntExpression::EQ(id)))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_object(
+        &self,
+        namespace: &str,
+        label: &str,
+        parent_id: Option<i64>,
+        detection_box: RBBox,
+        confidence: Option<f32>,
+        track_id: Option<i64>,
+        track_box: Option<RBBox>,
+        attributes: Vec<Attribute>,
+    ) -> anyhow::Result<i64> {
+        let id = self.get_max_object_id() + 1;
+        if let Some(parent_id) = parent_id {
+            if !self.object_exists(parent_id) {
+                bail!(
+                    "Parent object with ID {} does not exist in the frame.",
+                    parent_id
+                );
+            }
+        }
+        let object = VideoObjectProxy::from(
+            VideoObjectBuilder::default()
+                .id(id)
+                .detection_box(detection_box)
+                .parent_id(parent_id)
+                .attributes(attributes)
+                .confidence(confidence)
+                .namespace(namespace.to_string())
+                .label(label.to_string())
+                .track_id(track_id)
+                .track_box(track_box)
+                .build()
+                .unwrap(),
+        );
+        self.add_object(&object, IdCollisionResolutionPolicy::Error)?;
+        Ok(id)
+    }
+
     pub fn add_object(
         &self,
         object: &VideoObjectProxy,
@@ -722,7 +722,7 @@ impl VideoFrameProxy {
         use crate::primitives::frame_update::AttributeUpdatePolicy::*;
         let update_attrs = update.get_object_attributes().clone();
         for (id, attr) in update_attrs {
-            let obj = self.get_object(id).ok_or(anyhow!(
+            let mut obj = self.get_object(id).ok_or(anyhow!(
                 "Object with ID {} does not exist in the frame.",
                 id
             ))?;
@@ -998,7 +998,7 @@ mod tests {
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
     };
-    use crate::primitives::{AttributeMethods, RBBox};
+    use crate::primitives::{Attributive, RBBox};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1259,7 +1259,7 @@ mod tests {
 
     #[test]
     fn deep_copy() {
-        let f = gen_frame();
+        let mut f = gen_frame();
         let new_f = f.smart_copy();
 
         // check that objects are copied
@@ -1278,6 +1278,23 @@ mod tests {
         let o = new_f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
         assert!(Arc::ptr_eq(&o.get_frame().unwrap().inner.0, &new_f.inner.0));
+    }
+
+    #[test]
+    fn test_create_object() -> anyhow::Result<()> {
+        let frame = gen_empty_frame();
+        let id = frame.create_object(
+            "some-namespace",
+            "some-label",
+            None,
+            RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap(),
+            None,
+            None,
+            None,
+            vec![],
+        )?;
+        assert_eq!(id, 1);
+        Ok(())
     }
 
     #[test]

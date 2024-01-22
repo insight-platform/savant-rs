@@ -7,7 +7,7 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::{rust, AttributeMethods};
+use savant_core::primitives::{rust, Attributive};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 
@@ -217,32 +217,25 @@ impl VideoObject {
         self.0.set_draw_label(draw_label);
     }
 
-    /// finds and returns names of attributes by expression based on namespace, names and hint.
-    ///
-    /// Parameters
-    /// ----------
-    /// namespace : str or None
-    ///   Attribute namespace. If None, it is ignored when candidates are selected.
-    /// names : List[str]
-    ///   Attribute names. If empty, it is ignored when candidates are selected.
-    /// hint : str or None
-    ///   Hint for the attribute name. If None, it is ignored when candidates are selected.
-    ///
-    /// Returns
-    /// -------
-    /// List[Tuple[str, str]]
-    ///   List of tuples with attribute namespaces and names.
-    ///
-    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
-    pub fn find_attributes(
-        &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
+    pub fn find_attributes_with_ns(&mut self, namespace: &str) -> Vec<(String, String)> {
+        self.0.find_attributes_with_ns(namespace)
+    }
+
+    pub fn find_attributes_with_names(&mut self, names: Vec<String>) -> Vec<(String, String)> {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.find_attributes_with_names(&label_refs)
+    }
+    pub fn find_attributes_with_hints(
+        &mut self,
+        hints: Vec<Option<String>>,
     ) -> Vec<(String, String)> {
-        let names_ref = names.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        self.0
-            .find_attributes(&namespace.as_deref(), &names_ref, &hint.as_deref())
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.find_attributes_with_hints(&hint_refs)
     }
 
     /// Fetches attribute by namespace and name. The attribute is fetched by value, not reference, however attribute's values are fetched as CoW,

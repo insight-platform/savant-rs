@@ -240,33 +240,26 @@ impl Attribute {
     }
 }
 
-pub trait AttributeMethods {
-    fn exclude_temporary_attributes(&self) -> Vec<Attribute>;
-    fn restore_attributes(&self, frame_attributes: Vec<Attribute>);
-    fn get_attributes(&self) -> Vec<(String, String)>;
-    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute>;
-    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute>;
-    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute>;
-    fn clear_attributes(&self);
-    fn delete_attributes_with_ns(&self, namespace: &str);
-    fn delete_attributes_with_names(&mut self, labels: &[&str]);
-    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]);
-    fn find_attributes(
-        &self,
-        namespace: &Option<&str>,
-        names: &[&str],
-        hint: &Option<&str>,
-    ) -> Vec<(String, String)>;
-}
-
 pub trait Attributive: Send {
-    fn get_attributes_ref(&self) -> &Vec<Attribute>;
-    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute>;
+    fn with_attributes_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Vec<Attribute>) -> R;
+
+    fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<Attribute>) -> R;
+
     fn take_attributes(&mut self) -> Vec<Attribute> {
-        mem::take(self.get_attributes_ref_mut())
+        //mem::take(self.get_attributes_ref_mut())
+        self.with_attributes_mut(|attributes| {
+            let mut tmp = Vec::new();
+            mem::swap(&mut tmp, attributes);
+            tmp
+        })
     }
     fn place_attributes(&mut self, mut attributes: Vec<Attribute>) {
-        self.get_attributes_ref_mut().append(&mut attributes);
+        //self.get_attributes_ref_mut().append(&mut attributes);
+        self.with_attributes_mut(|a| a.append(&mut attributes))
     }
 
     fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
@@ -286,108 +279,167 @@ pub trait Attributive: Send {
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
-        self.get_attributes_ref()
-            .iter()
-            .filter_map(|a| {
-                if a.is_hidden {
-                    None
-                } else {
-                    Some((a.namespace.clone(), a.name.clone()))
-                }
-            })
-            .collect()
+        // self.get_attributes_ref()
+        //     .iter()
+        //     .filter_map(|a| {
+        //         if a.is_hidden {
+        //             None
+        //         } else {
+        //             Some((a.namespace.clone(), a.name.clone()))
+        //         }
+        //     })
+        //     .collect()
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .filter_map(|a| {
+                    if a.is_hidden {
+                        None
+                    } else {
+                        Some((a.namespace.clone(), a.name.clone()))
+                    }
+                })
+                .collect()
+        })
     }
 
     fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        self.get_attributes_ref()
-            .iter()
-            .find(|a| a.namespace == namespace && a.name == name)
-            .cloned()
+        // self.get_attributes_ref()
+        //     .iter()
+        //     .find(|a| a.namespace == namespace && a.name == name)
+        //     .cloned()
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .find(|a| a.namespace == namespace && a.name == name)
+                .cloned()
+        })
     }
 
     fn contains_attribute(&self, namespace: &str, name: &str) -> bool {
-        self.get_attributes_ref()
-            .iter()
-            .any(|a| a.namespace == namespace && a.name == name)
+        // self.get_attributes_ref()
+        //     .iter()
+        //     .any(|a| a.namespace == namespace && a.name == name)
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .any(|a| a.namespace == namespace && a.name == name)
+        })
     }
 
     fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
-        let index = self
-            .get_attributes_ref()
-            .iter()
-            .position(|a| a.namespace == namespace && a.name == name)?;
-        Some(self.get_attributes_ref_mut().swap_remove(index))
+        // let index = self
+        //     .get_attributes_ref()
+        //     .iter()
+        //     .position(|a| a.namespace == namespace && a.name == name)?;
+        // Some(self.get_attributes_ref_mut().swap_remove(index))
+        self.with_attributes_mut(|attributes| {
+            let index = attributes
+                .iter()
+                .position(|a| a.namespace == namespace && a.name == name)?;
+            Some(attributes.swap_remove(index))
+        })
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        let index = self
-            .get_attributes_ref()
-            .iter()
-            .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
+        // let index = self
+        //     .get_attributes_ref()
+        //     .iter()
+        //     .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
+        //
+        // if let Some(index) = index {
+        //     Some(std::mem::replace(
+        //         &mut self.get_attributes_ref_mut()[index],
+        //         attribute,
+        //     ))
+        // } else {
+        //     self.get_attributes_ref_mut().push(attribute);
+        //     None
+        // }
+        self.with_attributes_mut(|attributes| {
+            let index = attributes
+                .iter()
+                .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
 
-        if let Some(index) = index {
-            Some(std::mem::replace(
-                &mut self.get_attributes_ref_mut()[index],
-                attribute,
-            ))
-        } else {
-            self.get_attributes_ref_mut().push(attribute);
-            None
-        }
+            if let Some(index) = index {
+                Some(std::mem::replace(&mut attributes[index], attribute))
+            } else {
+                attributes.push(attribute);
+                None
+            }
+        })
     }
 
     fn clear_attributes(&mut self) {
-        self.get_attributes_ref_mut().clear();
+        //self.get_attributes_ref_mut().clear();
+        self.with_attributes_mut(|attributes| attributes.clear())
     }
 
     fn delete_attributes_with_ns(&mut self, namespace: &str) {
-        self.get_attributes_ref_mut()
-            .retain(|a| a.namespace != *namespace);
+        // self.get_attributes_ref_mut()
+        //     .retain(|a| a.namespace != *namespace);
+        self.with_attributes_mut(|attributes| {
+            attributes.retain(|a| a.namespace != *namespace);
+        })
+    }
+
+    fn find_attributes_with_ns(&self, namespace: &str) -> Vec<(String, String)> {
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .filter_map(|a| {
+                    if a.namespace == namespace {
+                        Some((a.namespace.clone(), a.name.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
     }
 
     fn delete_attributes_with_names(&mut self, names: &[&str]) {
-        self.get_attributes_ref_mut()
-            .retain(|a| !names.contains(&a.name.as_str()))
+        // self.get_attributes_ref_mut()
+        //     .retain(|a| !names.contains(&a.name.as_str()))
+        self.with_attributes_mut(|attributes| {
+            attributes.retain(|a| !names.contains(&a.name.as_str()))
+        })
+    }
+
+    fn find_attributes_with_names(&self, names: &[&str]) -> Vec<(String, String)> {
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .filter_map(|a| {
+                    if names.contains(&a.name.as_str()) {
+                        Some((a.namespace.clone(), a.name.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
     }
 
     fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
-        self.get_attributes_ref_mut()
-            .retain(|a| !hints.contains(&&a.hint.as_deref()))
+        self.with_attributes_mut(|attributes| {
+            attributes.retain(|a| !hints.contains(&&a.hint.as_deref()))
+        })
     }
 
-    fn find_attributes(
-        &self,
-        namespace: &Option<&str>,
-        names: &[&str],
-        hint: &Option<&str>,
-    ) -> Vec<(String, String)> {
-        self.get_attributes_ref()
-            .iter()
-            .filter(|a| {
-                if a.is_hidden {
-                    return false;
-                }
-
-                if let Some(namespace) = &namespace {
-                    if a.namespace != *namespace {
-                        return false;
+    fn find_attributes_with_hints(&self, hints: &[&Option<&str>]) -> Vec<(String, String)> {
+        self.with_attributes_ref(|attributes| {
+            attributes
+                .iter()
+                .filter_map(|a| {
+                    if hints.contains(&&a.hint.as_deref()) {
+                        Some((a.namespace.clone(), a.name.clone()))
+                    } else {
+                        None
                     }
-                }
-
-                if !names.is_empty() && !names.contains(&a.name.as_str()) {
-                    return false;
-                }
-
-                if let (Some(l), Some(r)) = (&hint, &a.hint) {
-                    if l != &r.as_str() {
-                        return false;
-                    }
-                }
-
-                true
-            })
-            .map(|a| (a.namespace.clone(), a.name.clone()))
-            .collect()
+                })
+                .collect()
+        })
     }
 }
 
@@ -403,12 +455,18 @@ mod tests {
     }
 
     impl Attributive for AttrStor {
-        fn get_attributes_ref(&self) -> &Vec<Attribute> {
-            &self.attributes
+        fn with_attributes_ref<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&Vec<Attribute>) -> R,
+        {
+            f(&self.attributes)
         }
 
-        fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
-            &mut self.attributes
+        fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+        where
+            F: FnOnce(&mut Vec<Attribute>) -> R,
+        {
+            f(&mut self.attributes)
         }
 
         fn take_attributes(&mut self) -> Vec<Attribute> {

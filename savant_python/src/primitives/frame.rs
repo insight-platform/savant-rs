@@ -1,7 +1,7 @@
 use crate::draw_spec::SetDrawLabelKind;
 use crate::match_query::MatchQuery;
 use crate::primitives::attribute::Attribute;
-use crate::primitives::bbox::VideoObjectBBoxTransformation;
+use crate::primitives::bbox::{RBBox, VideoObjectBBoxTransformation};
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::message::Message;
 use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
@@ -12,7 +12,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::{rust, AttributeMethods};
+use savant_core::primitives::{rust, Attributive};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::fmt::Debug;
@@ -573,18 +573,6 @@ impl VideoFrame {
         self.0.get_attributes()
     }
 
-    #[pyo3(signature = (namespace=None, names=vec![], hint=None))]
-    pub fn find_attributes(
-        &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
-    ) -> Vec<(String, String)> {
-        let names_ref = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
-        self.0
-            .find_attributes(&namespace.as_deref(), &names_ref, &hint.as_deref())
-    }
-
     pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
@@ -608,6 +596,27 @@ impl VideoFrame {
         self.0.delete_attributes_with_hints(&hint_refs)
     }
 
+    pub fn find_attributes_with_ns(&mut self, namespace: &str) -> Vec<(String, String)> {
+        self.0.find_attributes_with_ns(namespace)
+    }
+
+    pub fn find_attributes_with_names(&mut self, names: Vec<String>) -> Vec<(String, String)> {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.find_attributes_with_names(&label_refs)
+    }
+    pub fn find_attributes_with_hints(
+        &mut self,
+        hints: Vec<Option<String>>,
+    ) -> Vec<(String, String)> {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.find_attributes_with_hints(&hint_refs)
+    }
+
     pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.delete_attribute(namespace, name).map(Attribute)
     }
@@ -629,6 +638,47 @@ impl VideoFrame {
     pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
         self.0
             .add_object(&o.0, policy.into())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_object(
+        &self,
+        namespace: &str,
+        label: &str,
+        parent_id: Option<i64>,
+        confidence: Option<f32>,
+        detection_box: Option<RBBox>,
+        track_id: Option<i64>,
+        track_box: Option<RBBox>,
+        attributes: Option<Vec<Attribute>>,
+    ) -> PyResult<i64> {
+        let native_attributes = match attributes {
+            None => vec![],
+            Some(_) => attributes
+                .unwrap()
+                .into_iter()
+                .map(|a| a.0)
+                .collect::<Vec<_>>(),
+        };
+
+        if detection_box.is_none() {
+            return Err(PyValueError::new_err(
+                "Detection box must be specified for new objects",
+            ));
+        }
+
+        self.0
+            .create_object(
+                namespace,
+                label,
+                parent_id,
+                detection_box.unwrap().0,
+                confidence,
+                track_id,
+                track_box.map(|b| b.0),
+                native_attributes,
+            )
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 

@@ -343,7 +343,7 @@ mod tests {
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
-    use crate::primitives::{Attribute, AttributeMethods};
+    use crate::primitives::{Attribute, Attributive};
     use crate::test::gen_frame;
     use anyhow::Result;
     use hashbrown::HashMap;
@@ -585,7 +585,7 @@ mod tests {
         update.add_frame_attribute(Attribute::persistent("new", "attr", vec![], &None, false));
         stage.add_frame_update(1, update)?;
         stage.apply_updates(1)?;
-        let frame = stage.get_independent_frame(1)?.0;
+        let mut frame = stage.get_independent_frame(1)?.0;
         frame.get_attribute("new", "attr").unwrap();
         assert!(frame.delete_attribute("new", "attr").is_some());
 
@@ -615,7 +615,7 @@ mod tests {
         update.add_frame_attribute(Attribute::persistent("new", "attr", vec![], &None, false));
         stage.add_batched_frame_update(1, 2, update)?;
         stage.apply_updates(1)?;
-        let frame = stage.get_batched_frame(1, 2)?.0;
+        let mut frame = stage.get_batched_frame(1, 2)?.0;
         frame.get_attribute("new", "attr").unwrap();
         assert!(frame.delete_attribute("new", "attr").is_some());
 

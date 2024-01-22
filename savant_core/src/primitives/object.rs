@@ -4,7 +4,7 @@ use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
 use super::bbox::BBOX_UNDEFINED;
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
-use crate::primitives::{Attribute, AttributeMethods, Attributive, RBBox};
+use crate::primitives::{Attribute, Attributive, RBBox};
 use crate::rwlock::SavantArcRwLock;
 use crate::symbol_mapper::get_object_id;
 use crate::trace;
@@ -144,74 +144,36 @@ impl ToSerdeJsonValue for VideoObjectProxy {
 }
 
 impl Attributive for VideoObject {
-    fn get_attributes_ref(&self) -> &Vec<Attribute> {
-        &self.attributes
+    fn with_attributes_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Vec<Attribute>) -> R,
+    {
+        f(&self.attributes)
     }
 
-    fn get_attributes_ref_mut(&mut self) -> &mut Vec<Attribute> {
-        &mut self.attributes
+    fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<Attribute>) -> R,
+    {
+        f(&mut self.attributes)
     }
 }
 
-impl AttributeMethods for VideoObjectProxy {
-    fn exclude_temporary_attributes(&self) -> Vec<Attribute> {
-        let mut inner = trace!(self.0.write());
-        inner.exclude_temporary_attributes()
+impl Attributive for VideoObjectProxy {
+    fn with_attributes_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Vec<Attribute>) -> R,
+    {
+        let bind = self.0.read_recursive();
+        f(&bind.attributes)
     }
 
-    fn restore_attributes(&self, attributes: Vec<Attribute>) {
-        let mut inner = trace!(self.0.write());
-        inner.restore_attributes(attributes)
-    }
-
-    fn get_attributes(&self) -> Vec<(String, String)> {
-        let inner = trace!(self.0.read_recursive());
-        inner.get_attributes()
-    }
-
-    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        let inner = trace!(self.0.read_recursive());
-        inner.get_attribute(namespace, name)
-    }
-
-    fn delete_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        let mut inner = trace!(self.0.write());
-        inner.delete_attribute(namespace, name)
-    }
-
-    fn set_attribute(&self, attribute: Attribute) -> Option<Attribute> {
-        let mut inner = trace!(self.0.write());
-        inner.set_attribute(attribute)
-    }
-
-    fn clear_attributes(&self) {
-        let mut inner = trace!(self.0.write());
-        inner.clear_attributes()
-    }
-
-    fn find_attributes(
-        &self,
-        namespace: &Option<&str>,
-        names: &[&str],
-        hint: &Option<&str>,
-    ) -> Vec<(String, String)> {
-        let inner = trace!(self.0.read_recursive());
-        inner.find_attributes(namespace, names, hint)
-    }
-
-    fn delete_attributes_with_ns(&self, namespace: &str) {
-        let mut inner = trace!(self.0.write());
-        inner.delete_attributes_with_ns(namespace)
-    }
-
-    fn delete_attributes_with_names(&mut self, labels: &[&str]) {
-        let mut inner = trace!(self.0.write());
-        inner.delete_attributes_with_names(labels)
-    }
-
-    fn delete_attributes_with_hints(&mut self, hints: &[&Option<&str>]) {
-        let mut inner = trace!(self.0.write());
-        inner.delete_attributes_with_hints(hints)
+    fn with_attributes_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<Attribute>) -> R,
+    {
+        let mut bind = self.0.write();
+        f(&mut bind.attributes)
     }
 }
 

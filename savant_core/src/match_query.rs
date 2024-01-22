@@ -10,7 +10,7 @@ use crate::pluggable_udf_api::{
 };
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
 use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{AttributeMethods, Attributive, BBoxMetricType, RBBox};
+use crate::primitives::{Attributive, BBoxMetricType, RBBox};
 use parking_lot::RwLockReadGuard;
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
@@ -524,9 +524,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                     return ControlFlow::Continue(false);
                 }
                 let parent_frame = parent_frame_opt.unwrap();
-                let res = !parent_frame
-                    .find_attributes(&Some(namespace), &[label], &None)
-                    .is_empty();
+                let res = parent_frame.get_attribute(namespace, label).is_some();
 
                 ControlFlow::Continue(res)
             }
@@ -875,7 +873,7 @@ mod tests {
     use crate::match_query::MatchQuery::*;
     use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::IdCollisionResolutionPolicy;
-    use crate::primitives::{Attribute, AttributeMethods};
+    use crate::primitives::Attribute;
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
 
     #[test]
@@ -1244,7 +1242,7 @@ mod tests {
         ));
 
         let expr = AttributesEmpty;
-        let o = gen_object(1);
+        let mut o = gen_object(1);
         o.delete_attributes_with_ns("some");
         // assert!(expr.execute_with_new_context(&o));
         assert!(matches!(
@@ -1331,7 +1329,7 @@ mod tests {
             ControlFlow::Continue(false)
         ));
 
-        let object = gen_object(1);
+        let mut object = gen_object(1);
         object.set_detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
         // assert!(expr.execute_with_new_context(&object));
         assert!(matches!(

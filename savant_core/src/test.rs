@@ -6,7 +6,7 @@ use crate::primitives::frame::{
 use crate::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder, VideoObjectProxy,
 };
-use crate::primitives::{Attribute, AttributeMethods, RBBox};
+use crate::primitives::{Attribute, Attributive, RBBox};
 use std::sync::Arc;
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
@@ -27,7 +27,7 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
 }
 
 pub fn gen_frame() -> VideoFrameProxy {
-    let f = VideoFrameProxy::from_inner(
+    let mut f = VideoFrameProxy::from_inner(
         VideoFrameBuilder::default()
             .source_id("test".to_string())
             .pts(1000000)
@@ -128,7 +128,7 @@ pub fn gen_frame() -> VideoFrameProxy {
 }
 
 pub fn gen_object(id: i64) -> VideoObjectProxy {
-    let o = VideoObjectProxy::from(VideoObject {
+    let mut o = VideoObjectProxy::from(VideoObject {
         id,
         namespace: s("peoplenet"),
         label: s("face"),
