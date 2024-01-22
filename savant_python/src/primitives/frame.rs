@@ -12,7 +12,8 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::{rust, Attributive};
+use savant_core::primitives::object::ObjectOperations;
+use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::fmt::Debug;
@@ -637,7 +638,7 @@ impl VideoFrame {
 
     pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
         self.0
-            .add_object(&o.0, policy.into())
+            .add_object(o.0, policy.into())
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 

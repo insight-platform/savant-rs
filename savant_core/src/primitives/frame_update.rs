@@ -117,7 +117,8 @@ mod tests {
     use crate::primitives::frame_update::{
         AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
     };
-    use crate::primitives::{Attribute, Attributive};
+    use crate::primitives::object::ObjectOperations;
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::{gen_frame, gen_object, s};
 
     fn get_attributes() -> (Attribute, Attribute) {

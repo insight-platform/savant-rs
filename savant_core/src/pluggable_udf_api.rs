@@ -120,7 +120,7 @@ pub fn call_object_map_modifier(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::primitives::object::IdCollisionResolutionPolicy;
+    use crate::primitives::object::{IdCollisionResolutionPolicy, ObjectOperations};
     use crate::test::{gen_empty_frame, gen_object};
 
     #[test]
@@ -155,7 +155,7 @@ mod tests {
         let o = gen_object(12);
         assert!(call_object_predicate("sample.unary_op_even", &[&o])?);
 
-        let o = gen_object(13);
+        let mut o = gen_object(13);
         assert!(!call_object_predicate("sample.unary_op_even", &[&o])?);
 
         assert!(!call_object_predicate(
@@ -165,9 +165,9 @@ mod tests {
 
         let f = gen_empty_frame();
         let parent = gen_object(12);
-        f.add_object(&parent, IdCollisionResolutionPolicy::Error)
+        f.add_object(parent.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
-        f.add_object(&o, IdCollisionResolutionPolicy::Error)
+        f.add_object(o.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
         assert!(o.set_parent(Some(parent.get_id())).is_ok());
 

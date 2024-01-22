@@ -5,7 +5,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
-use crate::primitives::Attributive;
+use crate::primitives::WithAttributes;
 use crate::protobuf::{deserialize, serialize};
 use crate::{trace, version};
 use lazy_static::lazy_static;
@@ -321,9 +321,10 @@ mod tests {
     use crate::message::{load_message, save_message, validate_seq_id, Message};
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
+    use crate::primitives::object::ObjectOperations;
     use crate::primitives::shutdown::Shutdown;
     use crate::primitives::userdata::UserData;
-    use crate::primitives::{Attribute, Attributive};
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::gen_frame;
     use std::sync::Arc;
 

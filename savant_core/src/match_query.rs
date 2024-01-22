@@ -9,8 +9,8 @@ use crate::pluggable_udf_api::{
     is_plugin_function_registered, register_plugin_function, UserFunctionType,
 };
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
-use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{Attributive, BBoxMetricType, RBBox};
+use crate::primitives::object::{ObjectOperations, VideoObject, VideoObjectProxy};
+use crate::primitives::{BBoxMetricType, RBBox, WithAttributes};
 use parking_lot::RwLockReadGuard;
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
@@ -1250,12 +1250,12 @@ mod tests {
             ControlFlow::Continue(true)
         ));
 
-        let object = gen_object(1);
+        let mut object = gen_object(1);
         let parent_object = gen_object(13);
         let f = gen_empty_frame();
-        f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+        f.add_object(parent_object.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
-        f.add_object(&object, IdCollisionResolutionPolicy::Error)
+        f.add_object(object.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
         assert!(object.set_parent(Some(parent_object.get_id())).is_ok());
 

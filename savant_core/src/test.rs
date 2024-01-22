@@ -4,9 +4,10 @@ use crate::primitives::frame::{
     VideoFrameBuilder, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
 use crate::primitives::object::{
-    IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder, VideoObjectProxy,
+    IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
+    VideoObjectProxy,
 };
-use crate::primitives::{Attribute, Attributive, RBBox};
+use crate::primitives::{Attribute, RBBox, WithAttributes};
 use std::sync::Arc;
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
@@ -81,11 +82,11 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+    f.add_object(parent_object, IdCollisionResolutionPolicy::Error)
         .unwrap();
-    f.add_object(&c1, IdCollisionResolutionPolicy::Error)
+    f.add_object(c1, IdCollisionResolutionPolicy::Error)
         .unwrap();
-    f.add_object(&c2, IdCollisionResolutionPolicy::Error)
+    f.add_object(c2, IdCollisionResolutionPolicy::Error)
         .unwrap();
 
     f.set_attribute(Attribute::persistent(

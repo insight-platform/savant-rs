@@ -1,5 +1,5 @@
-use crate::primitives::object::{VideoObject, VideoObjectProxy};
-use crate::primitives::{Attribute, Attributive, RBBox};
+use crate::primitives::object::{ObjectOperations, VideoObject, VideoObjectProxy};
+use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::protobuf::{generated, serialize};
 
 impl From<&VideoObjectProxy> for generated::VideoObject {
@@ -79,7 +79,7 @@ mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::object::VideoObject;
     use crate::primitives::rust::{AttributeValue, VideoObjectProxy};
-    use crate::primitives::{Attribute, Attributive};
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::protobuf::generated;
     use crate::test::gen_object;
 

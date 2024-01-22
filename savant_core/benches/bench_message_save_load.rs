@@ -7,7 +7,7 @@ use savant_core::message::{load_message, save_message, Message};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame_batch::VideoFrameBatch;
 use savant_core::primitives::frame_update::VideoFrameUpdate;
-use savant_core::primitives::Attributive;
+use savant_core::primitives::WithAttributes;
 use savant_core::test::gen_frame;
 use test::Bencher;
 

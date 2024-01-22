@@ -240,7 +240,7 @@ impl Attribute {
     }
 }
 
-pub trait Attributive: Send {
+pub trait WithAttributes: Send {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R;
@@ -446,7 +446,7 @@ pub trait Attributive: Send {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-    use crate::primitives::{Attribute, Attributive};
+    use crate::primitives::{Attribute, WithAttributes};
     use std::mem;
 
     #[derive(Default, Clone)]
@@ -454,7 +454,7 @@ mod tests {
         attributes: Vec<Attribute>,
     }
 
-    impl Attributive for AttrStor {
+    impl WithAttributes for AttrStor {
         fn with_attributes_ref<F, R>(&self, f: F) -> R
         where
             F: FnOnce(&Vec<Attribute>) -> R,

@@ -343,7 +343,7 @@ mod tests {
     use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
-    use crate::primitives::{Attribute, Attributive};
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::gen_frame;
     use anyhow::Result;
     use hashbrown::HashMap;

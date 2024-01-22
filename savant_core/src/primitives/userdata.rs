@@ -1,5 +1,5 @@
 use crate::json_api::ToSerdeJsonValue;
-use crate::primitives::{Attribute, Attributive};
+use crate::primitives::{Attribute, WithAttributes};
 use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,7 +42,7 @@ impl UserData {
     }
 }
 
-impl Attributive for UserData {
+impl WithAttributes for UserData {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R,

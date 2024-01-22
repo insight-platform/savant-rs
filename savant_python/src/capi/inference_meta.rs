@@ -1,4 +1,5 @@
 use crate::primitives::objects_view::VideoObjectsView;
+use savant_core::primitives::object::ObjectOperations;
 
 #[repr(C)]
 pub enum BoxSource {

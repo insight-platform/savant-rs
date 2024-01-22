@@ -894,7 +894,7 @@ pub(super) mod implementation {
         };
         use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
-        use crate::primitives::{Attribute, Attributive};
+        use crate::primitives::{Attribute, WithAttributes};
         use crate::telemetry::init_noop_tracer;
         use crate::test::gen_frame;
 

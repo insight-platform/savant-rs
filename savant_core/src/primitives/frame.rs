@@ -3,11 +3,12 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
 use crate::primitives::frame_update::VideoFrameUpdate;
+use crate::primitives::object::private::SealedObjectOperations;
 use crate::primitives::object::{
-    IdCollisionResolutionPolicy, VideoObject, VideoObjectBBoxTransformation, VideoObjectBBoxType,
-    VideoObjectBuilder, VideoObjectProxy,
+    IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBBoxTransformation,
+    VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
 };
-use crate::primitives::{Attribute, Attributive, RBBox};
+use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::version;
@@ -201,7 +202,7 @@ impl ToSerdeJsonValue for VideoFrame {
     }
 }
 
-impl Attributive for VideoFrame {
+impl WithAttributes for VideoFrame {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R,
@@ -309,7 +310,7 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
     }
 }
 
-impl Attributive for VideoFrameProxy {
+impl WithAttributes for VideoFrameProxy {
     fn with_attributes_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Vec<Attribute>) -> R,
@@ -351,7 +352,7 @@ impl VideoFrameProxy {
 
     pub fn transform_geometry(&self, ops: &Vec<VideoObjectBBoxTransformation>) {
         let objs = self.get_all_objects();
-        for obj in objs {
+        for mut obj in objs {
             obj.transform_geometry(ops);
         }
     }
@@ -365,7 +366,7 @@ impl VideoFrameProxy {
 
     pub fn prepare_after_load(&self) {
         let objects = self.get_all_objects();
-        for o in objects {
+        for mut o in objects {
             o.attach_to_video_frame(self.clone());
         }
     }
@@ -444,18 +445,18 @@ impl VideoFrameProxy {
 
     fn fix_object_owned_frame(&self) {
         self.get_all_objects()
-            .iter()
-            .for_each(|o| o.attach_to_video_frame(self.clone()));
+            .into_iter()
+            .for_each(|mut o| o.attach_to_video_frame(self.clone()));
     }
 
     pub fn set_draw_label(&self, q: &MatchQuery, label: DrawLabelKind) {
         let objects = self.access_objects(q);
-        objects.iter().for_each(|o| match &label {
+        objects.into_iter().for_each(|mut o| match &label {
             DrawLabelKind::OwnLabel(l) => {
                 o.set_draw_label(Some(l.clone()));
             }
             DrawLabelKind::ParentLabel(l) => {
-                if let Some(p) = o.get_parent().as_ref() {
+                if let Some(mut p) = o.get_parent() {
                     p.set_draw_label(Some(l.clone()));
                 }
             }
@@ -479,9 +480,9 @@ impl VideoFrameProxy {
             bail!("Parent object ID={} must be attached.", parent.get_id());
         }
 
-        let objects = self.access_objects(q);
+        let mut objects = self.access_objects(q);
         objects
-            .iter()
+            .iter_mut()
             .try_for_each(|o| o.set_parent(Some(parent.get_id())))?;
 
         Ok(objects)
@@ -493,7 +494,7 @@ impl VideoFrameProxy {
             parent_id
         ))?;
 
-        let object = self.get_object(object_id).ok_or(anyhow!(
+        let mut object = self.get_object(object_id).ok_or(anyhow!(
             "Object with ID {} does not exist in the frame.",
             object_id
         ))?;
@@ -503,8 +504,8 @@ impl VideoFrameProxy {
     }
 
     pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
-        let objects = self.access_objects(q);
-        objects.iter().for_each(|o| {
+        let mut objects = self.access_objects(q);
+        objects.iter_mut().for_each(|o| {
             o.set_parent(None).unwrap();
         });
         objects
@@ -549,13 +550,13 @@ impl VideoFrameProxy {
                 .build()
                 .unwrap(),
         );
-        self.add_object(&object, IdCollisionResolutionPolicy::Error)?;
+        self.add_object(object, IdCollisionResolutionPolicy::Error)?;
         Ok(id)
     }
 
     pub fn add_object(
         &self,
-        object: &VideoObjectProxy,
+        mut object: VideoObjectProxy,
         policy: IdCollisionResolutionPolicy,
     ) -> anyhow::Result<()> {
         let parent_id_opt = object.get_parent_id();
@@ -627,7 +628,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from(obj),
+                        VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
                     if let Some(p) = p {
@@ -650,7 +651,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from(obj),
+                        VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
                     if let Some(p) = p {
@@ -666,7 +667,7 @@ impl VideoFrameProxy {
                     obj.id = object_id;
 
                     self.add_object(
-                        &VideoObjectProxy::from(obj),
+                        VideoObjectProxy::from(obj),
                         IdCollisionResolutionPolicy::GenerateNewId,
                     )?;
 
@@ -996,9 +997,10 @@ mod tests {
     use crate::match_query::{eq, one_of, MatchQuery};
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::object::{
-        IdCollisionResolutionPolicy, VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
+        IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBBoxType, VideoObjectBuilder,
+        VideoObjectProxy,
     };
-    use crate::primitives::{Attributive, RBBox};
+    use crate::primitives::{RBBox, WithAttributes};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
     use std::sync::Arc;
 
@@ -1085,7 +1087,7 @@ mod tests {
                 .unwrap(),
         );
         let frame = gen_frame();
-        let obj = frame.get_object(0).unwrap();
+        let mut obj = frame.get_object(0).unwrap();
         assert!(obj.set_parent(Some(parent.get_id())).is_err());
     }
 
@@ -1180,8 +1182,7 @@ mod tests {
         );
 
         let f = gen_frame();
-        f.add_object(&o, IdCollisionResolutionPolicy::Error)
-            .unwrap();
+        f.add_object(o, IdCollisionResolutionPolicy::Error).unwrap();
     }
 
     #[test]
@@ -1214,7 +1215,7 @@ mod tests {
         let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
         assert!(o.get_frame().is_none());
         _ = o.set_id(33);
-        f2.add_object(&o, IdCollisionResolutionPolicy::Error)
+        f2.add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
         o = f2.get_object(33).unwrap();
         f2.set_parent(&MatchQuery::Id(eq(1)), &o)?;
@@ -1238,14 +1239,14 @@ mod tests {
     fn ensure_spoiled_object_cannot_be_added() {
         let frame = gen_frame();
         frame
-            .add_object(&gen_object(111), IdCollisionResolutionPolicy::Error)
+            .add_object(gen_object(111), IdCollisionResolutionPolicy::Error)
             .unwrap();
         let old_object = frame.get_object(111).unwrap();
         drop(frame);
         let frame = gen_frame();
         assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
         frame
-            .add_object(&old_object, IdCollisionResolutionPolicy::Error)
+            .add_object(old_object, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
 
@@ -1263,7 +1264,7 @@ mod tests {
         let new_f = f.smart_copy();
 
         // check that objects are copied
-        let o = f.get_object(0).unwrap();
+        let mut o = f.get_object(0).unwrap();
         let new_o = new_f.get_object(0).unwrap();
         let label = "new label";
         o.set_label(label);
@@ -1303,12 +1304,12 @@ mod tests {
 
         let object = gen_object(0);
         frame
-            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .add_object(object, IdCollisionResolutionPolicy::Error)
             .unwrap();
 
         let object = gen_object(0);
         assert!(frame
-            .add_object(&object, IdCollisionResolutionPolicy::Error)
+            .add_object(object, IdCollisionResolutionPolicy::Error)
             .is_err());
     }
 
@@ -1318,12 +1319,12 @@ mod tests {
 
         let object = gen_object(0);
         frame
-            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .add_object(object, IdCollisionResolutionPolicy::GenerateNewId)
             .unwrap();
 
         let object = gen_object(0);
         frame
-            .add_object(&object, IdCollisionResolutionPolicy::GenerateNewId)
+            .add_object(object, IdCollisionResolutionPolicy::GenerateNewId)
             .unwrap();
         assert_eq!(frame.get_max_object_id(), 1);
         let objs = frame.get_all_objects();
@@ -1336,12 +1337,12 @@ mod tests {
 
         let object = gen_object(0);
         frame
-            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .add_object(object, IdCollisionResolutionPolicy::Overwrite)
             .unwrap();
 
         let object = gen_object(0);
         assert!(frame
-            .add_object(&object, IdCollisionResolutionPolicy::Overwrite)
+            .add_object(object, IdCollisionResolutionPolicy::Overwrite)
             .is_ok());
 
         assert_eq!(frame.get_max_object_id(), 0);

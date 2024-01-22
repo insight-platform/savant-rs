@@ -7,7 +7,8 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::{rust, Attributive};
+use savant_core::primitives::object::ObjectOperations;
+use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 
@@ -121,7 +122,7 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_confidence(&self, confidence: Option<f32>) {
+    pub fn set_confidence(&mut self, confidence: Option<f32>) {
         self.0.set_confidence(confidence);
     }
 
@@ -137,7 +138,7 @@ impl VideoObject {
         self.0.get_namespace()
     }
     #[setter]
-    pub fn set_namespace(&self, namespace: &str) {
+    pub fn set_namespace(&mut self, namespace: &str) {
         self.0.set_namespace(namespace);
     }
 
@@ -146,7 +147,7 @@ impl VideoObject {
         self.0.get_label()
     }
     #[setter]
-    pub fn set_label(&self, label: &str) {
+    pub fn set_label(&mut self, label: &str) {
         self.0.set_label(label);
     }
 
@@ -213,7 +214,7 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_draw_label(&self, draw_label: Option<String>) {
+    pub fn set_draw_label(&mut self, draw_label: Option<String>) {
         self.0.set_draw_label(draw_label);
     }
 
@@ -283,7 +284,7 @@ impl VideoObject {
         self.0.get_id()
     }
     #[setter]
-    pub fn set_id(&self, id: i64) -> PyResult<()> {
+    pub fn set_id(&mut self, id: i64) -> PyResult<()> {
         self.0.set_id(id).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to set object id to {}: {}", id, e))
         })
@@ -340,7 +341,7 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_detection_box(&self, bbox: RBBox) {
+    pub fn set_detection_box(&mut self, bbox: RBBox) {
         self.0.set_detection_box(bbox.0);
     }
 
@@ -351,7 +352,7 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_track_id(&self, track_id: Option<i64>) {
+    pub fn set_track_id(&mut self, track_id: Option<i64>) {
         self.0.set_track_id(track_id);
     }
 
@@ -361,19 +362,19 @@ impl VideoObject {
     }
 
     #[setter]
-    pub fn set_track_box(&self, bbox: RBBox) {
+    pub fn set_track_box(&mut self, bbox: RBBox) {
         self.0.set_track_box(bbox.0);
     }
 
-    pub fn set_track_info(&self, track_id: i64, bbox: RBBox) {
+    pub fn set_track_info(&mut self, track_id: i64, bbox: RBBox) {
         self.0.set_track_info(track_id, bbox.0);
     }
 
-    pub fn clear_track_info(&self) {
+    pub fn clear_track_info(&mut self) {
         self.0.clear_track_info()
     }
 
-    fn transform_geometry(&self, ops: Vec<VideoObjectBBoxTransformation>) {
+    fn transform_geometry(&mut self, ops: Vec<VideoObjectBBoxTransformation>) {
         let inner_ops = ops.iter().map(|op| op.0).collect::<Vec<_>>();
         self.0.transform_geometry(&inner_ops);
     }
