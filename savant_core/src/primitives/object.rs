@@ -120,16 +120,6 @@ impl ToSerdeJsonValue for VideoObject {
     }
 }
 
-impl VideoObject {
-    pub fn get_parent_frame_source(&self) -> Option<String> {
-        self.frame.as_ref().and_then(|f| {
-            f.inner
-                .upgrade()
-                .map(|f| trace!(f.read_recursive()).source_id.clone())
-        })
-    }
-}
-
 /// Represents a video object. The object is a part of a video frame, it includes bounding
 /// box, attributes, label, namespace label, etc. The objects are always accessible by reference. The only way to
 /// copy the object by value is to call :py:meth:`VideoObject.detached_copy`.
@@ -204,6 +194,16 @@ where
         F: FnOnce(&mut VideoObject) -> R;
 
     fn detached_copy(&self) -> Self;
+
+    fn get_parent_frame_source(&self) -> Option<String> {
+        self.with_object_ref(|o| {
+            o.frame.as_ref().and_then(|f| {
+                f.inner
+                    .upgrade()
+                    .map(|f| trace!(f.read_recursive()).source_id.clone())
+            })
+        })
+    }
 
     fn get_parent_id(&self) -> Option<i64> {
         self.with_object_ref(|o| o.parent_id)
