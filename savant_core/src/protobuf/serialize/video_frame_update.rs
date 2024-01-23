@@ -150,6 +150,7 @@ mod tests {
     use crate::primitives::frame_update::{
         AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
     };
+    use crate::primitives::object::ObjectOperations;
     use crate::primitives::Attribute;
     use crate::protobuf::generated;
     use crate::test::gen_object;

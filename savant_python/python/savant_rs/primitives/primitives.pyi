@@ -287,12 +287,6 @@ class UserData:
     @property
     def attributes(self) -> list[(str, str)]: ...
 
-    def find_attributes(self,
-                        namespace: Optional[str],
-                        names: list[str] = [],
-                        hint: Optional[str] = None,
-                        no_gil: bool = True) -> list[(str, str)]: ...
-
     def get_attribute(self,
                       namespace: str,
                       name: str) -> Optional[Attribute]: ...
@@ -303,6 +297,18 @@ class UserData:
 
     def delete_attributes_with_hints(self,
                                      hints: list[Optional[str]]): ...
+
+    def find_attributes_with_ns(self,
+                                namespace: str,
+                                names: list[str] = [],
+                                hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_names(self,
+                                   names: list[str],
+                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_hints(self,
+                                   hints: list[Optional[str]]) -> list[(str, str)]: ...
 
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
@@ -466,10 +472,17 @@ class VideoFrame:
     @property
     def attributes(self) -> list[(str, str)]: ...
 
-    def find_attributes(self,
-                        namespace: Optional[str],
-                        names: list[str] = [],
-                        hint: Optional[str] = None) -> list[(str, str)]: ...
+    def find_attributes_with_ns(self,
+                                namespace: str,
+                                names: list[str] = [],
+                                hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_names(self,
+                                   names: list[str],
+                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_hints(self,
+                                   hints: list[Optional[str]]) -> list[(str, str)]: ...
 
     def get_attribute(self,
                       namespace: str,
@@ -494,6 +507,16 @@ class VideoFrame:
                        no_gil: bool = False): ...
 
     def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
+
+    def create_object(self,
+                      namespace: str,
+                      label: str,
+                      parent_id: Optional[int],
+                      confidence: Optional[float],
+                      detection_box: Optional[RBBox],
+                      track_id: Optional[int],
+                      track_box: Optional[RBBox],
+                      attributes: Optional[list[Attribute]]) -> int: ...
 
     def get_object(self, id: int) -> Optional[VideoObject]: ...
 
@@ -636,10 +659,17 @@ class VideoObject:
 
     def detached_copy(self) -> VideoObject: ...
 
-    def find_attributes(self,
-                        namespace: Optional[str],
-                        names: list[str] = [],
-                        hint: Optional[str] = None) -> list[tuple[str, str]]: ...
+    def find_attributes_with_ns(self,
+                                namespace: str,
+                                names: list[str] = [],
+                                hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_names(self,
+                                   names: list[str],
+                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+
+    def find_attributes_with_hints(self,
+                                   hints: list[Optional[str]]) -> list[(str, str)]: ...
 
     def get_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 

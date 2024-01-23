@@ -6,7 +6,7 @@ use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust as rust_primitives;
-use savant_core::primitives::{rust, Attributive};
+use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::mem;
@@ -58,21 +58,26 @@ impl UserData {
         self.0.get_attributes()
     }
 
-    #[pyo3(name = "find_attributes")]
-    #[pyo3(signature = (namespace=None, names=vec![], hint=None, no_gil=true))]
-    pub fn find_attributes_gil(
-        &self,
-        namespace: Option<String>,
-        names: Vec<String>,
-        hint: Option<String>,
-        no_gil: bool,
+    pub fn find_attributes_with_ns(&mut self, namespace: &str) -> Vec<(String, String)> {
+        self.0.find_attributes_with_ns(namespace)
+    }
+
+    pub fn find_attributes_with_names(&mut self, names: Vec<String>) -> Vec<(String, String)> {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.find_attributes_with_names(&label_refs)
+    }
+
+    pub fn find_attributes_with_hints(
+        &mut self,
+        hints: Vec<Option<String>>,
     ) -> Vec<(String, String)> {
-        let names_ref = names.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-        release_gil!(no_gil, || self.0.find_attributes(
-            &namespace.as_deref(),
-            &names_ref,
-            &hint.as_deref()
-        ))
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.find_attributes_with_hints(&hint_refs)
     }
 
     pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {

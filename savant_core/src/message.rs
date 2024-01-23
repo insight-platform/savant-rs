@@ -5,7 +5,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
-use crate::primitives::Attributive;
+use crate::primitives::WithAttributes;
 use crate::protobuf::{deserialize, serialize};
 use crate::{trace, version};
 use lazy_static::lazy_static;
@@ -319,12 +319,12 @@ pub fn save_message(m: &Message) -> anyhow::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use crate::message::{load_message, save_message, validate_seq_id, Message};
-    use crate::primitives::attribute::AttributeMethods;
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
+    use crate::primitives::object::ObjectOperations;
     use crate::primitives::shutdown::Shutdown;
     use crate::primitives::userdata::UserData;
-    use crate::primitives::Attribute;
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::gen_frame;
     use std::sync::Arc;
 
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_save_load_frame_with_temp_attributes() {
-        let f = gen_frame();
+        let mut f = gen_frame();
         let tmp_attr = Attribute::temporary("chronos", "temp", vec![], &None, false);
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);

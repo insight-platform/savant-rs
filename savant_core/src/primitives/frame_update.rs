@@ -117,7 +117,8 @@ mod tests {
     use crate::primitives::frame_update::{
         AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
     };
-    use crate::primitives::{Attribute, AttributeMethods};
+    use crate::primitives::object::ObjectOperations;
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::{gen_frame, gen_object, s};
 
     fn get_attributes() -> (Attribute, Attribute) {
@@ -146,7 +147,7 @@ mod tests {
 
     #[test]
     fn update_attributes_error_when_dup() {
-        let f = gen_frame();
+        let mut f = gen_frame();
         let (my, _) = get_attributes();
         f.set_attribute(my.clone());
 
@@ -165,7 +166,7 @@ mod tests {
 
         for (id, mut attr) in attrs.clone() {
             attr.make_temporary();
-            let o = f.get_object(id).unwrap();
+            let mut o = f.get_object(id).unwrap();
             o.set_attribute(attr);
         }
 
@@ -180,7 +181,7 @@ mod tests {
 
     #[test]
     fn update_attributes_replace_when_dup() {
-        let f = gen_frame();
+        let mut f = gen_frame();
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
@@ -203,7 +204,7 @@ mod tests {
 
         for (id, mut attr) in attrs.clone() {
             attr.make_temporary();
-            let o = f.get_object(id).unwrap();
+            let mut o = f.get_object(id).unwrap();
             o.set_attribute(attr);
         }
 
@@ -223,7 +224,7 @@ mod tests {
 
     #[test]
     fn update_attributes_keep_own_when_dup() {
-        let f = gen_frame();
+        let mut f = gen_frame();
         let (my, their) = get_attributes();
         f.set_attribute(my);
 
@@ -246,7 +247,7 @@ mod tests {
 
         for (id, mut attr) in attrs.clone() {
             attr.make_temporary();
-            let o = f.get_object(id).unwrap();
+            let mut o = f.get_object(id).unwrap();
             o.set_attribute(attr);
         }
 

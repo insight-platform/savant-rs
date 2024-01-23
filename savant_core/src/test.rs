@@ -4,9 +4,10 @@ use crate::primitives::frame::{
     VideoFrameBuilder, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
 use crate::primitives::object::{
-    IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder, VideoObjectProxy,
+    IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
+    VideoObjectProxy,
 };
-use crate::primitives::{Attribute, AttributeMethods, RBBox};
+use crate::primitives::{Attribute, RBBox, WithAttributes};
 use std::sync::Arc;
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
@@ -27,7 +28,7 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
 }
 
 pub fn gen_frame() -> VideoFrameProxy {
-    let f = VideoFrameProxy::from_inner(
+    let mut f = VideoFrameProxy::from_inner(
         VideoFrameBuilder::default()
             .source_id("test".to_string())
             .pts(1000000)
@@ -81,11 +82,11 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    f.add_object(&parent_object, IdCollisionResolutionPolicy::Error)
+    f.add_object(parent_object, IdCollisionResolutionPolicy::Error)
         .unwrap();
-    f.add_object(&c1, IdCollisionResolutionPolicy::Error)
+    f.add_object(c1, IdCollisionResolutionPolicy::Error)
         .unwrap();
-    f.add_object(&c2, IdCollisionResolutionPolicy::Error)
+    f.add_object(c2, IdCollisionResolutionPolicy::Error)
         .unwrap();
 
     f.set_attribute(Attribute::persistent(
@@ -128,7 +129,7 @@ pub fn gen_frame() -> VideoFrameProxy {
 }
 
 pub fn gen_object(id: i64) -> VideoObjectProxy {
-    let o = VideoObjectProxy::from(VideoObject {
+    let mut o = VideoObjectProxy::from(VideoObject {
         id,
         namespace: s("peoplenet"),
         label: s("face"),

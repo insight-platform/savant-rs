@@ -1,4 +1,4 @@
-use crate::primitives::object::VideoObjectProxy;
+use crate::primitives::object::{ObjectOperations, VideoObjectProxy};
 use std::sync::Arc;
 
 #[no_mangle]
@@ -28,10 +28,10 @@ pub fn unary_op_even(objs: &[&VideoObjectProxy]) -> bool {
 }
 
 #[no_mangle]
-pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
+pub fn inplace_modifier(objs: &mut [&mut VideoObjectProxy]) -> anyhow::Result<()> {
     for obj in objs {
         let label = obj.get_label();
-        obj.set_label(&format!("modified_{}", label));
+        (*obj).set_label(&format!("modified_{}", label));
     }
 
     Ok(())
@@ -40,7 +40,7 @@ pub fn inplace_modifier(objs: &[&VideoObjectProxy]) -> anyhow::Result<()> {
 #[no_mangle]
 pub fn map_modifier(obj: &VideoObjectProxy) -> anyhow::Result<VideoObjectProxy> {
     let label = obj.get_label();
-    let new_obj = obj.detached_copy();
+    let mut new_obj = obj.detached_copy();
     new_obj.set_label(&format!("modified_{}", label));
     Ok(new_obj)
 }

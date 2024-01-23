@@ -1,4 +1,4 @@
-use crate::primitives::object::VideoObjectProxy;
+use crate::primitives::object::{ObjectOperations, VideoObjectProxy};
 use evalexpr::*;
 use hashbrown::HashMap;
 use std::cell::OnceCell;
