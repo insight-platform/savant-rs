@@ -65,19 +65,19 @@ pub(crate) struct ObjectFieldsView {
 }
 
 impl GlobalContext {
-    pub fn new(resolvers: &[String]) -> Self {
+    pub fn new(resolvers: &[&str]) -> Self {
         GlobalContext {
-            resolvers: resolvers.to_vec(),
+            resolvers: resolvers.iter().map(|s| s.to_string()).collect(),
             temp_vars: HashMap::with_capacity(DEFAULT_GLOBAL_CONTEXT_VAR_NUM),
         }
     }
 }
 
 impl<'a> ObjectContext<'a> {
-    pub fn new(object: &'a VideoObjectProxy, resolvers: &[String]) -> Self {
+    pub fn new(object: &'a VideoObjectProxy, resolvers: &[&str]) -> Self {
         ObjectContext {
             object,
-            resolvers: resolvers.to_vec(),
+            resolvers: resolvers.iter().map(|s| s.to_string()).collect(),
             temp_vars: HashMap::with_capacity(DEFAULT_OBJECT_CONTEXT_VAR_NUM),
             object_view: OnceCell::default(),
         }

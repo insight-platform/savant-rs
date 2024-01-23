@@ -45,7 +45,7 @@ pub struct PropagatedContext(pub HashMap<String, String>);
 
 impl Injector for PropagatedContext {
     fn set(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_owned(), value);
+        self.0.insert(key.to_string(), value);
     }
 }
 

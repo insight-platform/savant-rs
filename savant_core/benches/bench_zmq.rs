@@ -39,7 +39,7 @@ fn bench_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
             }
             if let Ok(res) = res {
                 match res {
-                    ReaderResult::EndOfStream { .. } => {
+                    ReaderResult::Message { message, .. } if message.is_end_of_stream() => {
                         break;
                     }
                     ReaderResult::Message {
@@ -102,7 +102,7 @@ fn bench_nonblocking_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
             }
             if let Ok(res) = res {
                 match res {
-                    ReaderResult::EndOfStream { .. } => {
+                    ReaderResult::Message { message, .. } if message.is_end_of_stream() => {
                         break;
                     }
                     ReaderResult::Message {

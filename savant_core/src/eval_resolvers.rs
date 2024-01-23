@@ -21,23 +21,23 @@ mod utils {
     }
 
     #[inline(always)]
-    pub fn utility_resolver_name() -> String {
-        String::from("utility-resolver")
+    pub fn utility_resolver_name() -> &'static str {
+        "utility-resolver"
     }
 
     #[inline(always)]
-    pub fn env_resolver_name() -> String {
-        String::from("env-resolver")
+    pub fn env_resolver_name() -> &'static str {
+        "env-resolver"
     }
 
     #[inline(always)]
-    pub fn config_resolver_name() -> String {
-        String::from("config-resolver")
+    pub fn config_resolver_name() -> &'static str {
+        "config-resolver"
     }
 
     #[inline(always)]
-    pub fn etcd_resolver_name() -> String {
-        String::from("etcd-resolver")
+    pub fn etcd_resolver_name() -> &'static str {
+        "etcd-resolver"
     }
 }
 
@@ -86,7 +86,7 @@ pub(crate) mod resolvers {
     pub trait SymbolResolver: Send + Sync {
         fn resolve(&self, func: &str, expr: &Value) -> Result<Value>;
         fn exported_symbols(&self) -> Vec<&'static str>;
-        fn name(&self) -> String;
+        fn name(&self) -> &'static str;
         fn as_any(&self) -> &dyn Any;
     }
 
@@ -115,7 +115,7 @@ pub(crate) mod resolvers {
             vec![ENV_FUNC]
         }
 
-        fn name(&self) -> String {
+        fn name(&self) -> &'static str {
             env_resolver_name()
         }
 
@@ -165,7 +165,7 @@ pub(crate) mod resolvers {
             vec![CONFIG_FUNC]
         }
 
-        fn name(&self) -> String {
+        fn name(&self) -> &'static str {
             config_resolver_name()
         }
 
@@ -224,7 +224,7 @@ pub(crate) mod resolvers {
             ]
         }
 
-        fn name(&self) -> String {
+        fn name(&self) -> &'static str {
             utility_resolver_name()
         }
 
@@ -241,9 +241,9 @@ pub(crate) mod resolvers {
 
     impl EtcdSymbolResolver {
         pub fn new(
-            hosts: Vec<String>,
-            credentials: Option<(String, String)>,
-            watch_path: String,
+            hosts: &[&str],
+            credentials: &Option<(&str, &str)>,
+            watch_path: &str,
             connect_timeout: u64,
             watch_path_wait_timeout: u64,
         ) -> Result<Self> {
@@ -251,20 +251,19 @@ pub(crate) mod resolvers {
             assert!(connect_timeout > 0);
 
             let runtime = Runtime::new().unwrap();
-            let client =
-                EtcdClient::new(hosts, credentials, watch_path.clone(), 60, connect_timeout);
+            let client = EtcdClient::new(hosts, credentials, watch_path, 60, connect_timeout);
 
             let client = runtime.block_on(client)?;
 
             let mut parameter_storage = EtcdParameterStorage::with_client(client);
             parameter_storage.run(&runtime)?;
-            parameter_storage.order_data_update(VarPathSpec::Prefix(watch_path.clone()))?;
-            _ = parameter_storage.wait_for_key(&watch_path, watch_path_wait_timeout * 1000); // wait for the first update
+            parameter_storage.order_data_update(VarPathSpec::Prefix(watch_path.to_string()))?;
+            _ = parameter_storage.wait_for_key(watch_path, watch_path_wait_timeout * 1000); // wait for the first update
 
             Ok(Self {
                 inner: Arc::new(Mutex::new(parameter_storage)),
                 runtime: Some(Arc::new(runtime)),
-                prefix: watch_path,
+                prefix: watch_path.to_string(),
             })
         }
 
@@ -340,7 +339,7 @@ pub(crate) mod resolvers {
             vec![ETCD_FUNC]
         }
 
-        fn name(&self) -> String {
+        fn name(&self) -> &'static str {
             etcd_resolver_name()
         }
 
@@ -371,13 +370,13 @@ pub(crate) mod singleton {
     }
 
     pub fn register_symbol_resolver(resolver: Arc<dyn SymbolResolver>) {
-        let name = resolver.name();
+        let name = resolver.name().to_string();
         let symbols = resolver.exported_symbols();
         let mut r = RESOLVERS.write();
         for s in symbols {
             r.insert(s.to_string(), (name.clone(), resolver.clone()));
         }
-        r.insert(name.clone(), (name, resolver));
+        r.insert(name.clone(), (name.clone(), resolver));
     }
 
     pub fn get_symbol_resolver(symbol: &str) -> Option<ResolverValue> {
@@ -393,9 +392,9 @@ pub(crate) mod singleton {
     }
 
     pub fn register_etcd_resolver(
-        hosts: Vec<String>,
-        credentials: Option<(String, String)>,
-        watch_path: String,
+        hosts: &[&str],
+        credentials: &Option<(&str, &str)>,
+        watch_path: &str,
         connect_timeout: u64,
         watch_path_wait_timeout: u64,
     ) -> Result<()> {
@@ -422,7 +421,7 @@ pub(crate) mod singleton {
 
     pub fn update_config_resolver(symbols: HashMap<String, String>) {
         let r = RESOLVERS.read();
-        let resolver = r.get(&config_resolver_name());
+        let resolver = r.get(config_resolver_name());
         if let Some((_, resolver)) = resolver {
             let resolver = resolver
                 .as_any()
@@ -437,9 +436,9 @@ pub(crate) mod singleton {
         };
     }
 
-    pub fn unregister_resolver(name: String) {
+    pub fn unregister_resolver(name: &str) {
         let mut r = RESOLVERS.write();
-        let resolver_opt = r.remove(&name);
+        let resolver_opt = r.remove(name);
         if let Some((_, resolver)) = resolver_opt {
             let symbols = resolver.exported_symbols();
             for s in symbols {
@@ -608,14 +607,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_etcd_resolver() {
-        let resolver = EtcdSymbolResolver::new(
-            vec!["127.0.0.1:2379".to_string()],
-            None,
-            "savant".to_string(),
-            1,
-            1,
-        )
-        .unwrap();
+        let resolver = EtcdSymbolResolver::new(&["127.0.0.1:2379"], &None, "savant", 1, 1).unwrap();
         let default = Value::Int(0);
         let value = resolver
             .resolve(
