@@ -1,3 +1,4 @@
+use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::{Attribute, RBBox, VideoFrame};
@@ -325,6 +326,72 @@ impl VideoObject {
     ///
     pub fn set_attribute(&mut self, attribute: &Attribute) -> Option<Attribute> {
         self.0.set_attribute(attribute.0.clone()).map(Attribute)
+    }
+
+    /// Sets new persistent attribute for the object. If the attribute is already set, it is replaced.
+    ///
+    /// Parameters
+    /// ----------
+    /// namespace : str
+    ///   Attribute namespace.
+    /// name : str
+    ///   Attribute name.
+    /// hint : str or None
+    ///   Attribute hint.
+    /// is_hidden : bool
+    ///   Attribute hidden flag.
+    /// values : List[:py:class:`AttributeValue`] or None
+    ///   Attribute values.
+    ///
+    #[pyo3(signature = (namespace, name, is_hidden = false, hint = None, values = vec![]))]
+    pub fn set_persistent_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        is_hidden: bool,
+        hint: Option<String>,
+        values: Option<Vec<AttributeValue>>,
+    ) {
+        let values = match values {
+            Some(values) => values.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+            None => vec![],
+        };
+        let hint = hint.as_deref();
+        self.0
+            .set_persistent_attribute(namespace, name, &hint, is_hidden, values)
+    }
+
+    /// Sets new temporary attribute for the object. If the attribute is already set, it is replaced.
+    ///
+    /// Parameters
+    /// ----------
+    /// namespace : str
+    ///   Attribute namespace.
+    /// name : str
+    ///   Attribute name.
+    /// hint : str or None
+    ///   Attribute hint.
+    /// is_hidden : bool
+    ///   Attribute hidden flag.
+    /// values : List[:py:class:`AttributeValue`] or None
+    ///   Attribute values.
+    ///
+    #[pyo3(signature = (namespace, name, is_hidden = false, hint = None, values = vec![]))]
+    pub fn set_temporary_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        is_hidden: bool,
+        hint: Option<String>,
+        values: Option<Vec<AttributeValue>>,
+    ) {
+        let values = match values {
+            Some(values) => values.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+            None => vec![],
+        };
+        let hint = hint.as_deref();
+        self.0
+            .set_temporary_attribute(namespace, name, &hint, is_hidden, values)
     }
 
     /// Returns object's bbox by value. Any modifications of the returned value will not affect the object.

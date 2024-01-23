@@ -873,7 +873,6 @@ mod tests {
     use crate::match_query::MatchQuery::*;
     use crate::primitives::attribute_value::AttributeValue;
     use crate::primitives::object::IdCollisionResolutionPolicy;
-    use crate::primitives::Attribute;
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
 
     #[test]
@@ -1351,17 +1350,17 @@ mod tests {
             ControlFlow::Continue(true)
         ));
 
-        object.set_attribute(Attribute::persistent(
+        object.set_persistent_attribute(
             "classifier",
             "age-min-max-avg",
+            &Some("morphological-classifier"),
+            false,
             vec![
                 AttributeValue::float(10.0, Some(0.7)),
                 AttributeValue::float(20.0, Some(0.8)),
                 AttributeValue::float(15.0, None),
             ],
-            &Some("morphological-classifier"),
-            false,
-        ));
+        );
 
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (namespace == 'classifier')]",

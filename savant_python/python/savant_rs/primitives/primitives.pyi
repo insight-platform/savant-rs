@@ -299,13 +299,10 @@ class UserData:
                                      hints: list[Optional[str]]): ...
 
     def find_attributes_with_ns(self,
-                                namespace: str,
-                                names: list[str] = [],
-                                hint: Optional[str] = None) -> list[(str, str)]: ...
+                                namespace: str) -> list[(str, str)]: ...
 
     def find_attributes_with_names(self,
-                                   names: list[str],
-                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+                                   names: list[str]) -> list[(str, str)]: ...
 
     def find_attributes_with_hints(self,
                                    hints: list[Optional[str]]) -> list[(str, str)]: ...
@@ -313,6 +310,20 @@ class UserData:
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
     def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
+
+    def set_persistent_attribute(self,
+                                 namespace: str,
+                                 name: str,
+                                 is_hidden: bool,
+                                 hint: Optional[str],
+                                 values: Optional[list[AttributeValue]]): ...
+
+    def set_temporary_attribute(self,
+                                namespace: str,
+                                name: str,
+                                is_hidden: bool,
+                                hint: Optional[str],
+                                values: Optional[list[AttributeValue]]): ...
 
     def clear_attributes(self): ...
 
@@ -473,13 +484,10 @@ class VideoFrame:
     def attributes(self) -> list[(str, str)]: ...
 
     def find_attributes_with_ns(self,
-                                namespace: str,
-                                names: list[str] = [],
-                                hint: Optional[str] = None) -> list[(str, str)]: ...
+                                namespace: str) -> list[(str, str)]: ...
 
     def find_attributes_with_names(self,
-                                   names: list[str],
-                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+                                   names: list[str]) -> list[(str, str)]: ...
 
     def find_attributes_with_hints(self,
                                    hints: list[Optional[str]]) -> list[(str, str)]: ...
@@ -499,68 +507,101 @@ class VideoFrame:
 
     def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
 
-    def clear_attributes(self): ...
+    def set_persistent_attribute(self,
+                                 namespace: str,
+                                 name: str,
+                                 is_hidden: bool,
+                                 hint: Optional[str],
+                                 values: Optional[list[AttributeValue]]): ...
 
-    def set_draw_label(self,
-                       q: MatchQuery,
-                       draw_label: SetDrawLabelKind,
-                       no_gil: bool = False): ...
+    def set_temporary_attribute(self,
+                                namespace: str,
+                                name: str,
+                                is_hidden: bool,
+                                hint: Optional[str],
+                                values: Optional[list[AttributeValue]]): ...
 
-    def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
 
-    def create_object(self,
-                      namespace: str,
-                      label: str,
-                      parent_id: Optional[int],
-                      confidence: Optional[float],
-                      detection_box: Optional[RBBox],
-                      track_id: Optional[int],
-                      track_box: Optional[RBBox],
-                      attributes: Optional[list[Attribute]]) -> int: ...
+def clear_attributes(self): ...
 
-    def get_object(self, id: int) -> Optional[VideoObject]: ...
 
-    def access_objects(self,
-                       q: MatchQuery,
-                       no_gil: bool = True) -> VideoObjectsView: ...
-
-    def get_all_objects(self) -> VideoObjectsView: ...
-
-    def access_objects_by_ids(self,
-                              ids: list[int],
-                              no_gil: bool = True) -> VideoObjectsView: ...
-
-    def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
-
-    def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
-
-    def set_parent(self,
+def set_draw_label(self,
                    q: MatchQuery,
-                   parent: VideoObject,
+                   draw_label: SetDrawLabelKind,
+                   no_gil: bool = False): ...
+
+
+def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
+
+
+def create_object(self,
+                  namespace: str,
+                  label: str,
+                  parent_id: Optional[int],
+                  confidence: Optional[float],
+                  detection_box: Optional[RBBox],
+                  track_id: Optional[int],
+                  track_box: Optional[RBBox],
+                  attributes: Optional[list[Attribute]]) -> int: ...
+
+
+def get_object(self, id: int) -> Optional[VideoObject]: ...
+
+
+def access_objects(self,
+                   q: MatchQuery,
                    no_gil: bool = True) -> VideoObjectsView: ...
 
-    def set_parent_by_id(self,
-                         object_id: int,
-                         parent_id: int): ...
 
-    def clear_parent(self,
-                     q: MatchQuery,
-                     no_gil: bool = True) -> VideoObjectsView: ...
+def get_all_objects(self) -> VideoObjectsView: ...
 
-    def clear_objects(self): ...
 
-    def get_children(self, id: int) -> VideoObjectsView: ...
+def access_objects_by_ids(self,
+                          ids: list[int],
+                          no_gil: bool = True) -> VideoObjectsView: ...
 
-    def copy(self, no_gil: bool = True) -> VideoFrame: ...
 
-    def update(self, update: VideoFrameUpdate, no_gil: bool = True): ...
+def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
 
-    def to_protobuf(self, no_gil: bool = True) -> bytes: ...
 
-    @classmethod
-    def from_protobuf(cls,
-                      protobuf: bytes,
-                      no_gil: bool = True) -> VideoFrame: ...
+def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
+
+
+def set_parent(self,
+               q: MatchQuery,
+               parent: VideoObject,
+               no_gil: bool = True) -> VideoObjectsView: ...
+
+
+def set_parent_by_id(self,
+                     object_id: int,
+                     parent_id: int): ...
+
+
+def clear_parent(self,
+                 q: MatchQuery,
+                 no_gil: bool = True) -> VideoObjectsView: ...
+
+
+def clear_objects(self): ...
+
+
+def get_children(self, id: int) -> VideoObjectsView: ...
+
+
+def copy(self, no_gil: bool = True) -> VideoFrame: ...
+
+
+def update(self, update: VideoFrameUpdate, no_gil: bool = True): ...
+
+
+def to_protobuf(self, no_gil: bool = True) -> bytes: ...
+
+
+@classmethod
+def from_protobuf(cls,
+                  protobuf: bytes,
+                  no_gil: bool = True) -> VideoFrame: ...
 
 
 class VideoFrameBatch:
@@ -660,13 +701,10 @@ class VideoObject:
     def detached_copy(self) -> VideoObject: ...
 
     def find_attributes_with_ns(self,
-                                namespace: str,
-                                names: list[str] = [],
-                                hint: Optional[str] = None) -> list[(str, str)]: ...
+                                namespace: str) -> list[(str, str)]: ...
 
     def find_attributes_with_names(self,
-                                   names: list[str],
-                                   hint: Optional[str] = None) -> list[(str, str)]: ...
+                                   names: list[str]) -> list[(str, str)]: ...
 
     def find_attributes_with_hints(self,
                                    hints: list[Optional[str]]) -> list[(str, str)]: ...
@@ -674,6 +712,20 @@ class VideoObject:
     def get_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
     def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
+
+    def set_persistent_attribute(self,
+                                 namespace: str,
+                                 name: str,
+                                 is_hidden: bool,
+                                 hint: Optional[str],
+                                 values: Optional[list[AttributeValue]]): ...
+
+    def set_temporary_attribute(self,
+                                namespace: str,
+                                name: str,
+                                is_hidden: bool,
+                                hint: Optional[str],
+                                values: Optional[list[AttributeValue]]): ...
 
     def get_frame(self) -> Optional[VideoFrame]: ...
 
