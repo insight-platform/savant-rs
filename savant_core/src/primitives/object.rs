@@ -520,7 +520,7 @@ mod tests {
     use crate::primitives::{Attribute, RBBox};
     use crate::test::{gen_empty_frame, gen_frame};
 
-    fn get_object(id: i64) -> VideoObjectProxy {
+    fn generate_object(id: i64) -> VideoObjectProxy {
         VideoObjectProxy::from(
             VideoObjectBuilder::default()
                 .id(id)
@@ -564,10 +564,10 @@ mod tests {
     #[test]
     fn test_loop_2() {
         let f = gen_empty_frame();
-        let mut o1 = get_object(1);
+        let mut o1 = generate_object(1);
         f.add_object(o1.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
-        let mut o2 = get_object(2);
+        let mut o2 = generate_object(2);
         f.add_object(o2.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
         o1.set_parent(Some(o2.get_id())).unwrap();
@@ -577,13 +577,13 @@ mod tests {
     #[test]
     fn test_loop_3() {
         let f = gen_empty_frame();
-        let mut o1 = get_object(1);
+        let mut o1 = generate_object(1);
         f.add_object(o1.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
-        let mut o2 = get_object(2);
+        let mut o2 = generate_object(2);
         f.add_object(o2.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
-        let mut o3 = get_object(3);
+        let mut o3 = generate_object(3);
         f.add_object(o3.clone(), IdCollisionResolutionPolicy::Error)
             .unwrap();
         o1.set_parent(Some(o2.get_id())).unwrap();
@@ -593,13 +593,13 @@ mod tests {
 
     #[test]
     fn self_parent_assignment_trivial() {
-        let mut obj = get_object(1);
+        let mut obj = generate_object(1);
         assert!(obj.set_parent(Some(obj.get_id())).is_err());
     }
 
     #[test]
     fn self_parent_assignment_change_id() {
-        let mut obj = get_object(1);
+        let mut obj = generate_object(1);
         let mut parent = obj.clone();
         _ = parent.set_id(2);
         assert!(obj.set_parent(Some(parent.get_id())).is_err());
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_transform_geometry() {
-        let mut o = get_object(1);
+        let mut o = generate_object(1);
         o.set_track_info(13, RBBox::new(0.0, 0.0, 10.0, 20.0, None));
         let ops = vec![VideoObjectBBoxTransformation::Shift(10.0, 20.0)];
         o.transform_geometry(&ops);
