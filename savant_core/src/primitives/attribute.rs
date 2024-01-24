@@ -35,7 +35,7 @@ impl AttributeBuilder {
 
 impl ToSerdeJsonValue for Attribute {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::to_value(self).unwrap()
+        serde_json::json!(self)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::json_api::ToSerdeJsonValue;
 use serde_json::Value;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub struct Shutdown(String);
 
 impl Shutdown {
@@ -16,10 +16,6 @@ impl Shutdown {
 
 impl ToSerdeJsonValue for Shutdown {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(
-        {
-            "type": "Shutdown",
-            "auth": self.get_auth(),
-        })
+        serde_json::json!(self)
     }
 }

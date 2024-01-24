@@ -2,7 +2,7 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, WithAttributes};
 use serde_json::Value;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub struct UserData {
     pub source_id: String,
     pub attributes: Vec<Attribute>,
@@ -10,12 +10,7 @@ pub struct UserData {
 
 impl ToSerdeJsonValue for UserData {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(
-        {
-            "type": "Telemetry",
-            "source_id": self.source_id,
-            "attributes": self.attributes.iter().map(|v| v.to_serde_json_value()).collect::<Vec<_>>(),
-        })
+        serde_json::json!(self)
     }
 }
 

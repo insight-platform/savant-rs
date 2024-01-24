@@ -103,20 +103,7 @@ impl Default for VideoObject {
 
 impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "id": self.id,
-            "namespace": self.namespace,
-            "label": self.label,
-            "draw_label": self.draw_label,
-            "bbox": self.detection_box,
-            "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
-            "confidence": self.confidence,
-            "parent": self.parent_id,
-            "track_id": self.track_id,
-            "track_box": self.track_box,
-            "frame": self.get_parent_frame_source(),
-            "pyobjects": "not_implemented",
-        })
+        serde_json::json!(self)
     }
 }
 
