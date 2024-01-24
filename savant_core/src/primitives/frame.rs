@@ -23,7 +23,7 @@ use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub struct ExternalFrame {
     pub method: String,
     pub location: Option<String>,
@@ -31,10 +31,7 @@ pub struct ExternalFrame {
 
 impl ToSerdeJsonValue for ExternalFrame {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!({
-            "method": self.method,
-            "location": self.location,
-        })
+        serde_json::json!(self)
     }
 }
 
@@ -68,7 +65,7 @@ impl ToSerdeJsonValue for VideoFrameContent {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub enum VideoFrameTranscodingMethod {
     Copy,
     Encoded,
@@ -76,11 +73,11 @@ pub enum VideoFrameTranscodingMethod {
 
 impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     fn to_serde_json_value(&self) -> Value {
-        serde_json::json!(format!("{:?}", self))
+        serde_json::json!(self)
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub enum VideoFrameTransformation {
     InitialSize(u64, u64),
     Scale(u64, u64),
@@ -90,20 +87,7 @@ pub enum VideoFrameTransformation {
 
 impl ToSerdeJsonValue for VideoFrameTransformation {
     fn to_serde_json_value(&self) -> Value {
-        match self {
-            VideoFrameTransformation::InitialSize(width, height) => {
-                serde_json::json!({"initial_size": [width, height]})
-            }
-            VideoFrameTransformation::Scale(width, height) => {
-                serde_json::json!({"scale": [width, height]})
-            }
-            VideoFrameTransformation::Padding(left, top, right, bottom) => {
-                serde_json::json!({"padding": [left, top, right, bottom]})
-            }
-            VideoFrameTransformation::ResultingSize(width, height) => {
-                serde_json::json!({"resulting_size": [width, height]})
-            }
-        }
+        serde_json::json!(self)
     }
 }
 

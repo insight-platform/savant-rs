@@ -7,10 +7,10 @@ from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.match_query import MatchQuery as Q, \
     IntExpression as IE, QueryFunctions as QF
 
-# set_log_level(LogLevel.Trace)
-
 import json
 from timeit import default_timer as timer
+
+# set_log_level(LogLevel.Trace)
 
 f = gen_frame()
 print(f.json_pretty)
@@ -67,7 +67,7 @@ print(frame.transformations[0].is_scale)
 
 frame.clear_transformations()
 
-frame.set_attribute(Attribute(namespace="some", name="attr", hint="x", values=[
+frame.set_persistent_attribute(namespace="some", name="attr", hint="x", values=[
     AttributeValue.none(),
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
     AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
@@ -90,40 +90,37 @@ frame.set_attribute(Attribute(namespace="some", name="attr", hint="x", values=[
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
         PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])],
         confidence=0.5),
-]))
+])
 
-frame.set_attribute(Attribute(namespace="other", name="attr", values=[
+frame.set_persistent_attribute(namespace="other", name="attr", values=[
     AttributeValue.integer(1, confidence=0.5),
-]))
+])
 
-frame.set_attribute(
-    Attribute.temporary("hidden", "attribute",
-                        values=[AttributeValue.temporary_python_object(dict(x=5), confidence=0.5)],
-                        is_hidden=True))
+frame.set_temporary_attribute("hidden", "attribute",
+                              values=[AttributeValue.temporary_python_object(dict(x=5), confidence=0.5)],
+                              is_hidden=True)
 
 print("All public attributes", frame.attributes)  # hidden is not there
 # but we can access it directly
 print("Hidden attribute", frame.get_attribute(namespace="hidden", name="attribute"))
 
-print(frame.find_attributes(names=["attr"]))
-print(frame.find_attributes(namespace="other"))
-print(frame.find_attributes(namespace="other", names=["attr"]))
-print(frame.find_attributes(hint="x"))
-print(frame.find_attributes(namespace="some", hint="x"))
+print(frame.find_attributes_with_names(["attr"]))
+print(frame.find_attributes_with_ns("other"))
+print(frame.find_attributes_with_hints(["x"]))
 
 print(frame.get_attribute(namespace="other", name="attr"))
 deleted = frame.delete_attribute(namespace="some", name="attr")
 print(deleted)
 
 obj = VideoObject(
-    id=1,
-    namespace="some",
-    label="person",
-    detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
-    confidence=0.5,
-    attributes=[],
-    track_id=None,
-    track_box=None
+id = 1,
+namespace = "some",
+label = "person",
+detection_box = BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
+confidence = 0.5,
+attributes = [],
+track_id = None,
+track_box = None
 )
 
 tid = obj.track_id
@@ -175,7 +172,7 @@ t = timer()
 frame_message = None
 for _ in range(1_000):
     bytes = save_message(message)
-    frame_message = load_message(bytes)
+frame_message = load_message(bytes)
 
 print("1K ser/des for frame took:", timer() - t)
 

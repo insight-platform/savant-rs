@@ -324,7 +324,7 @@ mod tests {
     use crate::primitives::object::ObjectOperations;
     use crate::primitives::shutdown::Shutdown;
     use crate::primitives::userdata::UserData;
-    use crate::primitives::{Attribute, WithAttributes};
+    use crate::primitives::WithAttributes;
     use crate::test::gen_frame;
     use std::sync::Arc;
 
@@ -413,10 +413,9 @@ mod tests {
     #[test]
     fn test_save_load_frame_with_temp_attributes() {
         let mut f = gen_frame();
-        let tmp_attr = Attribute::temporary("chronos", "temp", vec![], &None, false);
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 4);
-        f.set_attribute(tmp_attr);
+        f.set_temporary_attribute("chronos", "temp", &None, false, vec![]);
         let attrs = f.get_attributes();
         assert_eq!(attrs.len(), 5);
         let m = Message::video_frame(&f);

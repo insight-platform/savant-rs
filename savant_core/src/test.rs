@@ -7,7 +7,7 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
     VideoObjectProxy,
 };
-use crate::primitives::{Attribute, RBBox, WithAttributes};
+use crate::primitives::{RBBox, WithAttributes};
 use std::sync::Arc;
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
@@ -89,42 +89,42 @@ pub fn gen_frame() -> VideoFrameProxy {
     f.add_object(c2, IdCollisionResolutionPolicy::Error)
         .unwrap();
 
-    f.set_attribute(Attribute::persistent(
+    f.set_persistent_attribute(
         "system",
         "test",
-        vec![AttributeValue::string("1", None)],
         &Some("test"),
         false,
-    ));
+        vec![AttributeValue::string("1", None)],
+    );
 
-    f.set_attribute(Attribute::persistent(
+    f.set_persistent_attribute(
         "system2",
         "test2",
-        vec![AttributeValue::string("2", None)],
         &None,
         false,
-    ));
+        vec![AttributeValue::string("2", None)],
+    );
 
-    f.set_attribute(Attribute::persistent(
+    f.set_persistent_attribute(
         "system",
         "test2",
-        vec![AttributeValue::string("3", None)],
         &Some("test"),
         false,
-    ));
+        vec![AttributeValue::string("3", None)],
+    );
 
-    f.set_attribute(Attribute::persistent(
+    f.set_persistent_attribute(
         "test",
         "test",
+        &Some("hint"),
+        false,
         vec![
             AttributeValue::bytes(&[8, 3, 8, 8], &[0; 192], None),
             AttributeValue::integer_vector([0, 1, 2, 3, 4, 5].into(), None),
             AttributeValue::string("incoming", Some(0.56)),
             AttributeValue::temporary_value(AnyObject::new(Box::new(1.0)), None),
         ],
-        &Some("hint"),
-        false,
-    ));
+    );
     f
 }
 
@@ -140,8 +140,7 @@ pub fn gen_object(id: i64) -> VideoObjectProxy {
         ..Default::default()
     });
 
-    let attr = Attribute::persistent("some", "attribute", vec![], &Some("hint"), false);
-    o.set_attribute(attr);
+    o.set_persistent_attribute("some", "attribute", &Some("hint"), false, vec![]);
     o
 }
 

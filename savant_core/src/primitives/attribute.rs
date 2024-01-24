@@ -35,7 +35,7 @@ impl AttributeBuilder {
 
 impl ToSerdeJsonValue for Attribute {
     fn to_serde_json_value(&self) -> serde_json::Value {
-        serde_json::to_value(self).unwrap()
+        serde_json::json!(self)
     }
 }
 
@@ -250,7 +250,6 @@ pub trait WithAttributes: Send {
         F: FnOnce(&mut Vec<Attribute>) -> R;
 
     fn take_attributes(&mut self) -> Vec<Attribute> {
-        //mem::take(self.get_attributes_ref_mut())
         self.with_attributes_mut(|attributes| {
             let mut tmp = Vec::new();
             mem::swap(&mut tmp, attributes);
@@ -279,16 +278,6 @@ pub trait WithAttributes: Send {
     }
 
     fn get_attributes(&self) -> Vec<(String, String)> {
-        // self.get_attributes_ref()
-        //     .iter()
-        //     .filter_map(|a| {
-        //         if a.is_hidden {
-        //             None
-        //         } else {
-        //             Some((a.namespace.clone(), a.name.clone()))
-        //         }
-        //     })
-        //     .collect()
         self.with_attributes_ref(|attributes| {
             attributes
                 .iter()
@@ -304,10 +293,6 @@ pub trait WithAttributes: Send {
     }
 
     fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        // self.get_attributes_ref()
-        //     .iter()
-        //     .find(|a| a.namespace == namespace && a.name == name)
-        //     .cloned()
         self.with_attributes_ref(|attributes| {
             attributes
                 .iter()
@@ -317,9 +302,6 @@ pub trait WithAttributes: Send {
     }
 
     fn contains_attribute(&self, namespace: &str, name: &str) -> bool {
-        // self.get_attributes_ref()
-        //     .iter()
-        //     .any(|a| a.namespace == namespace && a.name == name)
         self.with_attributes_ref(|attributes| {
             attributes
                 .iter()
@@ -328,11 +310,6 @@ pub trait WithAttributes: Send {
     }
 
     fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
-        // let index = self
-        //     .get_attributes_ref()
-        //     .iter()
-        //     .position(|a| a.namespace == namespace && a.name == name)?;
-        // Some(self.get_attributes_ref_mut().swap_remove(index))
         self.with_attributes_mut(|attributes| {
             let index = attributes
                 .iter()
@@ -342,20 +319,6 @@ pub trait WithAttributes: Send {
     }
 
     fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
-        // let index = self
-        //     .get_attributes_ref()
-        //     .iter()
-        //     .position(|a| a.namespace == attribute.namespace && a.name == attribute.name);
-        //
-        // if let Some(index) = index {
-        //     Some(std::mem::replace(
-        //         &mut self.get_attributes_ref_mut()[index],
-        //         attribute,
-        //     ))
-        // } else {
-        //     self.get_attributes_ref_mut().push(attribute);
-        //     None
-        // }
         self.with_attributes_mut(|attributes| {
             let index = attributes
                 .iter()
@@ -371,13 +334,10 @@ pub trait WithAttributes: Send {
     }
 
     fn clear_attributes(&mut self) {
-        //self.get_attributes_ref_mut().clear();
         self.with_attributes_mut(|attributes| attributes.clear())
     }
 
     fn delete_attributes_with_ns(&mut self, namespace: &str) {
-        // self.get_attributes_ref_mut()
-        //     .retain(|a| a.namespace != *namespace);
         self.with_attributes_mut(|attributes| {
             attributes.retain(|a| a.namespace != *namespace);
         })
@@ -399,8 +359,6 @@ pub trait WithAttributes: Send {
     }
 
     fn delete_attributes_with_names(&mut self, names: &[&str]) {
-        // self.get_attributes_ref_mut()
-        //     .retain(|a| !names.contains(&a.name.as_str()))
         self.with_attributes_mut(|attributes| {
             attributes.retain(|a| !names.contains(&a.name.as_str()))
         })
@@ -440,6 +398,30 @@ pub trait WithAttributes: Send {
                 })
                 .collect()
         })
+    }
+
+    fn set_persistent_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        hint: &Option<&str>,
+        hidden: bool,
+        values: Vec<AttributeValue>,
+    ) {
+        let attr = Attribute::persistent(namespace, name, values, hint, hidden);
+        self.set_attribute(attr);
+    }
+
+    fn set_temporary_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        hint: &Option<&str>,
+        hidden: bool,
+        values: Vec<AttributeValue>,
+    ) {
+        let attr = Attribute::temporary(namespace, name, values, hint, hidden);
+        self.set_attribute(attr);
     }
 }
 

@@ -259,8 +259,8 @@ mod tests {
     use std::thread::sleep;
     use tokio::runtime::Runtime;
 
-    async fn init_client(hosts: Vec<String>) -> anyhow::Result<EtcdClient> {
-        let mut client = EtcdClient::new(hosts, None, "parameters/node".into(), 5, 10).await?;
+    async fn init_client(hosts: &[&str]) -> anyhow::Result<EtcdClient> {
+        let mut client = EtcdClient::new(hosts, &None, "parameters/node".into(), 5, 10).await?;
 
         client
             .kv_operations(vec![
@@ -288,7 +288,7 @@ mod tests {
         let runtime = Runtime::new().unwrap();
 
         let client = runtime
-            .block_on(init_client(vec!["127.0.0.1:2379".into()]))
+            .block_on(init_client(&["127.0.0.1:2379"]))
             .expect("Failed to init client");
 
         let mut parameter_storage = super::EtcdParameterStorage::with_client(client);
@@ -351,7 +351,7 @@ mod tests {
 
         let runtime = Runtime::new().unwrap();
 
-        let client = runtime.block_on(init_client(vec!["127.0.0.1:12379".into()]));
+        let client = runtime.block_on(init_client(&["127.0.0.1:12379"]));
         assert!(client.is_err());
     }
 }
