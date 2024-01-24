@@ -131,7 +131,7 @@ pub struct VideoObjectProxy(pub(crate) SavantArcRwLock<VideoObject>);
 
 impl ToSerdeJsonValue for VideoObjectProxy {
     fn to_serde_json_value(&self) -> Value {
-        trace!(self.inner_read_lock()).to_serde_json_value()
+        self.with_object_ref(|o| o.to_serde_json_value())
     }
 }
 
@@ -462,11 +462,9 @@ impl ObjectOperations for VideoObjectProxy {
     }
 
     fn detached_copy(&self) -> Self {
-        let inner = trace!(self.inner_read_lock());
-        let mut new_inner = inner.clone();
-        new_inner.parent_id = None;
-        new_inner.frame = None;
-        Self(SavantArcRwLock::new(new_inner))
+        Self(SavantArcRwLock::new(
+            self.with_object_ref(|o| o.detached_copy()),
+        ))
     }
 }
 
