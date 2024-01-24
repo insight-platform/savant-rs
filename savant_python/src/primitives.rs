@@ -1,4 +1,4 @@
-/// Attribute module specifies attribute code for [crate::primitives::VideoObject] and [crate::primitives::VideoFrame].
+/// Attribute module specifies attribute code for [crate::primitives::BorrowedVideoObject] and [crate::primitives::VideoFrame].
 ///
 pub mod attribute;
 pub mod attribute_value;
@@ -37,7 +37,7 @@ use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::point::Point;
 use crate::primitives::polygonal_area::PolygonalArea;
@@ -82,7 +82,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrameUpdate>()?;
     m.add_class::<VideoFrameTransformation>()?; // PYI
 
-    m.add_class::<VideoObject>()?;
+    m.add_class::<BorrowedVideoObject>()?;
     m.add_class::<VideoObjectsView>()?;
 
     m.add_class::<IdCollisionResolutionPolicy>()?;

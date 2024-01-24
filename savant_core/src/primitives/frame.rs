@@ -5,8 +5,8 @@ use crate::message::Message;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::private::SealedObjectOperations;
 use crate::primitives::object::{
-    IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBBoxTransformation,
-    VideoObjectBBoxType, VideoObjectBuilder, VideoObjectProxy,
+    BorrowedVideoObject, IdCollisionResolutionPolicy, ObjectOperations, VideoObject,
+    VideoObjectBBoxTransformation, VideoObjectBuilder,
 };
 use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
@@ -118,7 +118,7 @@ pub struct VideoFrame {
     #[builder(setter(skip))]
     pub attributes: Vec<Attribute>,
     #[builder(setter(skip))]
-    pub(crate) objects: HashMap<i64, VideoObjectProxy>,
+    pub(crate) objects: HashMap<i64, VideoObject>,
     #[builder(setter(skip))]
     pub(crate) max_object_id: i64,
 }
@@ -203,25 +203,29 @@ impl WithAttributes for VideoFrame {
 }
 
 impl VideoFrame {
-    pub fn get_objects(&self) -> &HashMap<i64, VideoObjectProxy> {
+    pub fn get_objects(&self) -> &HashMap<i64, VideoObject> {
         &self.objects
+    }
+
+    pub fn get_objects_mut(&mut self) -> &mut HashMap<i64, VideoObject> {
+        &mut self.objects
     }
 
     pub fn smart_copy(&self) -> Self {
         let mut frame = self.clone();
         frame.objects.clear();
         for (id, o) in self.get_objects() {
-            let copy = o.detached_copy();
-            copy.0.write().parent_id = o.get_parent_id();
+            let mut copy = o.detached_copy();
+            copy.parent_id = o.get_parent_id();
             frame.objects.insert(*id, copy);
         }
         frame
     }
+
     pub fn exclude_all_temporary_attributes(&mut self) {
         self.exclude_temporary_attributes();
-        self.objects.values().for_each(|o| {
-            let mut object_bind = trace!(o.0.write());
-            object_bind.exclude_temporary_attributes();
+        self.objects.values_mut().for_each(|o| {
+            o.exclude_temporary_attributes();
         });
     }
 
@@ -233,8 +237,7 @@ impl VideoFrame {
         self.restore_attributes(frame_attributes);
         for (id, attrs) in object_attributes {
             let o = self.objects.get_mut(&id).unwrap();
-            let mut object_bind = trace!(o.0.write());
-            object_bind.restore_attributes(attrs);
+            o.restore_attributes(attrs);
         }
     }
 }
@@ -262,23 +265,17 @@ impl Debug for BelongingVideoFrame {
     }
 }
 
-impl From<VideoFrameProxy> for BelongingVideoFrame {
-    fn from(value: VideoFrameProxy) -> Self {
+impl From<&VideoFrameProxy> for BelongingVideoFrame {
+    fn from(value: &VideoFrameProxy) -> Self {
         Self {
             inner: Arc::downgrade(&value.inner.0),
         }
     }
 }
 
-impl From<BelongingVideoFrame> for VideoFrameProxy {
-    fn from(value: BelongingVideoFrame) -> Self {
-        Self {
-            inner: value
-                .inner
-                .upgrade()
-                .expect("Frame is dropped, you cannot use attached objects anymore")
-                .into(),
-        }
+impl From<VideoFrameProxy> for BelongingVideoFrame {
+    fn from(value: VideoFrameProxy) -> Self {
+        (&value).into()
     }
 }
 
@@ -291,6 +288,12 @@ impl From<&BelongingVideoFrame> for VideoFrameProxy {
                 .expect("Frame is dropped, you cannot use attached objects anymore")
                 .into(),
         }
+    }
+}
+
+impl From<BelongingVideoFrame> for VideoFrameProxy {
+    fn from(value: BelongingVideoFrame) -> Self {
+        (&value).into()
     }
 }
 
@@ -367,16 +370,23 @@ impl VideoFrameProxy {
         res
     }
 
-    pub fn get_all_objects(&self) -> Vec<VideoObjectProxy> {
+    pub fn get_all_objects(&self) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
-        inner.objects.values().cloned().collect()
+        inner
+            .objects
+            .values()
+            .map(|o| BorrowedVideoObject(self.into(), o.get_id()))
+            .collect()
     }
 
-    pub fn access_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
+    pub fn access_objects(&self, q: &MatchQuery) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
         let objects = inner.objects.values().cloned().collect::<Vec<_>>();
         drop(inner);
         fiter_map_with_control_flow(objects, |o| q.execute_with_new_context(o))
+            .iter()
+            .map(|o| BorrowedVideoObject(self.into(), o.get_id()))
+            .collect()
     }
 
     pub fn get_json(&self) -> String {
@@ -387,20 +397,23 @@ impl VideoFrameProxy {
         serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
     }
 
-    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
+    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
         let resident_objects = inner.objects.clone();
         drop(inner);
 
         ids.iter()
-            .flat_map(|id| {
-                let o = resident_objects.get(id).cloned();
-                o
+            .filter_map(|id| {
+                if resident_objects.contains_key(id) {
+                    Some(BorrowedVideoObject(self.into(), *id))
+                } else {
+                    None
+                }
             })
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObjectProxy> {
+    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
         self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
         let mut inner = trace!(self.inner.write());
         let objects = mem::take(&mut inner.objects);
@@ -408,7 +421,14 @@ impl VideoFrameProxy {
         inner.objects = retained;
         drop(inner);
 
-        removed.into_values().map(|o| o.detached_copy()).collect()
+        removed
+            .into_values()
+            .map(|mut o| {
+                o.parent_id = None;
+                o.frame = None;
+                o
+            })
+            .collect()
     }
 
     pub fn object_exists(&self, id: i64) -> bool {
@@ -416,15 +436,19 @@ impl VideoFrameProxy {
         inner.objects.contains_key(&id)
     }
 
-    pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
+    pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObject> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
         self.delete_objects_by_ids(&ids)
     }
 
-    pub fn get_object(&self, id: i64) -> Option<VideoObjectProxy> {
+    pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
-        inner.objects.get(&id).cloned()
+        let obj = inner.objects.get(&id);
+        match obj {
+            Some(_) => Some(BorrowedVideoObject(self.into(), id)),
+            None => None,
+        }
     }
 
     fn fix_object_owned_frame(&self) {
@@ -450,8 +474,8 @@ impl VideoFrameProxy {
     pub fn set_parent(
         &self,
         q: &MatchQuery,
-        parent: &VideoObjectProxy,
-    ) -> anyhow::Result<Vec<VideoObjectProxy>> {
+        parent: &BorrowedVideoObject,
+    ) -> anyhow::Result<Vec<BorrowedVideoObject>> {
         let frame_opt = parent.get_frame();
         if let Some(frame) = frame_opt {
             if !Arc::ptr_eq(&frame.inner.0, &self.inner.0) {
@@ -487,7 +511,7 @@ impl VideoFrameProxy {
         Ok(())
     }
 
-    pub fn clear_parent(&self, q: &MatchQuery) -> Vec<VideoObjectProxy> {
+    pub fn clear_parent(&self, q: &MatchQuery) -> Vec<BorrowedVideoObject> {
         let mut objects = self.access_objects(q);
         objects.iter_mut().for_each(|o| {
             o.set_parent(None).unwrap();
@@ -495,7 +519,7 @@ impl VideoFrameProxy {
         objects
     }
 
-    pub fn get_children(&self, id: i64) -> Vec<VideoObjectProxy> {
+    pub fn get_children(&self, id: i64) -> Vec<BorrowedVideoObject> {
         self.access_objects(&MatchQuery::ParentId(IntExpression::EQ(id)))
     }
 
@@ -510,7 +534,7 @@ impl VideoFrameProxy {
         track_id: Option<i64>,
         track_box: Option<RBBox>,
         attributes: Vec<Attribute>,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<BorrowedVideoObject> {
         let id = self.get_max_object_id() + 1;
         if let Some(parent_id) = parent_id {
             if !self.object_exists(parent_id) {
@@ -520,29 +544,26 @@ impl VideoFrameProxy {
                 );
             }
         }
-        let object = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .id(id)
-                .detection_box(detection_box)
-                .parent_id(parent_id)
-                .attributes(attributes)
-                .confidence(confidence)
-                .namespace(namespace.to_string())
-                .label(label.to_string())
-                .track_id(track_id)
-                .track_box(track_box)
-                .build()
-                .unwrap(),
-        );
-        self.add_object(object, IdCollisionResolutionPolicy::Error)?;
-        Ok(id)
+        let object = VideoObjectBuilder::default()
+            .id(id)
+            .detection_box(detection_box)
+            .parent_id(parent_id)
+            .attributes(attributes)
+            .confidence(confidence)
+            .namespace(namespace.to_string())
+            .label(label.to_string())
+            .track_id(track_id)
+            .track_box(track_box)
+            .build()
+            .unwrap();
+        self.add_object(object, IdCollisionResolutionPolicy::Error)
     }
 
     pub fn add_object(
         &self,
-        mut object: VideoObjectProxy,
+        mut object: VideoObject,
         policy: IdCollisionResolutionPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<BorrowedVideoObject> {
         let parent_id_opt = object.get_parent_id();
         if let Some(parent_id) = parent_id_opt {
             if !self.object_exists(parent_id) {
@@ -560,33 +581,32 @@ impl VideoFrameProxy {
         let object_id = object.get_id();
         let new_id = self.get_max_object_id() + 1;
         let mut inner = trace!(self.inner.write());
-        if inner.objects.contains_key(&object_id) {
+        object.attach_to_video_frame(self.clone());
+        let assigned_object_id = if inner.objects.contains_key(&object_id) {
             match policy {
                 IdCollisionResolutionPolicy::GenerateNewId => {
-                    object.set_id(new_id)?;
-                    inner.objects.insert(new_id, object.clone());
+                    object.with_object_mut(|o| o.id = new_id);
+                    inner.objects.insert(new_id, object);
+                    new_id
                 }
                 IdCollisionResolutionPolicy::Overwrite => {
-                    let old = inner.objects.remove(&object_id).unwrap();
-                    let mut guard = trace!(old.0.write());
-                    guard.frame = None;
-                    guard.parent_id = None;
-                    inner.objects.insert(object_id, object.clone());
+                    inner.objects.remove(&object_id).unwrap();
+                    inner.objects.insert(object_id, object);
+                    object_id
                 }
                 IdCollisionResolutionPolicy::Error => {
                     bail!("Object with ID {} already exists in the frame.", object_id);
                 }
             }
         } else {
-            inner.objects.insert(object_id, object.clone());
-        }
+            inner.objects.insert(object_id, object);
+            object_id
+        };
 
-        object.attach_to_video_frame(self.clone());
-        let object_id = object.get_id();
-        if object_id > inner.max_object_id {
-            inner.max_object_id = object_id;
+        if assigned_object_id > inner.max_object_id {
+            inner.max_object_id = assigned_object_id;
         }
-        Ok(())
+        Ok(BorrowedVideoObject(self.into(), assigned_object_id))
     }
 
     pub fn get_max_object_id(&self) -> i64 {
@@ -611,10 +631,7 @@ impl VideoFrameProxy {
                     let object_id = self.get_max_object_id() + 1;
                     obj.id = object_id;
 
-                    self.add_object(
-                        VideoObjectProxy::from(obj),
-                        IdCollisionResolutionPolicy::GenerateNewId,
-                    )?;
+                    self.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId)?;
                     if let Some(p) = p {
                         self.set_parent_by_id(object_id, p)?;
                     }
@@ -634,10 +651,7 @@ impl VideoFrameProxy {
                     let object_id = self.get_max_object_id() + 1;
                     obj.id = object_id;
 
-                    self.add_object(
-                        VideoObjectProxy::from(obj),
-                        IdCollisionResolutionPolicy::GenerateNewId,
-                    )?;
+                    self.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId)?;
                     if let Some(p) = p {
                         self.set_parent_by_id(object_id, p)?;
                     }
@@ -650,10 +664,7 @@ impl VideoFrameProxy {
                     let object_id = self.get_max_object_id() + 1;
                     obj.id = object_id;
 
-                    self.add_object(
-                        VideoObjectProxy::from(obj),
-                        IdCollisionResolutionPolicy::GenerateNewId,
-                    )?;
+                    self.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId)?;
 
                     if let Some(p) = p {
                         self.set_parent_by_id(object_id, p)?;
@@ -947,42 +958,40 @@ impl VideoFrameProxy {
         frame.objects.clear();
     }
 
-    pub fn check_frame_fit(
-        objs: &Vec<VideoObjectProxy>,
-        max_width: f32,
-        max_height: f32,
-        bbox_type: VideoObjectBBoxType,
-    ) -> Result<(), i64> {
-        for obj in objs {
-            let bb_opt = match bbox_type {
-                VideoObjectBBoxType::Detection => Some(obj.get_detection_box()),
-                VideoObjectBBoxType::TrackingInfo => obj.get_track_box(),
-            };
-
-            bb_opt
-                .map(|bb| {
-                    let vertices = bb.get_vertices();
-                    for (x, y) in vertices {
-                        if x < 0.0 || x > max_width || y < 0.0 || y > max_height {
-                            return Err(obj.get_id());
-                        }
-                    }
-                    Ok(())
-                })
-                .unwrap_or(Ok(()))?;
-        }
-        Ok(())
-    }
+    // pub fn check_frame_fit(
+    //     objs: &Vec<BorrowedVideoObject>,
+    //     max_width: f32,
+    //     max_height: f32,
+    //     bbox_type: VideoObjectBBoxType,
+    // ) -> Result<(), i64> {
+    //     for obj in objs {
+    //         let bb_opt = match bbox_type {
+    //             VideoObjectBBoxType::Detection => Some(obj.get_detection_box()),
+    //             VideoObjectBBoxType::TrackingInfo => obj.get_track_box(),
+    //         };
+    //
+    //         bb_opt
+    //             .map(|bb| {
+    //                 let vertices = bb.get_vertices();
+    //                 for (x, y) in vertices {
+    //                     if x < 0.0 || x > max_width || y < 0.0 || y > max_height {
+    //                         return Err(obj.get_id());
+    //                     }
+    //                 }
+    //                 Ok(())
+    //             })
+    //             .unwrap_or(Ok(()))?;
+    //     }
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::draw::DrawLabelKind;
     use crate::match_query::{eq, one_of, MatchQuery};
-    use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::object::{
-        IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBBoxType, VideoObjectBuilder,
-        VideoObjectProxy,
+        IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
     };
     use crate::primitives::{RBBox, WithAttributes};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
@@ -995,6 +1004,13 @@ mod tests {
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
+    }
+
+    #[test]
+    fn test_get_parent() {
+        let frame = gen_frame();
+        let o = frame.get_object(1).unwrap();
+        let _ = o.get_parent().unwrap();
     }
 
     #[test]
@@ -1060,19 +1076,9 @@ mod tests {
 
     #[test]
     fn test_parent_not_added_to_frame() {
-        let parent = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .parent_id(None)
-                .namespace(s("some-model"))
-                .label(s("some-label"))
-                .id(155)
-                .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap())
-                .build()
-                .unwrap(),
-        );
         let frame = gen_frame();
         let mut obj = frame.get_object(0).unwrap();
-        assert!(obj.set_parent(Some(parent.get_id())).is_err());
+        assert!(obj.set_parent(Some(155)).is_err());
     }
 
     #[test]
@@ -1144,44 +1150,25 @@ mod tests {
     #[test]
     #[should_panic]
     fn attach_object_with_detached_parent() {
-        let p = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .id(11)
-                .namespace(s("random"))
-                .label(s("something"))
-                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
-                .build()
-                .unwrap(),
-        );
+        let p = VideoObjectBuilder::default()
+            .id(11)
+            .namespace(s("random"))
+            .label(s("something"))
+            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
+            .build()
+            .unwrap();
 
-        let o = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .id(23)
-                .namespace(s("random"))
-                .label(s("something"))
-                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
-                .parent_id(Some(p.get_id()))
-                .build()
-                .unwrap(),
-        );
+        let o = VideoObjectBuilder::default()
+            .id(23)
+            .namespace(s("random"))
+            .label(s("something"))
+            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
+            .parent_id(Some(p.get_id()))
+            .build()
+            .unwrap();
 
         let f = gen_frame();
         f.add_object(o, IdCollisionResolutionPolicy::Error).unwrap();
-    }
-
-    #[test]
-    fn set_detached_parent_as_parent() {
-        let f = gen_frame();
-        let o = VideoObjectProxy::from(
-            VideoObjectBuilder::default()
-                .id(11)
-                .namespace(s("random"))
-                .label(s("something"))
-                .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
-                .build()
-                .unwrap(),
-        );
-        assert!(f.set_parent(&MatchQuery::Id(eq(0)), &o).is_err());
     }
 
     #[test]
@@ -1196,42 +1183,15 @@ mod tests {
     fn normally_transfer_parent() -> anyhow::Result<()> {
         let f1 = gen_frame();
         let f2 = gen_frame();
-        let mut o = f1.delete_objects_by_ids(&[0]).pop().unwrap();
-        assert!(o.get_frame().is_none());
-        _ = o.set_id(33);
-        f2.add_object(o, IdCollisionResolutionPolicy::Error)
+        let mut object = f1.delete_objects_by_ids(&[0]).pop().unwrap();
+        assert!(object.get_frame().is_none());
+        _ = object.set_id(33);
+        f2.add_object(object, IdCollisionResolutionPolicy::Error)
             .unwrap();
-        o = f2.get_object(33).unwrap();
-        f2.set_parent(&MatchQuery::Id(eq(1)), &o)?;
+
+        let borrowed_object = f2.get_object(33).unwrap();
+        f2.set_parent(&MatchQuery::Id(eq(1)), &borrowed_object)?;
         Ok(())
-    }
-
-    #[test]
-    fn ensure_object_spoiled_when_frame_is_dropped() {
-        let frame = gen_frame();
-        let object = frame.get_object(0).unwrap();
-        assert!(
-            !object.is_spoiled(),
-            "Object is expected to be in a normal state."
-        );
-        drop(frame);
-        assert!(object.is_spoiled(), "Object is expected to be spoiled");
-    }
-
-    #[test]
-    #[should_panic(expected = "Only detached objects can be attached to a frame.")]
-    fn ensure_spoiled_object_cannot_be_added() {
-        let frame = gen_frame();
-        frame
-            .add_object(gen_object(111), IdCollisionResolutionPolicy::Error)
-            .unwrap();
-        let old_object = frame.get_object(111).unwrap();
-        drop(frame);
-        let frame = gen_frame();
-        assert!(old_object.is_spoiled(), "Object is expected to be spoiled");
-        frame
-            .add_object(old_object, IdCollisionResolutionPolicy::Error)
-            .unwrap();
     }
 
     #[test]
@@ -1268,7 +1228,7 @@ mod tests {
     #[test]
     fn test_create_object() -> anyhow::Result<()> {
         let frame = gen_empty_frame();
-        let id = frame.create_object(
+        let obj = frame.create_object(
             "some-namespace",
             "some-label",
             None,
@@ -1278,7 +1238,7 @@ mod tests {
             None,
             vec![],
         )?;
-        assert_eq!(id, 1);
+        assert_eq!(obj.get_id(), 1);
         Ok(())
     }
 
@@ -1332,25 +1292,5 @@ mod tests {
         assert_eq!(frame.get_max_object_id(), 0);
         let objs = frame.get_all_objects();
         assert_eq!(objs.len(), 1);
-    }
-
-    #[test]
-    fn check_frame_fit() {
-        let objects = vec![gen_object(0), gen_object(1), gen_object(2), gen_object(3)];
-        let res = VideoFrameProxy::check_frame_fit(
-            &objects,
-            100.0,
-            100.0,
-            VideoObjectBBoxType::Detection,
-        );
-        assert!(matches!(res, Err(0)));
-
-        let res = VideoFrameProxy::check_frame_fit(
-            &objects,
-            300.0,
-            300.0,
-            VideoObjectBBoxType::TrackingInfo,
-        );
-        assert!(res.is_ok());
     }
 }

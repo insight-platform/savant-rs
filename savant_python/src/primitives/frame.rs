@@ -5,7 +5,7 @@ use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::{RBBox, VideoObjectBBoxTransformation};
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::message::Message;
-use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::with_gil;
@@ -703,9 +703,14 @@ impl VideoFrame {
         release_gil!(no_gil, || self.0.set_draw_label(&q.0, draw_label.0))
     }
 
-    pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
+    pub fn add_object(
+        &self,
+        o: VideoObject,
+        policy: IdCollisionResolutionPolicy,
+    ) -> PyResult<BorrowedVideoObject> {
         self.0
             .add_object(o.0, policy.into())
+            .map(BorrowedVideoObject)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -720,7 +725,7 @@ impl VideoFrame {
         track_id: Option<i64>,
         track_box: Option<RBBox>,
         attributes: Option<Vec<Attribute>>,
-    ) -> PyResult<i64> {
+    ) -> PyResult<BorrowedVideoObject> {
         let native_attributes = match attributes {
             None => vec![],
             Some(_) => attributes
@@ -747,11 +752,12 @@ impl VideoFrame {
                 track_box.map(|b| b.0),
                 native_attributes,
             )
+            .map(BorrowedVideoObject)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn get_object(&self, id: i64) -> Option<VideoObject> {
-        self.0.get_object(id).map(VideoObject)
+    pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
+        self.0.get_object(id).map(BorrowedVideoObject)
     }
 
     #[pyo3(name = "access_objects")]
@@ -770,16 +776,23 @@ impl VideoFrame {
         self.0.access_objects_by_id(&ids).into()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
-        self.0.delete_objects_by_ids(&ids).into()
+    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
+        self.0
+            .delete_objects_by_ids(&ids)
+            .into_iter()
+            .map(VideoObject)
+            .collect()
     }
 
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
-    pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || VideoObjectsView::from(
-            self.0.delete_objects(&q.0)
-        ))
+    pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> Vec<VideoObject> {
+        release_gil!(no_gil, || self
+            .0
+            .delete_objects(&q.0)
+            .into_iter()
+            .map(VideoObject)
+            .collect())
     }
 
     #[pyo3(name = "set_parent")]
@@ -787,7 +800,7 @@ impl VideoFrame {
     pub fn set_parent_gil(
         &self,
         q: &MatchQuery,
-        parent: &VideoObject,
+        parent: &BorrowedVideoObject,
         no_gil: bool,
     ) -> PyResult<VideoObjectsView> {
         let fun = || {

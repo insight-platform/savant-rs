@@ -76,7 +76,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(draw_spec::draw_spec))?; // PYI
     m.add_wrapped(wrap_pymodule!(utils::utils))?; // PYI
     m.add_wrapped(wrap_pymodule!(utils::symbol_mapper_module))?;
-    m.add_wrapped(wrap_pymodule!(utils::udf_api_module))?;
     m.add_wrapped(wrap_pymodule!(utils::serialization_module))?;
     m.add_wrapped(wrap_pymodule!(match_query::match_query))?;
     m.add_wrapped(wrap_pymodule!(logging::logging))?; // PYI
@@ -99,8 +98,6 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
         "savant_rs.utils.symbol_mapper",
         m.getattr("symbol_mapper_module")?,
     )?;
-
-    sys_modules.set_item("savant_rs.utils.udf_api", m.getattr("udf_api_module")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.serialization",

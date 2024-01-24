@@ -4,14 +4,10 @@ use crate::eval_resolvers::{
     config_resolver_name, env_resolver_name, etcd_resolver_name, utility_resolver_name,
 };
 use crate::json_api::ToSerdeJsonValue;
-use crate::pluggable_udf_api::{
-    call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
-    is_plugin_function_registered, register_plugin_function, UserFunctionType,
-};
+
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
-use crate::primitives::object::{ObjectOperations, VideoObject, VideoObjectProxy};
+use crate::primitives::object::{BorrowedVideoObject, ObjectOperations, VideoObject};
 use crate::primitives::{BBoxMetricType, RBBox, WithAttributes};
-use parking_lot::RwLockReadGuard;
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
     partition_with_control_flow,
@@ -26,7 +22,7 @@ pub use crate::query_or as or;
 pub use crate::query_stop_if_false as stop_if_false;
 pub use crate::query_stop_if_true as stop_if_true;
 
-pub type VideoObjectsProxyBatch = HashMap<i64, Vec<VideoObjectProxy>>;
+pub type VideoObjectsProxyBatch = HashMap<i64, Vec<BorrowedVideoObject>>;
 
 pub trait ExecutableMatchQuery<T, C> {
     fn execute(&self, o: T, ctx: &mut C) -> ControlFlow<bool, bool>;
@@ -266,10 +262,8 @@ pub enum MatchQuery {
     FrameAttributesJMESQuery(String),
 }
 
-impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery {
-    fn execute(&self, o: &RwLockReadGuard<VideoObject>, _: &mut ()) -> ControlFlow<bool, bool> {
-        let detection_box = o.detection_box.clone();
-        let tracking_box = o.track_box.clone();
+impl ExecutableMatchQuery<&VideoObject, ()> for MatchQuery {
+    fn execute(&self, o: &VideoObject, _: &mut ()) -> ControlFlow<bool, bool> {
         match self {
             MatchQuery::Id(x) => x.execute(&o.id, &mut ()),
             MatchQuery::Namespace(x) => x.execute(&o.namespace, &mut ()),
@@ -285,31 +279,38 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
                 .as_ref()
                 .map(|id| x.execute(id, &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxXCenter(x) => tracking_box
+            MatchQuery::TrackBoxXCenter(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&t.get_xc(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxYCenter(x) => tracking_box
+            MatchQuery::TrackBoxYCenter(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&t.get_yc(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxWidth(x) => tracking_box
+            MatchQuery::TrackBoxWidth(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&t.get_width(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxHeight(x) => tracking_box
+            MatchQuery::TrackBoxHeight(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&t.get_height(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxWidthToHeightRatio(x) => tracking_box
+            MatchQuery::TrackBoxWidthToHeightRatio(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&t.get_width_to_height_ratio(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxArea(x) => tracking_box
+            MatchQuery::TrackBoxArea(x) => o
+                .track_box
                 .as_ref()
                 .map(|t| x.execute(&(t.get_width() * t.get_height()), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::TrackBoxAngle(x) => tracking_box
+            MatchQuery::TrackBoxAngle(x) => o
+                .track_box
                 .as_ref()
                 .and_then(|t| t.get_angle().map(|a| x.execute(&a, &mut ())))
                 .unwrap_or(ControlFlow::Continue(false)),
@@ -317,7 +318,8 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
                 other,
                 metric_type,
                 threshold_expr,
-            } => tracking_box
+            } => o
+                .track_box
                 .as_ref()
                 .map_or(ControlFlow::Continue(false), |t| {
                     let other = RBBox::new(other.0, other.1, other.2, other.3, other.4);
@@ -332,21 +334,22 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             // parent
             MatchQuery::ParentDefined => ControlFlow::Continue(o.parent_id.is_some()),
             // box
-            MatchQuery::BoxWidth(x) => x.execute(&detection_box.get_width(), &mut ()),
-            MatchQuery::BoxHeight(x) => x.execute(&detection_box.get_height(), &mut ()),
-            MatchQuery::BoxXCenter(x) => x.execute(&detection_box.get_xc(), &mut ()),
-            MatchQuery::BoxYCenter(x) => x.execute(&detection_box.get_yc(), &mut ()),
+            MatchQuery::BoxWidth(x) => x.execute(&o.detection_box.get_width(), &mut ()),
+            MatchQuery::BoxHeight(x) => x.execute(&o.detection_box.get_height(), &mut ()),
+            MatchQuery::BoxXCenter(x) => x.execute(&o.detection_box.get_xc(), &mut ()),
+            MatchQuery::BoxYCenter(x) => x.execute(&o.detection_box.get_yc(), &mut ()),
             MatchQuery::BoxAngleDefined => {
-                ControlFlow::Continue(detection_box.get_angle().is_some())
+                ControlFlow::Continue(o.detection_box.get_angle().is_some())
             }
             MatchQuery::BoxArea(x) => x.execute(
-                &(detection_box.get_width() * detection_box.get_height()),
+                &(o.detection_box.get_width() * o.detection_box.get_height()),
                 &mut (),
             ),
             MatchQuery::BoxWidthToHeightRatio(x) => {
-                x.execute(&detection_box.get_width_to_height_ratio(), &mut ())
+                x.execute(&o.detection_box.get_width_to_height_ratio(), &mut ())
             }
-            MatchQuery::BoxAngle(x) => detection_box
+            MatchQuery::BoxAngle(x) => o
+                .detection_box
                 .get_angle()
                 .map(|a| x.execute(&a, &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
@@ -357,9 +360,9 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
             } => {
                 let other = RBBox::new(bbox.0, bbox.1, bbox.2, bbox.3, bbox.4);
                 let metric = match metric_type {
-                    BBoxMetricType::IoU => detection_box.iou(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoSelf => detection_box.ios(&other).unwrap_or(0.0),
-                    BBoxMetricType::IoOther => detection_box.ioo(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoU => o.detection_box.iou(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoSelf => o.detection_box.ios(&other).unwrap_or(0.0),
+                    BBoxMetricType::IoOther => o.detection_box.ioo(&other).unwrap_or(0.0),
                 };
                 threshold_expr.execute(&metric, &mut ())
             }
@@ -390,8 +393,8 @@ impl ExecutableMatchQuery<&RwLockReadGuard<'_, VideoObject>, ()> for MatchQuery 
     }
 }
 
-impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
-    fn execute(&self, o: &VideoObjectProxy, ctx: &mut ObjectContext) -> ControlFlow<bool, bool> {
+impl ExecutableMatchQuery<&VideoObject, ObjectContext<'_>> for MatchQuery {
+    fn execute(&self, o: &VideoObject, ctx: &mut ObjectContext) -> ControlFlow<bool, bool> {
         match self {
             MatchQuery::Idle => ControlFlow::Continue(true),
             MatchQuery::And(v) => all_with_control_flow(v.iter(), |x| x.execute(o, ctx)),
@@ -419,11 +422,13 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 let expr = get_compiled_eval_expr(x).unwrap();
                 ControlFlow::Continue(expr.eval_boolean_with_context_mut(ctx).unwrap())
             }
-            MatchQuery::ParentId(x) => o
-                .get_parent()
-                .as_ref()
-                .map(|p| x.execute(&p.get_id(), &mut ()))
-                .unwrap_or(ControlFlow::Continue(false)),
+            MatchQuery::ParentId(x) => {
+                let res = o
+                    .get_parent_id()
+                    .map(|p| x.execute(&p, &mut ()))
+                    .unwrap_or(ControlFlow::Continue(false));
+                res
+            }
             MatchQuery::ParentNamespace(x) => o
                 .get_parent()
                 .as_ref()
@@ -434,29 +439,7 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 .as_ref()
                 .map(|p| x.execute(&p.get_label(), &mut ()))
                 .unwrap_or(ControlFlow::Continue(false)),
-            MatchQuery::UserDefinedObjectPredicate(plugin, function) => {
-                let udf_name = format!("{}@{}", plugin, function);
-                if !is_plugin_function_registered(&udf_name) {
-                    register_plugin_function(
-                        plugin,
-                        function,
-                        &UserFunctionType::ObjectPredicate,
-                        &udf_name,
-                    )
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "Failed to register '{}' plugin function. Error: {:?}",
-                            udf_name, e
-                        )
-                    });
-                }
-                ControlFlow::Continue(call_object_predicate(&udf_name, &[o]).unwrap_or_else(|e| {
-                    panic!(
-                        "Failed to call '{}' plugin function. Error: {:?}",
-                        udf_name, e
-                    )
-                }))
-            }
+
             MatchQuery::FrameSourceId(se) => {
                 let parent_frame_opt = o.get_frame();
                 if parent_frame_opt.is_none() {
@@ -564,16 +547,13 @@ impl ExecutableMatchQuery<&VideoObjectProxy, ObjectContext<'_>> for MatchQuery {
                 ControlFlow::Continue(res)
             }
 
-            _ => {
-                let inner = o.inner_read_lock();
-                self.execute(&inner, &mut ())
-            }
+            _ => o.with_object_ref(|o| self.execute(o, &mut ())),
         }
     }
 }
 
 impl MatchQuery {
-    pub fn execute_with_new_context(&self, o: &VideoObjectProxy) -> ControlFlow<bool, bool> {
+    pub fn execute_with_new_context(&self, o: &VideoObject) -> ControlFlow<bool, bool> {
         let mut context = ObjectContext::new(
             o,
             &[
@@ -607,34 +587,26 @@ impl MatchQuery {
     }
 }
 
-pub fn filter(objs: &[VideoObjectProxy], query: &MatchQuery) -> Vec<VideoObjectProxy> {
-    fiter_map_with_control_flow(objs.iter(), |o| query.execute_with_new_context(o))
-        .into_iter()
-        .cloned()
-        .collect()
+pub fn filter(objs: &[BorrowedVideoObject], query: &MatchQuery) -> Vec<BorrowedVideoObject> {
+    fiter_map_with_control_flow(objs.iter(), |o| {
+        o.with_object_ref(|o| query.execute_with_new_context(o))
+    })
+    .into_iter()
+    .cloned()
+    .collect()
 }
 
 pub fn partition(
-    objs: &[VideoObjectProxy],
+    objs: &[BorrowedVideoObject],
     query: &MatchQuery,
-) -> (Vec<VideoObjectProxy>, Vec<VideoObjectProxy>) {
-    let (a, b) = partition_with_control_flow(objs.iter(), |o| query.execute_with_new_context(o));
+) -> (Vec<BorrowedVideoObject>, Vec<BorrowedVideoObject>) {
+    let (a, b) = partition_with_control_flow(objs.iter(), |o| {
+        o.with_object_ref(|o| query.execute_with_new_context(o))
+    });
     (
         a.into_iter().cloned().collect(),
         b.into_iter().cloned().collect(),
     )
-}
-
-pub fn map_udf(objs: &[VideoObjectProxy], udf: &str) -> anyhow::Result<Vec<VideoObjectProxy>> {
-    objs.iter()
-        .map(|o| call_object_map_modifier(udf, o))
-        .collect()
-}
-
-pub fn foreach_udf(objs: &[VideoObjectProxy], udf: &str) -> Vec<anyhow::Result<()>> {
-    objs.iter()
-        .map(|o| call_object_inplace_modifier(udf, &[o]))
-        .collect()
 }
 
 pub trait EqOps<T: Clone, R> {
@@ -1243,86 +1215,83 @@ mod tests {
         let expr = AttributesEmpty;
         let mut o = gen_object(1);
         o.delete_attributes_with_ns("some");
-        // assert!(expr.execute_with_new_context(&o));
         assert!(matches!(
             expr.execute_with_new_context(&o),
             ControlFlow::Continue(true)
         ));
 
-        let mut object = gen_object(1);
+        let object = gen_object(1);
         let parent_object = gen_object(13);
         let f = gen_empty_frame();
-        f.add_object(parent_object.clone(), IdCollisionResolutionPolicy::Error)
+        let parent_object = f
+            .add_object(parent_object, IdCollisionResolutionPolicy::Error)
             .unwrap();
-        f.add_object(object.clone(), IdCollisionResolutionPolicy::Error)
+        let mut object = f
+            .add_object(object, IdCollisionResolutionPolicy::Error)
             .unwrap();
         assert!(object.set_parent(Some(parent_object.get_id())).is_ok());
 
         let expr = ParentId(eq(13));
-        //assert!(expr.execute_with_new_context(&object));
-        assert!(matches!(
-            expr.execute_with_new_context(&object),
-            ControlFlow::Continue(true)
-        ));
+        object.with_object_ref(|o| {
+            assert!(matches!(
+                expr.execute_with_new_context(o),
+                ControlFlow::Continue(true)
+            ))
+        });
 
         let expr = ParentNamespace(eq("peoplenet"));
-        // assert!(expr.execute_with_new_context(&object));
-        assert!(matches!(
-            expr.execute_with_new_context(&object),
-            ControlFlow::Continue(true)
-        ));
+        object.with_object_ref(|o| {
+            assert!(matches!(
+                expr.execute_with_new_context(o),
+                ControlFlow::Continue(true)
+            ));
+        });
 
         let expr = ParentLabel(eq("face"));
-        // assert!(expr.execute_with_new_context(&object));
-        assert!(matches!(
-            expr.execute_with_new_context(&object),
-            ControlFlow::Continue(true)
-        ));
+        object.with_object_ref(|o| {
+            assert!(matches!(
+                expr.execute_with_new_context(o),
+                ControlFlow::Continue(true)
+            ))
+        });
 
         let expr = BoxXCenter(gt(0.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxYCenter(gt(1.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxWidth(gt(5.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxHeight(gt(10.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxArea(gt(150.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxArea(lt(250.0));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxAngleDefined;
-        // assert!(!expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(false)
@@ -1330,21 +1299,18 @@ mod tests {
 
         let mut object = gen_object(1);
         object.set_detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, Some(30.0)));
-        // assert!(expr.execute_with_new_context(&object));
         assert!(matches!(
             expr.execute_with_new_context(&object),
             ControlFlow::Continue(true)
         ));
 
         let expr = BoxAngle(gt(20.0));
-        // assert!(expr.execute_with_new_context(&object));
         assert!(matches!(
             expr.execute_with_new_context(&object),
             ControlFlow::Continue(true)
         ));
 
         let expr = TrackDefined;
-        // assert!(expr.execute_with_new_context(&object));
         assert!(matches!(
             expr.execute_with_new_context(&object),
             ControlFlow::Continue(true)
@@ -1365,7 +1331,6 @@ mod tests {
         let expr = AttributesJMESQuery(s(
             "[? (hint == 'morphological-classifier') && (namespace == 'classifier')]",
         ));
-        // assert!(expr.execute_with_new_context(&object));
         assert!(matches!(
             expr.execute_with_new_context(&object),
             ControlFlow::Continue(true)
@@ -1374,7 +1339,6 @@ mod tests {
         let expr = AttributesJMESQuery(s(
             "[? (hint != 'morphological-classifier') && (namespace == 'classifier')]",
         ));
-        // assert!(!expr.execute_with_new_context(&object));
         assert!(matches!(
             expr.execute_with_new_context(&object),
             ControlFlow::Continue(false)
@@ -1384,21 +1348,18 @@ mod tests {
     #[test]
     fn test_logical_functions() {
         let expr = and![Id(eq(1)), Namespace(eq("peoplenet")), Confidence(gt(0.4))];
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = or![Id(eq(10)), Namespace(eq("peoplenet")),];
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
         ));
 
         let expr = not!(Id(eq(2)));
-        // assert!(expr.execute_with_new_context(&gen_object(1)));
         assert!(matches!(
             expr.execute_with_new_context(&gen_object(1)),
             ControlFlow::Continue(true)
@@ -1428,68 +1389,6 @@ mod tests {
         let (matching, others) = partition(&objects, &Id(eq(1)));
         assert_eq!(matching.len(), 1);
         assert_eq!(others.len(), 2);
-    }
-
-    #[test]
-    fn test_udf() {
-        let f = gen_frame();
-        let objects = f.access_objects(&UserDefinedObjectPredicate(
-            "../target/debug/libsavant_core.so".to_string(),
-            "unary_op_even".to_string(),
-        ));
-        assert_eq!(objects.len(), 2, "Only even objects must be returned");
-    }
-
-    #[test]
-    fn test_map_udf() {
-        let f = gen_frame();
-        let objects = f.access_objects(&Idle);
-
-        let udf_name = "sample.map_modifier";
-        if !is_plugin_function_registered(&udf_name) {
-            register_plugin_function(
-                "../target/debug/libsavant_core.so",
-                "map_modifier",
-                &UserFunctionType::ObjectMapModifier,
-                udf_name,
-            )
-            .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
-        }
-
-        let new_objects = map_udf(&objects, "sample.map_modifier").unwrap();
-        assert_eq!(new_objects.len(), 3);
-        for o in new_objects {
-            assert!(
-                o.get_label().starts_with("modified"),
-                "Label must be modified"
-            );
-        }
-    }
-
-    #[test]
-    fn test_foreach_udf() {
-        let f = gen_frame();
-        let objects = f.access_objects(&Idle);
-
-        let udf_name = "sample.inplace_modifier";
-        if !is_plugin_function_registered(&udf_name) {
-            register_plugin_function(
-                "../target/debug/libsavant_core.so",
-                "inplace_modifier",
-                &UserFunctionType::ObjectInplaceModifier,
-                udf_name,
-            )
-            .expect(format!("Failed to register '{}' plugin function", udf_name).as_str());
-        }
-
-        foreach_udf(&objects, "sample.inplace_modifier");
-
-        for o in objects {
-            assert!(
-                o.get_label().starts_with("modified"),
-                "Label must be modified"
-            );
-        }
     }
 
     #[test]

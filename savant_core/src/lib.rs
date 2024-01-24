@@ -1,5 +1,4 @@
 pub mod atomic_f32;
-pub mod cplugin;
 pub mod deadlock_detection;
 pub mod draw;
 pub mod eval_cache;
@@ -12,7 +11,6 @@ pub mod match_query;
 pub mod message;
 pub mod otlp;
 pub mod pipeline;
-pub mod pluggable_udf_api;
 pub mod primitives;
 pub mod protobuf;
 pub mod rwlock;

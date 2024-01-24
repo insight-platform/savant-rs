@@ -2,7 +2,7 @@ use crate::primitives::frame::{
     VideoFrame, VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
     VideoFrameTransformation,
 };
-use crate::primitives::object::{VideoObject, VideoObjectProxy};
+use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
 use crate::protobuf::generated;
 use crate::protobuf::serialize::Error;
@@ -83,7 +83,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let objects = value
             .objects
             .iter()
-            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, VideoObjectProxy::from(vo))))
+            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, VideoObject::from(vo))))
             .collect::<Result<HashMap<i64, _>, _>>()?;
 
         let object_parents = value

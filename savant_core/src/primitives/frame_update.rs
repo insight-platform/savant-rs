@@ -1,6 +1,5 @@
-use crate::primitives::object::{VideoObject, VideoObjectProxy};
+use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
-use crate::trace;
 
 #[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ObjectUpdatePolicy {
@@ -85,16 +84,12 @@ impl VideoFrameUpdate {
         self.object_attributes.push((object_id, attribute));
     }
 
-    pub fn add_object(&mut self, object: &VideoObjectProxy, parent_id: Option<i64>) {
-        self.objects
-            .push((trace!(object.0.read()).clone(), parent_id));
+    pub fn add_object(&mut self, object: VideoObject, parent_id: Option<i64>) {
+        self.objects.push((object, parent_id));
     }
 
-    pub fn get_objects(&self) -> Vec<(VideoObjectProxy, Option<i64>)> {
-        self.objects
-            .iter()
-            .map(|(o, p)| (VideoObjectProxy::from(o.clone()), *p))
-            .collect()
+    pub fn get_objects(&self) -> &Vec<(VideoObject, Option<i64>)> {
+        &self.objects
     }
 
     pub fn to_json(&self, pretty: bool) -> anyhow::Result<String> {
@@ -271,8 +266,8 @@ mod tests {
         let o1 = gen_object(1);
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o1, None);
-        upd.add_object(&o2, None);
+        upd.add_object(o1, None);
+        upd.add_object(o2, None);
         upd.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
@@ -287,7 +282,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o1, None);
+        upd.add_object(o1, None);
         upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
@@ -295,7 +290,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o2, None);
+        upd.add_object(o2, None);
         upd.set_object_policy(ObjectUpdatePolicy::ErrorIfLabelsCollide);
         let res = f.update_objects(&upd);
         assert!(res.is_err());
@@ -307,7 +302,7 @@ mod tests {
         let f = gen_frame();
         let o1 = gen_object(1);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o1, None);
+        upd.add_object(o1, None);
         upd.set_object_policy(ObjectUpdatePolicy::ReplaceSameLabelObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
@@ -316,7 +311,7 @@ mod tests {
 
         let o2 = gen_object(2);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o2, None);
+        upd.add_object(o2, None);
         upd.set_object_policy(ObjectUpdatePolicy::ReplaceSameLabelObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());
@@ -330,7 +325,7 @@ mod tests {
         let p = f.get_object(1).unwrap();
         let o = gen_object(100);
         let mut upd = VideoFrameUpdate::default();
-        upd.add_object(&o, Some(p.get_id()));
+        upd.add_object(o, Some(p.get_id()));
         upd.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
         let res = f.update_objects(&upd);
         assert!(res.is_ok());

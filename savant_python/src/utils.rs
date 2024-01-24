@@ -11,10 +11,6 @@ use crate::primitives::objects_view::VideoObjectBBoxType;
 use crate::test::utils::{gen_empty_frame, gen_frame};
 use crate::utils::byte_buffer::ByteBuffer;
 use crate::utils::otlp::{MaybeTelemetrySpan, PropagatedContext, TelemetrySpan};
-use crate::utils::pluggable_udf_api::{
-    call_object_inplace_modifier, call_object_map_modifier, call_object_predicate,
-    is_plugin_function_registered, register_plugin_function, UserFunctionType,
-};
 use crate::utils::symbol_mapper::RegistrationPolicy;
 use crate::utils::symbol_mapper::{
     build_model_object_key_py, clear_symbol_maps_py, dump_registry_gil, get_model_id_py,
@@ -27,7 +23,6 @@ use crate::{release_gil, with_gil};
 pub mod byte_buffer;
 pub mod eval_resolvers;
 pub mod otlp;
-pub mod pluggable_udf_api;
 pub mod python;
 pub mod symbol_mapper;
 
@@ -100,19 +95,6 @@ pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<RegistrationPolicy>()?;
 
-    Ok(())
-}
-
-#[pymodule]
-pub fn udf_api_module(_py: Python, m: &PyModule) -> PyResult<()> {
-    // UDF API
-    m.add_function(wrap_pyfunction!(register_plugin_function, m)?)?;
-    m.add_function(wrap_pyfunction!(is_plugin_function_registered, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_predicate, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_inplace_modifier, m)?)?;
-    m.add_function(wrap_pyfunction!(call_object_map_modifier, m)?)?;
-
-    m.add_class::<UserFunctionType>()?;
     Ok(())
 }
 

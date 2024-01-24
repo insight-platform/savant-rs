@@ -35,27 +35,10 @@ impl From<IdCollisionResolutionPolicy> for rust::IdCollisionResolutionPolicy {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct VideoObject(pub(crate) rust::VideoObjectProxy);
-
-impl ToSerdeJsonValue for VideoObject {
-    fn to_serde_json_value(&self) -> Value {
-        self.0.to_serde_json_value()
-    }
-}
+pub struct VideoObject(pub(crate) rust::VideoObject);
 
 #[pymethods]
 impl VideoObject {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
-
-    fn __repr__(&self) -> String {
-        format!("{:?}", &self.0)
-    }
-
-    fn __str__(&self) -> String {
-        self.__repr__()
-    }
-
     #[allow(clippy::too_many_arguments)]
     #[new]
     pub fn new(
@@ -68,16 +51,76 @@ impl VideoObject {
         track_id: Option<i64>,
         track_box: Option<RBBox>,
     ) -> Self {
-        Self(rust::VideoObjectProxy::new(
-            id,
-            namespace,
-            label,
-            detection_box.0,
-            attributes.into_iter().map(|a| a.0).collect(),
-            confidence,
-            track_id,
-            track_box.map(|b| b.0),
-        ))
+        let object = rust::VideoObjectBuilder::default()
+            .id(id)
+            .namespace(namespace.to_string())
+            .label(label.to_string())
+            .detection_box(detection_box.0)
+            .attributes(attributes.into_iter().map(|a| a.0).collect())
+            .confidence(confidence)
+            .track_id(track_id)
+            .track_box(track_box.map(|b| b.0))
+            .build()
+            .unwrap();
+
+        Self(object)
+    }
+
+    #[staticmethod]
+    #[pyo3(name = "from_protobuf")]
+    #[pyo3(signature = (bytes, no_gil = true))]
+    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+        let bytes = bytes.as_bytes();
+        release_gil!(no_gil, || {
+            let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObject>(bytes)
+                .map_err(|e| {
+                    PyRuntimeError::new_err(format!(
+                        "Failed to deserialize video object from protobuf: {}",
+                        e
+                    ))
+                })?;
+            Ok(Self(obj))
+        })
+    }
+
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes =
+            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video object to protobuf: {}",
+                    e
+                ))
+            })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+}
+
+#[pyclass]
+#[derive(Debug, Clone)]
+pub struct BorrowedVideoObject(pub(crate) rust::BorrowedVideoObject);
+
+impl ToSerdeJsonValue for BorrowedVideoObject {
+    fn to_serde_json_value(&self) -> Value {
+        self.0.to_serde_json_value()
+    }
+}
+
+#[pymethods]
+impl BorrowedVideoObject {
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", &self.0)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
     }
 
     /// Returns object's attributes as a list of tuples ``(namespace, name)``.
@@ -197,8 +240,8 @@ impl VideoObject {
     /// :py:class:`VideoObject`
     ///   A copy of the object.
     ///
-    pub fn detached_copy(&self) -> Self {
-        Self(self.0.detached_copy())
+    pub fn detached_copy(&self) -> VideoObject {
+        VideoObject(self.0.detached_copy())
     }
 
     /// Returns object's draw label if set. When used as setter, allows setting object's draw label.
@@ -300,16 +343,6 @@ impl VideoObject {
     ///
     pub fn is_detached(&self) -> bool {
         self.0.is_detached()
-    }
-
-    /// The object is spoiled if it is outlived the a belonging frame. Such state may cause it impossible to operate with certain object properties.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the object is spoiled, False otherwise.
-    pub fn is_spoiled(&self) -> bool {
-        self.0.is_spoiled()
     }
 
     /// Sets the attribute for the object. If the attribute is already set, it is replaced.
@@ -449,34 +482,16 @@ impl VideoObject {
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
     fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes = release_gil!(no_gil, || {
-            self.0.to_pb().map_err(|e| {
+        let bytes =
+            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
                 PyRuntimeError::new_err(format!(
                     "Failed to serialize video object to protobuf: {}",
                     e
                 ))
-            })
-        })?;
+            })?;
         with_gil!(|py| {
             let bytes = PyBytes::new(py, &bytes);
             Ok(PyObject::from(bytes))
-        })
-    }
-
-    #[staticmethod]
-    #[pyo3(name = "from_protobuf")]
-    #[pyo3(signature = (bytes, no_gil = true))]
-    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
-        let bytes = bytes.as_bytes();
-        release_gil!(no_gil, || {
-            let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObjectProxy>(bytes)
-                .map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Failed to deserialize video object from protobuf: {}",
-                        e
-                    ))
-                })?;
-            Ok(Self(obj))
         })
     }
 }

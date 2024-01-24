@@ -224,7 +224,7 @@ mod tests {
         let mut update = VideoFrameUpdate::default();
         update.add_frame_attribute(frame_attr.clone());
         update.add_object_attribute(obj.get_id(), frame_attr.clone());
-        update.add_object(&obj, None);
+        update.add_object(obj, None);
         update.set_object_policy(ObjectUpdatePolicy::AddForeignObjects);
         update.set_object_attribute_policy(AttributeUpdatePolicy::KeepOwn);
         update.set_frame_attribute_policy(AttributeUpdatePolicy::Error);

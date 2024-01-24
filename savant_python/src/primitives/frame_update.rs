@@ -221,8 +221,8 @@ impl VideoFrameUpdate {
     /// None
     ///
     #[pyo3(signature = (object, parent_id=None))]
-    pub fn add_object(&mut self, object: &VideoObject, parent_id: Option<i64>) {
-        self.0.add_object(&object.0, parent_id);
+    pub fn add_object(&mut self, object: VideoObject, parent_id: Option<i64>) {
+        self.0.add_object(object.0, parent_id);
     }
 
     /// Returns the list of objects
@@ -237,7 +237,7 @@ impl VideoFrameUpdate {
         self.0
             .get_objects()
             .into_iter()
-            .map(|(o, p)| (VideoObject(o), p))
+            .map(|(o, p)| (VideoObject(o.clone()), *p))
             .collect()
     }
 

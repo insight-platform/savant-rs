@@ -1,6 +1,6 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrame;
-use crate::primitives::object::VideoObject;
+use crate::primitives::object::BorrowedVideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
@@ -52,7 +52,10 @@ impl VideoFrameBatch {
                 .map(|(id, x)| {
                     (
                         id,
-                        x.into_iter().map(VideoObject).collect::<Vec<_>>().into(),
+                        x.into_iter()
+                            .map(BorrowedVideoObject)
+                            .collect::<Vec<_>>()
+                            .into(),
                     )
                 })
                 .collect::<HashMap<_, _>>()

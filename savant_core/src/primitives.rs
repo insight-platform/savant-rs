@@ -34,8 +34,10 @@ pub mod rust {
     pub use super::frame::VideoFrameTransformation;
     pub use super::frame_batch::VideoFrameBatch;
     pub use super::frame_update::VideoFrameUpdate;
+    pub use super::object::BorrowedVideoObject;
+    pub use super::object::VideoObject;
     pub use super::object::VideoObjectBBoxTransformation;
-    pub use super::object::VideoObjectProxy;
+    pub use super::object::VideoObjectBuilder;
     pub use super::point::Point;
     pub use super::polygonal_area::PolygonalArea;
     pub use super::segment::Intersection;
