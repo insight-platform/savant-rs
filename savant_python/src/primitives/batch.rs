@@ -42,7 +42,7 @@ impl VideoFrameBatch {
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(
         &self,
-        q: MatchQuery,
+        q: &MatchQuery,
         no_gil: bool,
     ) -> HashMap<i64, VideoObjectsView> {
         release_gil!(no_gil, || {
@@ -64,7 +64,7 @@ impl VideoFrameBatch {
 
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
-    pub fn delete_objects_gil(&mut self, q: MatchQuery, no_gil: bool) {
+    pub fn delete_objects_gil(&mut self, q: &MatchQuery, no_gil: bool) {
         release_gil!(no_gil, || self.0.delete_objects(&q.0))
     }
 

@@ -136,7 +136,7 @@ impl VideoFrameContent {
             rust::VideoFrameContent::Internal(data) => {
                 with_gil!(|py| {
                     let bytes = PyBytes::new_with(py, data.len(), |b: &mut [u8]| {
-                        b.copy_from_slice(&data);
+                        b.copy_from_slice(data);
                         Ok(())
                     })?;
                     Ok(PyObject::from(bytes))

@@ -636,35 +636,21 @@ class IdCollisionResolutionPolicy(Enum):
 
 
 class BorrowedVideoObject:
-    pass
-
-class VideoObject:
-    id: int
+    confidence: Optional[float]
     namespace: str
     label: str
-    confidence: Optional[float]
+    draw_label: Optional[str]
     detection_box: RBBox
-    track_box: Optional[RBBox]
     track_id: Optional[int]
-    draw_label: str
-
-    def __init__(self,
-                 id: int,
-                 namespace: str,
-                 label: str,
-                 detection_box: RBBox,
-                 attributes: list[Attribute],
-                 confidence: Optional[float],
-                 track_id: Optional[int],
-                 track_box: Optional[RBBox],
-                 ): ...
+    track_box: Optional[RBBox]
 
     @property
     def attributes(self) -> list[tuple[str, str]]: ...
 
-    def children_ref(self) -> VideoObjectsView: ...
-
     def clear_attributes(self): ...
+
+    @property
+    def id(self) -> int: ...
 
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
@@ -703,12 +689,6 @@ class VideoObject:
                                 hint: Optional[str],
                                 values: Optional[list[AttributeValue]]): ...
 
-    def get_frame(self) -> Optional[VideoFrame]: ...
-
-    def is_detached(self) -> bool: ...
-
-    def is_spoiled(self) -> bool: ...
-
     def set_track_info(self, track_id: int, track_box: RBBox): ...
 
     def clear_track_info(self): ...
@@ -718,11 +698,110 @@ class VideoObject:
 
     def to_protobuf(self, no_gil: bool = True) -> bytes: ...
 
+
+class VideoObject:
+    id: int
+    namespace: str
+    label: str
+    confidence: Optional[float]
+    detection_box: RBBox
+    track_box: Optional[RBBox]
+    track_id: Optional[int]
+    draw_label: str
+
+    def __init__(self,
+                 id: int,
+                 namespace: str,
+                 label: str,
+                 detection_box: RBBox,
+                 attributes: list[Attribute],
+                 confidence: Optional[float],
+                 track_id: Optional[int],
+                 track_box: Optional[RBBox],
+                 ): ...
+
+    def to_protobuf(self, no_gil: bool = True) -> bytes: ...
+
     @classmethod
     def from_protobuf(cls,
                       protobuf: bytes,
                       no_gil: bool = True) -> VideoObject: ...
 
+    @property
+    def namespace(self) -> str: ...
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def detection_box(self) -> RBBox: ...
+
+    @property
+    def track_id(self) -> Optional[int]: ...
+
+    @property
+    def track_box(self) -> Optional[RBBox]: ...
+
+    @property
+    def confidence(self) -> Optional[float]: ...
+
+    @property
+    def attributes(self) -> list[tuple[str, str]]: ...
+
+    def get_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
+
+    def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
+
+    def set_persistent_attribute(self,
+                                 namespace: str,
+                                 name: str,
+                                 is_hidden: bool,
+                                 hint: Optional[str],
+                                 values: Optional[list[AttributeValue]]): ...
+
+    def set_temporary_attribute(self,
+                                namespace: str,
+                                name: str,
+                                is_hidden: bool,
+                                hint: Optional[str],
+                                values: Optional[list[AttributeValue]]): ...
+
+
+class VideoObjectBBoxType(Enum):
+    Detection: ...
+    TrackingInfo: ...
+
 
 class VideoObjectsView:
-    pass
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, item) -> BorrowedVideoObject: ...
+
+    def memory_handle(self) -> int: ...
+
+    @property
+    def ids(self) -> list[int]: ...
+
+    @property
+    def track_ids(self) -> list[int]: ...
+
+    @property
+    def sorted_by_id(self) -> list[BorrowedVideoObject]: ...
+
+
+class QueryFunctions:
+    @classmethod
+    def filter(cls,
+               v: VideoObjectsView,
+               q: MatchQuery,
+               no_gil: bool = True) -> VideoObjectsView: ...
+
+    @classmethod
+    def partition(cls,
+                  v: VideoObjectsView,
+                  q: MatchQuery,
+                  no_gil: bool = True) -> tuple[VideoObjectsView, VideoObjectsView]: ...
+

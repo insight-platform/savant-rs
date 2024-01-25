@@ -65,6 +65,22 @@ impl VideoObject {
         Self(object)
     }
 
+    #[pyo3(name = "to_protobuf")]
+    #[pyo3(signature = (no_gil = true))]
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
+        let bytes =
+            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
+                PyRuntimeError::new_err(format!(
+                    "Failed to serialize video object to protobuf: {}",
+                    e
+                ))
+            })?;
+        with_gil!(|py| {
+            let bytes = PyBytes::new(py, &bytes);
+            Ok(PyObject::from(bytes))
+        })
+    }
+
     #[staticmethod]
     #[pyo3(name = "from_protobuf")]
     #[pyo3(signature = (bytes, no_gil = true))]
@@ -79,22 +95,6 @@ impl VideoObject {
                     ))
                 })?;
             Ok(Self(obj))
-        })
-    }
-
-    #[pyo3(name = "to_protobuf")]
-    #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes =
-            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "Failed to serialize video object to protobuf: {}",
-                    e
-                ))
-            })?;
-        with_gil!(|py| {
-            let bytes = PyBytes::new(py, &bytes);
-            Ok(PyObject::from(bytes))
         })
     }
 
@@ -114,13 +114,13 @@ impl VideoObject {
     }
 
     #[getter]
-    fn get_track_id(&self) -> Option<i64> {
-        self.0.get_track_id()
+    fn get_detection_box(&self) -> RBBox {
+        RBBox(self.0.get_detection_box())
     }
 
     #[getter]
-    fn get_detection_box(&self) -> RBBox {
-        RBBox(self.0.get_detection_box())
+    fn get_track_id(&self) -> Option<i64> {
+        self.0.get_track_id()
     }
 
     #[getter]
@@ -144,6 +144,40 @@ impl VideoObject {
 
     fn set_attribute(&mut self, attribute: &Attribute) -> Option<Attribute> {
         self.0.set_attribute(attribute.0.clone()).map(Attribute)
+    }
+
+    fn set_persistent_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        is_hidden: bool,
+        hint: Option<String>,
+        values: Option<Vec<AttributeValue>>,
+    ) {
+        let values = match values {
+            Some(values) => values.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+            None => vec![],
+        };
+        let hint = hint.as_deref();
+        self.0
+            .set_persistent_attribute(namespace, name, &hint, is_hidden, values)
+    }
+
+    fn set_temporary_attribute(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        is_hidden: bool,
+        hint: Option<String>,
+        values: Option<Vec<AttributeValue>>,
+    ) {
+        let values = match values {
+            Some(values) => values.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+            None => vec![],
+        };
+        let hint = hint.as_deref();
+        self.0
+            .set_temporary_attribute(namespace, name, &hint, is_hidden, values)
     }
 }
 
@@ -186,6 +220,18 @@ impl BorrowedVideoObject {
     ///
     pub fn clear_attributes(&mut self) {
         self.0.clear_attributes()
+    }
+
+    /// Returns the object's id. The setter causes ``RuntimeError`` when the object is attached to a frame.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   Object's id.
+    ///
+    #[getter]
+    pub fn get_id(&self) -> i64 {
+        self.0.get_id()
     }
 
     /// Returns object confidence if set. When used as setter, allows setting object's confidence.
@@ -338,18 +384,6 @@ impl BorrowedVideoObject {
     ///
     pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
-    }
-
-    /// Returns the object's id. The setter causes ``RuntimeError`` when the object is attached to a frame.
-    ///
-    /// Returns
-    /// -------
-    /// int
-    ///   Object's id.
-    ///
-    #[getter]
-    pub fn get_id(&self) -> i64 {
-        self.0.get_id()
     }
 
     /// Sets the attribute for the object. If the attribute is already set, it is replaced.

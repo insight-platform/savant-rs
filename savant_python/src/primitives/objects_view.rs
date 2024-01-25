@@ -108,22 +108,20 @@ impl VideoObjectsView {
     }
 
     #[getter]
-    #[pyo3(name = "ids")]
-    fn ids_py(&self) -> Vec<i64> {
+    fn ids(&self) -> Vec<i64> {
         self.inner.iter().map(|x| x.get_id()).collect()
     }
 
     #[getter]
-    #[pyo3(name = "track_ids")]
-    pub fn track_ids_py(&self) -> Vec<Option<i64>> {
+    pub fn track_ids(&self) -> Vec<Option<i64>> {
         self.inner
             .iter()
             .map(|o| o.get_track_id())
             .collect::<Vec<_>>()
     }
 
-    #[pyo3(name = "sorted_by_id")]
-    pub fn sorted_by_id_py(&self) -> VideoObjectsView {
+    #[getter]
+    pub fn sorted_by_id(&self) -> VideoObjectsView {
         let mut objects = self.inner.as_ref().clone();
         objects.sort_by_key(|o| o.get_id());
         VideoObjectsView {
@@ -142,7 +140,7 @@ impl QueryFunctions {
     #[pyo3(name = "filter")]
     #[pyo3(signature = (v, q, no_gil = true))]
     pub(crate) fn filter_gil(
-        v: VideoObjectsView,
+        v: &VideoObjectsView,
         q: &MatchQuery,
         no_gil: bool,
     ) -> VideoObjectsView {
@@ -176,7 +174,7 @@ impl QueryFunctions {
     #[pyo3(name = "partition")]
     #[pyo3(signature = (v, q, no_gil = true))]
     pub(crate) fn partition_gil(
-        v: VideoObjectsView,
+        v: &VideoObjectsView,
         q: &MatchQuery,
         no_gil: bool,
     ) -> (VideoObjectsView, VideoObjectsView) {

@@ -77,14 +77,14 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrameBatch>()?; // PYI
     m.add_class::<VideoFrameContent>()?; // PYI
     m.add_class::<VideoFrameTranscodingMethod>()?; // PYI
-    m.add_class::<VideoFrameUpdate>()?;
+    m.add_class::<VideoFrameUpdate>()?; // PYI
     m.add_class::<VideoFrameTransformation>()?; // PYI
 
-    m.add_class::<BorrowedVideoObject>()?;
-    m.add_class::<VideoObject>()?;
-    m.add_class::<VideoObjectsView>()?;
+    m.add_class::<BorrowedVideoObject>()?; // PYI
+    m.add_class::<VideoObject>()?; // PYI
+    m.add_class::<VideoObjectsView>()?; // PYI
 
-    m.add_class::<IdCollisionResolutionPolicy>()?;
+    m.add_class::<IdCollisionResolutionPolicy>()?; // PYI
 
     Ok(())
 }
