@@ -321,7 +321,7 @@ mod tests {
     use crate::message::{load_message, save_message, validate_seq_id, Message};
     use crate::primitives::eos::EndOfStream;
     use crate::primitives::frame_batch::VideoFrameBatch;
-    use crate::primitives::object::ObjectOperations;
+    use crate::primitives::object::private::SealedWithFrame;
     use crate::primitives::shutdown::Shutdown;
     use crate::primitives::userdata::UserData;
     use crate::primitives::WithAttributes;

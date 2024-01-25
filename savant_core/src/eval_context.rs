@@ -4,6 +4,7 @@ use hashbrown::HashMap;
 use std::cell::OnceCell;
 
 use crate::eval_resolvers::EvalWithResolvers;
+use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
 use evalexpr::Value;
 
 const DEFAULT_GLOBAL_CONTEXT_VAR_NUM: usize = 16;

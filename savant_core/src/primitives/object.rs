@@ -4,8 +4,10 @@ use std::fmt::Debug;
 
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::frame::{BelongingVideoFrame, VideoFrameProxy};
+use crate::primitives::object::private::{
+    SealedObjectOperations, SealedWithFrame, SealedWithParent,
+};
 use crate::primitives::{Attribute, RBBox, WithAttributes};
-use crate::trace;
 
 use super::bbox::BBOX_UNDEFINED;
 
@@ -98,6 +100,16 @@ impl Default for VideoObject {
     }
 }
 
+impl VideoObject {
+    pub fn set_id(&mut self, id: i64) -> anyhow::Result<()> {
+        if self.get_frame().is_some() {
+            bail!("When object is attached to a frame, it is impossible to change its ID",);
+        }
+        self.with_object_mut(|o| o.id = id);
+        Ok(())
+    }
+}
+
 impl ToSerdeJsonValue for VideoObject {
     fn to_serde_json_value(&self) -> Value {
         serde_json::json!(self)
@@ -145,7 +157,7 @@ impl WithAttributes for BorrowedVideoObject {
         let object = frame
             .objects
             .get(&self.1)
-            .expect(format!("Object {} not found in the frame {}", self.1, frame.uuid).as_str());
+            .unwrap_or_else(|| panic!("Object {} not found in the frame {}", self.1, frame.uuid));
         f(&object.attributes)
     }
 
@@ -159,12 +171,116 @@ impl WithAttributes for BorrowedVideoObject {
         let object = frame
             .objects
             .get_mut(&self.1)
-            .expect(format!("Object {} not found in the frame {}", self.1, uuid).as_str());
+            .unwrap_or_else(|| panic!("Object {} not found in the frame {}", self.1, uuid));
         f(&mut object.attributes)
     }
 }
 
-pub trait ObjectOperations
+pub(crate) mod private {
+    use crate::primitives::frame::VideoFrameProxy;
+    use crate::primitives::object::{BorrowedVideoObject, ObjectAccess, ObjectOperations};
+    use crate::trace;
+    use anyhow::bail;
+
+    pub trait SealedWithFrame: ObjectAccess
+    where
+        Self: Sized,
+    {
+        fn get_frame(&self) -> Option<VideoFrameProxy> {
+            self.with_object_ref(|o| o.frame.as_ref().map(|f| f.into()))
+        }
+    }
+
+    pub trait SealedObjectOperations
+    where
+        Self: Sized + ObjectAccess + SealedWithFrame,
+    {
+        fn attach_to_video_frame(&mut self, frame: VideoFrameProxy) {
+            self.with_object_mut(|o| o.frame = Some(frame.into()));
+        }
+
+        fn get_parent_frame_source(&self) -> Option<String> {
+            self.with_object_ref(|o| {
+                o.frame.as_ref().and_then(|f| {
+                    f.inner
+                        .upgrade()
+                        .map(|f| trace!(f.read_recursive()).source_id.clone())
+                })
+            })
+        }
+    }
+
+    pub trait SealedWithParent: SealedWithFrame + ObjectOperations {
+        fn get_parent(&self) -> Option<BorrowedVideoObject> {
+            let frame = self.get_frame();
+            let id = self.get_parent_id()?;
+            match frame {
+                Some(f) => f.get_object(id),
+                None => None,
+            }
+        }
+        fn set_parent(&mut self, parent_opt: Option<i64>) -> anyhow::Result<()> {
+            if let Some(parent) = parent_opt {
+                if self.get_frame().is_none() {
+                    bail!("Cannot set parent to the object detached from a frame");
+                }
+                if self.get_id() == parent {
+                    bail!("Cannot set parent to itself");
+                }
+                let owning_frame =
+                    self.get_frame().ok_or(anyhow::anyhow!(
+                "The object {:?} is not assigned to a frame, you cannot assign parent to it", self
+            ))?;
+
+                if !owning_frame.object_exists(parent) {
+                    bail!("Cannot set parent to the object which cannot be found in the frame");
+                }
+
+                // detect loops
+                let mut id_chain = vec![self.get_id(), parent];
+                loop {
+                    let parent_obj = owning_frame.get_object(*id_chain.last().unwrap()).unwrap();
+                    let his_parent_opt = parent_obj.get_parent_id();
+                    if let Some(his_parent) = his_parent_opt {
+                        if id_chain.contains(&his_parent) {
+                            bail!(
+                            "A parent-Child Loop detected. Caused by setting a parent with ID={} to an object with ID={}, Loop goes through IDs: {:?}",
+                            parent,
+                            self.get_id(),
+                            id_chain
+                        );
+                        }
+                        id_chain.push(his_parent);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            self.with_object_mut(|o| o.parent_id = parent_opt);
+            Ok(())
+        }
+
+        fn get_children(&self) -> Vec<BorrowedVideoObject> {
+            let frame = self.get_frame();
+            let id = self.get_id();
+            match frame {
+                Some(f) => f.get_children(id),
+                None => Vec::new(),
+            }
+        }
+    }
+}
+
+impl SealedObjectOperations for VideoObject {}
+impl SealedObjectOperations for BorrowedVideoObject {}
+
+impl SealedWithFrame for VideoObject {}
+impl SealedWithFrame for BorrowedVideoObject {}
+
+impl SealedWithParent for VideoObject {}
+impl SealedWithParent for BorrowedVideoObject {}
+
+pub trait ObjectAccess
 where
     Self: Sized + Debug + Clone,
 {
@@ -175,91 +291,18 @@ where
     fn with_object_mut<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut VideoObject) -> R;
+}
 
-    fn get_parent_frame_source(&self) -> Option<String> {
-        self.with_object_ref(|o| {
-            o.frame.as_ref().and_then(|f| {
-                f.inner
-                    .upgrade()
-                    .map(|f| trace!(f.read_recursive()).source_id.clone())
-            })
-        })
-    }
-
+pub trait ObjectOperations: ObjectAccess
+where
+    Self: Sized + Debug + Clone,
+{
     fn get_parent_id(&self) -> Option<i64> {
         self.with_object_ref(|o| o.parent_id)
     }
 
-    fn get_frame(&self) -> Option<VideoFrameProxy> {
-        self.with_object_ref(|o| o.frame.as_ref().map(|f| f.into()))
-    }
-
     fn get_id(&self) -> i64 {
         self.with_object_ref(|o| o.id)
-    }
-
-    fn is_detached(&self) -> bool {
-        self.with_object_ref(|o| o.frame.is_none())
-    }
-
-    fn set_parent(&mut self, parent_opt: Option<i64>) -> anyhow::Result<()> {
-        if let Some(parent) = parent_opt {
-            if self.get_frame().is_none() {
-                bail!("Cannot set parent to the object detached from a frame");
-            }
-            if self.get_id() == parent {
-                bail!("Cannot set parent to itself");
-            }
-            let owning_frame =
-                self.get_frame()
-                    .ok_or(anyhow::anyhow!(
-                "The object {:?} is not assigned to a frame, you cannot assign parent to it", self
-            ))?;
-
-            if !owning_frame.object_exists(parent) {
-                bail!("Cannot set parent to the object which cannot be found in the frame");
-            }
-
-            // detect loops
-            let mut id_chain = vec![self.get_id(), parent];
-            loop {
-                let parent_obj = owning_frame.get_object(*id_chain.last().unwrap()).unwrap();
-                let his_parent_opt = parent_obj.get_parent_id();
-                if let Some(his_parent) = his_parent_opt {
-                    if id_chain.contains(&his_parent) {
-                        bail!(
-                            "A parent-Child Loop detected. Caused by setting a parent with ID={} to an object with ID={}, Loop goes through IDs: {:?}",
-                            parent,
-                            self.get_id(),
-                            id_chain
-                        );
-                    }
-                    id_chain.push(his_parent);
-                } else {
-                    break;
-                }
-            }
-        }
-        self.with_object_mut(|o| o.parent_id = parent_opt);
-        Ok(())
-    }
-
-    fn get_parent(&self) -> Option<BorrowedVideoObject> {
-        let frame = self.get_frame();
-        let id = self.get_parent_id()?;
-        match frame {
-            Some(f) => f.get_object(id),
-            None => None,
-        }
-    }
-
-    fn get_children(&self) -> Vec<BorrowedVideoObject> {
-        let frame = self.get_frame();
-        let id = self.get_id();
-        match frame {
-            Some(f) => f.get_children(id),
-            None => Vec::new(),
-        }
     }
 
     fn transform_geometry(&mut self, ops: &Vec<VideoObjectBBoxTransformation>) {
@@ -358,14 +401,6 @@ where
         self.with_object_mut(|o| o.draw_label = draw_label);
     }
 
-    fn set_id(&mut self, id: i64) -> anyhow::Result<()> {
-        if self.get_frame().is_some() {
-            bail!("When object is attached to a frame, it is impossible to change its ID",);
-        }
-        self.with_object_mut(|o| o.id = id);
-        Ok(())
-    }
-
     fn set_namespace(&mut self, namespace: &str) {
         self.with_object_mut(|o| o.namespace = namespace.to_string());
     }
@@ -388,24 +423,10 @@ where
     }
 }
 
-pub(crate) mod private {
-    use crate::primitives::frame::VideoFrameProxy;
-    use crate::primitives::object::ObjectOperations;
+impl ObjectOperations for VideoObject {}
+impl ObjectOperations for BorrowedVideoObject {}
 
-    pub trait SealedObjectOperations
-    where
-        Self: Sized + ObjectOperations,
-    {
-        fn attach_to_video_frame(&mut self, frame: VideoFrameProxy) {
-            self.with_object_mut(|o| o.frame = Some(frame.into()));
-        }
-    }
-}
-
-impl private::SealedObjectOperations for VideoObject {}
-impl private::SealedObjectOperations for BorrowedVideoObject {}
-
-impl ObjectOperations for VideoObject {
+impl ObjectAccess for VideoObject {
     fn with_object_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VideoObject) -> R,
@@ -421,7 +442,7 @@ impl ObjectOperations for VideoObject {
     }
 }
 
-impl ObjectOperations for BorrowedVideoObject {
+impl ObjectAccess for BorrowedVideoObject {
     fn with_object_ref<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VideoObject) -> R,
@@ -431,8 +452,8 @@ impl ObjectOperations for BorrowedVideoObject {
         let object = frame
             .objects
             .get(&self.1)
-            .expect(format!("Object {} not found in the frame {}", self.1, frame.uuid).as_str());
-        f(&object)
+            .unwrap_or_else(|| panic!("Object {} not found in the frame {}", self.1, frame.uuid));
+        f(object)
     }
 
     fn with_object_mut<F, R>(&mut self, f: F) -> R
@@ -445,7 +466,7 @@ impl ObjectOperations for BorrowedVideoObject {
         let object = frame
             .objects
             .get_mut(&self.1)
-            .expect(format!("Object {} not found in the frame {}", self.1, uuid).as_str());
+            .unwrap_or_else(|| panic!("Object {} not found in the frame {}", self.1, uuid));
         f(object)
     }
 }
@@ -453,7 +474,7 @@ impl ObjectOperations for BorrowedVideoObject {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute_value::AttributeValue;
-    use crate::primitives::object::private::SealedObjectOperations;
+    use crate::primitives::object::private::{SealedObjectOperations, SealedWithParent};
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBBoxTransformation,
         VideoObjectBuilder,
@@ -566,12 +587,11 @@ mod tests {
     #[test]
     fn reassign_clean_copy_from_dropped_to_new_frame() {
         let f = gen_frame();
-        let o = f.get_object(0).unwrap();
+        let o = f.get_object(1).unwrap();
         let copy = o.detached_copy();
         drop(f);
         let f = gen_frame();
-        f.delete_objects_by_ids(&[0]);
-        assert!(copy.is_detached(), "Clean copy is not attached");
+        f.delete_objects_by_ids(&[1]);
         assert!(
             copy.get_parent().is_none(),
             "Clean copy must have no parent"

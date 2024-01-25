@@ -24,8 +24,7 @@ pub mod shutdown;
 pub mod user_data;
 
 use crate::primitives::frame::{
-    BelongingVideoFrame, VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod,
-    VideoFrameTransformation,
+    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 
 use crate::primitives::attribute::Attribute;
@@ -37,7 +36,7 @@ use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy};
+use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::point::Point;
 use crate::primitives::polygonal_area::PolygonalArea;
@@ -74,7 +73,6 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Shutdown>()?; // PYI
     m.add_class::<UserData>()?; // PYI
 
-    m.add_class::<BelongingVideoFrame>()?; // PYI
     m.add_class::<VideoFrame>()?; // PYI
     m.add_class::<VideoFrameBatch>()?; // PYI
     m.add_class::<VideoFrameContent>()?; // PYI
@@ -83,6 +81,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<VideoFrameTransformation>()?; // PYI
 
     m.add_class::<BorrowedVideoObject>()?;
+    m.add_class::<VideoObject>()?;
     m.add_class::<VideoObjectsView>()?;
 
     m.add_class::<IdCollisionResolutionPolicy>()?;

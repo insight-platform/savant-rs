@@ -83,7 +83,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let objects = value
             .objects
             .iter()
-            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, VideoObject::from(vo))))
+            .map(|o| VideoObject::try_from(o).map(|vo| (vo.id, vo)))
             .collect::<Result<HashMap<i64, _>, _>>()?;
 
         let object_parents = value

@@ -3,9 +3,11 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
 use crate::primitives::frame_update::VideoFrameUpdate;
-use crate::primitives::object::private::SealedObjectOperations;
+use crate::primitives::object::private::{
+    SealedObjectOperations, SealedWithFrame, SealedWithParent,
+};
 use crate::primitives::object::{
-    BorrowedVideoObject, IdCollisionResolutionPolicy, ObjectOperations, VideoObject,
+    BorrowedVideoObject, IdCollisionResolutionPolicy, ObjectAccess, ObjectOperations, VideoObject,
     VideoObjectBBoxTransformation, VideoObjectBuilder,
 };
 use crate::primitives::{Attribute, RBBox, WithAttributes};
@@ -445,10 +447,7 @@ impl VideoFrameProxy {
     pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
         let obj = inner.objects.get(&id);
-        match obj {
-            Some(_) => Some(BorrowedVideoObject(self.into(), id)),
-            None => None,
-        }
+        obj.map(|_| BorrowedVideoObject(self.into(), id))
     }
 
     fn fix_object_owned_frame(&self) {
@@ -572,10 +571,6 @@ impl VideoFrameProxy {
                     parent_id
                 );
             }
-        }
-
-        if !object.is_detached() {
-            bail!("Only detached objects can be attached to a frame.");
         }
 
         let object_id = object.get_id();
@@ -990,6 +985,7 @@ impl VideoFrameProxy {
 mod tests {
     use crate::draw::DrawLabelKind;
     use crate::match_query::{eq, one_of, MatchQuery};
+    use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
     };
@@ -1197,8 +1193,7 @@ mod tests {
     #[test]
     fn deleted_objects_clean() {
         let frame = gen_frame();
-        let removed = frame.delete_objects_by_ids(&[0]).pop().unwrap();
-        assert!(removed.is_detached());
+        let removed = frame.delete_objects_by_ids(&[1]).pop().unwrap();
         assert!(removed.get_parent().is_none());
     }
 

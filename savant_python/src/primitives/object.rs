@@ -1,14 +1,13 @@
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
-use crate::primitives::objects_view::VideoObjectsView;
-use crate::primitives::{Attribute, RBBox, VideoFrame};
+use crate::primitives::{Attribute, RBBox};
 use crate::{release_gil, with_gil};
 use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
-use savant_core::primitives::object::ObjectOperations;
+use savant_core::primitives::object::{ObjectAccess, ObjectOperations};
 use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
@@ -98,6 +97,50 @@ impl VideoObject {
             Ok(PyObject::from(bytes))
         })
     }
+
+    #[getter]
+    fn get_namespace(&self) -> String {
+        self.0.get_namespace()
+    }
+
+    #[getter]
+    fn get_label(&self) -> String {
+        self.0.get_label()
+    }
+
+    #[getter]
+    fn get_id(&self) -> i64 {
+        self.0.get_id()
+    }
+
+    #[getter]
+    fn get_track_id(&self) -> Option<i64> {
+        self.0.get_track_id()
+    }
+
+    #[getter]
+    fn get_detection_box(&self) -> RBBox {
+        RBBox(self.0.get_detection_box())
+    }
+
+    #[getter]
+    fn get_track_box(&self) -> Option<RBBox> {
+        self.0.get_track_box().map(RBBox)
+    }
+
+    #[getter]
+    fn get_confidence(&self) -> Option<f32> {
+        self.0.get_confidence()
+    }
+
+    #[getter]
+    fn attributes(&self) -> Vec<(String, String)> {
+        self.0.get_attributes()
+    }
+
+    fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        self.0.get_attribute(namespace, name).map(Attribute)
+    }
 }
 
 #[pyclass]
@@ -133,18 +176,6 @@ impl BorrowedVideoObject {
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
         self.0.get_attributes()
-    }
-
-    /// Accesses object's children. If the object is detached from a frame, an empty view is returned.
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`VideoObjectsView`
-    ///   A view of the object's children.
-    ///
-    #[getter]
-    pub fn children_ref(&self) -> VideoObjectsView {
-        self.0.get_children().into()
     }
 
     /// Clears all object's attributes.
@@ -305,17 +336,6 @@ impl BorrowedVideoObject {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
 
-    /// Returns the :py:class:`VideoFrame` reference to a frame the object belongs to.
-    ///
-    /// Returns
-    /// -------
-    /// :py:class:`VideoFrame` or None
-    ///   A reference to a frame the object belongs to.
-    ///
-    pub fn get_frame(&self) -> Option<VideoFrame> {
-        self.0.get_frame().map(VideoFrame)
-    }
-
     /// Returns the object's id. The setter causes ``RuntimeError`` when the object is attached to a frame.
     ///
     /// Returns
@@ -326,23 +346,6 @@ impl BorrowedVideoObject {
     #[getter]
     pub fn get_id(&self) -> i64 {
         self.0.get_id()
-    }
-    #[setter]
-    pub fn set_id(&mut self, id: i64) -> PyResult<()> {
-        self.0.set_id(id).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to set object id to {}: {}", id, e))
-        })
-    }
-
-    /// The object is detached if it is not attached to any frame. Such state may cause it impossible to operate with certain object properties.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the object is detached, False otherwise.
-    ///
-    pub fn is_detached(&self) -> bool {
-        self.0.is_detached()
     }
 
     /// Sets the attribute for the object. If the attribute is already set, it is replaced.

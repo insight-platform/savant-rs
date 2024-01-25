@@ -6,7 +6,8 @@ use crate::eval_resolvers::{
 use crate::json_api::ToSerdeJsonValue;
 
 use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
-use crate::primitives::object::{BorrowedVideoObject, ObjectOperations, VideoObject};
+use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
+use crate::primitives::object::{BorrowedVideoObject, ObjectAccess, ObjectOperations, VideoObject};
 use crate::primitives::{BBoxMetricType, RBBox, WithAttributes};
 use savant_utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
@@ -422,13 +423,10 @@ impl ExecutableMatchQuery<&VideoObject, ObjectContext<'_>> for MatchQuery {
                 let expr = get_compiled_eval_expr(x).unwrap();
                 ControlFlow::Continue(expr.eval_boolean_with_context_mut(ctx).unwrap())
             }
-            MatchQuery::ParentId(x) => {
-                let res = o
-                    .get_parent_id()
-                    .map(|p| x.execute(&p, &mut ()))
-                    .unwrap_or(ControlFlow::Continue(false));
-                res
-            }
+            MatchQuery::ParentId(x) => o
+                .get_parent_id()
+                .map(|p| x.execute(&p, &mut ()))
+                .unwrap_or(ControlFlow::Continue(false)),
             MatchQuery::ParentNamespace(x) => o
                 .get_parent()
                 .as_ref()
@@ -844,6 +842,7 @@ mod tests {
     use crate::eval_resolvers::register_env_resolver;
     use crate::match_query::MatchQuery::*;
     use crate::primitives::attribute_value::AttributeValue;
+    use crate::primitives::object::private::SealedWithParent;
     use crate::primitives::object::IdCollisionResolutionPolicy;
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
 

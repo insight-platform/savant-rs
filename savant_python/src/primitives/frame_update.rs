@@ -236,7 +236,7 @@ impl VideoFrameUpdate {
     pub fn get_objects(&self) -> Vec<(VideoObject, Option<i64>)> {
         self.0
             .get_objects()
-            .into_iter()
+            .iter()
             .map(|(o, p)| (VideoObject(o.clone()), *p))
             .collect()
     }
