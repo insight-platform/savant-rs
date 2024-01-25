@@ -141,6 +141,10 @@ impl VideoObject {
     fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
     }
+
+    fn set_attribute(&mut self, attribute: &Attribute) -> Option<Attribute> {
+        self.0.set_attribute(attribute.0.clone()).map(Attribute)
+    }
 }
 
 #[pyclass]

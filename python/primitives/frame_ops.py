@@ -1,14 +1,14 @@
+import json
+from timeit import default_timer as timer
+
 from savant_rs.draw_spec import SetDrawLabelKind
+from savant_rs.match_query import MatchQuery as Q, \
+    IntExpression as IE, QueryFunctions as QF
 from savant_rs.primitives import VideoObject, AttributeValue, \
     Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import save_message, load_message, Message
-from savant_rs.match_query import MatchQuery as Q, \
-    IntExpression as IE, QueryFunctions as QF
-
-import json
-from timeit import default_timer as timer
 
 # set_log_level(LogLevel.Trace)
 
@@ -113,21 +113,15 @@ deleted = frame.delete_attribute(namespace="some", name="attr")
 print(deleted)
 
 obj = VideoObject(
-id = 1,
-namespace = "some",
-label = "person",
-detection_box = BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
-confidence = 0.5,
-attributes = [],
-track_id = None,
-track_box = None
+    id=1,
+    namespace="some",
+    label="person",
+    detection_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
+    confidence=0.5,
+    attributes=[],
+    track_id=1,
+    track_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()
 )
-
-tid = obj.track_id
-rb = obj.track_box
-
-obj.track_id = 1
-obj.track_box = BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()
 
 # demonstrates protobuf serialization
 #
@@ -142,17 +136,6 @@ print("Raw address to pass to C-funcs: ", f.memory_handle)
 vec = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
 print("Object with two children:", vec[0])
 
-# demonstrates chained filtering on ObjectsView object
-#
-f = gen_frame()
-one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))), Q.id(IE.eq(1)))
-
-print("One", one)
-print("Two", two)
-
-# demonstrates ObjectsView len() op
-print("ObjectsView len() op", len(vec))
-
 # demonstrates ObjectsView index access operation
 vec = vec[0]
 print("Object", vec)
@@ -164,6 +147,17 @@ vec.set_attribute(Attribute(namespace="other", name="attr", values=[
 vec.set_attribute(Attribute(namespace="some", name="attr", values=[
     AttributeValue.integers([1, 2, 3], confidence=0.5),
 ]))
+
+# demonstrates chained filtering on ObjectsView object
+#
+f = gen_frame()
+one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))), Q.id(IE.eq(1)))
+
+print("One", one)
+print("Two", two)
+
+# demonstrates ObjectsView len() op
+print("ObjectsView len() op", len(vec))
 
 message = Message.video_frame(frame)
 
