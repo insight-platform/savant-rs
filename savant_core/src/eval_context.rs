@@ -1,9 +1,10 @@
-use crate::primitives::object::{ObjectOperations, VideoObjectProxy};
+use crate::primitives::object::{ObjectOperations, VideoObject};
 use evalexpr::*;
 use hashbrown::HashMap;
 use std::cell::OnceCell;
 
 use crate::eval_resolvers::EvalWithResolvers;
+use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
 use evalexpr::Value;
 
 const DEFAULT_GLOBAL_CONTEXT_VAR_NUM: usize = 16;
@@ -39,7 +40,7 @@ pub(crate) struct GlobalContext {
 }
 
 pub(crate) struct ObjectContext<'a> {
-    pub object: &'a VideoObjectProxy,
+    pub object: &'a VideoObject,
     pub resolvers: Vec<String>,
     pub temp_vars: HashMap<String, Value>,
     pub object_view: OnceCell<ObjectFieldsView>,
@@ -74,7 +75,7 @@ impl GlobalContext {
 }
 
 impl<'a> ObjectContext<'a> {
-    pub fn new(object: &'a VideoObjectProxy, resolvers: &[&str]) -> Self {
+    pub fn new(object: &'a VideoObject, resolvers: &[&str]) -> Self {
         ObjectContext {
             object,
             resolvers: resolvers.iter().map(|s| s.to_string()).collect(),

@@ -5,7 +5,7 @@ use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::{RBBox, VideoObjectBBoxTransformation};
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::message::Message;
-use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::with_gil;
@@ -68,6 +68,8 @@ impl ToSerdeJsonValue for ExternalFrame {
     }
 }
 
+/// Represents the structure for accessing primary video content for the frame.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct VideoFrameContent(rust::VideoFrameContent);
@@ -116,34 +118,49 @@ impl VideoFrameContent {
         matches!(&self.0, rust::VideoFrameContent::None)
     }
 
+    /// Returns the video data as a Python bytes object if the content is internal,
+    /// otherwise results in the TypeError exception.
+    ///
+    /// Returns
+    /// -------
+    /// bytes
+    ///   The video data as a Python bytes object.
+    ///
+    /// Raises
+    /// ------
+    /// TypeError
+    ///   If the content is not internal.
+    ///
     pub fn get_data(&self) -> PyResult<PyObject> {
         match &self.0 {
-            rust::VideoFrameContent::Internal(data) => Ok({
+            rust::VideoFrameContent::Internal(data) => {
                 with_gil!(|py| {
-                    let bytes = PyBytes::new(py, data);
-                    PyObject::from(bytes)
+                    let bytes = PyBytes::new_with(py, data.len(), |b: &mut [u8]| {
+                        b.copy_from_slice(data);
+                        Ok(())
+                    })?;
+                    Ok(PyObject::from(bytes))
                 })
-            }),
+            }
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
                 "Video data is not stored internally",
             )),
         }
     }
 
-    pub fn get_data_as_bytes(&self) -> PyResult<PyObject> {
-        match &self.0 {
-            rust::VideoFrameContent::Internal(data) => Ok({
-                with_gil!(|py| {
-                    let bytes = PyBytes::new(py, data);
-                    PyObject::from(bytes)
-                })
-            }),
-            _ => Err(pyo3::exceptions::PyTypeError::new_err(
-                "Video data is not stored internally",
-            )),
-        }
-    }
-
+    /// Returns the method for external video data if the content is external,
+    /// otherwise results in the TypeError exception.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The method for external video data.
+    ///
+    /// Raises
+    /// ------
+    /// TypeError
+    ///   If the content is not external.
+    ///
     pub fn get_method(&self) -> PyResult<String> {
         match &self.0 {
             rust::VideoFrameContent::External(data) => Ok(data.method.clone()),
@@ -153,6 +170,19 @@ impl VideoFrameContent {
         }
     }
 
+    /// Returns the location for external video data if the content is external,
+    /// otherwise results in the TypeError exception.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The location for external video data.
+    ///
+    /// Raises
+    /// ------
+    /// TypeError
+    ///   If the content is not external.
+    ///
     pub fn get_location(&self) -> PyResult<Option<String>> {
         match &self.0 {
             rust::VideoFrameContent::External(data) => Ok(data.location.clone()),
@@ -163,6 +193,8 @@ impl VideoFrameContent {
     }
 }
 
+/// Represents the structure for accessing primary video content encoding information
+/// for the frame.
 #[pyclass]
 #[derive(Copy, Clone, Debug)]
 pub enum VideoFrameTranscodingMethod {
@@ -197,6 +229,8 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     }
 }
 
+/// Represents the structure for accessing/defining video frame transformation information.
+///
 #[pyclass]
 #[derive(Debug, Clone)]
 pub struct VideoFrameTransformation(rust::VideoFrameTransformation);
@@ -214,6 +248,15 @@ impl VideoFrameTransformation {
         self.__repr__()
     }
 
+    /// Defines the size of the frame when it comes into the pipeline.
+    ///
+    /// Parameters
+    /// ----------
+    /// width : int
+    ///   The width of the frame.
+    /// height : int
+    ///   The height of the frame.
+    ///
     #[staticmethod]
     pub fn initial_size(width: i64, height: i64) -> Self {
         assert!(width > 0 && height > 0);
@@ -223,6 +266,15 @@ impl VideoFrameTransformation {
         ))
     }
 
+    /// Defines the size of the frame when it leaves the pipeline.
+    ///
+    /// Parameters
+    /// ----------
+    /// width : int
+    ///   The width of the frame.
+    /// height : int
+    ///   The height of the frame.
+    ///
     #[staticmethod]
     pub fn resulting_size(width: i64, height: i64) -> Self {
         assert!(width > 0 && height > 0);
@@ -232,6 +284,15 @@ impl VideoFrameTransformation {
         ))
     }
 
+    /// Defines the scale operation on the frame.
+    ///
+    /// Parameters
+    /// ----------
+    /// width : int
+    ///   The width of the frame.
+    /// height : int
+    ///   The height of the frame.
+    ///
     #[staticmethod]
     pub fn scale(width: i64, height: i64) -> Self {
         assert!(width > 0 && height > 0);
@@ -241,6 +302,19 @@ impl VideoFrameTransformation {
         ))
     }
 
+    /// Defines the padding operation on the frame.
+    ///
+    /// Parameters
+    /// ----------
+    /// left : int
+    ///   The left padding.
+    /// top : int
+    ///   The top padding.
+    /// right : int
+    ///   The right padding.
+    /// bottom : int
+    ///   The bottom padding.
+    ///
     #[staticmethod]
     pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
         assert!(left >= 0 && top >= 0 && right >= 0 && bottom >= 0);
@@ -252,26 +326,61 @@ impl VideoFrameTransformation {
         ))
     }
 
+    /// Returns true if the transformation is initial size, otherwise false.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the transformation is initial size, otherwise false.
+    ///
     #[getter]
     pub fn is_initial_size(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::InitialSize(_, _))
     }
 
+    /// Returns true if the transformation is scale, otherwise false.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the transformation is scale, otherwise false.
+    ///
     #[getter]
     pub fn is_scale(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::Scale(_, _))
     }
 
+    /// Returns true if the transformation is padding, otherwise false.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the transformation is padding, otherwise false.
+    ///
     #[getter]
     pub fn is_padding(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::Padding(_, _, _, _))
     }
 
+    /// Returns true if the transformation is resulting size, otherwise false.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the transformation is resulting size, otherwise false.
+    ///
     #[getter]
     pub fn is_resulting_size(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::ResultingSize(_, _))
     }
 
+    /// Returns the transformation as initial size if it is initial size, otherwise None.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[int, int]]
+    ///   The transformation as initial size if it is initial size, otherwise None.
+    ///
     #[getter]
     pub fn as_initial_size(&self) -> Option<(u64, u64)> {
         match &self.0 {
@@ -280,6 +389,13 @@ impl VideoFrameTransformation {
         }
     }
 
+    /// Returns the transformation as resulting size if it is resulting size, otherwise None.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[int, int]]
+    ///   The transformation as resulting size if it is resulting size, otherwise None.
+    ///
     #[getter]
     pub fn as_resulting_size(&self) -> Option<(u64, u64)> {
         match &self.0 {
@@ -288,6 +404,13 @@ impl VideoFrameTransformation {
         }
     }
 
+    /// Returns the transformation as scale if it is scale, otherwise None.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[int, int]]
+    ///   The transformation as scale if it is scale, otherwise None.
+    ///
     #[getter]
     pub fn as_scale(&self) -> Option<(u64, u64)> {
         match &self.0 {
@@ -296,6 +419,13 @@ impl VideoFrameTransformation {
         }
     }
 
+    /// Returns the transformation as padding if it is padding, otherwise None.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Tuple[int, int, int, int]]
+    ///   The transformation as padding if it is padding, otherwise None.
+    ///
     #[getter]
     pub fn as_padding(&self) -> Option<(u64, u64, u64, u64)> {
         match &self.0 {
@@ -315,24 +445,17 @@ impl ToSerdeJsonValue for VideoFrame {
     }
 }
 
-#[pyclass]
-#[derive(Clone, Debug)]
-pub struct BelongingVideoFrame(rust::BelongingVideoFrame);
-
-impl From<VideoFrame> for BelongingVideoFrame {
-    fn from(value: VideoFrame) -> Self {
-        BelongingVideoFrame(value.0.into())
-    }
-}
-
-impl From<BelongingVideoFrame> for VideoFrame {
-    fn from(value: BelongingVideoFrame) -> Self {
-        VideoFrame(value.0.into())
-    }
-}
-
 #[pymethods]
 impl VideoFrame {
+    /// Applies transformation operations ot all objects within the frame.
+    ///
+    /// Parameters
+    /// ----------
+    /// ops : List[:py:class:`savant_rs.primitives.VideoObjectBBoxTransformation`]
+    ///   The list of transformation operations to apply.
+    /// no_gil : bool
+    ///   Whether to release the GIL while applying the transformations.
+    ///
     #[pyo3(name = "transform_geometry")]
     #[pyo3(signature = (ops, no_gil=true))]
     fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformation>, no_gil: bool) {
@@ -342,6 +465,13 @@ impl VideoFrame {
         })
     }
 
+    /// Allows getting raw pointer to a frame for 3rd-party integration.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   The pointer to the frame.
+    ///
     #[getter]
     fn memory_handle(&self) -> usize {
         self.0.memory_handle()
@@ -393,34 +523,27 @@ impl VideoFrame {
         ))
     }
 
+    /// Creates protocol message (:py:class:`savant_rs.utils.serialization.Message`) from the frame.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`savant_rs.utils.serialization.Message`
+    ///   The protocol message.
+    ///
     pub fn to_message(&self) -> Message {
         Message::video_frame(self)
     }
 
+    /// Returns the source ID for the frame.
+    ///
+    /// Returns
+    /// -------
+    /// str
+    ///   The source ID for the frame.
+    ///
     #[getter]
     pub fn get_source_id(&self) -> String {
         self.0.get_source_id()
-    }
-
-    #[getter]
-    pub fn get_previous_frame_seq_id(&self) -> Option<i64> {
-        self.0.get_previous_frame_seq_id()
-    }
-
-    #[getter]
-    #[pyo3(name = "json")]
-    pub fn json_gil(&self) -> String {
-        release_gil!(true, || serde_json::to_string(&self.to_serde_json_value())
-            .unwrap())
-    }
-
-    #[getter]
-    #[pyo3(name = "json_pretty")]
-    fn json_pretty_gil(&self) -> String {
-        release_gil!(true, || serde_json::to_string_pretty(
-            &self.to_serde_json_value()
-        )
-        .unwrap())
     }
 
     #[setter]
@@ -428,19 +551,38 @@ impl VideoFrame {
         self.0.set_source_id(source_id)
     }
 
-    #[setter]
-    pub fn set_time_base(&mut self, time_base: (i32, i32)) {
-        self.0.set_time_base(time_base)
-    }
-
+    /// Returns stream time base for the frame.
+    ///
+    /// Returns
+    /// -------
+    /// Tuple[int, int]
+    ///   The stream time base for the frame.
+    ///
     #[getter]
     pub fn get_time_base(&self) -> (i32, i32) {
         self.0.get_time_base()
     }
 
+    #[setter]
+    pub fn set_time_base(&mut self, time_base: (i32, i32)) {
+        self.0.set_time_base(time_base)
+    }
+
+    /// Returns frame PTS
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///   The frame PTS
+    ///
     #[getter]
     pub fn get_pts(&self) -> i64 {
         self.0.get_pts()
+    }
+
+    #[setter]
+    pub fn set_pts(&mut self, pts: i64) {
+        self.0.set_pts(pts)
     }
 
     #[getter]
@@ -456,11 +598,6 @@ impl VideoFrame {
     #[setter]
     pub fn set_creation_timestamp_ns(&mut self, timestamp: u128) {
         self.0.set_creation_timestamp_ns(timestamp)
-    }
-
-    #[setter]
-    pub fn set_pts(&mut self, pts: i64) {
-        self.0.set_pts(pts)
     }
 
     #[getter]
@@ -533,23 +670,6 @@ impl VideoFrame {
         self.0.set_codec(codec)
     }
 
-    pub fn clear_transformations(&mut self) {
-        self.0.clear_transformations()
-    }
-
-    pub fn add_transformation(&mut self, transformation: VideoFrameTransformation) {
-        self.0.add_transformation(transformation.0)
-    }
-
-    #[getter]
-    pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
-        unsafe {
-            mem::transmute::<Vec<rust::VideoFrameTransformation>, Vec<VideoFrameTransformation>>(
-                self.0.get_transformations(),
-            )
-        }
-    }
-
     #[getter]
     pub fn get_keyframe(&self) -> Option<bool> {
         self.0.get_keyframe()
@@ -570,32 +690,95 @@ impl VideoFrame {
         self.0.set_content(content.0)
     }
 
+    /// Returns the previous frame sequence ID for the frame within the
+    /// sender connection.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[int]
+    ///   The previous frame sequence ID for the frame.
+    ///
+    #[getter]
+    pub fn get_previous_frame_seq_id(&self) -> Option<i64> {
+        self.0.get_previous_frame_seq_id()
+    }
+
+    #[getter]
+    #[pyo3(name = "json")]
+    pub fn json_gil(&self) -> String {
+        release_gil!(true, || serde_json::to_string(&self.to_serde_json_value())
+            .unwrap())
+    }
+
+    #[getter]
+    #[pyo3(name = "json_pretty")]
+    fn json_pretty_gil(&self) -> String {
+        release_gil!(true, || serde_json::to_string_pretty(
+            &self.to_serde_json_value()
+        )
+        .unwrap())
+    }
+
+    /// Resets all transformation records for a frame
+    ///
+    pub fn clear_transformations(&mut self) {
+        self.0.clear_transformations()
+    }
+
+    /// Adds transformation record for a frame
+    ///
+    /// Parameters
+    /// ----------
+    /// transformation : :py:class:`savant_rs.primitives.VideoFrameTransformation`
+    ///
+    pub fn add_transformation(&mut self, transformation: VideoFrameTransformation) {
+        self.0.add_transformation(transformation.0)
+    }
+
+    /// Returns the list of transformations
+    ///
+    /// Returns
+    /// -------
+    /// List[:py:class:`savant_rs.primitives.VideoFrameTransformation`]
+    ///   The list of transformations
+    ///
+    #[getter]
+    pub fn get_transformations(&self) -> Vec<VideoFrameTransformation> {
+        unsafe {
+            mem::transmute::<Vec<rust::VideoFrameTransformation>, Vec<VideoFrameTransformation>>(
+                self.0.get_transformations(),
+            )
+        }
+    }
+
+    /// Returns the list of attributes
+    ///
+    /// Returns
+    /// -------
+    /// List[Tuple[str, str]]
+    ///   The list of attributes (namespace, name)
+    ///
     #[getter]
     pub fn attributes(&self) -> Vec<(String, String)> {
         self.0.get_attributes()
     }
 
+    /// Returns the attribute object by namespace and name
+    ///
+    /// Parameters
+    /// ----------
+    /// namespace : str
+    ///   Attribute namespace.
+    /// name : str
+    ///   Attribute name.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`savant_rs.primitives.Attribute`
+    ///   The attribute object
+    ///
     pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.get_attribute(namespace, name).map(Attribute)
-    }
-
-    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
-        self.0.delete_attributes_with_ns(namespace)
-    }
-
-    pub fn delete_attributes_with_names(&mut self, names: Vec<String>) {
-        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
-        self.0.delete_attributes_with_names(&label_refs)
-    }
-
-    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
-        let hint_opts_refs = hints
-            .iter()
-            .map(|v| v.as_deref())
-            .collect::<Vec<Option<&str>>>();
-        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
-
-        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     pub fn find_attributes_with_ns(&mut self, namespace: &str) -> Vec<(String, String)> {
@@ -619,8 +802,45 @@ impl VideoFrame {
         self.0.find_attributes_with_hints(&hint_refs)
     }
 
+    /// Deletes the attribute object by namespace and name
+    ///
+    /// Parameters
+    /// ----------
+    /// namespace : str
+    ///   Attribute namespace.
+    /// name : str
+    ///   Attribute name.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:py:class:`savant_rs.primitives.Attribute`]
+    ///   The deleted attribute object
+    ///
     pub fn delete_attribute(&mut self, namespace: &str, name: &str) -> Option<Attribute> {
         self.0.delete_attribute(namespace, name).map(Attribute)
+    }
+
+    pub fn clear_attributes(&mut self) {
+        self.0.clear_attributes()
+    }
+
+    pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
+        self.0.delete_attributes_with_ns(namespace)
+    }
+
+    pub fn delete_attributes_with_names(&mut self, names: Vec<String>) {
+        let label_refs = names.iter().map(|v| v.as_ref()).collect::<Vec<&str>>();
+        self.0.delete_attributes_with_names(&label_refs)
+    }
+
+    pub fn delete_attributes_with_hints(&mut self, hints: Vec<Option<String>>) {
+        let hint_opts_refs = hints
+            .iter()
+            .map(|v| v.as_deref())
+            .collect::<Vec<Option<&str>>>();
+        let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
+
+        self.0.delete_attributes_with_hints(&hint_refs)
     }
 
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
@@ -693,19 +913,20 @@ impl VideoFrame {
             .set_temporary_attribute(namespace, name, &hint, is_hidden, values)
     }
 
-    pub fn clear_attributes(&mut self) {
-        self.0.clear_attributes()
-    }
-
     #[pyo3(name = "set_draw_label")]
     #[pyo3(signature = (q, draw_label, no_gil = false))]
     pub fn set_draw_label_gil(&self, q: &MatchQuery, draw_label: SetDrawLabelKind, no_gil: bool) {
         release_gil!(no_gil, || self.0.set_draw_label(&q.0, draw_label.0))
     }
 
-    pub fn add_object(&self, o: VideoObject, policy: IdCollisionResolutionPolicy) -> PyResult<()> {
+    pub fn add_object(
+        &self,
+        o: VideoObject,
+        policy: IdCollisionResolutionPolicy,
+    ) -> PyResult<BorrowedVideoObject> {
         self.0
             .add_object(o.0, policy.into())
+            .map(BorrowedVideoObject)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
@@ -720,7 +941,7 @@ impl VideoFrame {
         track_id: Option<i64>,
         track_box: Option<RBBox>,
         attributes: Option<Vec<Attribute>>,
-    ) -> PyResult<i64> {
+    ) -> PyResult<BorrowedVideoObject> {
         let native_attributes = match attributes {
             None => vec![],
             Some(_) => attributes
@@ -747,11 +968,16 @@ impl VideoFrame {
                 track_box.map(|b| b.0),
                 native_attributes,
             )
+            .map(BorrowedVideoObject)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn get_object(&self, id: i64) -> Option<VideoObject> {
-        self.0.get_object(id).map(VideoObject)
+    pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
+        self.0.get_object(id).map(BorrowedVideoObject)
+    }
+
+    pub fn get_all_objects(&self) -> VideoObjectsView {
+        self.0.get_all_objects().into()
     }
 
     #[pyo3(name = "access_objects")]
@@ -762,24 +988,27 @@ impl VideoFrame {
         ))
     }
 
-    pub fn get_all_objects(&self) -> VideoObjectsView {
-        self.0.get_all_objects().into()
-    }
-
     pub fn access_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
         self.0.access_objects_by_id(&ids).into()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
-        self.0.delete_objects_by_ids(&ids).into()
-    }
-
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
-    pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || VideoObjectsView::from(
-            self.0.delete_objects(&q.0)
-        ))
+    pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> Vec<VideoObject> {
+        release_gil!(no_gil, || self
+            .0
+            .delete_objects(&q.0)
+            .into_iter()
+            .map(VideoObject)
+            .collect())
+    }
+
+    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
+        self.0
+            .delete_objects_by_ids(&ids)
+            .into_iter()
+            .map(VideoObject)
+            .collect()
     }
 
     #[pyo3(name = "set_parent")]
@@ -787,7 +1016,7 @@ impl VideoFrame {
     pub fn set_parent_gil(
         &self,
         q: &MatchQuery,
-        parent: &VideoObject,
+        parent: &BorrowedVideoObject,
         no_gil: bool,
     ) -> PyResult<VideoObjectsView> {
         let fun = || {
@@ -806,8 +1035,7 @@ impl VideoFrame {
         release_gil!(no_gil, fun)
     }
 
-    #[pyo3(name = "set_parent_by_id")]
-    pub fn set_parent_by_id_py(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
+    pub fn set_parent_by_id(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
         self.0
             .set_parent_by_id(object_id, parent_id)
             .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -823,8 +1051,7 @@ impl VideoFrame {
         self.0.clear_objects()
     }
 
-    #[pyo3(name = "get_children")]
-    pub fn get_children_py(&self, id: i64) -> VideoObjectsView {
+    pub fn get_children(&self, id: i64) -> VideoObjectsView {
         self.0.get_children(id).into()
     }
 

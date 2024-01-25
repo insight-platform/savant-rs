@@ -1,9 +1,9 @@
-use crate::primitives::object::{ObjectOperations, VideoObject, VideoObjectProxy};
+use crate::primitives::object::{ObjectOperations, VideoObject};
 use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::protobuf::{generated, serialize};
 
-impl From<&VideoObjectProxy> for generated::VideoObject {
-    fn from(vop: &VideoObjectProxy) -> Self {
+impl From<&VideoObject> for generated::VideoObject {
+    fn from(vop: &VideoObject) -> Self {
         let attributes = vop
             .get_attributes()
             .iter()
@@ -28,21 +28,12 @@ impl From<&VideoObjectProxy> for generated::VideoObject {
     }
 }
 
-impl From<&(VideoObjectProxy, Option<i64>)> for generated::VideoObjectWithForeignParent {
-    fn from(p: &(VideoObjectProxy, Option<i64>)) -> Self {
+impl From<&(VideoObject, Option<i64>)> for generated::VideoObjectWithForeignParent {
+    fn from(p: &(VideoObject, Option<i64>)) -> Self {
         generated::VideoObjectWithForeignParent {
             object: Some(generated::VideoObject::from(&p.0)),
             parent_id: p.1,
         }
-    }
-}
-
-impl TryFrom<&generated::VideoObject> for VideoObjectProxy {
-    type Error = serialize::Error;
-
-    fn try_from(value: &crate::protobuf::VideoObject) -> Result<Self, Self::Error> {
-        let vo = VideoObject::try_from(value)?;
-        Ok(VideoObjectProxy::from(vo))
     }
 }
 
@@ -78,7 +69,7 @@ impl TryFrom<&generated::VideoObject> for VideoObject {
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::object::VideoObject;
-    use crate::primitives::rust::{AttributeValue, VideoObjectProxy};
+    use crate::primitives::rust::AttributeValue;
     use crate::primitives::{Attribute, WithAttributes};
     use crate::protobuf::generated;
     use crate::test::gen_object;
@@ -87,7 +78,7 @@ mod tests {
     fn test_object() {
         let obj = gen_object(1);
         let serialized = generated::VideoObject::from(&obj);
-        let deserialized = VideoObjectProxy::from(VideoObject::try_from(&serialized).unwrap());
+        let deserialized = VideoObject::try_from(&serialized).unwrap();
         assert_eq!(
             obj.to_serde_json_value(),
             deserialized.to_serde_json_value()
@@ -114,7 +105,7 @@ mod tests {
         obj.set_attribute(tmp_attr.clone());
         obj.set_attribute(persistent_attr.clone());
         let serialized = generated::VideoObject::from(&obj);
-        let deserialized = VideoObjectProxy::from(VideoObject::try_from(&serialized).unwrap());
+        let deserialized = VideoObject::try_from(&serialized).unwrap();
         assert!(deserialized.get_attribute("tmp", "label").is_none());
         assert_eq!(
             deserialized.get_attribute("pers", "label").unwrap(),

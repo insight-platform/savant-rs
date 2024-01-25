@@ -1,31 +1,11 @@
 from savant_rs.utils import gen_frame
-from savant_rs.utils.udf_api import register_plugin_function, is_plugin_function_registered, UserFunctionType
 from savant_rs.match_query import MatchQuery as Q, IntExpression as IE, QueryFunctions as QF
-
-register_plugin_function("../../target/debug/libsavant_rs.so", "map_modifier", UserFunctionType.ObjectMapModifier,
-                         "sample.map_modifier")
-
-assert is_plugin_function_registered("sample.map_modifier")
-
-register_plugin_function("../../target/debug/libsavant_rs.so", "inplace_modifier",
-                         UserFunctionType.ObjectInplaceModifier,
-                         "sample.inplace_modifier")
-
-assert is_plugin_function_registered("sample.inplace_modifier")
 
 f = gen_frame()
 
 objects_x = QF.filter(f.access_objects(Q.idle()), Q.eval("id % 2 == 1")).sorted_by_id()
 
 objects = QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))).sorted_by_id()
-
-new_objects = QF.map_udf(objects, "sample.map_modifier")
-print(new_objects[0].label)
-assert new_objects[0].label == "modified_test"
-assert objects[0].label == "test"
-
-QF.foreach_udf(objects, "sample.inplace_modifier")
-assert objects[0].label == "modified_test"
 
 ids = objects.ids
 print("Ids:", ids)

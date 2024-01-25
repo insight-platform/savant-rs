@@ -1,6 +1,6 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrame;
-use crate::primitives::object::VideoObject;
+use crate::primitives::object::BorrowedVideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
@@ -42,7 +42,7 @@ impl VideoFrameBatch {
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(
         &self,
-        q: MatchQuery,
+        q: &MatchQuery,
         no_gil: bool,
     ) -> HashMap<i64, VideoObjectsView> {
         release_gil!(no_gil, || {
@@ -52,7 +52,10 @@ impl VideoFrameBatch {
                 .map(|(id, x)| {
                     (
                         id,
-                        x.into_iter().map(VideoObject).collect::<Vec<_>>().into(),
+                        x.into_iter()
+                            .map(BorrowedVideoObject)
+                            .collect::<Vec<_>>()
+                            .into(),
                     )
                 })
                 .collect::<HashMap<_, _>>()
@@ -61,7 +64,7 @@ impl VideoFrameBatch {
 
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
-    pub fn delete_objects_gil(&mut self, q: MatchQuery, no_gil: bool) {
+    pub fn delete_objects_gil(&mut self, q: &MatchQuery, no_gil: bool) {
         release_gil!(no_gil, || self.0.delete_objects(&q.0))
     }
 

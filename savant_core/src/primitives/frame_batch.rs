@@ -1,6 +1,6 @@
 use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
-use crate::primitives::object::VideoObjectProxy;
+use crate::primitives::object::BorrowedVideoObject;
 use hashbrown::HashMap;
 
 const DEFAULT_BATCH_SIZE: usize = 64;
@@ -26,7 +26,10 @@ impl VideoFrameBatch {
         Self { frames }
     }
 
-    pub fn access_objects(&self, q: &MatchQuery) -> hashbrown::HashMap<i64, Vec<VideoObjectProxy>> {
+    pub fn access_objects(
+        &self,
+        q: &MatchQuery,
+    ) -> hashbrown::HashMap<i64, Vec<BorrowedVideoObject>> {
         self.frames
             .iter()
             .map(|(id, frame)| (*id, frame.access_objects(q)))

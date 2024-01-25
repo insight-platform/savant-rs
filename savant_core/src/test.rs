@@ -5,7 +5,6 @@ use crate::primitives::frame::{
 };
 use crate::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
-    VideoObjectProxy,
 };
 use crate::primitives::{RBBox, WithAttributes};
 use std::sync::Arc;
@@ -44,43 +43,37 @@ pub fn gen_frame() -> VideoFrameProxy {
             .unwrap(),
     );
 
-    let parent_object = VideoObjectProxy::from(
-        VideoObjectBuilder::default()
-            .id(0)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-            .attributes(Vec::default())
-            .confidence(None)
-            .namespace("test".to_string())
-            .label("test2".to_string())
-            .build()
-            .unwrap(),
-    );
+    let parent_object = VideoObjectBuilder::default()
+        .id(0)
+        .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+        .attributes(Vec::default())
+        .confidence(None)
+        .namespace("test".to_string())
+        .label("test2".to_string())
+        .build()
+        .unwrap();
 
-    let c1 = VideoObjectProxy::from(
-        VideoObjectBuilder::default()
-            .id(1)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-            .parent_id(Some(parent_object.get_id()))
-            .attributes(Vec::default())
-            .confidence(None)
-            .namespace("test2".to_string())
-            .label("test".to_string())
-            .build()
-            .unwrap(),
-    );
+    let c1 = VideoObjectBuilder::default()
+        .id(1)
+        .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+        .parent_id(Some(parent_object.get_id()))
+        .attributes(Vec::default())
+        .confidence(None)
+        .namespace("test2".to_string())
+        .label("test".to_string())
+        .build()
+        .unwrap();
 
-    let c2 = VideoObjectProxy::from(
-        VideoObjectBuilder::default()
-            .id(2)
-            .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
-            .parent_id(Some(parent_object.get_id()))
-            .attributes(Vec::default())
-            .confidence(None)
-            .namespace("test2".to_string())
-            .label("test2".to_string())
-            .build()
-            .unwrap(),
-    );
+    let c2 = VideoObjectBuilder::default()
+        .id(2)
+        .detection_box(RBBox::new(0.0, 0.0, 0.0, 0.0, None))
+        .parent_id(Some(parent_object.get_id()))
+        .attributes(Vec::default())
+        .confidence(None)
+        .namespace("test2".to_string())
+        .label("test2".to_string())
+        .build()
+        .unwrap();
 
     f.add_object(parent_object, IdCollisionResolutionPolicy::Error)
         .unwrap();
@@ -128,8 +121,8 @@ pub fn gen_frame() -> VideoFrameProxy {
     f
 }
 
-pub fn gen_object(id: i64) -> VideoObjectProxy {
-    let mut o = VideoObjectProxy::from(VideoObject {
+pub fn gen_object(id: i64) -> VideoObject {
+    let mut o = VideoObject {
         id,
         namespace: s("peoplenet"),
         label: s("face"),
@@ -138,7 +131,7 @@ pub fn gen_object(id: i64) -> VideoObjectProxy {
         track_id: Some(id),
         track_box: Some(RBBox::new(100.0, 200.0, 10.0, 20.0, None)),
         ..Default::default()
-    });
+    };
 
     o.set_persistent_attribute("some", "attribute", &Some("hint"), false, vec![]);
     o

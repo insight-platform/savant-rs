@@ -291,13 +291,6 @@ class UserData:
                       namespace: str,
                       name: str) -> Optional[Attribute]: ...
 
-    def delete_attributes_with_ns(self, namespace: str): ...
-
-    def delete_attributes_with_names(self, names: list[str]): ...
-
-    def delete_attributes_with_hints(self,
-                                     hints: list[Optional[str]]): ...
-
     def find_attributes_with_ns(self,
                                 namespace: str) -> list[(str, str)]: ...
 
@@ -306,6 +299,13 @@ class UserData:
 
     def find_attributes_with_hints(self,
                                    hints: list[Optional[str]]) -> list[(str, str)]: ...
+
+    def delete_attributes_with_ns(self, namespace: str): ...
+
+    def delete_attributes_with_names(self, names: list[str]): ...
+
+    def delete_attributes_with_hints(self,
+                                     hints: list[Optional[str]]): ...
 
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
@@ -326,8 +326,6 @@ class UserData:
                                 values: Optional[list[AttributeValue]]): ...
 
     def clear_attributes(self): ...
-
-    def exclude_temporary_attributes(self) -> list[Attribute]: ...
 
     @property
     def json(self) -> str: ...
@@ -370,8 +368,6 @@ class VideoFrameContent:
 
     def get_data(self) -> bytes: ...
 
-    def get_data_as_bytes(self) -> bytes: ...
-
     def get_method(self) -> str: ...
 
     def get_location(self) -> Optional[str]: ...
@@ -399,13 +395,13 @@ class VideoFrameTransformation:
     def is_initial_size(self) -> bool: ...
 
     @property
-    def is_resulting_size(self) -> bool: ...
-
-    @property
     def is_scale(self) -> bool: ...
 
     @property
     def is_padding(self) -> bool: ...
+
+    @property
+    def is_resulting_size(self) -> bool: ...
 
     @property
     def as_initial_size(self) -> Optional[tuple[int, int]]: ...
@@ -418,10 +414,6 @@ class VideoFrameTransformation:
 
     @property
     def as_padding(self) -> Optional[tuple[int, int, int, int]]: ...
-
-
-class BelongingVideoFrame:
-    pass
 
 
 class VideoFrame:
@@ -483,6 +475,10 @@ class VideoFrame:
     @property
     def attributes(self) -> list[(str, str)]: ...
 
+    def get_attribute(self,
+                      namespace: str,
+                      name: str) -> Optional[Attribute]: ...
+
     def find_attributes_with_ns(self,
                                 namespace: str) -> list[(str, str)]: ...
 
@@ -492,9 +488,9 @@ class VideoFrame:
     def find_attributes_with_hints(self,
                                    hints: list[Optional[str]]) -> list[(str, str)]: ...
 
-    def get_attribute(self,
-                      namespace: str,
-                      name: str) -> Optional[Attribute]: ...
+    def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
+
+    def clear_attributes(self): ...
 
     def delete_attributes_with_ns(self, namespace: str): ...
 
@@ -502,8 +498,6 @@ class VideoFrame:
 
     def delete_attributes_with_hints(self,
                                      hints: list[Optional[str]]): ...
-
-    def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
     def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
 
@@ -521,87 +515,66 @@ class VideoFrame:
                                 hint: Optional[str],
                                 values: Optional[list[AttributeValue]]): ...
 
+    def set_draw_label(self,
+                       q: MatchQuery,
+                       draw_label: SetDrawLabelKind,
+                       no_gil: bool = False): ...
 
-def clear_attributes(self): ...
+    def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
 
+    def create_object(self,
+                      namespace: str,
+                      label: str,
+                      parent_id: Optional[int],
+                      confidence: Optional[float],
+                      detection_box: Optional[RBBox],
+                      track_id: Optional[int],
+                      track_box: Optional[RBBox],
+                      attributes: Optional[list[Attribute]]) -> BorrowedVideoObject: ...
 
-def set_draw_label(self,
+    def get_object(self, id: int) -> Optional[BorrowedVideoObject]: ...
+
+    def get_all_objects(self) -> VideoObjectsView: ...
+
+    def access_objects(self,
+                       q: MatchQuery,
+                       no_gil: bool = True) -> VideoObjectsView: ...
+
+    def access_objects_by_ids(self,
+                              ids: list[int],
+                              no_gil: bool = True) -> VideoObjectsView: ...
+
+    def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
+
+    def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
+
+    def set_parent(self,
                    q: MatchQuery,
-                   draw_label: SetDrawLabelKind,
-                   no_gil: bool = False): ...
-
-
-def add_object(self, object: VideoObject, policy: IdCollisionResolutionPolicy): ...
-
-
-def create_object(self,
-                  namespace: str,
-                  label: str,
-                  parent_id: Optional[int],
-                  confidence: Optional[float],
-                  detection_box: Optional[RBBox],
-                  track_id: Optional[int],
-                  track_box: Optional[RBBox],
-                  attributes: Optional[list[Attribute]]) -> int: ...
-
-
-def get_object(self, id: int) -> Optional[VideoObject]: ...
-
-
-def access_objects(self,
-                   q: MatchQuery,
+                   parent: VideoObject,
                    no_gil: bool = True) -> VideoObjectsView: ...
 
+    def set_parent_by_id(self,
+                         object_id: int,
+                         parent_id: int): ...
 
-def get_all_objects(self) -> VideoObjectsView: ...
+    def clear_parent(self,
+                     q: MatchQuery,
+                     no_gil: bool = True) -> VideoObjectsView: ...
 
+    def clear_objects(self): ...
 
-def access_objects_by_ids(self,
-                          ids: list[int],
-                          no_gil: bool = True) -> VideoObjectsView: ...
+    def get_children(self, id: int) -> VideoObjectsView: ...
 
+    def copy(self, no_gil: bool = True) -> VideoFrame: ...
 
-def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
+    def update(self, update: VideoFrameUpdate, no_gil: bool = True): ...
 
+    def to_protobuf(self, no_gil: bool = True) -> bytes: ...
 
-def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
-
-
-def set_parent(self,
-               q: MatchQuery,
-               parent: VideoObject,
-               no_gil: bool = True) -> VideoObjectsView: ...
-
-
-def set_parent_by_id(self,
-                     object_id: int,
-                     parent_id: int): ...
-
-
-def clear_parent(self,
-                 q: MatchQuery,
-                 no_gil: bool = True) -> VideoObjectsView: ...
-
-
-def clear_objects(self): ...
-
-
-def get_children(self, id: int) -> VideoObjectsView: ...
-
-
-def copy(self, no_gil: bool = True) -> VideoFrame: ...
-
-
-def update(self, update: VideoFrameUpdate, no_gil: bool = True): ...
-
-
-def to_protobuf(self, no_gil: bool = True) -> bytes: ...
-
-
-@classmethod
-def from_protobuf(cls,
-                  protobuf: bytes,
-                  no_gil: bool = True) -> VideoFrame: ...
+    @classmethod
+    def from_protobuf(cls,
+                      protobuf: bytes,
+                      no_gil: bool = True) -> VideoFrame: ...
 
 
 class VideoFrameBatch:
@@ -662,33 +635,22 @@ class IdCollisionResolutionPolicy(Enum):
     Error: ...
 
 
-class VideoObject:
-    id: int
+class BorrowedVideoObject:
+    confidence: Optional[float]
     namespace: str
     label: str
-    confidence: Optional[float]
+    draw_label: Optional[str]
     detection_box: RBBox
-    track_box: Optional[RBBox]
     track_id: Optional[int]
-    draw_label: str
-
-    def __init__(self,
-                 id: int,
-                 namespace: str,
-                 label: str,
-                 detection_box: RBBox,
-                 attributes: list[Attribute],
-                 confidence: Optional[float],
-                 track_id: Optional[int],
-                 track_box: Optional[RBBox],
-                 ): ...
+    track_box: Optional[RBBox]
 
     @property
     def attributes(self) -> list[tuple[str, str]]: ...
 
-    def children_ref(self) -> VideoObjectsView: ...
-
     def clear_attributes(self): ...
+
+    @property
+    def id(self) -> int: ...
 
     def delete_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
 
@@ -727,12 +689,6 @@ class VideoObject:
                                 hint: Optional[str],
                                 values: Optional[list[AttributeValue]]): ...
 
-    def get_frame(self) -> Optional[VideoFrame]: ...
-
-    def is_detached(self) -> bool: ...
-
-    def is_spoiled(self) -> bool: ...
-
     def set_track_info(self, track_id: int, track_box: RBBox): ...
 
     def clear_track_info(self): ...
@@ -742,11 +698,110 @@ class VideoObject:
 
     def to_protobuf(self, no_gil: bool = True) -> bytes: ...
 
+
+class VideoObject:
+    id: int
+    namespace: str
+    label: str
+    confidence: Optional[float]
+    detection_box: RBBox
+    track_box: Optional[RBBox]
+    track_id: Optional[int]
+    draw_label: str
+
+    def __init__(self,
+                 id: int,
+                 namespace: str,
+                 label: str,
+                 detection_box: RBBox,
+                 attributes: list[Attribute],
+                 confidence: Optional[float],
+                 track_id: Optional[int],
+                 track_box: Optional[RBBox],
+                 ): ...
+
+    def to_protobuf(self, no_gil: bool = True) -> bytes: ...
+
     @classmethod
     def from_protobuf(cls,
                       protobuf: bytes,
                       no_gil: bool = True) -> VideoObject: ...
 
+    @property
+    def namespace(self) -> str: ...
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def detection_box(self) -> RBBox: ...
+
+    @property
+    def track_id(self) -> Optional[int]: ...
+
+    @property
+    def track_box(self) -> Optional[RBBox]: ...
+
+    @property
+    def confidence(self) -> Optional[float]: ...
+
+    @property
+    def attributes(self) -> list[tuple[str, str]]: ...
+
+    def get_attribute(self, namespace: str, name: str) -> Optional[Attribute]: ...
+
+    def set_attribute(self, attribute: Attribute) -> Optional[Attribute]: ...
+
+    def set_persistent_attribute(self,
+                                 namespace: str,
+                                 name: str,
+                                 is_hidden: bool,
+                                 hint: Optional[str],
+                                 values: Optional[list[AttributeValue]]): ...
+
+    def set_temporary_attribute(self,
+                                namespace: str,
+                                name: str,
+                                is_hidden: bool,
+                                hint: Optional[str],
+                                values: Optional[list[AttributeValue]]): ...
+
+
+class VideoObjectBBoxType(Enum):
+    Detection: ...
+    TrackingInfo: ...
+
 
 class VideoObjectsView:
-    pass
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, item) -> BorrowedVideoObject: ...
+
+    def memory_handle(self) -> int: ...
+
+    @property
+    def ids(self) -> list[int]: ...
+
+    @property
+    def track_ids(self) -> list[int]: ...
+
+    @property
+    def sorted_by_id(self) -> list[BorrowedVideoObject]: ...
+
+
+class QueryFunctions:
+    @classmethod
+    def filter(cls,
+               v: VideoObjectsView,
+               q: MatchQuery,
+               no_gil: bool = True) -> VideoObjectsView: ...
+
+    @classmethod
+    def partition(cls,
+                  v: VideoObjectsView,
+                  q: MatchQuery,
+                  no_gil: bool = True) -> tuple[VideoObjectsView, VideoObjectsView]: ...
+

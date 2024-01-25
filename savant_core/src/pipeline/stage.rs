@@ -4,7 +4,7 @@ use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
-use crate::primitives::object::VideoObjectProxy;
+use crate::primitives::object::BorrowedVideoObject;
 use crate::rust::StageStat;
 use crate::rwlock::SavantRwLock;
 use anyhow::bail;
@@ -314,7 +314,7 @@ impl PipelineStage {
         &self,
         id: i64,
         query: &MatchQuery,
-    ) -> anyhow::Result<HashMap<i64, Vec<VideoObjectProxy>>> {
+    ) -> anyhow::Result<HashMap<i64, Vec<BorrowedVideoObject>>> {
         self.with_payload_item(id, |payload| match payload {
             PipelinePayload::Frame(frame, _, ctx) => {
                 let _span = Pipeline::get_nested_span(format!("{}/access-objects", self.name), ctx)

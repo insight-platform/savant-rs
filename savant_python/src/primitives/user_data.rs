@@ -10,7 +10,6 @@ use savant_core::primitives::rust as rust_primitives;
 use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
-use std::mem;
 
 #[pyclass]
 #[derive(Debug, Clone)]
@@ -59,6 +58,11 @@ impl UserData {
         self.0.get_attributes()
     }
 
+    pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
+        let res = self.0.get_attribute(namespace, name);
+        res.map(Attribute)
+    }
+
     pub fn find_attributes_with_ns(&mut self, namespace: &str) -> Vec<(String, String)> {
         self.0.find_attributes_with_ns(namespace)
     }
@@ -79,11 +83,6 @@ impl UserData {
         let hint_refs = hint_opts_refs.iter().collect::<Vec<_>>();
 
         self.0.find_attributes_with_hints(&hint_refs)
-    }
-
-    pub fn get_attribute(&self, namespace: &str, name: &str) -> Option<Attribute> {
-        let res = self.0.get_attribute(namespace, name);
-        res.map(Attribute)
     }
 
     pub fn delete_attributes_with_ns(&mut self, namespace: &str) {
@@ -183,14 +182,6 @@ impl UserData {
 
     pub fn clear_attributes(&mut self) {
         self.0.clear_attributes()
-    }
-
-    pub fn exclude_temporary_attributes(&mut self) -> Vec<Attribute> {
-        unsafe {
-            mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(
-                self.0.exclude_temporary_attributes(),
-            )
-        }
     }
 
     #[getter]

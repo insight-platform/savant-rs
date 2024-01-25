@@ -9,7 +9,6 @@ use savant_core::primitives::attribute_value::AttributeValue;
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, VideoObject, VideoObjectBuilder,
 };
-use savant_core::primitives::rust::VideoObjectProxy;
 use savant_core::primitives::{Attribute, RBBox, WithAttributes};
 use savant_core::test::gen_empty_frame;
 use test::Bencher;
@@ -66,10 +65,7 @@ fn bench_filtering(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -85,10 +81,7 @@ fn bench_filtering_idle(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -105,10 +98,7 @@ fn bench_filtering_idle_quick_break(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -135,10 +125,7 @@ fn bench_filtering_with_eval(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -153,10 +140,7 @@ fn bench_empty_filtering(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -175,10 +159,7 @@ fn bench_simple_filtering(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {
@@ -192,10 +173,7 @@ fn bench_all_objects(b: &mut Bencher) {
     let frame = gen_empty_frame();
     for o in objs {
         frame
-            .add_object(
-                VideoObjectProxy::from(o),
-                IdCollisionResolutionPolicy::Error,
-            )
+            .add_object(o, IdCollisionResolutionPolicy::Error)
             .unwrap();
     }
     b.iter(|| {

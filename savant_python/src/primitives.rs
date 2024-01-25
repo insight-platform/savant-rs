@@ -1,4 +1,4 @@
-/// Attribute module specifies attribute code for [crate::primitives::VideoObject] and [crate::primitives::VideoFrame].
+/// Attribute module specifies attribute code for [crate::primitives::BorrowedVideoObject] and [crate::primitives::VideoFrame].
 ///
 pub mod attribute;
 pub mod attribute_value;
@@ -24,8 +24,7 @@ pub mod shutdown;
 pub mod user_data;
 
 use crate::primitives::frame::{
-    BelongingVideoFrame, VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod,
-    VideoFrameTransformation,
+    VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };
 
 use crate::primitives::attribute::Attribute;
@@ -37,7 +36,7 @@ use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use crate::primitives::object::{IdCollisionResolutionPolicy, VideoObject};
+use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::primitives::point::Point;
 use crate::primitives::polygonal_area::PolygonalArea;
@@ -74,18 +73,18 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Shutdown>()?; // PYI
     m.add_class::<UserData>()?; // PYI
 
-    m.add_class::<BelongingVideoFrame>()?; // PYI
     m.add_class::<VideoFrame>()?; // PYI
     m.add_class::<VideoFrameBatch>()?; // PYI
     m.add_class::<VideoFrameContent>()?; // PYI
     m.add_class::<VideoFrameTranscodingMethod>()?; // PYI
-    m.add_class::<VideoFrameUpdate>()?;
+    m.add_class::<VideoFrameUpdate>()?; // PYI
     m.add_class::<VideoFrameTransformation>()?; // PYI
 
-    m.add_class::<VideoObject>()?;
-    m.add_class::<VideoObjectsView>()?;
+    m.add_class::<BorrowedVideoObject>()?; // PYI
+    m.add_class::<VideoObject>()?; // PYI
+    m.add_class::<VideoObjectsView>()?; // PYI
 
-    m.add_class::<IdCollisionResolutionPolicy>()?;
+    m.add_class::<IdCollisionResolutionPolicy>()?; // PYI
 
     Ok(())
 }

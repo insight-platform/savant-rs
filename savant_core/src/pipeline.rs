@@ -11,7 +11,7 @@ use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
-use crate::primitives::object::VideoObjectProxy;
+use crate::primitives::object::BorrowedVideoObject;
 
 pub(crate) mod stage;
 pub mod stats;
@@ -161,7 +161,7 @@ impl Pipeline {
         &self,
         frame_id: i64,
         query: &MatchQuery,
-    ) -> Result<HashMap<i64, Vec<VideoObjectProxy>>> {
+    ) -> Result<HashMap<i64, Vec<BorrowedVideoObject>>> {
         self.0.access_objects(frame_id, query)
     }
 
@@ -188,7 +188,7 @@ pub(super) mod implementation {
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
-    use crate::primitives::object::VideoObjectProxy;
+    use crate::primitives::object::BorrowedVideoObject;
     use crate::rwlock::SavantRwLock;
 
     const DEFAULT_ROOT_SPAN_NAME: &str = "video_pipeline";
@@ -874,7 +874,7 @@ pub(super) mod implementation {
             &self,
             frame_id: i64,
             query: &MatchQuery,
-        ) -> Result<HashMap<i64, Vec<VideoObjectProxy>>> {
+        ) -> Result<HashMap<i64, Vec<BorrowedVideoObject>>> {
             let stage = self.get_stage_for_id(frame_id)?;
             let stage_opt = self.stages.get(stage);
             if stage_opt.is_none() {

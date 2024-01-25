@@ -1,7 +1,8 @@
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
-use crate::primitives::rust::{UserData, VideoObjectProxy};
+use crate::primitives::object::VideoObject;
+use crate::primitives::rust::UserData;
 use crate::protobuf::generated;
 use std::convert::Infallible;
 
@@ -85,7 +86,7 @@ where
 impl ToProtobuf<'_, generated::VideoFrame> for VideoFrameProxy {}
 impl ToProtobuf<'_, generated::VideoFrameUpdate> for VideoFrameUpdate {}
 impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
-impl ToProtobuf<'_, generated::VideoObject> for VideoObjectProxy {}
+impl ToProtobuf<'_, generated::VideoObject> for VideoObject {}
 impl ToProtobuf<'_, generated::UserData> for UserData {}
 
 #[cfg(test)]

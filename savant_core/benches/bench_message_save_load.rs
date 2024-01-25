@@ -7,6 +7,7 @@ use savant_core::message::{load_message, save_message, Message};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame_batch::VideoFrameBatch;
 use savant_core::primitives::frame_update::VideoFrameUpdate;
+use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::WithAttributes;
 use savant_core::test::gen_frame;
 use test::Bencher;
@@ -52,7 +53,7 @@ fn bench_save_load_frame_update(b: &mut Bencher) {
     let f = gen_frame();
     let mut update = VideoFrameUpdate::default();
     for o in f.access_objects(&MatchQuery::Idle) {
-        update.add_object(&o, None);
+        update.add_object(o.detached_copy(), None);
     }
     let attrs = f.get_attributes();
     for (namespace, label) in attrs {
