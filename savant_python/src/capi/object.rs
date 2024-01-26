@@ -234,7 +234,7 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
     handle: usize,
     namespace: *const c_char,
     name: *const c_char,
-    index: usize,
+    value_index: usize,
     caller_allocated_result: *mut f64,
     caller_allocated_result_len: *mut usize,
     caller_allocated_confidence: *mut f32,
@@ -269,10 +269,10 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
         let attribute = attribute.as_ref().unwrap();
         let attribute_values = attribute.0.get_values();
 
-        if attribute_values.len() <= index {
+        if attribute_values.len() <= value_index {
             return false;
         }
-        let val = &attribute_values[index];
+        let val = &attribute_values[value_index];
 
         if let Some(conf) = val.confidence {
             *caller_allocated_confidence = conf;
@@ -284,6 +284,7 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
         match &val.value {
             AttributeValueVariant::Float(f) => {
                 *caller_allocated_result = *f;
+                *caller_allocated_result_len = 1;
                 true
             }
             AttributeValueVariant::FloatVector(f) => {
