@@ -1,5 +1,6 @@
 use crate::primitives::bbox::RBBox;
 use crate::primitives::object::BorrowedVideoObject;
+use crate::primitives::objects_view::VideoObjectsView;
 use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 use savant_core::primitives::WithAttributes;
 use std::cmp::min;
@@ -25,6 +26,27 @@ pub struct ObjectIds {
     pub namespace_id_set: bool,
     pub label_id_set: bool,
     pub tracking_id_set: bool,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn object_view_get_handles(
+    handle: usize,
+    caller_allocated_handles: *mut usize,
+    caller_allocated_max_handles: *mut usize,
+) {
+    if handle == 0 || caller_allocated_handles.is_null() || caller_allocated_max_handles.is_null() {
+        panic!("Null pointer passed to object_view_get_handles");
+    }
+    unsafe {
+        let object_view = &*(handle as *const VideoObjectsView);
+        let handles = object_view.object_memory_handles();
+        let handles_len = handles.len();
+        let max_handles = *caller_allocated_max_handles;
+        let len = min(handles_len, max_handles);
+        let buf = std::slice::from_raw_parts_mut(caller_allocated_handles, len);
+        buf[..len].copy_from_slice(&handles[..len]);
+        *caller_allocated_max_handles = handles_len;
+    }
 }
 
 #[no_mangle]

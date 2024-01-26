@@ -103,6 +103,11 @@ impl VideoObjectsView {
         self as *const Self as usize
     }
 
+    #[getter]
+    pub fn object_memory_handles(&self) -> Vec<usize> {
+        self.inner.iter().map(|x| x.memory_handle()).collect()
+    }
+
     fn __len__(&self) -> PyResult<usize> {
         Ok(self.inner.len())
     }

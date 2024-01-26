@@ -29,6 +29,10 @@ typedef struct BoundingBox {
  */
 bool check_version(const char *external_version);
 
+void object_view_get_handles(uintptr_t handle,
+                             uintptr_t *caller_allocated_handles,
+                             uintptr_t *caller_allocated_max_handles);
+
 struct ObjectIds object_get_ids(uintptr_t handle);
 
 bool object_get_confidence(uintptr_t handle, float *conf);
