@@ -3,22 +3,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef enum BoxSource {
-  Detection = 0,
-  Tracking = 1,
-  TrackingWhenAbsentDetection = 2,
-} BoxSource;
-
-typedef struct InferenceMeta {
-  int64_t id;
-  int64_t parent_id;
-  int64_t namespace_;
-  int64_t label;
-  int64_t left;
-  int64_t top;
-  int64_t width;
-  int64_t height;
-} InferenceMeta;
+typedef struct BoundingBox {
+  float xc;
+  float yc;
+  float width;
+  float height;
+  float angle;
+  bool oriented;
+} BoundingBox;
 
 /**
  * # Safety
@@ -27,16 +19,40 @@ typedef struct InferenceMeta {
  */
 bool check_version(const char *external_version);
 
-/**
- * # Safety
- *
- * The function is unsafe because it is exported to C-ABI and works with raw pointers.
- *
- */
-uintptr_t build_inference_meta(uintptr_t handle,
-                               enum BoxSource box_source,
-                               struct InferenceMeta *meta,
-                               uintptr_t meta_capacity);
+int64_t object_get_id(uintptr_t handle);
+
+bool object_get_confidence(uintptr_t handle, float *conf);
+
+void object_set_confidence(uintptr_t handle, float conf);
+
+void object_clear_confidence(uintptr_t handle);
+
+uintptr_t object_get_namespace(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+
+uintptr_t object_get_label(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+
+uintptr_t object_get_draw_label(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+
+void object_get_detection_box(uintptr_t handle, struct BoundingBox *caller_allocated_bb);
+
+void object_set_detection_box(uintptr_t handle, const struct BoundingBox *bb);
+
+bool object_get_tracking_info(uintptr_t handle,
+                              struct BoundingBox *caller_allocated_bb,
+                              int64_t *caller_allocated_tracking_id);
+
+void object_set_tracking_info(uintptr_t handle, const struct BoundingBox *bb, int64_t tracking_id);
+
+void object_clear_tracking_info(uintptr_t handle);
+
+bool object_get_float_vec_attribute_value(uintptr_t handle,
+                                          const char *namespace_,
+                                          const char *name,
+                                          uintptr_t index,
+                                          double *caller_allocated_result,
+                                          uintptr_t *caller_allocated_result_len,
+                                          float *caller_allocated_confidence,
+                                          bool *caller_allocated_confidence_set);
 
 /**
  * # Safety

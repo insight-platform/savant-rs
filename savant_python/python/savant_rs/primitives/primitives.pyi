@@ -639,10 +639,13 @@ class BorrowedVideoObject:
     confidence: Optional[float]
     namespace: str
     label: str
-    draw_label: Optional[str]
+    draw_label: str
     detection_box: RBBox
     track_id: Optional[int]
     track_box: Optional[RBBox]
+
+    @property
+    def memory_handle(self) -> int: ...
 
     @property
     def attributes(self) -> list[tuple[str, str]]: ...
