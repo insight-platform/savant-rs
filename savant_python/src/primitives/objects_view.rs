@@ -99,7 +99,7 @@ impl VideoObjectsView {
     }
 
     #[getter]
-    fn memory_handle(&self) -> usize {
+    pub fn memory_handle(&self) -> usize {
         self as *const Self as usize
     }
 

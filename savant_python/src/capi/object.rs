@@ -559,8 +559,9 @@ mod tests {
         object_get_detection_box, object_get_draw_label, object_get_float_vec_attribute_value,
         object_get_ids, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
         object_get_tracking_info, object_set_confidence, object_set_detection_box,
-        object_set_tracking_info, BoundingBox,
+        object_set_tracking_info, object_view_get_handles, BoundingBox,
     };
+    use crate::primitives::frame::VideoFrame;
     use crate::primitives::object::BorrowedVideoObject;
     use savant_core::primitives::WithAttributes;
     use savant_core::test::gen_frame;
@@ -863,6 +864,26 @@ mod tests {
             assert_eq!(result, vec![1, 2, 3]);
             assert_eq!(result_len, 3);
             assert!(!confidence_set);
+        }
+    }
+
+    #[test]
+    fn test_memory_view_accessor() {
+        let frame = gen_frame();
+        let frame = VideoFrame(frame);
+        let objects = frame.get_all_objects();
+        let handlers = objects.object_memory_handles();
+
+        unsafe {
+            let mut c_handlers = vec![0usize; 10];
+            let mut max_handlers = handlers.len();
+            object_view_get_handles(
+                objects.memory_handle(),
+                c_handlers.as_mut_ptr(),
+                &mut max_handlers,
+            );
+            assert_eq!(max_handlers, handlers.len());
+            assert_eq!(c_handlers[..max_handlers], handlers[..max_handlers]);
         }
     }
 }
