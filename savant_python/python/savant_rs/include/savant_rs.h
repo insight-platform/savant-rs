@@ -3,6 +3,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct ObjectIds {
+  int64_t id;
+  int64_t namespace_id;
+  int64_t label_id;
+  int64_t tracking_id;
+  bool namespace_id_set;
+  bool label_id_set;
+  bool tracking_id_set;
+} ObjectIds;
+
 typedef struct BoundingBox {
   float xc;
   float yc;
@@ -19,7 +29,7 @@ typedef struct BoundingBox {
  */
 bool check_version(const char *external_version);
 
-int64_t object_get_id(uintptr_t handle);
+struct ObjectIds object_get_ids(uintptr_t handle);
 
 bool object_get_confidence(uintptr_t handle, float *conf);
 
@@ -54,6 +64,16 @@ bool object_get_float_vec_attribute_value(uintptr_t handle,
                                           float *caller_allocated_confidence,
                                           bool *caller_allocated_confidence_set);
 
+void object_set_float_vec_attribute_value(uintptr_t handle,
+                                          const char *namespace_,
+                                          const char *name,
+                                          const char *hint,
+                                          const double *values,
+                                          uintptr_t values_len,
+                                          const float *confidence,
+                                          bool persistent,
+                                          bool hidden);
+
 bool object_get_int_vec_attribute_value(uintptr_t handle,
                                         const char *namespace_,
                                         const char *name,
@@ -62,6 +82,16 @@ bool object_get_int_vec_attribute_value(uintptr_t handle,
                                         uintptr_t *caller_allocated_result_len,
                                         float *caller_allocated_confidence,
                                         bool *caller_allocated_confidence_set);
+
+void object_set_int_vec_attribute_value(uintptr_t handle,
+                                        const char *namespace_,
+                                        const char *name,
+                                        const char *hint,
+                                        const int64_t *values,
+                                        uintptr_t values_len,
+                                        const float *confidence,
+                                        bool persistent,
+                                        bool hidden);
 
 /**
  * # Safety

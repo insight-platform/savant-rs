@@ -1,6 +1,7 @@
 use crate::primitives::bbox::RBBox;
 use crate::primitives::object::BorrowedVideoObject;
-use savant_core::primitives::attribute_value::AttributeValueVariant;
+use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use savant_core::primitives::WithAttributes;
 use std::cmp::min;
 use std::ffi::{c_char, CStr};
 
@@ -14,13 +15,38 @@ pub struct BoundingBox {
     pub oriented: bool,
 }
 
+#[repr(C)]
+pub struct ObjectIds {
+    pub id: i64,
+    pub namespace_id: i64,
+    pub label_id: i64,
+    pub tracking_id: i64,
+
+    pub namespace_id_set: bool,
+    pub label_id_set: bool,
+    pub tracking_id_set: bool,
+}
+
 #[no_mangle]
-pub unsafe extern "C" fn object_get_id(handle: usize) -> i64 {
+pub unsafe extern "C" fn object_get_ids(handle: usize) -> ObjectIds {
     if handle == 0 {
         panic!("Null pointer passed to object_get_id");
     }
     let object = &*(handle as *const BorrowedVideoObject);
-    object.get_id()
+    let id = object.get_id();
+    let namespace_id = object.get_namespace_id();
+    let label_id = object.get_label_id();
+    let tracking_id = object.get_track_id();
+
+    ObjectIds {
+        id,
+        namespace_id: namespace_id.unwrap_or(0),
+        namespace_id_set: namespace_id.is_some(),
+        label_id: label_id.unwrap_or(0),
+        label_id_set: label_id.is_some(),
+        tracking_id: tracking_id.unwrap_or(0),
+        tracking_id_set: tracking_id.is_some(),
+    }
 }
 
 #[no_mangle]
@@ -311,6 +337,63 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn object_set_float_vec_attribute_value(
+    handle: usize,
+    namespace: *const c_char,
+    name: *const c_char,
+    hint: *const c_char,
+    values: *const f64,
+    values_len: usize,
+    confidence: *const f32,
+    persistent: bool,
+    hidden: bool,
+) {
+    unsafe {
+        if handle == 0
+            || namespace.is_null()
+            || name.is_null()
+            || values.is_null()
+            || values_len == 0
+        {
+            panic!("Null pointer passed to object_set_float_vec_attribute_value");
+        }
+
+        let object = &mut *(handle as *mut BorrowedVideoObject);
+        let namespace = CStr::from_ptr(namespace);
+        let name = CStr::from_ptr(name);
+        let hint = if hint.is_null() {
+            None
+        } else {
+            Some(CStr::from_ptr(hint).to_str().unwrap().to_string())
+        };
+        let confidence = if confidence.is_null() {
+            None
+        } else {
+            Some(*confidence)
+        };
+
+        let namespace = namespace.to_str().unwrap();
+        let name = name.to_str().unwrap();
+        let values = std::slice::from_raw_parts(values, values_len);
+        let values = values.to_vec();
+        let values = vec![AttributeValue::new(
+            AttributeValueVariant::FloatVector(values),
+            confidence,
+        )];
+
+        if persistent {
+            object
+                .0
+                .set_persistent_attribute(namespace, name, &hint.as_deref(), hidden, values);
+        } else {
+            object
+                .0
+                .set_temporary_attribute(namespace, name, &hint.as_deref(), hidden, values);
+        }
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn object_get_int_vec_attribute_value(
     handle: usize,
     namespace: *const c_char,
@@ -390,13 +473,69 @@ pub unsafe extern "C" fn object_get_int_vec_attribute_value(
         }
     }
 }
+#[no_mangle]
+pub unsafe extern "C" fn object_set_int_vec_attribute_value(
+    handle: usize,
+    namespace: *const c_char,
+    name: *const c_char,
+    hint: *const c_char,
+    values: *const i64,
+    values_len: usize,
+    confidence: *const f32,
+    persistent: bool,
+    hidden: bool,
+) {
+    unsafe {
+        if handle == 0
+            || namespace.is_null()
+            || name.is_null()
+            || values.is_null()
+            || values_len == 0
+        {
+            panic!("Null pointer passed to object_set_int_vec_attribute_value");
+        }
+
+        let object = &mut *(handle as *mut BorrowedVideoObject);
+        let namespace = CStr::from_ptr(namespace);
+        let name = CStr::from_ptr(name);
+        let hint = if hint.is_null() {
+            None
+        } else {
+            Some(CStr::from_ptr(hint).to_str().unwrap().to_string())
+        };
+        let confidence = if confidence.is_null() {
+            None
+        } else {
+            Some(*confidence)
+        };
+
+        let namespace = namespace.to_str().unwrap();
+        let name = name.to_str().unwrap();
+        let values = std::slice::from_raw_parts(values, values_len);
+        let values = values.to_vec();
+        let values = vec![AttributeValue::new(
+            AttributeValueVariant::IntegerVector(values),
+            confidence,
+        )];
+
+        if persistent {
+            object
+                .0
+                .set_persistent_attribute(namespace, name, &hint.as_deref(), hidden, values);
+        } else {
+            object
+                .0
+                .set_temporary_attribute(namespace, name, &hint.as_deref(), hidden, values);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use crate::capi::object::{
         object_clear_confidence, object_clear_tracking_info, object_get_confidence,
         object_get_detection_box, object_get_draw_label, object_get_float_vec_attribute_value,
-        object_get_id, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
+        object_get_ids, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
         object_get_tracking_info, object_set_confidence, object_set_detection_box,
         object_set_tracking_info, BoundingBox,
     };
@@ -409,8 +548,8 @@ mod tests {
     fn test_object_ops() {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        let id = unsafe { object_get_id(o.memory_handle()) };
-        assert_eq!(id, 1);
+        let ids = unsafe { object_get_ids(o.memory_handle()) };
+        assert_eq!(ids.id, 1);
     }
 
     #[test]

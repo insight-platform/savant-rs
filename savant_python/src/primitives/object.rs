@@ -262,6 +262,12 @@ impl BorrowedVideoObject {
     pub fn get_namespace(&self) -> String {
         self.0.get_namespace()
     }
+
+    #[getter]
+    pub fn get_namespace_id(&self) -> Option<i64> {
+        self.0.get_namespace_id()
+    }
+
     #[setter]
     pub fn set_namespace(&mut self, namespace: &str) {
         self.0.set_namespace(namespace);
@@ -270,6 +276,11 @@ impl BorrowedVideoObject {
     #[getter]
     pub fn get_label(&self) -> String {
         self.0.get_label()
+    }
+
+    #[getter]
+    pub fn get_label_id(&self) -> Option<i64> {
+        self.0.get_label_id()
     }
     #[setter]
     pub fn set_label(&mut self, label: &str) {
