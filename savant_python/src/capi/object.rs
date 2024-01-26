@@ -1,10 +1,12 @@
+use std::cmp::min;
+use std::ffi::{c_char, CStr};
+
+use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use savant_core::primitives::WithAttributes;
+
 use crate::primitives::bbox::RBBox;
 use crate::primitives::object::BorrowedVideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
-use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-use savant_core::primitives::WithAttributes;
-use std::cmp::min;
-use std::ffi::{c_char, CStr};
 
 #[repr(C)]
 pub struct BoundingBox {
@@ -139,7 +141,7 @@ pub unsafe extern "C" fn object_get_label(
     let label = label.as_bytes();
     // copy label to allocated_buf
     let label_len = label.len();
-    let len = std::cmp::min(label_len, len);
+    let len = min(label_len, len);
     let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf as *mut u8, len) };
     // fill with label
     buf[..len].copy_from_slice(&label[..len]);
@@ -554,18 +556,21 @@ pub unsafe extern "C" fn object_set_int_vec_attribute_value(
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::CString;
+
+    use savant_core::primitives::WithAttributes;
+    use savant_core::test::gen_frame;
+
     use crate::capi::object::{
         object_clear_confidence, object_clear_tracking_info, object_get_confidence,
         object_get_detection_box, object_get_draw_label, object_get_float_vec_attribute_value,
         object_get_ids, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
         object_get_tracking_info, object_set_confidence, object_set_detection_box,
+        object_set_float_vec_attribute_value, object_set_int_vec_attribute_value,
         object_set_tracking_info, object_view_get_handles, BoundingBox,
     };
     use crate::primitives::frame::VideoFrame;
     use crate::primitives::object::BorrowedVideoObject;
-    use savant_core::primitives::WithAttributes;
-    use savant_core::test::gen_frame;
-    use std::ffi::c_char;
 
     #[test]
     fn test_object_ops() {
@@ -732,12 +737,22 @@ mod tests {
     }
 
     #[test]
-    fn test_float_vec_attribute_value() {
+    fn test_get_float_vec_attribute_value() {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+
+        let namespace = "test";
+        let name = "test";
+
+        let c_namespace_bind = CString::new(namespace).unwrap();
+        let c_namespace = c_namespace_bind.as_ptr();
+
+        let c_name_bind = CString::new(name).unwrap();
+        let c_name = c_name_bind.as_ptr();
+
         o.0.set_persistent_attribute(
-            "test",
-            "test",
+            namespace,
+            name,
             &None,
             false,
             vec![
@@ -757,8 +772,8 @@ mod tests {
             let res = unsafe {
                 object_get_float_vec_attribute_value(
                     o.memory_handle(),
-                    "test".as_ptr() as *const c_char,
-                    "test".as_ptr() as *const c_char,
+                    c_namespace,
+                    c_name,
                     1,
                     &mut result,
                     &mut result_len,
@@ -782,8 +797,8 @@ mod tests {
             let res = unsafe {
                 object_get_float_vec_attribute_value(
                     o.memory_handle(),
-                    "test".as_ptr() as *const c_char,
-                    "test".as_ptr() as *const c_char,
+                    c_namespace,
+                    c_name,
                     0,
                     result.as_mut_ptr(),
                     &mut result_len,
@@ -800,12 +815,18 @@ mod tests {
     }
 
     #[test]
-    fn test_int_vec_attribute_value() {
+    fn test_get_int_vec_attribute_value() {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+
+        let namespace = "test";
+        let name = "test";
+
+        let c_namespace = CString::new(namespace).unwrap();
+        let c_name = CString::new(name).unwrap();
         o.0.set_persistent_attribute(
-            "test",
-            "test",
+            namespace,
+            name,
             &None,
             false,
             vec![
@@ -825,8 +846,8 @@ mod tests {
             let res = unsafe {
                 object_get_int_vec_attribute_value(
                     o.memory_handle(),
-                    "test".as_ptr() as *const c_char,
-                    "test".as_ptr() as *const c_char,
+                    c_namespace.as_ptr(),
+                    c_name.as_ptr(),
                     1,
                     &mut result,
                     &mut result_len,
@@ -847,11 +868,12 @@ mod tests {
             let mut result_len = 3;
             let mut confidence = 1.0;
             let mut confidence_set = true;
+
             let res = unsafe {
                 object_get_int_vec_attribute_value(
                     o.memory_handle(),
-                    "test".as_ptr() as *const c_char,
-                    "test".as_ptr() as *const c_char,
+                    c_namespace.as_ptr(),
+                    c_name.as_ptr(),
                     0,
                     result.as_mut_ptr(),
                     &mut result_len,
@@ -885,5 +907,77 @@ mod tests {
             assert_eq!(max_handlers, handlers.len());
             assert_eq!(c_handlers[..max_handlers], handlers[..max_handlers]);
         }
+    }
+
+    #[test]
+    fn test_set_float_vec_attribute_value() {
+        let f = gen_frame();
+        let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let values = vec![1.0, 2.0, 3.0];
+
+        let namespace = "newtest";
+        let name = "newtest";
+
+        let c_namespace = CString::new("newtest").unwrap();
+        let c_name = CString::new("newtest").unwrap();
+
+        unsafe {
+            object_set_float_vec_attribute_value(
+                o.memory_handle(),
+                c_namespace.as_ptr(),
+                c_name.as_ptr(),
+                std::ptr::null(),
+                values.as_ptr(),
+                values.len(),
+                std::ptr::null(),
+                false,
+                false,
+            )
+        };
+        let attribute = o.get_attribute(namespace, name).unwrap();
+        let values = attribute.0.get_values();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0].value,
+            savant_core::primitives::attribute_value::AttributeValueVariant::FloatVector(vec![
+                1.0, 2.0, 3.0
+            ])
+        );
+    }
+
+    #[test]
+    fn test_set_int_vec_attribute_value() {
+        let f = gen_frame();
+        let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let values = vec![1, 2, 3];
+
+        let namespace = "newtest";
+        let name = "newtest";
+
+        let c_namespace = CString::new("newtest").unwrap();
+        let c_name = CString::new("newtest").unwrap();
+
+        unsafe {
+            object_set_int_vec_attribute_value(
+                o.memory_handle(),
+                c_namespace.as_ptr(),
+                c_name.as_ptr(),
+                std::ptr::null(),
+                values.as_ptr(),
+                values.len(),
+                std::ptr::null(),
+                false,
+                false,
+            )
+        };
+        let attribute = o.get_attribute(namespace, name).unwrap();
+        let values = attribute.0.get_values();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            values[0].value,
+            savant_core::primitives::attribute_value::AttributeValueVariant::IntegerVector(vec![
+                1, 2, 3
+            ])
+        );
     }
 }

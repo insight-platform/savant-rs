@@ -27,7 +27,5 @@ fn main() {
         )
         .expect("Failed to compile protobuf definitions");
 
-    dbg!(out_path.clone());
-    dbg!(module_path.clone());
     fs::copy(out_path, module_path).unwrap();
 }

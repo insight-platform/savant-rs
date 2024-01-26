@@ -17,14 +17,13 @@ pub unsafe extern "C" fn check_version(external_version: *const c_char) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::c_char;
+    use std::ffi::CString;
 
     #[test]
     fn test_check_version() {
         unsafe {
-            assert!(crate::capi::check_version(
-                savant_core::version().as_ptr() as *const c_char
-            ));
+            let ver = CString::new(savant_core::version()).unwrap();
+            assert!(crate::capi::check_version(ver.as_ptr()));
         }
     }
 }
