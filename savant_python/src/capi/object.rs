@@ -310,16 +310,100 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn object_get_int_vec_attribute_value(
+    handle: usize,
+    namespace: *const c_char,
+    name: *const c_char,
+    value_index: usize,
+    caller_allocated_result: *mut i64,
+    caller_allocated_result_len: *mut usize,
+    caller_allocated_confidence: *mut f32,
+    caller_allocated_confidence_set: *mut bool,
+) -> bool {
+    unsafe {
+        if handle == 0
+            || caller_allocated_result.is_null()
+            || caller_allocated_result_len.is_null()
+            || caller_allocated_confidence.is_null()
+            || caller_allocated_confidence_set.is_null()
+            || namespace.is_null()
+            || name.is_null()
+        {
+            panic!("Null pointer passed to object_get_int_vec_attribute_value");
+        }
+
+        if *caller_allocated_result_len < 1 {
+            return false;
+        }
+
+        let object = &*(handle as *const BorrowedVideoObject);
+        let namespace = CStr::from_ptr(namespace);
+        let name = CStr::from_ptr(name);
+        let namespace = namespace.to_str().unwrap();
+        let name = name.to_str().unwrap();
+        let attribute = object.get_attribute(namespace, name);
+        if attribute.is_none() {
+            return false;
+        }
+
+        let attribute = attribute.as_ref().unwrap();
+        let attribute_values = attribute.0.get_values();
+
+        if attribute_values.len() <= value_index {
+            return false;
+        }
+        let val = &attribute_values[value_index];
+
+        if let Some(conf) = val.confidence {
+            *caller_allocated_confidence = conf;
+            *caller_allocated_confidence_set = true;
+        } else {
+            *caller_allocated_confidence_set = false;
+        }
+
+        match &val.value {
+            AttributeValueVariant::Integer(i) => {
+                *caller_allocated_result = *i;
+                *caller_allocated_result_len = 1;
+                true
+            }
+            AttributeValueVariant::IntegerVector(i) => {
+                if i.len() > *caller_allocated_result_len {
+                    return false;
+                }
+
+                let buf = std::slice::from_raw_parts_mut(
+                    caller_allocated_result,
+                    *caller_allocated_result_len,
+                );
+
+                *caller_allocated_result_len = min(i.len(), *caller_allocated_result_len);
+
+                // copy i to caller_allocated_result
+                buf[..*caller_allocated_result_len]
+                    .copy_from_slice(&i[..*caller_allocated_result_len]);
+
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::capi::object::{
         object_clear_confidence, object_clear_tracking_info, object_get_confidence,
-        object_get_detection_box, object_get_draw_label, object_get_id, object_get_label,
-        object_get_namespace, object_get_tracking_info, object_set_confidence,
-        object_set_detection_box, object_set_tracking_info, BoundingBox,
+        object_get_detection_box, object_get_draw_label, object_get_float_vec_attribute_value,
+        object_get_id, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
+        object_get_tracking_info, object_set_confidence, object_set_detection_box,
+        object_set_tracking_info, BoundingBox,
     };
     use crate::primitives::object::BorrowedVideoObject;
+    use savant_core::primitives::WithAttributes;
     use savant_core::test::gen_frame;
+    use std::ffi::c_char;
 
     #[test]
     fn test_object_ops() {
@@ -483,5 +567,141 @@ mod tests {
         let mut track_id = 0;
         let res = unsafe { object_get_tracking_info(o.memory_handle(), &mut bb, &mut track_id) };
         assert!(!res);
+    }
+
+    #[test]
+    fn test_float_vec_attribute_value() {
+        let f = gen_frame();
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        o.0.set_persistent_attribute(
+            "test",
+            "test",
+            &None,
+            false,
+            vec![
+                savant_core::primitives::attribute_value::AttributeValue::float_vector(
+                    vec![1.0, 2.0, 3.0],
+                    None,
+                ),
+                savant_core::primitives::attribute_value::AttributeValue::float(1.0, Some(0.5)),
+            ],
+        );
+        {
+            // access scalar attribute (index = 1)
+            let mut result = 0.0;
+            let mut result_len = 1;
+            let mut confidence = 0.0;
+            let mut confidence_set = false;
+            let res = unsafe {
+                object_get_float_vec_attribute_value(
+                    o.memory_handle(),
+                    "test".as_ptr() as *const c_char,
+                    "test".as_ptr() as *const c_char,
+                    1,
+                    &mut result,
+                    &mut result_len,
+                    &mut confidence,
+                    &mut confidence_set,
+                )
+            };
+
+            assert!(res);
+            assert_eq!(result, 1.0);
+            assert_eq!(result_len, 1);
+            assert_eq!(confidence, 0.5);
+            assert!(confidence_set);
+        }
+        {
+            // access vector attribute (index = 0)
+            let mut result = vec![0.0; 3];
+            let mut result_len = 3;
+            let mut confidence = 1.0;
+            let mut confidence_set = true;
+            let res = unsafe {
+                object_get_float_vec_attribute_value(
+                    o.memory_handle(),
+                    "test".as_ptr() as *const c_char,
+                    "test".as_ptr() as *const c_char,
+                    0,
+                    result.as_mut_ptr(),
+                    &mut result_len,
+                    &mut confidence,
+                    &mut confidence_set,
+                )
+            };
+
+            assert!(res);
+            assert_eq!(result, vec![1.0, 2.0, 3.0]);
+            assert_eq!(result_len, 3);
+            assert!(!confidence_set);
+        }
+    }
+
+    #[test]
+    fn test_int_vec_attribute_value() {
+        let f = gen_frame();
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        o.0.set_persistent_attribute(
+            "test",
+            "test",
+            &None,
+            false,
+            vec![
+                savant_core::primitives::attribute_value::AttributeValue::integer_vector(
+                    vec![1, 2, 3],
+                    None,
+                ),
+                savant_core::primitives::attribute_value::AttributeValue::integer(1, Some(0.5)),
+            ],
+        );
+        {
+            // access scalar attribute (index = 1)
+            let mut result = 0;
+            let mut result_len = 1;
+            let mut confidence = 0.0;
+            let mut confidence_set = false;
+            let res = unsafe {
+                object_get_int_vec_attribute_value(
+                    o.memory_handle(),
+                    "test".as_ptr() as *const c_char,
+                    "test".as_ptr() as *const c_char,
+                    1,
+                    &mut result,
+                    &mut result_len,
+                    &mut confidence,
+                    &mut confidence_set,
+                )
+            };
+
+            assert!(res);
+            assert_eq!(result, 1);
+            assert_eq!(result_len, 1);
+            assert_eq!(confidence, 0.5);
+            assert!(confidence_set);
+        }
+        {
+            // access vector attribute (index = 0)
+            let mut result = vec![0; 3];
+            let mut result_len = 3;
+            let mut confidence = 1.0;
+            let mut confidence_set = true;
+            let res = unsafe {
+                object_get_int_vec_attribute_value(
+                    o.memory_handle(),
+                    "test".as_ptr() as *const c_char,
+                    "test".as_ptr() as *const c_char,
+                    0,
+                    result.as_mut_ptr(),
+                    &mut result_len,
+                    &mut confidence,
+                    &mut confidence_set,
+                )
+            };
+
+            assert!(res);
+            assert_eq!(result, vec![1, 2, 3]);
+            assert_eq!(result_len, 3);
+            assert!(!confidence_set);
+        }
     }
 }

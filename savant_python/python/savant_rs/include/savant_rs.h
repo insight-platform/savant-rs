@@ -48,11 +48,20 @@ void object_clear_tracking_info(uintptr_t handle);
 bool object_get_float_vec_attribute_value(uintptr_t handle,
                                           const char *namespace_,
                                           const char *name,
-                                          uintptr_t index,
+                                          uintptr_t value_index,
                                           double *caller_allocated_result,
                                           uintptr_t *caller_allocated_result_len,
                                           float *caller_allocated_confidence,
                                           bool *caller_allocated_confidence_set);
+
+bool object_get_int_vec_attribute_value(uintptr_t handle,
+                                        const char *namespace_,
+                                        const char *name,
+                                        uintptr_t value_index,
+                                        int64_t *caller_allocated_result,
+                                        uintptr_t *caller_allocated_result_len,
+                                        float *caller_allocated_confidence,
+                                        bool *caller_allocated_confidence_set);
 
 /**
  * # Safety
