@@ -1,0 +1,38 @@
+[package]
+name = "savant_py_plugin_sample"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+savant_rs = { path = "../savant_python" }
+
+[dependencies.pyo3]
+version = "0.19"
+
+[dev-dependencies]
+serial_test = "2.0"
+
+[build-dependencies]
+pyo3-build-config = "0.19"
+cbindgen = "0.24"
+
+[package.metadata.maturin]
+python-source = "python"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]

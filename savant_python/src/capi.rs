@@ -1,5 +1,5 @@
-mod frame;
-mod object;
+pub mod frame;
+pub mod object;
 pub mod pipeline;
 
 use std::ffi::{c_char, CStr};

@@ -15,8 +15,8 @@ pub struct CAPIObjectCreateSpecification {
     parent_id: i64,
     parent_id_defined: bool,
     detection_box_box: CAPIBoundingBox,
-    tracking_box: CAPIBoundingBox,
     tracking_id: i64,
+    tracking_box: CAPIBoundingBox,
     tracking_id_defined: bool,
     resulting_object_id: i64,
 }
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn savant_object_view_get_object(
     object_id: i64,
 ) -> *mut BorrowedVideoObject {
     let view = &*view;
-    let object = view.inner.iter().find(|o| o.get_id() == object_id).cloned();
+    let object = view.0.iter().find(|o| o.get_id() == object_id).cloned();
     match object {
         Some(object) => {
             let object = Box::new(object);

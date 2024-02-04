@@ -4,6 +4,7 @@ members = [
     "savant_core",
     "savant_python",
     "etcd_dynamic_state",
+    "savant_py_plugin_sample",
     #"savant_algebra"
 ]
 resolver = "2"

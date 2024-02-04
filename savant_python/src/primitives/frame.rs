@@ -437,7 +437,7 @@ impl VideoFrameTransformation {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct VideoFrame(pub(crate) rust::VideoFrameProxy);
+pub struct VideoFrame(pub rust::VideoFrameProxy);
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
@@ -477,8 +477,9 @@ impl VideoFrame {
         self.0.memory_handle()
     }
 
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
+    fn __hash__(&self) -> usize {
+        self.memory_handle()
+    }
 
     fn __repr__(&self) -> String {
         format!("{:?}", &self.0)

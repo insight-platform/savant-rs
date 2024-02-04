@@ -10,7 +10,7 @@ typedef struct BorrowedVideoObject BorrowedVideoObject;
 typedef struct VideoFrame VideoFrame;
 
 typedef struct VideoObjectsView {
-  struct Arc_Vec_BorrowedVideoObject inner;
+  struct Arc_Vec_BorrowedVideoObject _0;
 } VideoObjectsView;
 
 typedef struct CAPIBoundingBox {
@@ -30,8 +30,8 @@ typedef struct CAPIObjectCreateSpecification {
   int64_t parent_id;
   bool parent_id_defined;
   struct CAPIBoundingBox detection_box_box;
-  struct CAPIBoundingBox tracking_box;
   int64_t tracking_id;
+  struct CAPIBoundingBox tracking_box;
   bool tracking_id_defined;
   int64_t resulting_object_id;
 } CAPIObjectCreateSpecification;

@@ -48,43 +48,40 @@ impl From<savant_core::primitives::object::VideoObjectBBoxType> for VideoObjectB
 #[pyclass]
 #[derive(Clone, Debug)]
 #[repr(C)]
-pub struct VideoObjectsView {
-    pub(crate) inner: Arc<Vec<BorrowedVideoObject>>,
-}
+pub struct VideoObjectsView(pub Arc<Vec<BorrowedVideoObject>>);
 
 impl VideoObjectsView {
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.0.is_empty()
     }
 }
 
 impl From<Vec<BorrowedVideoObject>> for VideoObjectsView {
     fn from(value: Vec<BorrowedVideoObject>) -> Self {
-        VideoObjectsView {
-            inner: Arc::new(value),
-        }
+        VideoObjectsView(Arc::new(value))
     }
 }
 
 impl From<Vec<savant_core::primitives::rust::BorrowedVideoObject>> for VideoObjectsView {
     fn from(value: Vec<savant_core::primitives::rust::BorrowedVideoObject>) -> Self {
-        VideoObjectsView {
-            inner: Arc::new(value.into_iter().map(BorrowedVideoObject).collect()),
-        }
+        VideoObjectsView(Arc::new(
+            value.into_iter().map(BorrowedVideoObject).collect(),
+        ))
     }
 }
 
 #[pymethods]
 impl VideoObjectsView {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
+    fn __hash__(&self) -> usize {
+        self.memory_handle()
+    }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner)
+        format!("{:?}", self.0)
     }
 
     fn __str__(&self) -> String {
@@ -92,7 +89,7 @@ impl VideoObjectsView {
     }
 
     fn __getitem__(&self, index: usize) -> PyResult<BorrowedVideoObject> {
-        self.inner
+        self.0
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))
             .map(|x| x.clone())
@@ -105,33 +102,28 @@ impl VideoObjectsView {
 
     #[getter]
     pub fn object_memory_handles(&self) -> Vec<usize> {
-        self.inner.iter().map(|x| x.memory_handle()).collect()
+        self.0.iter().map(|x| x.memory_handle()).collect()
     }
 
     fn __len__(&self) -> PyResult<usize> {
-        Ok(self.inner.len())
+        Ok(self.0.len())
     }
 
     #[getter]
     fn ids(&self) -> Vec<i64> {
-        self.inner.iter().map(|x| x.get_id()).collect()
+        self.0.iter().map(|x| x.get_id()).collect()
     }
 
     #[getter]
     pub fn track_ids(&self) -> Vec<Option<i64>> {
-        self.inner
-            .iter()
-            .map(|o| o.get_track_id())
-            .collect::<Vec<_>>()
+        self.0.iter().map(|o| o.get_track_id()).collect::<Vec<_>>()
     }
 
     #[getter]
     pub fn sorted_by_id(&self) -> VideoObjectsView {
-        let mut objects = self.inner.as_ref().clone();
+        let mut objects = self.0.as_ref().clone();
         objects.sort_by_key(|o| o.get_id());
-        VideoObjectsView {
-            inner: Arc::new(objects),
-        }
+        VideoObjectsView(Arc::new(objects))
     }
 }
 
@@ -150,7 +142,7 @@ impl QueryFunctions {
         no_gil: bool,
     ) -> VideoObjectsView {
         release_gil!(no_gil, || {
-            let objs = v.inner.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
+            let objs = v.0.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
             VideoObjectsView::from(filter(&objs, &q.0))
         })
     }
@@ -184,7 +176,7 @@ impl QueryFunctions {
         no_gil: bool,
     ) -> (VideoObjectsView, VideoObjectsView) {
         release_gil!(no_gil, || {
-            let objs = v.inner.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
+            let objs = v.0.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
             let (a, b) = partition(&objs, &q.0);
             (a.into(), b.into())
         })

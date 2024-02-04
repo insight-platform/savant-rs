@@ -5,7 +5,7 @@ use crate::{release_gil, with_gil};
 use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::{ObjectAccess, ObjectOperations};
 use savant_core::primitives::{rust, WithAttributes};
@@ -183,7 +183,7 @@ impl VideoObject {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct BorrowedVideoObject(pub(crate) rust::BorrowedVideoObject);
+pub struct BorrowedVideoObject(pub rust::BorrowedVideoObject);
 
 impl ToSerdeJsonValue for BorrowedVideoObject {
     fn to_serde_json_value(&self) -> Value {
@@ -193,8 +193,9 @@ impl ToSerdeJsonValue for BorrowedVideoObject {
 
 #[pymethods]
 impl BorrowedVideoObject {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
+    fn __hash__(&self) -> usize {
+        self.memory_handle()
+    }
 
     fn __repr__(&self) -> String {
         format!("{:?}", &self.0)
