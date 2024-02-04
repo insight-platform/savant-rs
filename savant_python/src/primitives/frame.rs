@@ -988,8 +988,8 @@ impl VideoFrame {
         ))
     }
 
-    pub fn access_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
-        self.0.access_objects_by_id(&ids).into()
+    pub fn access_objects_with_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
+        self.0.access_objects_with_id(&ids).into()
     }
 
     #[pyo3(name = "delete_objects")]
@@ -1003,9 +1003,9 @@ impl VideoFrame {
             .collect())
     }
 
-    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
+    pub fn delete_objects_with_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
         self.0
-            .delete_objects_by_ids(&ids)
+            .delete_objects_with_ids(&ids)
             .into_iter()
             .map(VideoObject)
             .collect()

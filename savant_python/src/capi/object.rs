@@ -2,19 +2,31 @@ use std::cmp::min;
 use std::ffi::{c_char, CStr};
 
 use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
-use savant_core::primitives::WithAttributes;
+use savant_core::primitives::object::ObjectOperations;
+use savant_core::primitives::{RBBox, WithAttributes};
 
-use crate::primitives::bbox::RBBox;
 use crate::primitives::object::BorrowedVideoObject;
 
 #[repr(C)]
-pub struct CAPI_BoundingBox {
+pub struct CAPIBoundingBox {
     pub xc: f32,
     pub yc: f32,
     pub width: f32,
     pub height: f32,
     pub angle: f32,
     pub oriented: bool,
+}
+
+impl From<&CAPIBoundingBox> for RBBox {
+    fn from(bb: &CAPIBoundingBox) -> Self {
+        RBBox::new(
+            bb.xc,
+            bb.yc,
+            bb.width,
+            bb.height,
+            if bb.oriented { Some(bb.angle) } else { None },
+        )
+    }
 }
 
 #[repr(C)]
@@ -30,7 +42,25 @@ pub struct CAPI_ObjectIds {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_ids(
+pub unsafe extern "C" fn savant_get_borrowed_object_from_handle(
+    handle: usize,
+) -> *mut BorrowedVideoObject {
+    let object = &*(handle as *const BorrowedVideoObject);
+    let object = Box::new(object.clone());
+    Box::into_raw(object)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn savant_release_borrowed_object(object: *mut BorrowedVideoObject) {
+    if object.is_null() {
+        return;
+    }
+    let o = Box::from_raw(object);
+    drop(o);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn savant_object_get_ids(
     object: *const BorrowedVideoObject,
 ) -> CAPI_ObjectIds {
     if object.is_null() {
@@ -54,7 +84,7 @@ pub unsafe extern "C" fn savant_get_object_ids(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_confidence(
+pub unsafe extern "C" fn savant_object_get_confidence(
     object: *const BorrowedVideoObject,
     conf: *mut f32,
 ) -> bool {
@@ -72,7 +102,7 @@ pub unsafe extern "C" fn savant_get_object_confidence(
 
 // set confidence
 #[no_mangle]
-pub unsafe extern "C" fn savant_set_object_confidence(object: *mut BorrowedVideoObject, conf: f32) {
+pub unsafe extern "C" fn savant_object_set_confidence(object: *mut BorrowedVideoObject, conf: f32) {
     if object.is_null() {
         panic!("Null pointer passed to object_set_confidence");
     }
@@ -81,7 +111,7 @@ pub unsafe extern "C" fn savant_set_object_confidence(object: *mut BorrowedVideo
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_clear_object_confidence(object: *mut BorrowedVideoObject) {
+pub unsafe extern "C" fn savant_object_clear_confidence(object: *mut BorrowedVideoObject) {
     if object.is_null() {
         panic!("Null pointer passed to object_clear_confidence");
     }
@@ -90,7 +120,7 @@ pub unsafe extern "C" fn savant_clear_object_confidence(object: *mut BorrowedVid
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_namespace(
+pub unsafe extern "C" fn savant_object_get_namespace(
     object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
@@ -111,7 +141,7 @@ pub unsafe extern "C" fn savant_get_object_namespace(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_label(
+pub unsafe extern "C" fn savant_object_get_label(
     object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
@@ -132,7 +162,7 @@ pub unsafe extern "C" fn savant_get_object_label(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_draw_label(
+pub unsafe extern "C" fn savant_object_get_draw_label(
     object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
@@ -153,9 +183,9 @@ pub unsafe extern "C" fn savant_get_object_draw_label(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_detection_box(
+pub unsafe extern "C" fn savant_object_get_detection_box(
     object: *const BorrowedVideoObject,
-    caller_allocated_bb: *mut CAPI_BoundingBox,
+    caller_allocated_bb: *mut CAPIBoundingBox,
 ) {
     if object.is_null() || caller_allocated_bb.is_null() {
         panic!("Null pointer passed to object_get_detection_box");
@@ -165,7 +195,7 @@ pub unsafe extern "C" fn savant_get_object_detection_box(
     let (xc, yc, width, height) = bb.as_xcycwh();
     let oriented = bb.get_angle().is_some();
     let angle = bb.get_angle().unwrap_or(0.0);
-    *caller_allocated_bb = CAPI_BoundingBox {
+    *caller_allocated_bb = CAPIBoundingBox {
         xc,
         yc,
         width,
@@ -176,9 +206,9 @@ pub unsafe extern "C" fn savant_get_object_detection_box(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_set_object_detection_box(
+pub unsafe extern "C" fn savant_object_set_detection_box(
     object: *mut BorrowedVideoObject,
-    bb: *const CAPI_BoundingBox,
+    bb: *const CAPIBoundingBox,
 ) {
     if object.is_null() || bb.is_null() {
         panic!("Null pointer passed to object_set_detection_box");
@@ -192,13 +222,13 @@ pub unsafe extern "C" fn savant_set_object_detection_box(
         bb.height,
         if bb.oriented { Some(bb.angle) } else { None },
     );
-    object.set_detection_box(bb);
+    object.0.set_detection_box(bb);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_tracking_info(
+pub unsafe extern "C" fn savant_object_get_tracking_info(
     object: *const BorrowedVideoObject,
-    caller_allocated_bb: *mut CAPI_BoundingBox,
+    caller_allocated_bb: *mut CAPIBoundingBox,
     caller_allocated_tracking_id: *mut i64,
 ) -> bool {
     if object.is_null() || caller_allocated_bb.is_null() || caller_allocated_tracking_id.is_null() {
@@ -217,7 +247,7 @@ pub unsafe extern "C" fn savant_get_object_tracking_info(
     let track_id = track_id.unwrap();
     let track_box = track_box.unwrap();
     let (xc, yc, width, height) = track_box.as_xcycwh();
-    *caller_allocated_bb = CAPI_BoundingBox {
+    *caller_allocated_bb = CAPIBoundingBox {
         xc,
         yc,
         width,
@@ -230,9 +260,9 @@ pub unsafe extern "C" fn savant_get_object_tracking_info(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_set_object_tracking_info(
+pub unsafe extern "C" fn savant_object_set_tracking_info(
     object: *mut BorrowedVideoObject,
-    bb: *const CAPI_BoundingBox,
+    bb: *const CAPIBoundingBox,
     tracking_id: i64,
 ) {
     if object.is_null() || bb.is_null() {
@@ -252,11 +282,11 @@ pub unsafe extern "C" fn savant_set_object_tracking_info(
             None
         },
     );
-    object.set_track_id(Some(tracking_id));
-    object.set_track_box(track_box);
+    object.0.set_track_id(Some(tracking_id));
+    object.0.set_track_box(track_box);
 }
 #[no_mangle]
-pub unsafe extern "C" fn savant_clear_object_tracking_info(object: *mut BorrowedVideoObject) {
+pub unsafe extern "C" fn savant_object_clear_tracking_info(object: *mut BorrowedVideoObject) {
     if object.is_null() {
         panic!("Null pointer passed to object_clear_tracking_info");
     }
@@ -266,7 +296,7 @@ pub unsafe extern "C" fn savant_clear_object_tracking_info(object: *mut Borrowed
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_float_vec_attribute_value(
+pub unsafe extern "C" fn savant_object_get_float_vec_attribute_value(
     object: *const BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
@@ -347,7 +377,7 @@ pub unsafe extern "C" fn savant_get_object_float_vec_attribute_value(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_set_object_float_vec_attribute_value(
+pub unsafe extern "C" fn savant_object_set_float_vec_attribute_value(
     object: *mut BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
@@ -404,7 +434,7 @@ pub unsafe extern "C" fn savant_set_object_float_vec_attribute_value(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn savant_get_object_int_vec_attribute_value(
+pub unsafe extern "C" fn savant_object_get_int_vec_attribute_value(
     object: *const BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
@@ -484,7 +514,7 @@ pub unsafe extern "C" fn savant_get_object_int_vec_attribute_value(
     }
 }
 #[no_mangle]
-pub unsafe extern "C" fn savant_set_object_int_vec_attribute_value(
+pub unsafe extern "C" fn savant_object_set_int_vec_attribute_value(
     object: *mut BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
@@ -548,14 +578,14 @@ mod tests {
     use savant_core::test::gen_frame;
 
     use crate::capi::object::{
-        savant_clear_object_confidence, savant_clear_object_tracking_info,
-        savant_get_object_confidence, savant_get_object_detection_box,
-        savant_get_object_draw_label, savant_get_object_float_vec_attribute_value,
-        savant_get_object_ids, savant_get_object_int_vec_attribute_value, savant_get_object_label,
-        savant_get_object_namespace, savant_get_object_tracking_info, savant_set_object_confidence,
-        savant_set_object_detection_box, savant_set_object_float_vec_attribute_value,
-        savant_set_object_int_vec_attribute_value, savant_set_object_tracking_info,
-        CAPI_BoundingBox,
+        savant_object_clear_confidence, savant_object_clear_tracking_info,
+        savant_object_get_confidence, savant_object_get_detection_box,
+        savant_object_get_draw_label, savant_object_get_float_vec_attribute_value,
+        savant_object_get_ids, savant_object_get_int_vec_attribute_value, savant_object_get_label,
+        savant_object_get_namespace, savant_object_get_tracking_info, savant_object_set_confidence,
+        savant_object_set_detection_box, savant_object_set_float_vec_attribute_value,
+        savant_object_set_int_vec_attribute_value, savant_object_set_tracking_info,
+        CAPIBoundingBox,
     };
     use crate::primitives::object::BorrowedVideoObject;
 
@@ -564,7 +594,7 @@ mod tests {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
-        let ids = unsafe { savant_get_object_ids(optr) };
+        let ids = unsafe { savant_object_get_ids(optr) };
         assert_eq!(ids.id, 1);
     }
 
@@ -573,13 +603,13 @@ mod tests {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr_mut = &mut o as *mut BorrowedVideoObject;
-        unsafe { savant_set_object_confidence(optr_mut, 0.5) };
+        unsafe { savant_object_set_confidence(optr_mut, 0.5) };
         let mut conf = 0.0;
-        let res = unsafe { savant_get_object_confidence(optr_mut, &mut conf) };
+        let res = unsafe { savant_object_get_confidence(optr_mut, &mut conf) };
         assert!(res);
         assert_eq!(conf, 0.5);
-        unsafe { savant_clear_object_confidence(optr_mut) };
-        let res = unsafe { savant_get_object_confidence(optr_mut, &mut conf) };
+        unsafe { savant_object_clear_confidence(optr_mut) };
+        let res = unsafe { savant_object_get_confidence(optr_mut, &mut conf) };
         assert!(!res);
     }
 
@@ -590,7 +620,7 @@ mod tests {
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = vec![0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
-        let ns = unsafe { savant_get_object_namespace(optr, result_buf, 100) };
+        let ns = unsafe { savant_object_get_namespace(optr, result_buf, 100) };
         let ns = unsafe { std::slice::from_raw_parts(result_buf as *const u8, ns) };
         let ns = std::str::from_utf8(ns).unwrap();
         assert_eq!(ns, "test2");
@@ -603,7 +633,7 @@ mod tests {
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = vec![0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
-        let label = unsafe { savant_get_object_label(optr, result_buf, 100) };
+        let label = unsafe { savant_object_get_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
         let label = std::str::from_utf8(label).unwrap();
         assert_eq!(label, "test");
@@ -616,7 +646,7 @@ mod tests {
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = vec![0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
-        let label = unsafe { savant_get_object_draw_label(optr, result_buf, 100) };
+        let label = unsafe { savant_object_get_draw_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
         let label = std::str::from_utf8(label).unwrap();
         assert_eq!(label, "test");
@@ -627,7 +657,7 @@ mod tests {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr_mut = &mut o as *mut BorrowedVideoObject;
-        let mut bb = CAPI_BoundingBox {
+        let mut bb = CAPIBoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -635,7 +665,7 @@ mod tests {
             angle: 0.0,
             oriented: true,
         };
-        unsafe { savant_get_object_detection_box(optr_mut, &mut bb) };
+        unsafe { savant_object_get_detection_box(optr_mut, &mut bb) };
         assert!(!bb.oriented);
         assert_eq!(bb.xc, 0.0);
         assert_eq!(bb.yc, 0.0);
@@ -643,7 +673,7 @@ mod tests {
         assert_eq!(bb.height, 0.0);
         assert_eq!(bb.angle, 0.0);
 
-        let bb = CAPI_BoundingBox {
+        let bb = CAPIBoundingBox {
             xc: 1.0,
             yc: 2.0,
             width: 3.0,
@@ -651,8 +681,8 @@ mod tests {
             angle: 5.0,
             oriented: true,
         };
-        unsafe { savant_set_object_detection_box(optr_mut, &bb) };
-        let mut bb = CAPI_BoundingBox {
+        unsafe { savant_object_set_detection_box(optr_mut, &bb) };
+        let mut bb = CAPIBoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -660,7 +690,7 @@ mod tests {
             angle: 0.0,
             oriented: false,
         };
-        unsafe { savant_get_object_detection_box(optr_mut, &mut bb) };
+        unsafe { savant_object_get_detection_box(optr_mut, &mut bb) };
         assert!(bb.oriented);
         assert_eq!(bb.xc, 1.0);
         assert_eq!(bb.yc, 2.0);
@@ -674,7 +704,7 @@ mod tests {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr_mut = &mut o as *mut BorrowedVideoObject;
-        let mut bb = CAPI_BoundingBox {
+        let mut bb = CAPIBoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -683,10 +713,10 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
+        let res = unsafe { savant_object_get_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(!res);
 
-        let bb = CAPI_BoundingBox {
+        let bb = CAPIBoundingBox {
             xc: 1.0,
             yc: 2.0,
             width: 3.0,
@@ -694,8 +724,8 @@ mod tests {
             angle: 5.0,
             oriented: true,
         };
-        unsafe { savant_set_object_tracking_info(optr_mut, &bb, 1) };
-        let mut bb = CAPI_BoundingBox {
+        unsafe { savant_object_set_tracking_info(optr_mut, &bb, 1) };
+        let mut bb = CAPIBoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -704,7 +734,7 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
+        let res = unsafe { savant_object_get_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(res);
         assert_eq!(track_id, 1);
         assert!(bb.oriented);
@@ -714,8 +744,8 @@ mod tests {
         assert_eq!(bb.height, 4.0);
         assert_eq!(bb.angle, 5.0);
 
-        unsafe { savant_clear_object_tracking_info(optr_mut) };
-        let mut bb = CAPI_BoundingBox {
+        unsafe { savant_object_clear_tracking_info(optr_mut) };
+        let mut bb = CAPIBoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -724,7 +754,7 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
+        let res = unsafe { savant_object_get_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(!res);
     }
 
@@ -763,7 +793,7 @@ mod tests {
             let mut confidence = 0.0;
             let mut confidence_set = false;
             let res = unsafe {
-                savant_get_object_float_vec_attribute_value(
+                savant_object_get_float_vec_attribute_value(
                     optr,
                     c_namespace,
                     c_name,
@@ -788,7 +818,7 @@ mod tests {
             let mut confidence = 1.0;
             let mut confidence_set = true;
             let res = unsafe {
-                savant_get_object_float_vec_attribute_value(
+                savant_object_get_float_vec_attribute_value(
                     optr,
                     c_namespace,
                     c_name,
@@ -838,7 +868,7 @@ mod tests {
             let mut confidence = 0.0;
             let mut confidence_set = false;
             let res = unsafe {
-                savant_get_object_int_vec_attribute_value(
+                savant_object_get_int_vec_attribute_value(
                     optr,
                     c_namespace.as_ptr(),
                     c_name.as_ptr(),
@@ -864,7 +894,7 @@ mod tests {
             let mut confidence_set = true;
 
             let res = unsafe {
-                savant_get_object_int_vec_attribute_value(
+                savant_object_get_int_vec_attribute_value(
                     optr,
                     c_namespace.as_ptr(),
                     c_name.as_ptr(),
@@ -897,7 +927,7 @@ mod tests {
         let c_name = CString::new("newtest").unwrap();
 
         unsafe {
-            savant_set_object_float_vec_attribute_value(
+            savant_object_set_float_vec_attribute_value(
                 optr_mut,
                 c_namespace.as_ptr(),
                 c_name.as_ptr(),
@@ -934,7 +964,7 @@ mod tests {
         let c_name = CString::new("newtest").unwrap();
 
         unsafe {
-            savant_set_object_int_vec_attribute_value(
+            savant_object_set_int_vec_attribute_value(
                 optr_mut,
                 c_namespace.as_ptr(),
                 c_name.as_ptr(),

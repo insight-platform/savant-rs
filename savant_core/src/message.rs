@@ -407,7 +407,7 @@ mod tests {
             ]
         );
 
-        let _ = f.access_objects_by_id(&vec![0]).pop().unwrap();
+        let _ = f.access_objects_with_id(&vec![0]).pop().unwrap();
     }
 
     #[test]

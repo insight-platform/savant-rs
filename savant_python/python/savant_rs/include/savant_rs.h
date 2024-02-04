@@ -7,27 +7,34 @@ typedef struct Arc_Vec_BorrowedVideoObject Arc_Vec_BorrowedVideoObject;
 
 typedef struct BorrowedVideoObject BorrowedVideoObject;
 
+typedef struct VideoFrame VideoFrame;
+
 typedef struct VideoObjectsView {
   struct Arc_Vec_BorrowedVideoObject inner;
 } VideoObjectsView;
 
-typedef struct CAPI_BoundingBox {
+typedef struct CAPIBoundingBox {
   float xc;
   float yc;
   float width;
   float height;
   float angle;
   bool oriented;
-} CAPI_BoundingBox;
+} CAPIBoundingBox;
 
-typedef struct CAPI_ObjectCreateSpecification {
+typedef struct CAPIObjectCreateSpecification {
   const char *namespace_;
   const char *label;
+  float confidence;
+  bool confidence_defined;
   int64_t parent_id;
   bool parent_id_defined;
-  struct CAPI_BoundingBox bounding_box;
+  struct CAPIBoundingBox detection_box_box;
+  struct CAPIBoundingBox tracking_box;
+  int64_t tracking_id;
+  bool tracking_id_defined;
   int64_t resulting_object_id;
-} CAPI_ObjectCreateSpecification;
+} CAPIObjectCreateSpecification;
 
 typedef struct CAPI_ObjectIds {
   int64_t id;
@@ -46,58 +53,73 @@ typedef struct CAPI_ObjectIds {
  */
 bool check_version(const char *external_version);
 
-struct VideoObjectsView *savant_get_object_view_from_frame_handle(uintptr_t handle);
+struct VideoFrame *savant_frame_from_handle(uintptr_t handle);
 
-struct VideoObjectsView *savant_get_object_view_from_object_view_handle(uintptr_t handle);
+void savant_release_frame(struct VideoFrame *frame);
+
+struct VideoObjectsView *savant_frame_get_all_objects(const struct VideoFrame *frame);
+
+struct VideoObjectsView *savant_object_view_from_handle(uintptr_t handle);
 
 void savant_release_object_view(struct VideoObjectsView *view);
 
-struct BorrowedVideoObject *savant_get_view_object(const struct VideoObjectsView *view,
-                                                   int64_t object_id);
+struct BorrowedVideoObject *savant_frame_get_object(const struct VideoFrame *frame,
+                                                    int64_t object_id);
+
+void savant_frame_delete_objects_with_ids(struct VideoFrame *frame,
+                                          const int64_t *object_ids,
+                                          uintptr_t len);
+
+struct BorrowedVideoObject *savant_object_view_get_object(const struct VideoObjectsView *view,
+                                                          int64_t object_id);
 
 void savant_release_object(struct BorrowedVideoObject *object);
 
-void savant_create_objects(uintptr_t _frame_handle,
-                           struct CAPI_ObjectCreateSpecification *_objects,
-                           uintptr_t _len);
+void savant_create_objects(struct VideoFrame *frame,
+                           struct CAPIObjectCreateSpecification *objects,
+                           uintptr_t len);
 
-struct CAPI_ObjectIds savant_get_object_ids(const struct BorrowedVideoObject *object);
+struct BorrowedVideoObject *savant_get_borrowed_object_from_handle(uintptr_t handle);
 
-bool savant_get_object_confidence(const struct BorrowedVideoObject *object, float *conf);
+void savant_release_borrowed_object(struct BorrowedVideoObject *object);
 
-void savant_set_object_confidence(struct BorrowedVideoObject *object, float conf);
+struct CAPI_ObjectIds savant_object_get_ids(const struct BorrowedVideoObject *object);
 
-void savant_clear_object_confidence(struct BorrowedVideoObject *object);
+bool savant_object_get_confidence(const struct BorrowedVideoObject *object, float *conf);
 
-uintptr_t savant_get_object_namespace(const struct BorrowedVideoObject *object,
+void savant_object_set_confidence(struct BorrowedVideoObject *object, float conf);
+
+void savant_object_clear_confidence(struct BorrowedVideoObject *object);
+
+uintptr_t savant_object_get_namespace(const struct BorrowedVideoObject *object,
                                       char *caller_allocated_buf,
                                       uintptr_t len);
 
-uintptr_t savant_get_object_label(const struct BorrowedVideoObject *object,
+uintptr_t savant_object_get_label(const struct BorrowedVideoObject *object,
                                   char *caller_allocated_buf,
                                   uintptr_t len);
 
-uintptr_t savant_get_object_draw_label(const struct BorrowedVideoObject *object,
+uintptr_t savant_object_get_draw_label(const struct BorrowedVideoObject *object,
                                        char *caller_allocated_buf,
                                        uintptr_t len);
 
-void savant_get_object_detection_box(const struct BorrowedVideoObject *object,
-                                     struct CAPI_BoundingBox *caller_allocated_bb);
+void savant_object_get_detection_box(const struct BorrowedVideoObject *object,
+                                     struct CAPIBoundingBox *caller_allocated_bb);
 
-void savant_set_object_detection_box(struct BorrowedVideoObject *object,
-                                     const struct CAPI_BoundingBox *bb);
+void savant_object_set_detection_box(struct BorrowedVideoObject *object,
+                                     const struct CAPIBoundingBox *bb);
 
-bool savant_get_object_tracking_info(const struct BorrowedVideoObject *object,
-                                     struct CAPI_BoundingBox *caller_allocated_bb,
+bool savant_object_get_tracking_info(const struct BorrowedVideoObject *object,
+                                     struct CAPIBoundingBox *caller_allocated_bb,
                                      int64_t *caller_allocated_tracking_id);
 
-void savant_set_object_tracking_info(struct BorrowedVideoObject *object,
-                                     const struct CAPI_BoundingBox *bb,
+void savant_object_set_tracking_info(struct BorrowedVideoObject *object,
+                                     const struct CAPIBoundingBox *bb,
                                      int64_t tracking_id);
 
-void savant_clear_object_tracking_info(struct BorrowedVideoObject *object);
+void savant_object_clear_tracking_info(struct BorrowedVideoObject *object);
 
-bool savant_get_object_float_vec_attribute_value(const struct BorrowedVideoObject *object,
+bool savant_object_get_float_vec_attribute_value(const struct BorrowedVideoObject *object,
                                                  const char *namespace_,
                                                  const char *name,
                                                  uintptr_t value_index,
@@ -106,7 +128,7 @@ bool savant_get_object_float_vec_attribute_value(const struct BorrowedVideoObjec
                                                  float *caller_allocated_confidence,
                                                  bool *caller_allocated_confidence_set);
 
-void savant_set_object_float_vec_attribute_value(struct BorrowedVideoObject *object,
+void savant_object_set_float_vec_attribute_value(struct BorrowedVideoObject *object,
                                                  const char *namespace_,
                                                  const char *name,
                                                  const char *hint,
@@ -116,7 +138,7 @@ void savant_set_object_float_vec_attribute_value(struct BorrowedVideoObject *obj
                                                  bool persistent,
                                                  bool hidden);
 
-bool savant_get_object_int_vec_attribute_value(const struct BorrowedVideoObject *object,
+bool savant_object_get_int_vec_attribute_value(const struct BorrowedVideoObject *object,
                                                const char *namespace_,
                                                const char *name,
                                                uintptr_t value_index,
@@ -125,7 +147,7 @@ bool savant_get_object_int_vec_attribute_value(const struct BorrowedVideoObject 
                                                float *caller_allocated_confidence,
                                                bool *caller_allocated_confidence_set);
 
-void savant_set_object_int_vec_attribute_value(struct BorrowedVideoObject *object,
+void savant_object_set_int_vec_attribute_value(struct BorrowedVideoObject *object,
                                                const char *namespace_,
                                                const char *name,
                                                const char *hint,
