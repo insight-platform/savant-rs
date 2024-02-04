@@ -473,7 +473,7 @@ impl VideoFrame {
     ///   The pointer to the frame.
     ///
     #[getter]
-    fn memory_handle(&self) -> usize {
+    pub fn memory_handle(&self) -> usize {
         self.0.memory_handle()
     }
 

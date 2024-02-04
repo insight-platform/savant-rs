@@ -3,7 +3,33 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct ObjectIds {
+typedef struct Arc_Vec_BorrowedVideoObject Arc_Vec_BorrowedVideoObject;
+
+typedef struct BorrowedVideoObject BorrowedVideoObject;
+
+typedef struct VideoObjectsView {
+  struct Arc_Vec_BorrowedVideoObject inner;
+} VideoObjectsView;
+
+typedef struct CAPI_BoundingBox {
+  float xc;
+  float yc;
+  float width;
+  float height;
+  float angle;
+  bool oriented;
+} CAPI_BoundingBox;
+
+typedef struct CAPI_ObjectCreateSpecification {
+  const char *namespace_;
+  const char *label;
+  int64_t parent_id;
+  bool parent_id_defined;
+  struct CAPI_BoundingBox bounding_box;
+  int64_t resulting_object_id;
+} CAPI_ObjectCreateSpecification;
+
+typedef struct CAPI_ObjectIds {
   int64_t id;
   int64_t namespace_id;
   int64_t label_id;
@@ -11,16 +37,7 @@ typedef struct ObjectIds {
   bool namespace_id_set;
   bool label_id_set;
   bool tracking_id_set;
-} ObjectIds;
-
-typedef struct BoundingBox {
-  float xc;
-  float yc;
-  float width;
-  float height;
-  float angle;
-  bool oriented;
-} BoundingBox;
+} CAPI_ObjectIds;
 
 /**
  * # Safety
@@ -29,73 +46,94 @@ typedef struct BoundingBox {
  */
 bool check_version(const char *external_version);
 
-void object_view_get_handles(uintptr_t handle,
-                             uintptr_t *caller_allocated_handles,
-                             uintptr_t *caller_allocated_max_handles);
+struct VideoObjectsView *savant_get_object_view_from_frame_handle(uintptr_t handle);
 
-struct ObjectIds object_get_ids(uintptr_t handle);
+struct VideoObjectsView *savant_get_object_view_from_object_view_handle(uintptr_t handle);
 
-bool object_get_confidence(uintptr_t handle, float *conf);
+void savant_release_object_view(struct VideoObjectsView *view);
 
-void object_set_confidence(uintptr_t handle, float conf);
+struct BorrowedVideoObject *savant_get_view_object(const struct VideoObjectsView *view,
+                                                   int64_t object_id);
 
-void object_clear_confidence(uintptr_t handle);
+void savant_release_object(struct BorrowedVideoObject *object);
 
-uintptr_t object_get_namespace(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+void savant_create_objects(uintptr_t _frame_handle,
+                           struct CAPI_ObjectCreateSpecification *_objects,
+                           uintptr_t _len);
 
-uintptr_t object_get_label(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+struct CAPI_ObjectIds savant_get_object_ids(const struct BorrowedVideoObject *object);
 
-uintptr_t object_get_draw_label(uintptr_t handle, char *caller_allocated_buf, uintptr_t len);
+bool savant_get_object_confidence(const struct BorrowedVideoObject *object, float *conf);
 
-void object_get_detection_box(uintptr_t handle, struct BoundingBox *caller_allocated_bb);
+void savant_set_object_confidence(struct BorrowedVideoObject *object, float conf);
 
-void object_set_detection_box(uintptr_t handle, const struct BoundingBox *bb);
+void savant_clear_object_confidence(struct BorrowedVideoObject *object);
 
-bool object_get_tracking_info(uintptr_t handle,
-                              struct BoundingBox *caller_allocated_bb,
-                              int64_t *caller_allocated_tracking_id);
+uintptr_t savant_get_object_namespace(const struct BorrowedVideoObject *object,
+                                      char *caller_allocated_buf,
+                                      uintptr_t len);
 
-void object_set_tracking_info(uintptr_t handle, const struct BoundingBox *bb, int64_t tracking_id);
+uintptr_t savant_get_object_label(const struct BorrowedVideoObject *object,
+                                  char *caller_allocated_buf,
+                                  uintptr_t len);
 
-void object_clear_tracking_info(uintptr_t handle);
+uintptr_t savant_get_object_draw_label(const struct BorrowedVideoObject *object,
+                                       char *caller_allocated_buf,
+                                       uintptr_t len);
 
-bool object_get_float_vec_attribute_value(uintptr_t handle,
-                                          const char *namespace_,
-                                          const char *name,
-                                          uintptr_t value_index,
-                                          double *caller_allocated_result,
-                                          uintptr_t *caller_allocated_result_len,
-                                          float *caller_allocated_confidence,
-                                          bool *caller_allocated_confidence_set);
+void savant_get_object_detection_box(const struct BorrowedVideoObject *object,
+                                     struct CAPI_BoundingBox *caller_allocated_bb);
 
-void object_set_float_vec_attribute_value(uintptr_t handle,
-                                          const char *namespace_,
-                                          const char *name,
-                                          const char *hint,
-                                          const double *values,
-                                          uintptr_t values_len,
-                                          const float *confidence,
-                                          bool persistent,
-                                          bool hidden);
+void savant_set_object_detection_box(struct BorrowedVideoObject *object,
+                                     const struct CAPI_BoundingBox *bb);
 
-bool object_get_int_vec_attribute_value(uintptr_t handle,
-                                        const char *namespace_,
-                                        const char *name,
-                                        uintptr_t value_index,
-                                        int64_t *caller_allocated_result,
-                                        uintptr_t *caller_allocated_result_len,
-                                        float *caller_allocated_confidence,
-                                        bool *caller_allocated_confidence_set);
+bool savant_get_object_tracking_info(const struct BorrowedVideoObject *object,
+                                     struct CAPI_BoundingBox *caller_allocated_bb,
+                                     int64_t *caller_allocated_tracking_id);
 
-void object_set_int_vec_attribute_value(uintptr_t handle,
-                                        const char *namespace_,
-                                        const char *name,
-                                        const char *hint,
-                                        const int64_t *values,
-                                        uintptr_t values_len,
-                                        const float *confidence,
-                                        bool persistent,
-                                        bool hidden);
+void savant_set_object_tracking_info(struct BorrowedVideoObject *object,
+                                     const struct CAPI_BoundingBox *bb,
+                                     int64_t tracking_id);
+
+void savant_clear_object_tracking_info(struct BorrowedVideoObject *object);
+
+bool savant_get_object_float_vec_attribute_value(const struct BorrowedVideoObject *object,
+                                                 const char *namespace_,
+                                                 const char *name,
+                                                 uintptr_t value_index,
+                                                 double *caller_allocated_result,
+                                                 uintptr_t *caller_allocated_result_len,
+                                                 float *caller_allocated_confidence,
+                                                 bool *caller_allocated_confidence_set);
+
+void savant_set_object_float_vec_attribute_value(struct BorrowedVideoObject *object,
+                                                 const char *namespace_,
+                                                 const char *name,
+                                                 const char *hint,
+                                                 const double *values,
+                                                 uintptr_t values_len,
+                                                 const float *confidence,
+                                                 bool persistent,
+                                                 bool hidden);
+
+bool savant_get_object_int_vec_attribute_value(const struct BorrowedVideoObject *object,
+                                               const char *namespace_,
+                                               const char *name,
+                                               uintptr_t value_index,
+                                               int64_t *caller_allocated_result,
+                                               uintptr_t *caller_allocated_result_len,
+                                               float *caller_allocated_confidence,
+                                               bool *caller_allocated_confidence_set);
+
+void savant_set_object_int_vec_attribute_value(struct BorrowedVideoObject *object,
+                                               const char *namespace_,
+                                               const char *name,
+                                               const char *hint,
+                                               const int64_t *values,
+                                               uintptr_t values_len,
+                                               const float *confidence,
+                                               bool persistent,
+                                               bool hidden);
 
 /**
  * # Safety

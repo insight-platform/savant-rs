@@ -6,10 +6,9 @@ use savant_core::primitives::WithAttributes;
 
 use crate::primitives::bbox::RBBox;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::primitives::objects_view::VideoObjectsView;
 
 #[repr(C)]
-pub struct BoundingBox {
+pub struct CAPI_BoundingBox {
     pub xc: f32,
     pub yc: f32,
     pub width: f32,
@@ -19,7 +18,7 @@ pub struct BoundingBox {
 }
 
 #[repr(C)]
-pub struct ObjectIds {
+pub struct CAPI_ObjectIds {
     pub id: i64,
     pub namespace_id: i64,
     pub label_id: i64,
@@ -31,38 +30,19 @@ pub struct ObjectIds {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_view_get_handles(
-    handle: usize,
-    caller_allocated_handles: *mut usize,
-    caller_allocated_max_handles: *mut usize,
-) {
-    if handle == 0 || caller_allocated_handles.is_null() || caller_allocated_max_handles.is_null() {
-        panic!("Null pointer passed to object_view_get_handles");
-    }
-    unsafe {
-        let object_view = &*(handle as *const VideoObjectsView);
-        let handles = object_view.object_memory_handles();
-        let handles_len = handles.len();
-        let max_handles = *caller_allocated_max_handles;
-        let len = min(handles_len, max_handles);
-        let buf = std::slice::from_raw_parts_mut(caller_allocated_handles, len);
-        buf[..len].copy_from_slice(&handles[..len]);
-        *caller_allocated_max_handles = handles_len;
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn object_get_ids(handle: usize) -> ObjectIds {
-    if handle == 0 {
+pub unsafe extern "C" fn savant_get_object_ids(
+    object: *const BorrowedVideoObject,
+) -> CAPI_ObjectIds {
+    if object.is_null() {
         panic!("Null pointer passed to object_get_id");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let id = object.get_id();
     let namespace_id = object.get_namespace_id();
     let label_id = object.get_label_id();
     let tracking_id = object.get_track_id();
 
-    ObjectIds {
+    CAPI_ObjectIds {
         id,
         namespace_id: namespace_id.unwrap_or(0),
         namespace_id_set: namespace_id.is_some(),
@@ -74,11 +54,14 @@ pub unsafe extern "C" fn object_get_ids(handle: usize) -> ObjectIds {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_confidence(handle: usize, conf: *mut f32) -> bool {
-    if handle == 0 || conf.is_null() {
+pub unsafe extern "C" fn savant_get_object_confidence(
+    object: *const BorrowedVideoObject,
+    conf: *mut f32,
+) -> bool {
+    if object.is_null() || conf.is_null() {
         panic!("Null pointer passed to object_get_confidence");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     if let Some(c) = object.get_confidence() {
         *conf = c;
         true
@@ -89,33 +72,33 @@ pub unsafe extern "C" fn object_get_confidence(handle: usize, conf: *mut f32) ->
 
 // set confidence
 #[no_mangle]
-pub unsafe extern "C" fn object_set_confidence(handle: usize, conf: f32) {
-    if handle == 0 {
+pub unsafe extern "C" fn savant_set_object_confidence(object: *mut BorrowedVideoObject, conf: f32) {
+    if object.is_null() {
         panic!("Null pointer passed to object_set_confidence");
     }
-    let object = &mut *(handle as *mut BorrowedVideoObject);
+    let object = &mut *object;
     object.set_confidence(Some(conf));
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_clear_confidence(handle: usize) {
-    if handle == 0 {
+pub unsafe extern "C" fn savant_clear_object_confidence(object: *mut BorrowedVideoObject) {
+    if object.is_null() {
         panic!("Null pointer passed to object_clear_confidence");
     }
-    let object = &mut *(handle as *mut BorrowedVideoObject);
+    let object = &mut *object;
     object.set_confidence(None);
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_namespace(
-    handle: usize,
+pub unsafe extern "C" fn savant_get_object_namespace(
+    object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
 ) -> usize {
-    if handle == 0 || caller_allocated_buf.is_null() {
+    if object.is_null() || caller_allocated_buf.is_null() {
         panic!("Null pointer passed to object_get_namespace");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let ns = object.get_namespace();
     let ns = ns.as_bytes();
     // copy ns to allocated_buf
@@ -128,15 +111,15 @@ pub unsafe extern "C" fn object_get_namespace(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_label(
-    handle: usize,
+pub unsafe extern "C" fn savant_get_object_label(
+    object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
 ) -> usize {
-    if handle == 0 || caller_allocated_buf.is_null() {
+    if object.is_null() || caller_allocated_buf.is_null() {
         panic!("Null pointer passed to object_get_label");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let label = object.get_label();
     let label = label.as_bytes();
     // copy label to allocated_buf
@@ -149,15 +132,15 @@ pub unsafe extern "C" fn object_get_label(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_draw_label(
-    handle: usize,
+pub unsafe extern "C" fn savant_get_object_draw_label(
+    object: *const BorrowedVideoObject,
     caller_allocated_buf: *mut c_char,
     len: usize,
 ) -> usize {
-    if handle == 0 || caller_allocated_buf.is_null() {
+    if object.is_null() || caller_allocated_buf.is_null() {
         panic!("Null pointer passed to object_get_draw_label");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let label = object.get_draw_label();
     let label = label.as_bytes();
     // copy label to allocated_buf
@@ -170,19 +153,19 @@ pub unsafe extern "C" fn object_get_draw_label(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_detection_box(
-    handle: usize,
-    caller_allocated_bb: *mut BoundingBox,
+pub unsafe extern "C" fn savant_get_object_detection_box(
+    object: *const BorrowedVideoObject,
+    caller_allocated_bb: *mut CAPI_BoundingBox,
 ) {
-    if handle == 0 || caller_allocated_bb.is_null() {
+    if object.is_null() || caller_allocated_bb.is_null() {
         panic!("Null pointer passed to object_get_detection_box");
     }
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let bb = object.get_detection_box();
     let (xc, yc, width, height) = bb.as_xcycwh();
     let oriented = bb.get_angle().is_some();
     let angle = bb.get_angle().unwrap_or(0.0);
-    *caller_allocated_bb = BoundingBox {
+    *caller_allocated_bb = CAPI_BoundingBox {
         xc,
         yc,
         width,
@@ -193,11 +176,14 @@ pub unsafe extern "C" fn object_get_detection_box(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_set_detection_box(handle: usize, bb: *const BoundingBox) {
-    if handle == 0 || bb.is_null() {
+pub unsafe extern "C" fn savant_set_object_detection_box(
+    object: *mut BorrowedVideoObject,
+    bb: *const CAPI_BoundingBox,
+) {
+    if object.is_null() || bb.is_null() {
         panic!("Null pointer passed to object_set_detection_box");
     }
-    let object = &mut *(handle as *mut BorrowedVideoObject);
+    let object = &mut *object;
     let bb = &*bb;
     let bb = RBBox::new(
         bb.xc,
@@ -210,16 +196,16 @@ pub unsafe extern "C" fn object_set_detection_box(handle: usize, bb: *const Boun
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_tracking_info(
-    handle: usize,
-    caller_allocated_bb: *mut BoundingBox,
+pub unsafe extern "C" fn savant_get_object_tracking_info(
+    object: *const BorrowedVideoObject,
+    caller_allocated_bb: *mut CAPI_BoundingBox,
     caller_allocated_tracking_id: *mut i64,
 ) -> bool {
-    if handle == 0 || caller_allocated_bb.is_null() || caller_allocated_tracking_id.is_null() {
+    if object.is_null() || caller_allocated_bb.is_null() || caller_allocated_tracking_id.is_null() {
         panic!("Null pointer passed to object_get_tracking_info");
     }
 
-    let object = &*(handle as *const BorrowedVideoObject);
+    let object = &*object;
     let track_id = object.get_track_id();
     if track_id.is_none() {
         return false;
@@ -231,7 +217,7 @@ pub unsafe extern "C" fn object_get_tracking_info(
     let track_id = track_id.unwrap();
     let track_box = track_box.unwrap();
     let (xc, yc, width, height) = track_box.as_xcycwh();
-    *caller_allocated_bb = BoundingBox {
+    *caller_allocated_bb = CAPI_BoundingBox {
         xc,
         yc,
         width,
@@ -244,16 +230,16 @@ pub unsafe extern "C" fn object_get_tracking_info(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_set_tracking_info(
-    handle: usize,
-    bb: *const BoundingBox,
+pub unsafe extern "C" fn savant_set_object_tracking_info(
+    object: *mut BorrowedVideoObject,
+    bb: *const CAPI_BoundingBox,
     tracking_id: i64,
 ) {
-    if handle == 0 || bb.is_null() {
+    if object.is_null() || bb.is_null() {
         panic!("Null pointer passed to object_set_tracking_info");
     }
 
-    let object = &mut *(handle as *mut BorrowedVideoObject);
+    let object = &mut *object;
     let track_box = &*bb;
     let track_box = RBBox::new(
         track_box.xc,
@@ -270,18 +256,18 @@ pub unsafe extern "C" fn object_set_tracking_info(
     object.set_track_box(track_box);
 }
 #[no_mangle]
-pub unsafe extern "C" fn object_clear_tracking_info(handle: usize) {
-    if handle == 0 {
+pub unsafe extern "C" fn savant_clear_object_tracking_info(object: *mut BorrowedVideoObject) {
+    if object.is_null() {
         panic!("Null pointer passed to object_clear_tracking_info");
     }
 
-    let object = &mut *(handle as *mut BorrowedVideoObject);
+    let object = &mut *object;
     object.clear_track_info();
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_float_vec_attribute_value(
-    handle: usize,
+pub unsafe extern "C" fn savant_get_object_float_vec_attribute_value(
+    object: *const BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
     value_index: usize,
@@ -291,7 +277,7 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
     caller_allocated_confidence_set: *mut bool,
 ) -> bool {
     unsafe {
-        if handle == 0
+        if object.is_null()
             || caller_allocated_result.is_null()
             || caller_allocated_result_len.is_null()
             || caller_allocated_confidence.is_null()
@@ -306,7 +292,7 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
             return false;
         }
 
-        let object = &*(handle as *const BorrowedVideoObject);
+        let object = &*object;
         let namespace = CStr::from_ptr(namespace);
         let name = CStr::from_ptr(name);
         let namespace = namespace.to_str().unwrap();
@@ -361,8 +347,8 @@ pub unsafe extern "C" fn object_get_float_vec_attribute_value(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_set_float_vec_attribute_value(
-    handle: usize,
+pub unsafe extern "C" fn savant_set_object_float_vec_attribute_value(
+    object: *mut BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
     hint: *const c_char,
@@ -373,7 +359,7 @@ pub unsafe extern "C" fn object_set_float_vec_attribute_value(
     hidden: bool,
 ) {
     unsafe {
-        if handle == 0
+        if object.is_null()
             || namespace.is_null()
             || name.is_null()
             || values.is_null()
@@ -382,7 +368,7 @@ pub unsafe extern "C" fn object_set_float_vec_attribute_value(
             panic!("Null pointer passed to object_set_float_vec_attribute_value");
         }
 
-        let object = &mut *(handle as *mut BorrowedVideoObject);
+        let object = &mut *object;
         let namespace = CStr::from_ptr(namespace);
         let name = CStr::from_ptr(name);
         let hint = if hint.is_null() {
@@ -418,8 +404,8 @@ pub unsafe extern "C" fn object_set_float_vec_attribute_value(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn object_get_int_vec_attribute_value(
-    handle: usize,
+pub unsafe extern "C" fn savant_get_object_int_vec_attribute_value(
+    object: *const BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
     value_index: usize,
@@ -429,7 +415,7 @@ pub unsafe extern "C" fn object_get_int_vec_attribute_value(
     caller_allocated_confidence_set: *mut bool,
 ) -> bool {
     unsafe {
-        if handle == 0
+        if object.is_null()
             || caller_allocated_result.is_null()
             || caller_allocated_result_len.is_null()
             || caller_allocated_confidence.is_null()
@@ -444,7 +430,7 @@ pub unsafe extern "C" fn object_get_int_vec_attribute_value(
             return false;
         }
 
-        let object = &*(handle as *const BorrowedVideoObject);
+        let object = &*object;
         let namespace = CStr::from_ptr(namespace);
         let name = CStr::from_ptr(name);
         let namespace = namespace.to_str().unwrap();
@@ -498,8 +484,8 @@ pub unsafe extern "C" fn object_get_int_vec_attribute_value(
     }
 }
 #[no_mangle]
-pub unsafe extern "C" fn object_set_int_vec_attribute_value(
-    handle: usize,
+pub unsafe extern "C" fn savant_set_object_int_vec_attribute_value(
+    object: *mut BorrowedVideoObject,
     namespace: *const c_char,
     name: *const c_char,
     hint: *const c_char,
@@ -510,7 +496,7 @@ pub unsafe extern "C" fn object_set_int_vec_attribute_value(
     hidden: bool,
 ) {
     unsafe {
-        if handle == 0
+        if object.is_null()
             || namespace.is_null()
             || name.is_null()
             || values.is_null()
@@ -519,7 +505,7 @@ pub unsafe extern "C" fn object_set_int_vec_attribute_value(
             panic!("Null pointer passed to object_set_int_vec_attribute_value");
         }
 
-        let object = &mut *(handle as *mut BorrowedVideoObject);
+        let object = &mut *object;
         let namespace = CStr::from_ptr(namespace);
         let name = CStr::from_ptr(name);
         let hint = if hint.is_null() {
@@ -562,35 +548,38 @@ mod tests {
     use savant_core::test::gen_frame;
 
     use crate::capi::object::{
-        object_clear_confidence, object_clear_tracking_info, object_get_confidence,
-        object_get_detection_box, object_get_draw_label, object_get_float_vec_attribute_value,
-        object_get_ids, object_get_int_vec_attribute_value, object_get_label, object_get_namespace,
-        object_get_tracking_info, object_set_confidence, object_set_detection_box,
-        object_set_float_vec_attribute_value, object_set_int_vec_attribute_value,
-        object_set_tracking_info, object_view_get_handles, BoundingBox,
+        savant_clear_object_confidence, savant_clear_object_tracking_info,
+        savant_get_object_confidence, savant_get_object_detection_box,
+        savant_get_object_draw_label, savant_get_object_float_vec_attribute_value,
+        savant_get_object_ids, savant_get_object_int_vec_attribute_value, savant_get_object_label,
+        savant_get_object_namespace, savant_get_object_tracking_info, savant_set_object_confidence,
+        savant_set_object_detection_box, savant_set_object_float_vec_attribute_value,
+        savant_set_object_int_vec_attribute_value, savant_set_object_tracking_info,
+        CAPI_BoundingBox,
     };
-    use crate::primitives::frame::VideoFrame;
     use crate::primitives::object::BorrowedVideoObject;
 
     #[test]
     fn test_object_ops() {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        let ids = unsafe { object_get_ids(o.memory_handle()) };
+        let optr = &o as *const BorrowedVideoObject;
+        let ids = unsafe { savant_get_object_ids(optr) };
         assert_eq!(ids.id, 1);
     }
 
     #[test]
     fn test_object_confidence() {
         let f = gen_frame();
-        let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        unsafe { object_set_confidence(o.memory_handle(), 0.5) };
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr_mut = &mut o as *mut BorrowedVideoObject;
+        unsafe { savant_set_object_confidence(optr_mut, 0.5) };
         let mut conf = 0.0;
-        let res = unsafe { object_get_confidence(o.memory_handle(), &mut conf) };
+        let res = unsafe { savant_get_object_confidence(optr_mut, &mut conf) };
         assert!(res);
         assert_eq!(conf, 0.5);
-        unsafe { object_clear_confidence(o.memory_handle()) };
-        let res = unsafe { object_get_confidence(o.memory_handle(), &mut conf) };
+        unsafe { savant_clear_object_confidence(optr_mut) };
+        let res = unsafe { savant_get_object_confidence(optr_mut, &mut conf) };
         assert!(!res);
     }
 
@@ -598,9 +587,10 @@ mod tests {
     fn test_object_namespace() {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr = &o as *const BorrowedVideoObject;
         let result_buf = vec![0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
-        let ns = unsafe { object_get_namespace(o.memory_handle(), result_buf, 100) };
+        let ns = unsafe { savant_get_object_namespace(optr, result_buf, 100) };
         let ns = unsafe { std::slice::from_raw_parts(result_buf as *const u8, ns) };
         let ns = std::str::from_utf8(ns).unwrap();
         assert_eq!(ns, "test2");
@@ -610,9 +600,10 @@ mod tests {
     fn test_object_label() {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr = &o as *const BorrowedVideoObject;
         let result_buf = vec![0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
-        let label = unsafe { object_get_label(o.memory_handle(), result_buf, 100) };
+        let label = unsafe { savant_get_object_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
         let label = std::str::from_utf8(label).unwrap();
         assert_eq!(label, "test");
@@ -622,21 +613,21 @@ mod tests {
     fn test_object_draw_label() {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        {
-            let result_buf = vec![0u8; 100];
-            let result_buf = result_buf.as_ptr() as *mut i8;
-            let label = unsafe { object_get_draw_label(o.memory_handle(), result_buf, 100) };
-            let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
-            let label = std::str::from_utf8(label).unwrap();
-            assert_eq!(label, "test");
-        }
+        let optr = &o as *const BorrowedVideoObject;
+        let result_buf = vec![0u8; 100];
+        let result_buf = result_buf.as_ptr() as *mut i8;
+        let label = unsafe { savant_get_object_draw_label(optr, result_buf, 100) };
+        let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
+        let label = std::str::from_utf8(label).unwrap();
+        assert_eq!(label, "test");
     }
 
     #[test]
     fn test_object_detection_box() {
         let f = gen_frame();
-        let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        let mut bb = BoundingBox {
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr_mut = &mut o as *mut BorrowedVideoObject;
+        let mut bb = CAPI_BoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -644,7 +635,7 @@ mod tests {
             angle: 0.0,
             oriented: true,
         };
-        unsafe { object_get_detection_box(o.memory_handle(), &mut bb) };
+        unsafe { savant_get_object_detection_box(optr_mut, &mut bb) };
         assert!(!bb.oriented);
         assert_eq!(bb.xc, 0.0);
         assert_eq!(bb.yc, 0.0);
@@ -652,7 +643,7 @@ mod tests {
         assert_eq!(bb.height, 0.0);
         assert_eq!(bb.angle, 0.0);
 
-        let bb = BoundingBox {
+        let bb = CAPI_BoundingBox {
             xc: 1.0,
             yc: 2.0,
             width: 3.0,
@@ -660,8 +651,8 @@ mod tests {
             angle: 5.0,
             oriented: true,
         };
-        unsafe { object_set_detection_box(o.memory_handle(), &bb) };
-        let mut bb = BoundingBox {
+        unsafe { savant_set_object_detection_box(optr_mut, &bb) };
+        let mut bb = CAPI_BoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -669,7 +660,7 @@ mod tests {
             angle: 0.0,
             oriented: false,
         };
-        unsafe { object_get_detection_box(o.memory_handle(), &mut bb) };
+        unsafe { savant_get_object_detection_box(optr_mut, &mut bb) };
         assert!(bb.oriented);
         assert_eq!(bb.xc, 1.0);
         assert_eq!(bb.yc, 2.0);
@@ -681,8 +672,9 @@ mod tests {
     #[test]
     fn test_tracking_info() {
         let f = gen_frame();
-        let o = BorrowedVideoObject(f.get_object(1).unwrap());
-        let mut bb = BoundingBox {
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr_mut = &mut o as *mut BorrowedVideoObject;
+        let mut bb = CAPI_BoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -691,10 +683,10 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { object_get_tracking_info(o.memory_handle(), &mut bb, &mut track_id) };
+        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(!res);
 
-        let bb = BoundingBox {
+        let bb = CAPI_BoundingBox {
             xc: 1.0,
             yc: 2.0,
             width: 3.0,
@@ -702,8 +694,8 @@ mod tests {
             angle: 5.0,
             oriented: true,
         };
-        unsafe { object_set_tracking_info(o.memory_handle(), &bb, 1) };
-        let mut bb = BoundingBox {
+        unsafe { savant_set_object_tracking_info(optr_mut, &bb, 1) };
+        let mut bb = CAPI_BoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -712,7 +704,7 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { object_get_tracking_info(o.memory_handle(), &mut bb, &mut track_id) };
+        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(res);
         assert_eq!(track_id, 1);
         assert!(bb.oriented);
@@ -722,8 +714,8 @@ mod tests {
         assert_eq!(bb.height, 4.0);
         assert_eq!(bb.angle, 5.0);
 
-        unsafe { object_clear_tracking_info(o.memory_handle()) };
-        let mut bb = BoundingBox {
+        unsafe { savant_clear_object_tracking_info(optr_mut) };
+        let mut bb = CAPI_BoundingBox {
             xc: 0.0,
             yc: 0.0,
             width: 0.0,
@@ -732,7 +724,7 @@ mod tests {
             oriented: false,
         };
         let mut track_id = 0;
-        let res = unsafe { object_get_tracking_info(o.memory_handle(), &mut bb, &mut track_id) };
+        let res = unsafe { savant_get_object_tracking_info(optr_mut, &mut bb, &mut track_id) };
         assert!(!res);
     }
 
@@ -740,6 +732,7 @@ mod tests {
     fn test_get_float_vec_attribute_value() {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr = &o as *const BorrowedVideoObject;
 
         let namespace = "test";
         let name = "test";
@@ -770,8 +763,8 @@ mod tests {
             let mut confidence = 0.0;
             let mut confidence_set = false;
             let res = unsafe {
-                object_get_float_vec_attribute_value(
-                    o.memory_handle(),
+                savant_get_object_float_vec_attribute_value(
+                    optr,
                     c_namespace,
                     c_name,
                     1,
@@ -795,8 +788,8 @@ mod tests {
             let mut confidence = 1.0;
             let mut confidence_set = true;
             let res = unsafe {
-                object_get_float_vec_attribute_value(
-                    o.memory_handle(),
+                savant_get_object_float_vec_attribute_value(
+                    optr,
                     c_namespace,
                     c_name,
                     0,
@@ -818,6 +811,7 @@ mod tests {
     fn test_get_int_vec_attribute_value() {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr = &o as *const BorrowedVideoObject;
 
         let namespace = "test";
         let name = "test";
@@ -844,8 +838,8 @@ mod tests {
             let mut confidence = 0.0;
             let mut confidence_set = false;
             let res = unsafe {
-                object_get_int_vec_attribute_value(
-                    o.memory_handle(),
+                savant_get_object_int_vec_attribute_value(
+                    optr,
                     c_namespace.as_ptr(),
                     c_name.as_ptr(),
                     1,
@@ -870,8 +864,8 @@ mod tests {
             let mut confidence_set = true;
 
             let res = unsafe {
-                object_get_int_vec_attribute_value(
-                    o.memory_handle(),
+                savant_get_object_int_vec_attribute_value(
+                    optr,
                     c_namespace.as_ptr(),
                     c_name.as_ptr(),
                     0,
@@ -890,29 +884,10 @@ mod tests {
     }
 
     #[test]
-    fn test_memory_view_accessor() {
-        let frame = gen_frame();
-        let frame = VideoFrame(frame);
-        let objects = frame.get_all_objects();
-        let handlers = objects.object_memory_handles();
-
-        unsafe {
-            let mut c_handlers = vec![0usize; 10];
-            let mut max_handlers = handlers.len();
-            object_view_get_handles(
-                objects.memory_handle(),
-                c_handlers.as_mut_ptr(),
-                &mut max_handlers,
-            );
-            assert_eq!(max_handlers, handlers.len());
-            assert_eq!(c_handlers[..max_handlers], handlers[..max_handlers]);
-        }
-    }
-
-    #[test]
     fn test_set_float_vec_attribute_value() {
         let f = gen_frame();
-        let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr_mut = &mut o as *mut BorrowedVideoObject;
         let values = vec![1.0, 2.0, 3.0];
 
         let namespace = "newtest";
@@ -922,8 +897,8 @@ mod tests {
         let c_name = CString::new("newtest").unwrap();
 
         unsafe {
-            object_set_float_vec_attribute_value(
-                o.memory_handle(),
+            savant_set_object_float_vec_attribute_value(
+                optr_mut,
                 c_namespace.as_ptr(),
                 c_name.as_ptr(),
                 std::ptr::null(),
@@ -948,7 +923,8 @@ mod tests {
     #[test]
     fn test_set_int_vec_attribute_value() {
         let f = gen_frame();
-        let o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
+        let optr_mut = &mut o as *mut BorrowedVideoObject;
         let values = vec![1, 2, 3];
 
         let namespace = "newtest";
@@ -958,8 +934,8 @@ mod tests {
         let c_name = CString::new("newtest").unwrap();
 
         unsafe {
-            object_set_int_vec_attribute_value(
-                o.memory_handle(),
+            savant_set_object_int_vec_attribute_value(
+                optr_mut,
                 c_namespace.as_ptr(),
                 c_name.as_ptr(),
                 std::ptr::null(),

@@ -1,3 +1,4 @@
+mod frame;
 mod object;
 pub mod pipeline;
 
