@@ -19,7 +19,7 @@ anyhow = "1"
 bytes = "1.5"
 crc32fast = "1"
 crossbeam = "0.8"
-derive_builder = "0.12"
+derive_builder = "0.13"
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 etcd_dynamic_state = { path = "../etcd_dynamic_state" }
 geo = "0.26"
@@ -28,7 +28,7 @@ jmespath = { version = "0.3", features = ["sync"] }
 lazy_static = "1.4"
 libloading = "0.8"
 log = "0.4"
-lru = {version = "0.11", features = ["hashbrown"] }
+lru = {version = "0.12", features = ["hashbrown"] }
 opentelemetry = "0.21"
 opentelemetry_sdk = "0.21"
 opentelemetry-stdout = { version = "0.2", features = ["trace"] }
@@ -43,7 +43,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1"
-uuid = {version = "1.6", features = ["fast-rng", "v4"]}
+uuid = {version = "1.7", features = ["fast-rng", "v4"]}
 zmq = "0.10"
 
 [dependencies.tokio]
@@ -55,3 +55,5 @@ prost-build = "0.12"
 
 [lib]
 crate-type = ["dylib"]
+
+

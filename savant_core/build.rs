@@ -21,4 +21,5 @@ fn main() {
         .expect("Failed to compile protobuf definitions");
 
     fs::copy(out_path, module_path).unwrap();
+    println!("cargo:rustc-link-lib=dylib=zmq");
 }
