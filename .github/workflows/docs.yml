@@ -37,22 +37,12 @@ jobs:
       - name: Install dependencies
         run: sudo sh -e install_deps.sh
 
-      - name: Build Savant dist (no release)
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: savant_python
-          args: --out dist
-
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
 
-      - name: Install savant_rs
-        run: pip install savant_python/dist/*.whl
-
       - name: Build docs
         run: |
-          cd docs
-          make clean html
+          make docs
           tar \
           --dereference --hard-dereference \
           --directory build/html -cvf artifact.tar .

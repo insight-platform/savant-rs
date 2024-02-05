@@ -1,6 +1,5 @@
 import savant_rs
 import savant_py_plugin_sample
-import time
 
 frame = savant_rs.utils.gen_frame()
 o = frame.get_object(0)

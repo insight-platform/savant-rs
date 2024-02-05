@@ -8,7 +8,7 @@ dev: clean clippy build_savant build_plugin
 release: export LD_LIBRARY_PATH := $(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release
 release: clean clippy build_savant_release build_plugin_release
 
-docs: build_savant docs/source/index.rst
+docs: dev docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html
 
