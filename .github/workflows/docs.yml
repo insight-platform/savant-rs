@@ -45,7 +45,7 @@ jobs:
           make docs
           tar \
           --dereference --hard-dereference \
-          --directory build/html -cvf artifact.tar .
+          --directory docs/build/html -cvf artifact.tar .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
