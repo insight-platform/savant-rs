@@ -40,7 +40,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
 
-      - name: Build docs
+      - name: Build Docs
         run: |
           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(dirname $(dirname $(rustup which cargo)))/lib
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
@@ -53,7 +53,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: github-pages
-          path: docs/artifact.tar
+          path: artifact.tar
           if-no-files-found: error
 
   deploy-docs:
