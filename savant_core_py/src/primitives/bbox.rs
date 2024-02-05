@@ -13,7 +13,7 @@ use savant_core::primitives::{rust, RBBoxData};
 ///
 #[pyclass]
 #[derive(Debug, Clone)]
-pub(crate) enum BBoxMetricType {
+pub enum BBoxMetricType {
     IoU,
     IoSelf,
     IoOther,
@@ -830,7 +830,7 @@ impl BBox {
 
 #[pyclass]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct VideoObjectBBoxTransformation(pub(crate) rust::VideoObjectBBoxTransformation);
+pub struct VideoObjectBBoxTransformation(pub(crate) rust::VideoObjectBBoxTransformation);
 
 #[pymethods]
 impl VideoObjectBBoxTransformation {

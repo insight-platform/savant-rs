@@ -135,7 +135,7 @@ pub fn log_level_enabled(level: LogLevel) -> bool {
 #[pyfunction]
 #[pyo3(name = "log")]
 #[pyo3(signature = (level, target, message, params=None, no_gil=true))]
-fn log_message_gil(
+pub fn log_message_gil(
     level: LogLevel,
     target: String,
     message: String,
@@ -212,14 +212,4 @@ pub fn log_message(
             cx.span().add_event(message, params);
         });
     }
-}
-
-#[pymodule]
-pub(crate) fn logging(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<LogLevel>()?;
-    m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
-    m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
-    m.add_function(wrap_pyfunction!(log_level_enabled, m)?)?;
-    m.add_function(wrap_pyfunction!(log_message_gil, m)?)?;
-    Ok(())
 }

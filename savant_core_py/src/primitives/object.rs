@@ -5,7 +5,7 @@ use crate::{release_gil, with_gil};
 use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::{ObjectAccess, ObjectOperations};
 use savant_core::primitives::{rust, WithAttributes};
@@ -183,7 +183,7 @@ impl VideoObject {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct BorrowedVideoObject(pub(crate) rust::BorrowedVideoObject);
+pub struct BorrowedVideoObject(pub rust::BorrowedVideoObject);
 
 impl ToSerdeJsonValue for BorrowedVideoObject {
     fn to_serde_json_value(&self) -> Value {
@@ -193,8 +193,9 @@ impl ToSerdeJsonValue for BorrowedVideoObject {
 
 #[pymethods]
 impl BorrowedVideoObject {
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
+    fn __hash__(&self) -> usize {
+        self.memory_handle()
+    }
 
     fn __repr__(&self) -> String {
         format!("{:?}", &self.0)
@@ -262,6 +263,12 @@ impl BorrowedVideoObject {
     pub fn get_namespace(&self) -> String {
         self.0.get_namespace()
     }
+
+    #[getter]
+    pub fn get_namespace_id(&self) -> Option<i64> {
+        self.0.get_namespace_id()
+    }
+
     #[setter]
     pub fn set_namespace(&mut self, namespace: &str) {
         self.0.set_namespace(namespace);
@@ -270,6 +277,11 @@ impl BorrowedVideoObject {
     #[getter]
     pub fn get_label(&self) -> String {
         self.0.get_label()
+    }
+
+    #[getter]
+    pub fn get_label_id(&self) -> Option<i64> {
+        self.0.get_label_id()
     }
     #[setter]
     pub fn set_label(&mut self, label: &str) {
@@ -534,5 +546,10 @@ impl BorrowedVideoObject {
             let bytes = PyBytes::new(py, &bytes);
             Ok(PyObject::from(bytes))
         })
+    }
+
+    #[getter]
+    pub fn memory_handle(&self) -> usize {
+        self as *const Self as usize
     }
 }

@@ -134,7 +134,12 @@ frame.add_object(obj, IdCollisionResolutionPolicy.Error)
 f = gen_frame()
 print("Raw address to pass to C-funcs: ", f.memory_handle)
 vec = f.access_objects(Q.with_children(Q.idle(), IE.eq(2)))
+
+# demonstrates ObjectsView len() op
+print("ObjectsView len() op", len(vec))
+
 print("Object with two children:", vec[0])
+
 
 # demonstrates ObjectsView index access operation
 vec = vec[0]
@@ -156,8 +161,6 @@ one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 
 print("One", one)
 print("Two", two)
 
-# demonstrates ObjectsView len() op
-print("ObjectsView len() op", len(vec))
 
 message = Message.video_frame(frame)
 

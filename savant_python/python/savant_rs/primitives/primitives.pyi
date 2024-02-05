@@ -540,13 +540,13 @@ class VideoFrame:
                        q: MatchQuery,
                        no_gil: bool = True) -> VideoObjectsView: ...
 
-    def access_objects_by_ids(self,
+    def access_objects_with_ids(self,
                               ids: list[int],
                               no_gil: bool = True) -> VideoObjectsView: ...
 
     def delete_objects(self, q: MatchQuery, no_gil: bool = True) -> VideoObjectsView: ...
 
-    def delete_objects_by_ids(self, ids: list[int]) -> VideoObjectsView: ...
+    def delete_objects_with_ids(self, ids: list[int]) -> VideoObjectsView: ...
 
     def set_parent(self,
                    q: MatchQuery,
@@ -639,10 +639,13 @@ class BorrowedVideoObject:
     confidence: Optional[float]
     namespace: str
     label: str
-    draw_label: Optional[str]
+    draw_label: str
     detection_box: RBBox
     track_id: Optional[int]
     track_box: Optional[RBBox]
+
+    @property
+    def memory_handle(self) -> int: ...
 
     @property
     def attributes(self) -> list[tuple[str, str]]: ...

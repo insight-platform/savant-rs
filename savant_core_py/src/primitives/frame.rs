@@ -437,7 +437,7 @@ impl VideoFrameTransformation {
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct VideoFrame(pub(crate) rust::VideoFrameProxy);
+pub struct VideoFrame(pub rust::VideoFrameProxy);
 
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
@@ -473,12 +473,13 @@ impl VideoFrame {
     ///   The pointer to the frame.
     ///
     #[getter]
-    fn memory_handle(&self) -> usize {
+    pub fn memory_handle(&self) -> usize {
         self.0.memory_handle()
     }
 
-    #[classattr]
-    const __hash__: Option<Py<PyAny>> = None;
+    fn __hash__(&self) -> usize {
+        self.memory_handle()
+    }
 
     fn __repr__(&self) -> String {
         format!("{:?}", &self.0)
@@ -988,8 +989,8 @@ impl VideoFrame {
         ))
     }
 
-    pub fn access_objects_by_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
-        self.0.access_objects_by_id(&ids).into()
+    pub fn access_objects_with_ids(&self, ids: Vec<i64>) -> VideoObjectsView {
+        self.0.access_objects_with_id(&ids).into()
     }
 
     #[pyo3(name = "delete_objects")]
@@ -1003,9 +1004,9 @@ impl VideoFrame {
             .collect())
     }
 
-    pub fn delete_objects_by_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
+    pub fn delete_objects_with_ids(&self, ids: Vec<i64>) -> Vec<VideoObject> {
         self.0
-            .delete_objects_by_ids(&ids)
+            .delete_objects_with_ids(&ids)
             .into_iter()
             .map(VideoObject)
             .collect()

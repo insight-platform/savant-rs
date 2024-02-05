@@ -37,31 +37,23 @@ jobs:
       - name: Install dependencies
         run: sudo sh -e install_deps.sh
 
-      - name: Build Savant dist (no release)
-        uses: PyO3/maturin-action@v1
-        with:
-          working-directory: savant_python
-          args: --out dist
-
       - name: Install dependencies
         run: pip install -r docs/requirements.txt
 
-      - name: Install savant_rs
-        run: pip install savant_python/dist/*.whl
-
-      - name: Build docs
+      - name: Build Docs
         run: |
-          cd docs
-          make clean html
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(dirname $(dirname $(rustup which cargo)))/lib
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+          make docs
           tar \
           --dereference --hard-dereference \
-          --directory build/html -cvf artifact.tar .
+          --directory docs/build/html -cvf artifact.tar .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: github-pages
-          path: docs/artifact.tar
+          path: artifact.tar
           if-no-files-found: error
 
   deploy-docs:

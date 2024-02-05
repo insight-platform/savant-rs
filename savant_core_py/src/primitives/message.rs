@@ -349,6 +349,6 @@ impl Message {
 }
 
 #[pyfunction]
-pub(crate) fn clear_source_seq_id(source: &str) {
+pub fn clear_source_seq_id(source: &str) {
     savant_core::message::clear_source_seq_id(source);
 }

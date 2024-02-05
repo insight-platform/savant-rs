@@ -21,7 +21,6 @@ Core Library
    modules/savant_rs/primitives_geometry
    modules/savant_rs/utils
    modules/savant_rs/utils_symbol_mapper
-   modules/savant_rs/utils_udf_api
    modules/savant_rs/utils_serialization
    modules/savant_rs/match_query
    modules/savant_rs/zmq

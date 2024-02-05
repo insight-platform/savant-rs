@@ -399,7 +399,7 @@ impl VideoFrameProxy {
         serde_json::to_string_pretty(&self.to_serde_json_value()).unwrap()
     }
 
-    pub fn access_objects_by_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
+    pub fn access_objects_with_id(&self, ids: &[i64]) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
         let resident_objects = inner.objects.clone();
         drop(inner);
@@ -415,11 +415,19 @@ impl VideoFrameProxy {
             .collect()
     }
 
-    pub fn delete_objects_by_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
-        self.clear_parent(&MatchQuery::ParentId(IntExpression::OneOf(ids.to_vec())));
+    pub fn delete_objects_with_ids(&self, ids: &[i64]) -> Vec<VideoObject> {
         let mut inner = trace!(self.inner.write());
         let objects = mem::take(&mut inner.objects);
-        let (retained, removed) = objects.into_iter().partition(|(id, _)| !ids.contains(id));
+        let (mut retained, removed): (HashMap<i64, VideoObject>, HashMap<i64, VideoObject>) =
+            objects.into_iter().partition(|(id, _)| !ids.contains(id));
+
+        retained.iter_mut().for_each(|(_, o)| {
+            if let Some(parent_id) = o.parent_id {
+                if removed.contains_key(&parent_id) {
+                    o.parent_id = None;
+                }
+            }
+        });
         inner.objects = retained;
         drop(inner);
 
@@ -441,7 +449,7 @@ impl VideoFrameProxy {
     pub fn delete_objects(&self, q: &MatchQuery) -> Vec<VideoObject> {
         let objs = self.access_objects(q);
         let ids = objs.iter().map(|o| o.get_id()).collect::<Vec<_>>();
-        self.delete_objects_by_ids(&ids)
+        self.delete_objects_with_ids(&ids)
     }
 
     pub fn get_object(&self, id: i64) -> Option<BorrowedVideoObject> {
@@ -996,7 +1004,7 @@ mod tests {
     #[test]
     fn test_access_objects_by_id() {
         let t = gen_frame();
-        let objects = t.access_objects_by_id(&vec![0, 1]);
+        let objects = t.access_objects_with_id(&vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1012,7 +1020,7 @@ mod tests {
     #[test]
     fn test_objects_by_id() {
         let t = gen_frame();
-        let objects = t.access_objects_by_id(&vec![0, 1]);
+        let objects = t.access_objects_with_id(&vec![0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1021,7 +1029,7 @@ mod tests {
     #[test]
     fn test_delete_objects_by_ids() {
         let f = gen_frame();
-        f.delete_objects_by_ids(&[0, 1]);
+        f.delete_objects_with_ids(&[0, 1]);
         let objects = f.get_all_objects();
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].get_id(), 2);
@@ -1030,14 +1038,14 @@ mod tests {
     #[test]
     fn test_parent_cleared_when_delete_objects_by_ids() {
         let f = gen_frame();
-        f.delete_objects_by_ids(&[0]);
+        f.delete_objects_with_ids(&[0]);
         let o = f.get_object(1).unwrap();
         assert!(o.get_parent().is_none());
         let o = f.get_object(2).unwrap();
         assert!(o.get_parent().is_none());
 
         let f = gen_frame();
-        f.delete_objects_by_ids(&[1]);
+        f.delete_objects_with_ids(&[1]);
         let o = f.get_object(2).unwrap();
         assert!(o.get_parent().is_some());
     }
@@ -1179,7 +1187,7 @@ mod tests {
     fn normally_transfer_parent() -> anyhow::Result<()> {
         let f1 = gen_frame();
         let f2 = gen_frame();
-        let mut object = f1.delete_objects_by_ids(&[0]).pop().unwrap();
+        let mut object = f1.delete_objects_with_ids(&[0]).pop().unwrap();
         assert!(object.get_frame().is_none());
         _ = object.set_id(33);
         f2.add_object(object, IdCollisionResolutionPolicy::Error)
@@ -1193,7 +1201,7 @@ mod tests {
     #[test]
     fn deleted_objects_clean() {
         let frame = gen_frame();
-        let removed = frame.delete_objects_by_ids(&[1]).pop().unwrap();
+        let removed = frame.delete_objects_with_ids(&[1]).pop().unwrap();
         assert!(removed.get_parent().is_none());
     }
 

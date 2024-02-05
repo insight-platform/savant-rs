@@ -3,9 +3,9 @@ from savant_rs.match_query import MatchQuery as Q, IntExpression as IE, QueryFun
 
 f = gen_frame()
 
-objects_x = QF.filter(f.access_objects(Q.idle()), Q.eval("id % 2 == 1")).sorted_by_id()
+objects_x = QF.filter(f.access_objects(Q.idle()), Q.eval("id % 2 == 1")).sorted_by_id
 
-objects = QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))).sorted_by_id()
+objects = QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))).sorted_by_id
 
 ids = objects.ids
 print("Ids:", ids)

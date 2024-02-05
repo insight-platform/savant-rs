@@ -591,7 +591,7 @@ mod tests {
         let copy = o.detached_copy();
         drop(f);
         let f = gen_frame();
-        f.delete_objects_by_ids(&[1]);
+        f.delete_objects_with_ids(&[1]);
         assert!(
             copy.get_parent().is_none(),
             "Clean copy must have no parent"
