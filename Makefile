@@ -2,10 +2,10 @@
 
 .PHONY: docs clippy build_savant build_savant_release clean tests bench
 
-dev: export LD_LIBRARY_PATH := $(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug
+dev: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug
 dev: clean clippy build_savant build_plugin
 
-release: export LD_LIBRARY_PATH := $(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release
+release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release
 release: clean clippy build_savant_release build_plugin_release
 
 docs: dev docs/source/index.rst
