@@ -23,23 +23,16 @@ pub mod segment;
 pub mod shutdown;
 pub mod user_data;
 
-use crate::primitives::frame::{
-    VideoFrame,
-};
+use crate::primitives::frame::VideoFrame;
 
 use crate::primitives::attribute::Attribute;
 
 use crate::primitives::batch::VideoFrameBatch;
-use crate::primitives::bbox::{RBBox};
+use crate::primitives::bbox::RBBox;
 
 use crate::primitives::eos::EndOfStream;
-
-
 
 use crate::primitives::point::Point;
 use crate::primitives::polygonal_area::PolygonalArea;
 use crate::primitives::segment::{Intersection, Segment};
 use crate::primitives::shutdown::Shutdown;
-
-
-

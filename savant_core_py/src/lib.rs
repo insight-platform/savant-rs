@@ -13,12 +13,7 @@ pub mod test;
 pub mod utils;
 pub mod zmq;
 
-
 use pyo3::prelude::*;
-
-
-
-
 
 /// Initializes Jaeger tracer.
 ///

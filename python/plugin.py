@@ -10,6 +10,3 @@ print(hash(frame))
 
 savant_py_plugin_sample.access_frame(frame, no_gil = True)
 savant_py_plugin_sample.access_object(o, no_gil = True)
-
-while True:
-    time.sleep(1)

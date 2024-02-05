@@ -10,5 +10,5 @@ fn main() {
     };
     cbindgen::generate_with_config(crate_dir, config)
         .unwrap()
-        .write_to_file("python/savant_rs/include/savant_rs.h");
+        .write_to_file("../savant_python/python/savant_rs/include/savant_rs.h");
 }

@@ -255,16 +255,16 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_noop_tracer, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(version, m)?)?; // PYI
 
-    m.add_wrapped(wrap_pymodule!(primitives))?;
-    m.add_wrapped(wrap_pymodule!(pipeline))?;
-    m.add_wrapped(wrap_pymodule!(geometry))?;
-    m.add_wrapped(wrap_pymodule!(draw_spec))?; // PYI
-    m.add_wrapped(wrap_pymodule!(utils))?; // PYI
-    m.add_wrapped(wrap_pymodule!(symbol_mapper_module))?;
-    m.add_wrapped(wrap_pymodule!(serialization_module))?;
-    m.add_wrapped(wrap_pymodule!(match_query))?;
-    m.add_wrapped(wrap_pymodule!(logging))?; // PYI
-    m.add_wrapped(wrap_pymodule!(zmq))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::primitives))?;
+    m.add_wrapped(wrap_pymodule!(self::pipeline))?;
+    m.add_wrapped(wrap_pymodule!(self::geometry))?;
+    m.add_wrapped(wrap_pymodule!(self::draw_spec))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::utils))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::symbol_mapper_module))?;
+    m.add_wrapped(wrap_pymodule!(self::serialization_module))?;
+    m.add_wrapped(wrap_pymodule!(self::match_query))?;
+    m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
