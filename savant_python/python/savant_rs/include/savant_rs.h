@@ -53,72 +53,197 @@ typedef struct CAPI_ObjectIds {
  */
 bool check_version(const char *external_version);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct VideoFrame *savant_frame_from_handle(uintptr_t handle);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_release_frame(struct VideoFrame *frame);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct VideoObjectsView *savant_frame_get_all_objects(const struct VideoFrame *frame);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct VideoObjectsView *savant_object_view_from_handle(uintptr_t handle);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_release_object_view(struct VideoObjectsView *view);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct BorrowedVideoObject *savant_frame_get_object(const struct VideoFrame *frame,
                                                     int64_t object_id);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_frame_delete_objects_with_ids(struct VideoFrame *frame,
                                           const int64_t *object_ids,
                                           uintptr_t len);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct BorrowedVideoObject *savant_object_view_get_object(const struct VideoObjectsView *view,
                                                           int64_t object_id);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_release_object(struct BorrowedVideoObject *object);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_create_objects(struct VideoFrame *frame,
                            struct CAPIObjectCreateSpecification *objects,
                            uintptr_t len);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct BorrowedVideoObject *savant_get_borrowed_object_from_handle(uintptr_t handle);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_release_borrowed_object(struct BorrowedVideoObject *object);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 struct CAPI_ObjectIds savant_object_get_ids(const struct BorrowedVideoObject *object);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 bool savant_object_get_confidence(const struct BorrowedVideoObject *object, float *conf);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_set_confidence(struct BorrowedVideoObject *object, float conf);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_clear_confidence(struct BorrowedVideoObject *object);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 uintptr_t savant_object_get_namespace(const struct BorrowedVideoObject *object,
                                       char *caller_allocated_buf,
                                       uintptr_t len);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 uintptr_t savant_object_get_label(const struct BorrowedVideoObject *object,
                                   char *caller_allocated_buf,
                                   uintptr_t len);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 uintptr_t savant_object_get_draw_label(const struct BorrowedVideoObject *object,
                                        char *caller_allocated_buf,
                                        uintptr_t len);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_get_detection_box(const struct BorrowedVideoObject *object,
                                      struct CAPIBoundingBox *caller_allocated_bb);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_set_detection_box(struct BorrowedVideoObject *object,
                                      const struct CAPIBoundingBox *bb);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 bool savant_object_get_tracking_info(const struct BorrowedVideoObject *object,
                                      struct CAPIBoundingBox *caller_allocated_bb,
                                      int64_t *caller_allocated_tracking_id);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_set_tracking_info(struct BorrowedVideoObject *object,
                                      const struct CAPIBoundingBox *bb,
                                      int64_t tracking_id);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_clear_tracking_info(struct BorrowedVideoObject *object);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 bool savant_object_get_float_vec_attribute_value(const struct BorrowedVideoObject *object,
                                                  const char *namespace_,
                                                  const char *name,
@@ -128,6 +253,11 @@ bool savant_object_get_float_vec_attribute_value(const struct BorrowedVideoObjec
                                                  float *caller_allocated_confidence,
                                                  bool *caller_allocated_confidence_set);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_set_float_vec_attribute_value(struct BorrowedVideoObject *object,
                                                  const char *namespace_,
                                                  const char *name,
@@ -138,6 +268,11 @@ void savant_object_set_float_vec_attribute_value(struct BorrowedVideoObject *obj
                                                  bool persistent,
                                                  bool hidden);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 bool savant_object_get_int_vec_attribute_value(const struct BorrowedVideoObject *object,
                                                const char *namespace_,
                                                const char *name,
@@ -147,6 +282,11 @@ bool savant_object_get_int_vec_attribute_value(const struct BorrowedVideoObject 
                                                float *caller_allocated_confidence,
                                                bool *caller_allocated_confidence_set);
 
+/**
+ * # Safety
+ *
+ * The function is intended for invocation from C/C++, so it is unsafe by design.
+ */
 void savant_object_set_int_vec_attribute_value(struct BorrowedVideoObject *object,
                                                const char *namespace_,
                                                const char *name,

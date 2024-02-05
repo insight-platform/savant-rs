@@ -41,6 +41,9 @@ pub struct CAPI_ObjectIds {
     pub tracking_id_set: bool,
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_get_borrowed_object_from_handle(
     handle: usize,
@@ -50,6 +53,9 @@ pub unsafe extern "C" fn savant_get_borrowed_object_from_handle(
     Box::into_raw(object)
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_release_borrowed_object(object: *mut BorrowedVideoObject) {
     if object.is_null() {
@@ -59,6 +65,9 @@ pub unsafe extern "C" fn savant_release_borrowed_object(object: *mut BorrowedVid
     drop(o);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_ids(
     object: *const BorrowedVideoObject,
@@ -83,6 +92,9 @@ pub unsafe extern "C" fn savant_object_get_ids(
     }
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_confidence(
     object: *const BorrowedVideoObject,
@@ -101,6 +113,9 @@ pub unsafe extern "C" fn savant_object_get_confidence(
 }
 
 // set confidence
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_set_confidence(object: *mut BorrowedVideoObject, conf: f32) {
     if object.is_null() {
@@ -110,6 +125,9 @@ pub unsafe extern "C" fn savant_object_set_confidence(object: *mut BorrowedVideo
     object.set_confidence(Some(conf));
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_clear_confidence(object: *mut BorrowedVideoObject) {
     if object.is_null() {
@@ -119,6 +137,9 @@ pub unsafe extern "C" fn savant_object_clear_confidence(object: *mut BorrowedVid
     object.set_confidence(None);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_namespace(
     object: *const BorrowedVideoObject,
@@ -140,6 +161,9 @@ pub unsafe extern "C" fn savant_object_get_namespace(
     ns_len
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_label(
     object: *const BorrowedVideoObject,
@@ -161,6 +185,9 @@ pub unsafe extern "C" fn savant_object_get_label(
     label_len
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_draw_label(
     object: *const BorrowedVideoObject,
@@ -182,6 +209,9 @@ pub unsafe extern "C" fn savant_object_get_draw_label(
     label_len
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_detection_box(
     object: *const BorrowedVideoObject,
@@ -205,6 +235,9 @@ pub unsafe extern "C" fn savant_object_get_detection_box(
     };
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_set_detection_box(
     object: *mut BorrowedVideoObject,
@@ -225,6 +258,9 @@ pub unsafe extern "C" fn savant_object_set_detection_box(
     object.0.set_detection_box(bb);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_tracking_info(
     object: *const BorrowedVideoObject,
@@ -259,6 +295,9 @@ pub unsafe extern "C" fn savant_object_get_tracking_info(
     true
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_set_tracking_info(
     object: *mut BorrowedVideoObject,
@@ -285,6 +324,9 @@ pub unsafe extern "C" fn savant_object_set_tracking_info(
     object.0.set_track_id(Some(tracking_id));
     object.0.set_track_box(track_box);
 }
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_clear_tracking_info(object: *mut BorrowedVideoObject) {
     if object.is_null() {
@@ -295,6 +337,9 @@ pub unsafe extern "C" fn savant_object_clear_tracking_info(object: *mut Borrowed
     object.clear_track_info();
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_float_vec_attribute_value(
     object: *const BorrowedVideoObject,
@@ -376,6 +421,9 @@ pub unsafe extern "C" fn savant_object_get_float_vec_attribute_value(
     }
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_set_float_vec_attribute_value(
     object: *mut BorrowedVideoObject,
@@ -433,6 +481,9 @@ pub unsafe extern "C" fn savant_object_set_float_vec_attribute_value(
     }
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_get_int_vec_attribute_value(
     object: *const BorrowedVideoObject,
@@ -513,6 +564,9 @@ pub unsafe extern "C" fn savant_object_get_int_vec_attribute_value(
         }
     }
 }
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_set_int_vec_attribute_value(
     object: *mut BorrowedVideoObject,
