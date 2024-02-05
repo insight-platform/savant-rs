@@ -13,12 +13,12 @@ pub mod test;
 pub mod utils;
 pub mod zmq;
 
-use pyo3::exceptions::PyRuntimeError;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::wrap_pymodule;
 
-use crate::logging::{set_log_level, LogLevel};
+use pyo3::prelude::*;
+
+
+
+
 
 /// Initializes Jaeger tracer.
 ///
