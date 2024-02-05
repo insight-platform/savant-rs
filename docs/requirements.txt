@@ -1,3 +1,4 @@
+maturin~=0.14
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon
