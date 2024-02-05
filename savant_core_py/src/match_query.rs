@@ -12,28 +12,6 @@ Module for defining queries on video objects.
 JMES Query Syntax can be found here: `JMESPath <https://jmespath.org/>`__.
 
  */
-#[pymodule]
-pub fn match_query(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<FloatExpression>()?;
-    m.add_class::<IntExpression>()?;
-    m.add_class::<StringExpression>()?;
-    m.add_class::<MatchQuery>()?;
-    m.add_class::<QueryFunctions>()?;
-
-    m.add_function(wrap_pyfunction!(utility_resolver_name, m)?)?;
-    m.add_function(wrap_pyfunction!(etcd_resolver_name, m)?)?;
-    m.add_function(wrap_pyfunction!(env_resolver_name, m)?)?;
-    m.add_function(wrap_pyfunction!(config_resolver_name, m)?)?;
-
-    m.add_function(wrap_pyfunction!(register_utility_resolver, m)?)?;
-    m.add_function(wrap_pyfunction!(register_env_resolver, m)?)?;
-    m.add_function(wrap_pyfunction!(register_etcd_resolver, m)?)?;
-    m.add_function(wrap_pyfunction!(register_config_resolver, m)?)?;
-    m.add_function(wrap_pyfunction!(update_config_resolver, m)?)?;
-
-    m.add_function(wrap_pyfunction!(unregister_resolver, m)?)?;
-    Ok(())
-}
 
 /// A class allowing to define a float expression
 ///

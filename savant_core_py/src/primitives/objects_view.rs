@@ -129,7 +129,7 @@ impl VideoObjectsView {
 
 #[pyclass]
 #[derive(Clone, Debug)]
-pub(crate) struct QueryFunctions;
+pub struct QueryFunctions;
 
 #[pymethods]
 impl QueryFunctions {

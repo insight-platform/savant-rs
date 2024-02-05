@@ -2,6 +2,7 @@
 members = [
     "savant_utils",
     "savant_core",
+    "savant_core_py",
     "savant_python",
     "etcd_dynamic_state",
     "savant_py_plugin_sample",

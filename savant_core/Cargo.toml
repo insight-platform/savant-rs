@@ -54,4 +54,4 @@ features = ["rt-multi-thread"]
 prost-build = "0.12"
 
 [lib]
-crate-type = ["cdylib", "lib"]
+crate-type = ["dylib"]

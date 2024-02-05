@@ -10,17 +10,6 @@ use pyo3::prelude::*;
 use savant_core::rust;
 use std::collections::HashMap;
 
-#[pymodule]
-pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<VideoPipelineStagePayloadType>()?;
-    m.add_class::<PipelineConfiguration>()?;
-    m.add_class::<Pipeline>()?;
-    m.add_class::<FrameProcessingStatRecord>()?;
-    m.add_class::<StageStat>()?;
-    m.add_class::<FrameProcessingStatRecordType>()?;
-    Ok(())
-}
-
 /// Defines which type of payload a stage handles.
 ///
 #[pyclass]
@@ -172,12 +161,12 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
 #[pyclass]
 #[pyo3(name = "VideoPipeline")]
 #[derive(Debug)]
-pub(crate) struct Pipeline(rust::Pipeline);
+pub struct Pipeline(rust::Pipeline);
 
 #[pyclass]
 #[pyo3(name = "VideoPipelineConfiguration")]
 #[derive(Debug, Clone)]
-pub(crate) struct PipelineConfiguration(rust::PipelineConfiguration);
+pub struct PipelineConfiguration(rust::PipelineConfiguration);
 
 #[pymethods]
 impl PipelineConfiguration {

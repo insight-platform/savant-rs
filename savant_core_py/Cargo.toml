@@ -1,10 +1,10 @@
 [package]
-name = "savant_py_plugin_sample"
+name = "savant_core_py"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
-homepage.workspace = true
+homepage.workspace =  true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
@@ -12,19 +12,29 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-crate-type = ["dylib"]
+crate-type = ["dylib", "lib"]
 
 [dependencies]
-savant_core_py = { path = "../savant_core_py" }
+savant_core = { path = "../savant_core" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+geo = "0.26"
+lazy_static = "1.4"
+parking_lot = {version = "0.12", features = ["deadlock_detection"]}
+evalexpr = { version = "11", features = ["rand", "regex_support"] }
+log = "0.4"
+opentelemetry = "0.21"
+colored = "2"
 
 [dependencies.pyo3]
 version = "0.19"
 
 [dev-dependencies]
 serial_test = "2.0"
+
 
 [build-dependencies]
 pyo3-build-config = "0.19"

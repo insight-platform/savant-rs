@@ -1,6 +1,8 @@
+extern crate savant_core_py;
+
 use pyo3::prelude::*;
-use savant_rs::primitives::frame::VideoFrame;
-use savant_rs::primitives::object::BorrowedVideoObject;
+use savant_core_py::primitives::frame::VideoFrame;
+use savant_core_py::primitives::object::BorrowedVideoObject;
 use std::sync::Arc;
 
 fn with_object<T, F, Q>(o: &PyAny, unlock_gil: bool, f: F) -> Q
