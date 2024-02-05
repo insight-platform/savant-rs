@@ -21,6 +21,9 @@ pub struct CAPIObjectCreateSpecification {
     resulting_object_id: i64,
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_frame_from_handle(handle: usize) -> *mut VideoFrame {
     let frame = &*(handle as *const VideoFrame);
@@ -28,12 +31,18 @@ pub unsafe extern "C" fn savant_frame_from_handle(handle: usize) -> *mut VideoFr
     Box::into_raw(frame)
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_release_frame(frame: *mut VideoFrame) {
     let frame = Box::from_raw(frame);
     drop(frame);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_frame_get_all_objects(
     frame: *const VideoFrame,
@@ -47,6 +56,9 @@ pub unsafe extern "C" fn savant_frame_get_all_objects(
     Box::into_raw(view)
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_view_from_handle(handle: usize) -> *mut VideoObjectsView {
     let view = &*(handle as *const VideoObjectsView);
@@ -54,6 +66,9 @@ pub unsafe extern "C" fn savant_object_view_from_handle(handle: usize) -> *mut V
     Box::into_raw(view)
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_release_object_view(view: *mut VideoObjectsView) {
     if view.is_null() {
@@ -63,6 +78,9 @@ pub unsafe extern "C" fn savant_release_object_view(view: *mut VideoObjectsView)
     drop(view);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_frame_get_object(
     frame: *const VideoFrame,
@@ -82,6 +100,9 @@ pub unsafe extern "C" fn savant_frame_get_object(
     }
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_frame_delete_objects_with_ids(
     frame: *mut VideoFrame,
@@ -96,6 +117,9 @@ pub unsafe extern "C" fn savant_frame_delete_objects_with_ids(
     frame.0.delete_objects_with_ids(object_ids);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_object_view_get_object(
     view: *const VideoObjectsView,
@@ -112,6 +136,9 @@ pub unsafe extern "C" fn savant_object_view_get_object(
     }
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_release_object(object: *mut BorrowedVideoObject) {
     if object.is_null() {
@@ -121,6 +148,9 @@ pub unsafe extern "C" fn savant_release_object(object: *mut BorrowedVideoObject)
     drop(object);
 }
 
+/// # Safety
+///
+/// The function is intended for invocation from C/C++, so it is unsafe by design.
 #[no_mangle]
 pub unsafe extern "C" fn savant_create_objects(
     frame: *mut VideoFrame,
