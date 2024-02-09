@@ -534,11 +534,7 @@ impl RBBox {
 #[pyclass]
 #[derive(Clone, Debug)]
 #[pyo3(name = "BBox")]
-pub struct BBox {
-    pub(crate) inner: RBBox,
-}
-
-impl BBox {}
+pub struct BBox(pub(crate) RBBox);
 
 /// Auxiliary class representing :py:class:`RBBox` without an angle.
 ///
@@ -548,7 +544,7 @@ impl BBox {
     const __hash__: Option<Py<PyAny>> = None;
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.inner.__repr__())
+        format!("{:?}", self.0.__repr__())
     }
 
     fn __str__(&self) -> String {
@@ -557,31 +553,31 @@ impl BBox {
 
     #[pyo3(name = "eq")]
     pub fn geometric_eq(&self, other: &Self) -> bool {
-        self.inner.geometric_eq(&other.inner)
+        self.0.geometric_eq(&other.0)
     }
 
     pub fn almost_eq(&self, other: &Self, eps: f32) -> bool {
-        self.inner.almost_eq(&other.inner, eps)
+        self.0.almost_eq(&other.0, eps)
     }
 
     pub(crate) fn __richcmp__(&self, other: &Self, op: CompareOp) -> PyResult<bool> {
-        self.inner.__richcmp__(&other.inner, op)
+        self.0.__richcmp__(&other.0, op)
     }
 
     fn iou(&self, other: &Self) -> PyResult<f32> {
-        self.inner.iou(&other.inner)
+        self.0.iou(&other.0)
     }
 
     fn ios(&self, other: &Self) -> PyResult<f32> {
-        self.inner.ios(&other.inner)
+        self.0.ios(&other.0)
     }
 
     fn ioo(&self, other: &Self) -> PyResult<f32> {
-        self.inner.ioo(&other.inner)
+        self.0.ioo(&other.0)
     }
 
     fn is_modified(&self) -> bool {
-        self.inner.is_modified()
+        self.0.is_modified()
     }
 
     /// Creates a new object. Alias to the ``__init__`` method.
@@ -593,120 +589,114 @@ impl BBox {
 
     #[new]
     pub fn new(xc: f32, yc: f32, width: f32, height: f32) -> Self {
-        Self {
-            inner: RBBox::new(xc, yc, width, height, None),
-        }
+        Self(RBBox::new(xc, yc, width, height, None))
     }
 
     /// Creates a new object from (left, top, right, bottom) coordinates.
     ///
     #[staticmethod]
     pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self {
-            inner: RBBox::ltrb(left, top, right, bottom),
-        }
+        Self(RBBox::ltrb(left, top, right, bottom))
     }
 
     /// Creates a new object from (left, top, width, height) coordinates.
     ///
     #[staticmethod]
     pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> Self {
-        Self {
-            inner: RBBox::ltwh(left, top, width, height),
-        }
+        Self(RBBox::ltwh(left, top, width, height))
     }
 
     #[getter]
     pub fn get_xc(&self) -> f32 {
-        self.inner.get_xc()
+        self.0.get_xc()
     }
 
     #[setter]
     pub fn set_xc(&mut self, xc: f32) {
-        self.inner.set_xc(xc);
+        self.0.set_xc(xc);
     }
 
     #[getter]
     pub fn get_yc(&self) -> f32 {
-        self.inner.get_yc()
+        self.0.get_yc()
     }
 
     #[setter]
     pub fn set_yc(&mut self, yc: f32) {
-        self.inner.set_yc(yc);
+        self.0.set_yc(yc);
     }
 
     #[getter]
     pub fn get_width(&self) -> f32 {
-        self.inner.get_width()
+        self.0.get_width()
     }
 
     #[setter]
     pub fn set_width(&mut self, width: f32) {
-        self.inner.set_width(width);
+        self.0.set_width(width);
     }
 
     #[getter]
     pub fn get_height(&self) -> f32 {
-        self.inner.get_height()
+        self.0.get_height()
     }
 
     #[setter]
     pub fn set_height(&mut self, height: f32) {
-        self.inner.set_height(height);
+        self.0.set_height(height);
     }
 
     #[getter]
     pub fn get_top(&self) -> f32 {
-        self.inner.get_top().unwrap()
+        self.0.get_top().unwrap()
     }
 
     #[setter]
     pub fn set_top(&mut self, top: f32) -> PyResult<()> {
-        self.inner.set_top(top)
+        self.0.set_top(top)
     }
 
     #[getter]
     pub fn get_left(&self) -> f32 {
-        self.inner.get_left().unwrap()
+        self.0.get_left().unwrap()
     }
 
     #[setter]
     pub fn set_left(&mut self, left: f32) -> PyResult<()> {
-        self.inner.set_left(left)
+        self.0.set_left(left)
     }
 
     #[getter]
     pub fn get_right(&self) -> f32 {
-        self.inner.get_right().unwrap()
+        self.0.get_right().unwrap()
     }
 
     #[getter]
     pub fn get_bottom(&self) -> f32 {
-        self.inner.get_bottom().unwrap()
+        self.0.get_bottom().unwrap()
     }
 
     #[getter]
     pub fn get_vertices(&self) -> Vec<(f32, f32)> {
-        self.inner.get_vertices()
+        self.0.get_vertices()
     }
 
     #[getter]
     pub fn get_vertices_rounded(&self) -> Vec<(f32, f32)> {
-        self.inner.get_vertices_rounded()
+        self.0.get_vertices_rounded()
     }
 
     #[getter]
     pub fn get_vertices_int(&self) -> Vec<(i64, i64)> {
-        self.inner.get_vertices_int()
+        self.0.get_vertices_int()
     }
 
     #[getter]
     pub fn get_wrapping_box(&self) -> BBox {
-        self.inner.get_wrapping_box()
+        self.0.get_wrapping_box()
     }
 
-    pub fn visual_box(
+    pub fn get_visual_box(
         &self,
         padding: &PaddingDraw,
         border_width: i64,
@@ -754,56 +744,55 @@ impl BBox {
     /// Returns (left, top, right, bottom) coordinates.
     ///
     pub fn as_ltrb(&self) -> (f32, f32, f32, f32) {
-        self.inner.as_ltrb().unwrap()
+        self.0.as_ltrb().unwrap()
     }
 
     /// Returns (left, top, right, bottom) coordinates rounded to integers.
     ///
     pub fn as_ltrb_int(&self) -> (i64, i64, i64, i64) {
-        self.inner.as_ltrb_int().unwrap()
+        self.0.as_ltrb_int().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates.
     ///
     pub fn as_ltwh(&self) -> (f32, f32, f32, f32) {
-        self.inner.as_ltwh().unwrap()
+        self.0.as_ltwh().unwrap()
     }
 
     /// Returns (left, top, width, height) coordinates rounded to integers.
     ///
     pub fn as_ltwh_int(&self) -> (i64, i64, i64, i64) {
-        self.inner.as_ltwh_int().unwrap()
+        self.0.as_ltwh_int().unwrap()
     }
 
     /// Returns (xc, yc, width, height) coordinates.
     ///
     pub fn as_xcycwh(&self) -> (f32, f32, f32, f32) {
-        self.inner.as_xcycwh()
+        self.0.as_xcycwh()
     }
 
     /// Returns (xc, yc, width, height) coordinates rounded to integers.
     ///
     pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
-        self.inner.as_xcycwh_int()
+        self.0.as_xcycwh_int()
     }
 
     /// Converts the :py:class:`BBox` to a :py:class:`RBBox`.
     ///
     pub fn as_rbbox(&self) -> RBBox {
-        self.inner.clone()
+        self.0.clone()
     }
 
-    #[pyo3(name = "scale")]
-    pub fn scale_py(&mut self, scale_x: f32, scale_y: f32) {
-        self.inner.scale(scale_x, scale_y);
+    pub fn scale(&mut self, scale_x: f32, scale_y: f32) {
+        self.0.scale(scale_x, scale_y);
     }
 
     pub fn shift(&mut self, dx: f32, dy: f32) {
-        self.inner.shift(dx, dy);
+        self.0.shift(dx, dy);
     }
 
     pub fn as_polygonal_area(&self) -> PolygonalArea {
-        self.inner.as_polygonal_area()
+        self.0.as_polygonal_area()
     }
 
     /// Returns a copy of the BBox object
@@ -814,17 +803,16 @@ impl BBox {
     ///    A copy of the BBox object
     ///
     ///
-    #[pyo3(name = "copy")]
     pub fn copy_py(&self) -> Self {
         let mut new_self = self.clone();
-        new_self.inner.set_modifications(false);
+        new_self.0.set_modifications(false);
         new_self
     }
 
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
-        let inner_copy = self.inner.clone();
+        let inner_copy = self.0.clone();
         let padded = inner_copy.new_padded(padding);
-        Self { inner: padded }
+        Self(padded)
     }
 }
 
