@@ -234,9 +234,6 @@ pub enum MatchQuery {
     StopIfFalse(Box<MatchQuery>),
     #[serde(rename = "stop_if_true")]
     StopIfTrue(Box<MatchQuery>),
-    // User-defined plugin function
-    #[serde(rename = "user_defined_object_predicate")]
-    UserDefinedObjectPredicate(String, String),
     #[serde(rename = "eval")]
     EvalExpr(String),
 
