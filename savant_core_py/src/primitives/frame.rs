@@ -1069,8 +1069,8 @@ impl VideoFrame {
     /// - existing objects are updated with attributes
     /// - new objects are added
     ///
-    /// Params
-    /// ------
+    /// Parameters
+    /// ----------
     /// update: :py:class:`savant_rs.primitives.VideoFrameUpdate`
     ///   The update to apply
     ///

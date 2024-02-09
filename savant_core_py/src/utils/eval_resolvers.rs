@@ -52,8 +52,8 @@ pub fn etcd_resolver_name() -> &'static str {
 
 /// Registers the Etcd resolver in the system runtime.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// hosts: List[str]
 ///   The list of hosts to connect to the Etcd server.
 ///   Default is ["127.0.0.1:2379"].
@@ -107,8 +107,8 @@ pub fn register_utility_resolver() {
 
 /// Registers the Config resolver in the system runtime.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// symbols: Dict[str, str]
 ///   The symbols to register in the Config resolver.
 ///
@@ -120,8 +120,8 @@ pub fn register_config_resolver(symbols: HashMap<String, String>) {
 
 /// Updates the Config resolver in the system runtime.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// symbols: Dict[str, str]
 ///   The symbols to update in the Config resolver.
 ///
@@ -133,8 +133,8 @@ pub fn update_config_resolver(symbols: HashMap<String, String>) {
 
 /// Unregisters the resolver from the system runtime.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// name: str
 ///   The name of the resolver to unregister.
 ///

@@ -28,7 +28,7 @@ impl Message {
 
     /// Create a new undefined message
     ///
-    /// Params
+    /// Parameters
     /// ----------
     /// s : str
     ///   The message text
@@ -45,8 +45,8 @@ impl Message {
 
     /// Create a new shutdown message
     ///
-    /// Params
-    /// ------
+    /// Parameters
+    /// ----------
     /// shutdown : :py:class:`savant_rs.primitives.Shutdown`
     ///   The shutdown message
     ///
@@ -62,9 +62,9 @@ impl Message {
 
     /// Create a new unspecified message
     ///
-    /// Params
-    /// ------
-    /// t : :py:class:`savant_rs.primitives.UnspecifiedData`
+    /// Parameters
+    /// ----------
+    /// t : :py:class:`savant_rs.primitives.UserData`
     ///   The unspecified message
     ///
     /// Returns

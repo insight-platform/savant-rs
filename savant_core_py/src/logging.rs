@@ -68,8 +68,8 @@ impl From<log::LevelFilter> for LogLevel {
 
 /// Set the log level for the logger.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// level: :py:class:`LogLevel`
 ///   The log level to set.
 ///
@@ -100,8 +100,8 @@ pub fn get_log_level() -> LogLevel {
 
 /// Check if the given log level is enabled.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// level: :py:class:`LogLevel`
 ///   The log level to check.
 ///
@@ -115,16 +115,16 @@ pub fn log_level_enabled(level: LogLevel) -> bool {
     log::max_level().ge(&log::LevelFilter::from(level))
 }
 
-/// Log a message.
+/// Logs a message.
 ///
-/// GIL Management: This function releases the GIL.
+/// GIL Management: This function releases the GIL optionally.
 ///
-/// Params
-/// ------
+/// Parameters
+/// ----------
 /// level: :py:class:`LogLevel`
 ///   The log level to use.
 /// target: str
-///   The code initiated the log message. The target is defined as ``a::b::c`
+///   The code initiated the log message. The target is defined as ``a::b::c``
 /// message: str
 ///   The log message.
 /// params: dict
