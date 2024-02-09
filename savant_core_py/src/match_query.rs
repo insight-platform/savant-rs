@@ -1933,6 +1933,30 @@ impl MatchQuery {
         MatchQuery(rust::MatchQuery::BoxAngleDefined)
     }
 
+    /// True if object's track box has angle defined.
+    ///
+    /// In JSON/YAML: track.bbox.angle.defined
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`MatchQuery`
+    ///   Query
+    ///
+    /// Example
+    /// -------
+    ///
+    /// .. code-block:: python
+    ///
+    ///    from savant_rs.match_query import MatchQuery as MQ
+    ///
+    ///    q = MQ.track_box_angle_defined()
+    ///    print(q.yaml, "\n", q.json)
+    ///
+    #[staticmethod]
+    fn track_box_angle_defined() -> MatchQuery {
+        MatchQuery(rust::MatchQuery::TrackBoxAngleDefined)
+    }
+
     /// True if object doesn't have attributes
     ///
     /// In JSON/YAML: attributes.empty
