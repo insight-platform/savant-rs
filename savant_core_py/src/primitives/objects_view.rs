@@ -92,7 +92,7 @@ impl VideoObjectsView {
         self.0
             .get(index)
             .ok_or(PyIndexError::new_err("index out of range"))
-            .map(|x| x.clone())
+            .cloned()
     }
 
     #[getter]

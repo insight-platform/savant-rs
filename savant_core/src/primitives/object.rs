@@ -179,7 +179,6 @@ impl WithAttributes for BorrowedVideoObject {
 pub(crate) mod private {
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::object::{BorrowedVideoObject, ObjectAccess, ObjectOperations};
-    use crate::trace;
     use anyhow::bail;
 
     pub trait SealedWithFrame: ObjectAccess
@@ -197,16 +196,6 @@ pub(crate) mod private {
     {
         fn attach_to_video_frame(&mut self, frame: VideoFrameProxy) {
             self.with_object_mut(|o| o.frame = Some(frame.into()));
-        }
-
-        fn get_parent_frame_source(&self) -> Option<String> {
-            self.with_object_ref(|o| {
-                o.frame.as_ref().and_then(|f| {
-                    f.inner
-                        .upgrade()
-                        .map(|f| trace!(f.read_recursive()).source_id.clone())
-                })
-            })
         }
     }
 
