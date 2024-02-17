@@ -1,16 +1,15 @@
 [workspace]
 members = [
-    "savant_core",
     "savant_core_py",
     "savant_python",
-    "savant_py_plugin_sample",
-    #"savant_algebra"
+    "plugins/python/*",
+    "plugins/native/*",
 ]
 
 resolver = "2"
 
 [workspace.package]
-version = "0.2.10"
+version = "0.2.11"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -30,3 +29,6 @@ codegen-units = 1
 [profile.bench]
 opt-level = 3
 codegen-units = 1
+
+[workspace.dependencies]
+savant_core = "0.2.13"

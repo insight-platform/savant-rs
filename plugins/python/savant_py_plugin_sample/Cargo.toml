@@ -18,7 +18,7 @@ rust-version.workspace = true
 crate-type = ["dylib"]
 
 [dependencies]
-savant_core_py = { path = "../savant_core_py" }
+savant_core_py = { path = "../../../savant_core_py" }
 
 [dependencies.pyo3]
 version = "0.19"
