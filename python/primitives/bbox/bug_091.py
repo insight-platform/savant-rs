@@ -8,7 +8,7 @@ max_row = 719
 
 bbox = BBox(1279, 719, 2, 2)
 
-vis_bbox = bbox.visual_box(padding, 0, max_col, max_row)
+vis_bbox = bbox.get_visual_box(padding, 0, max_col, max_row)
 print(vis_bbox)
 left, top, right, bottom = vis_bbox.as_ltrb_int()
 print(left, top, right, bottom)

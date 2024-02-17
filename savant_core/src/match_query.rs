@@ -9,7 +9,7 @@ use crate::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
 use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
 use crate::primitives::object::{BorrowedVideoObject, ObjectAccess, ObjectOperations, VideoObject};
 use crate::primitives::{BBoxMetricType, RBBox, WithAttributes};
-use savant_utils::iter::{
+use crate::utils::iter::{
     all_with_control_flow, any_with_control_flow, fiter_map_with_control_flow,
     partition_with_control_flow,
 };

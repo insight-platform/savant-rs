@@ -2,8 +2,8 @@ use super::{
     parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefixSpec, IPC_PERMISSIONS,
     RECEIVE_HWM, RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE,
 };
+use crate::utils::default_once::DefaultOnceCell;
 use anyhow::bail;
-use savant_utils::default_once::DefaultOnceCell;
 
 #[derive(Clone, Debug, Default)]
 pub struct ReaderConfig(ReaderConfigBuilder);

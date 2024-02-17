@@ -13,11 +13,11 @@ use crate::primitives::object::{
 use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
+use crate::utils::iter::fiter_map_with_control_flow;
 use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
 use hashbrown::HashMap;
-use savant_utils::iter::fiter_map_with_control_flow;
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
 use std::mem;

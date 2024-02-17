@@ -13,7 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["dylib", "lib"]
+crate-type = ["dylib"]
 
 [dependencies]
 savant_core_py = { path = "../savant_core_py" }

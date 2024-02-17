@@ -2,8 +2,8 @@ use super::{
     parse_zmq_socket_uri, SocketType, WriterSocketType, ACK_RECEIVE_RETRIES, IPC_PERMISSIONS,
     RECEIVE_HWM, SENDER_RECEIVE_TIMEOUT, SEND_HWM, SEND_RETRIES, SEND_TIMEOUT,
 };
+use crate::utils::default_once::DefaultOnceCell;
 use anyhow::bail;
-use savant_utils::default_once::DefaultOnceCell;
 
 #[derive(Clone, Debug, Default)]
 pub struct WriterConfig(WriterConfigBuilder);

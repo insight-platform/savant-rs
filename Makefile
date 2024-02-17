@@ -35,6 +35,7 @@ build_plugin_release:
 clean:
 	@echo "Cleaning..."
 	cd savant_python && rm -rf dist/*.whl
+	cd savant_py_plugin_sample && rm -rf dist/*.whl
 
 pythontests:
 	@echo "Running tests..."
