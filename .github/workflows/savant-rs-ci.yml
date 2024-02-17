@@ -35,7 +35,9 @@ jobs:
             name: manylinux-x86
             arch: linux/amd64
             runner: X64
-    runs-on: [self-hosted, ${{ matrix.runner }}]
+    runs-on:
+      - self-hosted
+      - ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v3
 
