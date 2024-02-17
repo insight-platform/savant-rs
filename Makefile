@@ -19,12 +19,12 @@ clippy:
 build:
 	@echo "Building..."
 	cargo build
-	plugins/prepare_plugins.sh debug
+	plugins/prepare_native_plugins.sh debug
 
 build_release:
 	@echo "Building..."
 	cargo build --release
-	plugins/prepare_plugins.sh release
+	plugins/prepare_native_plugins.sh release
 
 build_savant:
 	@echo "Building..."

@@ -77,7 +77,7 @@ do
 done
 
 # pack all plugins in a single tar.gz archive
-PLUGINS_ARCHIVE=$OUTPUT_DIR/plugins-$BUILD_MODE-$LIBSAVANT_SHA256.tar.gz
+PLUGINS_ARCHIVE=$OUTPUT_DIR/plugins-$BUILD_MODE-$LIBSAVANT_SHA256-$(uname -p).tar.gz
 # remove if exists
 rm -f $PLUGINS_ARCHIVE
 echo "Packing all plugins in $PLUGINS_ARCHIVE"
