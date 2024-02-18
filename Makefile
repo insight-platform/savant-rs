@@ -32,7 +32,7 @@ build_savant:
 
 build_savant_release:
 	@echo "Building..."
-	cd savant_python && maturin build --release -o dist && pip install --force-reinstall dist/*.whl
+	cd savant_python && maturin build -f --release -o dist && pip install --force-reinstall dist/*.whl
 
 build_plugin:
 	@echo "Building plugin..."
@@ -40,7 +40,7 @@ build_plugin:
 
 build_plugin_release:
 	@echo "Building plugin..."
-	cd plugins/python/savant_py_plugin_sample && maturin build --release -o dist && pip install --force-reinstall dist/*.whl
+	cd plugins/python/savant_py_plugin_sample && maturin build -f --release -o dist && pip install --force-reinstall dist/*.whl
 
 clean:
 	@echo "Cleaning..."
