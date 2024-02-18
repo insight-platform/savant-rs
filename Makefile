@@ -9,7 +9,8 @@ release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains
 release: clean clippy build_release build_savant_release build_plugin_release
 
 install:
-	find . -name '*.whl' -exec pip install --force-reinstall {} \;
+	pip install --force-reinstall savant_python/dist/*.whl
+	pip install --force-reinstall plugins/python/savant_py_plugin_sample/dist/*.whl
 
 docs: dev install docs/source/index.rst
 	@echo "Building docs..."
