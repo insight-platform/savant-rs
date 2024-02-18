@@ -11,7 +11,7 @@ release: clean clippy build_release build_savant_release build_plugin_release
 install:
 	find . -name '*.whl' -exec pip install --force-reinstall {} \;
 
-docs: dev docs/source/index.rst
+docs: dev install docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html
 
