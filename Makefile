@@ -47,7 +47,8 @@ build_plugin_release:
 
 clean:
 	@echo "Cleaning..."
-	find . -name '*.whl' -exec rm -rf {} \;
+	rm -rf savant_python/dist/*.whl
+	rm -rf plugins/python/savant_py_plugin_sample/dist/*.whl
 
 pythontests:
 	@echo "Running tests..."
