@@ -27,4 +27,4 @@ echo "Additional build args: $ARGS"
 make release
 mkdir -p /opt/dist
 cp target/release/plugins*.tar.gz /opt/dist
-find -name '*.whl' | xargs -I{} cp {} /opt/dist
+find -name '*.whl' -exec cp {} /opt/dist \;
