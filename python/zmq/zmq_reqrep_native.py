@@ -5,7 +5,7 @@ from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
 from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, BlockingWriter, BlockingReader
 
-socket_name = "ipc:///tmp/test_hello"
+socket_name = "tcp://127.0.0.1:3333"
 
 NUMBER = 1000
 BLOCK_SIZE = 1024 * 1024

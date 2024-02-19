@@ -31,4 +31,4 @@ opt-level = 3
 codegen-units = 1
 
 [workspace.dependencies]
-savant_core = "0.2.13"
+savant_core = "0.2.14"
