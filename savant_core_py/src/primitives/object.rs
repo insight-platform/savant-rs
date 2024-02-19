@@ -2,7 +2,6 @@ use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::{release_gil, with_gil};
-use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, PyObject, PyResult};

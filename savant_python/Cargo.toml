@@ -21,11 +21,10 @@ pretty_env_logger = "0.5"
 
 
 [dependencies.pyo3]
-version = "0.19"
+version = "0.20"
 
 [build-dependencies]
-pyo3-build-config = "0.19"
-cbindgen = "0.24"
+pyo3-build-config = "0.20"
 
 [package.metadata.maturin]
 python-source = "python"
