@@ -500,7 +500,6 @@ impl BorrowedVideoObject {
 
     #[getter]
     pub fn get_track_id(&self) -> Option<i64> {
-        warn!("get_track_id is deprecated, use track_id instead");
         self.0.get_track_id()
     }
 
