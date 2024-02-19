@@ -2,7 +2,6 @@ use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::{release_gil, with_gil};
-use log::warn;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::PyBytes;
 use pyo3::{pyclass, pymethods, PyObject, PyResult};
@@ -500,7 +499,6 @@ impl BorrowedVideoObject {
 
     #[getter]
     pub fn get_track_id(&self) -> Option<i64> {
-        warn!("get_track_id is deprecated, use track_id instead");
         self.0.get_track_id()
     }
 

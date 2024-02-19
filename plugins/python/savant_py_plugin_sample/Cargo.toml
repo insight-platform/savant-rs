@@ -18,17 +18,13 @@ rust-version.workspace = true
 crate-type = ["dylib"]
 
 [dependencies]
-savant_core_py = { path = "../savant_core_py" }
+savant_core_py = { path = "../../../savant_core_py" }
 
 [dependencies.pyo3]
-version = "0.19"
-
-[dev-dependencies]
-serial_test = "2.0"
+version = "0.20"
 
 [build-dependencies]
-pyo3-build-config = "0.19"
-cbindgen = "0.24"
+pyo3-build-config = "0.20"
 
 [package.metadata.maturin]
 python-source = "python"

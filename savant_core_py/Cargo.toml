@@ -16,7 +16,7 @@ rust-version.workspace = true
 crate-type = ["dylib"]
 
 [dependencies]
-savant_core = { path = "../savant_core" }
+savant_core = {workspace = true}
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
@@ -30,14 +30,14 @@ opentelemetry = "0.21"
 colored = "2"
 
 [dependencies.pyo3]
-version = "0.19"
+version = "0.20"
 
 [dev-dependencies]
 serial_test = "2.0"
 
 
 [build-dependencies]
-pyo3-build-config = "0.19"
+pyo3-build-config = "0.20"
 cbindgen = "0.24"
 
 [package.metadata.maturin]
