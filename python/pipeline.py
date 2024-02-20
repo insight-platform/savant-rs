@@ -1,27 +1,33 @@
+import sys
 import time
 from threading import Thread, current_thread
 
 import savant_rs
-from savant_rs.logging import log, LogLevel, set_log_level, log_level_enabled
+import savant_plugin_sample
+from savant_rs.logging import log, LogLevel,  log_level_enabled
 
+from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration, StageFunction
+
+from savant_rs.logging import set_log_level
 set_log_level(LogLevel.Trace)
 
-from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration
+plugin_function_1 = savant_plugin_sample.get_stage_function("doesnotmatter")
+plugin_function_2 = savant_plugin_sample.get_stage_function("doesnotmatter")
 
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
-from savant_rs import init_jaeger_tracer
 from savant_rs.match_query import MatchQuery as Q
 
-
-# LOGLEVEL=info,a=error,a::b=debug python python/pipeline.py
+# LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py
 
 if __name__ == "__main__":
     savant_rs.savant_rs.version()
     enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
-    init_jaeger_tracer("demo-pipeline", "localhost:6831")
+
+    # from savant_rs import init_jaeger_tracer
+    # init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
@@ -29,10 +35,10 @@ if __name__ == "__main__":
     conf.timestamp_period = 1000  # every sec
 
     p = VideoPipeline("video-pipeline-root", [
-        ("input", VideoPipelineStagePayloadType.Frame),
-        ("proc1", VideoPipelineStagePayloadType.Batch),
-        ("proc2", VideoPipelineStagePayloadType.Batch),
-        ("output", VideoPipelineStagePayloadType.Frame)
+        ("input", VideoPipelineStagePayloadType.Frame, plugin_function_1, plugin_function_2),
+        ("proc1", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
+        ("proc2", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
+        ("output", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
     ], conf)
     p.sampling_period = 10
 
@@ -168,3 +174,5 @@ if __name__ == "__main__":
     p.log_final_fps()
 
     # del root_spans_1
+
+del p

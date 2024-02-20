@@ -1,17 +1,18 @@
 [workspace]
 resolver = "2"
 members = [
+    "savant_core",
     "savant_core_py",
     "savant_python",
-    "plugins/python/*",
-    "plugins/native/*",
+    "savant_plugins/*",
 ]
 
 [workspace.dependencies]
-savant_core = "0.2.16"
+savant_core = { path = "savant_core" }
+savant_core_py = { path = "savant_core_py" }
 
 [workspace.package]
-version = "0.2.13"
+version = "0.2.14"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"

@@ -26,7 +26,7 @@ impl TelemetrySpan {
             .collect()
     }
 
-    pub(crate) fn from_context(ctx: Context) -> TelemetrySpan {
+    pub fn from_context(ctx: Context) -> TelemetrySpan {
         TelemetrySpan(ctx, TelemetrySpan::thread_id())
     }
 
@@ -56,7 +56,7 @@ impl TelemetrySpan {
     ///   The created span.
     ///
     #[staticmethod]
-    fn constructor(name: &str) -> TelemetrySpan {
+    pub fn constructor(name: &str) -> TelemetrySpan {
         TelemetrySpan::new(name)
     }
 
@@ -205,8 +205,8 @@ impl TelemetrySpan {
                 release_gil!(true, || {
                     log_message(
                         LogLevel::Error,
-                        "python::exception".to_string(),
-                        "Exception occurred".to_string(),
+                        "python::exception",
+                        "Exception occurred",
                         Some(
                             attrs
                                 .iter()

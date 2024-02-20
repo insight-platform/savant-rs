@@ -40,13 +40,13 @@ macro_rules! with_gil {
         let elapsed = start.elapsed();
         $crate::logging::log_message(
             $crate::logging::LogLevel::Trace,
-            "savant::gil_management::with_gil".to_string(),
+            "savant::gil_management::with_gil",
             format!(
                 "Holding GIL ({}, {}, {})",
                 $crate::function!(),
                 file!(),
                 line!()
-            ),
+            ).as_str(),
             Some(vec![opentelemetry::KeyValue::new(
                 "duration".to_string(),
                 format!(
@@ -68,13 +68,14 @@ macro_rules! with_trace {
         let elapsed = start.elapsed();
         $crate::logging::log_message(
             $crate::logging::LogLevel::Trace,
-            "savant::trace".to_string(),
+            "savant::trace",
             format!(
                 "Tracing ({}, {}, {})",
                 $crate::function!(),
                 file!(),
                 line!()
-            ),
+            )
+            .as_str(),
             Some(vec![opentelemetry::KeyValue::new(
                 "duration".to_string(),
                 format!(
@@ -124,14 +125,14 @@ macro_rules! release_gil {
             let gw = i64::try_from(elapsed_gil_back.as_nanos()).unwrap_or(i64::MAX);
             $crate::logging::log_message(
                 $crate::logging::LogLevel::Trace,
-                "savant::gil_management::with_released_gil".to_string(),
+                "savant::gil_management::with_released_gil",
                 format!(
                     "{} GIL-free operation ({}, {}, {})",
                     if gf > 10000 { "👌" } else { "💀" },
                     $crate::function!(),
                     file!(),
                     line!()
-                ),
+                ).as_str(),
                 Some(vec![
                     opentelemetry::KeyValue::new(
                         "duration.gil-free".to_string(),

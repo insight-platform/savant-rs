@@ -98,8 +98,8 @@ pub unsafe extern "C" fn pipeline2_apply_updates(handle: usize, id: i64) -> bool
     if let Err(e) = res {
         log_message(
             LogLevel::Error,
-            String::from("pipeline::capi::apply_updates"),
-            format!("Failed to apply updates: {}", e),
+            "pipeline::capi::apply_updates",
+            format!("Failed to apply updates: {}", e).as_str(),
             None,
         );
         false
@@ -131,8 +131,8 @@ pub unsafe extern "C" fn pipeline2_clear_updates(handle: usize, id: i64) -> bool
     if let Err(e) = res {
         log_message(
             LogLevel::Error,
-            String::from("pipeline::capi::clear_updates"),
-            format!("Failed to clear updates: {}", e),
+            "pipeline::capi::clear_updates",
+            format!("Failed to clear updates: {}", e).as_str(),
             None,
         );
         false

@@ -6,8 +6,8 @@ use savant_core_py::draw_spec::*;
 use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
 use savant_core_py::pipeline::{
-    FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline, PipelineConfiguration,
-    StageStat, VideoPipelineStagePayloadType,
+    load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
+    PipelineConfiguration, StageFunction, StageStat, VideoPipelineStagePayloadType,
 };
 use savant_core_py::primitives::attribute::Attribute;
 use savant_core_py::primitives::attribute_value::{
@@ -190,6 +190,8 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<FrameProcessingStatRecord>()?;
     m.add_class::<StageStat>()?;
     m.add_class::<FrameProcessingStatRecordType>()?;
+    m.add_class::<StageFunction>()?;
+    m.add_function(wrap_pyfunction!(load_stage_function_plugin, m)?)?;
     Ok(())
 }
 

@@ -18,12 +18,5 @@ fi
 
 echo "Additional build args: $ARGS"
 
-#cargo build --release
-#plugins/prepare_native_plugins.sh release
-#mkdir -p /opt/dist
-#cp target/release/plugins*.tar.gz /opt/dist
-#cd savant_python && maturin build $ARGS --release --out /opt/dist
-
 make release
 mkdir -p /opt/dist
-cp target/release/plugins*.tar.gz /opt/dist

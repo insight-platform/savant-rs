@@ -137,8 +137,8 @@ pub fn log_level_enabled(level: LogLevel) -> bool {
 #[pyo3(signature = (level, target, message, params=None, no_gil=true))]
 pub fn log_message_gil(
     level: LogLevel,
-    target: String,
-    message: String,
+    target: &str,
+    message: &str,
     params: Option<&PyDict>,
     no_gil: bool,
 ) {
@@ -150,17 +150,16 @@ pub fn log_message_gil(
     });
 
     release_gil!(no_gil, || {
-        let rs_target = target.replace('.', "::");
-        log_message(level, rs_target, message, params);
+        log_message(
+            level,
+            target.to_string().replace('.', "::").as_str(),
+            message,
+            params,
+        );
     });
 }
 
-pub fn log_message(
-    level: LogLevel,
-    target: String,
-    message: String,
-    params: Option<Vec<KeyValue>>,
-) {
+pub fn log_message(level: LogLevel, target: &str, message: &str, params: Option<Vec<KeyValue>>) {
     if log_level_enabled(level) {
         with_current_context(|cx| {
             let trace_id = cx.span().span_context().trace_id();
@@ -205,11 +204,11 @@ pub fn log_message(
             let mut params = params.unwrap_or_default();
             params.extend(vec![
                 KeyValue::new("log.level".to_string(), level.__str__()),
-                KeyValue::new("log.target".to_string(), target.clone()),
+                KeyValue::new("log.target".to_string(), target.to_string()),
                 KeyValue::new("event.name".to_string(), "log-record".to_string()),
                 KeyValue::new("event.domain".to_string(), "savant"),
             ]);
-            cx.span().add_event(message, params);
+            cx.span().add_event(message.to_string(), params);
         });
     }
 }

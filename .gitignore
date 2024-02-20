@@ -23,9 +23,3 @@ Cargo.lock
 /Cargo.lock
 /docs/build
 /docs/source/generated
-/savant_python/dist
-/savant_core_py/dist
-plugins/python/savant_py_plugin_sample/dist
-/savant_etcd_dynamic_state/dist
-/artifacts.tar.gz
-/savant_capi/artifacts

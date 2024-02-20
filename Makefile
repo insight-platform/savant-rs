@@ -3,10 +3,10 @@ export PROJECT_DIR=$(CURDIR)
 .PHONY: docs clippy build_savant build_savant_release clean tests bench
 
 dev: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug/deps:$(CARGO_TARGET_DIR)/debug/deps
-dev: clean clippy build build_savant build_python_plugins
+dev: clean clippy build_savant build_plugins
 
 release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release/deps:$(CARGO_TARGET_DIR)/release/deps
-release: clean clippy build_release build_savant_release build_python_plugins_release
+release: clean clippy build_savant_release build_plugins_release
 
 install:
 	pip install --force-reinstall $(PROJECT_DIR)/dist/*.whl
@@ -19,16 +19,6 @@ clippy:
 	@echo "Running clippy..."
 	cargo clippy
 
-build:
-	@echo "Building..."
-	cargo build
-	plugins/prepare_native_plugins.sh debug
-
-build_release:
-	@echo "Building..."
-	cargo build --release
-	plugins/prepare_native_plugins.sh release
-
 build_savant:
 	@echo "Building..."
 	cd savant_python && CARGO_INCREMENTAL=true maturin build -o $(PROJECT_DIR)/dist
@@ -37,21 +27,19 @@ build_savant_release:
 	@echo "Building..."
 	cd savant_python && maturin build -f --release -o $(PROJECT_DIR)/dist
 
-build_python_plugins:
+build_plugins:
 	@echo "Building plugins..."
-	for d in $(wildcard plugins/python/*); do \
+	for d in $(wildcard savant_plugins/*); do \
 		cd $$d && CARGO_INCREMENTAL=true maturin build -o $(PROJECT_DIR)/dist; \
 		cd $(PROJECT_DIR); \
 	done
-	# cd plugins/python/savant_py_plugin_sample && CARGO_INCREMENTAL=true maturin build -o $(PROJECT_DIR)/dist
 
-build_python_plugins_release:
+build_plugins_release:
 	@echo "Building plugins..."
-	for d in $(wildcard plugins/python/*); do \
+	for d in $(wildcard savant_plugins/*); do \
 		cd $$d && maturin build -f --release -o $(PROJECT_DIR)/dist; \
 		cd $(PROJECT_DIR); \
 	done
-	# cd plugins/python/savant_py_plugin_sample && maturin build -f --release -o $(PROJECT_DIR)/dist
 
 clean:
 	@echo "Cleaning..."

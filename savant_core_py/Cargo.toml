@@ -28,6 +28,7 @@ evalexpr = { version = "11", features = ["rand", "regex_support"] }
 log = "0.4"
 opentelemetry = "0.21"
 colored = "2"
+hashbrown = "0.14"
 
 [dependencies.pyo3]
 version = "0.20"

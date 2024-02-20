@@ -1,14 +1,66 @@
 use crate::match_query::MatchQuery;
+use crate::primitives::attribute::Attribute;
 use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::utils::otlp::TelemetrySpan;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
+use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
+use savant_core::pipeline::PipelineStageFunction as RustPipelineStageFunction;
+use savant_core::pipeline::PluginParams;
 use savant_core::rust;
+use std::cell::Cell;
 use std::collections::HashMap;
+
+#[pyclass]
+pub struct StageFunction(Cell<Option<Box<dyn RustPipelineStageFunction>>>);
+
+impl StageFunction {
+    pub fn new(f: Box<dyn RustPipelineStageFunction>) -> Self {
+        Self(Cell::new(Some(f)))
+    }
+}
+
+impl Clone for StageFunction {
+    fn clone(&self) -> Self {
+        let f = self.0.take();
+        Self(Cell::new(f))
+    }
+}
+
+#[pyfunction]
+pub fn handle_psf(f: StageFunction) {
+    let _ = f;
+}
+
+#[pymethods]
+impl StageFunction {
+    #[staticmethod]
+    fn none() -> Self {
+        Self(Cell::new(None))
+    }
+}
+
+#[pyfunction]
+pub fn load_stage_function_plugin(
+    libname: &str,
+    init_name: &str,
+    plugin_name: &str,
+    params: HashMap<String, Attribute>,
+) -> PyResult<StageFunction> {
+    let params = params
+        .into_iter()
+        .map(|(k, v)| (k, v.0))
+        .collect::<hashbrown::HashMap<_, _>>();
+    let params = PluginParams { params };
+
+    rust_load_stage_function_plugin(libname, init_name, plugin_name, params)
+        .map(|f| StageFunction(Cell::new(Some(f))))
+        .map_err(|e| PySystemError::new_err(e.to_string()))
+}
 
 /// Defines which type of payload a stage handles.
 ///
@@ -215,10 +267,22 @@ impl Pipeline {
     #[new]
     fn new(
         name: String,
-        stages: Vec<(String, VideoPipelineStagePayloadType)>,
+        stages: Vec<(
+            String,
+            VideoPipelineStagePayloadType,
+            StageFunction,
+            StageFunction,
+        )>,
         configuration: PipelineConfiguration,
     ) -> PyResult<Self> {
-        let stages = stages.into_iter().map(|(n, t)| (n, t.into())).collect();
+        let stages = stages
+            .into_iter()
+            .map(|(n, t, i, e)| {
+                let ingress = i.0.take();
+                let egress = e.0.take();
+                (n, t.into(), ingress, egress)
+            })
+            .collect();
         let p = rust::Pipeline::new(stages, configuration.0)
             .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {}", e)))?;
         p.set_root_span_name(name)
