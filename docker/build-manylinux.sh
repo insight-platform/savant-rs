@@ -19,4 +19,3 @@ fi
 echo "Additional build args: $ARGS"
 
 make release
-mkdir -p /opt/dist
