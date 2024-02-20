@@ -4,7 +4,7 @@ from savant_rs.logging import log, LogLevel, set_log_level
 
 set_log_level(LogLevel.Trace)
 
-from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration
+from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration, StageFunction
 from savant_rs.primitives import VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation, \
     Attribute, AttributeValue
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
@@ -35,10 +35,10 @@ if __name__ == "__main__":
     print(frame.json_pretty)
 
     p = VideoPipeline("video-pipeline-root", [
-        ("input", VideoPipelineStagePayloadType.Frame),
-        ("proc1", VideoPipelineStagePayloadType.Batch),
-        ("proc2", VideoPipelineStagePayloadType.Batch),
-        ("output", VideoPipelineStagePayloadType.Frame)
+        ("input", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
+        ("proc1", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
+        ("proc2", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
+        ("output", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
     ], conf)
     p.sampling_period = 10
 
