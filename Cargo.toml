@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "savant_core_py",
     "savant_python",
@@ -6,7 +7,8 @@ members = [
     "plugins/native/*",
 ]
 
-resolver = "2"
+[workspace.dependencies]
+savant_core = "0.2.16"
 
 [workspace.package]
 version = "0.2.13"
@@ -30,5 +32,3 @@ codegen-units = 1
 opt-level = 3
 codegen-units = 1
 
-[workspace.dependencies]
-savant_core = "0.2.14"
