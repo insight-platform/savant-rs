@@ -17,7 +17,7 @@ use std::sync::Arc;
 ///
 #[pyclass]
 #[derive(Debug, PartialEq, Clone, Default)]
-pub struct Attribute(pub(crate) rust::Attribute);
+pub struct Attribute(pub rust::Attribute);
 
 impl Attribute {
     pub fn values(&mut self, vals: Vec<AttributeValue>) -> &mut Self {
