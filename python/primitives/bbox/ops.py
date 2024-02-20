@@ -13,6 +13,10 @@ box.left = 70
 print(box.xc)
 print("Modified bbox:", box)
 
+copy = box.copy()
+copy.xc = 100
+assert box.xc != copy.xc
+
 vertices = box.vertices
 print("Vertices:", vertices)
 

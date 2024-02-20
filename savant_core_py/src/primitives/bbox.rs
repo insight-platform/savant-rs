@@ -349,14 +349,8 @@ impl RBBox {
     ///    A copy of the RBBox object
     ///
     ///
-    #[pyo3(name = "copy")]
-    pub fn copy_py(&self) -> Self {
-        let data: RBBoxData = RBBoxData::from(&self.0);
-
-        let mut new_self = Self(rust::RBBox::from(data));
-
-        new_self.set_modifications(false);
-        new_self
+    pub fn copy(&self) -> Self {
+        Self(self.0.copy())
     }
 
     /// Calculates the intersection over union (IoU) of two rotated bounding boxes.
@@ -803,10 +797,8 @@ impl BBox {
     ///    A copy of the BBox object
     ///
     ///
-    pub fn copy_py(&self) -> Self {
-        let mut new_self = self.clone();
-        new_self.0.set_modifications(false);
-        new_self
+    pub fn copy(&self) -> Self {
+        Self(self.0.copy())
     }
 
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
