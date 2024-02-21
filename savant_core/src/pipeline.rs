@@ -9,11 +9,11 @@ pub use implementation::PipelineConfigurationBuilder;
 
 use crate::match_query::MatchQuery;
 use crate::pipeline::stage::PipelineStage;
+use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::primitives::Attribute;
 
 pub mod stage;
 pub mod stage_function_loader;
@@ -41,7 +41,7 @@ pub enum PipelineStageFunctionOrder {
 #[repr(C)]
 #[derive(Default, Debug, Clone)]
 pub struct PluginParams {
-    pub params: HashMap<String, Attribute>,
+    pub params: HashMap<String, AttributeValue>,
 }
 
 pub type PipelineStageFunctionFactory =

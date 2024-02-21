@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 #[pyclass]
 #[derive(Debug, Clone)]
-pub struct AttributeValue(pub(crate) rust::AttributeValue);
+pub struct AttributeValue(pub rust::AttributeValue);
 
 #[cfg(test)]
 impl AttributeValue {

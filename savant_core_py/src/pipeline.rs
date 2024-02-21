@@ -1,5 +1,5 @@
 use crate::match_query::MatchQuery;
-use crate::primitives::attribute::Attribute;
+use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -49,7 +49,7 @@ pub fn load_stage_function_plugin(
     libname: &str,
     init_name: &str,
     plugin_name: &str,
-    params: HashMap<String, Attribute>,
+    params: HashMap<String, AttributeValue>,
 ) -> PyResult<StageFunction> {
     let params = params
         .into_iter()

@@ -5,7 +5,7 @@ use savant_core::pipeline::{
 };
 use savant_core_py::logging::LogLevel;
 use savant_core_py::pipeline::StageFunction;
-use savant_core_py::primitives::attribute::Attribute;
+use savant_core_py::primitives::attribute_value::AttributeValue;
 use savant_core_py::primitives::frame::VideoFrame;
 use savant_core_py::primitives::object::BorrowedVideoObject;
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ impl PipelineStageFunction for Plugin {
 }
 
 #[pyfunction]
-pub fn get_instance(name: &str, params: HashMap<String, Attribute>) -> StageFunction {
+pub fn get_instance(name: &str, params: HashMap<String, AttributeValue>) -> StageFunction {
     let pp = PluginParams {
         params: params.into_iter().map(|(k, v)| (k, v.0)).collect(),
     };
