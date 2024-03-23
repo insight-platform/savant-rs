@@ -264,6 +264,9 @@ impl PipelineConfiguration {
 
 #[pymethods]
 impl Pipeline {
+    pub fn dump_struct_lengths(&self) {
+        self.0.dump_struct_lengths();
+    }
     #[new]
     fn new(
         name: String,
