@@ -39,17 +39,6 @@ impl Debug for PipelineStage {
 }
 
 impl PipelineStage {
-    pub(crate) fn dump_struct_lengths(&self) {
-        let payload = self.payload.read();
-        let stat = self.stat.read();
-        log::info!(
-            "Stage {} has {} payloads and stat length: {:?}",
-            self.name,
-            payload.len(),
-            stat.queue_length
-        );
-    }
-
     pub fn new(
         name: String,
         stage_type: PipelineStagePayloadType,

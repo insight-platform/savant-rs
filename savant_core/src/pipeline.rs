@@ -69,10 +69,6 @@ pub enum PipelinePayload {
 pub struct Pipeline(Arc<implementation::Pipeline>);
 
 impl Pipeline {
-    pub fn dump_struct_lengths(&self) {
-        self.0.dump_struct_lengths();
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn new(
         stages: Vec<(
@@ -289,24 +285,6 @@ pub(super) mod implementation {
     unsafe impl Sync for Pipeline {}
 
     impl Pipeline {
-        pub fn dump_struct_lengths(&self) {
-            let root_spans_len = self.root_spans.read().len();
-            let stages_len = self.stages.len();
-            let frame_locations_len = self.frame_locations.read().len();
-            let frame_ordering_len = self.frame_ordering.read().len();
-            log::info!(
-                target: "savant_rs::pipeline",
-                "Pipeline struct lengths: root_spans={}, stages={}, frame_locations={}, frame_ordering={}",
-                root_spans_len,
-                stages_len,
-                frame_locations_len,
-                frame_ordering_len
-            );
-            for s in self.stages.iter() {
-                s.dump_struct_lengths();
-            }
-        }
-
         fn add_stage(
             &mut self,
             name: String,

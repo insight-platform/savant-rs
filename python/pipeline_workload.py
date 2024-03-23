@@ -38,7 +38,6 @@ if __name__ == "__main__":
     for it in range(1_000_000):
         if it % 1000 == 0:
             log(LogLevel.Info, "root", "Iteration {}".format(it), None)
-            p.dump_struct_lengths()
         frame1 = gen_frame()
         frame1.source_id = "test1" + str(it)
         frame_id1 = p.add_frame("input", frame1)
