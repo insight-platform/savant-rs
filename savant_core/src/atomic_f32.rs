@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::fmt;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct AtomicF32(AtomicU32);
 
 impl PartialEq for AtomicF32 {
@@ -39,5 +40,11 @@ impl From<f32> for AtomicF32 {
 impl From<AtomicF32> for f32 {
     fn from(value: AtomicF32) -> Self {
         value.get()
+    }
+}
+
+impl fmt::Debug for AtomicF32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.get())
     }
 }
