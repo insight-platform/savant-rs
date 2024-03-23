@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::fmt;
 
 pub const BBOX_ELEMENT_UNDEFINED: f32 = 3.402_823_5e38_f32;
 
@@ -96,8 +97,20 @@ impl From<&RBBox> for RBBoxData {
 
 /// Represents a bounding box with an optional rotation angle in degrees.
 ///
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct RBBox(Arc<RBBoxData>);
+
+impl fmt::Debug for RBBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RBBox")
+         .field("xc", &self.get_xc())
+         .field("yc", &self.get_yc())
+         .field("width", &self.get_width())
+         .field("height", &self.get_height())
+         .field("angle", &self.get_angle())
+         .finish()
+    }
+}
 
 impl PartialEq for RBBox {
     fn eq(&self, other: &Self) -> bool {
