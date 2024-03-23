@@ -15,6 +15,8 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
 
+const MAX_TRACKED_STREAMS: usize = 8192; // defines how many streams are tracked for the frame ordering
+
 pub mod stage;
 pub mod stage_function_loader;
 pub mod stage_plugin_sample;
@@ -208,12 +210,14 @@ impl Pipeline {
 }
 
 pub(super) mod implementation {
+    use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::OnceLock;
 
     use anyhow::{anyhow, bail, Result};
     use derive_builder::Builder;
     use hashbrown::HashMap;
+    use lru::LruCache;
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
     use opentelemetry::{Context, KeyValue};
 
@@ -221,7 +225,9 @@ pub(super) mod implementation {
     use crate::match_query::MatchQuery;
     use crate::pipeline::stage::PipelineStage;
     use crate::pipeline::stats::{FrameProcessingStatRecord, Stats};
-    use crate::pipeline::{PipelinePayload, PipelineStageFunction, PipelineStagePayloadType};
+    use crate::pipeline::{
+        PipelinePayload, PipelineStageFunction, PipelineStagePayloadType, MAX_TRACKED_STREAMS,
+    };
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
@@ -242,18 +248,37 @@ pub(super) mod implementation {
         pub collection_history: usize,
     }
 
-    #[derive(Debug, Default)]
+    #[derive(Debug)]
     pub struct Pipeline {
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
         root_spans: SavantRwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
         frame_locations: SavantRwLock<HashMap<i64, usize>>,
-        frame_ordering: SavantRwLock<HashMap<String, i64>>,
+        frame_ordering: SavantRwLock<LruCache<String, i64>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
         stats: Stats,
+    }
+
+    impl Default for Pipeline {
+        fn default() -> Self {
+            Self {
+                id_counter: AtomicI64::new(0),
+                frame_counter: AtomicI64::new(0),
+                root_spans: SavantRwLock::new(HashMap::new()),
+                stages: Vec::new(),
+                frame_locations: SavantRwLock::new(HashMap::new()),
+                frame_ordering: SavantRwLock::new(LruCache::new(
+                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
+                )),
+                sampling_period: OnceLock::new(),
+                root_span_name: OnceLock::new(),
+                configuration: PipelineConfiguration::default(),
+                stats: Stats::default(),
+            }
+        }
     }
 
     unsafe impl Send for Pipeline {}
@@ -505,7 +530,7 @@ pub(super) mod implementation {
             } else {
                 frame.set_previous_frame_seq_id(None);
             }
-            ordering.insert(source_id, id_counter);
+            ordering.put(source_id, id_counter);
 
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
             let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);
@@ -520,7 +545,7 @@ pub(super) mod implementation {
 
         pub fn clear_source_ordering(&self, source_id: &str) -> Result<()> {
             let mut ordering = self.frame_ordering.write();
-            ordering.remove(source_id).ok_or_else(|| {
+            ordering.pop(source_id).ok_or_else(|| {
                 anyhow!(
                     "Unable to remove ordering info for source id = {}",
                     source_id
