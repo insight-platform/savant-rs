@@ -25,8 +25,8 @@ if __name__ == "__main__":
     enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
 
-    from savant_rs import init_jaeger_tracer
-    init_jaeger_tracer("demo-pipeline", "localhost:6831")
+    # from savant_rs import init_jaeger_tracer
+    # init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
