@@ -415,7 +415,6 @@ mod tests {
     use anyhow::Result;
     use hashbrown::HashMap;
     use opentelemetry::Context;
-    use std::default::Default;
 
     fn get_frame_stage() -> PipelineStage {
         let name = "stage".to_string();

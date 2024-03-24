@@ -839,7 +839,6 @@ mod tests {
     use crate::eval_resolvers::register_env_resolver;
     use crate::match_query::MatchQuery::*;
     use crate::primitives::attribute_value::AttributeValue;
-    use crate::primitives::object::private::SealedWithParent;
     use crate::primitives::object::IdCollisionResolutionPolicy;
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
 

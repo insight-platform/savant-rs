@@ -9,7 +9,6 @@ pub fn init_jaeger_tracer(service_name: &str, endpoint: &str) {
         .with_endpoint(endpoint)
         .with_service_name(service_name)
         .with_trace_config(Config::default().with_resource(Resource::new(vec![
-            opentelemetry::KeyValue::new("service.name", "savant"), // this will not override the trace-udp-demo
             opentelemetry::KeyValue::new("service.namespace", "savant-core"),
             opentelemetry::KeyValue::new("exporter", "jaeger"),
         ])))
