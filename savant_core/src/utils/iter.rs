@@ -80,7 +80,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ops::ControlFlow;
 
     #[test]
     fn test_all_with_control_flow_continue_true() {

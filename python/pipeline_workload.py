@@ -21,6 +21,7 @@ from savant_rs.match_query import MatchQuery as Q
 
 # LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py
 
+
 if __name__ == "__main__":
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
@@ -50,6 +51,10 @@ if __name__ == "__main__":
         update.object_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
         p.add_frame_update(frame_id1, update)
         frame1, ctxt1 = p.get_independent_frame(frame_id1)
+        frame1, ctxt1 = p.get_independent_frame(frame_id1)
+        with ctxt1.nested_span("print"):
+            ctxt1.set_float_attribute("seconds", 0.01)
+            log(LogLevel.Trace, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
         frame2, ctxt2 = p.get_independent_frame(frame_id2)
         batch_id = p.move_and_pack_frames("proc1", [frame_id1, frame_id2])
         p.apply_updates(batch_id)
@@ -61,6 +66,9 @@ if __name__ == "__main__":
         frame2, ctxt2 = p.get_independent_frame(frame_id2)
         root_spans_1 = p.delete(frame_id1)
         root_spans_2 = p.delete(frame_id2)
+
+        # todo: remove when testing versus memory leak
+        exit(0)
 
     p.log_final_fps()
     # del root_spans_1
