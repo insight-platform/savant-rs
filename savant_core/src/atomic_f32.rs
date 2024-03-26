@@ -1,8 +1,26 @@
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::fmt;
+use std::sync::atomic::{AtomicU32, Ordering};
 
-#[derive(serde::Serialize, serde::Deserialize)]
 pub struct AtomicF32(AtomicU32);
+
+impl serde::Serialize for AtomicF32 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.get().serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AtomicF32 {
+    fn deserialize<D>(deserializer: D) -> Result<AtomicF32, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = f32::deserialize(deserializer)?;
+        Ok(AtomicF32::new(value))
+    }
+}
 
 impl PartialEq for AtomicF32 {
     fn eq(&self, other: &Self) -> bool {
@@ -46,5 +64,17 @@ impl From<AtomicF32> for f32 {
 impl fmt::Debug for AtomicF32 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_ser_deser() {
+        let a = super::AtomicF32::new(3.14);
+        let serialized = serde_json::to_string(&a).unwrap();
+        dbg!(&serialized);
+        let deserialized: super::AtomicF32 = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(a, deserialized);
     }
 }
