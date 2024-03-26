@@ -407,7 +407,6 @@ fn set_ipc_permissions(endpoint: &str, permissions: u32) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::zeromq::reader_config::ReaderConfig;
     #[test]
     fn test_parse_only_ipc_uri() {
         let uri = "ipc:///tmp/address".to_string();

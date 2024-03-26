@@ -6,10 +6,11 @@ use crate::EPS;
 use anyhow::{bail, Result};
 use geo::{Area, BooleanOps};
 use lazy_static::lazy_static;
+use serde::ser::SerializeStruct;
 use std::f32::consts::PI;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::fmt;
 
 pub const BBOX_ELEMENT_UNDEFINED: f32 = 3.402_823_5e38_f32;
 
@@ -31,7 +32,7 @@ pub enum BBoxMetricType {
     IoOther,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
 pub struct RBBoxData {
     pub xc: AtomicF32,
     pub yc: AtomicF32,
@@ -39,6 +40,45 @@ pub struct RBBoxData {
     pub height: AtomicF32,
     pub angle: AtomicF32,
     pub has_modifications: AtomicBool,
+}
+
+// impl serde::Serialize for RBBoxData
+impl serde::Serialize for RBBoxData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("RBBoxData", 5)?;
+        state.serialize_field("xc", &self.xc.get())?;
+        state.serialize_field("yc", &self.yc.get())?;
+        state.serialize_field("width", &self.width.get())?;
+        state.serialize_field("height", &self.height.get())?;
+        state.serialize_field("angle", &self.angle.get())?;
+        state.end()
+    }
+}
+
+// impl serde::Deserialize for RBBoxData
+impl<'de> serde::Deserialize<'de> for RBBoxData {
+    fn deserialize<D>(deserializer: D) -> Result<RBBoxData, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let data = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        let xc = data["xc"].as_f64().unwrap() as f32;
+        let yc = data["yc"].as_f64().unwrap() as f32;
+        let width = data["width"].as_f64().unwrap() as f32;
+        let height = data["height"].as_f64().unwrap() as f32;
+        let angle = data["angle"].as_f64().unwrap() as f32;
+        Ok(RBBoxData {
+            xc: xc.into(),
+            yc: yc.into(),
+            width: width.into(),
+            height: height.into(),
+            angle: angle.into(),
+            has_modifications: false.into(),
+        })
+    }
 }
 
 impl RBBoxData {
@@ -103,12 +143,12 @@ pub struct RBBox(Arc<RBBoxData>);
 impl fmt::Debug for RBBox {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RBBox")
-         .field("xc", &self.get_xc())
-         .field("yc", &self.get_yc())
-         .field("width", &self.get_width())
-         .field("height", &self.get_height())
-         .field("angle", &self.get_angle())
-         .finish()
+            .field("xc", &self.get_xc())
+            .field("yc", &self.get_yc())
+            .field("width", &self.get_width())
+            .field("height", &self.get_height())
+            .field("angle", &self.get_angle())
+            .finish()
     }
 }
 
@@ -372,9 +412,7 @@ impl RBBox {
         let height = self.get_height();
         (xc as i64, yc as i64, width as i64, height as i64)
     }
-}
 
-impl RBBox {
     pub(crate) fn intersection_coaxial(&self, other: &RBBox) -> Option<f32> {
         if self.get_angle().unwrap_or(0.0) != other.get_angle().unwrap_or(0.0) {
             return None;
@@ -596,6 +634,10 @@ impl RBBox {
 
         Ok(self.new_padded(&padding_with_border))
     }
+
+    pub fn json(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -603,6 +645,15 @@ mod tests {
     use crate::draw::PaddingDraw;
     use crate::primitives::{RBBox, RBBoxData};
     use crate::round_2_digits;
+
+    #[test]
+    fn test_json() {
+        let bbox = RBBox::new(0.0, 0.0, 100.0, 100.0, Some(45.0));
+        let json = bbox.json();
+        let bbox2: RBBox = serde_json::from_str(&json).unwrap();
+        dbg!(&bbox.json());
+        assert_eq!(bbox, bbox2);
+    }
 
     #[test]
     fn test_scale_no_angle() {
