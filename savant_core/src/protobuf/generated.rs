@@ -425,6 +425,8 @@ pub struct VideoFrame {
     pub attributes: ::prost::alloc::vec::Vec<Attribute>,
     #[prost(message, repeated, tag = "25")]
     pub objects: ::prost::alloc::vec::Vec<VideoObject>,
+    #[prost(string, optional, tag = "26")]
+    pub previous_keyframe: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(oneof = "video_frame::Content", tags = "17, 18, 19")]
     pub content: ::core::option::Option<video_frame::Content>,
 }

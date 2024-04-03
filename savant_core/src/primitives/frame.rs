@@ -97,6 +97,8 @@ impl ToSerdeJsonValue for VideoFrameTransformation {
 pub struct VideoFrame {
     #[builder(setter(skip))]
     pub previous_frame_seq_id: Option<i64>,
+    #[builder(setter(skip))]
+    pub previous_keyframe: Option<u128>,
     pub source_id: String,
     pub uuid: u128,
     #[builder(setter(skip))]
@@ -133,6 +135,7 @@ impl Default for VideoFrame {
     fn default() -> Self {
         Self {
             previous_frame_seq_id: None,
+            previous_keyframe: None,
             source_id: String::new(),
             uuid: Uuid::new_v4().as_u128(),
             creation_timestamp_ns: SystemTime::now()
@@ -164,6 +167,8 @@ impl ToSerdeJsonValue for VideoFrame {
         let version = version();
         serde_json::json!(
             {
+                "previous_frame_seq_id": self.previous_frame_seq_id,
+                "previous_keyframe": self.previous_keyframe,
                 "version": version,
                 "uuid": frame_uuid,
                 "creation_timestamp_ns": if self.creation_timestamp_ns > 2^53 { 2^53 } else { self.creation_timestamp_ns },
@@ -805,6 +810,20 @@ impl VideoFrameProxy {
         inner.previous_frame_seq_id = previous_frame_seq_id;
     }
 
+    pub fn get_previous_keyframe(&self) -> Option<u128> {
+        trace!(self.inner.read_recursive()).previous_keyframe
+    }
+
+    pub fn get_previous_keyframe_as_string(&self) -> Option<String> {
+        self.get_previous_keyframe()
+            .map(|ku| Uuid::from_u128(ku).to_string())
+    }
+
+    pub(crate) fn set_previous_keyframe(&mut self, previous_keyframe: Option<u128>) {
+        let mut inner = trace!(self.inner.write());
+        inner.previous_keyframe = previous_keyframe;
+    }
+
     pub fn set_source_id(&mut self, source_id: &str) {
         let mut inner = trace!(self.inner.write());
         inner.source_id = source_id.to_string();
@@ -820,6 +839,10 @@ impl VideoFrameProxy {
 
     pub fn get_uuid(&self) -> Uuid {
         Uuid::from_u128(trace!(self.inner.read_recursive()).uuid)
+    }
+
+    pub fn get_uuid_u128(&self) -> u128 {
+        trace!(self.inner.read_recursive()).uuid
     }
 
     pub fn get_uuid_as_string(&self) -> String {

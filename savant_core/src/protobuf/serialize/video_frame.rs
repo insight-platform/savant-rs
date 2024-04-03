@@ -29,6 +29,9 @@ impl From<&Box<VideoFrame>> for generated::VideoFrame {
 
         generated::VideoFrame {
             previous_frame_seq_id: video_frame.previous_frame_seq_id,
+            previous_keyframe: video_frame
+                .previous_keyframe
+                .map(|ku| Uuid::from_u128(ku).to_string()),
             source_id: video_frame.source_id.clone(),
             uuid: Uuid::from_u128(video_frame.uuid).to_string(),
             creation_timestamp_ns_high: (video_frame.creation_timestamp_ns >> 64) as u64,
@@ -102,6 +105,11 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
 
         Ok(VideoFrame {
             previous_frame_seq_id: value.previous_frame_seq_id,
+            previous_keyframe: value
+                .previous_keyframe
+                .as_ref()
+                .map(|ku| Uuid::from_str(ku).map(|u| u.as_u128()))
+                .transpose()?,
             source_id: value.source_id.clone(),
             uuid: Uuid::from_str(&value.uuid)?.as_u128(),
             creation_timestamp_ns: (value.creation_timestamp_ns_high as u128) << 64
