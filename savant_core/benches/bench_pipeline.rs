@@ -58,7 +58,12 @@ fn get_pipeline(
         .frame_period(Some(100))
         .build()?;
 
-    let pipeline = Pipeline::new(stages.clone(), conf)?;
+    let pipeline_stages = stages
+        .iter()
+        .map(|(name, payload)| (name.clone(), payload.clone(), None, None))
+        .collect();
+
+    let pipeline = Pipeline::new(pipeline_stages, conf)?;
     stages.pop();
     pipeline.set_root_span_name("bench".to_owned())?;
     Ok((pipeline, stages))
