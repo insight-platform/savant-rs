@@ -256,6 +256,7 @@ pub(super) mod implementation {
         stages: Vec<PipelineStage>,
         frame_locations: SavantRwLock<HashMap<i64, usize>>,
         frame_ordering: SavantRwLock<LruCache<String, i64>>,
+        keyframe_tracking: SavantRwLock<LruCache<String, u128>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
@@ -271,6 +272,9 @@ pub(super) mod implementation {
                 stages: Vec::new(),
                 frame_locations: SavantRwLock::new(HashMap::new()),
                 frame_ordering: SavantRwLock::new(LruCache::new(
+                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
+                )),
+                keyframe_tracking: SavantRwLock::new(LruCache::new(
                     NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
                 )),
                 sampling_period: OnceLock::new(),
@@ -530,7 +534,18 @@ pub(super) mod implementation {
             } else {
                 frame.set_previous_frame_seq_id(None);
             }
-            ordering.put(source_id, id_counter);
+            ordering.put(source_id.clone(), id_counter);
+
+            let mut keyframe_tracking = self.keyframe_tracking.write();
+            let last_keyframe = keyframe_tracking.get(&source_id);
+            if let Some(last) = last_keyframe {
+                frame.set_previous_keyframe(Some(*last));
+            } else {
+                frame.set_previous_keyframe(None);
+            }
+            if let Some(true) = frame.get_keyframe() {
+                keyframe_tracking.put(source_id, frame.get_uuid_u128());
+            }
 
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
             let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);

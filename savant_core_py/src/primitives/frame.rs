@@ -705,6 +705,11 @@ impl VideoFrame {
     }
 
     #[getter]
+    pub fn get_previous_keyframe_uuid(&self) -> Option<String> {
+        self.0.get_previous_keyframe_as_string()
+    }
+
+    #[getter]
     #[pyo3(name = "json")]
     pub fn json_gil(&self) -> String {
         release_gil!(true, || serde_json::to_string(&self.to_serde_json_value())
