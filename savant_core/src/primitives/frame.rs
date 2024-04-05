@@ -20,10 +20,30 @@ use derive_builder::Builder;
 use hashbrown::HashMap;
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::mem;
 use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+#[derive(Debug, Hash)]
+struct StreamCompatibilityInformation<'a> {
+    pub source_id: &'a str,
+    pub codec: &'a Option<String>,
+    pub width: i64,
+    pub height: i64,
+}
+
+impl<'a> StreamCompatibilityInformation<'a> {
+    pub fn new(source_id: &'a str, codec: &'a Option<String>, width: i64, height: i64) -> Self {
+        Self {
+            source_id,
+            codec,
+            width,
+            height,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub struct ExternalFrame {
@@ -210,6 +230,18 @@ impl WithAttributes for VideoFrame {
 }
 
 impl VideoFrame {
+    pub fn stream_compatibility_hash(&self) -> u64 {
+        let compatibility_info = StreamCompatibilityInformation::new(
+            &self.source_id,
+            &self.codec,
+            self.width,
+            self.height,
+        );
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        compatibility_info.hash(&mut hasher);
+        hasher.finish()
+    }
+
     pub fn get_objects(&self) -> &HashMap<i64, VideoObject> {
         &self.objects
     }
@@ -330,6 +362,10 @@ impl ToSerdeJsonValue for VideoFrameProxy {
 }
 
 impl VideoFrameProxy {
+    pub fn stream_compatibility_hash(&self) -> u64 {
+        let inner = trace!(self.inner.read_recursive());
+        inner.stream_compatibility_hash()
+    }
     pub fn exclude_all_temporary_attributes(&self) {
         let mut inner = trace!(self.inner.write());
         inner.exclude_all_temporary_attributes()

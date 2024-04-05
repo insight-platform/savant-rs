@@ -207,9 +207,14 @@ impl Pipeline {
     pub fn get_id_locations_len(&self) -> usize {
         self.0.get_id_locations_len()
     }
+
+    pub fn get_keyframe_history(&self, frame: &VideoFrameProxy) -> Option<Vec<(u128, i64)>> {
+        self.0.get_keyframe_history(frame)
+    }
 }
 
 pub(super) mod implementation {
+    use std::collections::VecDeque;
     use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::OnceLock;
@@ -246,6 +251,8 @@ pub(super) mod implementation {
         pub frame_period: Option<i64>,
         #[builder(default = "10")]
         pub collection_history: usize,
+        #[builder(default = "60")]
+        pub keyframe_history: usize,
     }
 
     #[derive(Debug)]
@@ -256,7 +263,8 @@ pub(super) mod implementation {
         stages: Vec<PipelineStage>,
         frame_locations: SavantRwLock<HashMap<i64, usize>>,
         frame_ordering: SavantRwLock<LruCache<String, i64>>,
-        keyframe_tracking: SavantRwLock<LruCache<String, u128>>,
+        keyframe_tracking: SavantRwLock<LruCache<u64, u128>>,
+        keyframe_history: SavantRwLock<LruCache<u64, VecDeque<(u128, i64)>>>,
         sampling_period: OnceLock<i64>,
         root_span_name: OnceLock<String>,
         configuration: PipelineConfiguration,
@@ -275,6 +283,9 @@ pub(super) mod implementation {
                     NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
                 )),
                 keyframe_tracking: SavantRwLock::new(LruCache::new(
+                    NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
+                )),
+                keyframe_history: SavantRwLock::new(LruCache::new(
                     NonZeroUsize::try_from(MAX_TRACKED_STREAMS).unwrap(),
                 )),
                 sampling_period: OnceLock::new(),
@@ -440,17 +451,6 @@ pub(super) mod implementation {
             }
         }
 
-        pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> Result<i64> {
-            let sampling_period = self.get_sampling_period();
-            let next_frame = self.frame_counter.load(Ordering::SeqCst) + 1;
-            let ctx = if *sampling_period <= 0 || next_frame % *sampling_period != 0 {
-                Context::default()
-            } else {
-                get_tracer().in_span(self.get_root_span_name().clone(), |cx| cx)
-            };
-            self.add_frame_with_telemetry(stage_name, frame, ctx)
-        }
-
         fn find_stage(
             &self,
             stage_name: &str,
@@ -495,6 +495,17 @@ pub(super) mod implementation {
             }
         }
 
+        pub fn add_frame(&self, stage_name: &str, frame: VideoFrameProxy) -> Result<i64> {
+            let sampling_period = self.get_sampling_period();
+            let next_frame = self.frame_counter.load(Ordering::SeqCst) + 1;
+            let ctx = if *sampling_period <= 0 || next_frame % *sampling_period != 0 {
+                Context::default()
+            } else {
+                get_tracer().in_span(self.get_root_span_name().clone(), |cx| cx)
+            };
+            self.add_frame_with_telemetry(stage_name, frame, ctx)
+        }
+
         pub fn add_frame_with_telemetry(
             &self,
             stage_name: &str,
@@ -526,7 +537,7 @@ pub(super) mod implementation {
                     .write()
                     .insert(id_counter, Context::current_with_span(span));
             }
-
+            let source_id_compatibility_hash = frame.stream_compatibility_hash();
             let mut ordering = self.frame_ordering.write();
             let prev_ordering_seq = ordering.get(&source_id);
             if let Some(prev) = prev_ordering_seq {
@@ -534,17 +545,31 @@ pub(super) mod implementation {
             } else {
                 frame.set_previous_frame_seq_id(None);
             }
-            ordering.put(source_id.clone(), id_counter);
+            ordering.put(source_id, id_counter);
 
             let mut keyframe_tracking = self.keyframe_tracking.write();
-            let last_keyframe = keyframe_tracking.get(&source_id);
+            let mut keyframe_history = self.keyframe_history.write();
+            let last_keyframe = keyframe_tracking.get(&source_id_compatibility_hash);
             if let Some(last) = last_keyframe {
                 frame.set_previous_keyframe(Some(*last));
             } else {
                 frame.set_previous_keyframe(None);
             }
             if let Some(true) = frame.get_keyframe() {
-                keyframe_tracking.put(source_id, frame.get_uuid_u128());
+                keyframe_tracking.put(source_id_compatibility_hash, frame.get_uuid_u128());
+            }
+
+            let history_entry = keyframe_history.get_mut(&source_id_compatibility_hash);
+            if let Some(h) = history_entry {
+                h.push_back((frame.get_uuid_u128(), frame.get_pts()));
+                if h.len() > self.configuration.keyframe_history {
+                    h.pop_front();
+                }
+            } else {
+                keyframe_history.put(
+                    source_id_compatibility_hash,
+                    VecDeque::from(vec![(frame.get_uuid_u128(), frame.get_pts())]),
+                );
             }
 
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
@@ -556,6 +581,13 @@ pub(super) mod implementation {
 
             log::trace!(target: "savant_rs::pipeline", "Added frame {} to stage {}", id_counter, stage_name);
             Ok(id_counter)
+        }
+
+        pub fn get_keyframe_history(&self, frame: &VideoFrameProxy) -> Option<Vec<(u128, i64)>> {
+            let mut keyframe_history = self.keyframe_history.write();
+            keyframe_history
+                .get(&frame.stream_compatibility_hash())
+                .map(|h| h.iter().cloned().collect())
         }
 
         pub fn clear_source_ordering(&self, source_id: &str) -> Result<()> {

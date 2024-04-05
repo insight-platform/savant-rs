@@ -234,6 +234,11 @@ impl PipelineConfiguration {
     }
 
     #[setter]
+    pub fn keyframe_history(&mut self, v: usize) {
+        self.0.keyframe_history = v;
+    }
+
+    #[setter]
     pub fn append_frame_meta_to_otlp_span(&mut self, v: bool) {
         self.0.append_frame_meta_to_otlp_span = v;
     }
@@ -288,6 +293,10 @@ impl Pipeline {
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(p))
+    }
+
+    pub fn get_keyframe_history(&self, f: &VideoFrame) -> Option<Vec<(u128, i64)>> {
+        self.0.get_keyframe_history(&f.0)
     }
 
     pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {

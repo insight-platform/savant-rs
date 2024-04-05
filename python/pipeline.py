@@ -74,6 +74,10 @@ if __name__ == "__main__":
     frame2, ctxt2 = p.get_independent_frame(frame_id2)
     log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
 
+    history1 = p.get_keyframe_history(frame1)
+    history2 = p.get_keyframe_history(frame2)
+    print(history1, history2)
+
     batch_id = p.move_and_pack_frames("proc1", [frame_id1, frame_id2])
     assert batch_id == 3
     assert p.get_stage_queue_len("input") == 0
@@ -94,8 +98,10 @@ if __name__ == "__main__":
     with ctxt1.nested_span("print"):
         log(LogLevel.Info, "root", "Context 1: {}".format(ctxt1.propagate().as_dict()), None)
 
+
     frame2, ctxt2 = p.get_independent_frame(frame_id2)
     log(LogLevel.Info, "root", "Context 2: {}".format(ctxt2.propagate().as_dict()), None)
+
 
     root_spans_1 = p.delete(frame_id1)
     root_spans_1 = root_spans_1[1]
