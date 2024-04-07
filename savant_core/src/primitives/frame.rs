@@ -157,7 +157,7 @@ impl Default for VideoFrame {
             previous_frame_seq_id: None,
             previous_keyframe: None,
             source_id: String::new(),
-            uuid: Uuid::new_v4().as_u128(),
+            uuid: Uuid::now_v7().as_u128(),
             creation_timestamp_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

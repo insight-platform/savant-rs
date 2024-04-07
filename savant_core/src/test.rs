@@ -8,6 +8,7 @@ use crate::primitives::object::{
 };
 use crate::primitives::{RBBox, WithAttributes};
 use std::sync::Arc;
+
 pub fn gen_empty_frame() -> VideoFrameProxy {
     VideoFrameProxy::from_inner(
         VideoFrameBuilder::default()
@@ -15,7 +16,7 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
             .pts(0)
             .framerate("test".to_string())
             .width(0)
-            .uuid(uuid::Uuid::new_v4().as_u128())
+            .uuid(uuid::Uuid::now_v7().as_u128())
             .height(0)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
@@ -33,7 +34,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .pts(1000000)
             .framerate("test".to_string())
             .width(1280)
-            .uuid(uuid::Uuid::new_v4().as_u128())
+            .uuid(uuid::Uuid::now_v7().as_u128())
             .height(720)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)

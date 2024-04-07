@@ -12,7 +12,7 @@ savant_core = { path = "savant_core" }
 savant_core_py = { path = "savant_core_py" }
 
 [workspace.package]
-version = "0.2.18"
+version = "0.2.19"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -21,7 +21,7 @@ repository = "https://github.com/insight-platform/savant-rs"
 readme = "README.md"
 keywords = ["computer-vision", "video-processing"]
 categories = ["algorithms", "data-structures", "computer-vision"]
-license="Apache-2.0"
+license = "Apache-2.0"
 rust-version = "1.70"
 
 
