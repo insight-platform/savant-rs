@@ -184,11 +184,15 @@ impl Default for VideoFrame {
 impl ToSerdeJsonValue for VideoFrame {
     fn to_serde_json_value(&self) -> Value {
         let frame_uuid = Uuid::from_u128(self.uuid).to_string();
+        let previous_keyframe = self
+            .previous_keyframe
+            .map(|v| Uuid::from_u128(v).to_string());
+
         let version = version();
         serde_json::json!(
             {
                 "previous_frame_seq_id": self.previous_frame_seq_id,
-                "previous_keyframe": self.previous_keyframe,
+                "previous_keyframe": previous_keyframe,
                 "version": version,
                 "uuid": frame_uuid,
                 "creation_timestamp_ns": if self.creation_timestamp_ns > 2^53 { 2^53 } else { self.creation_timestamp_ns },
