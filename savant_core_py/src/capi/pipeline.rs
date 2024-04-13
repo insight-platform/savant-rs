@@ -157,8 +157,18 @@ mod tests {
     fn test_move_as_is() {
         let pipeline = Pipeline::new(
             vec![
-                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-                ("stage2".to_owned(), PipelineStagePayloadType::Frame),
+                (
+                    "stage1".to_owned(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+                (
+                    "stage2".to_owned(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
             ],
             PipelineConfiguration::default(),
         )
@@ -174,8 +184,18 @@ mod tests {
     fn test_move_and_pack() {
         let pipeline = Pipeline::new(
             vec![
-                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-                ("stage2".to_owned(), PipelineStagePayloadType::Batch),
+                (
+                    "stage1".to_owned(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+                (
+                    "stage2".to_owned(),
+                    PipelineStagePayloadType::Batch,
+                    None,
+                    None,
+                ),
             ],
             PipelineConfiguration::default(),
         )
@@ -197,9 +217,24 @@ mod tests {
     fn test_move_and_unpack() {
         let pipeline = Pipeline::new(
             vec![
-                ("stage1".to_owned(), PipelineStagePayloadType::Frame),
-                ("stage2".to_owned(), PipelineStagePayloadType::Batch),
-                ("stage3".to_owned(), PipelineStagePayloadType::Frame),
+                (
+                    "stage1".to_owned(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+                (
+                    "stage2".to_owned(),
+                    PipelineStagePayloadType::Batch,
+                    None,
+                    None,
+                ),
+                (
+                    "stage3".to_owned(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
             ],
             PipelineConfiguration::default(),
         )

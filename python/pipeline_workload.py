@@ -35,7 +35,7 @@ if __name__ == "__main__":
     ], conf)
     p.sampling_period = 10
 
-    for it in range(1_000_000):
+    for it in range(1_000):
         if it % 1000 == 0:
             log(LogLevel.Info, "root", "Iteration {}".format(it), None)
         frame1 = gen_frame()
