@@ -3,7 +3,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObject;
 use crate::primitives::rust::UserData;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 use std::convert::Infallible;
 
 mod attribute;
@@ -93,9 +93,9 @@ impl ToProtobuf<'_, generated::UserData> for UserData {}
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::rust::VideoFrameProxy;
-    use crate::protobuf::generated;
     use crate::protobuf::serialize::{from_pb, ToProtobuf};
     use crate::test::gen_frame;
+    use savant_protobuf::generated;
 
     #[test]
     fn test() {

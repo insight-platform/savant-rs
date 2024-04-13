@@ -1,5 +1,5 @@
 use crate::primitives::frame::VideoFrameTranscodingMethod;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&VideoFrameTranscodingMethod> for generated::VideoFrameTranscodingMethod {
     fn from(value: &VideoFrameTranscodingMethod) -> Self {
@@ -22,7 +22,7 @@ impl From<&generated::VideoFrameTranscodingMethod> for VideoFrameTranscodingMeth
 #[cfg(test)]
 mod tests {
     use crate::primitives::frame::VideoFrameTranscodingMethod;
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_video_frame_transcoding_method() {

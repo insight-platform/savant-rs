@@ -1,6 +1,7 @@
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use savant_protobuf::generated;
 
 impl From<&VideoFrameBatch> for generated::VideoFrameBatch {
     fn from(batch: &VideoFrameBatch) -> Self {

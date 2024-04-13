@@ -1,5 +1,5 @@
 use crate::primitives::PolygonalArea;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&PolygonalArea> for generated::PolygonalArea {
     fn from(poly: &PolygonalArea) -> Self {
@@ -39,10 +39,11 @@ impl From<&generated::PolygonalArea> for PolygonalArea {
 
 #[cfg(test)]
 mod tests {
+    use savant_protobuf::generated;
+
     #[test]
     fn test_polygonal_area() {
         use crate::primitives::PolygonalArea;
-        use crate::protobuf::generated;
 
         assert_eq!(
             PolygonalArea::new(

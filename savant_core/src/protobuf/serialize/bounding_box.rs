@@ -1,5 +1,5 @@
 use crate::primitives::{RBBox, RBBoxData, BBOX_ELEMENT_UNDEFINED};
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&RBBox> for generated::BoundingBox {
     fn from(value: &RBBox) -> Self {
@@ -54,7 +54,7 @@ impl From<&RBBoxData> for generated::BoundingBox {
 #[cfg(test)]
 mod tests {
     use crate::primitives::{RBBox, RBBoxData};
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_bounding_box() {

@@ -1,7 +1,8 @@
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 use crate::primitives::{Attribute, IntersectionKind, RBBox};
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use savant_protobuf::generated;
 use std::sync::Arc;
 
 impl From<&AttributeValueVariant> for generated::attribute_value::Value {
@@ -249,7 +250,7 @@ impl TryFrom<&generated::Attribute> for Attribute {
 mod tests {
     use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
     use crate::primitives::{Attribute, IntersectionKind};
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
     use std::sync::Arc;
 
     #[test]

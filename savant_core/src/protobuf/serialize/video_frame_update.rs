@@ -3,7 +3,9 @@ use crate::primitives::frame_update::{
 };
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use crate::protobuf::serialize::video_object::GeneratedVideoObjectWithForeignParent;
+use savant_protobuf::generated;
 
 impl From<AttributeUpdatePolicy> for generated::AttributeUpdatePolicy {
     fn from(p: AttributeUpdatePolicy) -> Self {
@@ -80,7 +82,11 @@ impl From<&VideoFrameUpdate> for generated::VideoFrameUpdate {
             })
             .collect();
 
-        let objects = vfu.get_objects().iter().map(|o| o.into()).collect();
+        let objects = vfu
+            .get_objects()
+            .iter()
+            .map(|o| GeneratedVideoObjectWithForeignParent::from(o).0)
+            .collect();
 
         let frame_attribute_policy =
             generated::AttributeUpdatePolicy::from(vfu.get_frame_attribute_policy()) as i32;
@@ -152,8 +158,8 @@ mod tests {
     };
     use crate::primitives::object::ObjectOperations;
     use crate::primitives::Attribute;
-    use crate::protobuf::generated;
     use crate::test::gen_object;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_attribute_update_policy() {

@@ -38,6 +38,8 @@ prost = "0.12"
 prost-types = "0.12"
 rayon = "1.8"
 regex = "1"
+savant-protobuf = { git = "https://github.com/insight-platform/savant-protobuf", tag = "0.2.0" }
+
 serde_json = "1.0"
 serde_yaml = "0.9"
 serde = { version = "1.0", features = ["derive"] }
@@ -49,8 +51,6 @@ zmq = "0.10"
 version = "1.35"
 features = ["rt-multi-thread"]
 
-[build-dependencies]
-prost-build = "0.12"
 
 [lib]
 crate-type = ["dylib"]

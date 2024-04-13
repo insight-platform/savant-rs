@@ -1,6 +1,7 @@
 use crate::primitives::object::{ObjectOperations, VideoObject};
 use crate::primitives::{Attribute, RBBox, WithAttributes};
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use savant_protobuf::generated;
 
 impl From<&VideoObject> for generated::VideoObject {
     fn from(vop: &VideoObject) -> Self {
@@ -28,12 +29,16 @@ impl From<&VideoObject> for generated::VideoObject {
     }
 }
 
-impl From<&(VideoObject, Option<i64>)> for generated::VideoObjectWithForeignParent {
+pub(crate) struct GeneratedVideoObjectWithForeignParent(
+    pub generated::VideoObjectWithForeignParent,
+);
+
+impl From<&(VideoObject, Option<i64>)> for GeneratedVideoObjectWithForeignParent {
     fn from(p: &(VideoObject, Option<i64>)) -> Self {
-        generated::VideoObjectWithForeignParent {
+        GeneratedVideoObjectWithForeignParent(generated::VideoObjectWithForeignParent {
             object: Some(generated::VideoObject::from(&p.0)),
             parent_id: p.1,
-        }
+        })
     }
 }
 
@@ -71,8 +76,8 @@ mod tests {
     use crate::primitives::object::VideoObject;
     use crate::primitives::rust::AttributeValue;
     use crate::primitives::{Attribute, WithAttributes};
-    use crate::protobuf::generated;
     use crate::test::gen_object;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_object() {

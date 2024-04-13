@@ -4,9 +4,9 @@ use crate::primitives::frame::{
 };
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
-use crate::protobuf::generated;
 use crate::protobuf::serialize::Error;
 use hashbrown::{HashMap, HashSet};
+use savant_protobuf::generated;
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -147,8 +147,8 @@ impl TryFrom<&generated::VideoFrame> for VideoFrameProxy {
 mod tests {
     use crate::json_api::ToSerdeJsonValue;
     use crate::primitives::frame::VideoFrameProxy;
-    use crate::protobuf::generated;
     use crate::test::gen_frame;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_video_frame() {
