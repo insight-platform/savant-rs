@@ -1,5 +1,5 @@
 use crate::primitives::IntersectionKind;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&IntersectionKind> for generated::IntersectionKind {
     fn from(kind: &IntersectionKind) -> Self {
@@ -28,7 +28,7 @@ impl From<&generated::IntersectionKind> for IntersectionKind {
 #[cfg(test)]
 mod tests {
     use crate::primitives::IntersectionKind;
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_intersection_kind() {

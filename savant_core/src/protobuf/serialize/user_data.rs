@@ -1,6 +1,7 @@
 use crate::primitives::rust::UserData;
 use crate::primitives::Attribute;
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use savant_protobuf::generated;
 
 impl From<&UserData> for generated::UserData {
     fn from(ud: &UserData) -> Self {
@@ -38,13 +39,12 @@ impl TryFrom<&generated::UserData> for UserData {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute_value::AttributeValue;
+    use crate::primitives::userdata::UserData;
     use crate::primitives::Attribute;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_user_data() {
-        use crate::primitives::userdata::UserData;
-        use crate::protobuf::generated;
-
         assert_eq!(
             UserData {
                 source_id: "source_id".to_string(),

@@ -1,5 +1,5 @@
 use crate::primitives::frame::VideoFrameContent;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&VideoFrameContent> for generated::video_frame::Content {
     fn from(value: &VideoFrameContent) -> Self {
@@ -40,7 +40,7 @@ impl From<&generated::video_frame::Content> for VideoFrameContent {
 #[cfg(test)]
 mod tests {
     use crate::primitives::frame::VideoFrameContent;
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_video_frame_content() {

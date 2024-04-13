@@ -1,7 +1,7 @@
 use crate::message::{Message, MessageEnvelope, MessageMeta};
 use crate::otlp::PropagatedContext;
+use savant_protobuf::generated;
 
-pub(crate) mod generated;
 mod serialize;
 
 pub use generated::{UserData, VideoFrame, VideoFrameBatch, VideoFrameUpdate, VideoObject};
@@ -12,7 +12,7 @@ pub use serialize::ToProtobuf;
 impl From<&Message> for generated::Message {
     fn from(m: &Message) -> Self {
         generated::Message {
-            lib_version: m.meta().lib_version.clone(),
+            protocol_version: m.meta().protocol_version.clone(),
             routing_labels: m.meta().routing_labels.clone(),
             propagated_context: m.meta().span_context.0.clone(),
             seq_id: m.meta().seq_id,
@@ -25,15 +25,15 @@ impl TryFrom<&generated::Message> for Message {
     type Error = Error;
 
     fn try_from(m: &generated::Message) -> Result<Self, Self::Error> {
-        let (lib_version, routing_labels, propagated_context, seq_id) = (
-            m.lib_version.clone(),
+        let (protocol_version, routing_labels, propagated_context, seq_id) = (
+            m.protocol_version.clone(),
             m.routing_labels.clone(),
             PropagatedContext(m.propagated_context.clone()),
             m.seq_id,
         );
 
         let meta = MessageMeta {
-            lib_version,
+            protocol_version,
             routing_labels,
             span_context: propagated_context,
             seq_id,
@@ -78,7 +78,7 @@ mod tests {
         assert_eq!(eos.meta.seq_id, restored.meta.seq_id);
         assert_eq!(eos.meta.routing_labels, restored.meta.routing_labels);
         assert_eq!(eos.meta.span_context.0, restored.meta.span_context.0);
-        assert_eq!(eos.meta.lib_version, restored.meta.lib_version);
+        assert_eq!(eos.meta.protocol_version, restored.meta.protocol_version);
         assert!(
             matches!(eos.payload(), crate::message::MessageEnvelope::EndOfStream(EndOfStream {source_id: v}) if v == &source),
         );

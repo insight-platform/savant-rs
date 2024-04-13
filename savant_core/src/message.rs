@@ -7,7 +7,7 @@ use crate::primitives::shutdown::Shutdown;
 use crate::primitives::userdata::UserData;
 use crate::primitives::WithAttributes;
 use crate::protobuf::{deserialize, serialize};
-use crate::{trace, version};
+use crate::trace;
 use lazy_static::lazy_static;
 use lru::LruCache;
 use parking_lot::{const_mutex, Mutex};
@@ -111,7 +111,7 @@ pub const VERSION_LEN: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct MessageMeta {
-    pub lib_version: String,
+    pub protocol_version: String,
     pub routing_labels: Vec<String>,
     pub span_context: PropagatedContext,
     pub seq_id: u64,
@@ -126,7 +126,7 @@ impl Default for MessageMeta {
 impl MessageMeta {
     pub fn new(seq_id: u64) -> Self {
         Self {
-            lib_version: version(),
+            protocol_version: savant_protobuf::version().to_string(),
             routing_labels: Vec::default(),
             span_context: PropagatedContext::default(),
             seq_id,
@@ -301,11 +301,11 @@ pub fn load_message(bytes: &[u8]) -> Message {
 
     let m = m.unwrap();
 
-    if m.meta.lib_version != version() {
+    if m.meta.protocol_version != savant_protobuf::version() {
         return Message::unknown(format!(
-            "Message version mismatch: message version={:?}, program expects version={:?}.",
-            m.meta.lib_version,
-            version()
+            "Message protocol version mismatch: message version={:?}, program expects version={:?}.",
+            m.meta.protocol_version,
+            savant_protobuf::version()
         ));
     }
 

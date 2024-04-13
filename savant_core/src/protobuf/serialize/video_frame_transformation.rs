@@ -1,5 +1,5 @@
 use crate::primitives::frame::VideoFrameTransformation;
-use crate::protobuf::generated;
+use savant_protobuf::generated;
 
 impl From<&VideoFrameTransformation> for generated::VideoFrameTransformation {
     fn from(value: &VideoFrameTransformation) -> Self {
@@ -78,7 +78,7 @@ impl From<&generated::VideoFrameTransformation> for VideoFrameTransformation {
 #[cfg(test)]
 mod tests {
     use crate::primitives::frame::VideoFrameTransformation;
-    use crate::protobuf::generated;
+    use savant_protobuf::generated;
 
     #[test]
     fn test_video_frame_transformation_initial_size() {

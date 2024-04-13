@@ -4,7 +4,8 @@ use crate::primitives::frame::{VideoFrame, VideoFrameProxy};
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::rust::{Shutdown, UserData};
-use crate::protobuf::{generated, serialize};
+use crate::protobuf::serialize;
+use savant_protobuf::generated;
 
 impl From<&MessageEnvelope> for generated::message::Content {
     fn from(value: &MessageEnvelope) -> Self {
