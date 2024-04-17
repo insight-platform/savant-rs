@@ -1,9 +1,11 @@
 use super::{
     parse_zmq_socket_uri, ReaderSocketType, SocketType, TopicPrefixSpec, IPC_PERMISSIONS,
-    RECEIVE_HWM, RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE,
+    RECEIVE_HWM, RECEIVE_TIMEOUT, ROUTING_ID_CACHE_SIZE, SOURCE_BLACKLIST_CACHE_EXPIRATION,
+    SOURCE_BLACKLIST_CACHE_SIZE,
 };
 use crate::utils::default_once::DefaultOnceCell;
 use anyhow::bail;
+use std::num::NonZeroU64;
 
 #[derive(Clone, Debug, Default)]
 pub struct ReaderConfig(ReaderConfigBuilder);
@@ -45,6 +47,14 @@ impl ReaderConfig {
     pub fn fix_ipc_permissions(&self) -> &Option<u32> {
         self.0.fix_ipc_permissions.get_or_init()
     }
+
+    pub fn source_blacklist_size(&self) -> &u64 {
+        self.0.source_blacklist_size.get_or_init()
+    }
+
+    pub fn source_blacklist_ttl(&self) -> &u64 {
+        self.0.source_blacklist_ttl.get_or_init()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +67,8 @@ pub struct ReaderConfigBuilder {
     topic_prefix_spec: DefaultOnceCell<TopicPrefixSpec>,
     routing_ids_cache_size: DefaultOnceCell<usize>,
     fix_ipc_permissions: DefaultOnceCell<Option<u32>>,
+    source_blacklist_size: DefaultOnceCell<u64>,
+    source_blacklist_ttl: DefaultOnceCell<u64>,
 }
 
 impl Default for ReaderConfigBuilder {
@@ -70,6 +82,8 @@ impl Default for ReaderConfigBuilder {
             topic_prefix_spec: DefaultOnceCell::new(TopicPrefixSpec::None),
             routing_ids_cache_size: DefaultOnceCell::new(ROUTING_ID_CACHE_SIZE),
             fix_ipc_permissions: DefaultOnceCell::new(Some(IPC_PERMISSIONS)),
+            source_blacklist_size: DefaultOnceCell::new(SOURCE_BLACKLIST_CACHE_SIZE),
+            source_blacklist_ttl: DefaultOnceCell::new(SOURCE_BLACKLIST_CACHE_EXPIRATION),
         }
     }
 }
@@ -137,6 +151,16 @@ impl ReaderConfigBuilder {
             bail!("IPC permissions can only be set for bind sockets.");
         }
         self.fix_ipc_permissions.set(permissions)?;
+        Ok(self)
+    }
+
+    pub fn with_source_blacklist_size(self, size: NonZeroU64) -> anyhow::Result<Self> {
+        self.source_blacklist_size.set(size.get())?;
+        Ok(self)
+    }
+
+    pub fn with_source_blacklist_ttl(self, ttl: NonZeroU64) -> anyhow::Result<Self> {
+        self.source_blacklist_ttl.set(ttl.get())?;
         Ok(self)
     }
 }

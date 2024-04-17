@@ -105,6 +105,18 @@ impl NonBlockingReader {
             },
         }
     }
+
+    /// Blacklists source
+    ///
+    /// Parameters
+    /// ----------
+    /// source_id : bytes
+    ///   Source ID to blacklist.
+    ///
+    pub fn blacklist_source(&self, source_id: &PyBytes) {
+        let bytes = source_id.as_bytes();
+        self.0.blacklist_source(bytes);
+    }
 }
 
 #[pyclass]

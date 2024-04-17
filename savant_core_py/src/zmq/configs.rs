@@ -2,6 +2,7 @@ use crate::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketTyp
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
+use std::num::NonZeroU64;
 
 /// Creates a new configuration builder based on the provided URL.
 /// The URL can have the following formats:
@@ -420,6 +421,16 @@ impl ReaderConfig {
     fn fix_ipc_permissions(&self) -> Option<u32> {
         *self.0.fix_ipc_permissions()
     }
+
+    #[getter]
+    fn source_blacklist_size(&self) -> u64 {
+        *self.0.source_blacklist_size()
+    }
+
+    #[getter]
+    fn source_blacklist_ttl(&self) -> u64 {
+        *self.0.source_blacklist_ttl()
+    }
 }
 
 #[pymethods]
@@ -637,5 +648,65 @@ impl ReaderConfigBuilder {
                 ))
             },
         )?))
+    }
+
+    /// Sets the source blacklist size for the ZeroMQ socket. The blacklist is used to block sources sending wrong data
+    ///
+    /// Parameters
+    /// ----------
+    /// size: int
+    ///  The source blacklist size, defaults to ``1024``.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///  If the source blacklist size is double set
+    ///
+    pub fn with_source_blacklist_size(&mut self, size: u64) -> PyResult<()> {
+        self.0 = Some(
+            self.0
+                .take()
+                .unwrap()
+                .with_source_blacklist_size(NonZeroU64::new(size).ok_or(PyValueError::new_err(
+                    "Failed to set ZeroMQ socket source blacklist size: size must be non-zero",
+                ))?)
+                .map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "Failed to set ZeroMQ socket source blacklist size: {:?}",
+                        e
+                    ))
+                })?,
+        );
+        Ok(())
+    }
+
+    /// Sets the source blacklist TTL for the ZeroMQ socket. The blacklist is used to track the sources sending wrong data
+    ///
+    /// Parameters
+    /// ----------
+    /// ttl: int
+    ///  The source blacklist TTL, defaults to ``60000``.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///  If the source blacklist TTL is double set
+    ///
+    pub fn with_source_blacklist_ttl(&mut self, ttl: u64) -> PyResult<()> {
+        self.0 = Some(
+            self.0
+                .take()
+                .unwrap()
+                .with_source_blacklist_ttl(NonZeroU64::new(ttl).ok_or(PyValueError::new_err(
+                    "Failed to set ZeroMQ socket source blacklist TTL: TTL must be non-zero",
+                ))?)
+                .map_err(|e| {
+                    PyValueError::new_err(format!(
+                        "Failed to set ZeroMQ socket source blacklist TTL: {:?}",
+                        e
+                    ))
+                })?,
+        );
+        Ok(())
     }
 }

@@ -10,6 +10,7 @@ pub struct NonBlockingReader {
     is_started: OnceLock<()>,
     is_shutdown: Arc<OnceLock<()>>,
     results_queue_size: usize,
+    reader: Option<SyncReader>,
 }
 
 impl NonBlockingReader {
@@ -21,6 +22,7 @@ impl NonBlockingReader {
             is_started: OnceLock::new(),
             is_shutdown: Arc::new(OnceLock::new()),
             results_queue_size,
+            reader: None,
         })
     }
 
@@ -34,6 +36,8 @@ impl NonBlockingReader {
         _ = self.is_started.set(());
         let (sender, receiver) = crossbeam::channel::bounded(self.results_queue_size);
         let reader = SyncReader::new(&self.config)?;
+        let owned_reader = reader.clone();
+        self.reader = Some(owned_reader);
         let is_shutdown = self.is_shutdown.clone();
         let thread = std::thread::spawn(move || loop {
             let res = reader.receive();
@@ -116,6 +120,12 @@ impl NonBlockingReader {
             }
         } else {
             None
+        }
+    }
+
+    pub fn blacklist_source(&self, source_id: &[u8]) {
+        if let Some(reader) = &self.reader {
+            reader.blacklist_source(source_id);
         }
     }
 }
