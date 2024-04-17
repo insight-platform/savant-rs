@@ -220,4 +220,20 @@ impl BlockingReader {
         })?;
         results::process_reader_result(res)
     }
+
+    /// Blacklists source
+    ///
+    /// Parameters
+    /// ----------
+    /// source_id : bytes
+    ///   Source ID to blacklist.
+    ///
+    pub fn blacklist_source(&self, source_id: &PyBytes) {
+        if self.0.is_none() {
+            return;
+        }
+        let reader = self.0.as_ref().unwrap();
+        let bytes = source_id.as_bytes();
+        reader.blacklist_source(bytes);
+    }
 }

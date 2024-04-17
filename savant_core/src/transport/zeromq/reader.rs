@@ -1,5 +1,6 @@
 use anyhow::bail;
 use log::{debug, error, info, warn};
+use std::time::Duration;
 use zmq::Context;
 
 use crate::message::Message;
@@ -7,12 +8,14 @@ use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, ReaderConfig, ReaderSocketType,
     RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
+use mini_moka::sync::{Cache, CacheBuilder};
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
     context: Option<Context>,
     config: ReaderConfig,
     socket: Option<Socket<R>>,
     routing_id_filter: RoutingIdFilter,
+    source_blacklist_cache: Cache<Vec<u8>, ()>,
     phony: std::marker::PhantomData<P>,
 }
 
@@ -44,6 +47,7 @@ pub enum ReaderResult {
         routing_id: Option<Vec<u8>>,
     },
     TooShort(Vec<Vec<u8>>),
+    Blacklisted(Vec<u8>),
 }
 
 impl ReaderResult {
@@ -111,6 +115,9 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             config: config.clone(),
             socket: Some(socket),
             routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
+            source_blacklist_cache: CacheBuilder::new(*config.source_blacklist_size() as u64)
+                .time_to_live(Duration::from_secs(*config.source_blacklist_ttl()))
+                .build(),
             phony: std::marker::PhantomData,
         })
     }
@@ -133,6 +140,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
     pub fn is_alive(&self) -> bool {
         self.socket.is_some()
+    }
+
+    pub fn blacklist_source(&mut self, source: &[u8]) {
+        self.source_blacklist_cache.insert(source.to_vec(), ());
     }
 
     pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
@@ -203,6 +214,21 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 (None, &parts[0], &parts[1], &parts[2..])
             };
 
+        if self.source_blacklist_cache.contains_key(topic) {
+            debug!(
+                target: "savant_rs::zeromq::reader",
+                "Received message from blacklisted source {:?} from ZeroMQ socket for endpoint {}",
+                topic,
+                self.config.endpoint()
+            );
+
+            if self.config.socket_type() == &ReaderSocketType::Rep {
+                socket.send(CONFIRMATION_MESSAGE, 0)?;
+            }
+
+            return Ok(ReaderResult::Blacklisted(topic.clone()));
+        }
+
         let message = Box::new(crate::protobuf::deserialize(command)?);
 
         if message.is_end_of_stream() {
@@ -221,7 +247,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
             return Ok(ReaderResult::Message {
                 message,
-                topic: topic.to_vec(),
+                topic: topic.clone(),
                 routing_id: routing_id.cloned(),
                 data: vec![],
             });
@@ -241,7 +267,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             }
 
             return Ok(ReaderResult::PrefixMismatch {
-                topic: topic.to_vec(),
+                topic: topic.clone(),
                 routing_id: routing_id.cloned(),
             });
         }
@@ -253,7 +279,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         if self.routing_id_filter.allow(topic, &routing_id) {
             Ok(ReaderResult::Message {
                 message,
-                topic: topic.to_vec(),
+                topic: topic.clone(),
                 routing_id: routing_id.cloned(),
                 data: extra.iter().map(|e| e.to_vec()).collect(),
             })
@@ -561,6 +587,84 @@ mod tests {
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
 
+            let m = reader.receive()?;
+            assert!(matches!(
+                &m,
+                ReaderResult::Message {
+                    message,
+                    topic,
+                    routing_id,
+                    data
+                } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
+            ));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                vec![CONFIRMATION_MESSAGE]
+            );
+            Ok(())
+        }
+    }
+
+    mod blacklist_tests {
+        use crate::message::Message;
+        use crate::primitives::userdata::UserData;
+        use crate::transport::zeromq::reader::ReaderResult;
+        use crate::transport::zeromq::{
+            MockSocketProvider, NoopResponder, Reader, ReaderConfig, TopicPrefixSpec,
+            CONFIRMATION_MESSAGE,
+        };
+        use std::num::NonZeroU64;
+
+        #[test]
+        fn test_blocks() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .url("rep+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
+                .build()?;
+
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let message = Message::user_data(UserData::new("topic"));
+            let binary = crate::message::save_message(&message)?;
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+            reader.blacklist_source(b"topic");
+
+            let m = reader.receive()?;
+            assert!(matches!(
+                &m,
+                ReaderResult::Blacklisted(topic) if topic == b"topic"
+            ));
+            assert_eq!(
+                reader.socket.as_mut().unwrap().take_buffer(),
+                vec![CONFIRMATION_MESSAGE]
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_passes() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .url("rep+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
+                .build()?;
+
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let message = Message::user_data(UserData::new("topic"));
+            let binary = crate::message::save_message(&message)?;
+
+            reader
+                .socket
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+            reader.blacklist_source(b"topic");
+            std::thread::sleep(std::time::Duration::from_millis(1100));
             let m = reader.receive()?;
             assert!(matches!(
                 &m,
