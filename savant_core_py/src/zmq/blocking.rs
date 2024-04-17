@@ -236,4 +236,25 @@ impl BlockingReader {
         let bytes = source_id.as_bytes();
         reader.blacklist_source(bytes);
     }
+
+    /// Returns `true` if the source is blacklisted.
+    ///
+    /// Parameters
+    /// ----------
+    /// source_id : bytes
+    ///  Source ID to check.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   `true` if the source is blacklisted.
+    ///
+    pub fn is_blacklisted(&self, source_id: &PyBytes) -> bool {
+        if self.0.is_none() {
+            return false;
+        }
+        let reader = self.0.as_ref().unwrap();
+        let bytes = source_id.as_bytes();
+        reader.is_blacklisted(bytes)
+    }
 }

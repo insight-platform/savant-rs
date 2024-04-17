@@ -16,6 +16,7 @@ def server():
     reader = BlockingReader(reader_config)
     reader.start()
     reader.blacklist_source(b"unused-topic")
+    assert reader.is_blacklisted(b"unused-topic")
     wait_time = 0
     for _ in range(NUMBER):
         wait = time()

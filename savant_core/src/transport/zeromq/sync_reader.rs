@@ -30,4 +30,9 @@ impl SyncReader {
         let mut reader = self.0.lock();
         reader.blacklist_source(source_id);
     }
+
+    pub fn is_blacklisted(&self, source_id: &[u8]) -> bool {
+        let reader = self.0.lock();
+        reader.is_blacklisted(source_id)
+    }
 }

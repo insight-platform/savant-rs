@@ -146,6 +146,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         self.source_blacklist_cache.insert(source.to_vec(), ());
     }
 
+    pub fn is_blacklisted(&self, source: &[u8]) -> bool {
+        self.source_blacklist_cache.contains_key(&source.to_vec())
+    }
+
     pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
         if self.socket.is_none() {
             bail!(
@@ -633,6 +637,7 @@ mod tests {
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
             reader.blacklist_source(b"topic");
+            assert!(reader.is_blacklisted(b"topic"));
 
             let m = reader.receive()?;
             assert!(matches!(
@@ -664,7 +669,10 @@ mod tests {
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
             reader.blacklist_source(b"topic");
+            assert!(reader.is_blacklisted(b"topic"));
+
             std::thread::sleep(std::time::Duration::from_millis(1100));
+            assert!(!reader.is_blacklisted(b"topic"));
             let m = reader.receive()?;
             assert!(matches!(
                 &m,

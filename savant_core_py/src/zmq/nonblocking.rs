@@ -117,6 +117,23 @@ impl NonBlockingReader {
         let bytes = source_id.as_bytes();
         self.0.blacklist_source(bytes);
     }
+
+    /// Returns `true` if the source is blacklisted.
+    ///
+    /// Parameters
+    /// ----------
+    /// source_id : bytes
+    ///   Source ID to check.
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   `true` if the source is blacklisted.
+    ///
+    pub fn is_blacklisted(&self, source_id: &PyBytes) -> bool {
+        let bytes = source_id.as_bytes();
+        self.0.is_blacklisted(bytes)
+    }
 }
 
 #[pyclass]

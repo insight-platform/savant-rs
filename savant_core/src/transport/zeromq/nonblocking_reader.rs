@@ -128,6 +128,14 @@ impl NonBlockingReader {
             reader.blacklist_source(source_id);
         }
     }
+
+    pub fn is_blacklisted(&self, source_id: &[u8]) -> bool {
+        if let Some(reader) = &self.reader {
+            reader.is_blacklisted(source_id)
+        } else {
+            unreachable!("Reader is not started.")
+        }
+    }
 }
 
 #[cfg(test)]
