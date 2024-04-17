@@ -115,7 +115,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             config: config.clone(),
             socket: Some(socket),
             routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
-            source_blacklist_cache: CacheBuilder::new(*config.source_blacklist_size() as u64)
+            source_blacklist_cache: CacheBuilder::new(*config.source_blacklist_size())
                 .time_to_live(Duration::from_secs(*config.source_blacklist_ttl()))
                 .build(),
             phony: std::marker::PhantomData,
