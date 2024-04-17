@@ -10,10 +10,12 @@ socket_name = "tcp://127.0.0.1:3333"
 NUMBER = 1000
 BLOCK_SIZE = 1024 * 1024
 
+
 def server():
     reader_config = ReaderConfigBuilder("router+connect:" + socket_name).build()
     reader = BlockingReader(reader_config)
     reader.start()
+    reader.blacklist_source(b"unused-topic")
     wait_time = 0
     for _ in range(NUMBER):
         wait = time()

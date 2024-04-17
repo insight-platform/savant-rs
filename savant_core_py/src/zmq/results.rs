@@ -214,6 +214,32 @@ impl ReaderResultTimeout {
     }
 }
 
+/// Returned when a reader is unable to receive a message due to a timeout on ZMQ.
+///
+#[pyclass]
+#[derive(Debug, Clone, Hash)]
+pub struct ReaderResultBlacklisted {
+    #[pyo3(get)]
+    topic: Vec<u8>,
+}
+
+#[pymethods]
+impl ReaderResultBlacklisted {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
 /// Returned when a reader received a message not matching the topic prefix configured.
 ///
 #[pyclass]
@@ -276,6 +302,9 @@ pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<PyObj
 pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObject> {
     with_gil!(|py| {
         match res {
+            zeromq::ReaderResult::Blacklisted(topic) => {
+                Ok(ReaderResultBlacklisted { topic }.into_py(py))
+            }
             zeromq::ReaderResult::Message {
                 message,
                 topic,

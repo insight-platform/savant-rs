@@ -2,6 +2,7 @@ use crate::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketTyp
 use pyo3::exceptions::PyValueError;
 use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
+use std::num::NonZeroU64;
 
 /// Creates a new configuration builder based on the provided URL.
 /// The URL can have the following formats:
@@ -666,7 +667,9 @@ impl ReaderConfigBuilder {
             self.0
                 .take()
                 .unwrap()
-                .with_source_blacklist_size(size)
+                .with_source_blacklist_size(NonZeroU64::new(size).ok_or(PyValueError::new_err(
+                    "Failed to set ZeroMQ socket source blacklist size: size must be non-zero",
+                ))?)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
                         "Failed to set ZeroMQ socket source blacklist size: {:?}",
@@ -694,7 +697,9 @@ impl ReaderConfigBuilder {
             self.0
                 .take()
                 .unwrap()
-                .with_source_blacklist_ttl(ttl)
+                .with_source_blacklist_ttl(NonZeroU64::new(ttl).ok_or(PyValueError::new_err(
+                    "Failed to set ZeroMQ socket source blacklist TTL: TTL must be non-zero",
+                ))?)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
                         "Failed to set ZeroMQ socket source blacklist TTL: {:?}",

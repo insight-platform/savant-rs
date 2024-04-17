@@ -49,8 +49,8 @@ use savant_core_py::zmq::configs::{
     ReaderConfig, ReaderConfigBuilder, WriterConfig, WriterConfigBuilder,
 };
 use savant_core_py::zmq::results::{
-    ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout, WriterResultAck,
-    WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
+    ReaderResultBlacklisted, ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout,
+    WriterResultAck, WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
 };
 use savant_core_py::zmq::{blocking, nonblocking};
 use savant_core_py::*;
@@ -74,6 +74,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ReaderConfigBuilder>()?; // PYI
     m.add_class::<ReaderConfig>()?; // PYI
     m.add_class::<ReaderResultMessage>()?; // PYI
+    m.add_class::<ReaderResultBlacklisted>()?;
     m.add_class::<ReaderResultTimeout>()?; // PYI
     m.add_class::<ReaderResultPrefixMismatch>()?; // PYI
 
