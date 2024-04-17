@@ -3,8 +3,8 @@ use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
 use savant_core::transport::zeromq;
 
 /// A non-blocking reader. Does not release GIL when uses `receive` convenience method, which is blocking.
@@ -113,7 +113,7 @@ impl NonBlockingReader {
     /// source_id : bytes
     ///   Source ID to blacklist.
     ///
-    pub fn blacklist_source(&self, source_id: &PyBytes) {
+    pub fn blacklist_source(&self, source_id: &Bound<'_, PyBytes>) {
         let bytes = source_id.as_bytes();
         self.0.blacklist_source(bytes);
     }
@@ -130,7 +130,7 @@ impl NonBlockingReader {
     /// bool
     ///   `true` if the source is blacklisted.
     ///
-    pub fn is_blacklisted(&self, source_id: &PyBytes) -> bool {
+    pub fn is_blacklisted(&self, source_id: &Bound<'_, PyBytes>) -> bool {
         let bytes = source_id.as_bytes();
         self.0.is_blacklisted(bytes)
     }
@@ -280,7 +280,7 @@ impl NonBlockingWriter {
         &mut self,
         topic: &str,
         message: &Message,
-        extra: &PyBytes,
+        extra: &Bound<'_, PyBytes>,
     ) -> PyResult<WriteOperationResult> {
         let bytes = extra.as_bytes();
         Ok(WriteOperationResult(

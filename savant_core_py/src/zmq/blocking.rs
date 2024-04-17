@@ -3,8 +3,8 @@ use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
 use savant_core::transport::zeromq;
 
 /// Blocking Writer with GIL release on long-lasting `send_*` operations.
@@ -123,7 +123,7 @@ impl BlockingWriter {
         &mut self,
         topic: &str,
         message: &Message,
-        extra: &PyBytes,
+        extra: &Bound<'_, PyBytes>,
     ) -> PyResult<PyObject> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
@@ -228,7 +228,7 @@ impl BlockingReader {
     /// source_id : bytes
     ///   Source ID to blacklist.
     ///
-    pub fn blacklist_source(&self, source_id: &PyBytes) {
+    pub fn blacklist_source(&self, source_id: &Bound<'_, PyBytes>) {
         if self.0.is_none() {
             return;
         }
@@ -249,7 +249,7 @@ impl BlockingReader {
     /// bool
     ///   `true` if the source is blacklisted.
     ///
-    pub fn is_blacklisted(&self, source_id: &PyBytes) -> bool {
+    pub fn is_blacklisted(&self, source_id: &Bound<'_, PyBytes>) -> bool {
         if self.0.is_none() {
             return false;
         }

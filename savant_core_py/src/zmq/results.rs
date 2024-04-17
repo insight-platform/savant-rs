@@ -179,10 +179,11 @@ impl ReaderResultMessage {
     fn data(&self, index: usize) -> PyResult<Option<PyObject>> {
         if index < self.data.len() {
             with_gil!(|py| {
-                let pybytes = PyBytes::new_with(py, self.data[index].len(), |b: &mut [u8]| {
-                    b.copy_from_slice(&self.data[index]);
-                    Ok(())
-                })?;
+                let pybytes =
+                    PyBytes::new_bound_with(py, self.data[index].len(), |b: &mut [u8]| {
+                        b.copy_from_slice(&self.data[index]);
+                        Ok(())
+                    })?;
                 Ok(Some(pybytes.into()))
             })
         } else {

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
-homepage.workspace =  true
+homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
@@ -21,10 +21,10 @@ pretty_env_logger = "0.5"
 
 
 [dependencies.pyo3]
-version = "0.20"
+version = "0.21"
 
 [build-dependencies]
-pyo3-build-config = "0.20"
+pyo3-build-config = "0.21"
 
 [package.metadata.maturin]
 python-source = "python"

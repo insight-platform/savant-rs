@@ -139,7 +139,7 @@ pub fn log_message_gil(
     level: LogLevel,
     target: &str,
     message: &str,
-    params: Option<&PyDict>,
+    params: Option<&Bound<'_, PyDict>>,
     no_gil: bool,
 ) {
     let params: Option<_> = params.map(|params| {

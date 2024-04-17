@@ -23,10 +23,10 @@ savant_core = { workspace = true }
 anyhow = "1"
 
 [dependencies.pyo3]
-version = "0.20"
+version = "0.21"
 
 [build-dependencies]
-pyo3-build-config = "0.20"
+pyo3-build-config = "0.21"
 
 [package.metadata.maturin]
 python-source = "python"

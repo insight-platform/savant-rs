@@ -56,7 +56,7 @@ use savant_core_py::zmq::{blocking, nonblocking};
 use savant_core_py::*;
 
 #[pymodule]
-pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WriterSocketType>()?; // PYI
     m.add_class::<WriterConfigBuilder>()?; // PYI
     m.add_class::<WriterConfig>()?; // PYI
@@ -85,7 +85,7 @@ pub fn zmq(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn symbol_mapper_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_model_object_key_py, m)?)?;
     m.add_function(wrap_pyfunction!(clear_symbol_maps_py, m)?)?;
     m.add_function(wrap_pyfunction!(dump_registry_gil, m)?)?;
@@ -107,7 +107,7 @@ pub fn symbol_mapper_module(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn serialization_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ser deser
     m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(save_message_to_bytebuffer_gil, m)?)?;
@@ -123,7 +123,7 @@ pub fn serialization_module(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(eval_expr, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?; // PYI
@@ -144,7 +144,7 @@ pub fn utils(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn geometry(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Point>()?;
     m.add_class::<Segment>()?;
     m.add_class::<IntersectionKind>()?;
@@ -156,7 +156,7 @@ pub fn geometry(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Attribute>()?; // PYI
     m.add_class::<AttributeUpdatePolicy>()?; // PYI
     m.add_class::<ObjectUpdatePolicy>()?; // PYI
@@ -184,7 +184,7 @@ pub fn primitives(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
     m.add_class::<PipelineConfiguration>()?;
     m.add_class::<Pipeline>()?;
@@ -197,7 +197,7 @@ pub(crate) fn pipeline(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn match_query(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn match_query(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FloatExpression>()?;
     m.add_class::<IntExpression>()?;
     m.add_class::<StringExpression>()?;
@@ -220,7 +220,7 @@ pub fn match_query(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub(crate) fn logging(_py: Python, m: &PyModule) -> PyResult<()> {
+pub(crate) fn logging(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LogLevel>()?;
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
     m.add_function(wrap_pyfunction!(get_log_level, m)?)?;
@@ -230,7 +230,7 @@ pub(crate) fn logging(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ColorDraw>()?; // PYI
     m.add_class::<BoundingBoxDraw>()?; // PYI
     m.add_class::<DotDraw>()?; // PYI
@@ -244,7 +244,7 @@ pub fn draw_spec(_py: Python, m: &PyModule) -> PyResult<()> {
 }
 
 #[pymodule]
-fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
+fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
@@ -269,8 +269,8 @@ fn savant_rs(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
 
-    let sys = PyModule::import(py, "sys")?;
-    let sys_modules: &PyDict = sys.getattr("modules")?.downcast()?;
+    let sys = PyModule::import_bound(py, "sys")?;
+    let sys_modules: &PyDict = sys.as_gil_ref().getattr("modules")?.downcast()?;
 
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;

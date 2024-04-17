@@ -174,9 +174,9 @@ impl TelemetrySpan {
 
     fn __exit__(
         &self,
-        exc_type: Option<&PyAny>,
-        exc_value: Option<&PyAny>,
-        traceback: Option<&PyAny>,
+        exc_type: Option<&Bound<'_, PyAny>>,
+        exc_value: Option<&Bound<'_, PyAny>>,
+        traceback: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         with_gil!(|py| {
             if let Some(e) = exc_type {
@@ -189,13 +189,13 @@ impl TelemetrySpan {
                 attrs.insert("python.exception.type".to_string(), format!("{:?}", e));
 
                 if let Some(v) = exc_value {
-                    if let Ok(e) = PyAny::downcast::<PyException>(v) {
+                    if let Ok(e) = PyAny::downcast::<PyException>(v.as_gil_ref()) {
                         attrs.insert("python.exception.value".to_string(), e.to_string());
                     }
                 }
 
                 if let Some(t) = traceback {
-                    let traceback = PyAny::downcast::<PyTraceback>(t).unwrap();
+                    let traceback = PyAny::downcast::<PyTraceback>(t.as_gil_ref()).unwrap();
                     if let Ok(formatted) = traceback.format() {
                         attrs.insert("python.exception.traceback".to_string(), formatted);
                     }
@@ -416,9 +416,9 @@ impl MaybeTelemetrySpan {
 
     fn __exit__(
         &self,
-        exc_type: Option<&PyAny>,
-        exc_value: Option<&PyAny>,
-        traceback: Option<&PyAny>,
+        exc_type: Option<&Bound<'_, PyAny>>,
+        exc_value: Option<&Bound<'_, PyAny>>,
+        traceback: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         if let Some(span) = &self.span {
             span.__exit__(exc_type, exc_value, traceback)?;

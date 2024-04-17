@@ -1,8 +1,8 @@
 use crate::primitives::message::Message;
 use crate::release_gil;
 use crate::utils::byte_buffer::ByteBuffer;
-use pyo3::pyfunction;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyfunction, Bound};
 
 /// Loads a message from a byte array. The function is optionally GIL-free.
 ///
@@ -66,7 +66,7 @@ pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer, no_gil: bool) -> Me
 #[pyfunction]
 #[pyo3(name = "load_message_from_bytes")]
 #[pyo3(signature = (buffer, no_gil = true))]
-pub fn load_message_from_bytes_gil(buffer: &PyBytes, no_gil: bool) -> Message {
+pub fn load_message_from_bytes_gil(buffer: &Bound<'_, PyBytes>, no_gil: bool) -> Message {
     let bytes = buffer.as_bytes();
     release_gil!(no_gil, || Message(savant_core::message::load_message(
         bytes

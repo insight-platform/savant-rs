@@ -3,8 +3,8 @@ use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::{ObjectAccess, ObjectOperations};
 use savant_core::primitives::{rust, WithAttributes};
@@ -75,7 +75,7 @@ impl VideoObject {
                 ))
             })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new(py, &bytes);
+            let bytes = PyBytes::new_bound(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }
@@ -83,7 +83,7 @@ impl VideoObject {
     #[staticmethod]
     #[pyo3(name = "from_protobuf")]
     #[pyo3(signature = (bytes, no_gil = true))]
-    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+    fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
         release_gil!(no_gil, || {
             let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObject>(bytes)
@@ -541,7 +541,7 @@ impl BorrowedVideoObject {
                 ))
             })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new(py, &bytes);
+            let bytes = PyBytes::new_bound(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }
