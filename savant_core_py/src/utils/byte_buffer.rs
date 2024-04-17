@@ -27,7 +27,7 @@ pub struct ByteBuffer {
 #[pymethods]
 impl ByteBuffer {
     #[new]
-    fn create(v: &PyBytes, checksum: Option<u32>) -> PyResult<Self> {
+    fn create(v: &Bound<'_, PyBytes>, checksum: Option<u32>) -> PyResult<Self> {
         Ok(Self::new(v.as_bytes().to_vec(), checksum))
     }
 
@@ -80,7 +80,7 @@ impl ByteBuffer {
     #[pyo3(name = "bytes")]
     pub fn bytes_py(&self) -> PyObject {
         with_gil!(|py| {
-            let bytes = PyBytes::new(py, self.inner.as_slice());
+            let bytes = PyBytes::new_bound(py, self.inner.as_slice());
             PyObject::from(bytes)
         })
     }

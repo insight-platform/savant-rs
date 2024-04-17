@@ -247,7 +247,7 @@ impl FloatExpression {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn one_of(list: &PyTuple) -> FloatExpression {
+    fn one_of(list: &Bound<'_, PyTuple>) -> FloatExpression {
         let mut vals = Vec::with_capacity(list.len());
         for arg in list {
             let v = arg
@@ -494,7 +494,7 @@ impl IntExpression {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn one_of(list: &PyTuple) -> IntExpression {
+    fn one_of(list: &Bound<'_, PyTuple>) -> IntExpression {
         let mut vals = Vec::with_capacity(list.len());
         for arg in list {
             let v = arg
@@ -711,7 +711,7 @@ impl StringExpression {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn one_of(list: &PyTuple) -> StringExpression {
+    fn one_of(list: &Bound<'_, PyTuple>) -> StringExpression {
         let mut vals = Vec::with_capacity(list.len());
         for arg in list {
             let v = arg
@@ -772,7 +772,7 @@ impl MatchQuery {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn and_(list: &PyTuple) -> MatchQuery {
+    fn and_(list: &Bound<'_, PyTuple>) -> MatchQuery {
         let mut v = Vec::with_capacity(list.len());
         for arg in list {
             let q = arg
@@ -813,7 +813,7 @@ impl MatchQuery {
     ///
     #[staticmethod]
     #[pyo3(signature = (*list))]
-    fn or_(list: &PyTuple) -> MatchQuery {
+    fn or_(list: &Bound<'_, PyTuple>) -> MatchQuery {
         let mut v = Vec::with_capacity(list.len());
         for arg in list {
             let q = arg

@@ -4,8 +4,8 @@ use crate::primitives::object::BorrowedVideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
 use savant_core::primitives::rust;
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use std::collections::HashMap;
@@ -80,7 +80,7 @@ impl VideoFrameBatch {
             })
         })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new(py, &bytes);
+            let bytes = PyBytes::new_bound(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }
@@ -88,7 +88,7 @@ impl VideoFrameBatch {
     #[staticmethod]
     #[pyo3(name = "from_protobuf")]
     #[pyo3(signature = (bytes, no_gil = true))]
-    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+    fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
         release_gil!(no_gil, || {
             let obj =

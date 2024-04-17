@@ -19,7 +19,7 @@ savant_rs = { path = "../savant_python" }
 parking_lot = "0.12"
 anyhow = "1"
 opentelemetry = "0.19"
-numpy = {version = "0.19", features = ["nalgebra"]}
+numpy = { version = "0.19", features = ["nalgebra"] }
 nalgebra = "0.32"
 ndarray = "0.15"
 num-traits = "0.2"
@@ -29,11 +29,11 @@ log = "0.4"
 crate-type = ["cdylib", "lib"]
 
 [dependencies.pyo3]
-version = "0.19"
+version = "0.12"
 
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
 
 [build-dependencies]
-pyo3-build-config = "0.19"
+pyo3-build-config = "0.21"

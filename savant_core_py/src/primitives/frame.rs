@@ -10,8 +10,8 @@ use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::with_gil;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyObject, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::{rust, WithAttributes};
@@ -96,7 +96,7 @@ impl VideoFrameContent {
     }
 
     #[staticmethod]
-    pub fn internal(data: &PyBytes) -> Self {
+    pub fn internal(data: &Bound<'_, PyBytes>) -> Self {
         let bytes = data.as_bytes();
         Self(rust::VideoFrameContent::Internal(bytes.to_vec()))
     }
@@ -135,7 +135,7 @@ impl VideoFrameContent {
         match &self.0 {
             rust::VideoFrameContent::Internal(data) => {
                 with_gil!(|py| {
-                    let bytes = PyBytes::new_with(py, data.len(), |b: &mut [u8]| {
+                    let bytes = PyBytes::new_bound_with(py, data.len(), |b: &mut [u8]| {
                         b.copy_from_slice(data);
                         Ok(())
                     })?;
@@ -1107,7 +1107,7 @@ impl VideoFrame {
             })
         })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new(py, &bytes);
+            let bytes = PyBytes::new_bound(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }
@@ -1115,7 +1115,7 @@ impl VideoFrame {
     #[staticmethod]
     #[pyo3(name = "from_protobuf")]
     #[pyo3(signature = (bytes, no_gil = true))]
-    fn from_protobuf_gil(bytes: &PyBytes, no_gil: bool) -> PyResult<Self> {
+    fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
         release_gil!(no_gil, || {
             let obj = from_pb::<savant_core::protobuf::VideoFrame, rust::VideoFrameProxy>(bytes)

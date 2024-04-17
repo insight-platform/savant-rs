@@ -74,7 +74,7 @@ pub fn access_object(o: &BorrowedVideoObject) {
 }
 
 #[pymodule]
-fn savant_plugin_sample(_: Python, m: &PyModule) -> PyResult<()> {
+fn savant_plugin_sample(_: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(access_frame, m)?)?;
     m.add_function(wrap_pyfunction!(access_object, m)?)?;
     m.add_function(wrap_pyfunction!(get_instance, m)?)?;

@@ -2,8 +2,8 @@ use crate::primitives::segment::Intersection;
 use crate::primitives::{Point, PolygonalArea, RBBox};
 use crate::with_gil;
 use pyo3::exceptions::{PyIndexError, PyValueError};
-use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyObject, PyResult};
+use pyo3::types::{PyBytes, PyBytesMethods};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyObject, PyResult};
 use savant_core::primitives::any_object::AnyObject;
 use savant_core::primitives::attribute_value::AttributeValueVariant;
 use savant_core::primitives::rust;
@@ -169,7 +169,7 @@ impl AttributeValue {
     ///   
     #[staticmethod]
     #[pyo3(signature = (dims, blob, confidence = None))]
-    pub fn bytes(dims: Vec<i64>, blob: &PyBytes, confidence: Option<f32>) -> Self {
+    pub fn bytes(dims: Vec<i64>, blob: &Bound<'_, PyBytes>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
             value: AttributeValueVariant::Bytes(dims, blob.as_bytes().to_vec()),
@@ -520,7 +520,7 @@ impl AttributeValue {
         match &self.0.value {
             AttributeValueVariant::Bytes(dims, bytes) => Some((
                 dims.clone(),
-                with_gil!(|py| PyObject::from(PyBytes::new(py, bytes))),
+                with_gil!(|py| PyObject::from(PyBytes::new_bound(py, bytes))),
             )),
             _ => None,
         }
