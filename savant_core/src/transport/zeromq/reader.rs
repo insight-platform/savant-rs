@@ -1,5 +1,6 @@
 use anyhow::bail;
 use log::{debug, error, info, warn};
+use std::str::from_utf8;
 use std::time::Duration;
 use zmq::Context;
 
@@ -8,6 +9,7 @@ use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, ReaderConfig, ReaderSocketType,
     RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
+use crate::utils::bytes_to_hex_string;
 use mini_moka::sync::{Cache, CacheBuilder};
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
@@ -143,10 +145,22 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
     }
 
     pub fn blacklist_source(&mut self, source: &[u8]) {
+        info!(
+            target: "savant_rs::zeromq::reader",
+            "Blacklisting source '{}' for endpoint '{}'",
+            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+            self.config.endpoint()
+        );
         self.source_blacklist_cache.insert(source.to_vec(), ());
     }
 
     pub fn is_blacklisted(&self, source: &[u8]) -> bool {
+        debug!(
+            target: "savant_rs::zeromq::reader",
+            "Checking if source '{}' is blacklisted for endpoint '{}'",
+            from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+            self.config.endpoint()
+        );
         self.source_blacklist_cache.contains_key(&source.to_vec())
     }
 
@@ -222,7 +236,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             debug!(
                 target: "savant_rs::zeromq::reader",
                 "Received message from blacklisted source {:?} from ZeroMQ socket for endpoint {}",
-                topic,
+                from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
                 self.config.endpoint()
             );
 
@@ -260,10 +274,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         if !self.config.topic_prefix_spec().matches(topic) {
             debug!(
                 target: "savant_rs::zeromq::reader",
-                "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {:?}",
+                "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {}",
                 self.config.endpoint(),
                 self.config.topic_prefix_spec(),
-                topic
+                from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic))
             );
 
             if self.config.socket_type() == &ReaderSocketType::Rep {
@@ -290,10 +304,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         } else {
             debug!(
                 target: "savant_rs::zeromq::reader",
-                "Received message with invalid routing ID from ZeroMQ socket for endpoint {}. Got topic = {:?}, routing_id = {:?}",
+                "Received message with invalid routing ID from ZeroMQ socket for endpoint {}. Got topic = {}, routing_id = {}",
                 self.config.endpoint(),
-                topic,
-                routing_id
+                from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
+                routing_id.map(|r| bytes_to_hex_string(r)).unwrap_or(String::new())
             );
 
             Ok(ReaderResult::routing_id_mismatch(topic, &routing_id))

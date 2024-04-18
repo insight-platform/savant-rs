@@ -5,8 +5,10 @@ use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, Socket, SocketProvider,
     WriterConfig, WriterSocketType, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
+use crate::utils::bytes_to_hex_string;
 use anyhow::bail;
 use log::{debug, info, warn};
+use std::str::from_utf8;
 
 pub struct Writer<R: MockSocketResponder, P: SocketProvider<R>> {
     context: Option<zmq::Context>,
@@ -151,7 +153,9 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             .collect::<Vec<_>>();
         debug!(
             target: "savant_rs::zeromq::writer",
-            "Sending message to ZeroMQ socket: {:?} {:?}", topic, m);
+            "Sending message to ZeroMQ socket: {} {:?}",
+            from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
+            m);
         let mut send_retries = *self.config.send_retries();
         while send_retries >= 0 {
             let res = socket.send_multipart(&parts, 0);

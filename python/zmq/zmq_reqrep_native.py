@@ -4,6 +4,10 @@ from time import time, sleep
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
 from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, BlockingWriter, BlockingReader
+from savant_rs.logging import set_log_level
+from savant_rs.logging import LogLevel
+
+set_log_level(LogLevel.Info)
 
 socket_name = "tcp://127.0.0.1:3333"
 
