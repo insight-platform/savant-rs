@@ -60,3 +60,8 @@ pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<(PyObject, boo
 pub fn enable_dl_detection() {
     savant_core::deadlock_detection::enable_dl_detection();
 }
+
+#[pyfunction]
+pub fn incremental_uuid_v7() -> String {
+    savant_core::utils::uuid_v7::incremental_uuid_v7().to_string()
+}

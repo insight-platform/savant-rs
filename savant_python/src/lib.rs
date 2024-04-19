@@ -131,6 +131,7 @@ pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(round_2_digits, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(incremental_uuid_v7, m)?)?; // PYI
 
     m.add_class::<PropagatedContext>()?; // PYI
     m.add_class::<TelemetrySpan>()?; // PYI
