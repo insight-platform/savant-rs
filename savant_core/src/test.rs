@@ -7,6 +7,7 @@ use crate::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObject, VideoObjectBuilder,
 };
 use crate::primitives::{RBBox, WithAttributes};
+use crate::utils::inc_uuid::incremental_uuid_v7;
 use std::sync::Arc;
 
 pub fn gen_empty_frame() -> VideoFrameProxy {
@@ -16,7 +17,7 @@ pub fn gen_empty_frame() -> VideoFrameProxy {
             .pts(0)
             .framerate("test".to_string())
             .width(0)
-            .uuid(uuid::Uuid::now_v7().as_u128())
+            .uuid(incremental_uuid_v7().as_u128())
             .height(0)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
@@ -34,7 +35,7 @@ pub fn gen_frame() -> VideoFrameProxy {
             .pts(1000000)
             .framerate("test".to_string())
             .width(1280)
-            .uuid(uuid::Uuid::now_v7().as_u128())
+            .uuid(incremental_uuid_v7().as_u128())
             .height(720)
             .content(Arc::new(VideoFrameContent::None))
             .transcoding_method(VideoFrameTranscodingMethod::Copy)
