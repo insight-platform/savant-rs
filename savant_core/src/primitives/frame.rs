@@ -14,6 +14,7 @@ use crate::primitives::{Attribute, RBBox, WithAttributes};
 use crate::rwlock::{SavantArcRwLock, SavantRwLock};
 use crate::trace;
 use crate::utils::iter::fiter_map_with_control_flow;
+use crate::utils::uuid_v7::incremental_uuid_v7;
 use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
@@ -157,7 +158,7 @@ impl Default for VideoFrame {
             previous_frame_seq_id: None,
             previous_keyframe: None,
             source_id: String::new(),
-            uuid: Uuid::now_v7().as_u128(),
+            uuid: incremental_uuid_v7().as_u128(),
             creation_timestamp_ns: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

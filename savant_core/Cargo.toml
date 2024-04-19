@@ -47,6 +47,7 @@ serde = { version = "1.0", features = ["derive"] }
 thiserror = "1"
 uuid = { version = "1.7", features = ["fast-rng", "v7"] }
 zmq = "0.10"
+rand = "0.8.5"
 
 [dependencies.tokio]
 version = "1.35"
