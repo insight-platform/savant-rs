@@ -1,9 +1,10 @@
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
 
-#[derive(PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Default, PartialEq, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
+    #[default]
     ErrorIfLabelsCollide,
     ReplaceSameLabelObjects,
 }
@@ -27,6 +28,7 @@ pub struct VideoFrameUpdate {
     pub(crate) objects: Vec<(VideoObject, Option<i64>)>,
     pub(crate) frame_attribute_policy: AttributeUpdatePolicy,
     pub(crate) object_attribute_policy: AttributeUpdatePolicy,
+    #[serde(skip)]
     pub(crate) object_policy: ObjectUpdatePolicy,
 }
 
