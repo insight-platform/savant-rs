@@ -103,10 +103,12 @@ impl VideoFrameBatch {
         })
     }
 
+    #[getter]
     fn ids(&self) -> Vec<i64> {
         self.0.frames().keys().copied().collect()
     }
 
+    #[getter]
     fn frames(&self) -> Vec<VideoFrame> {
         self.0.frames().values().map(|x| VideoFrame(x.clone())).collect()
     }
