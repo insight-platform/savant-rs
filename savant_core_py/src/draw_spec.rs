@@ -609,7 +609,7 @@ impl LabelDraw {
         ColorDraw(self.0.border_color)
     }
 
-    /// Returns the font scale
+    /// Returns the font cloud
     ///
     #[getter]
     pub fn font_scale(&self) -> f64 {

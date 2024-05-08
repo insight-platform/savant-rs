@@ -284,7 +284,7 @@ impl VideoFrameTransformation {
         ))
     }
 
-    /// Defines the scale operation on the frame.
+    /// Defines the cloud operation on the frame.
     ///
     /// Parameters
     /// ----------
@@ -338,12 +338,12 @@ impl VideoFrameTransformation {
         matches!(self.0, rust::VideoFrameTransformation::InitialSize(_, _))
     }
 
-    /// Returns true if the transformation is scale, otherwise false.
+    /// Returns true if the transformation is cloud, otherwise false.
     ///
     /// Returns
     /// -------
     /// bool
-    ///   True if the transformation is scale, otherwise false.
+    ///   True if the transformation is cloud, otherwise false.
     ///
     #[getter]
     pub fn is_scale(&self) -> bool {
@@ -404,12 +404,12 @@ impl VideoFrameTransformation {
         }
     }
 
-    /// Returns the transformation as scale if it is scale, otherwise None.
+    /// Returns the transformation as cloud if it is cloud, otherwise None.
     ///
     /// Returns
     /// -------
     /// Optional[Tuple[int, int]]
-    ///   The transformation as scale if it is scale, otherwise None.
+    ///   The transformation as cloud if it is cloud, otherwise None.
     ///
     #[getter]
     pub fn as_scale(&self) -> Option<(u64, u64)> {

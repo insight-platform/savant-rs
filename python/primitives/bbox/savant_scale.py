@@ -1,4 +1,4 @@
-"""Utility for scale rotated bboxes."""
+"""Utility for cloud rotated bboxes."""
 import numpy as np
 from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import BBox
@@ -12,8 +12,8 @@ def scale_rbbox(
     """Scaling rotated boxes.
 
     :param bboxes: np array of bboxes, shape Nx5. Row is [cx, cy, w, h, angle]
-    :param scale_factor_x: scale factor for x coordinates
-    :param scale_factor_y: scale factor for y coordinates
+    :param scale_factor_x: cloud factor for x coordinates
+    :param scale_factor_y: cloud factor for y coordinates
     """
     bboxes_zero_angle = bboxes[np.mod(bboxes[:, 4], 90) == 0]
     bboxes_not_zero_angle = bboxes[np.mod(bboxes[:, 4], 90) != 0]
@@ -58,7 +58,7 @@ t = timer()
 for _ in range(1000):
     res = scale_rbbox(np.array(bboxes), 2, 3)
 
-print(f"Time to scale (python): {timer() - t}")
+print(f"Time to cloud (python): {timer() - t}")
 
 bboxes = [BBox(0, 0, 100, 100) for _ in range(10)]
 
@@ -67,4 +67,4 @@ for _ in range(1000):
     for b in bboxes:
         res = b.scale(2, 3)
 
-print(f"Time to scale (rust): {timer() - t}")
+print(f"Time to cloud (rust): {timer() - t}")
