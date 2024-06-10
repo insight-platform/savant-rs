@@ -1,3 +1,5 @@
+pub mod routing_label_matching;
+
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame::VideoFrameProxy;
