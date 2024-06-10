@@ -118,7 +118,9 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             socket: Some(socket),
             routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
             source_blacklist_cache: LruCache::new(
-                NonZeroUsize::new(*config.source_blacklist_size() as usize).unwrap(),
+                NonZeroUsize::new(*config.source_blacklist_size() as usize).ok_or(
+                    anyhow::anyhow!("Source blacklist cache size must be greater than 0"),
+                )?,
             ),
             phony: std::marker::PhantomData,
         })
