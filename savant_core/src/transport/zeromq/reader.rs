@@ -1,7 +1,8 @@
 use anyhow::bail;
 use log::{debug, error, info, warn};
+use lru::LruCache;
+use std::num::NonZeroUsize;
 use std::str::from_utf8;
-use std::time::Duration;
 use zmq::Context;
 
 use crate::message::Message;
@@ -10,14 +11,13 @@ use crate::transport::zeromq::{
     RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
 };
 use crate::utils::bytes_to_hex_string;
-use mini_moka::sync::{Cache, CacheBuilder};
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
     context: Option<Context>,
     config: ReaderConfig,
     socket: Option<Socket<R>>,
     routing_id_filter: RoutingIdFilter,
-    source_blacklist_cache: Cache<Vec<u8>, ()>,
+    source_blacklist_cache: LruCache<Vec<u8>, u64>,
     phony: std::marker::PhantomData<P>,
 }
 
@@ -117,9 +117,11 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             config: config.clone(),
             socket: Some(socket),
             routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
-            source_blacklist_cache: CacheBuilder::new(*config.source_blacklist_size())
-                .time_to_live(Duration::from_secs(*config.source_blacklist_ttl()))
-                .build(),
+            source_blacklist_cache: LruCache::new(
+                NonZeroUsize::new(*config.source_blacklist_size() as usize).ok_or(
+                    anyhow::anyhow!("Source blacklist cache size must be greater than 0"),
+                )?,
+            ),
             phony: std::marker::PhantomData,
         })
     }
@@ -151,17 +153,42 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
             self.config.endpoint()
         );
-        self.source_blacklist_cache.insert(source.to_vec(), ());
+        let black_list_until = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + *self.config.source_blacklist_ttl();
+        self.source_blacklist_cache
+            .put(source.to_vec(), black_list_until);
     }
 
-    pub fn is_blacklisted(&self, source: &[u8]) -> bool {
+    pub fn is_blacklisted(&mut self, source: &[u8]) -> bool {
         debug!(
             target: "savant_rs::zeromq::reader",
             "Checking if source '{}' is blacklisted for endpoint '{}'",
             from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
             self.config.endpoint()
         );
-        self.source_blacklist_cache.contains_key(&source.to_vec())
+        let val = self.source_blacklist_cache.get(&source.to_vec());
+        if let Some(val) = val {
+            if val
+                > &std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            {
+                debug!(
+                    target: "savant_rs::zeromq::reader::is_blacklisted",
+                    "Source '{}' is blacklisted for endpoint '{}'",
+                    from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
+                    self.config.endpoint()
+                );
+                return true;
+            } else {
+                self.source_blacklist_cache.pop(&source.to_vec());
+            }
+        }
+        false
     }
 
     pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
@@ -171,12 +198,16 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 self.config.endpoint()
             );
         }
-        let socket = self.socket.as_mut().unwrap();
         debug!(
             target: "savant_rs::zeromq::reader",
             "Waiting for message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
-        let parts = socket.recv_multipart(0);
+
+        let parts = {
+            let socket = self.socket.as_mut().unwrap();
+            socket.recv_multipart(0)
+        };
+
         debug!(
             target: "savant_rs::zeromq::reader",
             "Received message from ZeroMQ socket for endpoint {}",
@@ -231,15 +262,14 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             } else {
                 (None, &parts[0], &parts[1], &parts[2..])
             };
-
-        if self.source_blacklist_cache.contains_key(topic) {
+        if self.is_blacklisted(topic) {
             debug!(
                 target: "savant_rs::zeromq::reader",
                 "Received message from blacklisted source {:?} from ZeroMQ socket for endpoint {}",
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
                 self.config.endpoint()
             );
-
+            let socket = self.socket.as_mut().unwrap();
             if self.config.socket_type() == &ReaderSocketType::Rep {
                 socket.send(CONFIRMATION_MESSAGE, 0)?;
             }
@@ -256,6 +286,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                     "Received end of stream message from ZeroMQ socket for endpoint {}",
                     self.config.endpoint()
                 );
+                let socket = self.socket.as_mut().unwrap();
                 if let Some(routing_id) = routing_id {
                     socket.send_multipart(&[routing_id, CONFIRMATION_MESSAGE], 0)?;
                 } else {
@@ -279,7 +310,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 self.config.topic_prefix_spec(),
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic))
             );
-
+            let socket = self.socket.as_mut().unwrap();
             if self.config.socket_type() == &ReaderSocketType::Rep {
                 socket.send(CONFIRMATION_MESSAGE, 0)?;
             }
@@ -291,6 +322,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         }
 
         if self.config.socket_type() == &ReaderSocketType::Rep {
+            let socket = self.socket.as_mut().unwrap();
             socket.send(CONFIRMATION_MESSAGE, 0)?;
         }
 

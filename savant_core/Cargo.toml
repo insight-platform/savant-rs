@@ -29,7 +29,6 @@ lazy_static = "1.4"
 libloading = "0.8"
 log = "0.4"
 lru = { version = "0.12", features = ["hashbrown"] }
-mini-moka = "0.10"
 opentelemetry = "0.21"
 opentelemetry_sdk = "0.21"
 opentelemetry-stdout = { version = "0.2", features = ["trace"] }
