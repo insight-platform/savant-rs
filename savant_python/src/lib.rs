@@ -204,6 +204,8 @@ pub fn match_query(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<StringExpression>()?;
     m.add_class::<MatchQuery>()?;
     m.add_class::<QueryFunctions>()?;
+    m.add_class::<EtcdCredentials>()?;
+    m.add_class::<TlsConfig>()?;
 
     m.add_function(wrap_pyfunction!(utility_resolver_name, m)?)?;
     m.add_function(wrap_pyfunction!(etcd_resolver_name, m)?)?;

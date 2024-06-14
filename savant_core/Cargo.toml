@@ -21,7 +21,8 @@ crc32fast = "1"
 crossbeam = "0.8"
 derive_builder = "0.13"
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
-etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.11" }
+etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.12" }
+etcd-client = { version = "0.13", features = ["tls"] }
 geo = "0.26"
 hashbrown = { version = "0.14", features = ["raw", "serde"] }
 jmespath = { version = "0.3", features = ["sync"] }

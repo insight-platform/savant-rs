@@ -2,7 +2,7 @@ pub const ENV_FUNC: &str = "env";
 pub const CONFIG_FUNC: &str = "config";
 const ETCD_FUNC: &str = "etcd";
 
-pub use resolvers::EvalWithResolvers;
+pub use resolvers::{EtcdCredentials, EvalWithResolvers, TlsConfig};
 pub use singleton::*;
 pub use utils::*;
 
@@ -48,6 +48,7 @@ pub(crate) mod resolvers {
     };
     use crate::trace;
     use anyhow::{anyhow, bail, Result};
+    use etcd_client::{Certificate, Identity, TlsOptions};
     use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
     use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
     use evalexpr::{EvalexprError, EvalexprResult, Value};
@@ -239,10 +240,24 @@ pub(crate) mod resolvers {
         prefix: String,
     }
 
+    #[derive(Clone)]
+    pub struct EtcdCredentials {
+        pub username: String,
+        pub password: String,
+    }
+
+    #[derive(Clone)]
+    pub struct TlsConfig {
+        pub ca_cert: String,
+        pub client_cert: String,
+        pub client_key: String,
+    }
+
     impl EtcdSymbolResolver {
         pub fn new(
             hosts: &[&str],
-            credentials: &Option<(&str, &str)>,
+            credentials: &Option<EtcdCredentials>,
+            tls_config: &Option<TlsConfig>,
             watch_path: &str,
             connect_timeout: u64,
             watch_path_wait_timeout: u64,
@@ -251,7 +266,19 @@ pub(crate) mod resolvers {
             assert!(connect_timeout > 0);
 
             let runtime = Runtime::new().unwrap();
-            let client = EtcdClient::new(hosts, credentials, watch_path, 60, connect_timeout);
+            let credentials = credentials
+                .as_ref()
+                .map(|creds| (creds.username.as_str(), creds.password.as_str()));
+            let tls = tls_config.as_ref().map(|tls| {
+                TlsOptions::default()
+                    .ca_certificate(Certificate::from_pem(tls.ca_cert.as_bytes()))
+                    .identity(Identity::from_pem(
+                        tls.client_cert.as_bytes(),
+                        tls.client_key.as_bytes(),
+                    ))
+            });
+            let client =
+                EtcdClient::new_with_tls(hosts, &credentials, watch_path, 60, connect_timeout, tls);
 
             let client = runtime.block_on(client)?;
 
@@ -352,8 +379,8 @@ pub(crate) mod resolvers {
 pub(crate) mod singleton {
     use crate::eval_resolvers::config_resolver_name;
     use crate::eval_resolvers::resolvers::{
-        ConfigSymbolResolver, EnvSymbolResolver, EtcdSymbolResolver, SymbolResolver,
-        UtilityResolver,
+        ConfigSymbolResolver, EnvSymbolResolver, EtcdCredentials, EtcdSymbolResolver,
+        SymbolResolver, TlsConfig, UtilityResolver,
     };
     use crate::rwlock::SavantRwLock;
     use crate::trace;
@@ -393,7 +420,8 @@ pub(crate) mod singleton {
 
     pub fn register_etcd_resolver(
         hosts: &[&str],
-        credentials: &Option<(&str, &str)>,
+        credentials: &Option<EtcdCredentials>,
+        tls_config: &Option<TlsConfig>,
         watch_path: &str,
         connect_timeout: u64,
         watch_path_wait_timeout: u64,
@@ -401,6 +429,7 @@ pub(crate) mod singleton {
         let resolver = EtcdSymbolResolver::new(
             hosts,
             credentials,
+            tls_config,
             watch_path,
             connect_timeout,
             watch_path_wait_timeout,
@@ -607,7 +636,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_etcd_resolver() {
-        let resolver = EtcdSymbolResolver::new(&["127.0.0.1:2379"], &None, "savant", 1, 1).unwrap();
+        let resolver =
+            EtcdSymbolResolver::new(&["127.0.0.1:2379"], &None, &None, "savant", 1, 1).unwrap();
         let default = Value::Int(0);
         let value = resolver
             .resolve(

@@ -1,4 +1,4 @@
-pub mod routing_label_matching;
+pub mod label_filter;
 
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;

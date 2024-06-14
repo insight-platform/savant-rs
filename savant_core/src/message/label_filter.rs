@@ -1,27 +1,27 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MatchingRule {
-    #[serde(rename = "eq")]
-    Eq(String),
-    #[serde(rename = "ne")]
-    Ne(String),
+pub enum LabelFilterRule {
+    #[serde(rename = "set")]
+    Set(String),
+    #[serde(rename = "unset")]
+    Unset(String),
     #[serde(rename = "and")]
-    And(Vec<MatchingRule>),
+    And(Vec<LabelFilterRule>),
     #[serde(rename = "or")]
-    Or(Vec<MatchingRule>),
+    Or(Vec<LabelFilterRule>),
     #[serde(rename = "not")]
-    Not(Box<MatchingRule>),
+    Not(Box<LabelFilterRule>),
 }
 
-impl MatchingRule {
+impl LabelFilterRule {
     pub fn matches(&self, value: &[String]) -> bool {
         match self {
-            MatchingRule::Eq(expected) => value.iter().any(|v| v == expected),
-            MatchingRule::Ne(expected) => value.iter().all(|v| v != expected),
-            MatchingRule::And(rules) => rules.iter().all(|r| r.matches(value)),
-            MatchingRule::Or(rules) => rules.iter().any(|r| r.matches(value)),
-            MatchingRule::Not(rule) => !rule.matches(value),
+            LabelFilterRule::Set(expected) => value.iter().any(|v| v == expected),
+            LabelFilterRule::Unset(expected) => value.iter().all(|v| v != expected),
+            LabelFilterRule::And(rules) => rules.iter().all(|r| r.matches(value)),
+            LabelFilterRule::Or(rules) => rules.iter().any(|r| r.matches(value)),
+            LabelFilterRule::Not(rule) => !rule.matches(value),
         }
     }
 
@@ -48,39 +48,39 @@ impl MatchingRule {
 
 #[cfg(test)]
 mod tests {
-    use super::MatchingRule::*;
-    use crate::message::routing_label_matching::MatchingRule;
+    use super::LabelFilterRule::*;
+    use crate::message::label_filter::LabelFilterRule;
 
     #[test]
     fn test_matching_rule() {
-        let rule = Eq("test".to_string());
-        assert_eq!(rule, Eq("test".to_string()));
-        assert_ne!(rule, Eq("test2".to_string()));
+        let rule = Set("test".to_string());
+        assert_eq!(rule, Set("test".to_string()));
+        assert_ne!(rule, Set("test2".to_string()));
     }
 
     #[test]
     fn test_matching_rule_matches() {
-        let rule = Or(vec![Eq("test".to_string()), Eq("test2".to_string())]);
+        let rule = Or(vec![Set("test".to_string()), Set("test2".to_string())]);
         assert!(rule.matches(&["test".to_string()]));
         assert!(rule.matches(&["test2".to_string()]));
 
-        let rule = And(vec![Eq("test".to_string()), Eq("test2".to_string())]);
+        let rule = And(vec![Set("test".to_string()), Set("test2".to_string())]);
 
         assert!(!rule.matches(&["test".to_string()]));
         assert!(!rule.matches(&["test2".to_string()]));
         assert!(rule.matches(&["test".to_string(), "test2".to_string()]));
 
-        let rule = Not(Box::new(Eq("test".to_string())));
+        let rule = Not(Box::new(Set("test".to_string())));
         assert!(!rule.matches(&["test".to_string()]));
         assert!(rule.matches(&["test2".to_string()]));
 
-        let rule = And(vec![Eq("test".to_string()), Ne("test2".to_string())]);
+        let rule = And(vec![Set("test".to_string()), Unset("test2".to_string())]);
         assert!(rule.matches(&["test".to_string(), "test3".to_string()]));
         assert!(!rule.matches(&["test".to_string(), "test2".to_string()]));
 
         let rule = And(vec![
-            Eq("test".to_string()),
-            Not(Box::new(Eq("test2".to_string()))),
+            Set("test".to_string()),
+            Not(Box::new(Set("test2".to_string()))),
         ]);
         assert!(rule.matches(&["test".to_string(), "test3".to_string()]));
         assert!(!rule.matches(&["test".to_string(), "test2".to_string()]));
@@ -88,12 +88,15 @@ mod tests {
 
     #[test]
     fn json_save_load() {
-        let rule = Or(vec![Eq("test".to_string()), Eq("test2".to_string())]);
+        let rule = Or(vec![
+            Set("test".to_string()),
+            Not(Box::new(Set("test2".to_string()))),
+        ]);
         let json = rule.to_json_pretty();
         println!("{}", json);
         let yaml = rule.to_yaml();
         println!("{}", yaml);
-        let rule2 = MatchingRule::from_json(&json).unwrap();
+        let rule2 = LabelFilterRule::from_json(&json).unwrap();
         assert_eq!(rule, rule2);
     }
 }
