@@ -1,3 +1,5 @@
+pub mod label_filter;
+
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;
 use crate::primitives::frame::VideoFrameProxy;

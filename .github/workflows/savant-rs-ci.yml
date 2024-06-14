@@ -19,8 +19,8 @@ on:
 permissions: write-all
 
 jobs:
+
   linux:
-    timeout-minutes: 600
     strategy:
       matrix:
         include:
@@ -32,20 +32,22 @@ jobs:
             name: manylinux-x86
             arch: linux/amd64
             runner: X64
+
+    timeout-minutes: 600
     runs-on:
       - self-hosted
       - ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up docker buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Build docker image
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5
         with:
           file: ${{ matrix.docker_file }}
           platforms: ${{ matrix.arch }}
@@ -58,16 +60,16 @@ jobs:
         run: docker run --rm -v $(pwd)/distfiles:/tmp savant-rs cp -R /opt/dist /tmp
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-${{ matrix.runner }}
           path: distfiles/dist
 
   release:
     name: Release
     runs-on: self-hosted
     if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux]
+    needs: [ linux ]
     steps:
       - name: Make directory for download
         run: mkdir -p artifacts
@@ -75,7 +77,11 @@ jobs:
         run: rm -rf artifacts/*.whl
       - uses: actions/download-artifact@v3
         with:
-          name: wheels
+          name: wheels-X64
+          path: artifacts
+      - uses: actions/download-artifact@v3
+        with:
+          name: wheels-ARM64
           path: artifacts
       - name: Release
         uses: fnkr/github-action-ghr@v1

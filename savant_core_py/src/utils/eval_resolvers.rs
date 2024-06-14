@@ -50,6 +50,34 @@ pub fn etcd_resolver_name() -> &'static str {
     savant_core::eval_resolvers::etcd_resolver_name()
 }
 
+#[derive(Clone)]
+#[pyclass]
+pub struct EtcdCredentials(savant_core::eval_resolvers::EtcdCredentials);
+
+#[pymethods]
+impl EtcdCredentials {
+    #[new]
+    fn new(username: String, password: String) -> Self {
+        EtcdCredentials(savant_core::eval_resolvers::EtcdCredentials { username, password })
+    }
+}
+
+#[derive(Clone)]
+#[pyclass]
+pub struct TlsConfig(savant_core::eval_resolvers::TlsConfig);
+
+#[pymethods]
+impl TlsConfig {
+    #[new]
+    fn new(ca_cert: String, client_cert: String, client_key: String) -> Self {
+        TlsConfig(savant_core::eval_resolvers::TlsConfig {
+            ca_cert,
+            client_cert,
+            client_key,
+        })
+    }
+}
+
 /// Registers the Etcd resolver in the system runtime.
 ///
 /// Parameters
@@ -57,8 +85,11 @@ pub fn etcd_resolver_name() -> &'static str {
 /// hosts: List[str]
 ///   The list of hosts to connect to the Etcd server.
 ///   Default is ["127.0.0.1:2379"].
-/// credentials: Optional[Tuple[str, str]]
+/// credentials: Optional[EtcdCredentials]
 ///   The username and password to connect to the Etcd server.
+///   Default is None.
+/// tls_config: Optional[TlsConfig]
+///   The TLS configuration to connect to the Etcd server.
 ///   Default is None.
 /// watch_path: str
 ///   The path to watch for changes in the Etcd server.
@@ -71,19 +102,22 @@ pub fn etcd_resolver_name() -> &'static str {
 ///   Default is 5 seconds.
 ///
 #[pyfunction]
-#[pyo3(signature = (hosts = vec!["127.0.0.1:2379".to_string()], credentials = None, watch_path = "savant", connect_timeout = 5, watch_path_wait_timeout = 5))]
+#[pyo3(signature = (hosts = vec!["127.0.0.1:2379".to_string()], credentials = None, tls_config = None, watch_path = "savant", connect_timeout = 5, watch_path_wait_timeout = 5))]
 pub fn register_etcd_resolver(
     hosts: Vec<String>,
-    credentials: Option<(String, String)>,
+    credentials: Option<EtcdCredentials>,
+    tls_config: Option<TlsConfig>,
     watch_path: &str,
     connect_timeout: u64,
     watch_path_wait_timeout: u64,
 ) -> PyResult<()> {
     let hosts_ref = hosts.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-    let creds = credentials.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
+    let creds = credentials.as_ref().map(|c| c.0.clone());
+    let tls = tls_config.as_ref().map(|c| c.0.clone());
     savant_core::eval_resolvers::register_etcd_resolver(
         &hosts_ref,
         &creds,
+        &tls,
         watch_path,
         connect_timeout,
         watch_path_wait_timeout,

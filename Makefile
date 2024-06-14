@@ -2,10 +2,10 @@ export PROJECT_DIR=$(CURDIR)
 
 .PHONY: docs clippy build_savant build_savant_release clean tests bench
 
-dev: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug/deps:$(CARGO_TARGET_DIR)/debug/deps
+dev: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(HOME)/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug/deps:$(CARGO_TARGET_DIR)/debug/deps
 dev: clean clippy build_savant build_plugins
 
-release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release/deps:$(CARGO_TARGET_DIR)/release/deps
+release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(HOME)/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release/deps:$(CARGO_TARGET_DIR)/release/deps
 release: clean clippy build_savant_release build_plugins_release
 
 install:
