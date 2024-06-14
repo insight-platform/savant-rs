@@ -18,20 +18,21 @@ on:
 
 permissions: write-all
 
+strategy:
+  matrix:
+    include:
+      - docker_file: docker/Dockerfile.manylinux_2_28_ARM64
+        name: manylinux-arm
+        arch: linux/arm64
+        runner: ARM64
+      - docker_file: docker/Dockerfile.manylinux_2_28_X64
+        name: manylinux-x86
+        arch: linux/amd64
+        runner: X64
+
 jobs:
   linux:
     timeout-minutes: 600
-    strategy:
-      matrix:
-        include:
-          - docker_file: docker/Dockerfile.manylinux_2_28_ARM64
-            name: manylinux-arm
-            arch: linux/arm64
-            runner: ARM64
-          - docker_file: docker/Dockerfile.manylinux_2_28_X64
-            name: manylinux-x86
-            arch: linux/amd64
-            runner: X64
     runs-on:
       - self-hosted
       - ${{ matrix.runner }}
@@ -42,7 +43,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
 
       - name: Set up docker buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Build docker image
         uses: docker/build-push-action@v5
@@ -60,7 +61,7 @@ jobs:
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: wheels
+          name: wheels-${{ matrix.arch }}
           path: distfiles/dist
 
   release:
@@ -75,7 +76,7 @@ jobs:
         run: rm -rf artifacts/*.whl
       - uses: actions/download-artifact@v3
         with:
-          name: wheels
+          name: wheels-${{ matrix.arch }}
           path: artifacts
       - name: Release
         uses: fnkr/github-action-ghr@v1
