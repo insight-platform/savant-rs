@@ -75,11 +75,11 @@ jobs:
         run: mkdir -p artifacts
       - name: Clean up old wheels
         run: rm -rf artifacts/*.whl
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: wheels-X64
           path: artifacts
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: wheels-ARM64
           path: artifacts
