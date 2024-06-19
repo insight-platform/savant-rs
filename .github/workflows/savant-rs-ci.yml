@@ -94,6 +94,6 @@ jobs:
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
-          container: off
+          container: ghcr.io/insight-platform/manylinux_2_28_x64:v0.0.4
           command: upload
           args: --skip-existing artifacts/*.whl
