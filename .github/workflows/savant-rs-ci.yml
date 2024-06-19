@@ -94,5 +94,6 @@ jobs:
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
+          container: off
           command: upload
           args: --skip-existing artifacts/*.whl
