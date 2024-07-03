@@ -160,6 +160,7 @@ impl Message {
     }
 
     pub fn end_of_stream(eos: EndOfStream) -> Self {
+        clear_source_seq_id(&eos.source_id);
         let seq_id = generate_message_seq_id(&eos.source_id);
         Self {
             meta: MessageMeta::new(seq_id),
@@ -440,14 +441,14 @@ mod tests {
         let mud = Message::user_data(ud);
         assert_eq!(mud.meta.seq_id, 2);
         let meos = Message::end_of_stream(eos);
-        assert_eq!(meos.meta.seq_id, 3);
+        assert_eq!(meos.meta.seq_id, 1);
 
         let ud = UserData::new(&format!("{}-2", f.get_source_id()));
         let eos = EndOfStream::new(format!("{}-2", f.get_source_id()));
         let mud = Message::user_data(ud);
         assert_eq!(mud.meta.seq_id, 1);
         let meos = Message::end_of_stream(eos);
-        assert_eq!(meos.meta.seq_id, 2);
+        assert_eq!(meos.meta.seq_id, 1);
     }
 
     #[test]
