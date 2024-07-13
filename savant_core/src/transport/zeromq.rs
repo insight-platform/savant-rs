@@ -271,6 +271,7 @@ impl<T: MockSocketResponder> SocketProvider<T> for ZmqSocketProvider {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct MockSocketProvider;
 impl<T: MockSocketResponder + Default> SocketProvider<T> for MockSocketProvider {
@@ -569,7 +570,6 @@ mod integration_tests {
 
         let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
         let reader_thread = thread::spawn(move || {
-            let mut reader = reader;
             let res = reader.receive();
             tx.send(res).unwrap();
             let res = reader.receive();
@@ -619,7 +619,6 @@ mod integration_tests {
 
         let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
         let reader_thread = thread::spawn(move || {
-            let mut reader = reader;
             let res = reader.receive();
             tx.send(res).unwrap();
             let res = reader.receive();
@@ -673,7 +672,6 @@ mod integration_tests {
 
         let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
         let reader_thread = thread::spawn(move || {
-            let mut reader = reader;
             let res = reader.receive();
             tx.send(res).unwrap();
             let res = reader.receive();
@@ -713,7 +711,7 @@ mod integration_tests {
         let path = "/tmp/test/pub-sub";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("sub+bind:ipc://{}", path))?
                 .with_fix_ipc_permissions(Some(0o777))?
@@ -753,7 +751,6 @@ mod integration_tests {
         let (tx, rx) = std::sync::mpsc::channel::<anyhow::Result<ReaderResult>>();
 
         let reader_thread = thread::spawn(move || {
-            let mut reader = reader;
             let res = reader.receive();
             tx.send(res).unwrap();
             let res = reader.receive();

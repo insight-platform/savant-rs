@@ -1,9 +1,9 @@
-use std::cell::OnceCell;
 use std::fmt::Debug;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct DefaultOnceCell<T: Clone + Debug> {
-    cell: OnceCell<T>,
+    cell: OnceLock<T>,
     default: T,
 }
 
@@ -13,7 +13,7 @@ where
 {
     pub fn new(default: T) -> Self {
         Self {
-            cell: OnceCell::new(),
+            cell: OnceLock::new(),
             default,
         }
     }

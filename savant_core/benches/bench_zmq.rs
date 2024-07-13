@@ -30,27 +30,24 @@ fn bench_zmq_dealer_router(b: &mut Bencher) -> anyhow::Result<()> {
             .build()?,
     )?;
 
-    let reader_thread = thread::spawn(move || {
-        let mut reader = reader;
-        loop {
-            let res = reader.receive();
-            if res.is_err() {
-                break;
-            }
-            if let Ok(res) = res {
-                match res {
-                    ReaderResult::Message { message, .. } if message.is_end_of_stream() => {
-                        break;
-                    }
-                    ReaderResult::Message {
-                        message: _,
-                        topic,
-                        routing_id,
-                        data,
-                    } if topic == b"test" && routing_id.is_some() && data.len() == 1 => {}
-                    _ => {
-                        panic!("Unexpected result: {:?}", res);
-                    }
+    let reader_thread = thread::spawn(move || loop {
+        let res = reader.receive();
+        if res.is_err() {
+            break;
+        }
+        if let Ok(res) = res {
+            match res {
+                ReaderResult::Message { message, .. } if message.is_end_of_stream() => {
+                    break;
+                }
+                ReaderResult::Message {
+                    message: _,
+                    topic,
+                    routing_id,
+                    data,
+                } if topic == b"test" && routing_id.is_some() && data.len() == 1 => {}
+                _ => {
+                    panic!("Unexpected result: {:?}", res);
                 }
             }
         }
