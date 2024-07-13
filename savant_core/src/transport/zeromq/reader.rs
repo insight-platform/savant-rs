@@ -1,6 +1,7 @@
 use anyhow::bail;
 use log::{debug, error, info, warn};
 use lru::LruCache;
+use parking_lot::Mutex;
 use std::num::NonZeroUsize;
 use std::str::from_utf8;
 use zmq::Context;
@@ -13,11 +14,11 @@ use crate::transport::zeromq::{
 use crate::utils::bytes_to_hex_string;
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
-    context: Option<Context>,
+    context: Mutex<Option<Context>>,
     config: ReaderConfig,
-    socket: Option<Socket<R>>,
-    routing_id_filter: RoutingIdFilter,
-    source_blacklist_cache: LruCache<Vec<u8>, u64>,
+    socket: Mutex<Option<Socket<R>>>,
+    routing_id_filter: Mutex<RoutingIdFilter>,
+    source_blacklist_cache: Mutex<LruCache<Vec<u8>, u64>>,
     phony: std::marker::PhantomData<P>,
 }
 
@@ -113,27 +114,27 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         }
 
         Ok(Self {
-            context: Some(context),
+            context: Mutex::new(Some(context)),
             config: config.clone(),
-            socket: Some(socket),
-            routing_id_filter: RoutingIdFilter::new(*config.routing_cache_size())?,
-            source_blacklist_cache: LruCache::new(
+            socket: Mutex::new(Some(socket)),
+            routing_id_filter: Mutex::new(RoutingIdFilter::new(*config.routing_cache_size())?),
+            source_blacklist_cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(*config.source_blacklist_size() as usize).ok_or(
                     anyhow::anyhow!("Source blacklist cache size must be greater than 0"),
                 )?,
-            ),
+            )),
             phony: std::marker::PhantomData,
         })
     }
 
-    pub fn destroy(&mut self) -> anyhow::Result<()> {
+    pub fn destroy(&self) -> anyhow::Result<()> {
         info!(
             target: "savant_rs::zeromq::reader",
             "Destroying ZeroMQ socket for endpoint {}",
             self.config.endpoint()
         );
-        self.socket.take();
-        self.context.take();
+        self.socket.lock().take();
+        self.context.lock().take();
         info!(
             target: "savant_rs::zeromq::reader",
             "ZeroMQ socket for endpoint {} destroyed",
@@ -143,10 +144,10 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.socket.is_some()
+        self.socket.lock().is_some()
     }
 
-    pub fn blacklist_source(&mut self, source: &[u8]) {
+    pub fn blacklist_source(&self, source: &[u8]) {
         info!(
             target: "savant_rs::zeromq::reader",
             "Blacklisting source '{}' for endpoint '{}'",
@@ -159,17 +160,19 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             .as_secs()
             + *self.config.source_blacklist_ttl();
         self.source_blacklist_cache
+            .lock()
             .put(source.to_vec(), black_list_until);
     }
 
-    pub fn is_blacklisted(&mut self, source: &[u8]) -> bool {
+    pub fn is_blacklisted(&self, source: &[u8]) -> bool {
         debug!(
             target: "savant_rs::zeromq::reader",
             "Checking if source '{}' is blacklisted for endpoint '{}'",
             from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
             self.config.endpoint()
         );
-        let val = self.source_blacklist_cache.get(&source.to_vec());
+        let mut source_blacklist_cache_bind = self.source_blacklist_cache.lock();
+        let val = source_blacklist_cache_bind.get(&source.to_vec());
         if let Some(val) = val {
             if val
                 > &std::time::SystemTime::now()
@@ -185,14 +188,14 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 );
                 return true;
             } else {
-                self.source_blacklist_cache.pop(&source.to_vec());
+                source_blacklist_cache_bind.pop(&source.to_vec());
             }
         }
         false
     }
 
-    pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
-        if self.socket.is_none() {
+    pub fn receive(&self) -> anyhow::Result<ReaderResult> {
+        if self.socket.lock().is_none() {
             bail!(
                 "ZeroMQ socket for endpoint {} is no longer available, because it was destroyed.",
                 self.config.endpoint()
@@ -204,7 +207,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             self.config.endpoint());
 
         let parts = {
-            let socket = self.socket.as_mut().unwrap();
+            let mut bind = self.socket.lock();
+            let socket = bind.as_mut().unwrap();
             socket.recv_multipart(0)
         };
 
@@ -269,7 +273,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
                 self.config.endpoint()
             );
-            let socket = self.socket.as_mut().unwrap();
+            let mut bind = self.socket.lock();
+            let socket = bind.as_mut().unwrap();
             if self.config.socket_type() == &ReaderSocketType::Rep {
                 socket.send(CONFIRMATION_MESSAGE, 0)?;
             }
@@ -286,7 +291,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                     "Received end of stream message from ZeroMQ socket for endpoint {}",
                     self.config.endpoint()
                 );
-                let socket = self.socket.as_mut().unwrap();
+                let mut bind = self.socket.lock();
+                let socket = bind.as_mut().unwrap();
                 if let Some(routing_id) = routing_id {
                     socket.send_multipart(&[routing_id, CONFIRMATION_MESSAGE], 0)?;
                 } else {
@@ -310,7 +316,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
                 self.config.topic_prefix_spec(),
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic))
             );
-            let socket = self.socket.as_mut().unwrap();
+            let mut bind = self.socket.lock();
+            let socket = bind.as_mut().unwrap();
             if self.config.socket_type() == &ReaderSocketType::Rep {
                 socket.send(CONFIRMATION_MESSAGE, 0)?;
             }
@@ -322,11 +329,12 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         }
 
         if self.config.socket_type() == &ReaderSocketType::Rep {
-            let socket = self.socket.as_mut().unwrap();
+            let mut bind = self.socket.lock();
+            let socket = bind.as_mut().unwrap();
             socket.send(CONFIRMATION_MESSAGE, 0)?;
         }
 
-        if self.routing_id_filter.allow(topic, &routing_id) {
+        if self.routing_id_filter.lock().allow(topic, &routing_id) {
             Ok(ReaderResult::Message {
                 message,
                 topic: topic.clone(),
@@ -367,12 +375,13 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
@@ -388,7 +397,7 @@ mod tests {
                 } if message.is_user_data() && topic == b"topic" && routing_id == &Some(b"routing-id".to_vec()) && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 Vec::<Vec<u8>>::new()
             );
             Ok(())
@@ -400,12 +409,17 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            reader.socket.as_mut().unwrap().send_multipart(&[], 0)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            reader
+                .socket
+                .lock()
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[], 0)?;
             let m = reader.receive()?;
             assert!(matches!(m, ReaderResult::TooShort(_)));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 Vec::<Vec<u8>>::new()
             );
             Ok(())
@@ -418,16 +432,17 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id"], 0)?;
             let m = reader.receive()?;
             assert!(matches!(m, ReaderResult::TooShort(_)));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 Vec::<Vec<u8>>::new()
             );
             Ok(())
@@ -440,8 +455,8 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            reader.socket.as_mut().unwrap().send_multipart(
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            reader.socket.lock().as_mut().unwrap().send_multipart(
                 &[
                     b"routing-id",
                     b"topic",
@@ -455,7 +470,7 @@ mod tests {
                     if message.is_end_of_stream() && topic == b"topic" && routing_id == Some(b"routing-id".to_vec()) && data.is_empty())
             );
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 vec![b"routing-id", CONFIRMATION_MESSAGE]
             );
             Ok(())
@@ -468,16 +483,17 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic"], 0)?;
             let m = reader.receive()?;
             assert!(matches!(m, ReaderResult::TooShort(_)));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 Vec::<Vec<u8>>::new()
             );
             Ok(())
@@ -493,9 +509,10 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic", binary.as_slice()], 0)?;
@@ -509,6 +526,7 @@ mod tests {
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic22", binary.as_slice()], 0)?;
@@ -522,6 +540,7 @@ mod tests {
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic2", binary.as_slice()], 0)?;
@@ -542,9 +561,10 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic", binary.as_slice()], 0)?;
@@ -558,6 +578,7 @@ mod tests {
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic22", binary.as_slice()], 0)?;
@@ -568,6 +589,7 @@ mod tests {
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic2", binary.as_slice()], 0)?;
@@ -588,9 +610,10 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf).unwrap();
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf).unwrap();
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"routing-id", b"topic2", binary.as_slice(), b"extra"], 0)
@@ -627,12 +650,13 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
@@ -648,7 +672,7 @@ mod tests {
                 } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 vec![CONFIRMATION_MESSAGE]
             );
             Ok(())
@@ -673,12 +697,13 @@ mod tests {
                 .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
@@ -691,7 +716,7 @@ mod tests {
                 ReaderResult::Blacklisted(topic) if topic == b"topic"
             ));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 vec![CONFIRMATION_MESSAGE]
             );
             Ok(())
@@ -705,12 +730,13 @@ mod tests {
                 .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
                 .build()?;
 
-            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
             reader
                 .socket
+                .lock()
                 .as_mut()
                 .unwrap()
                 .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
@@ -730,7 +756,7 @@ mod tests {
                 } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
-                reader.socket.as_mut().unwrap().take_buffer(),
+                reader.socket.lock().as_mut().unwrap().take_buffer(),
                 vec![CONFIRMATION_MESSAGE]
             );
             Ok(())
