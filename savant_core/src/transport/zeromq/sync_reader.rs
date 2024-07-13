@@ -11,27 +11,22 @@ impl SyncReader {
     }
 
     pub fn receive(&self) -> anyhow::Result<ReaderResult> {
-        let reader = &self.0;
-        reader.receive()
+        self.0.receive()
     }
 
     pub fn is_started(&self) -> bool {
-        let reader = &self.0;
-        reader.is_alive()
+        self.0.is_alive()
     }
 
     pub fn shutdown(&self) -> anyhow::Result<()> {
-        let reader = &self.0;
-        reader.destroy()
+        self.0.destroy()
     }
 
     pub fn blacklist_source(&self, source_id: &[u8]) {
-        let reader = &self.0;
-        reader.blacklist_source(source_id);
+        self.0.blacklist_source(source_id);
     }
 
     pub fn is_blacklisted(&self, source_id: &[u8]) -> bool {
-        let reader = &self.0;
-        reader.is_blacklisted(source_id)
+        self.0.is_blacklisted(source_id)
     }
 }
