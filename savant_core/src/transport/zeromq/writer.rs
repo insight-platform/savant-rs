@@ -181,6 +181,11 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             }
             break;
         }
+
+        if send_retries < 0 {
+            return Ok(WriterResult::SendTimeout);
+        }
+
         let start = std::time::Instant::now();
         if self.config.socket_type() == &WriterSocketType::Req
             || (m.is_end_of_stream() && self.config.socket_type() != &WriterSocketType::Pub)

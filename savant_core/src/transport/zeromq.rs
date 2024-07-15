@@ -773,4 +773,23 @@ mod integration_tests {
         reader_thread.join().unwrap();
         Ok(())
     }
+
+    #[test]
+    fn test_dealer_no_router() -> anyhow::Result<()> {
+        let path = "/tmp/test/dealer-no-router";
+        std::fs::remove_dir_all(path).unwrap_or_default();
+
+        let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
+            &WriterConfig::new()
+                .url(&format!("dealer+bind:ipc://{}", path))?
+                .with_send_timeout(100)?
+                .with_send_retries(1)?
+                .build()?,
+        )?;
+
+        let m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &m, &[])?;
+        assert!(matches!(res, WriterResult::SendTimeout));
+        Ok(())
+    }
 }
