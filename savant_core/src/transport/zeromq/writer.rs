@@ -183,6 +183,11 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         }
 
         if send_retries < 0 {
+            warn!(
+                target: "savant_rs::zeromq::writer",
+                "Failed to send message to ZeroMQ socket. Send retries spent: {}",
+                *self.config.send_retries()
+            );
             return Ok(WriterResult::SendTimeout);
         }
 
