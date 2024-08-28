@@ -25,8 +25,10 @@ if __name__ == "__main__":
     enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
     log(LogLevel.Info, "root", "Begin operation", dict(savant_rs_version=savant_rs.version()))
 
-    # from savant_rs import init_jaeger_tracer
-    # init_jaeger_tracer("demo-pipeline", "localhost:6831")
+    # from savant_rs.telemetry import init, shutdown, Protocol, TelemetryConfiguration, TracerConfiguration
+    # tracer_conf = TracerConfiguration("demo-pipeline", Protocol.Grpc, "http://localhost:4317")
+    # telemetry_conf = TelemetryConfiguration(tracer=tracer_conf)
+    # init(telemetry_conf)
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
@@ -120,7 +122,7 @@ if __name__ == "__main__":
         with ns.nested_span("sleep") as root_span:
             root_span.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
-
+    # shutdown()
 
     def f(span):
         with span.nested_span("func") as s:

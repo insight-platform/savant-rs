@@ -1,7 +1,7 @@
 use crate::logging::{log_message, LogLevel};
 use crate::release_gil;
 use crate::with_gil;
-use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, TraceId, Tracer};
+use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{Array, Context, KeyValue, StringValue, Value};
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -100,7 +100,7 @@ impl TelemetrySpan {
     fn nested_span(&self, name: &str) -> TelemetrySpan {
         let parent_ctx = &self.0;
 
-        if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+        if !parent_ctx.span().span_context().is_valid() {
             return TelemetrySpan::default();
         }
 
@@ -249,7 +249,7 @@ impl TelemetrySpan {
     #[getter]
     fn is_valid(&self) -> bool {
         self.ensure_same_thread();
-        self.0.span().span_context().trace_id() != TraceId::INVALID
+        self.0.span().span_context().is_valid()
     }
 
     /// Returns the span ID of the span.
@@ -472,7 +472,7 @@ impl PropagatedContext {
     ///
     fn nested_span(&self, name: &str) -> TelemetrySpan {
         let parent_ctx = self.extract();
-        if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+        if !parent_ctx.span().span_context().is_valid() {
             return TelemetrySpan::default();
         }
         let span =

@@ -38,6 +38,7 @@ use savant_core_py::primitives::polygonal_area::PolygonalArea;
 use savant_core_py::primitives::segment::{Intersection, IntersectionKind, Segment};
 use savant_core_py::primitives::shutdown::Shutdown;
 use savant_core_py::primitives::user_data::UserData;
+use savant_core_py::telemetry::*;
 use savant_core_py::test::utils::*;
 use savant_core_py::utils::byte_buffer::ByteBuffer;
 use savant_core_py::utils::eval_resolvers::*;
@@ -247,6 +248,19 @@ pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule]
+pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<ContextPropagationFormat>()?; // PYI
+    m.add_class::<Protocol>()?; // PYI
+    m.add_class::<Identity>()?; // PYI
+    m.add_class::<ClientTlsConfig>()?; // PYI
+    m.add_class::<TracerConfiguration>()?; // PYI
+    m.add_class::<TelemetryConfiguration>()?; // PYI
+    m.add_function(wrap_pyfunction!(init, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(shutdown, m)?)?; // PYI
+    Ok(())
+}
+
+#[pymodule]
 fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
@@ -257,8 +271,6 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
     set_log_level(LogLevel::Error);
 
-    m.add_function(wrap_pyfunction!(init_jaeger_tracer, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(init_noop_tracer, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(version, m)?)?; // PYI
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
@@ -271,6 +283,7 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::match_query))?;
     m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
 
     let sys = PyModule::import_bound(py, "sys")?;
     let sys_modules: &PyDict = sys.as_gil_ref().getattr("modules")?.downcast()?;
@@ -284,6 +297,7 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.utils", m.getattr("utils")?)?;
     sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;
     sys_modules.set_item("savant_rs.zmq", m.getattr("zmq")?)?;
+    sys_modules.set_item("savant_rs.telemetry", m.getattr("telemetry")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.symbol_mapper",
