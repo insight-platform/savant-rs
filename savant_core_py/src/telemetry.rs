@@ -102,12 +102,12 @@ impl From<ContextPropagationFormat> for telemetry::ContextPropagationFormat {
     }
 }
 
-impl From<Protocol> for opentelemetry_otlp::Protocol {
+impl From<Protocol> for telemetry::Protocol {
     fn from(value: Protocol) -> Self {
         match value {
-            Protocol::Grpc => opentelemetry_otlp::Protocol::Grpc,
-            Protocol::HttpBinary => opentelemetry_otlp::Protocol::HttpBinary,
-            Protocol::HttpJson => opentelemetry_otlp::Protocol::HttpJson,
+            Protocol::Grpc => telemetry::Protocol::Grpc,
+            Protocol::HttpBinary => telemetry::Protocol::HttpBinary,
+            Protocol::HttpJson => telemetry::Protocol::HttpJson,
         }
     }
 }

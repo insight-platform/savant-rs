@@ -4,12 +4,11 @@ extern crate test;
 
 use anyhow::Result;
 use opentelemetry::trace::TraceContextExt;
-use opentelemetry_otlp::Protocol;
 use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
 use savant_core::rust::PipelineConfigurationBuilder;
 use savant_core::telemetry::{
-    init, shutdown, ContextPropagationFormat, TelemetryConfiguration, TracerConfiguration,
+    init, shutdown, ContextPropagationFormat, Protocol, TelemetryConfiguration, TracerConfiguration,
 };
 use savant_core::test::gen_frame;
 use std::sync::Once;

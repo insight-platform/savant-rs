@@ -1,36 +1,60 @@
 use log::error;
 use opentelemetry::global;
 use opentelemetry_jaeger_propagator::Propagator;
-use opentelemetry_otlp::{Protocol, SpanExporterBuilder, WithExportConfig};
+use opentelemetry_otlp::{SpanExporterBuilder, WithExportConfig};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{Config, TracerProvider};
 use opentelemetry_sdk::{runtime, Resource};
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
 use opentelemetry_stdout::SpanExporter;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
 use std::fs;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ContextPropagationFormat {
+    #[serde(rename = "jaeger")]
     Jaeger,
+    #[serde(rename = "w3c")]
     W3C,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Protocol {
+    #[serde(rename = "grpc")]
+    Grpc,
+    #[serde(rename = "http-binary")]
+    HttpBinary,
+    #[serde(rename = "http-json")]
+    HttpJson,
+}
+
+impl From<Protocol> for opentelemetry_otlp::Protocol {
+    fn from(value: Protocol) -> Self {
+        match value {
+            Protocol::Grpc => opentelemetry_otlp::Protocol::Grpc,
+            Protocol::HttpBinary => opentelemetry_otlp::Protocol::HttpBinary,
+            Protocol::HttpJson => opentelemetry_otlp::Protocol::HttpJson,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {
     pub key: String,
     pub certificate: String,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientTlsConfig {
     pub certificate: Option<String>,
     pub identity: Option<Identity>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TracerConfiguration {
     pub service_name: String,
     pub protocol: Protocol,
@@ -39,6 +63,7 @@ pub struct TracerConfiguration {
     pub timeout: Option<Duration>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TelemetryConfiguration {
     pub context_propagation_format: Option<ContextPropagationFormat>,
     pub tracer: Option<TracerConfiguration>,
@@ -53,10 +78,14 @@ impl TelemetryConfiguration {
     }
 }
 
-struct Configurator;
+pub struct Configurator;
 
 impl Configurator {
-    fn new(config: &TelemetryConfiguration) -> Self {
+    /// Initializes global tracer provider, propagator and error handler.
+    ///
+    /// # Panics
+    /// This will panic if called outside the context of a Tokio runtime when tracer is configured.
+    pub fn new(service_namespace: &str, config: &TelemetryConfiguration) -> Self {
         let tracer_provider = match config.tracer.as_ref() {
             Some(tracer_config) => {
                 let exporter: SpanExporterBuilder = match tracer_config.protocol {
@@ -111,7 +140,7 @@ impl Configurator {
                         let mut builder = opentelemetry_otlp::new_exporter()
                             .http()
                             .with_endpoint(tracer_config.endpoint.clone())
-                            .with_protocol(tracer_config.protocol);
+                            .with_protocol(tracer_config.protocol.clone().into());
 
                         builder = if let Some(timeout) = tracer_config.timeout {
                             builder.with_timeout(timeout)
@@ -164,23 +193,21 @@ impl Configurator {
                     }
                 };
 
-                let runtime = RUNTIME.get_or_init(|| {
-                    tokio::runtime::Runtime::new().expect("Failed to create runtime")
-                });
-                runtime.block_on(async {
-                    opentelemetry_otlp::new_pipeline()
-                        .tracing()
-                        .with_exporter(exporter)
-                        .with_trace_config(Config::default().with_resource(Resource::new(vec![
-                            opentelemetry::KeyValue::new(
-                                SERVICE_NAME,
-                                tracer_config.service_name.clone(),
-                            ),
-                            opentelemetry::KeyValue::new(SERVICE_NAMESPACE, "savant-core"),
-                        ])))
-                        .install_batch(runtime::Tokio)
-                        .expect("Failed to install OpenTelemetry tracer globally")
-                })
+                opentelemetry_otlp::new_pipeline()
+                    .tracing()
+                    .with_exporter(exporter)
+                    .with_trace_config(Config::default().with_resource(Resource::new(vec![
+                        opentelemetry::KeyValue::new(
+                            SERVICE_NAME,
+                            tracer_config.service_name.clone(),
+                        ),
+                        opentelemetry::KeyValue::new(
+                            SERVICE_NAMESPACE,
+                            service_namespace.to_string(),
+                        ),
+                    ])))
+                    .install_batch(runtime::Tokio)
+                    .expect("Failed to install OpenTelemetry tracer globally")
             }
             None => TracerProvider::builder()
                 .with_simple_exporter(SpanExporter::default())
@@ -205,7 +232,7 @@ impl Configurator {
         Self
     }
 
-    fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) {
         global::shutdown_tracer_provider();
     }
 }
@@ -218,7 +245,10 @@ pub fn init(config: &TelemetryConfiguration) {
     match configurator.get() {
         Some(_) => panic!("Open Telemetry has been configured"),
         None => {
-            let result = configurator.set(Configurator::new(config));
+            let runtime = RUNTIME
+                .get_or_init(|| tokio::runtime::Runtime::new().expect("Failed to create runtime"));
+            let c = runtime.block_on(async { Configurator::new("savant-core", config) });
+            let result = configurator.set(c);
             if result.is_err() {
                 // should not happen
                 panic!("Failed to configure OpenTelemetry");
