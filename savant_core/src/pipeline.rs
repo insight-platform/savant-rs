@@ -223,7 +223,7 @@ pub(super) mod implementation {
     use derive_builder::Builder;
     use hashbrown::HashMap;
     use lru::LruCache;
-    use opentelemetry::trace::{SpanBuilder, TraceContextExt, TraceId, Tracer};
+    use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
     use opentelemetry::{Context, KeyValue};
 
     use crate::get_tracer;
@@ -392,7 +392,7 @@ pub(super) mod implementation {
             let bind = self.root_spans.read();
             let ctx = bind.get(&id).unwrap();
 
-            if ctx.span().span_context().trace_id() == TraceId::INVALID {
+            if !ctx.span().span_context().is_valid() {
                 return Context::default();
             }
 
@@ -401,7 +401,7 @@ pub(super) mod implementation {
         }
 
         pub(crate) fn get_nested_span(span_name: String, parent_ctx: &Context) -> Context {
-            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+            if !parent_ctx.span().span_context().is_valid() {
                 return Context::default();
             }
 
@@ -523,7 +523,7 @@ pub(super) mod implementation {
             let id_counter = self.id_counter.fetch_add(1, Ordering::SeqCst) + 1;
             let source_id = frame.get_source_id();
 
-            if parent_ctx.span().span_context().trace_id() == TraceId::INVALID {
+            if !parent_ctx.span().span_context().is_valid() {
                 self.root_spans
                     .write()
                     .insert(id_counter, Context::default());
@@ -1022,11 +1022,18 @@ pub(super) mod implementation {
         use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, WithAttributes};
-        use crate::telemetry::init_noop_tracer;
+        use crate::telemetry::{init, TelemetryConfiguration};
         use crate::test::gen_frame;
 
-        use opentelemetry::trace::{TraceContextExt, TraceId};
+        use opentelemetry::trace::TraceContextExt;
         use std::sync::atomic::Ordering;
+        use std::sync::Once;
+
+        static INIT: Once = Once::new();
+
+        fn init_telemetry() {
+            INIT.call_once(|| init(&TelemetryConfiguration::no_op()))
+        }
 
         fn create_pipeline() -> anyhow::Result<Pipeline> {
             let pipeline = Pipeline::new(
@@ -1217,62 +1224,62 @@ pub(super) mod implementation {
 
         #[test]
         fn test_sampling() -> anyhow::Result<()> {
-            init_noop_tracer();
+            init_telemetry();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(2)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), false);
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), true);
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), false);
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), true);
 
             Ok(())
         }
 
         #[test]
         fn test_no_tracing() -> anyhow::Result<()> {
-            init_noop_tracer();
+            init_telemetry();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(0)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), false);
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), false);
 
             Ok(())
         }
 
         #[test]
         fn test_tracing_every() -> anyhow::Result<()> {
-            init_noop_tracer();
+            init_telemetry();
 
             let pipeline = create_pipeline()?;
             pipeline.set_sampling_period(1)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), true);
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_ne!(ctx.span().span_context().trace_id(), TraceId::INVALID);
+            assert_eq!(ctx.span().span_context().is_valid(), true);
 
             Ok(())
         }

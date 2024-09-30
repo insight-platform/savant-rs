@@ -7,9 +7,18 @@ use opentelemetry::trace::TraceContextExt;
 use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
 use savant_core::rust::PipelineConfigurationBuilder;
-use savant_core::telemetry::{init_jaeger_tracer, init_noop_tracer};
+use savant_core::telemetry::{
+    init, shutdown, ContextPropagationFormat, Protocol, TelemetryConfiguration, TracerConfiguration,
+};
 use savant_core::test::gen_frame;
+use std::sync::Once;
 use test::Bencher;
+
+static INIT: Once = Once::new();
+
+fn init_telemetry() {
+    INIT.call_once(|| init(&TelemetryConfiguration::no_op()))
+}
 
 fn get_pipeline(
     append_frame_meta_to_otlp_span: bool,
@@ -110,7 +119,7 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
 
 #[bench]
 fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
-    init_noop_tracer();
+    init_telemetry();
 
     let (pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(0)?;
@@ -120,7 +129,7 @@ fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
 
 #[bench]
 fn bench_pipeline2_sampling_none_with_json(b: &mut Bencher) -> Result<()> {
-    init_noop_tracer();
+    init_telemetry();
 
     let (pipeline, stages) = get_pipeline(true)?;
     pipeline.set_sampling_period(0)?;
@@ -130,7 +139,7 @@ fn bench_pipeline2_sampling_none_with_json(b: &mut Bencher) -> Result<()> {
 
 #[bench]
 fn bench_pipeline2_sampling_every(b: &mut Bencher) -> Result<()> {
-    init_noop_tracer();
+    init_telemetry();
 
     let (pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(1)?;
@@ -141,9 +150,23 @@ fn bench_pipeline2_sampling_every(b: &mut Bencher) -> Result<()> {
 #[bench]
 #[ignore]
 fn bench_pipeline2_with_jaeger_no_sampling(b: &mut Bencher) -> Result<()> {
-    init_jaeger_tracer("bench-pipeline", "localhost:6831");
+    let tracer_config = TracerConfiguration {
+        service_name: "bench-pipeline".to_string(),
+        protocol: Protocol::Grpc,
+        endpoint: "http://localhost:4317".to_string(),
+        tls: None,
+        timeout: None,
+    };
+    let config = TelemetryConfiguration {
+        context_propagation_format: Some(ContextPropagationFormat::Jaeger),
+        tracer: Some(tracer_config),
+    };
+    init(&config);
     let (pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(1)?;
     benchmark(b, pipeline, stages);
+
+    shutdown();
+
     Ok(())
 }

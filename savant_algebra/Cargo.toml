@@ -18,7 +18,7 @@ rust-version.workspace = true
 savant_rs = { path = "../savant_python" }
 parking_lot = "0.12"
 anyhow = "1"
-opentelemetry = "0.19"
+opentelemetry = "0.24.0"
 numpy = { version = "0.19", features = ["nalgebra"] }
 nalgebra = "0.32"
 ndarray = "0.15"

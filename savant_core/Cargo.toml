@@ -30,10 +30,14 @@ lazy_static = "1.4"
 libloading = "0.8"
 log = "0.4"
 lru = { version = "0.12", features = ["hashbrown"] }
-opentelemetry = "0.21"
-opentelemetry_sdk = "0.21"
-opentelemetry-stdout = { version = "0.2", features = ["trace"] }
-opentelemetry-jaeger = "0.20"
+opentelemetry = "0.24.0"
+opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.17.0", features = ["http-json", "http-proto", "tls", "reqwest-rustls"] }
+tonic = { version = "0.12.2", features = ["tls-native-roots"] }
+reqwest = {  version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots"] }
+opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
+opentelemetry-semantic-conventions = "0.16.0"
+opentelemetry-jaeger-propagator = "0.3.0"
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 prost = "0.12"
 prost-types = "0.12"
