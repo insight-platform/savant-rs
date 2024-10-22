@@ -32,12 +32,11 @@ fn rayon_solely_owned_areas(bboxes: &[&RBBox]) -> Vec<f64> {
                     !Arc::ptr_eq(&b.0, &bbox.0)
                         && matches!(bbox.calculate_intersection(b), Ok(x) if x > 0.0)
                 })
-                .map(|b| *b)
+                .copied()
                 .collect::<Vec<_>>();
             let union = calculate_union_area(&others);
             let bbox_area = MultiPolygon::new(vec![bbox.get_as_polygonal_area().get_polygon()]);
-            let area = bbox_area.difference(&union).unsigned_area();
-            area
+            bbox_area.difference(&union).unsigned_area()
         })
         .collect()
 }
