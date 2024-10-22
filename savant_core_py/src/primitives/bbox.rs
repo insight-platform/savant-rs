@@ -1,3 +1,5 @@
+pub mod utils;
+
 use crate::draw_spec::PaddingDraw;
 use crate::primitives::polygonal_area::PolygonalArea;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};

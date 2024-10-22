@@ -14,6 +14,7 @@ use savant_core_py::primitives::attribute_value::{
     AttributeValue, AttributeValueType, AttributeValuesView,
 };
 use savant_core_py::primitives::batch::VideoFrameBatch;
+use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::bbox::{
     BBox, BBoxMetricType, RBBox, VideoObjectBBoxTransformation,
 };
@@ -154,6 +155,8 @@ pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PolygonalArea>()?;
     m.add_class::<RBBox>()?;
     m.add_class::<BBox>()?;
+
+    m.add_function(wrap_pyfunction!(solely_owned_areas, m)?)?;
     Ok(())
 }
 
