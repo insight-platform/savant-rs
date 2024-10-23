@@ -24,7 +24,7 @@ anyhow = "1"
 pyo3 = { workspace = true }
 
 [build-dependencies]
-pyo3-build-config = "0.22"
+pyo3-build-config = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"
