@@ -775,8 +775,8 @@ impl AttributeValue {
 
 /// Represents attribute value types for matching
 ///
-#[pyclass]
-#[derive(Debug, Clone, Hash)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub enum AttributeValueType {
     Bytes,
     String,

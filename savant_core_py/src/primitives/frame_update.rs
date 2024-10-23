@@ -14,8 +14,8 @@ use savant_core::protobuf::{from_pb, ToProtobuf};
 ///   * the one to error if labels collide;
 ///   * the one to replace objects with the same label.
 ///
-#[pyclass]
-#[derive(Clone, Debug)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ObjectUpdatePolicy {
     AddForeignObjects,
     ErrorIfLabelsCollide,
@@ -58,8 +58,8 @@ impl From<rust::ObjectUpdatePolicy> for ObjectUpdatePolicy {
 ///   * the one to error when duplicates are found;
 ///   * the one to prefix duplicates with a given string.
 ///
-#[pyclass]
-#[derive(Clone, Debug)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AttributeUpdatePolicy {
     ReplaceWithForeignWhenDuplicate,
     KeepOwnWhenDuplicate,

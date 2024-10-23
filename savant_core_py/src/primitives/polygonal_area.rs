@@ -83,6 +83,7 @@ impl PolygonalArea {
     }
 
     #[new]
+    #[pyo3(signature = (vertices, tags=None))]
     pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
         let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(vertices) };
         Self(rust::PolygonalArea::new(vertices, tags))

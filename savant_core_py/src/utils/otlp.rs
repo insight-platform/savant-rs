@@ -172,6 +172,7 @@ impl TelemetrySpan {
         push_context(self.0.clone());
     }
 
+    #[pyo3(signature = (exc_type=None, exc_value=None, traceback=None))]
     fn __exit__(
         &self,
         exc_type: Option<&Bound<'_, PyAny>>,
@@ -189,13 +190,13 @@ impl TelemetrySpan {
                 attrs.insert("python.exception.type".to_string(), format!("{:?}", e));
 
                 if let Some(v) = exc_value {
-                    if let Ok(e) = PyAny::downcast::<PyException>(v.as_gil_ref()) {
+                    if let Ok(e) = v.downcast::<PyException>() {
                         attrs.insert("python.exception.value".to_string(), e.to_string());
                     }
                 }
 
                 if let Some(t) = traceback {
-                    let traceback = PyAny::downcast::<PyTraceback>(t.as_gil_ref()).unwrap();
+                    let traceback = t.downcast::<PyTraceback>().unwrap();
                     if let Ok(formatted) = traceback.format() {
                         attrs.insert("python.exception.traceback".to_string(), formatted);
                     }
@@ -383,6 +384,7 @@ pub struct MaybeTelemetrySpan {
 #[pymethods]
 impl MaybeTelemetrySpan {
     #[new]
+    #[pyo3(signature = (span=None))]
     fn new(span: Option<TelemetrySpan>) -> MaybeTelemetrySpan {
         MaybeTelemetrySpan { span }
     }
@@ -414,6 +416,7 @@ impl MaybeTelemetrySpan {
         }
     }
 
+    #[pyo3(signature = (exc_type=None, exc_value=None, traceback=None))]
     fn __exit__(
         &self,
         exc_type: Option<&Bound<'_, PyAny>>,

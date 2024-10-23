@@ -26,6 +26,7 @@ pub struct ExternalFrame(pub(crate) rust::ExternalFrame);
 #[pymethods]
 impl ExternalFrame {
     #[new]
+    #[pyo3(signature = (method, location=None))]
     pub fn new(method: &str, location: Option<String>) -> Self {
         Self(rust::ExternalFrame::new(method, &location.as_deref()))
     }
@@ -88,6 +89,7 @@ impl VideoFrameContent {
     }
 
     #[staticmethod]
+    #[pyo3(signature = (method, location=None))]
     pub fn external(method: String, location: Option<String>) -> Self {
         Self(rust::VideoFrameContent::External(rust::ExternalFrame {
             method,
@@ -195,8 +197,8 @@ impl VideoFrameContent {
 
 /// Represents the structure for accessing primary video content encoding information
 /// for the frame.
-#[pyclass]
-#[derive(Copy, Clone, Debug)]
+#[pyclass(eq, eq_int)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VideoFrameTranscodingMethod {
     Copy,
     Encoded,
@@ -937,6 +939,7 @@ impl VideoFrame {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (namespace, label, parent_id=None, confidence=None, detection_box=None, track_id=None, track_box=None, attributes=None))]
     pub fn create_object(
         &self,
         namespace: &str,

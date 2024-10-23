@@ -289,7 +289,8 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
 
     let sys = PyModule::import_bound(py, "sys")?;
-    let sys_modules: &PyDict = sys.as_gil_ref().getattr("modules")?.downcast()?;
+    let sys_modules_bind = sys.as_ref().getattr("modules")?;
+    let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;

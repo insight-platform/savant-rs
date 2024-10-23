@@ -21,12 +21,10 @@ crate-type = ["dylib"]
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
 anyhow = "1"
-
-[dependencies.pyo3]
-version = "0.21"
+pyo3 = { workspace = true }
 
 [build-dependencies]
-pyo3-build-config = "0.21"
+pyo3-build-config = "0.22"
 
 [package.metadata.maturin]
 python-source = "python"

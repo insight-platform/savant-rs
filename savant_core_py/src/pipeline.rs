@@ -64,14 +64,15 @@ pub fn load_stage_function_plugin(
 
 /// Defines which type of payload a stage handles.
 ///
-#[pyclass]
+#[pyclass(eq, eq_int)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VideoPipelineStagePayloadType {
     Frame,
     Batch,
 }
 
-#[pyclass]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FrameProcessingStatRecordType {
     Initial,
     Frame,
