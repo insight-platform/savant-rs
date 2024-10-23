@@ -1,7 +1,8 @@
-use crate::primitives::RBBox;
+use crate::primitives::{BBoxMetricType, RBBox};
 use geo::{Area, BooleanOps, MultiPolygon};
 use rayon::iter::ParallelIterator;
 use rayon::prelude::IntoParallelRefIterator;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 fn sequential_solely_owned_areas(bboxes: &[&RBBox]) -> Vec<f64> {
@@ -64,9 +65,34 @@ pub fn calculate_union_area(bboxes: &[&RBBox]) -> MultiPolygon<f64> {
     union
 }
 
+pub fn associate_bboxes(
+    candidates: &[&RBBox],
+    owners: &[&RBBox],
+    metric: BBoxMetricType,
+    threshold: f32,
+) -> HashMap<usize, Vec<(usize, f32)>> {
+    let mut associations = HashMap::new();
+    for (ci, c) in candidates.iter().enumerate() {
+        associations.insert(ci, Vec::new());
+        for (co, o) in owners.iter().enumerate() {
+            let mv = match metric {
+                BBoxMetricType::IoU => c.iou(o),
+                BBoxMetricType::IoSelf => c.ios(o),
+                BBoxMetricType::IoOther => c.ioo(o),
+            };
+            if let Ok(mv) = mv {
+                if mv > threshold {
+                    associations.entry(ci).and_modify(|v| v.push((co, mv)));
+                }
+            }
+        }
+    }
+    associations
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::primitives::RBBox;
+    use crate::primitives::{BBoxMetricType, RBBox};
     use geo::Area;
 
     #[test]
@@ -125,5 +151,26 @@ mod tests {
             assert_eq!(yellow_area, 5.0);
             assert_eq!(purple_area, 6.0);
         }
+    }
+
+    #[test]
+    fn test_associate_boxes() {
+        let lp1 = RBBox::ltrb(0.0, 1.0, 2.0, 2.0);
+        let lp2 = RBBox::ltrb(5.0, 2.0, 8.0, 3.0);
+        let lp3 = RBBox::ltrb(100.0, 0.0, 6.0, 3.0);
+        let owner1 = RBBox::ltrb(1.0, 0.0, 6.0, 3.0);
+        let owner2 = RBBox::ltrb(6.0, 1.0, 9.0, 4.0);
+        let associations_iou = super::associate_bboxes(
+            &[&lp1, &lp2, &lp3],
+            &[&owner1, &owner2],
+            BBoxMetricType::IoU,
+            0.01,
+        );
+        let lp1_associations = associations_iou.get(&0).unwrap();
+        let lp2_associations = associations_iou.get(&1).unwrap();
+        let lp3_associations = associations_iou.get(&2).unwrap();
+        assert!(matches!(lp1_associations.as_slice(), [(0, _)]));
+        assert!(matches!(lp2_associations.as_slice(), [(0, _), (1, _)]));
+        assert!(lp3_associations.is_empty());
     }
 }

@@ -157,6 +157,8 @@ pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<BBox>()?;
 
     m.add_function(wrap_pyfunction!(solely_owned_areas, m)?)?;
+    m.add_function(wrap_pyfunction!(associate_bboxes, m)?)?;
+
     Ok(())
 }
 
@@ -268,7 +270,9 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
-        std::env::set_var(log_env_var_name, log_env_var_level);
+        unsafe {
+            std::env::set_var(log_env_var_name, log_env_var_level);
+        }
     }
     pretty_env_logger::try_init_custom_env(log_env_var_name)
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
