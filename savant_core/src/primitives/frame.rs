@@ -190,6 +190,12 @@ impl ToSerdeJsonValue for VideoFrame {
             .map(|v| Uuid::from_u128(v).to_string());
 
         let version = version();
+        let mut objects = self.objects.values().collect::<Vec<_>>();
+        objects.sort_by(|a, b| a.id.cmp(&b.id));
+        let objects = objects
+            .iter()
+            .map(|o| o.to_serde_json_value())
+            .collect::<Vec<_>>();
         serde_json::json!(
             {
                 "previous_frame_seq_id": self.previous_frame_seq_id,
@@ -212,7 +218,7 @@ impl ToSerdeJsonValue for VideoFrame {
                 "content": self.content.to_serde_json_value(),
                 "transformations": self.transformations.iter().map(|t| t.to_serde_json_value()).collect::<Vec<_>>(),
                 "attributes": self.attributes.iter().filter_map(|v| if v.is_hidden { None } else { Some(v.to_serde_json_value()) }).collect::<Vec<_>>(),
-                "objects": self.objects.values().map(|o| o.to_serde_json_value()).collect::<Vec<_>>(),
+                "objects": objects,
             }
         )
     }

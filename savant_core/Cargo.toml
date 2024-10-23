@@ -29,7 +29,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 # unique to savant_core
-bytes = "1.5"
+bytes = "1.8"
 crc32fast = "1"
 crossbeam = "0.8"
 derive_builder = "0.13"
