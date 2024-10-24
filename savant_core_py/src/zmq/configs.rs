@@ -299,6 +299,7 @@ impl WriterConfigBuilder {
     /// fix_ipc_permissions: int
     ///   The access mask to set, defaults to ``0o777``.
     ///
+    #[pyo3(signature = (fix_ipc_permissions=None))]
     pub fn with_fix_ipc_permissions(&mut self, fix_ipc_permissions: Option<u32>) -> PyResult<()> {
         self.0 = Some(
             self.0
@@ -611,6 +612,7 @@ impl ReaderConfigBuilder {
     /// ValueError
     ///   If the permissions are double set
     ///
+    #[pyo3(signature = (permissions=None))]
     pub fn with_fix_ipc_permissions(&mut self, permissions: Option<u32>) -> PyResult<()> {
         self.0 = Some(
             self.0

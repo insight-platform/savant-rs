@@ -42,6 +42,7 @@ pub enum WriterResult {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct MockResponder;
 

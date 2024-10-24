@@ -1,3 +1,5 @@
+pub mod utils;
+
 use crate::atomic_f32::AtomicF32;
 use crate::draw::PaddingDraw;
 use crate::primitives::{Point, PolygonalArea};

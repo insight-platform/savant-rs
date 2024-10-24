@@ -417,8 +417,8 @@ impl DotDraw {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass]
-#[derive(Clone, Copy, Debug)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LabelPositionKind {
     /// Margin is relative to the **top** left corner of the text bounding box
     TopLeftInside,

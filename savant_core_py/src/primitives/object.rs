@@ -11,8 +11,8 @@ use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 
-#[pyclass]
-#[derive(Debug, Clone)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IdCollisionResolutionPolicy {
     GenerateNewId,
     Overwrite,
@@ -39,6 +39,7 @@ pub struct VideoObject(pub(crate) rust::VideoObject);
 impl VideoObject {
     #[allow(clippy::too_many_arguments)]
     #[new]
+    #[pyo3(signature = (id, namespace, label, detection_box, attributes, confidence=None, track_id=None, track_box=None))]
     pub fn new(
         id: i64,
         namespace: &str,
@@ -145,6 +146,7 @@ impl VideoObject {
         self.0.set_attribute(attribute.0.clone()).map(Attribute)
     }
 
+    #[pyo3(signature = (namespace, name, is_hidden, hint=None, values=None))]
     fn set_persistent_attribute(
         &mut self,
         namespace: &str,
@@ -162,6 +164,7 @@ impl VideoObject {
             .set_persistent_attribute(namespace, name, &hint, is_hidden, values)
     }
 
+    #[pyo3(signature = (namespace, name, is_hidden, hint=None, values=None))]
     fn set_temporary_attribute(
         &mut self,
         namespace: &str,

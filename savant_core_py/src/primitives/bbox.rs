@@ -1,3 +1,5 @@
+pub mod utils;
+
 use crate::draw_spec::PaddingDraw;
 use crate::primitives::polygonal_area::PolygonalArea;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
@@ -11,8 +13,8 @@ use savant_core::primitives::rust;
 /// IoSelf - Intersection over Self (Intersection / Area of Self)
 /// IoOther - Intersection over Other (Intersection / Area of Other)
 ///
-#[pyclass]
-#[derive(Debug, Clone)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BBoxMetricType {
     IoU,
     IoSelf,
@@ -221,11 +223,13 @@ impl RBBox {
     ///  new bbox
     ///
     #[staticmethod]
+    #[pyo3(signature = (xc, yc, width, height, angle=None))]
     fn constructor(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
         Self::new(xc, yc, width, height, angle)
     }
 
     #[new]
+    #[pyo3(signature = (xc, yc, width, height, angle=None))]
     pub fn new(xc: f32, yc: f32, width: f32, height: f32, angle: Option<f32>) -> Self {
         Self(rust::RBBox::new(xc, yc, width, height, angle))
     }

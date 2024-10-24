@@ -6,7 +6,6 @@ use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{Config, TracerProvider};
 use opentelemetry_sdk::{runtime, Resource};
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_NAMESPACE};
-use opentelemetry_stdout::SpanExporter;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
@@ -209,9 +208,14 @@ impl Configurator {
                     .install_batch(runtime::Tokio)
                     .expect("Failed to install OpenTelemetry tracer globally")
             }
-            None => TracerProvider::builder()
-                .with_simple_exporter(SpanExporter::default())
-                .build(),
+            None => {
+                let exporter = opentelemetry_stdout::SpanExporter::builder()
+                    .with_writer(std::io::sink())
+                    .build();
+                TracerProvider::builder()
+                    .with_simple_exporter(exporter)
+                    .build()
+            }
         };
         global::set_tracer_provider(tracer_provider);
 

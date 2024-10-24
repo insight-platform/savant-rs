@@ -14,6 +14,7 @@ use savant_core_py::primitives::attribute_value::{
     AttributeValue, AttributeValueType, AttributeValuesView,
 };
 use savant_core_py::primitives::batch::VideoFrameBatch;
+use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::bbox::{
     BBox, BBoxMetricType, RBBox, VideoObjectBBoxTransformation,
 };
@@ -154,6 +155,10 @@ pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PolygonalArea>()?;
     m.add_class::<RBBox>()?;
     m.add_class::<BBox>()?;
+
+    m.add_function(wrap_pyfunction!(solely_owned_areas, m)?)?;
+    m.add_function(wrap_pyfunction!(associate_bboxes, m)?)?;
+
     Ok(())
 }
 
@@ -265,7 +270,9 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
-        std::env::set_var(log_env_var_name, log_env_var_level);
+        unsafe {
+            std::env::set_var(log_env_var_name, log_env_var_level);
+        }
     }
     pretty_env_logger::try_init_custom_env(log_env_var_name)
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
@@ -286,7 +293,8 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
 
     let sys = PyModule::import_bound(py, "sys")?;
-    let sys_modules: &PyDict = sys.as_gil_ref().getattr("modules")?.downcast()?;
+    let sys_modules_bind = sys.as_ref().getattr("modules")?;
+    let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;

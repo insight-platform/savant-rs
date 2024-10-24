@@ -5,8 +5,8 @@ use std::hash::{Hash, Hasher};
 
 /// Represents a socket type for a writer socket.
 ///
-#[pyclass]
-#[derive(Debug, Clone, Hash)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub enum WriterSocketType {
     Pub,
     Dealer,
@@ -52,8 +52,8 @@ impl From<WriterSocketType> for zeromq::WriterSocketType {
 
 /// Represents a socket type for a reader socket.
 ///
-#[pyclass]
-#[derive(Debug, Clone, Hash)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub enum ReaderSocketType {
     Sub,
     Router,

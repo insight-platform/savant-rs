@@ -27,6 +27,7 @@ pub struct ByteBuffer {
 #[pymethods]
 impl ByteBuffer {
     #[new]
+    #[pyo3(signature = (v, checksum=None))]
     fn create(v: &Bound<'_, PyBytes>, checksum: Option<u32>) -> PyResult<Self> {
         Ok(Self::new(v.as_bytes().to_vec(), checksum))
     }

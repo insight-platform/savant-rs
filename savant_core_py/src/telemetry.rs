@@ -2,15 +2,15 @@ use pyo3::{pyclass, pyfunction, pymethods};
 use savant_core::telemetry;
 use std::time::Duration;
 
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, PartialEq)]
 pub enum ContextPropagationFormat {
     Jaeger,
     W3C,
 }
 
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(eq, eq_int)]
+#[derive(Clone, PartialEq)]
 pub enum Protocol {
     Grpc,
     HttpBinary,

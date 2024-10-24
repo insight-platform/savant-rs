@@ -18,15 +18,13 @@ rust-version.workspace = true
 crate-type = ["dylib"]
 
 [dependencies]
+anyhow = { workspace = true }
+pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
-anyhow = "1"
-
-[dependencies.pyo3]
-version = "0.21"
 
 [build-dependencies]
-pyo3-build-config = "0.21"
+pyo3-build-config = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"

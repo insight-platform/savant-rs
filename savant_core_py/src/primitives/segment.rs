@@ -35,8 +35,8 @@ impl Segment {
     }
 }
 
-#[pyclass]
-#[derive(Debug, Clone)]
+#[pyclass(eq, eq_int)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IntersectionKind {
     Enter,
     Inside,
