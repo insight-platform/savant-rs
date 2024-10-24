@@ -87,6 +87,10 @@ pub fn associate_bboxes(
             }
         }
     }
+    for (_, v) in associations.iter_mut() {
+        v.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+    }
+
     associations
 }
 
@@ -170,7 +174,7 @@ mod tests {
         let lp2_associations = associations_iou.get(&1).unwrap();
         let lp3_associations = associations_iou.get(&2).unwrap();
         assert!(matches!(lp1_associations.as_slice(), [(0, _)]));
-        assert!(matches!(lp2_associations.as_slice(), [(0, _), (1, _)]));
+        assert!(matches!(lp2_associations.as_slice(), [(1, _), (0, _)]));
         assert!(lp3_associations.is_empty());
     }
 }

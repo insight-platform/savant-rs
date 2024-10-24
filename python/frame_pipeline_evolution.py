@@ -20,8 +20,6 @@ from savant_rs.primitives import (
 )
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 
-# from savant_rs import init_jaeger_tracer
-
 if __name__ == "__main__":
     savant_rs.version()
     enable_dl_detection()  # enables internal DL detection (checks every 5 secs)
@@ -31,7 +29,6 @@ if __name__ == "__main__":
         "Begin operation",
         dict(savant_rs_version=savant_rs.version()),
     )
-    # init_jaeger_tracer("demo-pipeline", "localhost:6831")
 
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True

@@ -18,10 +18,10 @@ rust-version.workspace = true
 crate-type = ["dylib"]
 
 [dependencies]
+anyhow = { workspace = true }
+pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
-anyhow = "1"
-pyo3 = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

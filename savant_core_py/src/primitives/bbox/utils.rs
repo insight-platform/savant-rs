@@ -10,13 +10,6 @@ pub fn solely_owned_areas(bboxes: Vec<RBBox>, parallel: bool) -> Vec<f64> {
 }
 
 #[pyfunction]
-// pub fn associate_bboxes(
-//     candidates: &[&RBBox],
-//     owners: &[&RBBox],
-//     metric: BBoxMetricType,
-//     threshold: f32,
-// ) -> HashMap<usize, Vec<(usize, f32)>>
-
 pub fn associate_bboxes(
     candidates: Vec<RBBox>,
     owners: Vec<RBBox>,
