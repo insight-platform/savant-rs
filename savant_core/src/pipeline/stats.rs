@@ -1,8 +1,12 @@
-use crate::rwlock::SavantRwLock;
-use log::info;
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+
+use hashbrown::HashMap;
+use log::info;
+use parking_lot::{Mutex, MutexGuard};
+
+use crate::rwlock::SavantRwLock;
 
 #[cfg(test)]
 #[derive(Default, Debug)]
@@ -24,6 +28,7 @@ impl TimeCounter {
 #[cfg(not(test))]
 #[derive(Default, Debug)]
 struct TimeCounter;
+
 #[cfg(not(test))]
 impl TimeCounter {
     pub fn get_current_time(&self) -> i64 {
@@ -42,7 +47,7 @@ pub enum FrameProcessingStatRecordType {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct StageStat {
+pub struct StageProcessingStat {
     pub stage_name: String,
     pub queue_length: usize,
     pub frame_counter: usize,
@@ -50,12 +55,79 @@ pub struct StageStat {
     pub batch_counter: usize,
 }
 
-impl StageStat {
+#[derive(Debug, Clone, Default)]
+pub struct StageLatencyStat {
+    pub stage_name: String,
+    pub latencies: HashMap<usize, StageLatencyMeasurements>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StageLatencyMeasurements {
+    pub source_stage_name: Option<String>,
+    pub min_latency: Duration,
+    pub max_latency: Duration,
+    pub accumulated_latency: Duration,
+    pub count: usize,
+}
+
+impl StageLatencyStat {
     pub fn new(name: String) -> Self {
-        StageStat {
+        Self {
             stage_name: name,
             ..Default::default()
         }
+    }
+
+    pub fn record_latency(&mut self, source_stage: usize, latency: Duration) {
+        let measurements =
+            self.latencies
+                .entry(source_stage)
+                .or_insert_with(|| StageLatencyMeasurements {
+                    source_stage_name: None,
+                    min_latency: latency,
+                    max_latency: latency,
+                    accumulated_latency: Duration::from_secs(0),
+                    count: 0,
+                });
+        measurements.min_latency = std::cmp::min(measurements.min_latency, latency);
+        measurements.max_latency = std::cmp::max(measurements.max_latency, latency);
+        measurements.accumulated_latency += latency;
+        measurements.count += 1;
+    }
+
+    pub fn log_latencies(&self) {
+        let none = "None".to_string();
+        for (_, latency) in &self.latencies {
+            info!(
+                "⏱ {:<32} > {:<32} | min {:>8} micros, max {:>8} micros, avg {:>8} micros,    count {:>8}",
+                latency.source_stage_name.as_ref().unwrap_or(&none),
+                self.stage_name,
+                latency.min_latency.as_micros(),
+                latency.max_latency.as_micros(),
+                latency.accumulated_latency.as_micros() / latency.count as u128,
+                latency.count,
+            );
+        }
+    }
+}
+
+impl StageProcessingStat {
+    pub fn new(name: String) -> Self {
+        StageProcessingStat {
+            stage_name: name,
+            ..Default::default()
+        }
+    }
+
+    pub fn log_stats(&self) {
+        info!(
+            "📊 {:<32} > queue {:>8}, frames {:>8}, objects {:>8}, batches {:>8}",
+            self.stage_name,
+            self.queue_length,
+            self.frame_counter,
+            self.object_counter,
+            self.batch_counter,
+        );
     }
 }
 
@@ -66,7 +138,18 @@ pub struct FrameProcessingStatRecord {
     pub ts: i64,
     pub frame_no: usize,
     pub object_counter: usize,
-    pub stage_stats: Vec<StageStat>,
+    pub stage_stats: Vec<(StageProcessingStat, StageLatencyStat)>,
+}
+
+impl FrameProcessingStatRecord {
+    pub(crate) fn log_stage_stats(&self) {
+        for (sps, _) in &self.stage_stats {
+            sps.log_stats();
+        }
+        for (_, sls) in &self.stage_stats {
+            sls.log_latencies();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -215,13 +298,15 @@ impl StatsGenerator {
     }
 }
 
+pub type StageStats = Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>;
+
 #[derive(Debug)]
 pub struct Stats {
     collector: Arc<Mutex<StatsCollector>>,
     generator: Arc<Mutex<StatsGenerator>>,
     time_thread: Option<std::thread::JoinHandle<()>>,
     shutdown: Arc<OnceLock<()>>,
-    stage_stats: Arc<Mutex<Vec<Arc<SavantRwLock<StageStat>>>>>,
+    stage_stats: Arc<Mutex<Vec<StageStats>>>,
 }
 
 impl Default for Stats {
@@ -242,7 +327,7 @@ fn log_ts_fps(collector: &mut MutexGuard<StatsCollector>) {
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Time-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec , period=[{}, {}] ms",
+            "📊 Time-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec , period=[{}, {}] ms",
             frame_delta as f64 / time_delta,
             object_delta as f64 / time_delta,
             frame_delta,
@@ -265,7 +350,7 @@ fn log_frame_fps(collector: &mut MutexGuard<StatsCollector>) {
         let frame_delta = last_records[0].frame_no - last_records[1].frame_no;
         let object_delta = last_records[0].object_counter - last_records[1].object_counter;
         info!(
-            "Frame-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec, period=[{}, {}] ms",
+            "📊 Frame-based FPS counter triggered: FPS = {:.2}, OPS = {:.2}, frame_delta = {}, time_delta = {} sec, period=[{}, {}] ms",
             frame_delta as f64 / time_delta,
             object_delta as f64 / time_delta,
             frame_delta,
@@ -302,11 +387,12 @@ impl Stats {
             let res = thread_generator.lock().register_ts(false);
             if let Some(mut r) = res {
                 r.stage_stats = Stats::collect_stage_stats(&thread_stage_stats);
+                r.log_stage_stats();
                 let mut thread_collector_bind = thread_collector.lock();
                 thread_collector_bind.add_record(r);
                 log_ts_fps(&mut thread_collector_bind);
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(1));
         }));
 
         Stats {
@@ -318,13 +404,16 @@ impl Stats {
         }
     }
 
-    pub fn add_stage_stats(&self, stat: Arc<SavantRwLock<StageStat>>) {
+    pub fn add_stage_stats(
+        &self,
+        stat: Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>,
+    ) {
         self.stage_stats.lock().push(stat);
     }
 
     pub fn collect_stage_stats(
-        stats: &Arc<Mutex<Vec<Arc<SavantRwLock<StageStat>>>>>,
-    ) -> Vec<StageStat> {
+        stats: &Arc<Mutex<Vec<StageStats>>>,
+    ) -> Vec<(StageProcessingStat, StageLatencyStat)> {
         stats.lock().iter().map(|s| s.read().clone()).collect()
     }
 
@@ -339,6 +428,7 @@ impl Stats {
         let res = self.generator.lock().register_frame(object_counter, false);
         if let Some(mut r) = res {
             r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
+            r.log_stage_stats();
             let mut collector_bind = self.collector.lock();
             collector_bind.add_record(r);
             log_frame_fps(&mut collector_bind);
@@ -362,6 +452,7 @@ impl Stats {
             let res = generator_bind.register_frame(0, true);
             if let Some(mut r) = res {
                 r.stage_stats = Stats::collect_stage_stats(&self.stage_stats);
+                r.log_stage_stats();
                 let mut collector_bind = self.collector.lock();
                 collector_bind.add_record(r);
                 log_frame_fps(&mut collector_bind);

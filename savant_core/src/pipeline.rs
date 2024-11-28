@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::Result;
 use hashbrown::HashMap;
@@ -57,11 +58,19 @@ pub enum PipelineStagePayloadType {
 
 #[derive(Debug)]
 pub enum PipelinePayload {
-    Frame(VideoFrameProxy, Vec<VideoFrameUpdate>, Context),
+    Frame(
+        VideoFrameProxy,
+        Vec<VideoFrameUpdate>,
+        Context,
+        Option<usize>,
+        SystemTime,
+    ),
     Batch(
         VideoFrameBatch,
         Vec<(i64, VideoFrameUpdate)>,
         HashMap<i64, Context>,
+        Option<usize>,
+        Vec<SystemTime>,
     ),
 }
 
@@ -218,21 +227,22 @@ pub(super) mod implementation {
     use std::num::NonZeroUsize;
     use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::OnceLock;
+    use std::time::SystemTime;
 
     use anyhow::{anyhow, bail, Result};
     use derive_builder::Builder;
     use hashbrown::HashMap;
     use lru::LruCache;
-    use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
     use opentelemetry::{Context, KeyValue};
+    use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
 
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
+    use crate::pipeline::{
+        MAX_TRACKED_STREAMS, PipelinePayload, PipelineStageFunction, PipelineStagePayloadType,
+    };
     use crate::pipeline::stage::PipelineStage;
     use crate::pipeline::stats::{FrameProcessingStatRecord, Stats};
-    use crate::pipeline::{
-        PipelinePayload, PipelineStageFunction, PipelineStagePayloadType, MAX_TRACKED_STREAMS,
-    };
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
@@ -297,9 +307,14 @@ pub(super) mod implementation {
     }
 
     unsafe impl Send for Pipeline {}
+
     unsafe impl Sync for Pipeline {}
 
     impl Pipeline {
+        pub fn get_stage_name(&self, stage_id: usize) -> Option<String> {
+            self.stages.get(stage_id).map(|s| s.name.clone())
+        }
+
         fn add_stage(
             &mut self,
             name: String,
@@ -311,7 +326,13 @@ pub(super) mod implementation {
                 bail!("Stage with name {} already exists", name)
             }
 
-            let stage = PipelineStage::new(name, stage_type, ingress_function, egress_function);
+            let stage = PipelineStage::new(
+                self.stages.len(),
+                name,
+                stage_type,
+                ingress_function,
+                egress_function,
+            );
             let stat = stage.get_stat();
             self.stats.add_stage_stats(stat);
             self.stages.push(stage);
@@ -345,12 +366,26 @@ pub(super) mod implementation {
             Ok(pipeline)
         }
 
+        fn augment_stat_records(
+            &self,
+            mut records: Vec<FrameProcessingStatRecord>,
+        ) -> Vec<FrameProcessingStatRecord> {
+            records.iter_mut().for_each(|r| {
+                r.stage_stats.iter_mut().for_each(|(_, l)| {
+                    l.latencies.iter_mut().for_each(|(s, m)| {
+                        m.source_stage_name = self.get_stage_name(*s);
+                    });
+                });
+            });
+            records
+        }
+
         pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
-            self.stats.get_records(max_n)
+            self.augment_stat_records(self.stats.get_records(max_n))
         }
 
         pub fn get_stat_records_newer_than(&self, id: i64) -> Vec<FrameProcessingStatRecord> {
-            self.stats.get_records_newer_than(id)
+            self.augment_stat_records(self.stats.get_records_newer_than(id))
         }
 
         pub fn log_final_fps(&self) {
@@ -573,7 +608,8 @@ pub(super) mod implementation {
             }
 
             let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
-            let frame_payload = PipelinePayload::Frame(frame, Vec::new(), ctx);
+            let frame_payload =
+                PipelinePayload::Frame(frame, Vec::new(), ctx, None, SystemTime::now());
 
             let (index, stage) = self.find_stage(stage_name, 0)?;
             stage.add_frame_payload(id_counter, frame_payload)?;
@@ -626,14 +662,14 @@ pub(super) mod implementation {
 
                 let mut bind = self.root_spans.write();
                 match removed.unwrap() {
-                    PipelinePayload::Frame(frame, _, ctx) => {
+                    PipelinePayload::Frame(frame, _, ctx, _, _) => {
                         self.stats.register_frame(frame.get_object_count());
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let root_ctx = bind.remove(&id).unwrap();
                         Ok(HashMap::from([(id, root_ctx)]))
                     }
-                    PipelinePayload::Batch(batch, _, contexts) => Ok({
+                    PipelinePayload::Batch(batch, _, contexts, _, _) => Ok({
                         let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
@@ -815,13 +851,13 @@ pub(super) mod implementation {
             let mut payloads = Vec::with_capacity(removed_objects.len());
             for (id, payload) in removed_objects {
                 let payload = match payload {
-                    PipelinePayload::Frame(frame, updates, ctx) => {
+                    PipelinePayload::Frame(frame, updates, ctx, source_index, time) => {
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
                         let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
-                        PipelinePayload::Frame(frame, updates, ctx)
+                        PipelinePayload::Frame(frame, updates, ctx, source_index, time)
                     }
-                    PipelinePayload::Batch(batch, updates, contexts) => {
+                    PipelinePayload::Batch(batch, updates, contexts, source_index, times) => {
                         let mut new_contexts = HashMap::with_capacity(contexts.len());
                         for (frame_id, ctx) in contexts.iter() {
                             let frame_opt = batch.get(*frame_id);
@@ -835,7 +871,7 @@ pub(super) mod implementation {
                                 .get_stage_span(*frame_id, format!("stage/{}", dest_stage_name));
                             new_contexts.insert(*frame_id, ctx);
                         }
-                        PipelinePayload::Batch(batch, updates, new_contexts)
+                        PipelinePayload::Batch(batch, updates, new_contexts, source_index, times)
                     }
                 };
                 payloads.push((id, payload));
@@ -880,6 +916,8 @@ pub(super) mod implementation {
             let mut batch_updates = Vec::with_capacity(default_size);
             let mut contexts = HashMap::with_capacity(default_size);
 
+            let mut last_stage: Option<usize> = None;
+            let mut last_times: Vec<SystemTime> = Vec::with_capacity(batch.frames.len());
             for id in frame_ids {
                 if let Some(payload) = source_stage_opt
                     .as_ref()
@@ -887,7 +925,9 @@ pub(super) mod implementation {
                     .delete(id)?
                 {
                     match payload {
-                        PipelinePayload::Frame(frame, updates, ctx) => {
+                        PipelinePayload::Frame(frame, updates, ctx, ls, lt) => {
+                            last_stage = ls;
+                            last_times.push(lt);
                             batch.add(id, frame);
                             contexts.insert(id, ctx);
                             for update in updates {
@@ -917,7 +957,8 @@ pub(super) mod implementation {
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
 
-            let payload = PipelinePayload::Batch(batch, batch_updates, contexts);
+            let payload =
+                PipelinePayload::Batch(batch, batch_updates, contexts, last_stage, last_times);
             dest_stage.add_batch_payload(batch_id, payload)?;
             self.frame_locations.write().insert(batch_id, dest_index);
             log::trace!(target: "savant_rs::pipeline", "Created batch {} to stage {}", batch_id, dest_stage_name);
@@ -948,13 +989,16 @@ pub(super) mod implementation {
                 bail!("Source stage {} must contain batched frames and destination stage must contain independent frames", source_stage.name)
             }
 
-            let (batch, updates, mut contexts) = if let Some(payload) = source_stage_opt
-                .as_ref()
-                .expect("The stage must be defined according to the previous check")
-                .delete(batch_id)?
+            let (batch, updates, mut contexts, last_stage, last_times) = if let Some(payload) =
+                source_stage_opt
+                    .as_ref()
+                    .expect("The stage must be defined according to the previous check")
+                    .delete(batch_id)?
             {
                 match payload {
-                    PipelinePayload::Batch(batch, updates, contexts) => (batch, updates, contexts),
+                    PipelinePayload::Batch(batch, updates, contexts, last_stage, last_times) => {
+                        (batch, updates, contexts, last_stage, last_times)
+                    }
                     _ => bail!("Source stage {} must contain batch", source_stage.name),
                 }
             } else {
@@ -973,13 +1017,22 @@ pub(super) mod implementation {
                 ctx.span().end();
                 let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
 
-                payloads.insert(frame_id, PipelinePayload::Frame(frame, Vec::new(), ctx));
+                payloads.insert(
+                    frame_id,
+                    PipelinePayload::Frame(
+                        frame,
+                        Vec::new(),
+                        ctx,
+                        last_stage,
+                        last_times.first().unwrap_or(&SystemTime::now()).to_owned(),
+                    ),
+                );
             }
 
             for (frame_id, update) in updates {
                 if let Some(frame) = payloads.get_mut(&frame_id) {
                     match frame {
-                        PipelinePayload::Frame(_, updates, _) => {
+                        PipelinePayload::Frame(_, updates, _, _, _) => {
                             updates.push(update);
                         }
                         _ => bail!(
@@ -1016,18 +1069,21 @@ pub(super) mod implementation {
 
     #[cfg(test)]
     mod tests {
+        use std::sync::atomic::Ordering;
+        use std::sync::Once;
+        use std::thread::sleep;
+        use std::time::Duration;
+
+        use opentelemetry::trace::TraceContextExt;
+
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
+        use crate::primitives::{Attribute, WithAttributes};
         use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
-        use crate::primitives::{Attribute, WithAttributes};
         use crate::telemetry::{init, TelemetryConfiguration};
         use crate::test::gen_frame;
-
-        use opentelemetry::trace::TraceContextExt;
-        use std::sync::atomic::Ordering;
-        use std::sync::Once;
 
         static INIT: Once = Once::new();
 
@@ -1281,6 +1337,31 @@ pub(super) mod implementation {
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
             assert_eq!(ctx.span().span_context().is_valid(), true);
 
+            Ok(())
+        }
+
+        #[test]
+        fn test_stats() -> anyhow::Result<()> {
+            let pipeline = create_pipeline()?;
+            let id1 = pipeline.add_frame("input", gen_frame())?;
+            // sleep for 5 ms
+            sleep(Duration::from_millis(5));
+            let id2 = pipeline.add_frame("input", gen_frame())?;
+            // sleep for 3 ms
+            sleep(Duration::from_millis(3));
+            let batch_id = pipeline.move_and_pack_frames("proc1", vec![id1, id2])?;
+            // sleep for 2 ms
+            sleep(Duration::from_millis(2));
+            pipeline.move_as_is("proc2", vec![batch_id])?;
+            // sleep for 1 ms
+            sleep(Duration::from_millis(1));
+            let ids = pipeline.move_and_unpack_batch("output", batch_id)?;
+            ids.iter().for_each(|id| {
+                pipeline.delete(*id).unwrap();
+            });
+            pipeline.log_final_fps();
+            let records = pipeline.get_stat_records(10);
+            dbg!(&records);
             Ok(())
         }
     }

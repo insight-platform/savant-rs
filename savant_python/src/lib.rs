@@ -2,22 +2,25 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
+
+use savant_core_py::*;
 use savant_core_py::draw_spec::*;
 use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
 use savant_core_py::pipeline::{
-    load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
-    PipelineConfiguration, StageFunction, StageStat, VideoPipelineStagePayloadType,
+    FrameProcessingStatRecord, FrameProcessingStatRecordType, load_stage_function_plugin, Pipeline,
+    PipelineConfiguration, StageFunction, StageLatencyMeasurements, StageLatencyStat,
+    StageProcessingStat, VideoPipelineStagePayloadType,
 };
 use savant_core_py::primitives::attribute::Attribute;
 use savant_core_py::primitives::attribute_value::{
-    AttributeValue, AttributeValueType, AttributeValuesView,
+    AttributeValue, AttributeValuesView, AttributeValueType,
 };
 use savant_core_py::primitives::batch::VideoFrameBatch;
-use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::bbox::{
     BBox, BBoxMetricType, RBBox, VideoObjectBBoxTransformation,
 };
+use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::eos::EndOfStream;
 use savant_core_py::primitives::frame::{
     VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -25,9 +28,9 @@ use savant_core_py::primitives::frame::{
 use savant_core_py::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
+use savant_core_py::primitives::message::*;
 use savant_core_py::primitives::message::loader::*;
 use savant_core_py::primitives::message::saver::*;
-use savant_core_py::primitives::message::*;
 use savant_core_py::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject,
 };
@@ -41,11 +44,12 @@ use savant_core_py::primitives::shutdown::Shutdown;
 use savant_core_py::primitives::user_data::UserData;
 use savant_core_py::telemetry::*;
 use savant_core_py::test::utils::*;
+use savant_core_py::utils::*;
 use savant_core_py::utils::byte_buffer::ByteBuffer;
 use savant_core_py::utils::eval_resolvers::*;
 use savant_core_py::utils::otlp::*;
 use savant_core_py::utils::symbol_mapper::*;
-use savant_core_py::utils::*;
+use savant_core_py::zmq::{blocking, nonblocking};
 use savant_core_py::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use savant_core_py::zmq::configs::{
     ReaderConfig, ReaderConfigBuilder, WriterConfig, WriterConfigBuilder,
@@ -54,8 +58,6 @@ use savant_core_py::zmq::results::{
     ReaderResultBlacklisted, ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout,
     WriterResultAck, WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
 };
-use savant_core_py::zmq::{blocking, nonblocking};
-use savant_core_py::*;
 
 #[pymodule]
 pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -196,7 +198,9 @@ pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PipelineConfiguration>()?;
     m.add_class::<Pipeline>()?;
     m.add_class::<FrameProcessingStatRecord>()?;
-    m.add_class::<StageStat>()?;
+    m.add_class::<StageLatencyStat>()?;
+    m.add_class::<StageProcessingStat>()?;
+    m.add_class::<StageLatencyMeasurements>()?;
     m.add_class::<FrameProcessingStatRecordType>()?;
     m.add_class::<StageFunction>()?;
     m.add_function(wrap_pyfunction!(load_stage_function_plugin, m)?)?;

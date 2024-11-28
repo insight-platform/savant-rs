@@ -110,6 +110,10 @@ impl VideoFrameBatch {
 
     #[getter]
     fn frames(&self) -> Vec<VideoFrame> {
-        self.0.frames().values().map(|x| VideoFrame(x.clone())).collect()
+        self.0
+            .frames()
+            .values()
+            .map(|x| VideoFrame(x.clone()))
+            .collect()
     }
 }
