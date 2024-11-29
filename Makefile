@@ -1,4 +1,5 @@
 export PROJECT_DIR=$(CURDIR)
+export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
 .PHONY: docs clippy build_savant build_savant_release clean tests bench
 
@@ -9,7 +10,7 @@ release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains
 release: clean clippy build_savant_release build_plugins_release
 
 install:
-	pip install --force-reinstall $(PROJECT_DIR)/dist/*.whl
+	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
 
 docs: dev install docs/source/index.rst
 	@echo "Building docs..."

@@ -1,26 +1,30 @@
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use anyhow::bail;
+use hashbrown::{HashMap, HashSet};
+use opentelemetry::Context;
+use opentelemetry::trace::TraceContextExt;
+
 use crate::match_query::MatchQuery;
-use crate::pipeline::implementation::Pipeline;
 use crate::pipeline::{
     PipelinePayload, PipelineStageFunction, PipelineStageFunctionOrder, PipelineStagePayloadType,
 };
+use crate::pipeline::implementation::Pipeline;
+use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat};
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::rust::StageStat;
 use crate::rwlock::SavantRwLock;
-use anyhow::bail;
-use hashbrown::{HashMap, HashSet};
-use opentelemetry::trace::TraceContextExt;
-use opentelemetry::Context;
-use std::fmt::{Debug, Formatter};
-use std::sync::Arc;
 
 pub struct PipelineStage {
+    pub id: usize,
     pub name: String,
     pub stage_type: PipelineStagePayloadType,
     pub payload: SavantRwLock<HashMap<i64, PipelinePayload>>,
-    pub stat: Arc<SavantRwLock<StageStat>>,
+    pub stat: Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>,
     ingress_function: Option<Box<dyn PipelineStageFunction>>,
     egress_function: Option<Box<dyn PipelineStageFunction>>,
 }
@@ -28,6 +32,7 @@ pub struct PipelineStage {
 impl Debug for PipelineStage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PipelineStage")
+            .field("id", &self.id)
             .field("name", &self.name)
             .field("stage_type", &self.stage_type)
             .field("payload", &self.payload)
@@ -40,22 +45,27 @@ impl Debug for PipelineStage {
 
 impl PipelineStage {
     pub fn new(
+        id: usize,
         name: String,
         stage_type: PipelineStagePayloadType,
         ingress_function: Option<Box<dyn PipelineStageFunction>>,
         egress_function: Option<Box<dyn PipelineStageFunction>>,
     ) -> Self {
         Self {
+            id,
             name: name.clone(),
             stage_type,
             payload: Default::default(),
-            stat: Arc::new(SavantRwLock::new(StageStat::new(name))),
+            stat: Arc::new(SavantRwLock::new((
+                StageProcessingStat::new(name.clone()),
+                StageLatencyStat::new(name),
+            ))),
             ingress_function,
             egress_function,
         }
     }
 
-    pub fn get_stat(&self) -> Arc<SavantRwLock<StageStat>> {
+    pub fn get_stat(&self) -> Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>> {
         self.stat.clone()
     }
 
@@ -99,7 +109,7 @@ impl PipelineStage {
 
     pub fn add_frame_update(&self, frame_id: i64, update: VideoFrameUpdate) -> anyhow::Result<()> {
         self.with_payload_item_mut(frame_id, move |payload| match payload {
-            PipelinePayload::Frame(_, updates, _) => {
+            PipelinePayload::Frame(_, updates, _, _, _) => {
                 updates.push(update);
                 Ok(())
             }
@@ -114,7 +124,7 @@ impl PipelineStage {
         update: VideoFrameUpdate,
     ) -> anyhow::Result<()> {
         self.with_payload_item_mut(batch_id, |payload| match payload {
-            PipelinePayload::Batch(_, updates, _) => {
+            PipelinePayload::Batch(_, updates, _, _, _) => {
                 updates.push((frame_id, update));
                 Ok(())
             }
@@ -122,19 +132,19 @@ impl PipelineStage {
         })?
     }
 
-    fn update_stats_for_frame(&self, f: &VideoFrameProxy) {
+    fn update_processing_stats_for_frame(&self, f: &VideoFrameProxy) {
         let mut stat_bind = self.stat.write();
-        stat_bind.frame_counter += 1;
-        stat_bind.queue_length += 1;
-        stat_bind.object_counter += f.get_object_count();
+        stat_bind.0.frame_counter += 1;
+        stat_bind.0.queue_length += 1;
+        stat_bind.0.object_counter += f.get_object_count();
     }
 
-    fn update_stats_for_batch(&self, b: &VideoFrameBatch) {
+    fn update_processing_stats_for_batch(&self, b: &VideoFrameBatch) {
         let mut stat_bind = self.stat.write();
-        stat_bind.batch_counter += 1;
-        stat_bind.frame_counter += b.frames.len();
-        stat_bind.queue_length += 1;
-        stat_bind.object_counter += b
+        stat_bind.0.batch_counter += 1;
+        stat_bind.0.frame_counter += b.frames.len();
+        stat_bind.0.queue_length += 1;
+        stat_bind.0.object_counter += b
             .frames
             .values()
             .map(|f| f.get_object_count())
@@ -158,22 +168,38 @@ impl PipelineStage {
                 if bind.contains_key(&id) {
                     bail!("Payload {} already exists", id)
                 }
-                match &payload {
-                    PipelinePayload::Frame(f, _, _) => {
+                let payload = match payload {
+                    PipelinePayload::Frame(f, updates, context, last_stage, last_time) => {
                         if self.stage_type == PipelineStagePayloadType::Batch {
                             bail!("Payload must be a batch")
                         } else {
-                            self.update_stats_for_frame(f);
+                            self.update_processing_stats_for_frame(&f);
+                            self.update_latency_stats(last_stage, vec![last_time]);
                         }
+                        PipelinePayload::Frame(
+                            f,
+                            updates,
+                            context,
+                            Some(self.name.clone()),
+                            SystemTime::now(),
+                        )
                     }
-                    PipelinePayload::Batch(b, _, _) => {
+                    PipelinePayload::Batch(b, updates, contexts, last_stage, last_times) => {
                         if self.stage_type == PipelineStagePayloadType::Frame {
                             bail!("Payload must be a frame")
                         } else {
-                            self.update_stats_for_batch(b);
+                            self.update_processing_stats_for_batch(&b);
+                            self.update_latency_stats(last_stage, last_times);
                         }
+                        PipelinePayload::Batch(
+                            b,
+                            updates,
+                            contexts,
+                            Some(self.name.clone()),
+                            vec![SystemTime::now()],
+                        )
                     }
-                }
+                };
                 bind.insert(id, payload);
             }
             Ok(())
@@ -186,12 +212,14 @@ impl PipelineStage {
                 bail!("Frame {} already exists", frame_id)
             }
             match payload {
-                PipelinePayload::Batch(_, _, _) => {
+                PipelinePayload::Batch(_, _, _, _, _) => {
                     bail!("Payload must be a frame")
                 }
-                PipelinePayload::Frame(f, u, c) => {
-                    self.update_stats_for_frame(&f);
-                    let mut payload = PipelinePayload::Frame(f, u, c);
+                PipelinePayload::Frame(f, u, c, last_stage, last_time) => {
+                    self.update_processing_stats_for_frame(&f);
+                    self.update_latency_stats(last_stage, vec![last_time]);
+                    let mut payload =
+                        PipelinePayload::Frame(f, u, c, Some(self.name.clone()), SystemTime::now());
                     if let Some(ingress_function) = &self.ingress_function {
                         ingress_function.call(
                             frame_id,
@@ -213,12 +241,19 @@ impl PipelineStage {
                 bail!("Batch {} already exists", batch_id)
             }
             match payload {
-                PipelinePayload::Frame(_, _, _) => {
+                PipelinePayload::Frame(_, _, _, _, _) => {
                     bail!("Payload must be a batch")
                 }
-                PipelinePayload::Batch(b, u, c) => {
-                    self.update_stats_for_batch(&b);
-                    let mut payload = PipelinePayload::Batch(b, u, c);
+                PipelinePayload::Batch(b, u, c, last_stage, last_times) => {
+                    self.update_processing_stats_for_batch(&b);
+                    self.update_latency_stats(last_stage, last_times);
+                    let mut payload = PipelinePayload::Batch(
+                        b,
+                        u,
+                        c,
+                        Some(self.name.clone()),
+                        vec![SystemTime::now()],
+                    );
                     if let Some(ingress_function) = &self.ingress_function {
                         ingress_function.call(
                             batch_id,
@@ -244,7 +279,7 @@ impl PipelineStage {
             }
             if res.is_some() {
                 let mut stats_bind = self.stat.write();
-                stats_bind.queue_length = bind.len();
+                stats_bind.0.queue_length = bind.len();
             }
             Ok(res)
         })
@@ -268,7 +303,7 @@ impl PipelineStage {
                 }
             }
             let mut stats_bind = self.stat.write();
-            stats_bind.queue_length = bind.len();
+            stats_bind.0.queue_length = bind.len();
             Ok(removed)
         })
     }
@@ -286,7 +321,7 @@ impl PipelineStage {
         frame_id: i64,
     ) -> anyhow::Result<(VideoFrameProxy, Context)> {
         self.with_payload_item(frame_id, |payload| match payload {
-            PipelinePayload::Frame(frame, _, ctx) => Ok((frame.clone(), ctx.clone())),
+            PipelinePayload::Frame(frame, _, ctx, _, _) => Ok((frame.clone(), ctx.clone())),
             _ => bail!("Payload must be a frame"),
         })?
     }
@@ -297,7 +332,7 @@ impl PipelineStage {
         frame_id: i64,
     ) -> anyhow::Result<(VideoFrameProxy, Context)> {
         self.with_payload_item(batch_id, |payload| match payload {
-            PipelinePayload::Batch(batch, _, contexts) => {
+            PipelinePayload::Batch(batch, _, contexts, _, _) => {
                 if let Some(frame) = batch.get(frame_id) {
                     let ctx = contexts
                         .get(&frame_id)
@@ -316,7 +351,9 @@ impl PipelineStage {
         batch_id: i64,
     ) -> anyhow::Result<(VideoFrameBatch, HashMap<i64, Context>)> {
         self.with_payload_item(batch_id, |payload| match payload {
-            PipelinePayload::Batch(batch, _, contexts) => Ok((batch.clone(), contexts.clone())),
+            PipelinePayload::Batch(batch, _, contexts, _, _) => {
+                Ok((batch.clone(), contexts.clone()))
+            }
             _ => bail!("Payload must be a batch"),
         })?
     }
@@ -324,7 +361,7 @@ impl PipelineStage {
     pub fn apply_updates(&self, id: i64) -> anyhow::Result<()> {
         self.with_payload_item_mut(id, |payload| {
             match payload {
-                PipelinePayload::Frame(frame, updates, ctx) => {
+                PipelinePayload::Frame(frame, updates, ctx, _, _) => {
                     let _span =
                         Pipeline::get_nested_span(format!("{}/apply-updates", self.name), ctx)
                             .attach();
@@ -332,7 +369,7 @@ impl PipelineStage {
                         frame.update(update)?;
                     }
                 }
-                PipelinePayload::Batch(batch, updates, contexts) => {
+                PipelinePayload::Batch(batch, updates, contexts, _, _) => {
                     for (frame_id, update) in updates {
                         if let Some(frame) = batch.get(*frame_id) {
                             let _context_guard = Pipeline::get_nested_span(
@@ -352,13 +389,13 @@ impl PipelineStage {
     pub fn clear_updates(&self, id: i64) -> anyhow::Result<()> {
         self.with_payload_item_mut(id, |payload| {
             match payload {
-                PipelinePayload::Frame(_, updates, ctx) => {
+                PipelinePayload::Frame(_, updates, ctx, _, _) => {
                     let _guard =
                         Pipeline::get_nested_span(format!("{}/clear-updates", self.name), ctx)
                             .attach();
                     updates.clear();
                 }
-                PipelinePayload::Batch(_, updates, ctxts) => {
+                PipelinePayload::Batch(_, updates, ctxts, _, _) => {
                     let ids = updates.iter().map(|(id, _)| *id).collect::<HashSet<_>>();
                     let contexts = ids
                         .iter()
@@ -383,12 +420,12 @@ impl PipelineStage {
         query: &MatchQuery,
     ) -> anyhow::Result<HashMap<i64, Vec<BorrowedVideoObject>>> {
         self.with_payload_item(id, |payload| match payload {
-            PipelinePayload::Frame(frame, _, ctx) => {
+            PipelinePayload::Frame(frame, _, ctx, _, _) => {
                 let _span = Pipeline::get_nested_span(format!("{}/access-objects", self.name), ctx)
                     .attach();
                 Ok(HashMap::from([(id, frame.access_objects(query))]))
             }
-            PipelinePayload::Batch(batch, _, contexts) => {
+            PipelinePayload::Batch(batch, _, contexts, _, _) => {
                 let contexts = contexts
                     .iter()
                     .map(|(_, ctx)| {
@@ -401,29 +438,42 @@ impl PipelineStage {
             }
         })?
     }
+    fn update_latency_stats(&self, last_stage: Option<String>, last_times: Vec<SystemTime>) {
+        let mut stat_bind = self.stat.write();
+        if let Some(last_stage) = last_stage {
+            for lt in last_times {
+                stat_bind
+                    .1
+                    .record_latency(last_stage.clone(), lt.elapsed().unwrap_or_default());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::match_query::MatchQuery;
-    use crate::pipeline::stage::PipelineStage;
-    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
-    use crate::primitives::frame_batch::VideoFrameBatch;
-    use crate::primitives::frame_update::VideoFrameUpdate;
-    use crate::primitives::{Attribute, WithAttributes};
-    use crate::test::gen_frame;
+    use std::time::SystemTime;
+
     use anyhow::Result;
     use hashbrown::HashMap;
     use opentelemetry::Context;
 
+    use crate::match_query::MatchQuery;
+    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
+    use crate::pipeline::stage::PipelineStage;
+    use crate::primitives::{Attribute, WithAttributes};
+    use crate::primitives::frame_batch::VideoFrameBatch;
+    use crate::primitives::frame_update::VideoFrameUpdate;
+    use crate::test::gen_frame;
+
     fn get_frame_stage() -> PipelineStage {
         let name = "stage".to_string();
-        PipelineStage::new(name, PipelineStagePayloadType::Frame, None, None)
+        PipelineStage::new(0, name, PipelineStagePayloadType::Frame, None, None)
     }
 
     fn get_batch_stage() -> PipelineStage {
         let name = "stage".to_string();
-        PipelineStage::new(name, PipelineStagePayloadType::Batch, None, None)
+        PipelineStage::new(0, name, PipelineStagePayloadType::Batch, None, None)
     }
 
     #[test]
@@ -431,12 +481,24 @@ mod tests {
         let stage = get_frame_stage();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         let stage = get_batch_stage();
         stage.add_batch_payload(
             1,
-            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            PipelinePayload::Batch(
+                VideoFrameBatch::new(),
+                Vec::default(),
+                HashMap::default(),
+                None,
+                vec![SystemTime::now()],
+            ),
         )
     }
 
@@ -446,7 +508,13 @@ mod tests {
         assert!(stage
             .add_frame_payload(
                 1,
-                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+                PipelinePayload::Batch(
+                    VideoFrameBatch::new(),
+                    Vec::default(),
+                    HashMap::default(),
+                    None,
+                    vec![SystemTime::now()],
+                ),
             )
             .is_err());
 
@@ -454,7 +522,13 @@ mod tests {
         assert!(stage
             .add_batch_payload(
                 1,
-                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                PipelinePayload::Frame(
+                    gen_frame(),
+                    Vec::default(),
+                    Context::default(),
+                    None,
+                    SystemTime::now(),
+                ),
             )
             .is_err());
         Ok(())
@@ -466,11 +540,23 @@ mod tests {
         stage.add_payloads(vec![
             (
                 1,
-                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                PipelinePayload::Frame(
+                    gen_frame(),
+                    Vec::default(),
+                    Context::default(),
+                    None,
+                    SystemTime::now(),
+                ),
             ),
             (
                 2,
-                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                PipelinePayload::Frame(
+                    gen_frame(),
+                    Vec::default(),
+                    Context::default(),
+                    None,
+                    SystemTime::now(),
+                ),
             ),
         ])?;
 
@@ -478,11 +564,23 @@ mod tests {
         stage.add_payloads(vec![
             (
                 1,
-                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+                PipelinePayload::Batch(
+                    VideoFrameBatch::new(),
+                    Vec::default(),
+                    HashMap::default(),
+                    None,
+                    vec![SystemTime::now()],
+                ),
             ),
             (
                 2,
-                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+                PipelinePayload::Batch(
+                    VideoFrameBatch::new(),
+                    Vec::default(),
+                    HashMap::default(),
+                    None,
+                    vec![SystemTime::now()],
+                ),
             ),
         ])
     }
@@ -494,14 +592,22 @@ mod tests {
             .add_payloads(vec![
                 (
                     1,
-                    PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                    PipelinePayload::Frame(
+                        gen_frame(),
+                        Vec::default(),
+                        Context::default(),
+                        None,
+                        SystemTime::now(),
+                    ),
                 ),
                 (
                     2,
                     PipelinePayload::Batch(
                         VideoFrameBatch::new(),
                         Vec::default(),
-                        HashMap::default()
+                        HashMap::default(),
+                        None,
+                        vec![SystemTime::now()],
                     ),
                 ),
             ])
@@ -514,12 +620,24 @@ mod tests {
         let stage = get_frame_stage();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         assert!(stage
             .add_frame_payload(
                 1,
-                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                PipelinePayload::Frame(
+                    gen_frame(),
+                    Vec::default(),
+                    Context::default(),
+                    None,
+                    SystemTime::now(),
+                ),
             )
             .is_err());
         Ok(())
@@ -530,12 +648,24 @@ mod tests {
         let stage = get_batch_stage();
         stage.add_batch_payload(
             1,
-            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+            PipelinePayload::Batch(
+                VideoFrameBatch::new(),
+                Vec::default(),
+                HashMap::default(),
+                None,
+                vec![SystemTime::now()],
+            ),
         )?;
         assert!(stage
             .add_batch_payload(
                 1,
-                PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::default()),
+                PipelinePayload::Batch(
+                    VideoFrameBatch::new(),
+                    Vec::default(),
+                    HashMap::default(),
+                    None,
+                    vec![SystemTime::now()],
+                ),
             )
             .is_err());
         Ok(())
@@ -547,7 +677,13 @@ mod tests {
         stage
             .add_frame_payload(
                 1,
-                PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+                PipelinePayload::Frame(
+                    gen_frame(),
+                    Vec::default(),
+                    Context::default(),
+                    None,
+                    SystemTime::now(),
+                ),
             )
             .unwrap();
         assert!(stage.delete(1).unwrap().is_some());
@@ -559,15 +695,33 @@ mod tests {
         let stage = get_frame_stage();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         stage.add_frame_payload(
             2,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         stage.add_frame_payload(
             3,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         let removed = stage.delete_many(&[1, 2, 3])?;
         assert_eq!(removed.len(), 3);
@@ -581,15 +735,33 @@ mod tests {
         let stage = get_frame_stage();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         stage.add_frame_payload(
             2,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         stage.add_frame_payload(
             3,
-            PipelinePayload::Frame(gen_frame(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                gen_frame(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         assert_eq!(stage.len(), 3);
         Ok(())
@@ -601,7 +773,13 @@ mod tests {
         let frame = gen_frame();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(frame.clone(), Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                frame.clone(),
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         let (_, _) = stage.get_independent_frame(1)?;
         assert!(stage.get_independent_frame(2).is_err());
@@ -620,6 +798,8 @@ mod tests {
                 batch,
                 Vec::default(),
                 HashMap::from([(2, Context::default())]),
+                None,
+                vec![SystemTime::now()],
             ),
         )?;
         let (_, _) = stage.get_batched_frame(1, 2)?;
@@ -632,7 +812,13 @@ mod tests {
         let stage = get_batch_stage();
         stage.add_batch_payload(
             1,
-            PipelinePayload::Batch(VideoFrameBatch::new(), Vec::default(), HashMap::from([])),
+            PipelinePayload::Batch(
+                VideoFrameBatch::new(),
+                Vec::default(),
+                HashMap::from([]),
+                None,
+                vec![SystemTime::now()],
+            ),
         )?;
         let (_, _) = stage.get_batch(1)?;
         assert!(stage.get_batch(2).is_err());
@@ -645,7 +831,13 @@ mod tests {
         let frame = gen_frame();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(frame, Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                frame,
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         let mut update = VideoFrameUpdate::default();
         update.add_frame_attribute(Attribute::persistent("new", "attr", vec![], &None, false));
@@ -675,6 +867,8 @@ mod tests {
                 batch,
                 Vec::default(),
                 HashMap::from([(2, Context::default())]),
+                None,
+                vec![SystemTime::now()],
             ),
         )?;
         let mut update = VideoFrameUpdate::default();
@@ -699,7 +893,13 @@ mod tests {
         let frame = gen_frame();
         stage.add_frame_payload(
             1,
-            PipelinePayload::Frame(frame, Vec::default(), Context::default()),
+            PipelinePayload::Frame(
+                frame,
+                Vec::default(),
+                Context::default(),
+                None,
+                SystemTime::now(),
+            ),
         )?;
         let objects = stage.access_objects(1, &MatchQuery::Idle)?;
         assert_eq!(objects.get(&1).unwrap().len(), 3);
@@ -718,6 +918,8 @@ mod tests {
                 batch,
                 Vec::default(),
                 HashMap::from([(2, Context::default()), (3, Context::default())]),
+                None,
+                vec![SystemTime::now()],
             ),
         )?;
         let objects = stage.access_objects(1, &MatchQuery::Idle)?;

@@ -1,3 +1,14 @@
+use std::cell::Cell;
+use std::collections::HashMap;
+
+use pyo3::exceptions::{PySystemError, PyValueError};
+use pyo3::prelude::*;
+
+use savant_core::pipeline::PipelineStageFunction as RustPipelineStageFunction;
+use savant_core::pipeline::PluginParams;
+use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
+use savant_core::rust;
+
 use crate::match_query::MatchQuery;
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::batch::VideoFrameBatch;
@@ -6,14 +17,6 @@ use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
 use crate::utils::otlp::TelemetrySpan;
-use pyo3::exceptions::{PySystemError, PyValueError};
-use pyo3::prelude::*;
-use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
-use savant_core::pipeline::PipelineStageFunction as RustPipelineStageFunction;
-use savant_core::pipeline::PluginParams;
-use savant_core::rust;
-use std::cell::Cell;
-use std::collections::HashMap;
 
 #[pyclass]
 pub struct StageFunction(Cell<Option<Box<dyn RustPipelineStageFunction>>>);
@@ -104,10 +107,65 @@ impl From<rust::FrameProcessingStatRecordType> for FrameProcessingStatRecordType
 }
 
 #[pyclass]
-pub struct StageStat(rust::StageStat);
+pub struct StageLatencyMeasurements(rust::StageLatencyMeasurements);
 
 #[pymethods]
-impl StageStat {
+impl StageLatencyMeasurements {
+    #[getter]
+    fn source_stage_name(&self) -> Option<String> {
+        self.0.source_stage_name.clone()
+    }
+    #[getter]
+    fn min_latency_micros(&self) -> u128 {
+        self.0.min_latency.as_micros()
+    }
+
+    #[getter]
+    fn max_latency_micros(&self) -> u128 {
+        self.0.max_latency.as_micros()
+    }
+
+    #[getter]
+    fn accumulated_latency_millis(&self) -> u128 {
+        self.0.accumulated_latency.as_millis()
+    }
+
+    #[getter]
+    fn count(&self) -> usize {
+        self.0.count
+    }
+
+    #[getter]
+    fn avg_latency_micros(&self) -> u128 {
+        self.0.accumulated_latency.as_micros() / self.0.count as u128
+    }
+}
+
+#[pyclass]
+pub struct StageLatencyStat(rust::StageLatencyStat);
+
+#[pymethods]
+impl StageLatencyStat {
+    #[getter]
+    fn stage_name(&self) -> String {
+        self.0.stage_name.clone()
+    }
+
+    #[getter]
+    fn latencies(&self) -> Vec<StageLatencyMeasurements> {
+        self.0
+            .latencies
+            .clone()
+            .into_iter()
+            .map(|(_, v)| StageLatencyMeasurements(v))
+            .collect()
+    }
+}
+#[pyclass]
+pub struct StageProcessingStat(rust::StageProcessingStat);
+
+#[pymethods]
+impl StageProcessingStat {
     #[getter]
     fn stage_name(&self) -> String {
         self.0.stage_name.clone()
@@ -173,12 +231,12 @@ impl FrameProcessingStatRecord {
     }
 
     #[getter]
-    fn stage_stats(&self) -> Vec<StageStat> {
+    fn stage_stats(&self) -> Vec<(StageProcessingStat, StageLatencyStat)> {
         self.0
             .stage_stats
             .clone()
             .into_iter()
-            .map(StageStat)
+            .map(|(sps, sls)| (StageProcessingStat(sps), StageLatencyStat(sls)))
             .collect()
     }
 
@@ -717,7 +775,6 @@ impl Pipeline {
     ///   If the source stage and the destination stage are not of the same type.
     ///   If the frame or batch does not exist.
     ///
-
     #[pyo3(name = "move_as_is")]
     #[pyo3(signature = (dest_stage_name, object_ids, no_gil = true))]
     fn move_as_is_gil(

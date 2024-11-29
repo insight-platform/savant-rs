@@ -2,17 +2,19 @@
 
 extern crate test;
 
+use std::sync::Once;
+use test::Bencher;
+
 use anyhow::Result;
 use opentelemetry::trace::TraceContextExt;
+
 use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
 use savant_core::rust::PipelineConfigurationBuilder;
 use savant_core::telemetry::{
-    init, shutdown, ContextPropagationFormat, Protocol, TelemetryConfiguration, TracerConfiguration,
+    ContextPropagationFormat, init, Protocol, shutdown, TelemetryConfiguration, TracerConfiguration,
 };
 use savant_core::test::gen_frame;
-use std::sync::Once;
-use test::Bencher;
 
 static INIT: Once = Once::new();
 
@@ -78,7 +80,11 @@ fn get_pipeline(
     Ok((pipeline, stages))
 }
 
-fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineStagePayloadType)>) {
+fn benchmark(
+    b: &mut Bencher,
+    pipeline: &mut Pipeline,
+    stages: Vec<(String, PipelineStagePayloadType)>,
+) {
     b.iter(|| {
         let f = gen_frame();
         let mut current_id = pipeline.add_frame("add", f).expect("Cannot add frame");
@@ -121,9 +127,14 @@ fn benchmark(b: &mut Bencher, pipeline: Pipeline, stages: Vec<(String, PipelineS
 fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
     init_telemetry();
 
-    let (pipeline, stages) = get_pipeline(false)?;
+    let (mut pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(0)?;
-    benchmark(b, pipeline, stages);
+    benchmark(b, &mut pipeline, stages);
+
+    pipeline.log_final_fps();
+    let records = pipeline.get_stat_records(1);
+    dbg!(&records);
+
     Ok(())
 }
 
@@ -131,9 +142,9 @@ fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
 fn bench_pipeline2_sampling_none_with_json(b: &mut Bencher) -> Result<()> {
     init_telemetry();
 
-    let (pipeline, stages) = get_pipeline(true)?;
+    let (mut pipeline, stages) = get_pipeline(true)?;
     pipeline.set_sampling_period(0)?;
-    benchmark(b, pipeline, stages);
+    benchmark(b, &mut pipeline, stages);
     Ok(())
 }
 
@@ -141,9 +152,10 @@ fn bench_pipeline2_sampling_none_with_json(b: &mut Bencher) -> Result<()> {
 fn bench_pipeline2_sampling_every(b: &mut Bencher) -> Result<()> {
     init_telemetry();
 
-    let (pipeline, stages) = get_pipeline(false)?;
+    let (mut pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(1)?;
-    benchmark(b, pipeline, stages);
+    benchmark(b, &mut pipeline, stages);
+
     Ok(())
 }
 
@@ -162,9 +174,9 @@ fn bench_pipeline2_with_jaeger_no_sampling(b: &mut Bencher) -> Result<()> {
         tracer: Some(tracer_config),
     };
     init(&config);
-    let (pipeline, stages) = get_pipeline(false)?;
+    let (mut pipeline, stages) = get_pipeline(false)?;
     pipeline.set_sampling_period(1)?;
-    benchmark(b, pipeline, stages);
+    benchmark(b, &mut pipeline, stages);
 
     shutdown();
 
