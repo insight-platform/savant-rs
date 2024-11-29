@@ -104,7 +104,7 @@ impl StageLatencyStat {
                 self.stage_name,
             );
             info!(
-                "↳ min: {:>8} micros, max: {:>8} micros, avg: {:>8} micros, count: {:>8}",
+                "⏱ min: {:>8} micros, max: {:>8} micros, avg: {:>8} micros, count: {:>8}",
                 latency.min_latency.as_micros(),
                 latency.max_latency.as_micros(),
                 latency.accumulated_latency.as_micros() / latency.count as u128,
