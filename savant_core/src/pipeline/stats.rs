@@ -58,7 +58,7 @@ pub struct StageProcessingStat {
 #[derive(Debug, Clone, Default)]
 pub struct StageLatencyStat {
     pub stage_name: String,
-    pub latencies: HashMap<usize, StageLatencyMeasurements>,
+    pub latencies: HashMap<String, StageLatencyMeasurements>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,17 +78,17 @@ impl StageLatencyStat {
         }
     }
 
-    pub fn record_latency(&mut self, source_stage: usize, latency: Duration) {
-        let measurements =
-            self.latencies
-                .entry(source_stage)
-                .or_insert_with(|| StageLatencyMeasurements {
-                    source_stage_name: None,
-                    min_latency: latency,
-                    max_latency: latency,
-                    accumulated_latency: Duration::from_secs(0),
-                    count: 0,
-                });
+    pub fn record_latency(&mut self, source_stage_name: String, latency: Duration) {
+        let measurements = self
+            .latencies
+            .entry(source_stage_name.clone())
+            .or_insert_with(|| StageLatencyMeasurements {
+                source_stage_name: Some(source_stage_name),
+                min_latency: latency,
+                max_latency: latency,
+                accumulated_latency: Duration::from_secs(0),
+                count: 0,
+            });
         measurements.min_latency = std::cmp::min(measurements.min_latency, latency);
         measurements.max_latency = std::cmp::max(measurements.max_latency, latency);
         measurements.accumulated_latency += latency;

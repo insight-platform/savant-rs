@@ -62,14 +62,14 @@ pub enum PipelinePayload {
         VideoFrameProxy,
         Vec<VideoFrameUpdate>,
         Context,
-        Option<usize>,
+        Option<String>,
         SystemTime,
     ),
     Batch(
         VideoFrameBatch,
         Vec<(i64, VideoFrameUpdate)>,
         HashMap<i64, Context>,
-        Option<usize>,
+        Option<String>,
         Vec<SystemTime>,
     ),
 }
@@ -366,26 +366,12 @@ pub(super) mod implementation {
             Ok(pipeline)
         }
 
-        fn augment_stat_records(
-            &self,
-            mut records: Vec<FrameProcessingStatRecord>,
-        ) -> Vec<FrameProcessingStatRecord> {
-            records.iter_mut().for_each(|r| {
-                r.stage_stats.iter_mut().for_each(|(_, l)| {
-                    l.latencies.iter_mut().for_each(|(s, m)| {
-                        m.source_stage_name = self.get_stage_name(*s);
-                    });
-                });
-            });
-            records
-        }
-
         pub fn get_stat_records(&self, max_n: usize) -> Vec<FrameProcessingStatRecord> {
-            self.augment_stat_records(self.stats.get_records(max_n))
+            self.stats.get_records(max_n)
         }
 
         pub fn get_stat_records_newer_than(&self, id: i64) -> Vec<FrameProcessingStatRecord> {
-            self.augment_stat_records(self.stats.get_records_newer_than(id))
+            self.stats.get_records_newer_than(id)
         }
 
         pub fn log_final_fps(&self) {
@@ -916,7 +902,7 @@ pub(super) mod implementation {
             let mut batch_updates = Vec::with_capacity(default_size);
             let mut contexts = HashMap::with_capacity(default_size);
 
-            let mut last_stage: Option<usize> = None;
+            let mut last_stage: Option<String> = None;
             let mut last_times: Vec<SystemTime> = Vec::with_capacity(batch.frames.len());
             for id in frame_ids {
                 if let Some(payload) = source_stage_opt
@@ -1023,7 +1009,7 @@ pub(super) mod implementation {
                         frame,
                         Vec::new(),
                         ctx,
-                        last_stage,
+                        last_stage.clone(),
                         last_times.first().unwrap_or(&SystemTime::now()).to_owned(),
                     ),
                 );

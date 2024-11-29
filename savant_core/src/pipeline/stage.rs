@@ -70,8 +70,8 @@ impl PipelineStage {
     }
 
     fn with_payload_item_mut<F, T>(&self, id: i64, f: F) -> anyhow::Result<T>
-        where
-            F: FnOnce(&mut PipelinePayload) -> T,
+    where
+        F: FnOnce(&mut PipelinePayload) -> T,
     {
         let mut bind = self.payload.write();
         let payload = bind
@@ -81,8 +81,8 @@ impl PipelineStage {
     }
 
     fn with_payload_item<F, T>(&self, id: i64, f: F) -> anyhow::Result<T>
-        where
-            F: FnOnce(&PipelinePayload) -> T,
+    where
+        F: FnOnce(&PipelinePayload) -> T,
     {
         let bind = self.payload.read();
         let payload = bind
@@ -92,16 +92,16 @@ impl PipelineStage {
     }
 
     fn with_payload_mut<F, T>(&self, f: F) -> T
-        where
-            F: FnOnce(&mut HashMap<i64, PipelinePayload>) -> T,
+    where
+        F: FnOnce(&mut HashMap<i64, PipelinePayload>) -> T,
     {
         let mut bind = self.payload.write();
         f(&mut bind)
     }
 
     fn with_payload<F, T>(&self, f: F) -> T
-        where
-            F: FnOnce(&HashMap<i64, PipelinePayload>) -> T,
+    where
+        F: FnOnce(&HashMap<i64, PipelinePayload>) -> T,
     {
         let bind = self.payload.read();
         f(&bind)
@@ -152,8 +152,8 @@ impl PipelineStage {
     }
 
     pub fn add_payloads<I>(&self, payloads: I) -> anyhow::Result<()>
-        where
-            I: IntoIterator<Item=(i64, PipelinePayload)>,
+    where
+        I: IntoIterator<Item = (i64, PipelinePayload)>,
     {
         self.with_payload_mut(|bind| {
             for (id, mut payload) in payloads {
@@ -180,7 +180,7 @@ impl PipelineStage {
                             f,
                             updates,
                             context,
-                            Some(self.id),
+                            Some(self.name.clone()),
                             SystemTime::now(),
                         )
                     }
@@ -195,7 +195,7 @@ impl PipelineStage {
                             b,
                             updates,
                             contexts,
-                            Some(self.id),
+                            Some(self.name.clone()),
                             vec![SystemTime::now()],
                         )
                     }
@@ -219,7 +219,7 @@ impl PipelineStage {
                     self.update_processing_stats_for_frame(&f);
                     self.update_latency_stats(last_stage, vec![last_time]);
                     let mut payload =
-                        PipelinePayload::Frame(f, u, c, Some(self.id), SystemTime::now());
+                        PipelinePayload::Frame(f, u, c, Some(self.name.clone()), SystemTime::now());
                     if let Some(ingress_function) = &self.ingress_function {
                         ingress_function.call(
                             frame_id,
@@ -247,8 +247,13 @@ impl PipelineStage {
                 PipelinePayload::Batch(b, u, c, last_stage, last_times) => {
                     self.update_processing_stats_for_batch(&b);
                     self.update_latency_stats(last_stage, last_times);
-                    let mut payload =
-                        PipelinePayload::Batch(b, u, c, Some(self.id), vec![SystemTime::now()]);
+                    let mut payload = PipelinePayload::Batch(
+                        b,
+                        u,
+                        c,
+                        Some(self.name.clone()),
+                        vec![SystemTime::now()],
+                    );
                     if let Some(ingress_function) = &self.ingress_function {
                         ingress_function.call(
                             batch_id,
@@ -371,7 +376,7 @@ impl PipelineStage {
                                 format!("{}/apply-updates", self.name),
                                 contexts.get(frame_id).unwrap(),
                             )
-                                .attach();
+                            .attach();
                             frame.update(update)?;
                         }
                     }
@@ -433,14 +438,13 @@ impl PipelineStage {
             }
         })?
     }
-    fn update_latency_stats(&self, last_stage: Option<usize>, last_times: Vec<SystemTime>) {
+    fn update_latency_stats(&self, last_stage: Option<String>, last_times: Vec<SystemTime>) {
         let mut stat_bind = self.stat.write();
         if let Some(last_stage) = last_stage {
             for lt in last_times {
-                stat_bind.1.record_latency(
-                    last_stage,
-                    lt.elapsed().unwrap_or_default(),
-                );
+                stat_bind
+                    .1
+                    .record_latency(last_stage.clone(), lt.elapsed().unwrap_or_default());
             }
         }
     }
