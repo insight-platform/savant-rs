@@ -6,13 +6,14 @@ use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
 use opentelemetry::Context;
 use opentelemetry::trace::TraceContextExt;
+use parking_lot::Mutex;
 
 use crate::match_query::MatchQuery;
 use crate::pipeline::{
     PipelinePayload, PipelineStageFunction, PipelineStageFunctionOrder, PipelineStagePayloadType,
 };
 use crate::pipeline::implementation::Pipeline;
-use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat};
+use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats};
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -24,7 +25,7 @@ pub struct PipelineStage {
     pub name: String,
     pub stage_type: PipelineStagePayloadType,
     pub payload: SavantRwLock<HashMap<i64, PipelinePayload>>,
-    pub stat: Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>,
+    pub stat: StageStats,
     ingress_function: Option<Box<dyn PipelineStageFunction>>,
     egress_function: Option<Box<dyn PipelineStageFunction>>,
 }
@@ -56,7 +57,7 @@ impl PipelineStage {
             name: name.clone(),
             stage_type,
             payload: Default::default(),
-            stat: Arc::new(SavantRwLock::new((
+            stat: Arc::new(Mutex::new((
                 StageProcessingStat::new(name.clone()),
                 StageLatencyStat::new(name),
             ))),
@@ -65,7 +66,7 @@ impl PipelineStage {
         }
     }
 
-    pub fn get_stat(&self) -> Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>> {
+    pub fn get_stat(&self) -> StageStats {
         self.stat.clone()
     }
 
@@ -133,14 +134,14 @@ impl PipelineStage {
     }
 
     fn update_processing_stats_for_frame(&self, f: &VideoFrameProxy) {
-        let mut stat_bind = self.stat.write();
+        let mut stat_bind = self.stat.lock();
         stat_bind.0.frame_counter += 1;
         stat_bind.0.queue_length += 1;
         stat_bind.0.object_counter += f.get_object_count();
     }
 
     fn update_processing_stats_for_batch(&self, b: &VideoFrameBatch) {
-        let mut stat_bind = self.stat.write();
+        let mut stat_bind = self.stat.lock();
         stat_bind.0.batch_counter += 1;
         stat_bind.0.frame_counter += b.frames.len();
         stat_bind.0.queue_length += 1;
@@ -278,7 +279,7 @@ impl PipelineStage {
                 }
             }
             if res.is_some() {
-                let mut stats_bind = self.stat.write();
+                let mut stats_bind = self.stat.lock();
                 stats_bind.0.queue_length = bind.len();
             }
             Ok(res)
@@ -302,7 +303,7 @@ impl PipelineStage {
                     removed.push((*id, p));
                 }
             }
-            let mut stats_bind = self.stat.write();
+            let mut stats_bind = self.stat.lock();
             stats_bind.0.queue_length = bind.len();
             Ok(removed)
         })
@@ -439,7 +440,7 @@ impl PipelineStage {
         })?
     }
     fn update_latency_stats(&self, last_stage: Option<String>, last_times: Vec<SystemTime>) {
-        let mut stat_bind = self.stat.write();
+        let mut stat_bind = self.stat.lock();
         if let Some(last_stage) = last_stage {
             for lt in last_times {
                 stat_bind

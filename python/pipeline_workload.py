@@ -1,9 +1,6 @@
-import time
-from threading import Thread, current_thread
-
 import savant_plugin_sample
 import savant_rs
-from savant_rs.logging import log, LogLevel, log_level_enabled
+from savant_rs.logging import log, LogLevel
 from savant_rs.logging import set_log_level
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration, StageFunction
 from savant_rs.primitives import AttributeValue
@@ -14,7 +11,7 @@ set_log_level(LogLevel.Info)
 plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
 plugin_function_2 = savant_plugin_sample.get_instance("doesnotmatter", dict(attr=AttributeValue.integer(1)))
 
-from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
+from savant_rs.utils import gen_frame
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
     AttributeUpdatePolicy
 from savant_rs.match_query import MatchQuery as Q
@@ -24,7 +21,7 @@ from savant_rs.match_query import MatchQuery as Q
 if __name__ == "__main__":
     conf = VideoPipelineConfiguration()
     conf.append_frame_meta_to_otlp_span = True
-    conf.frame_period = 1000  # every single frame, insane
+    conf.frame_period = 100  # every single frame, insane
     conf.timestamp_period = 1000  # every sec
 
     p = VideoPipeline("video-pipeline-root", [

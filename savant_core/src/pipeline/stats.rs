@@ -6,8 +6,6 @@ use hashbrown::HashMap;
 use log::info;
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::rwlock::SavantRwLock;
-
 #[cfg(test)]
 #[derive(Default, Debug)]
 struct TimeCounter {
@@ -301,7 +299,7 @@ impl StatsGenerator {
     }
 }
 
-pub type StageStats = Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>;
+pub type StageStats = Arc<Mutex<(StageProcessingStat, StageLatencyStat)>>;
 
 #[derive(Debug)]
 pub struct Stats {
@@ -370,11 +368,11 @@ impl Stats {
         frame_period: Option<i64>,
         timestamp_period: Option<i64>,
     ) -> Self {
-        let generator = Arc::new(parking_lot::Mutex::new(StatsGenerator::new(
+        let generator = Arc::new(Mutex::new(StatsGenerator::new(
             frame_period,
             timestamp_period,
         )));
-        let collector = Arc::new(parking_lot::Mutex::new(StatsCollector::new(stats_history)));
+        let collector = Arc::new(Mutex::new(StatsCollector::new(stats_history)));
         let shutdown = Arc::new(OnceLock::new());
         let stage_stats = Arc::new(Mutex::new(Vec::new()));
 
@@ -407,17 +405,23 @@ impl Stats {
         }
     }
 
-    pub fn add_stage_stats(
-        &self,
-        stat: Arc<SavantRwLock<(StageProcessingStat, StageLatencyStat)>>,
-    ) {
+    pub fn add_stage_stats(&self, stat: StageStats) {
         self.stage_stats.lock().push(stat);
     }
 
     pub fn collect_stage_stats(
         stats: &Arc<Mutex<Vec<StageStats>>>,
     ) -> Vec<(StageProcessingStat, StageLatencyStat)> {
-        stats.lock().iter().map(|s| s.read().clone()).collect()
+        stats
+            .lock()
+            .iter()
+            .map(|s| {
+                let mut s_bind = s.lock();
+                let lat_s = s_bind.1.clone();
+                s_bind.1.latencies = Default::default();
+                (s_bind.0.clone(), lat_s)
+            })
+            .collect()
     }
 
     pub fn kick_off(&self) {
