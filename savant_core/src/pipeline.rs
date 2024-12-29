@@ -233,16 +233,16 @@ pub(super) mod implementation {
     use derive_builder::Builder;
     use hashbrown::HashMap;
     use lru::LruCache;
-    use opentelemetry::{Context, KeyValue};
     use opentelemetry::trace::{SpanBuilder, TraceContextExt, Tracer};
+    use opentelemetry::{Context, KeyValue};
 
     use crate::get_tracer;
     use crate::match_query::MatchQuery;
-    use crate::pipeline::{
-        MAX_TRACKED_STREAMS, PipelinePayload, PipelineStageFunction, PipelineStagePayloadType,
-    };
     use crate::pipeline::stage::PipelineStage;
     use crate::pipeline::stats::{FrameProcessingStatRecord, Stats};
+    use crate::pipeline::{
+        PipelinePayload, PipelineStageFunction, PipelineStagePayloadType, MAX_TRACKED_STREAMS,
+    };
     use crate::primitives::frame::VideoFrameProxy;
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
@@ -1065,9 +1065,9 @@ pub(super) mod implementation {
         use crate::pipeline::implementation::{
             Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
         };
-        use crate::primitives::{Attribute, WithAttributes};
         use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
+        use crate::primitives::{Attribute, WithAttributes};
         use crate::telemetry::{init, TelemetryConfiguration};
         use crate::test::gen_frame;
 

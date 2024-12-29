@@ -66,3 +66,8 @@ crate-type = ["dylib"]
 [[bin]]
 name = "plugin-loader"
 path = "src/bin/plugin_loader.rs"
+
+[dev-dependencies]
+serial_test = "3"
+bollard = "0.18"
+futures-util = "0.3"
