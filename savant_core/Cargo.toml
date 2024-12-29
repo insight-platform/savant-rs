@@ -29,6 +29,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 # unique to savant_core
+actix-web = "4"
 bytes = "1.8"
 crc32fast = "1"
 crossbeam = "0.8"
@@ -40,7 +41,7 @@ libloading = "0.8"
 lru = { version = "0.12", features = ["hashbrown"] }
 opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
 tonic = { version = "0.12.2", features = ["tls-native-roots"] }
-reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots"] }
+reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
 opentelemetry-semantic-conventions = "0.16.0"
 opentelemetry-jaeger-propagator = "0.3.0"
@@ -71,3 +72,5 @@ path = "src/bin/plugin_loader.rs"
 serial_test = "3"
 bollard = "0.18"
 futures-util = "0.3"
+reqwest = "0.12"
+env_logger = "0.11"

@@ -275,10 +275,15 @@ pub(crate) mod resolvers {
                         tls.client_key.as_bytes(),
                     ))
             });
-            let client =
-                EtcdClient::new_with_tls(hosts, &credentials, watch_path, 60, connect_timeout, tls);
 
-            let client = runtime.block_on(client)?;
+            let client = runtime.block_on(EtcdClient::new_with_tls(
+                hosts,
+                &credentials,
+                watch_path,
+                60,
+                connect_timeout,
+                tls,
+            ))?;
 
             let mut parameter_storage = EtcdParameterStorage::with_client(client);
             parameter_storage.run(&runtime)?;
