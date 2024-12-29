@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use opentelemetry::global;
 use opentelemetry::global::BoxedTracer;
 use std::sync::OnceLock;
@@ -26,14 +25,14 @@ pub mod test;
 pub mod transport;
 pub mod utils;
 
+pub mod webserver;
+
 pub const EPS: f32 = 0.00001;
 
-lazy_static! {
-    static ref SHARED_ASYNC_RT: OnceLock<Runtime> = OnceLock::new();
-}
+static SHARED_ASYNC_TOKIO_RT: OnceLock<Runtime> = OnceLock::new();
 
 pub fn get_or_init_async_runtime() -> &'static Runtime {
-    SHARED_ASYNC_RT.get_or_init(|| {
+    SHARED_ASYNC_TOKIO_RT.get_or_init(|| {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
