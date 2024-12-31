@@ -4,16 +4,16 @@ use std::time::SystemTime;
 
 use anyhow::bail;
 use hashbrown::{HashMap, HashSet};
-use opentelemetry::Context;
 use opentelemetry::trace::TraceContextExt;
+use opentelemetry::Context;
 use parking_lot::Mutex;
 
 use crate::match_query::MatchQuery;
+use crate::pipeline::implementation::Pipeline;
+use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats};
 use crate::pipeline::{
     PipelinePayload, PipelineStageFunction, PipelineStageFunctionOrder, PipelineStagePayloadType,
 };
-use crate::pipeline::implementation::Pipeline;
-use crate::pipeline::stats::{StageLatencyStat, StageProcessingStat, StageStats};
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -460,11 +460,11 @@ mod tests {
     use opentelemetry::Context;
 
     use crate::match_query::MatchQuery;
-    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::pipeline::stage::PipelineStage;
-    use crate::primitives::{Attribute, WithAttributes};
+    use crate::pipeline::{PipelinePayload, PipelineStagePayloadType};
     use crate::primitives::frame_batch::VideoFrameBatch;
     use crate::primitives::frame_update::VideoFrameUpdate;
+    use crate::primitives::{Attribute, WithAttributes};
     use crate::test::gen_frame;
 
     fn get_frame_stage() -> PipelineStage {

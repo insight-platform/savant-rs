@@ -15,6 +15,7 @@ use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
+use crate::webserver::{register_pipeline, unregister_pipeline};
 
 const MAX_TRACKED_STREAMS: usize = 8192; // defines how many streams are tracked for the frame ordering
 
@@ -75,7 +76,7 @@ pub enum PipelinePayload {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct Pipeline(Arc<implementation::Pipeline>);
+pub struct Pipeline(pub(crate) Arc<implementation::Pipeline>);
 
 impl Pipeline {
     #[allow(clippy::type_complexity)]
@@ -88,10 +89,10 @@ impl Pipeline {
         )>,
         configuration: PipelineConfiguration,
     ) -> Result<Self> {
-        Ok(Self(Arc::new(implementation::Pipeline::new(
-            stages,
-            configuration,
-        )?)))
+        let pipeline = Arc::new(implementation::Pipeline::new(stages, configuration)?);
+        let p = Self(pipeline);
+        register_pipeline(p.clone());
+        Ok(p)
     }
 
     pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingStatRecord> {
@@ -222,6 +223,12 @@ impl Pipeline {
     }
 }
 
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        unregister_pipeline(self.clone());
+    }
+}
+
 pub(super) mod implementation {
     use std::collections::VecDeque;
     use std::num::NonZeroUsize;
@@ -267,6 +274,7 @@ pub(super) mod implementation {
 
     #[derive(Debug)]
     pub struct Pipeline {
+        name: Option<String>,
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
         root_spans: SavantRwLock<HashMap<i64, Context>>,
@@ -284,6 +292,7 @@ pub(super) mod implementation {
     impl Default for Pipeline {
         fn default() -> Self {
             Self {
+                name: None,
                 id_counter: AtomicI64::new(0),
                 frame_counter: AtomicI64::new(0),
                 root_spans: SavantRwLock::new(HashMap::new()),
@@ -311,6 +320,9 @@ pub(super) mod implementation {
     unsafe impl Sync for Pipeline {}
 
     impl Pipeline {
+        pub fn set_name(&mut self, name: String) {
+            self.name = Some(name);
+        }
         pub fn get_stage_name(&self, stage_id: usize) -> Option<String> {
             self.stages.get(stage_id).map(|s| s.name.clone())
         }

@@ -25,6 +25,7 @@ pub mod test;
 pub mod transport;
 pub mod utils;
 
+pub mod metrics;
 pub mod webserver;
 
 pub const EPS: f32 = 0.00001;

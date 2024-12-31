@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
-use crate::rust::FrameProcessingStatRecord;
+use crate::pipeline::Pipeline;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
 use log::error;
@@ -26,7 +26,7 @@ pub enum GstPipelineStatus {
 }
 
 struct WsData {
-    stats: Arc<Mutex<Option<FrameProcessingStatRecord>>>,
+    stats: Arc<Mutex<Vec<Pipeline>>>,
     status: Arc<Mutex<GstPipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
@@ -35,7 +35,7 @@ struct WsData {
 impl WsData {
     pub fn new() -> Self {
         WsData {
-            stats: Arc::new(Mutex::new(None)),
+            stats: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(GstPipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
@@ -53,24 +53,6 @@ impl WsData {
             let mut bind = thread_status.lock().await;
             *bind = s;
         });
-    }
-
-    pub fn set_stats(&self, s: FrameProcessingStatRecord) {
-        let runtime = get_or_init_async_runtime();
-        let thread_stats = self.stats.clone();
-        let ws_job = WS_JOB.get().expect("Web server job not started");
-        if ws_job.is_finished() {
-            error!("Web server job is finished unexpectedly, cannot update stats.");
-        }
-        runtime.spawn(async move {
-            let mut bind = thread_stats.lock().await;
-            *bind = Some(s);
-        });
-    }
-
-    pub async fn get_stats(&self) -> Option<FrameProcessingStatRecord> {
-        let bind = self.stats.lock().await;
-        bind.clone()
     }
 
     pub fn set_shutdown_token(&self, token: String) {
@@ -91,6 +73,28 @@ lazy_static! {
     static ref WS_DATA: web::Data<WsData> = web::Data::new(WsData::new());
 }
 
+pub fn register_pipeline(pipeline: Pipeline) {
+    let runtime = get_or_init_async_runtime();
+    let stats = WS_DATA.stats.clone();
+    runtime.block_on(async move {
+        let mut bind = stats.lock().await;
+        bind.push(pipeline);
+    });
+}
+
+pub fn unregister_pipeline(pipeline: Pipeline) {
+    let runtime = get_or_init_async_runtime();
+    let stats = WS_DATA.stats.clone();
+    runtime.block_on(async move {
+        let mut bind = stats.lock().await;
+        let prev_len = bind.len();
+        bind.retain(|p| !Arc::ptr_eq(&p.0, &pipeline.0));
+        if bind.len() == prev_len {
+            error!("Failed to remove pipeline from stats.");
+        }
+    });
+}
+
 pub fn set_status(s: GstPipelineStatus) {
     WS_DATA.set_status(s);
 }
@@ -98,14 +102,6 @@ pub fn set_status(s: GstPipelineStatus) {
 pub async fn get_status() -> GstPipelineStatus {
     let s = WS_DATA.status.lock().await;
     s.clone()
-}
-
-pub fn set_stats(s: FrameProcessingStatRecord) {
-    WS_DATA.set_stats(s);
-}
-
-async fn get_stats() -> Option<FrameProcessingStatRecord> {
-    WS_DATA.get_stats().await
 }
 
 pub fn set_shutdown_token(token: String) {
