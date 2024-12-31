@@ -1,12 +1,12 @@
-use std::cell::Cell;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 
 use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
 
+use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
 use savant_core::pipeline::PipelineStageFunction as RustPipelineStageFunction;
 use savant_core::pipeline::PluginParams;
-use savant_core::pipeline::stage_function_loader::load_stage_function_plugin as rust_load_stage_function_plugin;
 use savant_core::rust;
 
 use crate::match_query::MatchQuery;
@@ -19,18 +19,18 @@ use crate::release_gil;
 use crate::utils::otlp::TelemetrySpan;
 
 #[pyclass]
-pub struct StageFunction(Cell<Option<Box<dyn RustPipelineStageFunction>>>);
+pub struct StageFunction(Mutex<Option<Box<dyn RustPipelineStageFunction>>>);
 
 impl StageFunction {
     pub fn new(f: Box<dyn RustPipelineStageFunction>) -> Self {
-        Self(Cell::new(Some(f)))
+        Self(Mutex::new(Some(f)))
     }
 }
 
 impl Clone for StageFunction {
     fn clone(&self) -> Self {
-        let f = self.0.take();
-        Self(Cell::new(f))
+        let f = self.0.lock().take();
+        Self(Mutex::new(f))
     }
 }
 
@@ -43,7 +43,7 @@ pub fn handle_psf(f: StageFunction) {
 impl StageFunction {
     #[staticmethod]
     fn none() -> Self {
-        Self(Cell::new(None))
+        Self(Mutex::new(None))
     }
 }
 
@@ -61,7 +61,7 @@ pub fn load_stage_function_plugin(
     let params = PluginParams { params };
 
     rust_load_stage_function_plugin(libname, init_name, plugin_name, params)
-        .map(|f| StageFunction(Cell::new(Some(f))))
+        .map(|f| StageFunction(Mutex::new(Some(f))))
         .map_err(|e| PySystemError::new_err(e.to_string()))
 }
 
@@ -342,8 +342,8 @@ impl Pipeline {
         let stages = stages
             .into_iter()
             .map(|(n, t, i, e)| {
-                let ingress = i.0.take();
-                let egress = e.0.take();
+                let ingress = i.0.lock().take();
+                let egress = e.0.lock().take();
                 (n, t.into(), ingress, egress)
             })
             .collect();

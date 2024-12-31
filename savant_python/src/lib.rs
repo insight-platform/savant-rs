@@ -3,24 +3,23 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
-use savant_core_py::*;
 use savant_core_py::draw_spec::*;
 use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
 use savant_core_py::pipeline::{
-    FrameProcessingStatRecord, FrameProcessingStatRecordType, load_stage_function_plugin, Pipeline,
+    load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
     PipelineConfiguration, StageFunction, StageLatencyMeasurements, StageLatencyStat,
     StageProcessingStat, VideoPipelineStagePayloadType,
 };
 use savant_core_py::primitives::attribute::Attribute;
 use savant_core_py::primitives::attribute_value::{
-    AttributeValue, AttributeValuesView, AttributeValueType,
+    AttributeValue, AttributeValueType, AttributeValuesView,
 };
 use savant_core_py::primitives::batch::VideoFrameBatch;
+use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::bbox::{
     BBox, BBoxMetricType, RBBox, VideoObjectBBoxTransformation,
 };
-use savant_core_py::primitives::bbox::utils::*;
 use savant_core_py::primitives::eos::EndOfStream;
 use savant_core_py::primitives::frame::{
     VideoFrame, VideoFrameContent, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -28,9 +27,9 @@ use savant_core_py::primitives::frame::{
 use savant_core_py::primitives::frame_update::{
     AttributeUpdatePolicy, ObjectUpdatePolicy, VideoFrameUpdate,
 };
-use savant_core_py::primitives::message::*;
 use savant_core_py::primitives::message::loader::*;
 use savant_core_py::primitives::message::saver::*;
+use savant_core_py::primitives::message::*;
 use savant_core_py::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject,
 };
@@ -44,12 +43,11 @@ use savant_core_py::primitives::shutdown::Shutdown;
 use savant_core_py::primitives::user_data::UserData;
 use savant_core_py::telemetry::*;
 use savant_core_py::test::utils::*;
-use savant_core_py::utils::*;
 use savant_core_py::utils::byte_buffer::ByteBuffer;
 use savant_core_py::utils::eval_resolvers::*;
 use savant_core_py::utils::otlp::*;
 use savant_core_py::utils::symbol_mapper::*;
-use savant_core_py::zmq::{blocking, nonblocking};
+use savant_core_py::utils::*;
 use savant_core_py::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use savant_core_py::zmq::configs::{
     ReaderConfig, ReaderConfigBuilder, WriterConfig, WriterConfigBuilder,
@@ -58,8 +56,10 @@ use savant_core_py::zmq::results::{
     ReaderResultBlacklisted, ReaderResultMessage, ReaderResultPrefixMismatch, ReaderResultTimeout,
     WriterResultAck, WriterResultAckTimeout, WriterResultSendTimeout, WriterResultSuccess,
 };
+use savant_core_py::zmq::{blocking, nonblocking};
+use savant_core_py::*;
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<WriterSocketType>()?; // PYI
     m.add_class::<WriterConfigBuilder>()?; // PYI
@@ -88,7 +88,7 @@ pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn symbol_mapper_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_model_object_key_py, m)?)?;
     m.add_function(wrap_pyfunction!(clear_symbol_maps_py, m)?)?;
@@ -110,7 +110,7 @@ pub fn symbol_mapper_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn serialization_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ser deser
     m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
@@ -126,7 +126,7 @@ pub fn serialization_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(eval_expr, m)?)?; // PYI
     m.add_function(wrap_pyfunction!(gen_frame, m)?)?; // PYI
@@ -148,7 +148,7 @@ pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Point>()?;
     m.add_class::<Segment>()?;
@@ -164,7 +164,7 @@ pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Attribute>()?; // PYI
     m.add_class::<AttributeUpdatePolicy>()?; // PYI
@@ -192,7 +192,7 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VideoPipelineStagePayloadType>()?;
     m.add_class::<PipelineConfiguration>()?;
@@ -207,7 +207,7 @@ pub(crate) fn pipeline(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn match_query(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FloatExpression>()?;
     m.add_class::<IntExpression>()?;
@@ -232,7 +232,7 @@ pub fn match_query(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub(crate) fn logging(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LogLevel>()?;
     m.add_function(wrap_pyfunction!(set_log_level, m)?)?;
@@ -242,7 +242,7 @@ pub(crate) fn logging(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ColorDraw>()?; // PYI
     m.add_class::<BoundingBoxDraw>()?; // PYI
@@ -256,7 +256,7 @@ pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ContextPropagationFormat>()?; // PYI
     m.add_class::<Protocol>()?; // PYI
@@ -269,7 +269,7 @@ pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
@@ -296,7 +296,7 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
 
-    let sys = PyModule::import_bound(py, "sys")?;
+    let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
     let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
@@ -324,10 +324,4 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.match_query", m.getattr("match_query")?)?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test() {}
 }

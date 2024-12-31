@@ -76,7 +76,10 @@ impl VideoObject {
                 ))
             })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new_bound(py, &bytes);
+            let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
+                b.copy_from_slice(&bytes);
+                Ok(())
+            })?;
             Ok(PyObject::from(bytes))
         })
     }
@@ -544,7 +547,7 @@ impl BorrowedVideoObject {
                 ))
             })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new_bound(py, &bytes);
+            let bytes = PyBytes::new(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }

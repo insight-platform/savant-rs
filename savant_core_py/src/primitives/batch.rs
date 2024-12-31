@@ -80,7 +80,7 @@ impl VideoFrameBatch {
             })
         })?;
         with_gil!(|py| {
-            let bytes = PyBytes::new_bound(py, &bytes);
+            let bytes = PyBytes::new(py, &bytes);
             Ok(PyObject::from(bytes))
         })
     }

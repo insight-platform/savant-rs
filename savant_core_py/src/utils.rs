@@ -28,20 +28,23 @@ pub fn estimate_gil_contention() {
 }
 
 fn value_to_py(py: Python, v: Value) -> PyResult<PyObject> {
-    match v {
-        Value::String(v) => Ok(v.to_object(py)),
-        Value::Float(v) => Ok(v.to_object(py)),
-        Value::Int(v) => Ok(v.to_object(py)),
-        Value::Boolean(v) => Ok(v.to_object(py)),
+    Ok(match v {
+        Value::String(v) => v.into_pyobject(py)?.into_any().unbind(),
+        Value::Float(v) => v.into_pyobject(py)?.into_any().unbind(),
+        Value::Int(v) => v.into_pyobject(py)?.into_any().unbind(),
+        Value::Boolean(v) => {
+            let v = v.into_pyobject(py)?.to_owned();
+            v.into_any().unbind()
+        }
         Value::Tuple(v) => {
             let mut res = Vec::with_capacity(v.len());
             for v in v {
                 res.push(value_to_py(py, v)?);
             }
-            Ok(res.to_object(py))
+            res.into_pyobject(py)?.into_any().unbind()
         }
-        Value::Empty => Ok(None::<()>.to_object(py)),
-    }
+        Value::Empty => None::<()>.into_pyobject(py)?.into_any().unbind(),
+    })
 }
 
 #[pyfunction]

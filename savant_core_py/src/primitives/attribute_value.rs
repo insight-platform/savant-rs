@@ -520,7 +520,7 @@ impl AttributeValue {
         match &self.0.value {
             AttributeValueVariant::Bytes(dims, bytes) => Some((
                 dims.clone(),
-                with_gil!(|py| PyObject::from(PyBytes::new_bound(py, bytes))),
+                with_gil!(|py| PyObject::from(PyBytes::new(py, bytes))),
             )),
             _ => None,
         }

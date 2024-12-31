@@ -286,7 +286,7 @@ pub(crate) mod resolvers {
             ))?;
 
             let mut parameter_storage = EtcdParameterStorage::with_client(client);
-            parameter_storage.run(&runtime)?;
+            parameter_storage.run(runtime)?;
             parameter_storage.order_data_update(VarPathSpec::Prefix(watch_path.to_string()))?;
             _ = parameter_storage.wait_for_key(watch_path, watch_path_wait_timeout * 1000); // wait for the first update
 

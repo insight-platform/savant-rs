@@ -1,7 +1,7 @@
 use crate::primitives::message::Message;
 use crate::with_gil;
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, IntoPy, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, IntoPyObject, Py, PyAny, PyObject, PyResult};
 use savant_core::transport::zeromq;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -179,11 +179,10 @@ impl ReaderResultMessage {
     fn data(&self, index: usize) -> PyResult<Option<PyObject>> {
         if index < self.data.len() {
             with_gil!(|py| {
-                let pybytes =
-                    PyBytes::new_bound_with(py, self.data[index].len(), |b: &mut [u8]| {
-                        b.copy_from_slice(&self.data[index]);
-                        Ok(())
-                    })?;
+                let pybytes = PyBytes::new_with(py, self.data[index].len(), |b: &mut [u8]| {
+                    b.copy_from_slice(&self.data[index]);
+                    Ok(())
+                })?;
                 Ok(Some(pybytes.into()))
             })
         } else {
@@ -273,59 +272,79 @@ impl ReaderResultPrefixMismatch {
 
 pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<PyObject> {
     with_gil!(|py| {
-        match res {
+        Ok(match res {
             zeromq::WriterResult::Success {
                 retries_spent,
                 time_spent,
-            } => Ok(WriterResultSuccess {
+            } => WriterResultSuccess {
                 retries_spent,
                 time_spent,
             }
-            .into_py(py)),
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
             zeromq::WriterResult::Ack {
                 send_retries_spent,
                 receive_retries_spent,
                 time_spent,
-            } => Ok(WriterResultAck {
+            } => WriterResultAck {
                 send_retries_spent,
                 receive_retries_spent,
                 time_spent,
             }
-            .into_py(py)),
-            zeromq::WriterResult::AckTimeout(timeout) => {
-                Ok(WriterResultAckTimeout { timeout }.into_py(py))
-            }
-            zeromq::WriterResult::SendTimeout => Ok(WriterResultSendTimeout {}.into_py(py)),
-        }
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
+            zeromq::WriterResult::AckTimeout(timeout) => WriterResultAckTimeout { timeout }
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
+            zeromq::WriterResult::SendTimeout => WriterResultSendTimeout {}
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
+        })
     })
 }
 
 pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObject> {
     with_gil!(|py| {
-        match res {
-            zeromq::ReaderResult::Blacklisted(topic) => {
-                Ok(ReaderResultBlacklisted { topic }.into_py(py))
-            }
+        Ok(match res {
+            zeromq::ReaderResult::Blacklisted(topic) => ReaderResultBlacklisted { topic }
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
             zeromq::ReaderResult::Message {
                 message,
                 topic,
                 routing_id,
                 data,
-            } => Ok(ReaderResultMessage {
+            } => ReaderResultMessage {
                 message: Message(*message),
                 topic,
                 routing_id,
                 data: Arc::new(data),
             }
-            .into_py(py)),
-            zeromq::ReaderResult::Timeout => Ok(ReaderResultTimeout {}.into_py(py)),
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
+            zeromq::ReaderResult::Timeout => ReaderResultTimeout {}
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
             zeromq::ReaderResult::PrefixMismatch { topic, routing_id } => {
-                Ok(ReaderResultPrefixMismatch { topic, routing_id }.into_py(py))
+                ReaderResultPrefixMismatch { topic, routing_id }
+                    .into_pyobject(py)?
+                    .into_any()
+                    .unbind()
             }
             zeromq::ReaderResult::RoutingIdMismatch { topic, routing_id } => {
-                Ok(ReaderResultPrefixMismatch { topic, routing_id }.into_py(py))
+                ReaderResultPrefixMismatch { topic, routing_id }
+                    .into_pyobject(py)?
+                    .into_any()
+                    .unbind()
             }
-            zeromq::ReaderResult::TooShort(data) => Ok(data.into_py(py)),
-        }
+            zeromq::ReaderResult::TooShort(data) => data.into_pyobject(py)?.into_any().unbind(),
+        })
     })
 }

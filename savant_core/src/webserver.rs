@@ -2,10 +2,10 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
-use crate::pipeline::Pipeline;
+use crate::pipeline::implementation;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
-use log::error;
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -26,7 +26,7 @@ pub enum GstPipelineStatus {
 }
 
 struct WsData {
-    stats: Arc<Mutex<Vec<Pipeline>>>,
+    stats: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<GstPipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
@@ -73,22 +73,24 @@ lazy_static! {
     static ref WS_DATA: web::Data<WsData> = web::Data::new(WsData::new());
 }
 
-pub fn register_pipeline(pipeline: Pipeline) {
+pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
     let stats = WS_DATA.stats.clone();
     runtime.block_on(async move {
         let mut bind = stats.lock().await;
         bind.push(pipeline);
+        info!("Pipeline registered in stats.");
     });
 }
 
-pub fn unregister_pipeline(pipeline: Pipeline) {
+pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
     let stats = WS_DATA.stats.clone();
     runtime.block_on(async move {
         let mut bind = stats.lock().await;
         let prev_len = bind.len();
-        bind.retain(|p| !Arc::ptr_eq(&p.0, &pipeline.0));
+        debug!("Removing pipeline from stats.");
+        bind.retain(|p| !Arc::ptr_eq(p, &pipeline));
         if bind.len() == prev_len {
             error!("Failed to remove pipeline from stats.");
         }

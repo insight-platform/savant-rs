@@ -91,7 +91,7 @@ impl Pipeline {
     ) -> Result<Self> {
         let pipeline = Arc::new(implementation::Pipeline::new(stages, configuration)?);
         let p = Self(pipeline);
-        register_pipeline(p.clone());
+        register_pipeline(p.0.clone());
         Ok(p)
     }
 
@@ -225,7 +225,7 @@ impl Pipeline {
 
 impl Drop for Pipeline {
     fn drop(&mut self) {
-        unregister_pipeline(self.clone());
+        unregister_pipeline(self.0.clone());
     }
 }
 

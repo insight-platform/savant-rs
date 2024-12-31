@@ -81,7 +81,7 @@ impl ByteBuffer {
     #[pyo3(name = "bytes")]
     pub fn bytes_py(&self) -> PyObject {
         with_gil!(|py| {
-            let bytes = PyBytes::new_bound(py, self.inner.as_slice());
+            let bytes = PyBytes::new(py, self.inner.as_slice());
             PyObject::from(bytes)
         })
     }

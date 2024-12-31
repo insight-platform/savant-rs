@@ -84,7 +84,7 @@ pub fn save_message_to_bytes_gil(message: &Message, no_gil: bool) -> PyResult<Py
     let bytes = release_gil!(no_gil, || savant_core::message::save_message(&message.0))
         .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{:?}", e)))?;
     with_gil!(|py| {
-        let bytes = PyBytes::new_bound_with(py, bytes.len(), |b: &mut [u8]| {
+        let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
             b.copy_from_slice(&bytes);
             Ok(())
         })?;
