@@ -95,6 +95,18 @@ impl Pipeline {
         Ok(p)
     }
 
+    pub fn set_name(&self, name: String) -> Result<()> {
+        self.0.set_name(name)
+    }
+
+    pub fn get_name(&self) -> Option<String> {
+        self.0.get_name()
+    }
+
+    pub fn get_stage_name(&self, stage_id: usize) -> Option<String> {
+        self.0.get_stage_name(stage_id)
+    }
+
     pub fn get_stat_records(&self, max_n: usize) -> Vec<stats::FrameProcessingStatRecord> {
         self.0.get_stat_records(max_n)
     }
@@ -274,7 +286,7 @@ pub(super) mod implementation {
 
     #[derive(Debug)]
     pub struct Pipeline {
-        name: Option<String>,
+        name: OnceLock<String>,
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
         root_spans: SavantRwLock<HashMap<i64, Context>>,
@@ -292,7 +304,7 @@ pub(super) mod implementation {
     impl Default for Pipeline {
         fn default() -> Self {
             Self {
-                name: None,
+                name: OnceLock::new(),
                 id_counter: AtomicI64::new(0),
                 frame_counter: AtomicI64::new(0),
                 root_spans: SavantRwLock::new(HashMap::new()),
@@ -320,9 +332,19 @@ pub(super) mod implementation {
     unsafe impl Sync for Pipeline {}
 
     impl Pipeline {
-        pub fn set_name(&mut self, name: String) {
-            self.name = Some(name);
+        pub fn set_name(&self, name: String) -> Result<()> {
+            self.name.set(name).map_err(|last| {
+                anyhow::anyhow!(
+                    "The pipeline name can only be set once. The current value: {}",
+                    last
+                )
+            })
         }
+
+        pub fn get_name(&self) -> Option<String> {
+            self.name.get().cloned()
+        }
+
         pub fn get_stage_name(&self, stage_id: usize) -> Option<String> {
             self.stages.get(stage_id).map(|s| s.name.clone())
         }
