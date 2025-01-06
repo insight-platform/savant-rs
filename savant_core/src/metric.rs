@@ -2,21 +2,34 @@ use anyhow::bail;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use prometheus_client::metrics::counter::ConstCounter;
-use prometheus_client::metrics::gauge::ConstGauge;
+use prometheus_client::metrics::counter::Counter as TypedPrometheusCounter;
+use prometheus_client::metrics::family::Family;
+use prometheus_client::metrics::gauge::Gauge as TypedPrometheusGauge;
+use prometheus_client::registry::Unit;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+
+pub(crate) mod user_metric_collector;
+
+type PrometheusCounter = TypedPrometheusCounter<u64>;
+type PrometheusCounterFn = fn() -> PrometheusCounter;
+type PrometheusGauge = TypedPrometheusGauge<f64, AtomicU64>;
+type PrometheusGaugeFn = fn() -> PrometheusGauge;
+type PrometheusLabels = Vec<(String, String)>;
 
 pub struct Counter {
     name: String,
     description: Option<String>,
     label_names: Vec<String>,
-    values: HashMap<Vec<String>, i64>,
+    unit: Option<Unit>,
+    values: HashMap<Vec<String>, u64>,
 }
 
 pub struct Gauge {
     name: String,
     description: Option<String>,
     label_names: Vec<String>,
+    unit: Option<Unit>,
     values: HashMap<Vec<String>, f64>,
 }
 
@@ -32,12 +45,22 @@ lazy_static! {
     static ref REGISTRY: Mutex<HashMap<String, MetricType>> = Mutex::new(HashMap::new());
 }
 
-pub fn new_counter(name: &str, description: Option<&str>, label_names: &[&str]) -> SharedCounter {
+fn build_labels(names: &[String], values: &[String]) -> Vec<(String, String)> {
+    names.iter().cloned().zip(values.iter().cloned()).collect()
+}
+
+pub fn new_counter(
+    name: &str,
+    description: Option<&str>,
+    label_names: &[&str],
+    unit: Option<Unit>,
+) -> SharedCounter {
     let mut registry = REGISTRY.lock();
     let counter = Arc::new(Mutex::new(Counter {
         name: name.to_string(),
         description: description.map(|s| s.to_string()),
         label_names: label_names.iter().map(|s| s.to_string()).collect(),
+        unit,
         values: HashMap::new(),
     }));
     registry.insert(name.to_string(), MetricType::Counter(counter.clone()));
@@ -52,12 +75,18 @@ pub fn get_counter(name: &str) -> Option<SharedCounter> {
     }
 }
 
-pub fn new_gauge(name: &str, description: Option<&str>, label_names: &[&str]) -> SharedGauge {
+pub fn new_gauge(
+    name: &str,
+    description: Option<&str>,
+    label_names: &[&str],
+    unit: Option<Unit>,
+) -> SharedGauge {
     let mut registry = REGISTRY.lock();
     let gauge = Arc::new(Mutex::new(Gauge {
         name: name.to_string(),
         description: description.map(|s| s.to_string()),
         label_names: label_names.iter().map(|s| s.to_string()).collect(),
+        unit,
         values: HashMap::new(),
     }));
     registry.insert(name.to_string(), MetricType::Gauge(gauge.clone()));
@@ -94,7 +123,11 @@ impl Counter {
         &self.label_names
     }
 
-    pub fn inc(&mut self, increment: i64, labels: &[&str]) -> anyhow::Result<i64> {
+    pub fn get_unit(&self) -> &Option<Unit> {
+        &self.unit
+    }
+
+    pub fn inc(&mut self, increment: u64, labels: &[&str]) -> anyhow::Result<u64> {
         let labels = collect_labels(labels);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
@@ -105,7 +138,7 @@ impl Counter {
         Ok(last_value)
     }
 
-    pub fn set(&mut self, value: i64, labels: &[&str]) -> anyhow::Result<i64> {
+    pub fn set(&mut self, value: u64, labels: &[&str]) -> anyhow::Result<u64> {
         let labels = collect_labels(labels);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
@@ -116,7 +149,7 @@ impl Counter {
         Ok(last_value)
     }
 
-    pub fn get(&self, labels: &[&str]) -> anyhow::Result<Option<i64>> {
+    pub fn get(&self, labels: &[&str]) -> anyhow::Result<Option<u64>> {
         let labels = collect_labels(labels);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
@@ -124,7 +157,7 @@ impl Counter {
         Ok(self.values.get(&labels).cloned())
     }
 
-    pub fn delete(&mut self, labels: &[&str]) -> anyhow::Result<Option<i64>> {
+    pub fn delete(&mut self, labels: &[&str]) -> anyhow::Result<Option<u64>> {
         let labels = collect_labels(labels);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
@@ -132,15 +165,18 @@ impl Counter {
         Ok(self.values.remove(&labels))
     }
 
-    pub fn get_all(&self) -> &HashMap<Vec<String>, i64> {
+    pub fn get_all(&self) -> &HashMap<Vec<String>, u64> {
         &self.values
     }
 
-    pub fn export(&self) -> Vec<(Vec<String>, ConstCounter<i64>)> {
-        self.values
-            .iter()
-            .map(|(k, v)| (k.clone(), ConstCounter::new(*v)))
-            .collect()
+    pub fn export(&self) -> Family<PrometheusLabels, PrometheusCounter, PrometheusCounterFn> {
+        let fam = Family::<PrometheusLabels, PrometheusCounter>::default();
+        for (labels, value) in &self.values {
+            let label_map = build_labels(&self.label_names, &labels);
+            let c = fam.get_or_create(&label_map);
+            c.inc_by(*value);
+        }
+        fam
     }
 }
 
@@ -155,6 +191,10 @@ impl Gauge {
 
     pub fn get_label_names(&self) -> &[String] {
         &self.label_names
+    }
+
+    pub fn get_unit(&self) -> &Option<Unit> {
+        &self.unit
     }
 
     pub fn set(&mut self, value: f64, labels: &[&str]) -> anyhow::Result<f64> {
@@ -188,23 +228,46 @@ impl Gauge {
         &self.values
     }
 
-    pub fn export(&self) -> Vec<(Vec<String>, ConstGauge<f64>)> {
-        self.values
-            .iter()
-            .map(|(k, v)| (k.clone(), ConstGauge::new(*v)))
-            .collect()
+    pub fn export(&self) -> Family<PrometheusLabels, PrometheusGauge, PrometheusGaugeFn> {
+        let fam = Family::<PrometheusLabels, PrometheusGauge>::default();
+        for (labels, value) in &self.values {
+            let label_map = build_labels(&self.label_names, &labels);
+            let g = fam.get_or_create(&label_map);
+            g.set(*value);
+        }
+        fam
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Labels {
+    labels: HashMap<String, String>,
+}
+
+// impl EncodeLabelSet for Labels {
+//     fn encode(&self, encoder: &mut LabelSetEncoder) -> Result<(), std::fmt::Error> {
+//         for (k, v) in &self.labels {
+//             let mut le = encoder.encode_label();
+//             let mut lke = le.encode_label_key()?;
+//             EncodeLabelKey::encode(&k, &mut lke)?;
+//             let mut lve = lke.encode_label_value()?;
+//             EncodeLabelValue::encode(&v, &mut lve)?;
+//             lve.finish()?;
+//         }
+//         Ok(())
+//     }
+// }
+
 pub enum ConstMetric {
-    Counter(ConstCounter<i64>),
-    Gauge(ConstGauge<f64>),
+    Counter(Family<PrometheusLabels, PrometheusCounter, PrometheusCounterFn>),
+    Gauge(Family<PrometheusLabels, PrometheusGauge, PrometheusGaugeFn>),
 }
 
 pub struct MetricExport {
     pub name: String,
-    pub label_names: Vec<String>,
-    pub metrics: Vec<(Vec<String>, ConstMetric)>,
+    pub description: Option<String>,
+    pub unit: Option<Unit>,
+    pub metric: ConstMetric,
 }
 
 pub fn export_metrics() -> Vec<MetricExport> {
@@ -216,24 +279,18 @@ pub fn export_metrics() -> Vec<MetricExport> {
                 let counter = shared_counter.lock();
                 MetricExport {
                     name: name.clone(),
-                    label_names: counter.get_label_names().to_vec(),
-                    metrics: counter
-                        .export()
-                        .into_iter()
-                        .map(|(k, v)| (k, ConstMetric::Counter(v)))
-                        .collect(),
+                    description: counter.get_description().map(|s| s.to_string()),
+                    unit: counter.get_unit().clone(),
+                    metric: ConstMetric::Counter(counter.export()),
                 }
             }
             MetricType::Gauge(shared_gauge) => {
                 let gauge = shared_gauge.lock();
                 MetricExport {
                     name: name.clone(),
-                    label_names: gauge.get_label_names().to_vec(),
-                    metrics: gauge
-                        .export()
-                        .into_iter()
-                        .map(|(k, v)| (k, ConstMetric::Gauge(v)))
-                        .collect(),
+                    description: gauge.get_description().map(|s| s.to_string()),
+                    unit: gauge.get_unit().clone(),
+                    metric: ConstMetric::Gauge(gauge.export()),
                 }
             }
         })
@@ -247,8 +304,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_new_counter() -> anyhow::Result<()> {
-        let shared_counter =
-            new_counter("test_counter", Some("Test counter"), &["label1", "label2"]);
+        let shared_counter = new_counter(
+            "test_counter",
+            Some("Test counter"),
+            &["label1", "label2"],
+            None,
+        );
         let mut counter = shared_counter.lock();
         assert_eq!(counter.get_name(), "test_counter");
         assert_eq!(counter.get_description(), Some("Test counter"));
@@ -270,7 +331,7 @@ mod tests {
         counter.inc(2, &["c", "d"])?;
         let counters = counter.get_all();
         assert_eq!(counters.len(), 2);
-        assert_eq!(counters.values().sum::<i64>(), 3);
+        assert_eq!(counters.values().sum::<u64>(), 3);
         del_metric("test_counter");
         Ok(())
     }
@@ -278,8 +339,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_counter_wrong_labels() -> anyhow::Result<()> {
-        let shared_counter =
-            new_counter("test_counter", Some("Test counter"), &["label1", "label2"]);
+        let shared_counter = new_counter(
+            "test_counter",
+            Some("Test counter"),
+            &["label1", "label2"],
+            None,
+        );
         let mut counter = shared_counter.lock();
         let err = counter.inc(1, &["a"]);
         assert!(err.is_err());
@@ -296,7 +361,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_new_gauge() -> anyhow::Result<()> {
-        let shared_gauge = new_gauge("test_gauge", Some("Test gauge"), &["label1", "label2"]);
+        let shared_gauge = new_gauge(
+            "test_gauge",
+            Some("Test gauge"),
+            &["label1", "label2"],
+            None,
+        );
         let mut gauge = shared_gauge.lock();
         assert_eq!(gauge.get_name(), "test_gauge");
         assert_eq!(gauge.get_description(), Some("Test gauge"));
@@ -326,7 +396,12 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_gauge_wrong_labels() -> anyhow::Result<()> {
-        let shared_gauge = new_gauge("test_gauge", Some("Test gauge"), &["label1", "label2"]);
+        let shared_gauge = new_gauge(
+            "test_gauge",
+            Some("Test gauge"),
+            &["label1", "label2"],
+            None,
+        );
         let mut gauge = shared_gauge.lock();
         let err = gauge.set(1.0, &["a"]);
         assert!(err.is_err());
