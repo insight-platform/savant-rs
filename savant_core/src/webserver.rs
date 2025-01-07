@@ -338,11 +338,10 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_webserver_metrics() -> anyhow::Result<()> {
-        unsafe {
-            std::env::set_var("RUST_LOG", "debug");
-        }
-        _ = env_logger::try_init();
-
+        // unsafe {
+        //     std::env::set_var("RUST_LOG", "debug");
+        // }
+        // _ = env_logger::try_init();
         let pipeline = Arc::new(create_test_pipeline()?);
         pipeline.set_name("test_pipeline".into())?;
         register_pipeline(pipeline.clone());
@@ -407,7 +406,6 @@ mod tests {
         del_metric("metric_counter");
         del_metric("metric_gauge");
         stop_webserver();
-        pipeline.log_final_fps();
         drop(pipeline);
         Ok(())
     }
