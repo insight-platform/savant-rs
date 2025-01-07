@@ -1,16 +1,13 @@
 use std::sync::{Arc, OnceLock};
-use std::time::SystemTime;
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
 use crate::metric::user_metric_collector::UserMetricCollector;
-use crate::metric::{get_counter, get_gauge, new_counter, new_gauge};
 use crate::pipeline::implementation;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
 use log::{debug, error, info};
 use prometheus_client::encoding::text::encode;
-use prometheus_client::registry::Unit;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -163,29 +160,7 @@ async fn shutdown_handler(token: web::Path<String>) -> HttpResponse {
 
 #[get("/metrics")]
 async fn metrics_handler() -> HttpResponse {
-    let mut c = get_counter("metric_counter");
-    let mut g = get_gauge("metric_gauge");
     let content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
-    if c.is_none() {
-        c = Some(new_counter(
-            "metric_counter",
-            Some("Counter for metrics"),
-            &["label1", "label2"],
-            Some(Unit::Other(String::from("Number"))),
-        ));
-        g = Some(new_gauge(
-            "metric_gauge",
-            Some("Gauge for metrics"),
-            &["label3", "label3"],
-            Some(Unit::Other(String::from("Time"))),
-        ));
-    }
-    c.map(|v| v.lock().inc(1, &[&"value1", &"value2"]));
-    let unix_time_now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
-    g.map(|v| v.lock().set(unix_time_now, &[&"value3", &"value4"]));
     let mut registry = prometheus_client::registry::Registry::default();
     let boxed_collector = Box::new(UserMetricCollector);
     registry.register_collector(boxed_collector);
@@ -231,11 +206,13 @@ pub fn stop_webserver() {
 #[cfg(test)]
 mod tests {
     use crate::get_or_init_async_runtime;
+    use crate::metric::{del_metric, get_or_create_counter, get_or_create_gauge};
     use crate::webserver::{
         init_webserver, set_shutdown_token, set_status, stop_webserver, GstPipelineStatus,
     };
+    use prometheus_client::registry::Unit;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     #[test]
     #[serial_test::serial]
@@ -287,13 +264,40 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
         set_status(GstPipelineStatus::Running);
 
+        let c = get_or_create_counter(
+            "metric_counter",
+            Some("Counter for metrics"),
+            &["label1", "label2"],
+            Some(Unit::Other(String::from("Number"))),
+        );
+
+        let g = get_or_create_gauge(
+            "metric_gauge",
+            Some("Gauge for metrics"),
+            &["label3", "label3"],
+            Some(Unit::Other(String::from("Time"))),
+        );
+
+        c.lock().inc(1, &[&"value1", &"value2"])?;
+        let unix_time_now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+
+        g.lock().set(unix_time_now, &[&"value3", &"value4"])?;
+
         let client = reqwest::Client::new();
         let r = rt.block_on(client.get("http://localhost:8888/api/v1/metrics").send())?;
         assert_eq!(r.status(), 200);
         let text = rt.block_on(r.text())?;
         assert!(text.contains("metric_counter_Number_total"));
         assert!(text.contains("metric_gauge_Time"));
+        del_metric("metric_counter");
+        del_metric("metric_gauge");
         stop_webserver();
         Ok(())
     }
 }
+
+// TODO: pipeline metric collector
+// TODO: common labels

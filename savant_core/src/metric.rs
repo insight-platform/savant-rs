@@ -9,6 +9,7 @@ use prometheus_client::registry::Unit;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+pub(crate) mod pipeline_metric_collector;
 pub(crate) mod user_metric_collector;
 
 type PrometheusCounter = TypedPrometheusCounter<u64>;
@@ -67,6 +68,18 @@ pub fn new_counter(
     counter
 }
 
+pub fn get_or_create_counter(
+    name: &str,
+    description: Option<&str>,
+    label_names: &[&str],
+    unit: Option<Unit>,
+) -> SharedCounter {
+    match get_counter(name) {
+        Some(counter) => counter,
+        None => new_counter(name, description, label_names, unit),
+    }
+}
+
 pub fn get_counter(name: &str) -> Option<SharedCounter> {
     let registry = REGISTRY.lock();
     match registry.get(name) {
@@ -91,6 +104,18 @@ pub fn new_gauge(
     }));
     registry.insert(name.to_string(), MetricType::Gauge(gauge.clone()));
     gauge
+}
+
+pub fn get_or_create_gauge(
+    name: &str,
+    description: Option<&str>,
+    label_names: &[&str],
+    unit: Option<Unit>,
+) -> SharedGauge {
+    match get_gauge(name) {
+        Some(gauge) => gauge,
+        None => new_gauge(name, description, label_names, unit),
+    }
 }
 
 pub fn get_gauge(name: &str) -> Option<SharedGauge> {
