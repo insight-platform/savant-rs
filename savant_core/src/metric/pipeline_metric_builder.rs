@@ -1,4 +1,4 @@
-use crate::metric::{get_or_create_counter, get_or_create_gauge};
+use crate::metric::{get_or_create_counter_family, get_or_create_gauge_family};
 use crate::rust::FrameProcessingStatRecordType;
 use crate::webserver::get_registered_pipelines;
 use log::{debug, info};
@@ -67,61 +67,61 @@ impl PipelineMetricBuilder {
                 .map(|s| s.as_str())
                 .collect();
 
-            let frame_counter = get_or_create_counter(
+            let frame_counter = get_or_create_counter_family(
                 "frame_counter",
                 Some("Number of frames passed through the module"),
                 &aln_refs,
                 None,
             );
-            let object_counter = get_or_create_counter(
+            let object_counter = get_or_create_counter_family(
                 "object_counter",
                 Some("Number of objects passed through the module"),
                 &aln_refs,
                 None,
             );
-            let stage_queue_length = get_or_create_gauge(
+            let stage_queue_length = get_or_create_gauge_family(
                 "stage_queue_length",
                 Some("Number of frames or batches in the stage queue"),
                 &aspln_refs,
                 None,
             );
-            let stage_frame_counter = get_or_create_counter(
+            let stage_frame_counter = get_or_create_counter_family(
                 "stage_frame_counter",
                 Some("Number of frames passed through the stage"),
                 &aspln_refs,
                 None,
             );
-            let stage_object_counter = get_or_create_counter(
+            let stage_object_counter = get_or_create_counter_family(
                 "stage_object_counter",
                 Some("Number of objects passed through the stage"),
                 &aspln_refs,
                 None,
             );
-            let stage_batch_counter = get_or_create_counter(
+            let stage_batch_counter = get_or_create_counter_family(
                 "stage_batch_counter",
                 Some("Number of batches passed through the stage"),
                 &aspln_refs,
                 None,
             );
-            let stage_min_latency = get_or_create_gauge(
+            let stage_min_latency = get_or_create_gauge_family(
                 "stage_min_latency",
                 Some("Minimum latency of the stage"),
                 &aslln_refs,
                 None,
             );
-            let stage_max_latency = get_or_create_gauge(
+            let stage_max_latency = get_or_create_gauge_family(
                 "stage_max_latency",
                 Some("Maximum latency of the stage"),
                 &aslln_refs,
                 None,
             );
-            let stage_avg_latency = get_or_create_gauge(
+            let stage_avg_latency = get_or_create_gauge_family(
                 "stage_avg_latency",
                 Some("Average latency of the stage"),
                 &aslln_refs,
                 None,
             );
-            let stage_latency_samples = get_or_create_gauge(
+            let stage_latency_samples = get_or_create_gauge_family(
                 "stage_latency_samples",
                 Some("Number of samples used to calculate the latency"),
                 &aslln_refs,

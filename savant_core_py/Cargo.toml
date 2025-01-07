@@ -30,6 +30,7 @@ savant_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+prometheus-client = { workspace = true }
 
 # unique to savant_core_py
 colored = "2"

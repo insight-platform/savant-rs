@@ -17,7 +17,7 @@ impl Collector for SystemMetricCollector {
                     let metric_encoder = encoder.encode_descriptor(
                         &name,
                         &desc_str,
-                        unit.as_ref().clone(),
+                        unit.as_ref(),
                         MetricType::Counter,
                     )?;
 
@@ -27,7 +27,7 @@ impl Collector for SystemMetricCollector {
                     let metric_encoder = encoder.encode_descriptor(
                         &name,
                         &desc_str,
-                        unit.as_ref().clone(),
+                        unit.as_ref(),
                         MetricType::Gauge,
                     )?;
                     g.encode(metric_encoder)?;

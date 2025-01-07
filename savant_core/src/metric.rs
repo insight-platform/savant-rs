@@ -34,12 +34,12 @@ pub struct Gauge {
     values: HashMap<Vec<String>, f64>,
 }
 
-pub type SharedCounter = Arc<Mutex<Counter>>;
-pub type SharedGauge = Arc<Mutex<Gauge>>;
+pub type SharedCounterFamily = Arc<Mutex<Counter>>;
+pub type SharedGaugeFamily = Arc<Mutex<Gauge>>;
 
 enum MetricType {
-    Counter(SharedCounter),
-    Gauge(SharedGauge),
+    Counter(SharedCounterFamily),
+    Gauge(SharedGaugeFamily),
 }
 
 lazy_static! {
@@ -73,7 +73,7 @@ pub fn new_counter(
     description: Option<&str>,
     label_names: &[&str],
     unit: Option<Unit>,
-) -> SharedCounter {
+) -> SharedCounterFamily {
     let mut registry = REGISTRY.lock();
     let counter = Arc::new(Mutex::new(Counter {
         name: name.to_string(),
@@ -86,19 +86,19 @@ pub fn new_counter(
     counter
 }
 
-pub fn get_or_create_counter(
+pub fn get_or_create_counter_family(
     name: &str,
     description: Option<&str>,
     label_names: &[&str],
     unit: Option<Unit>,
-) -> SharedCounter {
-    match get_counter(name) {
+) -> SharedCounterFamily {
+    match get_counter_family(name) {
         Some(counter) => counter,
         None => new_counter(name, description, label_names, unit),
     }
 }
 
-pub fn get_counter(name: &str) -> Option<SharedCounter> {
+pub fn get_counter_family(name: &str) -> Option<SharedCounterFamily> {
     let registry = REGISTRY.lock();
     match registry.get(name) {
         Some(MetricType::Counter(counter)) => Some(counter.clone()),
@@ -111,7 +111,7 @@ pub fn new_gauge(
     description: Option<&str>,
     label_names: &[&str],
     unit: Option<Unit>,
-) -> SharedGauge {
+) -> SharedGaugeFamily {
     let mut registry = REGISTRY.lock();
     let gauge = Arc::new(Mutex::new(Gauge {
         name: name.to_string(),
@@ -124,19 +124,19 @@ pub fn new_gauge(
     gauge
 }
 
-pub fn get_or_create_gauge(
+pub fn get_or_create_gauge_family(
     name: &str,
     description: Option<&str>,
     label_names: &[&str],
     unit: Option<Unit>,
-) -> SharedGauge {
-    match get_gauge(name) {
+) -> SharedGaugeFamily {
+    match get_gauge_family(name) {
         Some(gauge) => gauge,
         None => new_gauge(name, description, label_names, unit),
     }
 }
 
-pub fn get_gauge(name: &str) -> Option<SharedGauge> {
+pub fn get_gauge_family(name: &str) -> Option<SharedGaugeFamily> {
     let registry = REGISTRY.lock();
     match registry.get(name) {
         Some(MetricType::Gauge(gauge)) => Some(gauge.clone()),
@@ -144,7 +144,7 @@ pub fn get_gauge(name: &str) -> Option<SharedGauge> {
     }
 }
 
-pub fn del_metric(name: &str) {
+pub fn delete_metric_family(name: &str) {
     let mut registry = REGISTRY.lock();
     registry.remove(name);
 }
@@ -170,8 +170,8 @@ impl Counter {
         &self.unit
     }
 
-    pub fn inc(&mut self, increment: u64, labels: &[&str]) -> anyhow::Result<u64> {
-        let labels = collect_labels(labels);
+    pub fn inc(&mut self, increment: u64, label_values: &[&str]) -> anyhow::Result<u64> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
@@ -181,8 +181,8 @@ impl Counter {
         Ok(last_value)
     }
 
-    pub fn set(&mut self, value: u64, labels: &[&str]) -> anyhow::Result<u64> {
-        let labels = collect_labels(labels);
+    pub fn set(&mut self, value: u64, label_values: &[&str]) -> anyhow::Result<u64> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
@@ -192,16 +192,16 @@ impl Counter {
         Ok(last_value)
     }
 
-    pub fn get(&self, labels: &[&str]) -> anyhow::Result<Option<u64>> {
-        let labels = collect_labels(labels);
+    pub fn get(&self, label_values: &[&str]) -> anyhow::Result<Option<u64>> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
         Ok(self.values.get(&labels).cloned())
     }
 
-    pub fn delete(&mut self, labels: &[&str]) -> anyhow::Result<Option<u64>> {
-        let labels = collect_labels(labels);
+    pub fn delete(&mut self, label_values: &[&str]) -> anyhow::Result<Option<u64>> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
@@ -215,7 +215,7 @@ impl Counter {
     pub fn export(&self) -> Family<PrometheusLabels, PrometheusCounter, PrometheusCounterFn> {
         let fam = Family::<PrometheusLabels, PrometheusCounter>::default();
         for (labels, value) in &self.values {
-            let label_map = build_labels(&self.label_names, &labels);
+            let label_map = build_labels(&self.label_names, labels);
             let c = fam.get_or_create(&label_map);
             c.inc_by(*value);
         }
@@ -240,8 +240,8 @@ impl Gauge {
         &self.unit
     }
 
-    pub fn set(&mut self, value: f64, labels: &[&str]) -> anyhow::Result<f64> {
-        let labels = collect_labels(labels);
+    pub fn set(&mut self, value: f64, label_values: &[&str]) -> anyhow::Result<f64> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
@@ -251,16 +251,16 @@ impl Gauge {
         Ok(last_value)
     }
 
-    pub fn get(&self, labels: &[&str]) -> anyhow::Result<Option<f64>> {
-        let labels = collect_labels(labels);
+    pub fn get(&self, label_values: &[&str]) -> anyhow::Result<Option<f64>> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
         Ok(self.values.get(&labels).cloned())
     }
 
-    pub fn delete(&mut self, labels: &[&str]) -> anyhow::Result<Option<f64>> {
-        let labels = collect_labels(labels);
+    pub fn delete(&mut self, label_values: &[&str]) -> anyhow::Result<Option<f64>> {
+        let labels = collect_labels(label_values);
         if labels.len() != self.label_names.len() {
             bail!("Invalid labels: {:?} != {:?}", &labels, &self.label_names);
         }
@@ -274,32 +274,13 @@ impl Gauge {
     pub fn export(&self) -> Family<PrometheusLabels, PrometheusGauge, PrometheusGaugeFn> {
         let fam = Family::<PrometheusLabels, PrometheusGauge>::default();
         for (labels, value) in &self.values {
-            let label_map = build_labels(&self.label_names, &labels);
+            let label_map = build_labels(&self.label_names, labels);
             let g = fam.get_or_create(&label_map);
             g.set(*value);
         }
         fam
     }
 }
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Labels {
-    labels: HashMap<String, String>,
-}
-
-// impl EncodeLabelSet for Labels {
-//     fn encode(&self, encoder: &mut LabelSetEncoder) -> Result<(), std::fmt::Error> {
-//         for (k, v) in &self.labels {
-//             let mut le = encoder.encode_label();
-//             let mut lke = le.encode_label_key()?;
-//             EncodeLabelKey::encode(&k, &mut lke)?;
-//             let mut lve = lke.encode_label_value()?;
-//             EncodeLabelValue::encode(&v, &mut lve)?;
-//             lve.finish()?;
-//         }
-//         Ok(())
-//     }
-// }
 
 pub enum ConstMetric {
     Counter(Family<PrometheusLabels, PrometheusCounter, PrometheusCounterFn>),
@@ -375,7 +356,7 @@ mod tests {
         let counters = counter.get_all();
         assert_eq!(counters.len(), 2);
         assert_eq!(counters.values().sum::<u64>(), 3);
-        del_metric("test_counter");
+        delete_metric_family("test_counter");
         Ok(())
     }
 
@@ -397,7 +378,7 @@ mod tests {
         assert!(err.is_err());
         let err = counter.delete(&["a"]);
         assert!(err.is_err());
-        del_metric("test_counter");
+        delete_metric_family("test_counter");
         Ok(())
     }
 
@@ -432,7 +413,7 @@ mod tests {
         let gauges = gauge.get_all();
         assert_eq!(gauges.len(), 2);
         assert_eq!(gauges.values().sum::<f64>(), 3.0);
-        del_metric("test_gauge");
+        delete_metric_family("test_gauge");
         Ok(())
     }
 
@@ -452,7 +433,7 @@ mod tests {
         assert!(err.is_err());
         let err = gauge.delete(&["a"]);
         assert!(err.is_err());
-        del_metric("test_gauge");
+        delete_metric_family("test_gauge");
         Ok(())
     }
 }

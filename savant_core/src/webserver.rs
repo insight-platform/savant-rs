@@ -13,24 +13,18 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub enum GstPipelineStatus {
-    #[serde(rename = "initializing")]
-    Initializing,
-    #[serde(rename = "starting")]
-    Starting,
+pub enum PipelineStatus {
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "stopped")]
     Stopped,
-    #[serde(rename = "stopping")]
-    Stopping,
     #[serde(rename = "shutdown")]
     Shutdown,
 }
 
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
-    status: Arc<Mutex<GstPipelineStatus>>,
+    status: Arc<Mutex<PipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
 }
@@ -39,13 +33,13 @@ impl WsData {
     pub fn new() -> Self {
         WsData {
             pipelines: Arc::new(Mutex::new(Vec::new())),
-            status: Arc::new(Mutex::new(GstPipelineStatus::Stopped)),
+            status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
         }
     }
 
-    pub fn set_status(&self, s: GstPipelineStatus) {
+    pub fn set_status(&self, s: PipelineStatus) {
         let runtime = get_or_init_async_runtime();
         let thread_status = self.status.clone();
         let ws_job = WS_JOB.get().expect("Web server job not started");
@@ -106,11 +100,11 @@ pub(crate) async fn get_registered_pipelines() -> Vec<Arc<implementation::Pipeli
     s.clone()
 }
 
-pub fn set_status(s: GstPipelineStatus) {
+pub fn set_status(s: PipelineStatus) {
     WS_DATA.set_status(s);
 }
 
-pub async fn get_status() -> GstPipelineStatus {
+pub async fn get_status() -> PipelineStatus {
     let s = WS_DATA.status.lock().await;
     s.clone()
 }
@@ -123,26 +117,22 @@ fn get_shutdown_token() -> Option<String> {
     WS_DATA.shutdown_token.get().cloned()
 }
 
-pub fn get_shutdown_status() -> bool {
+pub fn is_shutdown_set() -> bool {
     WS_DATA.shutdown_status.get().cloned().unwrap_or(false)
 }
 
 #[cfg(test)]
-pub fn shutdown(_status: bool) -> anyhow::Result<()> {
+fn shutdown() -> anyhow::Result<()> {
     Ok(())
 }
 
 #[cfg(not(test))]
-pub fn shutdown(status: bool) -> anyhow::Result<()> {
+fn shutdown() -> anyhow::Result<()> {
     WS_DATA
         .shutdown_status
-        .set(status)
+        .set(true)
         .map_err(|_| anyhow::anyhow!("Shutdown status already set"))?;
     Ok(())
-}
-
-pub fn reset_ws_data() {
-    WS_DATA.set_status(GstPipelineStatus::Stopped);
 }
 
 #[get("/status")]
@@ -176,12 +166,12 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
         return HttpResponse::Unauthorized()
             .body("Invalid shutdown token provided (ignoring the command).");
     } else {
-        let res = shutdown(true);
+        let res = shutdown();
         if res.is_err() {
             return HttpResponse::InternalServerError()
                 .body("Failed to set shutdown status multiple times (already set).");
         }
-        set_status(GstPipelineStatus::Shutdown);
+        set_status(PipelineStatus::Shutdown);
         if matches!(shutdown_params.mode, ShutdownMode::Signal) {
             let pid = PID.lock().await;
             _ = nix::sys::signal::kill(
@@ -252,18 +242,19 @@ pub fn stop_webserver() {
 #[cfg(test)]
 mod tests {
     use crate::get_or_init_async_runtime;
-    use crate::metric::{del_metric, get_or_create_counter, get_or_create_gauge, set_extra_labels};
+    use crate::metric::{
+        delete_metric_family, get_or_create_counter_family, get_or_create_gauge_family,
+        set_extra_labels,
+    };
     use crate::pipeline::implementation::create_test_pipeline;
     use crate::test::gen_frame;
     use crate::webserver::{
         init_webserver, register_pipeline, set_shutdown_token, set_status, stop_webserver,
-        GstPipelineStatus,
+        PipelineStatus,
     };
     use hashbrown::HashMap;
-    use log::info;
     use prometheus_client::registry::Unit;
     use std::sync::Arc;
-    use std::thread;
     use std::thread::sleep;
     use std::time::{Duration, SystemTime};
 
@@ -278,11 +269,11 @@ mod tests {
         // _ = env_logger::try_init();
         init_webserver(8888)?;
         sleep(Duration::from_millis(100));
-        set_status(GstPipelineStatus::Running);
+        set_status(PipelineStatus::Running);
         let r = reqwest::blocking::get("http://localhost:8888/status")?;
         assert_eq!(r.status(), 200);
-        let s: GstPipelineStatus = r.json()?;
-        assert!(matches!(s, GstPipelineStatus::Running));
+        let s: PipelineStatus = r.json()?;
+        assert!(matches!(s, PipelineStatus::Running));
         stop_webserver();
         Ok(())
     }
@@ -298,7 +289,7 @@ mod tests {
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
         sleep(Duration::from_millis(500));
-        set_status(GstPipelineStatus::Running);
+        set_status(PipelineStatus::Running);
         let client = reqwest::Client::new();
         let r = rt.block_on(
             client
@@ -316,8 +307,8 @@ mod tests {
         let rt = get_or_init_async_runtime();
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
-        thread::sleep(Duration::from_millis(500));
-        set_status(GstPipelineStatus::Running);
+        sleep(Duration::from_millis(500));
+        set_status(PipelineStatus::Running);
         let (snd, rec) = crossbeam::channel::bounded(1);
         ctrlc::set_handler(move || {
             snd.send(()).unwrap();
@@ -366,20 +357,20 @@ mod tests {
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
         sleep(Duration::from_millis(200));
-        set_status(GstPipelineStatus::Running);
+        set_status(PipelineStatus::Running);
         set_extra_labels(HashMap::from([(
             String::from("hello"),
             String::from("there"),
         )]));
 
-        let c = get_or_create_counter(
+        let c = get_or_create_counter_family(
             "metric_counter",
             Some("Counter for metrics"),
             &["label1", "label2"],
             Some(Unit::Other(String::from("Number"))),
         );
 
-        let g = get_or_create_gauge(
+        let g = get_or_create_gauge_family(
             "metric_gauge",
             Some("Gauge for metrics"),
             &["label3", "label3"],
@@ -402,8 +393,8 @@ mod tests {
         assert!(text.contains("metric_gauge_Time"));
         assert!(text.contains("hello"));
         assert!(text.contains("stage_object_counter_total"));
-        del_metric("metric_counter");
-        del_metric("metric_gauge");
+        delete_metric_family("metric_counter");
+        delete_metric_family("metric_gauge");
         stop_webserver();
         drop(pipeline);
         Ok(())
