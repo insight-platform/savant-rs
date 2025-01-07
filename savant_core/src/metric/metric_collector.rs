@@ -4,9 +4,9 @@ use prometheus_client::encoding::{DescriptorEncoder, EncodeMetric};
 use prometheus_client::metrics::MetricType;
 
 #[derive(Debug)]
-pub struct UserMetricCollector;
+pub struct SystemMetricCollector;
 
-impl Collector for UserMetricCollector {
+impl Collector for SystemMetricCollector {
     fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
         let exported_user_metrics = export_metrics();
         for m in exported_user_metrics {

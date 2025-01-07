@@ -2,7 +2,8 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
-use crate::metric::user_metric_collector::UserMetricCollector;
+use crate::metric::metric_collector::SystemMetricCollector;
+use crate::metric::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
@@ -28,7 +29,7 @@ pub enum GstPipelineStatus {
 }
 
 struct WsData {
-    stats: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
+    pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<GstPipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
@@ -37,7 +38,7 @@ struct WsData {
 impl WsData {
     pub fn new() -> Self {
         WsData {
-            stats: Arc::new(Mutex::new(Vec::new())),
+            pipelines: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(GstPipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
@@ -78,7 +79,7 @@ lazy_static! {
 
 pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
-    let stats = WS_DATA.stats.clone();
+    let stats = WS_DATA.pipelines.clone();
     runtime.block_on(async move {
         let mut bind = stats.lock().await;
         bind.push(pipeline);
@@ -88,7 +89,7 @@ pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
 
 pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
-    let stats = WS_DATA.stats.clone();
+    let stats = WS_DATA.pipelines.clone();
     runtime.block_on(async move {
         let mut bind = stats.lock().await;
         let prev_len = bind.len();
@@ -98,6 +99,11 @@ pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
             error!("Failed to remove pipeline from stats.");
         }
     });
+}
+
+pub(crate) async fn get_registered_pipelines() -> Vec<Arc<implementation::Pipeline>> {
+    let s = WS_DATA.pipelines.lock().await;
+    s.clone()
 }
 
 pub fn set_status(s: GstPipelineStatus) {
@@ -190,15 +196,21 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
 #[get("/metrics")]
 async fn metrics_handler() -> HttpResponse {
     let content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
+    if let Err(e) = PipelineMetricBuilder::build().await {
+        error!("Failed to build pipeline metrics: {}", e);
+        return HttpResponse::InternalServerError()
+            .content_type(content_type)
+            .body("Failed to build pipeline metrics");
+    }
     let mut registry = prometheus_client::registry::Registry::default();
-    let boxed_collector = Box::new(UserMetricCollector);
+    let boxed_collector = Box::new(SystemMetricCollector);
     registry.register_collector(boxed_collector);
     let mut body = String::new();
     if let Err(e) = encode(&mut body, &registry) {
         error!("Failed to encode metrics: {}", e);
         return HttpResponse::InternalServerError()
             .content_type(content_type)
-            .finish();
+            .body("Failed to encode metrics");
     }
     HttpResponse::Ok().content_type(content_type).body(body)
 }
@@ -241,12 +253,18 @@ pub fn stop_webserver() {
 mod tests {
     use crate::get_or_init_async_runtime;
     use crate::metric::{del_metric, get_or_create_counter, get_or_create_gauge, set_extra_labels};
+    use crate::pipeline::implementation::create_test_pipeline;
+    use crate::test::gen_frame;
     use crate::webserver::{
-        init_webserver, set_shutdown_token, set_status, stop_webserver, GstPipelineStatus,
+        init_webserver, register_pipeline, set_shutdown_token, set_status, stop_webserver,
+        GstPipelineStatus,
     };
     use hashbrown::HashMap;
+    use log::info;
     use prometheus_client::registry::Unit;
+    use std::sync::Arc;
     use std::thread;
+    use std::thread::sleep;
     use std::time::{Duration, SystemTime};
 
     const TOKEN: &str = "12345";
@@ -259,7 +277,7 @@ mod tests {
         // }
         // _ = env_logger::try_init();
         init_webserver(8888)?;
-        thread::sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100));
         set_status(GstPipelineStatus::Running);
         let r = reqwest::blocking::get("http://localhost:8888/status")?;
         assert_eq!(r.status(), 200);
@@ -279,7 +297,7 @@ mod tests {
         let rt = get_or_init_async_runtime();
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
-        thread::sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(500));
         set_status(GstPipelineStatus::Running);
         let client = reqwest::Client::new();
         let r = rt.block_on(
@@ -320,9 +338,35 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_webserver_metrics() -> anyhow::Result<()> {
+        unsafe {
+            std::env::set_var("RUST_LOG", "debug");
+        }
+        _ = env_logger::try_init();
+
+        let pipeline = Arc::new(create_test_pipeline()?);
+        pipeline.set_name("test_pipeline".into())?;
+        register_pipeline(pipeline.clone());
+        let id1 = pipeline.add_frame("input", gen_frame())?;
+        // sleep for 5 ms
+        sleep(Duration::from_millis(5));
+        let id2 = pipeline.add_frame("input", gen_frame())?;
+        // sleep for 3 ms
+        sleep(Duration::from_millis(3));
+        let batch_id = pipeline.move_and_pack_frames("proc1", vec![id1, id2])?;
+        // sleep for 2 ms
+        sleep(Duration::from_millis(2));
+        pipeline.move_as_is("proc2", vec![batch_id])?;
+        // sleep for 1 ms
+        sleep(Duration::from_millis(1));
+        let ids = pipeline.move_and_unpack_batch("output", batch_id)?;
+        ids.iter().for_each(|id| {
+            pipeline.delete(*id).unwrap();
+        });
+
         let rt = get_or_init_async_runtime();
+        set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
-        thread::sleep(Duration::from_millis(200));
+        sleep(Duration::from_millis(200));
         set_status(GstPipelineStatus::Running);
         set_extra_labels(HashMap::from([(
             String::from("hello"),
@@ -355,15 +399,16 @@ mod tests {
         let r = rt.block_on(client.get("http://localhost:8888/metrics").send())?;
         assert_eq!(r.status(), 200);
         let text = rt.block_on(r.text())?;
+        info!("{}", text);
         assert!(text.contains("metric_counter_Number_total"));
         assert!(text.contains("metric_gauge_Time"));
         assert!(text.contains("hello"));
+        assert!(text.contains("stage_object_counter_total"));
         del_metric("metric_counter");
         del_metric("metric_gauge");
         stop_webserver();
+        pipeline.log_final_fps();
+        drop(pipeline);
         Ok(())
     }
 }
-
-// TODO: pipeline metric collector
-// TODO: common labels

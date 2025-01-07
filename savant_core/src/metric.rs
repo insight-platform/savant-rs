@@ -9,8 +9,8 @@ use prometheus_client::registry::Unit;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, OnceLock};
 
-pub(crate) mod pipeline_metric_collector;
-pub(crate) mod user_metric_collector;
+pub(crate) mod metric_collector;
+pub(crate) mod pipeline_metric_builder;
 
 type PrometheusCounter = TypedPrometheusCounter<u64>;
 type PrometheusCounterFn = fn() -> PrometheusCounter;

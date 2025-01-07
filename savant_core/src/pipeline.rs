@@ -1088,6 +1088,44 @@ pub(super) mod implementation {
     }
 
     #[cfg(test)]
+    pub(crate) fn create_test_pipeline() -> anyhow::Result<Pipeline> {
+        let pipeline = Pipeline::new(
+            vec![
+                (
+                    "input".to_string(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+                (
+                    "proc1".to_string(),
+                    PipelineStagePayloadType::Batch,
+                    None,
+                    None,
+                ),
+                (
+                    "proc2".to_string(),
+                    PipelineStagePayloadType::Batch,
+                    None,
+                    None,
+                ),
+                (
+                    "output".to_string(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+            ],
+            PipelineConfigurationBuilder::default()
+                .append_frame_meta_to_otlp_span(true)
+                .frame_period(Some(2))
+                .build()
+                .unwrap(),
+        )?;
+        Ok(pipeline)
+    }
+
+    #[cfg(test)]
     mod tests {
         use std::sync::atomic::Ordering;
         use std::sync::Once;
@@ -1096,9 +1134,7 @@ pub(super) mod implementation {
 
         use opentelemetry::trace::TraceContextExt;
 
-        use crate::pipeline::implementation::{
-            Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType,
-        };
+        use crate::pipeline::implementation::{create_test_pipeline, PipelineStagePayloadType};
         use crate::primitives::attribute_value::AttributeValue;
         use crate::primitives::frame_update::VideoFrameUpdate;
         use crate::primitives::{Attribute, WithAttributes};
@@ -1111,45 +1147,9 @@ pub(super) mod implementation {
             INIT.call_once(|| init(&TelemetryConfiguration::no_op()))
         }
 
-        fn create_pipeline() -> anyhow::Result<Pipeline> {
-            let pipeline = Pipeline::new(
-                vec![
-                    (
-                        "input".to_string(),
-                        PipelineStagePayloadType::Frame,
-                        None,
-                        None,
-                    ),
-                    (
-                        "proc1".to_string(),
-                        PipelineStagePayloadType::Batch,
-                        None,
-                        None,
-                    ),
-                    (
-                        "proc2".to_string(),
-                        PipelineStagePayloadType::Batch,
-                        None,
-                        None,
-                    ),
-                    (
-                        "output".to_string(),
-                        PipelineStagePayloadType::Frame,
-                        None,
-                        None,
-                    ),
-                ],
-                PipelineConfigurationBuilder::default()
-                    .append_frame_meta_to_otlp_span(true)
-                    .build()
-                    .unwrap(),
-            )?;
-            Ok(pipeline)
-        }
-
         #[test]
         fn test_new_pipeline() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             assert_eq!(pipeline.id_counter.load(Ordering::SeqCst), 0);
             assert_eq!(pipeline.stages.len(), 4);
             Ok(())
@@ -1157,7 +1157,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_get_stage_type() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             assert!(matches!(
                 pipeline.find_stage_type("input", 0)?,
                 PipelineStagePayloadType::Frame
@@ -1171,7 +1171,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_find_stages() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             assert!(pipeline.find_stage("input", 0).is_ok());
             assert!(pipeline.find_stage("input", 1).is_err());
             Ok(())
@@ -1179,7 +1179,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_add_del_frame() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             assert_eq!(pipeline.get_stage_queue_len("input")?, 1);
             assert!(pipeline.add_frame("proc1", gen_frame()).is_err());
@@ -1193,7 +1193,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_frame_to_batch() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
 
@@ -1207,7 +1207,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_ordering() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let frame = gen_frame();
             let id = pipeline.add_frame("input", frame.clone())?;
             let res = frame.get_previous_frame_seq_id();
@@ -1221,7 +1221,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_batch_to_frame() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc2", vec![id])?;
             assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
@@ -1237,7 +1237,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_batch_to_batch() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
             pipeline.move_as_is("proc2", vec![batch_id])?;
@@ -1251,7 +1251,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_frame_to_frame() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             pipeline.move_as_is("output", vec![id])?;
             assert_eq!(pipeline.get_stage_queue_len("input")?, 0);
@@ -1274,7 +1274,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_frame_update() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let update = get_update();
             pipeline.add_frame_update(id, update)?;
@@ -1286,7 +1286,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_batch_update() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id = pipeline.add_frame("input", gen_frame())?;
             let batch_id = pipeline.move_and_pack_frames("proc1", vec![id])?;
             let update = get_update();
@@ -1302,7 +1302,7 @@ pub(super) mod implementation {
         fn test_sampling() -> anyhow::Result<()> {
             init_telemetry();
 
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             pipeline.set_sampling_period(2)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
@@ -1328,7 +1328,7 @@ pub(super) mod implementation {
         fn test_no_tracing() -> anyhow::Result<()> {
             init_telemetry();
 
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             pipeline.set_sampling_period(0)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
@@ -1346,7 +1346,7 @@ pub(super) mod implementation {
         fn test_tracing_every() -> anyhow::Result<()> {
             init_telemetry();
 
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             pipeline.set_sampling_period(1)?;
 
             let id = pipeline.add_frame("input", gen_frame())?;
@@ -1362,7 +1362,7 @@ pub(super) mod implementation {
 
         #[test]
         fn test_stats() -> anyhow::Result<()> {
-            let pipeline = create_pipeline()?;
+            let pipeline = create_test_pipeline()?;
             let id1 = pipeline.add_frame("input", gen_frame())?;
             // sleep for 5 ms
             sleep(Duration::from_millis(5));
