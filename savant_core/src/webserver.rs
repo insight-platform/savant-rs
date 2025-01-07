@@ -398,7 +398,6 @@ mod tests {
         let r = rt.block_on(client.get("http://localhost:8888/metrics").send())?;
         assert_eq!(r.status(), 200);
         let text = rt.block_on(r.text())?;
-        info!("{}", text);
         assert!(text.contains("metric_counter_Number_total"));
         assert!(text.contains("metric_gauge_Time"));
         assert!(text.contains("hello"));
