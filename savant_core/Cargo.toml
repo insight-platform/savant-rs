@@ -39,6 +39,7 @@ etcd-client = { version = "0.13", features = ["tls"] }
 jmespath = { version = "0.3", features = ["sync"] }
 libloading = "0.8"
 lru = { version = "0.12", features = ["hashbrown"] }
+nix = { version = "0.29", features = ["process", "signal"] }
 opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
 prometheus-client = "0.22"
 tonic = { version = "0.12.2", features = ["tls-native-roots"] }
@@ -75,3 +76,4 @@ bollard = "0.18"
 futures-util = "0.3"
 reqwest = "0.12"
 env_logger = "0.11"
+ctrlc = "3"

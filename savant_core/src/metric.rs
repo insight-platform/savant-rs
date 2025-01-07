@@ -7,7 +7,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge as TypedPrometheusGauge;
 use prometheus_client::registry::Unit;
 use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub(crate) mod pipeline_metric_collector;
 pub(crate) mod user_metric_collector;
@@ -44,10 +44,28 @@ enum MetricType {
 
 lazy_static! {
     static ref REGISTRY: Mutex<HashMap<String, MetricType>> = Mutex::new(HashMap::new());
+    static ref EXTRA_LABELS: OnceLock<HashMap<String, String>> = OnceLock::new();
+}
+
+pub fn set_extra_labels(labels: HashMap<String, String>) {
+    EXTRA_LABELS.get_or_init(|| labels);
 }
 
 fn build_labels(names: &[String], values: &[String]) -> Vec<(String, String)> {
-    names.iter().cloned().zip(values.iter().cloned()).collect()
+    let labels = names
+        .iter()
+        .cloned()
+        .zip(values.iter().cloned())
+        .collect::<Vec<(_, _)>>();
+    let extra_labels = EXTRA_LABELS.get();
+    if let Some(el) = extra_labels {
+        labels
+            .into_iter()
+            .chain(el.iter().map(|(a, b)| (a.to_string(), b.to_string())))
+            .collect()
+    } else {
+        labels
+    }
 }
 
 pub fn new_counter(
