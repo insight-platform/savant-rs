@@ -12,7 +12,7 @@ use savant_core::pipeline::Pipeline;
 use savant_core::pipeline::PipelineStagePayloadType;
 use savant_core::rust::PipelineConfigurationBuilder;
 use savant_core::telemetry::{
-    ContextPropagationFormat, init, Protocol, shutdown, TelemetryConfiguration, TracerConfiguration,
+    init, shutdown, ContextPropagationFormat, Protocol, TelemetryConfiguration, TracerConfiguration,
 };
 use savant_core::test::gen_frame;
 

@@ -3,6 +3,7 @@ pub mod capi;
 pub mod draw_spec;
 pub mod logging;
 pub mod match_query;
+pub mod metrics;
 pub mod pipeline;
 /// # Basic objects
 ///
@@ -12,6 +13,7 @@ pub mod test;
 /// # Utility functions
 ///
 pub mod utils;
+pub mod webserver;
 pub mod zmq;
 
 use pyo3::prelude::*;
@@ -26,10 +28,4 @@ use pyo3::prelude::*;
 #[pyfunction]
 pub fn version() -> String {
     savant_core::version()
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test() {}
 }

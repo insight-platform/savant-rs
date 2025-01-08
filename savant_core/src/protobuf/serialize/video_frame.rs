@@ -112,7 +112,7 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
                 .transpose()?,
             source_id: value.source_id.clone(),
             uuid: Uuid::from_str(&value.uuid)?.as_u128(),
-            creation_timestamp_ns: (value.creation_timestamp_ns_high as u128) << 64
+            creation_timestamp_ns: ((value.creation_timestamp_ns_high as u128) << 64)
                 | (value.creation_timestamp_ns_low as u128),
             framerate: value.framerate.clone(),
             width: value.width,

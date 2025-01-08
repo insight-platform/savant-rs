@@ -46,8 +46,8 @@ pub(crate) mod resolvers {
         cast_str_to_primitive_type, config_resolver_name, env_resolver_name, etcd_resolver_name,
         get_symbol_resolver, utility_resolver_name, CONFIG_FUNC, ENV_FUNC, ETCD_FUNC,
     };
-    use crate::trace;
-    use anyhow::{anyhow, bail, Result};
+    use crate::{get_or_init_async_runtime, trace};
+    use anyhow::{bail, Result};
     use etcd_client::{Certificate, Identity, TlsOptions};
     use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
     use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
@@ -58,7 +58,6 @@ pub(crate) mod resolvers {
     use std::env;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use tokio::runtime::Runtime;
 
     pub trait EvalWithResolvers {
         fn get_resolvers(&self) -> &'_ [String];
@@ -236,7 +235,6 @@ pub(crate) mod resolvers {
 
     pub struct EtcdSymbolResolver {
         inner: Arc<Mutex<EtcdParameterStorage>>,
-        runtime: Option<Arc<Runtime>>,
         prefix: String,
     }
 
@@ -265,7 +263,7 @@ pub(crate) mod resolvers {
             assert!(watch_path_wait_timeout > 0);
             assert!(connect_timeout > 0);
 
-            let runtime = Runtime::new().unwrap();
+            let runtime = get_or_init_async_runtime();
             let credentials = credentials
                 .as_ref()
                 .map(|creds| (creds.username.as_str(), creds.password.as_str()));
@@ -277,39 +275,25 @@ pub(crate) mod resolvers {
                         tls.client_key.as_bytes(),
                     ))
             });
-            let client =
-                EtcdClient::new_with_tls(hosts, &credentials, watch_path, 60, connect_timeout, tls);
 
-            let client = runtime.block_on(client)?;
+            let client = runtime.block_on(EtcdClient::new_with_tls(
+                hosts,
+                &credentials,
+                watch_path,
+                60,
+                connect_timeout,
+                tls,
+            ))?;
 
             let mut parameter_storage = EtcdParameterStorage::with_client(client);
-            parameter_storage.run(&runtime)?;
+            parameter_storage.run(runtime)?;
             parameter_storage.order_data_update(VarPathSpec::Prefix(watch_path.to_string()))?;
             _ = parameter_storage.wait_for_key(watch_path, watch_path_wait_timeout * 1000); // wait for the first update
 
             Ok(Self {
                 inner: Arc::new(Mutex::new(parameter_storage)),
-                runtime: Some(Arc::new(runtime)),
                 prefix: watch_path.to_string(),
             })
-        }
-
-        fn _shutdown(&mut self) -> Result<()> {
-            let rt = self
-                .runtime
-                .take()
-                .ok_or_else(|| anyhow!("EtcdParameterStorage has already been stopped"))?;
-
-            let rt = Arc::try_unwrap(rt).map_err(|survived_rt| {
-            self.runtime = Some(survived_rt);
-            anyhow!(
-                    "Failed to destroy EtcdParameterStorage: there are more than one references to the runtime."
-                )
-        })?;
-
-            self.inner.lock().stop(rt)?;
-
-            Ok(())
         }
 
         fn get_data(&self, key: &str) -> Result<Option<String>> {
@@ -325,19 +309,6 @@ pub(crate) mod resolvers {
             match data_opt {
                 Some((_crc, data)) => Ok(Some(String::from_utf8_lossy(&data).to_string())),
                 None => Ok(None),
-            }
-        }
-
-        fn is_active(&self) -> bool {
-            self.inner.lock().is_active()
-        }
-    }
-
-    impl Drop for EtcdSymbolResolver {
-        fn drop(&mut self) {
-            if self.is_active() {
-                self._shutdown()
-                    .expect("Failed to shutdown EtcdParameterStorage");
             }
         }
     }
@@ -488,9 +459,19 @@ mod tests {
         register_config_resolver, unregister_resolver, update_config_resolver, CONFIG_FUNC,
         ENV_FUNC, ETCD_FUNC,
     };
+    use crate::get_or_init_async_runtime;
+    use bollard::container::{
+        Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
+    };
+    use bollard::image::CreateImageOptions;
+    use bollard::models::{HostConfig, PortBinding};
+    use bollard::Docker;
+    use etcd_dynamic_state::etcd_api::{EtcdClient, Operation};
     use evalexpr::Value;
+    use futures_util::TryStreamExt;
     use hashbrown::HashMap;
     use std::env;
+    use std::time::Duration;
 
     #[test]
     fn test_conversions() {
@@ -634,26 +615,129 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn test_etcd_resolver() {
-        let resolver =
-            EtcdSymbolResolver::new(&["127.0.0.1:2379"], &None, &None, "savant", 1, 1).unwrap();
+    #[serial_test::serial]
+    fn test_etcd_resolver() -> anyhow::Result<()> {
+        let runtime = get_or_init_async_runtime();
+        let docker = Docker::connect_with_local_defaults()?;
+        let ccr: anyhow::Result<String> = runtime.block_on(async {
+            let name = "test-etcd-no-tls";
+            let _ = docker
+                .remove_container(
+                    name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+
+            const IMAGE: &str = "bitnami/etcd:latest";
+
+            docker
+                .create_image(
+                    Some(CreateImageOptions {
+                        from_image: IMAGE,
+                        ..Default::default()
+                    }),
+                    None,
+                    None,
+                )
+                .try_collect::<Vec<_>>()
+                .await?;
+
+            let ccr = docker
+                .create_container(
+                    Some(CreateContainerOptions {
+                        name: name.to_string(),
+                        platform: None,
+                    }),
+                    Config {
+                        image: Some(IMAGE.to_string()),
+                        env: Some(vec!["ALLOW_NONE_AUTHENTICATION=yes".to_string()]),
+                        host_config: Some(HostConfig {
+                            port_bindings: Some(
+                                vec![(
+                                    "2379/tcp".to_string(),
+                                    Some(vec![PortBinding {
+                                        host_ip: None,
+                                        host_port: Some("22379".to_string()),
+                                    }]),
+                                )]
+                                .into_iter()
+                                .collect(),
+                            ),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+
+            docker
+                .start_container(name, None::<StartContainerOptions<String>>)
+                .await?;
+
+            let mut client;
+            let mut max_retries = 10;
+            loop {
+                let c = EtcdClient::new(&["127.0.0.1:22379"], &None, "savant", 5, 20).await;
+                if c.is_ok() {
+                    client = c?;
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                max_retries -= 1;
+                if max_retries == 0 {
+                    panic!("Failed to connect to Etcd in {}", max_retries);
+                }
+            }
+
+            client
+                .kv_operations(vec![
+                    Operation::Set {
+                        key: "savant/abc".into(),
+                        value: "1".into(),
+                        with_lease: false,
+                    },
+                    Operation::Set {
+                        key: "savant/xyz".into(),
+                        value: "-1".into(),
+                        with_lease: false,
+                    },
+                ])
+                .await?;
+            let id = ccr.id.clone();
+            Ok(id)
+        });
+
+        let ccr = ccr?;
+
+        let resolver = EtcdSymbolResolver::new(&["127.0.0.1:22379"], &None, &None, "savant", 1, 1)?;
         let default = Value::Int(0);
-        let value = resolver
-            .resolve(
-                ETCD_FUNC,
-                &Value::Tuple(vec![Value::String("abc".to_string()), default]),
-            )
-            .unwrap();
+        let value = resolver.resolve(
+            ETCD_FUNC,
+            &Value::Tuple(vec![Value::String("abc".to_string()), default]),
+        )?;
         assert_eq!(value, Value::Int(1));
 
         let default = Value::Int(-1);
-        let value = resolver
-            .resolve(
-                ETCD_FUNC,
-                &Value::Tuple(vec![Value::String("xyz".to_string()), default]),
-            )
-            .unwrap();
+        let value = resolver.resolve(
+            ETCD_FUNC,
+            &Value::Tuple(vec![Value::String("xyz".to_string()), default]),
+        )?;
         assert_eq!(value, Value::Int(-1));
+
+        runtime.block_on(async {
+            docker
+                .remove_container(
+                    &ccr,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await?;
+            Ok(())
+        })
     }
 }

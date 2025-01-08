@@ -1062,7 +1062,7 @@ impl MatchQuery {
         MatchQuery(rust::MatchQuery::Id(e.0))
     }
 
-    /// True if the metric calculated between the current object box and specified box matches the expression.
+    /// True if the metrics calculated between the current object box and specified box matches the expression.
     ///
     /// Parameters
     /// ----------
@@ -1071,7 +1071,7 @@ impl MatchQuery {
     /// metric_type: :py:class:`savant_rs.utils.BBoxMetricType`
     ///   Metric type to use for comparison
     /// e: :py:class:`FloatExpression`
-    ///   Float expression to compare the metric with
+    ///   Float expression to compare the metrics with
     ///
     /// Returns
     /// -------
@@ -1106,7 +1106,7 @@ impl MatchQuery {
         })
     }
 
-    /// True if the metric calculated between the current object track box and specified box matches the expression.
+    /// True if the metrics calculated between the current object track box and specified box matches the expression.
     ///
     /// Parameters
     /// ----------
@@ -1115,7 +1115,7 @@ impl MatchQuery {
     /// metric_type: :py:class:`savant_rs.utils.BBoxMetricType`
     ///   Metric type to use for comparison
     /// e: :py:class:`FloatExpression`
-    ///   Float expression to compare the metric with
+    ///   Float expression to compare the metrics with
     ///
     /// Returns
     /// -------

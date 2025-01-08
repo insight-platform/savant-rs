@@ -1,3 +1,4 @@
+use crate::get_or_init_async_runtime;
 use log::error;
 use opentelemetry::global;
 use opentelemetry_jaeger_propagator::Propagator;
@@ -10,7 +11,6 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
 use std::fs;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -242,15 +242,13 @@ impl Configurator {
 }
 
 static CONFIGURATOR: Mutex<OnceCell<Configurator>> = Mutex::new(OnceCell::new());
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 pub fn init(config: &TelemetryConfiguration) {
     let configurator = CONFIGURATOR.lock();
     match configurator.get() {
         Some(_) => panic!("Open Telemetry has been configured"),
         None => {
-            let runtime = RUNTIME
-                .get_or_init(|| tokio::runtime::Runtime::new().expect("Failed to create runtime"));
+            let runtime = get_or_init_async_runtime();
             let c = runtime.block_on(async { Configurator::new("savant-core", config) });
             let result = configurator.set(c);
             if result.is_err() {

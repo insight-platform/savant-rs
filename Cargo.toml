@@ -10,23 +10,24 @@ members = [
 [workspace.dependencies]
 anyhow = "1.0"
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
-geo = "0.28"
+geo = "=0.28"
 lazy_static = "1.5"
 log = "0.4"
 savant_core = { path = "savant_core" }
 savant_core_py = { path = "savant_core_py" }
 hashbrown = { version = "0.15", features = ["serde"] }
-opentelemetry = "0.24"
-opentelemetry-otlp = { version = "0.17", features = ["http-json", "http-proto", "tls", "reqwest-rustls"] }
+opentelemetry = "=0.24"
+opentelemetry-otlp = { version = "=0.17", features = ["http-json", "http-proto", "tls", "reqwest-rustls"] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
-pyo3 = "0.22"
-pyo3-build-config = "0.22"
+prometheus-client = "0.23"
+pyo3 = "0.23"
+pyo3-build-config = "0.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-thiserror = "1.0"
+thiserror = "2"
 
 [workspace.package]
-version = "0.4.4"
+version = "0.4.5"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -36,7 +37,7 @@ readme = "README.md"
 keywords = ["computer-vision", "video-processing"]
 categories = ["algorithms", "data-structures", "computer-vision"]
 license = "Apache-2.0"
-rust-version = "1.70"
+rust-version = "1.83"
 
 
 [profile.release]

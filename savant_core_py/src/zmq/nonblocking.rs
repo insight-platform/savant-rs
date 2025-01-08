@@ -2,6 +2,7 @@ use crate::primitives::message::Message;
 use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
+use parking_lot::{Mutex, MutexGuard};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
@@ -178,44 +179,50 @@ impl WriteOperationResult {
 ///   Maximum number of inflight messages. If the number of inflight messages is equal to this value, the writer's internal operation will block.
 ///
 #[pyclass]
-pub struct NonBlockingWriter(zeromq::NonBlockingWriter);
+pub struct NonBlockingWriter(Mutex<zeromq::NonBlockingWriter>);
+
+impl NonBlockingWriter {
+    fn locked(&self) -> MutexGuard<zeromq::NonBlockingWriter> {
+        self.0.lock()
+    }
+}
 
 #[pymethods]
 impl NonBlockingWriter {
     #[new]
     pub fn new(config: WriterConfig, max_infight_messages: usize) -> PyResult<Self> {
-        Ok(Self(
+        Ok(Self(Mutex::new(
             zeromq::NonBlockingWriter::new(&config.0, max_infight_messages)
                 .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
-        ))
+        )))
     }
 
     /// Returns `true` if the writer is started.
     ///
     pub fn is_started(&self) -> bool {
-        self.0.is_started()
+        self.locked().is_started()
     }
 
     /// Returns `true` if the writer is shutdown.
     ///
     pub fn is_shutdown(&self) -> bool {
-        self.0.is_shutdown()
+        self.locked().is_shutdown()
     }
 
     /// Returns the number of inflight messages.
     pub fn inflight_messages(&self) -> usize {
-        self.0.inflight_messages()
+        self.locked().inflight_messages()
     }
 
     /// Returns `true` if the writer has capacity to send more messages.
     pub fn has_capacity(&self) -> bool {
-        self.0.has_capacity()
+        self.locked().has_capacity()
     }
 
     /// Starts the writer. If the writer is already started, returns an error.
     ///
     pub fn start(&mut self) -> PyResult<()> {
-        self.0
+        self.locked()
             .start()
             .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
     }
@@ -223,7 +230,7 @@ impl NonBlockingWriter {
     /// Shuts down the writer. If the writer is already shutdown, returns an error.
     ///
     pub fn shutdown(&mut self) -> PyResult<()> {
-        self.0
+        self.locked()
             .shutdown()
             .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
     }
@@ -248,9 +255,11 @@ impl NonBlockingWriter {
     ///   usable and should be shutdown.
     ///
     pub fn send_eos(&mut self, topic: &str) -> PyResult<WriteOperationResult> {
-        Ok(WriteOperationResult(self.0.send_eos(topic).map_err(
-            |e| PyRuntimeError::new_err(format!("{:?}", e)),
-        )?))
+        Ok(WriteOperationResult(
+            self.locked()
+                .send_eos(topic)
+                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+        ))
     }
 
     /// Sends a message to the specified topic.
@@ -284,7 +293,7 @@ impl NonBlockingWriter {
     ) -> PyResult<WriteOperationResult> {
         let bytes = extra.as_bytes();
         Ok(WriteOperationResult(
-            self.0
+            self.locked()
                 .send_message(topic, &message.0, &[bytes])
                 .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
         ))

@@ -90,7 +90,7 @@ impl EvalWithResolvers for GlobalContext {
     }
 }
 
-impl<'a> EvalWithResolvers for ObjectContext<'a> {
+impl EvalWithResolvers for ObjectContext<'_> {
     fn get_resolvers(&self) -> &'_ [String] {
         self.resolvers.as_slice()
     }
@@ -114,7 +114,7 @@ impl Context for GlobalContext {
     }
 }
 
-impl<'a> Context for ObjectContext<'a> {
+impl Context for ObjectContext<'_> {
     fn get_value(&self, identifier: &str) -> Option<&Value> {
         if let Some(v) = self.temp_vars.get(identifier) {
             return Some(v);
@@ -394,7 +394,7 @@ impl ContextWithMutableVariables for GlobalContext {
     }
 }
 
-impl<'a> ContextWithMutableVariables for ObjectContext<'a> {
+impl ContextWithMutableVariables for ObjectContext<'_> {
     fn set_value(&mut self, identifier: String, value: Value) -> EvalexprResult<()> {
         // check type mismatch
         if let Some(v) = self.get_value(&identifier) {
