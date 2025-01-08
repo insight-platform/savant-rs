@@ -33,6 +33,10 @@ assert counter.set(1, ["value1", "value2"]) == 1  # new value returns the same v
 assert gauge.set(1.0, ["value1", "value2"]) == 1.0  # new value returns the same value
 assert counter.inc(1, ["value1", "value2"]) == 1  # updated value returns the previous value
 assert gauge.set(2.0, ["value1", "value2"]) == 1.0  # updated value returns the previous value
+
+counter = CounterFamily.get_counter_family("counter")
+gauge = GaugeFamily.get_gauge_family("gauge")
+
 assert counter.get(["value1", "value2"]) == 2
 assert gauge.get(["value1", "value2"]) == 2.0
 
