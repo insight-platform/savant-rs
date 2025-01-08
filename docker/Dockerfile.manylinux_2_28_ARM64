@@ -1,9 +1,9 @@
-FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.6 as builder
+FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.6 AS builder
 
 COPY . .
 ARG PYTHON_INTERPRETER
-RUN bash /opt/docker/build-manylinux.sh
+RUN make release
 RUN rm -rf target
 
-FROM alpine:3.18 as dist
+FROM alpine:3.18 AS dist
 COPY --from=builder /opt/dist /opt/dist

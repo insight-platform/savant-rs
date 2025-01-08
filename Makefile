@@ -3,11 +3,8 @@ export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_inf
 
 .PHONY: docs clippy build_savant build_savant_release clean tests bench
 
-dev: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(HOME)/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/debug/deps:$(CARGO_TARGET_DIR)/debug/deps
-dev: clean clippy build_savant build_plugins
-
-release: export LD_LIBRARY_PATH := $(LD_LIBRARY_PATH):$(HOME)/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib:$(HOME)/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib:$(CURDIR)/target/release/deps:$(CARGO_TARGET_DIR)/release/deps
-release: clean clippy build_savant_release build_plugins_release
+dev: clean clippy build_savant
+release: clean clippy build_savant_release
 
 install:
 	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
@@ -22,25 +19,11 @@ clippy:
 
 build_savant:
 	@echo "Building..."
-	cd savant_python && CARGO_INCREMENTAL=true maturin build -o $(PROJECT_DIR)/dist
+	utils/build.sh debug
 
 build_savant_release:
 	@echo "Building..."
-	cd savant_python && maturin build -f --release -o $(PROJECT_DIR)/dist
-
-build_plugins:
-	@echo "Building plugins..."
-	for d in $(wildcard savant_plugins/*); do \
-		cd $$d && CARGO_INCREMENTAL=true maturin build -o $(PROJECT_DIR)/dist; \
-		cd $(PROJECT_DIR); \
-	done
-
-build_plugins_release:
-	@echo "Building plugins..."
-	for d in $(wildcard savant_plugins/*); do \
-		cd $$d && maturin build -f --release -o $(PROJECT_DIR)/dist; \
-		cd $(PROJECT_DIR); \
-	done
+	utils/build.sh release
 
 clean:
 	@echo "Cleaning..."

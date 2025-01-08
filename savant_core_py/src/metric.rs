@@ -29,11 +29,10 @@ impl CounterFamily {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<&str>>();
-        Ok(self
-            .0
+        self.0
             .lock()
             .get(&l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Deletes the counter with the given labels.
@@ -113,7 +112,7 @@ impl CounterFamily {
             name,
             description,
             &ln_ref,
-            unit.map(|u| Unit::Other(u)),
+            unit.map(Unit::Other),
         ))
     }
 
@@ -145,11 +144,10 @@ impl GaugeFamily {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<&str>>();
-        Ok(self
-            .0
+        self.0
             .lock()
             .get(&l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     pub fn delete(&self, label_values: Vec<String>) -> PyResult<()> {
@@ -209,7 +207,7 @@ impl GaugeFamily {
             name,
             description,
             &ln_ref,
-            unit.map(|u| Unit::Other(u)),
+            unit.map(Unit::Other),
         ))
     }
 
