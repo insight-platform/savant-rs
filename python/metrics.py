@@ -2,6 +2,16 @@ from savant_rs.metrics import *
 from savant_rs.webserver import *
 import requests
 from time import sleep
+import signal
+
+
+def handler(signum, _frame):
+    print("Signal handler called with signal", signum)
+    stop_webserver()
+    print("Webserver stopped")
+
+
+signal.signal(signal.SIGINT, handler)
 
 set_extra_labels({"extra_label": "extra_value"})
 
@@ -36,19 +46,6 @@ assert response.status_code == 200
 print(response.text)
 assert "counter_unit_total" in response.text
 assert "gauge" in response.text
-
-# set Ctrl+C handler
-import signal
-import os
-
-
-def handler(signum, _frame):
-    print("Signal handler called with signal", signum)
-    stop_webserver()
-    print("Webserver stopped")
-
-
-signal.signal(signal.SIGINT, handler)
 
 response = requests.post("http://localhost:8080/shutdown/shutdown/signal")
 assert response.status_code == 200
