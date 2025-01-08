@@ -1,6 +1,6 @@
 zmq
 numpy
-maturin~=0.14
+maturin ~= 1.8
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon
