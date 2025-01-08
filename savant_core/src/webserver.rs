@@ -2,8 +2,8 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
-use crate::metric::metric_collector::SystemMetricCollector;
-use crate::metric::pipeline_metric_builder::PipelineMetricBuilder;
+use crate::metrics::metric_collector::SystemMetricCollector;
+use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
@@ -242,7 +242,7 @@ pub fn stop_webserver() {
 #[cfg(test)]
 mod tests {
     use crate::get_or_init_async_runtime;
-    use crate::metric::{
+    use crate::metrics::{
         delete_metric_family, get_or_create_counter_family, get_or_create_gauge_family,
         set_extra_labels,
     };

@@ -1,4 +1,4 @@
-use crate::metric::{export_metrics, ConstMetric};
+use crate::metrics::{export_metrics, ConstMetric};
 use prometheus_client::collector::Collector;
 use prometheus_client::encoding::{DescriptorEncoder, EncodeMetric};
 use prometheus_client::metrics::MetricType;

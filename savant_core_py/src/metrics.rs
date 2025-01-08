@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use std::collections::HashMap;
 
 #[pyclass]
-pub struct CounterFamily(pub(crate) savant_core::metric::SharedCounterFamily);
+pub struct CounterFamily(pub(crate) savant_core::metrics::SharedCounterFamily);
 
 #[pymethods]
 impl CounterFamily {
@@ -42,7 +42,7 @@ impl CounterFamily {
     /// label_values : List[str]
     ///   The list of label values.
     ///
-    pub fn delete(&self, label_values: Vec<String>) -> PyResult<()> {
+    pub fn delete(&self, label_values: Vec<String>) -> PyResult<Option<u64>> {
         let l_ref = label_values
             .iter()
             .map(|s| s.as_str())
@@ -50,11 +50,10 @@ impl CounterFamily {
         self.0
             .lock()
             .delete(&l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn inc(&self, value: u64, label_values: Vec<String>) -> PyResult<()> {
+    pub fn inc(&self, value: u64, label_values: Vec<String>) -> PyResult<u64> {
         let l_ref = label_values
             .iter()
             .map(|s| s.as_str())
@@ -62,11 +61,10 @@ impl CounterFamily {
         self.0
             .lock()
             .inc(value, &l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn set(&self, value: u64, label_values: Vec<String>) -> PyResult<()> {
+    pub fn set(&self, value: u64, label_values: Vec<String>) -> PyResult<u64> {
         let l_ref = label_values
             .iter()
             .map(|s| s.as_str())
@@ -74,8 +72,7 @@ impl CounterFamily {
         self.0
             .lock()
             .set(value, &l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Creates or returns a counter with the given name.
@@ -108,7 +105,7 @@ impl CounterFamily {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<&str>>();
-        CounterFamily(savant_core::metric::get_or_create_counter_family(
+        CounterFamily(savant_core::metrics::get_or_create_counter_family(
             name,
             description,
             &ln_ref,
@@ -130,12 +127,12 @@ impl CounterFamily {
     ///
     #[staticmethod]
     pub fn get_counter_family(name: &str) -> Option<CounterFamily> {
-        savant_core::metric::get_counter_family(name).map(CounterFamily)
+        savant_core::metrics::get_counter_family(name).map(CounterFamily)
     }
 }
 
 #[pyclass]
-pub struct GaugeFamily(pub(crate) savant_core::metric::SharedGaugeFamily);
+pub struct GaugeFamily(pub(crate) savant_core::metrics::SharedGaugeFamily);
 
 #[pymethods]
 impl GaugeFamily {
@@ -150,7 +147,7 @@ impl GaugeFamily {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn delete(&self, label_values: Vec<String>) -> PyResult<()> {
+    pub fn delete(&self, label_values: Vec<String>) -> PyResult<Option<f64>> {
         let l_ref = label_values
             .iter()
             .map(|s| s.as_str())
@@ -158,11 +155,10 @@ impl GaugeFamily {
         self.0
             .lock()
             .delete(&l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
-    pub fn set(&self, value: f64, label_values: Vec<String>) -> PyResult<()> {
+    pub fn set(&self, value: f64, label_values: Vec<String>) -> PyResult<f64> {
         let l_ref = label_values
             .iter()
             .map(|s| s.as_str())
@@ -170,8 +166,7 @@ impl GaugeFamily {
         self.0
             .lock()
             .set(value, &l_ref)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        Ok(())
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Creates or returns a gauge with the given name.
@@ -203,7 +198,7 @@ impl GaugeFamily {
             .iter()
             .map(|s| s.as_str())
             .collect::<Vec<&str>>();
-        GaugeFamily(savant_core::metric::get_or_create_gauge_family(
+        GaugeFamily(savant_core::metrics::get_or_create_gauge_family(
             name,
             description,
             &ln_ref,
@@ -225,7 +220,7 @@ impl GaugeFamily {
     ///
     #[staticmethod]
     pub fn get_gauge_family(name: &str) -> Option<GaugeFamily> {
-        savant_core::metric::get_gauge_family(name).map(GaugeFamily)
+        savant_core::metrics::get_gauge_family(name).map(GaugeFamily)
     }
 }
 
@@ -238,10 +233,10 @@ impl GaugeFamily {
 ///
 #[pyfunction]
 pub fn delete_metric_family(name: &str) {
-    savant_core::metric::delete_metric_family(name);
+    savant_core::metrics::delete_metric_family(name);
 }
 #[pyfunction]
 pub fn set_extra_labels(labels: HashMap<String, String>) {
     let labels = labels.into_iter().collect::<hashbrown::HashMap<_, _>>();
-    savant_core::metric::set_extra_labels(labels);
+    savant_core::metrics::set_extra_labels(labels);
 }

@@ -3,7 +3,7 @@ pub mod capi;
 pub mod draw_spec;
 pub mod logging;
 pub mod match_query;
-pub mod metric;
+pub mod metrics;
 pub mod pipeline;
 /// # Basic objects
 ///

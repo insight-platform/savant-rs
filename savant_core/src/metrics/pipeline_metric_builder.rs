@@ -1,4 +1,4 @@
-use crate::metric::{get_or_create_counter_family, get_or_create_gauge_family};
+use crate::metrics::{get_or_create_counter_family, get_or_create_gauge_family};
 use crate::rust::FrameProcessingStatRecordType;
 use crate::webserver::get_registered_pipelines;
 use log::{debug, info};

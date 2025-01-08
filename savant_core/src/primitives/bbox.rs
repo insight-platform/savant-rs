@@ -26,7 +26,7 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename = "bbox.metric.type")]
+#[serde(rename = "bbox.metrics.type")]
 pub enum BBoxMetricType {
     IoU,
     IoSelf,

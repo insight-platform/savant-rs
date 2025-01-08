@@ -1,5 +1,8 @@
 #!/bin/bash
 
+ pip install --upgrade pip
+pip install -r requirements.txt
+
 CURRENT_DIR=$(pwd)
 find . -name '*.py' | while read file; do
   DIR=$(dirname "$file")

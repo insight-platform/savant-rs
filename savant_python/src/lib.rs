@@ -6,6 +6,7 @@ use pyo3::wrap_pymodule;
 use savant_core_py::draw_spec::*;
 use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
+use savant_core_py::metrics::*;
 use savant_core_py::pipeline::{
     load_stage_function_plugin, FrameProcessingStatRecord, FrameProcessingStatRecordType, Pipeline,
     PipelineConfiguration, StageFunction, StageLatencyMeasurements, StageLatencyStat,
@@ -48,6 +49,7 @@ use savant_core_py::utils::eval_resolvers::*;
 use savant_core_py::utils::otlp::*;
 use savant_core_py::utils::symbol_mapper::*;
 use savant_core_py::utils::*;
+use savant_core_py::webserver::*;
 use savant_core_py::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use savant_core_py::zmq::configs::{
     ReaderConfig, ReaderConfigBuilder, WriterConfig, WriterConfigBuilder,
@@ -58,6 +60,24 @@ use savant_core_py::zmq::results::{
 };
 use savant_core_py::zmq::{blocking, nonblocking};
 use savant_core_py::*;
+
+#[pymodule(gil_used = false)]
+pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<CounterFamily>()?;
+    m.add_class::<GaugeFamily>()?;
+    m.add_function(wrap_pyfunction!(delete_metric_family, m)?)?;
+    m.add_function(wrap_pyfunction!(set_extra_labels, m)?)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
+pub fn webserver(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(init_webserver, m)?)?;
+    m.add_function(wrap_pyfunction!(stop_webserver, m)?)?;
+    m.add_function(wrap_pyfunction!(set_shutdown_token, m)?)?;
+    m.add_function(wrap_pyfunction!(is_shutdown_set, m)?)?;
+    Ok(())
+}
 
 #[pymodule(gil_used = false)]
 pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -295,6 +315,8 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::webserver))?;
+    m.add_wrapped(wrap_pymodule!(self::metrics))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
@@ -310,6 +332,9 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.logging", m.getattr("logging")?)?;
     sys_modules.set_item("savant_rs.zmq", m.getattr("zmq")?)?;
     sys_modules.set_item("savant_rs.telemetry", m.getattr("telemetry")?)?;
+
+    sys_modules.set_item("savant_rs.webserver", m.getattr("webserver")?)?;
+    sys_modules.set_item("savant_rs.metrics", m.getattr("metrics")?)?;
 
     sys_modules.set_item(
         "savant_rs.utils.symbol_mapper",

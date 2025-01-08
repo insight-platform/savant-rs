@@ -1,7 +1,7 @@
 use pyo3::exceptions::PySystemError;
 use pyo3::prelude::*;
 
-/// Starts embedded webserver providing status, shutdown and metric features.
+/// Starts embedded webserver providing status, shutdown and metrics features.
 ///
 /// Parameters
 /// ----------

@@ -169,7 +169,7 @@ pub enum MatchQuery {
     TrackBoxAngleDefined,
     #[serde(rename = "track.bbox.angle")]
     TrackBoxAngle(FloatExpression),
-    #[serde(rename = "track.bbox.metric")]
+    #[serde(rename = "track.bbox.metrics")]
     TrackBoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
         metric_type: BBoxMetricType,
@@ -207,7 +207,7 @@ pub enum MatchQuery {
     BoxAngleDefined,
     #[serde(rename = "bbox.angle")]
     BoxAngle(FloatExpression),
-    #[serde(rename = "bbox.metric")]
+    #[serde(rename = "bbox.metrics")]
     BoxMetric {
         other: (f32, f32, f32, f32, Option<f32>),
         metric_type: BBoxMetricType,
