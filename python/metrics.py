@@ -45,6 +45,17 @@ init_webserver(8080)
 
 sleep(0.1)
 
+response = requests.get("http://localhost:8080/status")
+assert response.status_code == 200
+print(response.text)
+assert "stopped" in response.text
+
+set_status_running()
+
+response = requests.get("http://localhost:8080/status")
+assert response.status_code == 200
+assert "running" in response.text
+
 response = requests.get("http://localhost:8080/metrics")
 assert response.status_code == 200
 print(response.text)

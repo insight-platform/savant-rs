@@ -76,6 +76,7 @@ pub fn webserver(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(stop_webserver, m)?)?;
     m.add_function(wrap_pyfunction!(set_shutdown_token, m)?)?;
     m.add_function(wrap_pyfunction!(is_shutdown_set, m)?)?;
+    m.add_function(wrap_pyfunction!(set_status_running, m)?)?;
     Ok(())
 }
 
@@ -315,8 +316,8 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::webserver))?;
-    m.add_wrapped(wrap_pymodule!(self::metrics))?;
+    m.add_wrapped(wrap_pymodule!(self::webserver))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::metrics))?; // PYI
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;

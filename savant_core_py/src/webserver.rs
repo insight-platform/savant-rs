@@ -1,5 +1,6 @@
 use pyo3::exceptions::PySystemError;
 use pyo3::prelude::*;
+use savant_core::webserver::PipelineStatus;
 
 /// Starts embedded webserver providing status, shutdown and metrics features.
 ///
@@ -43,4 +44,9 @@ pub fn set_shutdown_token(token: String) {
 #[pyfunction]
 pub fn is_shutdown_set() -> bool {
     savant_core::webserver::is_shutdown_set()
+}
+
+#[pyfunction]
+pub fn set_status_running() {
+    savant_core::webserver::set_status(PipelineStatus::Running);
 }
