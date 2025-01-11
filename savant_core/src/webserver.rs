@@ -39,10 +39,12 @@ impl WsData {
         }
     }
 
-    pub fn set_status(&self, s: PipelineStatus) {
+    pub fn set_status(&self, s: PipelineStatus) -> anyhow::Result<()> {
         let runtime = get_or_init_async_runtime();
         let thread_status = self.status.clone();
-        let ws_job = WS_JOB.get().expect("Web server job not started");
+        let ws_job = WS_JOB
+            .get()
+            .ok_or_else(|| anyhow::anyhow!("Web server job not started"))?;
         if ws_job.is_finished() {
             error!("Web server job is finished unexpectedly, cannot update status.");
         }
@@ -50,6 +52,7 @@ impl WsData {
             let mut bind = thread_status.lock().await;
             *bind = s;
         });
+        Ok(())
     }
 
     pub fn set_shutdown_token(&self, token: String) {
@@ -100,8 +103,8 @@ pub(crate) async fn get_registered_pipelines() -> Vec<Arc<implementation::Pipeli
     s.clone()
 }
 
-pub fn set_status(s: PipelineStatus) {
-    WS_DATA.set_status(s);
+pub fn set_status(s: PipelineStatus) -> anyhow::Result<()> {
+    WS_DATA.set_status(s)
 }
 
 pub async fn get_status() -> PipelineStatus {
@@ -171,7 +174,10 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
             return HttpResponse::InternalServerError()
                 .body("Failed to set shutdown status multiple times (already set).");
         }
-        set_status(PipelineStatus::Shutdown);
+        let res = set_status(PipelineStatus::Shutdown);
+        if res.is_err() {
+            return HttpResponse::InternalServerError().body("Failed to set pipeline status.");
+        }
         if matches!(shutdown_params.mode, ShutdownMode::Signal) {
             let pid = PID.lock().await;
             _ = nix::sys::signal::kill(
@@ -269,7 +275,7 @@ mod tests {
         // _ = env_logger::try_init();
         init_webserver(8888)?;
         sleep(Duration::from_millis(100));
-        set_status(PipelineStatus::Running);
+        set_status(PipelineStatus::Running)?;
         let r = reqwest::blocking::get("http://localhost:8888/status")?;
         assert_eq!(r.status(), 200);
         let s: PipelineStatus = r.json()?;
@@ -289,7 +295,7 @@ mod tests {
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
         sleep(Duration::from_millis(500));
-        set_status(PipelineStatus::Running);
+        set_status(PipelineStatus::Running)?;
         let client = reqwest::Client::new();
         let r = rt.block_on(
             client
@@ -308,7 +314,7 @@ mod tests {
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
         sleep(Duration::from_millis(500));
-        set_status(PipelineStatus::Running);
+        set_status(PipelineStatus::Running)?;
         let (snd, rec) = crossbeam::channel::bounded(1);
         ctrlc::set_handler(move || {
             snd.send(()).unwrap();
@@ -357,7 +363,7 @@ mod tests {
         set_shutdown_token(TOKEN.to_string());
         init_webserver(8888)?;
         sleep(Duration::from_millis(200));
-        set_status(PipelineStatus::Running);
+        set_status(PipelineStatus::Running)?;
         set_extra_labels(HashMap::from([(
             String::from("hello"),
             String::from("there"),

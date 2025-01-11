@@ -24,6 +24,7 @@ impl CounterFamily {
     /// ------
     /// PyValueError
     ///  If the counter does not exist.
+    #[pyo3(signature = (label_values=vec![]))]
     pub fn get(&self, label_values: Vec<String>) -> PyResult<Option<u64>> {
         let l_ref = label_values
             .iter()
@@ -42,6 +43,7 @@ impl CounterFamily {
     /// label_values : List[str]
     ///   The list of label values.
     ///
+    #[pyo3(signature = (label_values=vec![]))]
     pub fn delete(&self, label_values: Vec<String>) -> PyResult<Option<u64>> {
         let l_ref = label_values
             .iter()
@@ -53,6 +55,7 @@ impl CounterFamily {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    #[pyo3(signature = (value=1, label_values=vec![]))]
     pub fn inc(&self, value: u64, label_values: Vec<String>) -> PyResult<u64> {
         let l_ref = label_values
             .iter()
@@ -64,6 +67,7 @@ impl CounterFamily {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    #[pyo3(signature = (value, label_values=vec![]))]
     pub fn set(&self, value: u64, label_values: Vec<String>) -> PyResult<u64> {
         let l_ref = label_values
             .iter()
@@ -136,6 +140,7 @@ pub struct GaugeFamily(pub(crate) savant_core::metrics::SharedGaugeFamily);
 
 #[pymethods]
 impl GaugeFamily {
+    #[pyo3(signature = (label_values=vec![]))]
     pub fn get(&self, label_values: Vec<String>) -> PyResult<Option<f64>> {
         let l_ref = label_values
             .iter()
@@ -147,6 +152,7 @@ impl GaugeFamily {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    #[pyo3(signature = (label_values=vec![]))]
     pub fn delete(&self, label_values: Vec<String>) -> PyResult<Option<f64>> {
         let l_ref = label_values
             .iter()
@@ -158,6 +164,7 @@ impl GaugeFamily {
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    #[pyo3(signature = (value, label_values=vec![]))]
     pub fn set(&self, value: f64, label_values: Vec<String>) -> PyResult<f64> {
         let l_ref = label_values
             .iter()

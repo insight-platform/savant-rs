@@ -1,4 +1,4 @@
-use pyo3::exceptions::PySystemError;
+use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
 use savant_core::webserver::PipelineStatus;
 
@@ -47,6 +47,7 @@ pub fn is_shutdown_set() -> bool {
 }
 
 #[pyfunction]
-pub fn set_status_running() {
-    savant_core::webserver::set_status(PipelineStatus::Running);
+pub fn set_status_running() -> PyResult<()> {
+    savant_core::webserver::set_status(PipelineStatus::Running)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
