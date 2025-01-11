@@ -1,7 +1,7 @@
 use crate::metrics::{get_or_create_counter_family, get_or_create_gauge_family};
 use crate::rust::FrameProcessingStatRecordType;
 use crate::webserver::get_registered_pipelines;
-use log::{debug, info};
+use log::debug;
 
 #[derive(Debug)]
 pub(crate) struct PipelineMetricBuilder;
@@ -23,14 +23,17 @@ impl PipelineMetricBuilder {
             }
         }
 
-        info!("Building pipeline metrics");
+        debug!("Building pipeline metrics");
         let label_names = ["record_type"].as_slice();
         let stage_performance_label_names = ["record_type", "stage_name"].as_slice();
         let stage_latency_label_names =
             ["record_type", "destination_stage_name", "source_stage_name"].as_slice();
 
         let registered_pipelines = get_registered_pipelines().await;
-        info!("Found {} registered pipelines", registered_pipelines.len());
+        debug!(
+            "Found {} registered pipeline(s)",
+            registered_pipelines.len()
+        );
         for p in registered_pipelines {
             let stats = p.get_stat_records(1);
             if stats.is_empty() {
