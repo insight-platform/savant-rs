@@ -1,3 +1,4 @@
+use crate::primitives::attribute_set::AttributeSet;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
@@ -7,6 +8,7 @@ use savant_protobuf::generated;
 use std::convert::Infallible;
 
 mod attribute;
+mod attribute_set;
 mod bounding_box;
 mod intersection_kind;
 mod message_envelope;
@@ -90,6 +92,7 @@ impl ToProtobuf<'_, generated::VideoFrameUpdate> for VideoFrameUpdate {}
 impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
 impl ToProtobuf<'_, generated::VideoObject> for VideoObject {}
 impl ToProtobuf<'_, generated::UserData> for UserData {}
+impl ToProtobuf<'_, generated::AttributeSet> for AttributeSet {}
 
 #[cfg(test)]
 mod tests {

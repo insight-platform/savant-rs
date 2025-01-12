@@ -1,4 +1,5 @@
-mod kvs;
+pub mod kvs;
+mod kvs_handlers;
 
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -8,6 +9,11 @@ use crate::get_or_init_async_runtime;
 use crate::metrics::metric_collector::SystemMetricCollector;
 use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
+use crate::primitives::Attribute;
+use crate::webserver::kvs_handlers::{
+    delete_handler, get_handler, purge_handler, search_handler, search_keys_handler, set_handler,
+    set_handler_ttl,
+};
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
 use log::{debug, error, info};
@@ -19,14 +25,17 @@ use tokio::task::JoinHandle;
 
 struct RecordExpiration;
 
-impl Expiry<String, (u64, Vec<u8>)> for RecordExpiration {
+impl Expiry<(String, String), (Option<u64>, Attribute)> for RecordExpiration {
     fn expire_after_create(
         &self,
-        _: &String,
-        value: &(u64, Vec<u8>),
+        _: &(String, String),
+        value: &(Option<u64>, Attribute),
         _created_at: Instant,
     ) -> Option<Duration> {
-        Some(Duration::from_millis(value.0))
+        match value.0 {
+            Some(ttl) => Some(Duration::from_millis(ttl)),
+            None => None,
+        }
     }
 }
 
@@ -41,14 +50,13 @@ pub enum PipelineStatus {
 }
 
 const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
-const MAX_KVS_CAPACITY: u64 = 100_000;
 
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<PipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
-    kvs: Arc<Cache<String, (u64, Vec<u8>)>>,
+    kvs: Arc<Cache<(String, String), (Option<u64>, Attribute)>>,
 }
 
 impl WsData {
@@ -255,6 +263,13 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
                 .service(status_handler)
                 .service(shutdown_handler)
                 .service(metrics_handler)
+                .service(set_handler)
+                .service(set_handler_ttl)
+                .service(purge_handler)
+                .service(delete_handler)
+                .service(search_handler)
+                .service(get_handler)
+                .service(search_keys_handler)
         })
         .bind(("0.0.0.0", port))
         .expect("Failed to bind to host:port")

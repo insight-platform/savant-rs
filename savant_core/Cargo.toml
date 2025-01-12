@@ -51,6 +51,7 @@ prost = "0.13"
 rayon = "1.10"
 regex = "1"
 savant-protobuf = { git = "https://github.com/insight-platform/savant-protobuf", tag = "0.2.2" }
+globset = "0.4"
 
 serde_yaml = "0.9"
 uuid = { version = "1.11", features = ["fast-rng", "v7"] }
