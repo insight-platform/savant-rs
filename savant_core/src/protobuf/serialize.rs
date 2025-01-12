@@ -30,6 +30,8 @@ pub enum Error {
     UuidParse(uuid::Error),
     #[error("An object has parent {0} which does not belong to the same frame")]
     InvalidVideoFrameParentObject(i64),
+    #[error("Failed to convert protobuf enum balue to Rust enum value: {0}")]
+    EnumConversionError(i32),
 }
 
 impl From<uuid::Error> for Error {

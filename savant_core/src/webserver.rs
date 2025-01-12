@@ -1,4 +1,7 @@
+mod kvs;
+
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
@@ -8,9 +11,24 @@ use crate::pipeline::implementation;
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
 use log::{debug, error, info};
+use moka::future::Cache;
+use moka::Expiry;
 use prometheus_client::encoding::text::encode;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
+
+struct RecordExpiration;
+
+impl Expiry<String, (u64, Vec<u8>)> for RecordExpiration {
+    fn expire_after_create(
+        &self,
+        _: &String,
+        value: &(u64, Vec<u8>),
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        Some(Duration::from_millis(value.0))
+    }
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub enum PipelineStatus {
@@ -22,20 +40,29 @@ pub enum PipelineStatus {
     Shutdown,
 }
 
+const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
+const MAX_KVS_CAPACITY: u64 = 100_000;
+
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<PipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
+    kvs: Arc<Cache<String, (u64, Vec<u8>)>>,
 }
 
 impl WsData {
     pub fn new() -> Self {
+        let cache = Cache::builder()
+            .max_capacity(MAX_TTL_KVS_CAPACITY)
+            .expire_after(RecordExpiration {})
+            .build();
         WsData {
             pipelines: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
+            kvs: Arc::new(cache),
         }
     }
 

@@ -31,7 +31,6 @@ thiserror = { workspace = true }
 
 # unique to savant_core
 actix-web = "4"
-bytes = "1.9"
 crc32fast = "1"
 crossbeam = "0.8"
 derive_builder = "0.20"
@@ -39,6 +38,7 @@ etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_s
 etcd-client = { version = "0.13", features = ["tls"] }
 jmespath = { version = "0.3", features = ["sync"] }
 libloading = "0.8"
+moka = { version = "0.12", features = ["future"] }
 lru = { version = "0.12", features = ["hashbrown"] }
 nix = { version = "0.29", features = ["process", "signal"] }
 opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
@@ -47,11 +47,10 @@ reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tl
 opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
 opentelemetry-semantic-conventions = "0.16.0"
 opentelemetry-jaeger-propagator = "0.3.0"
-prost = "0.12"
-prost-types = "0.12"
+prost = "0.13"
 rayon = "1.10"
 regex = "1"
-savant-protobuf = { git = "https://github.com/insight-platform/savant-protobuf", tag = "0.2.0" }
+savant-protobuf = { git = "https://github.com/insight-platform/savant-protobuf", tag = "0.2.2" }
 
 serde_yaml = "0.9"
 uuid = { version = "1.11", features = ["fast-rng", "v7"] }

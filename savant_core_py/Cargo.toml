@@ -23,20 +23,15 @@ geo = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 opentelemetry = { workspace = true }
-opentelemetry-otlp = { workspace = true }
 parking_lot = { workspace = true }
 pyo3 = { workspace = true }
 savant_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
 prometheus-client = { workspace = true }
 
 # unique to savant_core_py
 colored = "2"
-
-[dev-dependencies]
-serial_test = "2.0"
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
