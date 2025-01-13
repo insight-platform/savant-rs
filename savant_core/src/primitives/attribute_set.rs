@@ -2,7 +2,7 @@ use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, WithAttributes};
 use serde_json::Value;
 
-#[derive(Debug, PartialEq, Clone, serde::Serialize)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, Default)]
 pub struct AttributeSet {
     pub attributes: Vec<Attribute>,
 }
@@ -13,8 +13,6 @@ impl ToSerdeJsonValue for AttributeSet {
     }
 }
 
-const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
-
 impl From<Vec<Attribute>> for AttributeSet {
     fn from(attributes: Vec<Attribute>) -> Self {
         Self { attributes }
@@ -23,9 +21,7 @@ impl From<Vec<Attribute>> for AttributeSet {
 
 impl AttributeSet {
     pub fn new() -> Self {
-        Self {
-            attributes: Vec::with_capacity(DEFAULT_ATTRIBUTES_COUNT),
-        }
+        Self::default()
     }
 
     pub fn json(&self) -> String {

@@ -32,10 +32,7 @@ impl Expiry<(String, String), (Option<u64>, Attribute)> for RecordExpiration {
         value: &(Option<u64>, Attribute),
         _created_at: Instant,
     ) -> Option<Duration> {
-        match value.0 {
-            Some(ttl) => Some(Duration::from_millis(ttl)),
-            None => None,
-        }
+        value.0.map(Duration::from_millis)
     }
 }
 
@@ -51,6 +48,7 @@ pub enum PipelineStatus {
 
 const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
 
+#[allow(clippy::type_complexity)]
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<PipelineStatus>>,
@@ -193,6 +191,19 @@ struct ShutdownParams {
     mode: ShutdownMode,
 }
 
+static SHUTDOWN_SIGNAL_NO: OnceLock<nix::sys::signal::Signal> = OnceLock::new();
+
+fn get_shutdown_signal() -> nix::sys::signal::Signal {
+    let signal = SHUTDOWN_SIGNAL_NO.get_or_init(|| nix::sys::signal::Signal::SIGINT);
+    *signal
+}
+
+pub fn set_shutdown_signal(signal: nix::sys::signal::Signal) -> anyhow::Result<()> {
+    SHUTDOWN_SIGNAL_NO
+        .set(signal)
+        .map_err(|s| anyhow::anyhow!("Signal already set: {}", s))
+}
+
 #[post("/shutdown/{token}/{mode}")]
 async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
     let shutdown_params: ShutdownParams = params.into_inner();
@@ -215,10 +226,7 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
         }
         if matches!(shutdown_params.mode, ShutdownMode::Signal) {
             let pid = PID.lock().await;
-            _ = nix::sys::signal::kill(
-                nix::unistd::Pid::from_raw(*pid),
-                nix::sys::signal::Signal::SIGINT,
-            );
+            _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(*pid), get_shutdown_signal());
         }
     }
     HttpResponse::Ok().json("ok")
@@ -295,18 +303,192 @@ mod tests {
         set_extra_labels,
     };
     use crate::pipeline::implementation::create_test_pipeline;
+    use crate::primitives::attribute_set::AttributeSet;
+    use crate::primitives::Attribute;
+    use crate::protobuf::{from_pb, ToProtobuf};
     use crate::test::gen_frame;
+    use crate::webserver::kvs::synchronous::get_attribute;
+    use crate::webserver::kvs::synchronous::set_attributes;
     use crate::webserver::{
         init_webserver, register_pipeline, set_shutdown_token, set_status, stop_webserver,
         PipelineStatus,
     };
     use hashbrown::HashMap;
     use prometheus_client::registry::Unit;
+    use savant_protobuf::generated;
     use std::sync::Arc;
     use std::thread::sleep;
     use std::time::{Duration, SystemTime};
 
     const TOKEN: &str = "12345";
+
+    #[test]
+    #[serial_test::serial]
+    fn test_attributes_abi_to_api() -> anyhow::Result<()> {
+        init_webserver(8888)?;
+        sleep(Duration::from_millis(100));
+        set_status(PipelineStatus::Running)?;
+        let ttl_attribute_set = AttributeSet::from(vec![Attribute::persistent(
+            "jkl",
+            "yay",
+            vec![],
+            &None,
+            false,
+        )]);
+        let attribute_set = AttributeSet::from(vec![Attribute::persistent(
+            "ghi",
+            "yay",
+            vec![],
+            &None,
+            false,
+        )]);
+        set_attributes(&ttl_attribute_set, Some(1000));
+        set_attributes(&attribute_set, None);
+
+        let r = reqwest::blocking::get("http://localhost:8888/kvs/search-keys/*/*")?;
+        assert_eq!(r.status(), 200);
+        let mut result: Vec<(String, String)> = r.json()?;
+        result.sort_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        assert_eq!(
+            result,
+            vec![
+                ("ghi".to_string(), "yay".to_string()),
+                ("jkl".to_string(), "yay".to_string())
+            ]
+        );
+        sleep(Duration::from_millis(1001));
+
+        let r = reqwest::blocking::get("http://localhost:8888/kvs/search-keys/*/*")?;
+        assert_eq!(r.status(), 200);
+        let result: Vec<(String, String)> = r.json()?;
+        assert_eq!(result, vec![("ghi".to_string(), "yay".to_string())]);
+
+        let r = reqwest::blocking::get("http://localhost:8888/kvs/search/*/*")?;
+        assert_eq!(r.status(), 200);
+        let binary = r.bytes()?;
+        let res_attribute_set = from_pb::<generated::AttributeSet, AttributeSet>(&binary)?;
+        assert_eq!(res_attribute_set.attributes, attribute_set.attributes);
+
+        let r = reqwest::blocking::get("http://localhost:8888/kvs/get/ghi/yay")?;
+        assert_eq!(r.status(), 200);
+        let binary = r.bytes()?;
+        let res_attribute = from_pb::<generated::Attribute, Attribute>(&binary)?;
+        assert_eq!(res_attribute, attribute_set.attributes[0]);
+
+        let rt = get_or_init_async_runtime();
+        let client = reqwest::Client::new();
+        // delete single
+        let r = rt.block_on(async {
+            let resp = client
+                .post("http://localhost:8888/kvs/delete-single/ghi/yay")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        let res_attribute = from_pb::<generated::Attribute, Attribute>(&r)?;
+        assert_eq!(res_attribute, attribute_set.attributes[0]);
+
+        // delete after delete
+        let r = rt.block_on(async {
+            let resp = client
+                .post("http://localhost:8888/kvs/delete-single/ghi/yay")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        assert_eq!(r.len(), 0);
+
+        // set again and purge
+        set_attributes(&attribute_set, None);
+        let r = rt.block_on(async {
+            let resp = client
+                .post("http://localhost:8888/kvs/purge/*/yay")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        assert_eq!(r.len(), 0); // returns nothing
+                                // ensure that nothing exists with get
+        let r = rt.block_on(async {
+            let resp = client
+                .get("http://localhost:8888/kvs/get/ghi/yay")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        assert_eq!(r.len(), 0);
+
+        stop_webserver();
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_api_to_abi() -> anyhow::Result<()> {
+        init_webserver(8888)?;
+        sleep(Duration::from_millis(100));
+        set_status(PipelineStatus::Running)?;
+        let ttl_attribute_set = AttributeSet::from(vec![Attribute::persistent(
+            "jkl",
+            "yay",
+            vec![],
+            &None,
+            false,
+        )]);
+        let attribute_set = AttributeSet::from(vec![Attribute::persistent(
+            "ghi",
+            "yay",
+            vec![],
+            &None,
+            false,
+        )]);
+
+        // set without ttl
+        let rt = get_or_init_async_runtime();
+        let client = reqwest::Client::new();
+
+        let r = rt.block_on(async {
+            let resp = client
+                .post("http://localhost:8888/kvs/set")
+                .body(attribute_set.to_pb().unwrap())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        assert_eq!(r.len(), 0);
+        let attr = get_attribute(&"ghi".to_string(), &"yay".to_string());
+        assert_eq!(attr.unwrap(), attribute_set.attributes[0]);
+
+        // set with ttl
+        let _ = rt.block_on(async {
+            let resp = client
+                .post("http://localhost:8888/kvs/set-with-ttl/1000")
+                .body(ttl_attribute_set.to_pb().unwrap())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.bytes().await
+        })?;
+        let attr = get_attribute(&"jkl".to_string(), &"yay".to_string());
+        assert_eq!(attr.unwrap(), ttl_attribute_set.attributes[0]);
+        sleep(Duration::from_millis(1001));
+        let attr = get_attribute(&"jkl".to_string(), &"yay".to_string());
+        assert!(attr.is_none());
+
+        stop_webserver();
+        Ok(())
+    }
 
     #[test]
     #[serial_test::serial]

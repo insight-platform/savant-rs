@@ -95,18 +95,18 @@ pub mod asynchronous {
         }
     }
 
-    pub async fn get_attribute(ns: &String, name: &String) -> Option<Attribute> {
+    pub async fn get_attribute(ns: &str, name: &str) -> Option<Attribute> {
         WS_DATA
             .kvs
-            .get(&(ns.clone(), name.clone()))
+            .get(&(ns.to_string(), name.to_string()))
             .await
             .map(|(_, attr)| attr)
     }
 
-    pub async fn del_attribute(ns: &String, name: &String) -> Option<Attribute> {
+    pub async fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
         WS_DATA
             .kvs
-            .remove(&(ns.clone(), name.clone()))
+            .remove(&(ns.to_string(), name.to_string()))
             .await
             .map(|(_, attr)| attr)
     }
@@ -141,12 +141,12 @@ pub mod synchronous {
         rt.block_on(async { crate::webserver::kvs::asynchronous::del_attributes(ns, name).await });
     }
 
-    pub fn get_attribute(ns: &String, name: &String) -> Option<Attribute> {
+    pub fn get_attribute(ns: &str, name: &str) -> Option<Attribute> {
         let rt = get_or_init_async_runtime();
         rt.block_on(async { crate::webserver::kvs::asynchronous::get_attribute(ns, name).await })
     }
 
-    pub fn del_attribute(ns: &String, name: &String) -> Option<Attribute> {
+    pub fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
         let rt = get_or_init_async_runtime();
         rt.block_on(async { crate::webserver::kvs::asynchronous::del_attribute(ns, name).await })
     }
