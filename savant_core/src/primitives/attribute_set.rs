@@ -1,5 +1,7 @@
 use crate::json_api::ToSerdeJsonValue;
 use crate::primitives::{Attribute, WithAttributes};
+use crate::protobuf::from_pb;
+use savant_protobuf::generated;
 use serde_json::Value;
 
 #[derive(Debug, PartialEq, Clone, serde::Serialize, Default)]
@@ -22,6 +24,11 @@ impl From<Vec<Attribute>> for AttributeSet {
 impl AttributeSet {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> anyhow::Result<Vec<Attribute>> {
+        let deser = from_pb::<generated::AttributeSet, AttributeSet>(bytes)?;
+        Ok(deser.attributes)
     }
 
     pub fn json(&self) -> String {

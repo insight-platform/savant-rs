@@ -23,6 +23,7 @@ pub use segment::*;
 
 pub mod rust {
     pub use super::attribute::Attribute;
+    pub use super::attribute_set::AttributeSet;
     pub use super::attribute_value::AttributeValue;
     pub use super::bbox::BBoxMetricType;
     pub use super::bbox::RBBox;

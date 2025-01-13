@@ -1,11 +1,10 @@
 pub mod asynchronous {
     use crate::primitives::attribute::Attribute;
-    use crate::primitives::attribute_set::AttributeSet;
     use crate::webserver::WS_DATA;
     use globset::Glob;
 
-    pub async fn set_attributes(attribute_set: &AttributeSet, ttl: Option<u64>) {
-        for attr in &attribute_set.attributes {
+    pub async fn set_attributes(attributes: &[Attribute], ttl: Option<u64>) {
+        for attr in attributes {
             let ns = attr.namespace.clone();
             let name = attr.name.clone();
             WS_DATA
@@ -15,8 +14,7 @@ pub mod asynchronous {
         }
     }
 
-    pub async fn search_attributes(ns: &Option<String>, name: &Option<String>) -> AttributeSet {
-        let mut attr_set = AttributeSet::new();
+    pub async fn search_attributes(ns: &Option<String>, name: &Option<String>) -> Vec<Attribute> {
         let ns_glob = ns
             .as_ref()
             .map(|s| Glob::new(s.as_str()))
@@ -31,11 +29,12 @@ pub mod asynchronous {
             .unwrap()
             .compile_matcher();
 
+        let mut attr_set = Vec::new();
         for (key, (_, attr)) in WS_DATA.kvs.iter() {
             let key_ns = &key.0;
             let key_name = &key.1;
             if ns_glob.is_match(key_ns) && name_glob.is_match(key_name) {
-                attr_set.attributes.push(attr.clone());
+                attr_set.push(attr.clone());
             }
         }
         attr_set
@@ -115,16 +114,15 @@ pub mod asynchronous {
 pub mod synchronous {
     use crate::get_or_init_async_runtime;
     use crate::primitives::attribute::Attribute;
-    use crate::primitives::attribute_set::AttributeSet;
 
-    pub fn set_attributes(attribute_set: &AttributeSet, ttl: Option<u64>) {
+    pub fn set_attributes(attributes: &[Attribute], ttl: Option<u64>) {
         let rt = get_or_init_async_runtime();
         rt.block_on(async {
-            crate::webserver::kvs::asynchronous::set_attributes(attribute_set, ttl).await
+            crate::webserver::kvs::asynchronous::set_attributes(attributes, ttl).await
         });
     }
 
-    pub fn search_attributes(ns: &Option<String>, name: &Option<String>) -> AttributeSet {
+    pub fn search_attributes(ns: &Option<String>, name: &Option<String>) -> Vec<Attribute> {
         let rt = get_or_init_async_runtime();
         rt.block_on(async {
             crate::webserver::kvs::asynchronous::search_attributes(ns, name).await
@@ -155,45 +153,40 @@ pub mod synchronous {
 #[cfg(test)]
 mod tests {
     use crate::primitives::attribute::Attribute;
-    use crate::primitives::attribute_set::AttributeSet;
     use crate::webserver::kvs::synchronous::*;
     use std::thread::sleep;
 
     #[test]
     fn test_kvs() {
-        let attribute_set = AttributeSet {
-            attributes: vec![
-                Attribute::persistent("abc", "xax", vec![], &None, false),
-                Attribute::persistent("ghi", "yay", vec![], &None, false),
-            ],
-        };
+        let attribute_set = vec![
+            Attribute::persistent("abc", "xax", vec![], &None, false),
+            Attribute::persistent("ghi", "yay", vec![], &None, false),
+        ];
         set_attributes(&attribute_set, None);
         let retrieved_all = search_attributes(&None, &None);
-        assert_eq!(retrieved_all.attributes.len(), 2);
+        assert_eq!(retrieved_all.len(), 2);
         let retrieved_abc = search_attributes(&Some("abc".to_string()), &None);
-        assert_eq!(retrieved_abc.attributes.len(), 1);
+        assert_eq!(retrieved_abc.len(), 1);
         let retrieved_with_glob = search_attributes(&None, &Some("?a?".to_string()));
-        assert_eq!(retrieved_with_glob.attributes.len(), 2);
+        assert_eq!(retrieved_with_glob.len(), 2);
 
-        let ttl_attribute_set = AttributeSet {
-            attributes: vec![
-                Attribute::persistent("def", "xax", vec![], &None, false),
-                Attribute::persistent("jkl", "yay", vec![], &None, false),
-            ],
-        };
+        let ttl_attribute_set = vec![
+            Attribute::persistent("def", "xax", vec![], &None, false),
+            Attribute::persistent("jkl", "yay", vec![], &None, false),
+        ];
 
         set_attributes(&ttl_attribute_set, Some(10));
         let retrieved_all = search_attributes(&None, &None);
-        assert_eq!(retrieved_all.attributes.len(), 4);
+        assert_eq!(retrieved_all.len(), 4);
         sleep(std::time::Duration::from_millis(11));
         let retrieved_all = search_attributes(&None, &None);
-        assert_eq!(retrieved_all.attributes.len(), 2);
+        assert_eq!(retrieved_all.len(), 2);
 
         let abc_attribute = get_attribute(&"abc".to_string(), &"xax".to_string());
         assert_eq!(abc_attribute.as_ref().unwrap().name.as_str(), "xax");
 
         del_attributes(&None, &None);
         let retrieved_all = search_attributes(&None, &None);
-        assert_eq!(retrieved_all.attributes.len(), 0);
+        assert_eq!(retrieved_all.len(), 0);
     }
 }

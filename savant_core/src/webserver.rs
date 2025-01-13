@@ -11,7 +11,7 @@ use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
 use crate::primitives::Attribute;
 use crate::webserver::kvs_handlers::{
-    delete_single_handler, get_handler, purge_handler, search_handler, search_keys_handler,
+    delete_handler, delete_single_handler, get_handler, search_handler, search_keys_handler,
     set_handler, set_handler_ttl,
 };
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
@@ -198,7 +198,9 @@ fn get_shutdown_signal() -> nix::sys::signal::Signal {
     *signal
 }
 
-pub fn set_shutdown_signal(signal: nix::sys::signal::Signal) -> anyhow::Result<()> {
+pub fn set_shutdown_signal(signal: i32) -> anyhow::Result<()> {
+    let signal = nix::sys::signal::Signal::try_from(signal)
+        .map_err(|e| anyhow::anyhow!("Invalid signal number: {}", e))?;
     SHUTDOWN_SIGNAL_NO
         .set(signal)
         .map_err(|s| anyhow::anyhow!("Signal already set: {}", s))
@@ -273,7 +275,7 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
                 .service(metrics_handler)
                 .service(set_handler)
                 .service(set_handler_ttl)
-                .service(purge_handler)
+                .service(delete_handler)
                 .service(delete_single_handler)
                 .service(search_handler)
                 .service(get_handler)
@@ -328,20 +330,8 @@ mod tests {
         init_webserver(8888)?;
         sleep(Duration::from_millis(100));
         set_status(PipelineStatus::Running)?;
-        let ttl_attribute_set = AttributeSet::from(vec![Attribute::persistent(
-            "jkl",
-            "yay",
-            vec![],
-            &None,
-            false,
-        )]);
-        let attribute_set = AttributeSet::from(vec![Attribute::persistent(
-            "ghi",
-            "yay",
-            vec![],
-            &None,
-            false,
-        )]);
+        let ttl_attribute_set = vec![Attribute::persistent("jkl", "yay", vec![], &None, false)];
+        let attribute_set = vec![Attribute::persistent("ghi", "yay", vec![], &None, false)];
         set_attributes(&ttl_attribute_set, Some(1000));
         set_attributes(&attribute_set, None);
 
@@ -367,13 +357,13 @@ mod tests {
         assert_eq!(r.status(), 200);
         let binary = r.bytes()?;
         let res_attribute_set = from_pb::<generated::AttributeSet, AttributeSet>(&binary)?;
-        assert_eq!(res_attribute_set.attributes, attribute_set.attributes);
+        assert_eq!(res_attribute_set.attributes, attribute_set);
 
         let r = reqwest::blocking::get("http://localhost:8888/kvs/get/ghi/yay")?;
         assert_eq!(r.status(), 200);
         let binary = r.bytes()?;
-        let res_attribute = from_pb::<generated::Attribute, Attribute>(&binary)?;
-        assert_eq!(res_attribute, attribute_set.attributes[0]);
+        let res_attribute = from_pb::<generated::AttributeSet, AttributeSet>(&binary)?.attributes;
+        assert_eq!(res_attribute[0], attribute_set[0]);
 
         let rt = get_or_init_async_runtime();
         let client = reqwest::Client::new();
@@ -387,8 +377,8 @@ mod tests {
             assert_eq!(resp.status(), 200);
             resp.bytes().await
         })?;
-        let res_attribute = from_pb::<generated::Attribute, Attribute>(&r)?;
-        assert_eq!(res_attribute, attribute_set.attributes[0]);
+        let res_attribute = from_pb::<generated::AttributeSet, AttributeSet>(&r)?.attributes;
+        assert_eq!(res_attribute[0], attribute_set[0]);
 
         // delete after delete
         let r = rt.block_on(async {
@@ -400,13 +390,14 @@ mod tests {
             assert_eq!(resp.status(), 200);
             resp.bytes().await
         })?;
-        assert_eq!(r.len(), 0);
+        let res_attribute = from_pb::<generated::AttributeSet, AttributeSet>(&r)?.attributes;
+        assert_eq!(res_attribute.len(), 0);
 
         // set again and purge
         set_attributes(&attribute_set, None);
         let r = rt.block_on(async {
             let resp = client
-                .post("http://localhost:8888/kvs/purge/*/yay")
+                .post("http://localhost:8888/kvs/delete/*/yay")
                 .send()
                 .await
                 .unwrap();
@@ -443,6 +434,7 @@ mod tests {
             &None,
             false,
         )]);
+
         let attribute_set = AttributeSet::from(vec![Attribute::persistent(
             "ghi",
             "yay",

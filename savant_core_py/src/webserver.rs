@@ -1,3 +1,5 @@
+pub mod kvs;
+
 use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
 use savant_core::webserver::PipelineStatus;
@@ -49,5 +51,11 @@ pub fn is_shutdown_set() -> bool {
 #[pyfunction]
 pub fn set_status_running() -> PyResult<()> {
     savant_core::webserver::set_status(PipelineStatus::Running)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+pub fn set_shutdown_signal(signal: i32) -> PyResult<()> {
+    savant_core::webserver::set_shutdown_signal(signal)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }

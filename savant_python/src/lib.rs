@@ -49,6 +49,7 @@ use savant_core_py::utils::eval_resolvers::*;
 use savant_core_py::utils::otlp::*;
 use savant_core_py::utils::symbol_mapper::*;
 use savant_core_py::utils::*;
+use savant_core_py::webserver::kvs::*;
 use savant_core_py::webserver::*;
 use savant_core_py::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use savant_core_py::zmq::configs::{
@@ -77,6 +78,21 @@ pub fn webserver(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_shutdown_token, m)?)?;
     m.add_function(wrap_pyfunction!(is_shutdown_set, m)?)?;
     m.add_function(wrap_pyfunction!(set_status_running, m)?)?;
+    m.add_function(wrap_pyfunction!(set_shutdown_signal, m)?)?;
+    m.add_wrapped(wrap_pymodule!(self::kvs))?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
+pub fn kvs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(set_attributes, m)?)?;
+    m.add_function(wrap_pyfunction!(get_attribute, m)?)?;
+    m.add_function(wrap_pyfunction!(search_attributes, m)?)?;
+    m.add_function(wrap_pyfunction!(search_keys, m)?)?;
+    m.add_function(wrap_pyfunction!(del_attributes, m)?)?;
+    m.add_function(wrap_pyfunction!(del_attribute, m)?)?;
+    m.add_function(wrap_pyfunction!(serialize_attributes, m)?)?;
+    m.add_function(wrap_pyfunction!(deserialize_attributes, m)?)?;
     Ok(())
 }
 
@@ -110,7 +126,7 @@ pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule(gil_used = false)]
-pub fn symbol_mapper_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn symbol_mapper(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_model_object_key_py, m)?)?;
     m.add_function(wrap_pyfunction!(clear_symbol_maps_py, m)?)?;
     m.add_function(wrap_pyfunction!(dump_registry_gil, m)?)?;
@@ -132,7 +148,7 @@ pub fn symbol_mapper_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()
 }
 
 #[pymodule(gil_used = false)]
-pub fn serialization_module(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn serialization(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // ser deser
     m.add_function(wrap_pyfunction!(save_message_gil, m)?)?;
     m.add_function(wrap_pyfunction!(save_message_to_bytebuffer_gil, m)?)?;
@@ -165,6 +181,9 @@ pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VideoObjectBBoxType>()?; // PYI
     m.add_class::<VideoObjectBBoxTransformation>()?; // PYI
     m.add_class::<BBoxMetricType>()?; // PYI
+
+    m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
+    m.add_wrapped(wrap_pymodule!(self::serialization))?;
 
     Ok(())
 }
@@ -210,6 +229,7 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<IdCollisionResolutionPolicy>()?; // PYI
 
+    m.add_wrapped(wrap_pymodule!(self::geometry))?;
     Ok(())
 }
 
@@ -310,14 +330,15 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::geometry))?;
     m.add_wrapped(wrap_pymodule!(self::draw_spec))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::utils))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::symbol_mapper_module))?;
-    m.add_wrapped(wrap_pymodule!(self::serialization_module))?;
+    m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
+    m.add_wrapped(wrap_pymodule!(self::serialization))?;
     m.add_wrapped(wrap_pymodule!(self::match_query))?;
     m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::webserver))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::metrics))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::kvs))?; // PYI
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
@@ -335,17 +356,12 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.telemetry", m.getattr("telemetry")?)?;
 
     sys_modules.set_item("savant_rs.webserver", m.getattr("webserver")?)?;
+    sys_modules.set_item("savant_rs.webserver.kvs", m.getattr("kvs")?)?;
     sys_modules.set_item("savant_rs.metrics", m.getattr("metrics")?)?;
 
-    sys_modules.set_item(
-        "savant_rs.utils.symbol_mapper",
-        m.getattr("symbol_mapper_module")?,
-    )?;
+    sys_modules.set_item("savant_rs.utils.symbol_mapper", m.getattr("symbol_mapper")?)?;
 
-    sys_modules.set_item(
-        "savant_rs.utils.serialization",
-        m.getattr("serialization_module")?,
-    )?;
+    sys_modules.set_item("savant_rs.utils.serialization", m.getattr("serialization")?)?;
 
     sys_modules.set_item("savant_rs.match_query", m.getattr("match_query")?)?;
 
