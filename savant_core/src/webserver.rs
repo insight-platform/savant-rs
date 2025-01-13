@@ -11,8 +11,8 @@ use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
 use crate::primitives::Attribute;
 use crate::webserver::kvs_handlers::{
-    delete_handler, get_handler, purge_handler, search_handler, search_keys_handler, set_handler,
-    set_handler_ttl,
+    delete_single_handler, get_handler, purge_handler, search_handler, search_keys_handler,
+    set_handler, set_handler_ttl,
 };
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
@@ -266,7 +266,7 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
                 .service(set_handler)
                 .service(set_handler_ttl)
                 .service(purge_handler)
-                .service(delete_handler)
+                .service(delete_single_handler)
                 .service(search_handler)
                 .service(get_handler)
                 .service(search_keys_handler)

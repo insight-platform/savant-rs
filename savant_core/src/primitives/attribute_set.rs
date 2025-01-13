@@ -15,6 +15,12 @@ impl ToSerdeJsonValue for AttributeSet {
 
 const DEFAULT_ATTRIBUTES_COUNT: usize = 4;
 
+impl From<Vec<Attribute>> for AttributeSet {
+    fn from(attributes: Vec<Attribute>) -> Self {
+        Self { attributes }
+    }
+}
+
 impl AttributeSet {
     pub fn new() -> Self {
         Self {

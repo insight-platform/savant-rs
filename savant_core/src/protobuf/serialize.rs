@@ -4,6 +4,7 @@ use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObject;
 use crate::primitives::rust::UserData;
+use crate::primitives::Attribute;
 use savant_protobuf::generated;
 use std::convert::Infallible;
 
@@ -93,6 +94,7 @@ impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
 impl ToProtobuf<'_, generated::VideoObject> for VideoObject {}
 impl ToProtobuf<'_, generated::UserData> for UserData {}
 impl ToProtobuf<'_, generated::AttributeSet> for AttributeSet {}
+impl ToProtobuf<'_, generated::Attribute> for Attribute {}
 
 #[cfg(test)]
 mod tests {
