@@ -1,5 +1,5 @@
 use crate::primitives::attribute::Attribute;
-use crate::with_gil;
+use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -42,10 +42,12 @@ pub fn set_attributes(attributes: Vec<Attribute>, ttl: Option<u64>) {
 ///   List of attributes found.
 ///
 #[pyfunction]
-#[pyo3(signature = (ns=None, name=None))]
-pub fn search_attributes(ns: Option<String>, name: Option<String>) -> Vec<Attribute> {
-    let attributes = sync_kvs::search_attributes(&ns, &name);
-    unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) }
+#[pyo3(signature = (ns=None, name=None, no_gil=false))]
+pub fn search_attributes(ns: Option<String>, name: Option<String>, no_gil: bool) -> Vec<Attribute> {
+    release_gil!(no_gil, || {
+        let attributes = sync_kvs::search_attributes(&ns, &name);
+        unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) }
+    })
 }
 
 /// Search for keys in the key-value store.
@@ -64,9 +66,13 @@ pub fn search_attributes(ns: Option<String>, name: Option<String>) -> Vec<Attrib
 ///  List of keys found.
 ///
 #[pyfunction]
-#[pyo3(signature = (ns=None, name=None))]
-pub fn search_keys(ns: Option<String>, name: Option<String>) -> Vec<(String, String)> {
-    sync_kvs::search_keys(&ns, &name)
+#[pyo3(signature = (ns=None, name=None, no_gil=false))]
+pub fn search_keys(
+    ns: Option<String>,
+    name: Option<String>,
+    no_gil: bool,
+) -> Vec<(String, String)> {
+    release_gil!(no_gil, || { sync_kvs::search_keys(&ns, &name) })
 }
 
 /// Delete attributes from the key-value store.
@@ -80,9 +86,11 @@ pub fn search_keys(ns: Option<String>, name: Option<String>) -> Vec<(String, Str
 ///  Name to delete (Glob). None means "*".
 ///
 #[pyfunction]
-#[pyo3(signature = (ns=None, name=None))]
-pub fn del_attributes(ns: Option<String>, name: Option<String>) {
-    sync_kvs::del_attributes(&ns, &name);
+#[pyo3(signature = (ns=None, name=None, no_gil=false))]
+pub fn del_attributes(ns: Option<String>, name: Option<String>, no_gil: bool) {
+    release_gil!(no_gil, || {
+        sync_kvs::del_attributes(&ns, &name);
+    });
 }
 
 /// Get an attribute from the key-value store.
