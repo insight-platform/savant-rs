@@ -2,6 +2,7 @@ use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 use crate::primitives::{Attribute, IntersectionKind, RBBox};
 use crate::protobuf::serialize;
+use prost::UnknownEnumValue;
 use savant_protobuf::generated;
 use std::sync::Arc;
 
@@ -175,7 +176,14 @@ impl TryFrom<&generated::attribute_value::Value> for AttributeValueVariant {
             }
             generated::attribute_value::Value::Intersection(i) => {
                 AttributeValueVariant::Intersection(crate::primitives::Intersection {
-                    kind: IntersectionKind::from(&i.data.as_ref().unwrap().kind.try_into()?),
+                    kind: IntersectionKind::from(
+                        &i.data
+                            .as_ref()
+                            .unwrap()
+                            .kind
+                            .try_into()
+                            .map_err(|e: UnknownEnumValue| Self::Error::EnumConversionError(e.0))?,
+                    ),
                     edges: i
                         .data
                         .as_ref()

@@ -1,12 +1,15 @@
+use crate::primitives::attribute_set::AttributeSet;
 use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::VideoObject;
 use crate::primitives::rust::UserData;
+use crate::primitives::Attribute;
 use savant_protobuf::generated;
 use std::convert::Infallible;
 
 mod attribute;
+mod attribute_set;
 mod bounding_box;
 mod intersection_kind;
 mod message_envelope;
@@ -30,6 +33,8 @@ pub enum Error {
     UuidParse(uuid::Error),
     #[error("An object has parent {0} which does not belong to the same frame")]
     InvalidVideoFrameParentObject(i64),
+    #[error("Failed to convert protobuf enum balue to Rust enum value: {0}")]
+    EnumConversionError(i32),
 }
 
 impl From<uuid::Error> for Error {
@@ -88,6 +93,8 @@ impl ToProtobuf<'_, generated::VideoFrameUpdate> for VideoFrameUpdate {}
 impl ToProtobuf<'_, generated::VideoFrameBatch> for VideoFrameBatch {}
 impl ToProtobuf<'_, generated::VideoObject> for VideoObject {}
 impl ToProtobuf<'_, generated::UserData> for UserData {}
+impl ToProtobuf<'_, generated::AttributeSet> for AttributeSet {}
+impl ToProtobuf<'_, generated::Attribute> for Attribute {}
 
 #[cfg(test)]
 mod tests {
