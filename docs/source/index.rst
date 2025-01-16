@@ -21,3 +21,4 @@ Core Library
    modules/savant_rs/match_query
    modules/savant_rs/zmq
    modules/savant_rs/webserver
+   modules/savant_rs/webserver_kvs

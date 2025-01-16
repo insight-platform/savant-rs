@@ -6,6 +6,7 @@ use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
 use crate::protobuf::serialize::Error;
 use hashbrown::{HashMap, HashSet};
+use prost::UnknownEnumValue;
 use savant_protobuf::generated;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -118,7 +119,10 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
             width: value.width,
             height: value.height,
             transcoding_method: VideoFrameTranscodingMethod::from(
-                &generated::VideoFrameTranscodingMethod::try_from(value.transcoding_method)?,
+                &value
+                    .transcoding_method
+                    .try_into()
+                    .map_err(|e: UnknownEnumValue| Error::EnumConversionError(e.0))?,
             ),
             codec: value.codec.clone(),
             keyframe: value.keyframe,

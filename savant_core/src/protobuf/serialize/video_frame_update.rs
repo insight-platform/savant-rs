@@ -5,6 +5,7 @@ use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
 use crate::protobuf::serialize;
 use crate::protobuf::serialize::video_object::GeneratedVideoObjectWithForeignParent;
+use prost::UnknownEnumValue;
 use savant_protobuf::generated;
 
 impl From<AttributeUpdatePolicy> for generated::AttributeUpdatePolicy {
@@ -111,13 +112,26 @@ impl TryFrom<&generated::VideoFrameUpdate> for VideoFrameUpdate {
     type Error = serialize::Error;
 
     fn try_from(value: &generated::VideoFrameUpdate) -> Result<Self, Self::Error> {
-        let frame_attribute_policy =
-            AttributeUpdatePolicy::from(&value.frame_attribute_policy.try_into()?);
+        let frame_attribute_policy = AttributeUpdatePolicy::from(
+            &value
+                .frame_attribute_policy
+                .try_into()
+                .map_err(|e: UnknownEnumValue| serialize::Error::EnumConversionError(e.0))?,
+        );
 
-        let object_attribute_policy =
-            AttributeUpdatePolicy::from(&value.object_attribute_policy.try_into()?);
+        let object_attribute_policy = AttributeUpdatePolicy::from(
+            &value
+                .object_attribute_policy
+                .try_into()
+                .map_err(|e: UnknownEnumValue| serialize::Error::EnumConversionError(e.0))?,
+        );
 
-        let object_policy = ObjectUpdatePolicy::from(&value.object_policy.try_into()?);
+        let object_policy = ObjectUpdatePolicy::from(
+            &value
+                .object_policy
+                .try_into()
+                .map_err(|e: UnknownEnumValue| serialize::Error::EnumConversionError(e.0))?,
+        );
 
         let object_attributes = value
             .object_attributes
