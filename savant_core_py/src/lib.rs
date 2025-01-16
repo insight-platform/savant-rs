@@ -1,3 +1,4 @@
+pub mod atomic_counter;
 pub mod capi;
 /// The draw specification used to draw objects on the frame when they are visualized.
 pub mod draw_spec;

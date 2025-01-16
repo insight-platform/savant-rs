@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
 
+use savant_core_py::atomic_counter::AtomicCounter;
 use savant_core_py::draw_spec::*;
 use savant_core_py::logging::*;
 use savant_core_py::match_query::*;
@@ -165,6 +166,7 @@ pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<VideoObjectBBoxType>()?; // PYI
     m.add_class::<VideoObjectBBoxTransformation>()?; // PYI
     m.add_class::<BBoxMetricType>()?; // PYI
+    m.add_class::<AtomicCounter>()?;
 
     Ok(())
 }
