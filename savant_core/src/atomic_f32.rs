@@ -73,7 +73,6 @@ mod tests {
     fn test_ser_deser() {
         let a = super::AtomicF32::new(3.14);
         let serialized = serde_json::to_string(&a).unwrap();
-        dbg!(&serialized);
         let deserialized: super::AtomicF32 = serde_json::from_str(&serialized).unwrap();
         assert_eq!(a, deserialized);
     }

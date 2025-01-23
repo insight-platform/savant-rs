@@ -31,11 +31,11 @@ clean:
 
 pythontests:
 	@echo "Running tests..."
-	cd savant_python && cargo build && cargo test --no-default-features -- --show-output --nocapture --test-threads=1
+	cd savant_python && cargo build && cargo test --no-default-features -- --test-threads=1 # --show-output --nocapture
 
 core-tests:
 	@echo "Running core lib tests..."
-	cd savant_core && cargo build && cargo test -- --show-output --nocapture --test-threads=1
+	cd savant_core && cargo build && cargo test -- --test-threads=1 # --show-output --nocapture
 
 bench:
 	@echo "Running benchmarks..."

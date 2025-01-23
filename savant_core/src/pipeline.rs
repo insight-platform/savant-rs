@@ -1380,8 +1380,7 @@ pub(super) mod implementation {
                 pipeline.delete(*id).unwrap();
             });
             pipeline.log_final_fps();
-            let records = pipeline.get_stat_records(10);
-            dbg!(&records);
+            let _ = pipeline.get_stat_records(10);
             Ok(())
         }
     }

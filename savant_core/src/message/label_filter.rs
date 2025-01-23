@@ -93,9 +93,7 @@ mod tests {
             Not(Box::new(Set("test2".to_string()))),
         ]);
         let json = rule.to_json_pretty();
-        println!("{}", json);
-        let yaml = rule.to_yaml();
-        println!("{}", yaml);
+        let _ = rule.to_yaml();
         let rule2 = LabelFilterRule::from_json(&json).unwrap();
         assert_eq!(rule, rule2);
     }

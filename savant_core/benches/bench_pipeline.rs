@@ -132,9 +132,7 @@ fn bench_pipeline2_sampling_none(b: &mut Bencher) -> Result<()> {
     benchmark(b, &mut pipeline, stages);
 
     pipeline.log_final_fps();
-    let records = pipeline.get_stat_records(1);
-    dbg!(&records);
-
+    let _ = pipeline.get_stat_records(1);
     Ok(())
 }
 
