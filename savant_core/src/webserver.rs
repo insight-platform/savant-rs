@@ -1,8 +1,11 @@
 pub mod kvs;
 mod kvs_handlers;
+mod kvs_subscription;
 
+use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
@@ -15,15 +18,22 @@ use crate::webserver::kvs_handlers::{
     set_handler, set_handler_ttl,
 };
 use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use anyhow::bail;
+use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use moka::future::Cache;
+use moka::future::FutureExt;
+use moka::notification::{ListenerFuture, RemovalCause};
 use moka::Expiry;
 use prometheus_client::encoding::text::encode;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::task::JoinHandle;
 
 struct RecordExpiration;
+
+const HOUSKEEPING_PERIOD: Duration = Duration::from_secs(1);
 
 impl Expiry<(String, String), (Option<u64>, Attribute)> for RecordExpiration {
     fn expire_after_create(
@@ -48,6 +58,23 @@ pub enum PipelineStatus {
 
 const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
 
+#[derive(PartialEq, Clone, Deserialize, Serialize, Debug)]
+pub enum KvsOperationKind {
+    Set,
+    Delete,
+    Expiration,
+    Replaced,
+    SizeLimit,
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct KvsOperation {
+    namespace: String,
+    name: String,
+    timestamp: SystemTime,
+    operation: KvsOperationKind,
+}
+
 #[allow(clippy::type_complexity)]
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
@@ -55,20 +82,58 @@ struct WsData {
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
     kvs: Arc<Cache<(String, String), (Option<u64>, Attribute)>>,
+    kvs_subscribers: Arc<Mutex<HashMap<String, Sender<KvsOperation>>>>,
 }
 
 impl WsData {
     pub fn new() -> Self {
-        let cache = Cache::builder()
-            .max_capacity(MAX_TTL_KVS_CAPACITY)
-            .expire_after(RecordExpiration {})
-            .build();
+        let subscribers = Arc::new(Mutex::new(HashMap::new()));
+        let eviction_subscribers = subscribers.clone();
+        let eviction_listener = move |k: Arc<(String, String)>, _v, cause| -> ListenerFuture {
+            let scoped_subscribers = eviction_subscribers.clone();
+            async move {
+                if cause != RemovalCause::Replaced {
+                    let (namespace, name) = k.deref();
+                    let op = KvsOperation {
+                        namespace: namespace.clone(),
+                        name: name.clone(),
+                        timestamp: SystemTime::now(),
+                        operation: match cause {
+                            RemovalCause::Expired => KvsOperationKind::Expiration,
+                            RemovalCause::Explicit => KvsOperationKind::Delete,
+                            RemovalCause::Replaced => {
+                                unreachable!("Replaced should not be possible")
+                            }
+                            RemovalCause::Size => KvsOperationKind::SizeLimit,
+                        },
+                    };
+                    Self::broadcast_kvs_operation(scoped_subscribers, op).await;
+                }
+            }
+            .boxed()
+        };
+        let kvs = Arc::new(
+            Cache::builder()
+                .max_capacity(MAX_TTL_KVS_CAPACITY)
+                .expire_after(RecordExpiration {})
+                .async_eviction_listener(eviction_listener)
+                .build(),
+        );
+        let async_rt = get_or_init_async_runtime();
+        let scoped_cache = kvs.clone();
+        async_rt.spawn(async move {
+            loop {
+                tokio::time::sleep(HOUSKEEPING_PERIOD).await;
+                scoped_cache.run_pending_tasks().await;
+            }
+        });
         WsData {
             pipelines: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
-            kvs: Arc::new(cache),
+            kvs,
+            kvs_subscribers: subscribers,
         }
     }
 
@@ -97,6 +162,51 @@ impl WsData {
                 error!("Attempted to set shutdown token to a different value.");
             }
         });
+    }
+
+    pub async fn broadcast_kvs_operation(
+        kvs_subscribers: Arc<Mutex<HashMap<String, Sender<KvsOperation>>>>,
+        op: KvsOperation,
+    ) {
+        let mut to_remove = Vec::new();
+        let mut subscribers = kvs_subscribers.lock().await;
+        for (subscriber, tx) in subscribers.iter() {
+            if let Err(e) = tx.try_send(op.clone()) {
+                match e {
+                    TrySendError::Full(m) => {
+                        warn!(
+                            "Subscriber {} is full, dropping message: {:?}",
+                            subscriber, m
+                        );
+                    }
+                    TrySendError::Closed(_) => {
+                        info!("Subscriber {} is closed, removing from list.", subscriber);
+                        to_remove.push(subscriber.clone());
+                    }
+                }
+            }
+        }
+        for subscriber in &to_remove {
+            subscribers.remove(subscriber);
+        }
+    }
+
+    pub async fn subscribe(
+        &self,
+        subscriber: &str,
+        max_ops: usize,
+    ) -> anyhow::Result<Receiver<KvsOperation>> {
+        if max_ops == 0 {
+            bail!("Max operations cannot be zero.");
+        }
+        let mut subscribers = self.kvs_subscribers.lock().await;
+        if subscribers.contains_key(subscriber) {
+            bail!("Subscriber with name {} already exists.", subscriber);
+        }
+
+        let (tx, rx) = channel(max_ops);
+        subscribers.insert(subscriber.to_string(), tx);
+        Ok(rx)
     }
 }
 
