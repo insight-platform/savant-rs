@@ -29,6 +29,7 @@ savant_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus-client = { workspace = true }
+tokio = { workspace = true }
 
 # unique to savant_core_py
 colored = "2"

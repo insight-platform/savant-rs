@@ -28,14 +28,17 @@ prometheus-client = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 
 # unique to savant_core
+actix-ws = "0.3.0"
 actix-web = "4"
 crc32fast = "1"
 crossbeam = "0.8"
 derive_builder = "0.20"
 etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.12" }
 etcd-client = { version = "0.13", features = ["tls"] }
+futures-util = "0.3"
 jmespath = { version = "0.3", features = ["sync"] }
 libloading = "0.8"
 moka = { version = "0.12", features = ["future"] }
@@ -57,10 +60,6 @@ serde_yaml = "0.9"
 uuid = { version = "1.11", features = ["fast-rng", "v7"] }
 zmq = "0.10"
 rand = "0.8.5"
-
-[dependencies.tokio]
-version = "1.42"
-features = ["rt-multi-thread"]
 
 
 [lib]

@@ -1,12 +1,16 @@
 use crate::primitives::attribute::Attribute;
 use crate::{release_gil, with_gil};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use savant_core::primitives::rust;
 use savant_core::primitives::rust::AttributeSet;
 use savant_core::protobuf::ToProtobuf;
 use savant_core::webserver::kvs::synchronous as sync_kvs;
+use savant_core::webserver::{
+    subscribe, KvsOperation, KvsOperationKind, KvsSubscription as RustKvsSubscription,
+};
+use tokio::sync::mpsc::error::TryRecvError;
 
 /// Set attributes in the key-value store.
 ///
@@ -191,4 +195,124 @@ pub fn deserialize_attributes(serialized: &Bound<'_, PyBytes>) -> PyResult<Vec<A
     let attributes =
         AttributeSet::deserialize(bytes).map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) })
+}
+
+#[pyclass]
+pub struct KvsSubscription(RustKvsSubscription);
+
+impl KvsSubscription {
+    pub fn to_python(&self, op: KvsOperation) -> PyResult<PyObject> {
+        with_gil!(|py| {
+            Ok(match op.operation {
+                KvsOperationKind::Set(attr, ttl) => KvsSetOperation {
+                    timestamp: op
+                        .timestamp
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64,
+                    ttl,
+                    attribute: Attribute(attr),
+                }
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
+                KvsOperationKind::Delete(attr) => KvsDeleteOperation {
+                    timestamp: op
+                        .timestamp
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64,
+                    attribute: Attribute(attr),
+                }
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
+            })
+        })
+    }
+}
+
+#[pymethods]
+impl KvsSubscription {
+    #[new]
+    fn new(name: &str, max_inflight_ops: usize) -> PyResult<Self> {
+        subscribe(name, max_inflight_ops)
+            .map(KvsSubscription)
+            .map_err(|e| PyValueError::new_err(format!("Failed to create subscription: {:?}", e)))
+    }
+
+    /// Get the next message from the subscription.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Union[KvsSetOperation, KvsDeleteOperation]]
+    ///   The next message from the subscription, or None if the subscription is closed.
+    ///
+    /// Raises
+    /// ------
+    /// Exception
+    ///  If the operation retrieval fails by some system reason.
+    ///
+    pub fn recv(&mut self) -> PyResult<Option<PyObject>> {
+        let op = release_gil!(true, || self.0.blocking_recv());
+        if op.is_none() {
+            Ok(None)
+        } else {
+            let op = op.unwrap();
+            Ok(Some(self.to_python(op)?))
+        }
+    }
+
+    pub fn try_recv(&mut self) -> PyResult<Option<PyObject>> {
+        let op = self.0.try_recv();
+        match op {
+            Ok(res) => Ok(Some(self.to_python(res)?)),
+            Err(e) => match e {
+                TryRecvError::Empty => Ok(None),
+                TryRecvError::Disconnected => Err(PySystemError::new_err("Subscription is closed")),
+            },
+        }
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct KvsSetOperation {
+    #[pyo3(get)]
+    pub timestamp: u64,
+    #[pyo3(get)]
+    pub ttl: Option<u64>,
+    #[pyo3(get)]
+    pub attribute: Attribute,
+}
+
+#[pymethods]
+impl KvsSetOperation {
+    fn __repr__(&self) -> String {
+        format!("{:?}", &self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+pub struct KvsDeleteOperation {
+    #[pyo3(get)]
+    pub timestamp: u64,
+    #[pyo3(get)]
+    pub attribute: Attribute,
+}
+
+#[pymethods]
+impl KvsDeleteOperation {
+    fn __repr__(&self) -> String {
+        format!("{:?}", &self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
 }

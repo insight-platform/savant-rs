@@ -1,9 +1,14 @@
+import threading
+
 import savant_rs.webserver as ws
+from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives import Attribute, AttributeValue
 import savant_rs.webserver.kvs as kvs
 
+set_log_level(LogLevel.Info)
+
 import requests
-from time import sleep
+from time import sleep, time
 
 attr = Attribute(namespace="some", name="attr", hint="x", values=[
     AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
@@ -94,4 +99,32 @@ if __name__ == "__main__":
     ws.init_webserver(port)
     sleep(0.1)
     api(f'http://localhost:{port}')
+
+
+    def abi_receiver():
+        subscription = kvs.KvsSubscription("events", 100)
+        counter = 0
+        while True:
+            counter += 1
+            event = subscription.recv()
+            if event is None:
+                break
+            # if counter % 1000 == 0 or counter % 1001 == 0:
+            #     print(event)
+        print(f'Done: {counter}')
+
+
+    subscription_thread = threading.Thread(target=abi_receiver)
+    subscription_thread.start()
+
+    for _ in range(10_000):
+        sleep(0.0001)  # to avoid message drop due to queue overflow
+        kvs.set_attributes([attr])
+        kvs.del_attribute("some", "attr")
+
     ws.stop_webserver()
+    subscription_thread.join()
+
+# use
+# ./websocat -U --ping-interval 1 --ping-timeout 2 ws://localhost:8080/kvs/events
+# to see the events

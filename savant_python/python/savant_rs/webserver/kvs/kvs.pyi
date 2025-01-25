@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from savant_rs.primitives import Attribute
 
 
@@ -31,3 +31,22 @@ def serialize_attributes(attributes: List[Attribute]) -> None: ...
 
 # pub fn deserialize_attributes(serialized: &Bound<'_, PyBytes>) -> PyResult<Vec<Attribute>>
 def deserialize_attributes(serialized: bytes) -> List[Attribute]: ...
+
+
+class KvsSetOperation:
+    timestamp: int
+    ttl: Optional[int]
+    attribute: Attribute
+
+
+class KvsDeleteOperation:
+    timestamp: int
+    attribute: Attribute
+
+
+class KvsSubscription:
+    def __init__(self, name: str, max_inflight_ops: int): ...
+
+    def recv(self) -> Union[None, KvsSetOperation, KvsDeleteOperation]: ...
+
+    def try_recv(self) -> Union[None, KvsSetOperation, KvsDeleteOperation]: ...

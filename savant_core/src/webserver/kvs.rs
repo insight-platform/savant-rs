@@ -16,10 +16,8 @@ pub mod asynchronous {
             WsData::broadcast_kvs_operation(
                 subscribers,
                 KvsOperation {
-                    namespace,
-                    name,
                     timestamp: SystemTime::now(),
-                    operation: KvsOperationKind::Set,
+                    operation: KvsOperationKind::Set(attr.clone(), ttl),
                 },
             )
             .await;
@@ -79,10 +77,6 @@ pub mod asynchronous {
     }
 
     pub async fn del_attributes(ns: &Option<String>, name: &Option<String>) {
-        if ns.is_none() && name.is_none() {
-            WS_DATA.kvs.invalidate_all();
-            return;
-        }
         let mut keys_to_delete = Vec::new();
         let ns_glob = ns
             .as_ref()
@@ -105,8 +99,19 @@ pub mod asynchronous {
                 keys_to_delete.push(key.clone());
             }
         }
+        let subscribers = WS_DATA.kvs_subscribers.clone();
         for key in keys_to_delete {
-            WS_DATA.kvs.remove(&key).await;
+            let res = WS_DATA.kvs.remove(&key).await;
+            if let Some((_ttl, attr)) = res {
+                WsData::broadcast_kvs_operation(
+                    subscribers.clone(),
+                    KvsOperation {
+                        timestamp: SystemTime::now(),
+                        operation: KvsOperationKind::Delete(attr),
+                    },
+                )
+                .await;
+            }
         }
     }
 
@@ -119,11 +124,25 @@ pub mod asynchronous {
     }
 
     pub async fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
-        WS_DATA
+        let res = WS_DATA
             .kvs
             .remove(&(ns.to_string(), name.to_string()))
             .await
-            .map(|(_, attr)| attr)
+            .map(|(_, attr)| attr);
+        if let Some(attr) = res {
+            let subscribers = WS_DATA.kvs_subscribers.clone();
+            WsData::broadcast_kvs_operation(
+                subscribers,
+                KvsOperation {
+                    timestamp: SystemTime::now(),
+                    operation: KvsOperationKind::Delete(attr.clone()),
+                },
+            )
+            .await;
+            Some(attr)
+        } else {
+            None
+        }
     }
 }
 
@@ -261,43 +280,35 @@ mod tests {
         assert!(matches!(
             received,
             KvsOperation {
-                namespace,
-                name,
                 timestamp: _,
-                operation
-            } if namespace.as_str() == "jkl" && name.as_str() == "yay" && operation == KvsOperationKind::Set
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "jkl" && attr.name.as_str() == "yay" && ttl == Some(200)
         ));
         let received = rt.block_on(async { subscription.recv().await }).unwrap();
         assert!(matches!(
             received,
             KvsOperation {
-                namespace,
-                name,
                 timestamp: _,
-                operation
-            } if namespace.as_str() == "ghi" && name.as_str() == "yay" && operation == KvsOperationKind::Set
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
         ));
-        sleep(HOUSKEEPING_PERIOD + Duration::from_millis(10));
-        let received_expire_op = rt.block_on(async { subscription.recv().await }).unwrap();
+        del_attribute("ghi", "yay");
+        let received = rt.block_on(async { subscription.recv().await }).unwrap();
         assert!(matches!(
-            received_expire_op,
+            received,
             KvsOperation {
-                namespace,
-                name,
                 timestamp: _,
-                operation
-            } if namespace.as_str() == "jkl" && name.as_str() == "yay" && operation == KvsOperationKind::Expiration
+                operation: KvsOperationKind::Delete(attr)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay"
         ));
         set_attributes(&attribute_set, None);
         let received = rt.block_on(async { subscription.recv().await }).unwrap();
         assert!(matches!(
             received,
             KvsOperation {
-                namespace,
-                name,
                 timestamp: _,
-                operation
-            } if namespace.as_str() == "ghi" && name.as_str() == "yay" && operation == KvsOperationKind::Set
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
         ));
         Ok(())
     }
