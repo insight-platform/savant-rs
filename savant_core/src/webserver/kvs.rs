@@ -1,13 +1,26 @@
 pub mod asynchronous {
     use crate::primitives::attribute::Attribute;
-    use crate::webserver::WS_DATA;
+    use crate::webserver::{KvsOperation, KvsOperationKind, WsData, WS_DATA};
     use globset::Glob;
+    use std::time::SystemTime;
 
     pub async fn set_attributes(attributes: &[Attribute], ttl: Option<u64>) {
         for attr in attributes {
-            let ns = attr.namespace.clone();
+            let namespace = attr.namespace.clone();
             let name = attr.name.clone();
-            WS_DATA.kvs.insert((ns, name), (ttl, attr.clone())).await;
+            WS_DATA
+                .kvs
+                .insert((namespace.clone(), name.clone()), (ttl, attr.clone()))
+                .await;
+            let subscribers = WS_DATA.kvs_subscribers.clone();
+            WsData::broadcast_kvs_operation(
+                subscribers,
+                KvsOperation {
+                    timestamp: SystemTime::now(),
+                    operation: KvsOperationKind::Set(attr.clone(), ttl),
+                },
+            )
+            .await;
         }
     }
 
@@ -86,8 +99,19 @@ pub mod asynchronous {
                 keys_to_delete.push(key.clone());
             }
         }
+        let subscribers = WS_DATA.kvs_subscribers.clone();
         for key in keys_to_delete {
-            WS_DATA.kvs.remove(&key).await;
+            let res = WS_DATA.kvs.remove(&key).await;
+            if let Some((_ttl, attr)) = res {
+                WsData::broadcast_kvs_operation(
+                    subscribers.clone(),
+                    KvsOperation {
+                        timestamp: SystemTime::now(),
+                        operation: KvsOperationKind::Delete(attr),
+                    },
+                )
+                .await;
+            }
         }
     }
 
@@ -100,11 +124,25 @@ pub mod asynchronous {
     }
 
     pub async fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
-        WS_DATA
+        let res = WS_DATA
             .kvs
             .remove(&(ns.to_string(), name.to_string()))
             .await
-            .map(|(_, attr)| attr)
+            .map(|(_, attr)| attr);
+        if let Some(attr) = res {
+            let subscribers = WS_DATA.kvs_subscribers.clone();
+            WsData::broadcast_kvs_operation(
+                subscribers,
+                KvsOperation {
+                    timestamp: SystemTime::now(),
+                    operation: KvsOperationKind::Delete(attr.clone()),
+                },
+            )
+            .await;
+            Some(attr)
+        } else {
+            None
+        }
     }
 }
 
@@ -155,7 +193,10 @@ mod tests {
     use crate::primitives::attribute_value::AttributeValue;
     use crate::protobuf::{from_pb, ToProtobuf};
     use crate::webserver::kvs::synchronous::*;
-    use crate::webserver::{init_webserver, set_status, stop_webserver, PipelineStatus};
+    use crate::webserver::{
+        init_webserver, set_status, stop_webserver, KvsOperation, KvsOperationKind, PipelineStatus,
+        HOUSKEEPING_PERIOD, WS_DATA,
+    };
     use savant_protobuf::generated;
     use std::thread::sleep;
     use std::time::Duration;
@@ -163,6 +204,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_kvs() {
+        del_attributes(&None, &None);
         let attribute_set = vec![
             Attribute::persistent("abc", "xax", vec![], &None, false),
             Attribute::persistent("ghi", "yay", vec![], &None, false),
@@ -198,6 +240,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn test_replace_kv() {
+        del_attributes(&None, &None);
         let old_attr = vec![Attribute::persistent(
             "abc",
             "xax",
@@ -223,14 +266,63 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn test_attributes_abi_to_api() -> anyhow::Result<()> {
+    fn test_subscription() -> anyhow::Result<()> {
+        del_attributes(&None, &None);
+        sleep(HOUSKEEPING_PERIOD + Duration::from_millis(10)); // wait until subscription handler clear the op queue
+        let rt = get_or_init_async_runtime();
+        let mut subscription = rt.block_on(async { WS_DATA.subscribe("me", 10).await })?;
+
+        let ttl_attribute_set = vec![Attribute::persistent("jkl", "yay", vec![], &None, false)];
+        let attribute_set = vec![Attribute::persistent("ghi", "yay", vec![], &None, false)];
+        set_attributes(&ttl_attribute_set, Some(200));
+        set_attributes(&attribute_set, None);
+        let received = rt.block_on(async { subscription.recv().await }).unwrap();
+        assert!(matches!(
+            received,
+            KvsOperation {
+                timestamp: _,
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "jkl" && attr.name.as_str() == "yay" && ttl == Some(200)
+        ));
+        let received = rt.block_on(async { subscription.recv().await }).unwrap();
+        assert!(matches!(
+            received,
+            KvsOperation {
+                timestamp: _,
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
+        ));
+        del_attribute("ghi", "yay");
+        let received = rt.block_on(async { subscription.recv().await }).unwrap();
+        assert!(matches!(
+            received,
+            KvsOperation {
+                timestamp: _,
+                operation: KvsOperationKind::Delete(attr)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay"
+        ));
+        set_attributes(&attribute_set, None);
+        let received = rt.block_on(async { subscription.recv().await }).unwrap();
+        assert!(matches!(
+            received,
+            KvsOperation {
+                timestamp: _,
+                operation: KvsOperationKind::Set(attr, ttl)
+            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
+        ));
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_abi_to_api() -> anyhow::Result<()> {
         del_attributes(&None, &None);
         init_webserver(8888)?;
         sleep(Duration::from_millis(100));
         set_status(PipelineStatus::Running)?;
         let ttl_attribute_set = vec![Attribute::persistent("jkl", "yay", vec![], &None, false)];
         let attribute_set = vec![Attribute::persistent("ghi", "yay", vec![], &None, false)];
-        set_attributes(&ttl_attribute_set, Some(1000));
+        set_attributes(&ttl_attribute_set, Some(2000));
         set_attributes(&attribute_set, None);
 
         let r = reqwest::blocking::get("http://localhost:8888/kvs/search-keys/*/*")?;
@@ -244,7 +336,7 @@ mod tests {
                 ("jkl".to_string(), "yay".to_string())
             ]
         );
-        sleep(Duration::from_millis(1001));
+        sleep(Duration::from_millis(2001));
 
         let r = reqwest::blocking::get("http://localhost:8888/kvs/search-keys/*/*")?;
         assert_eq!(r.status(), 200);

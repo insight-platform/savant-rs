@@ -94,6 +94,11 @@ pub fn kvs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(del_attribute, m)?)?;
     m.add_function(wrap_pyfunction!(serialize_attributes, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize_attributes, m)?)?;
+
+    m.add_class::<KvsSubscription>()?;
+    m.add_class::<KvsSetOperation>()?;
+    m.add_class::<KvsDeleteOperation>()?;
+
     Ok(())
 }
 

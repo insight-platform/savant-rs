@@ -1,8 +1,10 @@
 pub mod kvs;
 mod kvs_handlers;
+mod kvs_subscription;
 
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 
 use crate::get_or_init_async_runtime;
@@ -14,16 +16,28 @@ use crate::webserver::kvs_handlers::{
     delete_handler, delete_single_handler, get_handler, search_handler, search_keys_handler,
     set_handler, set_handler_ttl,
 };
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::error::ErrorInternalServerError;
+use actix_web::{get, post, web, App, Error, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_ws::AggregatedMessage;
+use anyhow::bail;
+use futures_util::StreamExt;
+use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use moka::future::Cache;
 use moka::Expiry;
 use prometheus_client::encoding::text::encode;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::task::JoinHandle;
 
 struct RecordExpiration;
+
+const HOUSKEEPING_PERIOD: Duration = Duration::from_secs(1);
+const MAX_WS_INFLIGHT_OPS: usize = 100;
+
+pub type KvsSubscription = Receiver<KvsOperation>;
 
 impl Expiry<(String, String), (Option<u64>, Attribute)> for RecordExpiration {
     fn expire_after_create(
@@ -48,6 +62,18 @@ pub enum PipelineStatus {
 
 const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
 
+#[derive(PartialEq, Clone, Debug)]
+pub enum KvsOperationKind {
+    Set(Attribute, Option<u64>),
+    Delete(Attribute),
+}
+
+#[derive(Clone, Debug)]
+pub struct KvsOperation {
+    pub timestamp: SystemTime,
+    pub operation: KvsOperationKind,
+}
+
 #[allow(clippy::type_complexity)]
 struct WsData {
     pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
@@ -55,20 +81,60 @@ struct WsData {
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
     kvs: Arc<Cache<(String, String), (Option<u64>, Attribute)>>,
+    kvs_subscribers: Arc<Mutex<HashMap<String, Sender<KvsOperation>>>>,
 }
 
 impl WsData {
     pub fn new() -> Self {
-        let cache = Cache::builder()
-            .max_capacity(MAX_TTL_KVS_CAPACITY)
-            .expire_after(RecordExpiration {})
-            .build();
+        let subscribers = Arc::new(Mutex::new(HashMap::new()));
+        // let eviction_subscribers = subscribers.clone();
+        // let eviction_listener = move |k: Arc<(String, String)>, _v, cause| -> ListenerFuture {
+        //     let scoped_subscribers = eviction_subscribers.clone();
+        //     async move {
+        //         if matches!(cause, RemovalCause::Replaced | RemovalCause::Expired) {
+        //             return;
+        //         }
+        //         if cause != RemovalCause::Replaced {
+        //             let (namespace, name) = k.deref();
+        //             let op = KvsOperation {
+        //                 namespace: namespace.clone(),
+        //                 name: name.clone(),
+        //                 timestamp: SystemTime::now(),
+        //                 operation: match cause {
+        //                     RemovalCause::Expired => KvsOperationKind::Expiration,
+        //                     RemovalCause::Explicit => KvsOperationKind::Delete,
+        //                     RemovalCause::Replaced => {
+        //                         unreachable!("Replaced should not be possible")
+        //                     }
+        //                     RemovalCause::Size => KvsOperationKind::SizeLimit,
+        //                 },
+        //             };
+        //             Self::broadcast_kvs_operation(scoped_subscribers, op).await;
+        //         }
+        //     }
+        //     .boxed()
+        // };
+        let kvs = Arc::new(
+            Cache::builder()
+                .max_capacity(MAX_TTL_KVS_CAPACITY)
+                .expire_after(RecordExpiration {}) //.async_eviction_listener(eviction_listener)
+                .build(),
+        );
+        let async_rt = get_or_init_async_runtime();
+        let scoped_cache = kvs.clone();
+        async_rt.spawn(async move {
+            loop {
+                tokio::time::sleep(HOUSKEEPING_PERIOD).await;
+                scoped_cache.run_pending_tasks().await;
+            }
+        });
         WsData {
             pipelines: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
-            kvs: Arc::new(cache),
+            kvs,
+            kvs_subscribers: subscribers,
         }
     }
 
@@ -98,6 +164,59 @@ impl WsData {
             }
         });
     }
+
+    pub async fn broadcast_kvs_operation(
+        kvs_subscribers: Arc<Mutex<HashMap<String, Sender<KvsOperation>>>>,
+        op: KvsOperation,
+    ) {
+        let mut to_remove = Vec::new();
+        let mut subscribers = kvs_subscribers.lock().await;
+        for (subscriber, tx) in subscribers.iter() {
+            if let Err(e) = tx.try_send(op.clone()) {
+                match e {
+                    TrySendError::Full(m) => {
+                        warn!(
+                            "Subscriber {} is full, dropping message: {:?}",
+                            subscriber, m
+                        );
+                    }
+                    TrySendError::Closed(_) => {
+                        info!("Subscriber {} is closed, removing from list.", subscriber);
+                        to_remove.push(subscriber.clone());
+                    }
+                }
+            }
+        }
+        for subscriber in &to_remove {
+            subscribers.remove(subscriber);
+        }
+    }
+
+    pub async fn subscribe(
+        &self,
+        subscriber: &str,
+        max_ops: usize,
+    ) -> anyhow::Result<Receiver<KvsOperation>> {
+        if max_ops == 0 {
+            bail!("Max operations cannot be zero.");
+        }
+        let mut subscribers = self.kvs_subscribers.lock().await;
+        if subscribers.contains_key(subscriber) {
+            bail!("Subscriber with name {} already exists.", subscriber);
+        }
+
+        let (tx, rx) = channel(max_ops);
+        subscribers.insert(subscriber.to_string(), tx);
+        Ok(rx)
+    }
+}
+
+pub fn subscribe(subscriber: &str, max_ops: usize) -> anyhow::Result<KvsSubscription> {
+    let runtime = get_or_init_async_runtime();
+    runtime.block_on(async {
+        let data = WS_DATA.clone();
+        data.subscribe(subscriber, max_ops).await
+    })
 }
 
 static WS_JOB: OnceLock<JoinHandle<()>> = OnceLock::new();
@@ -234,6 +353,74 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
     HttpResponse::Ok().json("ok")
 }
 
+async fn events(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+    let (res, mut session, stream) = actix_ws::handle(&req, stream)?;
+    let mut stream = stream
+        .aggregate_continuations()
+        // aggregate continuation frames up to 1MiB
+        .max_continuation_size(2_usize.pow(20));
+
+    let my_name = uuid::Uuid::new_v4().to_string();
+    info!("New websocket connection: subscriber={}", &my_name);
+    let mut rs = WS_DATA
+        .subscribe(&my_name, MAX_WS_INFLIGHT_OPS)
+        .await
+        .map_err(|e| {
+            error!("Failed to subscribe to KVS events: {}", e);
+            ErrorInternalServerError("Failed to subscribe to KVS events")
+        })?;
+
+    let mut command_session = session.clone();
+    let my_name_command_thread = my_name.clone();
+    actix_web::rt::spawn(async move {
+        while let Some(msg) = stream.next().await {
+            if let Ok(AggregatedMessage::Ping(msg)) = msg {
+                let res = command_session.pong(&msg).await;
+                if let Err(e) = res {
+                    error!("Failed to send PONG frame: {}", e);
+                    return;
+                }
+                info!(
+                    "Handled PING frame from subscriber={}",
+                    &my_name_command_thread
+                );
+            }
+        }
+    });
+
+    actix_web::rt::spawn(async move {
+        while let Some(msg) = rs.recv().await {
+            let msg = match msg.operation {
+                KvsOperationKind::Set(attr, ttl) => {
+                    json!({
+                        "timestamp": msg.timestamp,
+                        "operation": "set",
+                        "namespace": attr.namespace,
+                        "name": attr.name,
+                        "ttl": ttl,
+                    })
+                }
+                KvsOperationKind::Delete(attr) => {
+                    json!({
+                        "timestamp": msg.timestamp,
+                        "operation": "delete",
+                        "namespace": attr.namespace,
+                        "name": attr.name,
+                    })
+                }
+            };
+            let msg = serde_json::to_string(&msg).expect("Failed to serialize message");
+            let res = session.text(msg.as_str()).await;
+            if let Err(e) = res {
+                warn!("Failed to send message to subscriber={}: {}", &my_name, e);
+                return;
+            }
+        }
+    });
+
+    Ok(res)
+}
+
 #[get("/metrics")]
 async fn metrics_handler() -> HttpResponse {
     let content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
@@ -270,6 +457,7 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
     let job_id = rt.spawn(async move {
         HttpServer::new(move || {
             App::new()
+                .route("/kvs/events", web::get().to(events))
                 .service(status_handler)
                 .service(shutdown_handler)
                 .service(metrics_handler)
@@ -293,8 +481,10 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
 }
 
 pub fn stop_webserver() {
+    let rt = get_or_init_async_runtime();
     let ws_job = WS_JOB.get().expect("Web server job not started");
     ws_job.abort();
+    rt.block_on(async { WS_DATA.kvs_subscribers.lock().await.clear() });
 }
 
 #[cfg(test)]
