@@ -60,6 +60,8 @@ jobs:
           path: distfiles/dist
 
       - name: Upload protobuf
+        # we need to do it only once as the proto file is the same for all platforms
+        if: matrix.runner == 'X64'
         uses: actions/upload-artifact@v4
         with:
           name: savant_rs.proto
