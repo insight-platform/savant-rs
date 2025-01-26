@@ -25,6 +25,7 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 parking_lot = { workspace = true }
 prometheus-client = { workspace = true }
+prost = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -50,10 +51,9 @@ reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tl
 opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
 opentelemetry-semantic-conventions = "0.16.0"
 opentelemetry-jaeger-propagator = "0.3.0"
-prost = "0.13"
 rayon = "1.10"
 regex = "1"
-savant-protobuf = { git = "https://github.com/insight-platform/savant-protobuf", tag = "0.2.2" }
+savant-protobuf = { path = "../savant_protobuf" }
 globset = "0.4"
 
 serde_yaml = "0.9"

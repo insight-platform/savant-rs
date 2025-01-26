@@ -4,8 +4,22 @@ members = [
     "savant_core",
     "savant_core_py",
     "savant_python",
+    "savant_protobuf",
     "savant_plugins/*",
 ]
+
+[workspace.package]
+version = "0.4.13"
+edition = "2021"
+authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
+description = "Savant Rust core functions library"
+homepage = "https://github.com/insight-platform/savant-rs"
+repository = "https://github.com/insight-platform/savant-rs"
+readme = "README.md"
+keywords = ["computer-vision", "video-processing"]
+categories = ["algorithms", "data-structures", "computer-vision"]
+license = "Apache-2.0"
+rust-version = "1.83"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -26,20 +40,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1.42", features = ["rt-multi-thread"] }
-
-
-[workspace.package]
-version = "0.4.12"
-edition = "2021"
-authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
-description = "Savant Rust core functions library"
-homepage = "https://github.com/insight-platform/savant-rs"
-repository = "https://github.com/insight-platform/savant-rs"
-readme = "README.md"
-keywords = ["computer-vision", "video-processing"]
-categories = ["algorithms", "data-structures", "computer-vision"]
-license = "Apache-2.0"
-rust-version = "1.83"
+prost = "0.13"
+prost-types = "0.13"
+prost-build = "0.13"
 
 
 [profile.release]

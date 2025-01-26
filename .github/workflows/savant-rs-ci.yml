@@ -59,6 +59,12 @@ jobs:
           name: wheels-${{ matrix.runner }}
           path: distfiles/dist
 
+      - name: Upload protobuf
+        uses: actions/upload-artifact@v4
+        with:
+          name: savant_rs.proto
+          path: savant_protobuf/src/savant_rs.proto
+
   release:
     name: Release
     runs-on: self-hosted
@@ -69,6 +75,12 @@ jobs:
         run: mkdir -p artifacts
       - name: Clean up old wheels
         run: rm -rf artifacts/*.whl
+      - name: Clean up old protobuf files
+        run: rm -rf artifacts/*.proto
+      - uses: actions/download-artifact@v4
+        with:
+          name: savant_rs.proto
+          path: artifacts
       - uses: actions/download-artifact@v4
         with:
           name: wheels-X64
@@ -83,11 +95,3 @@ jobs:
         env:
           GHR_PATH: artifacts/
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      - name: Publish to PyPI
-#        uses: PyO3/maturin-action@v1
-#        env:
-#          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-#        with:
-#          container: ghcr.io/insight-platform/manylinux_2_28_x64:v0.0.4
-#          command: upload
-#          args: --skip-existing artifacts/*.whl
