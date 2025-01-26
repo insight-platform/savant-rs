@@ -11,7 +11,9 @@ use crate::get_or_init_async_runtime;
 use crate::metrics::metric_collector::SystemMetricCollector;
 use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
 use crate::pipeline::implementation;
+use crate::primitives::rust::AttributeSet;
 use crate::primitives::Attribute;
+use crate::protobuf::ToProtobuf;
 use crate::webserver::kvs_handlers::{
     delete_handler, delete_single_handler, get_handler, search_handler, search_keys_handler,
     set_handler, set_handler_ttl,
@@ -64,8 +66,8 @@ const MAX_TTL_KVS_CAPACITY: u64 = 100_000;
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum KvsOperationKind {
-    Set(Attribute, Option<u64>),
-    Delete(Attribute),
+    Set(Vec<Attribute>, Option<u64>),
+    Delete(Vec<Attribute>),
 }
 
 #[derive(Clone, Debug)]
@@ -353,7 +355,19 @@ async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
     HttpResponse::Ok().json("ok")
 }
 
-async fn events(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+async fn events_meta(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+    events_internal(req, stream, false).await
+}
+
+async fn events_full(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, Error> {
+    events_internal(req, stream, true).await
+}
+
+async fn events_internal(
+    req: HttpRequest,
+    stream: web::Payload,
+    full: bool,
+) -> Result<HttpResponse, Error> {
     let (res, mut session, stream) = actix_ws::handle(&req, stream)?;
     let mut stream = stream
         .aggregate_continuations()
@@ -390,23 +404,31 @@ async fn events(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, 
 
     actix_web::rt::spawn(async move {
         while let Some(msg) = rs.recv().await {
-            let msg = match msg.operation {
-                KvsOperationKind::Set(attr, ttl) => {
-                    json!({
-                        "timestamp": msg.timestamp,
-                        "operation": "set",
-                        "namespace": attr.namespace,
-                        "name": attr.name,
-                        "ttl": ttl,
-                    })
+            let (msg, attrs) = match msg.operation {
+                KvsOperationKind::Set(attrs, ttl) => {
+                    let mut response = Vec::with_capacity(attrs.len());
+                    for attr in &attrs {
+                        response.push(json!({
+                            "timestamp": msg.timestamp,
+                            "operation": "set",
+                            "namespace": attr.namespace,
+                            "name": attr.name,
+                            "ttl": ttl,
+                        }));
+                    }
+                    (response, if full { Some(attrs) } else { None })
                 }
-                KvsOperationKind::Delete(attr) => {
-                    json!({
-                        "timestamp": msg.timestamp,
-                        "operation": "delete",
-                        "namespace": attr.namespace,
-                        "name": attr.name,
-                    })
+                KvsOperationKind::Delete(attrs) => {
+                    let mut response = Vec::with_capacity(attrs.len());
+                    for attr in &attrs {
+                        response.push(json!({
+                            "timestamp": msg.timestamp,
+                            "operation": "delete",
+                            "namespace": attr.namespace,
+                            "name": attr.name,
+                        }));
+                    }
+                    (response, if full { Some(attrs) } else { None })
                 }
             };
             let msg = serde_json::to_string(&msg).expect("Failed to serialize message");
@@ -414,6 +436,23 @@ async fn events(req: HttpRequest, stream: web::Payload) -> Result<HttpResponse, 
             if let Err(e) = res {
                 warn!("Failed to send message to subscriber={}: {}", &my_name, e);
                 return;
+            }
+            if let Some(attrs) = attrs {
+                let set = AttributeSet::from(attrs);
+                let serialized = set.to_pb();
+                if let Err(e) = serialized {
+                    warn!("Failed to serialize attributes: {}", e);
+                    return;
+                }
+                let serialized = serialized.unwrap();
+                let res = session.binary(serialized).await;
+                if let Err(e) = res {
+                    warn!(
+                        "Failed to send serialized attributes to subscriber={}: {}",
+                        &my_name, e
+                    );
+                    return;
+                }
             }
         }
     });
@@ -457,7 +496,8 @@ pub fn init_webserver(port: u16) -> anyhow::Result<()> {
     let job_id = rt.spawn(async move {
         HttpServer::new(move || {
             App::new()
-                .route("/kvs/events", web::get().to(events))
+                .route("/kvs/events/meta", web::get().to(events_meta))
+                .route("/kvs/events/full", web::get().to(events_full))
                 .service(status_handler)
                 .service(shutdown_handler)
                 .service(metrics_handler)

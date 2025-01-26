@@ -118,7 +118,7 @@ if __name__ == "__main__":
     subscription_thread.start()
 
     for _ in range(10_000):
-        sleep(0.0001)  # to avoid message drop due to queue overflow
+        sleep(1)  # to avoid message drop due to queue overflow
         kvs.set_attributes([attr])
         kvs.del_attribute("some", "attr")
 
@@ -126,5 +126,9 @@ if __name__ == "__main__":
     subscription_thread.join()
 
 # use
-# ./websocat -U --ping-interval 1 --ping-timeout 2 ws://localhost:8080/kvs/events
-# to see the events
+# ./websocat -U --ping-interval 1 --ping-timeout 2 ws://localhost:8080/kvs/events/meta
+# to see the event metadata
+
+# use
+# ./websocat -U --ping-interval 1 --ping-timeout 2 ws://localhost:8080/kvs/events/full
+# to see the full event
