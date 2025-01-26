@@ -20,7 +20,19 @@ permissions: write-all
 
 jobs:
 
-  linux:
+  protobuf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload protobuf
+        # we need to do it only once as the proto file is the same for all platforms
+        uses: actions/upload-artifact@v4
+        with:
+          name: savant_rs.proto
+          path: savant_protobuf/src/savant_rs.proto
+
+  build:
     strategy:
       matrix:
         include:
@@ -59,19 +71,10 @@ jobs:
           name: wheels-${{ matrix.runner }}
           path: distfiles/dist
 
-      - name: Upload protobuf
-        # we need to do it only once as the proto file is the same for all platforms
-        if: matrix.runner == 'X64'
-        uses: actions/upload-artifact@v4
-        with:
-          name: savant_rs.proto
-          path: savant_protobuf/src/savant_rs.proto
-
   release:
     name: Release
-    runs-on: self-hosted
-    if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [ linux ]
+    runs-on: ubuntu-latest
+    needs: [ build, protobuf ]
     steps:
       - name: Make directory for download
         run: mkdir -p artifacts
