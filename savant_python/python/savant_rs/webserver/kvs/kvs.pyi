@@ -36,17 +36,17 @@ def deserialize_attributes(serialized: bytes) -> List[Attribute]: ...
 class KvsSetOperation:
     timestamp: int
     ttl: Optional[int]
-    attribute: Attribute
+    attributes: List[Attribute]
 
 
 class KvsDeleteOperation:
     timestamp: int
-    attribute: Attribute
+    attributes: List[Attribute]
 
 
 class KvsSubscription:
     def __init__(self, name: str, max_inflight_ops: int): ...
 
-    def recv(self) -> Union[None, KvsSetOperation, KvsDeleteOperation]: ...
+    def recv(self) -> Optional[Union[KvsSetOperation, KvsDeleteOperation]]: ...
 
-    def try_recv(self) -> Union[None, KvsSetOperation, KvsDeleteOperation]: ...
+    def try_recv(self) -> Optional[Union[KvsSetOperation, KvsDeleteOperation]]: ...

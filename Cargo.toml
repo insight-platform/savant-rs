@@ -29,7 +29,7 @@ tokio = { version = "1.42", features = ["rt-multi-thread"] }
 
 
 [workspace.package]
-version = "0.4.11"
+version = "0.4.12"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
