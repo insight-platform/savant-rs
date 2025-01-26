@@ -118,7 +118,7 @@ if __name__ == "__main__":
     subscription_thread.start()
 
     for _ in range(10_000):
-        sleep(1)  # to avoid message drop due to queue overflow
+        sleep(0.0001)  # to avoid message drop due to queue overflow
         kvs.set_attributes([attr])
         kvs.del_attribute("some", "attr")
 
