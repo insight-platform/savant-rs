@@ -12,16 +12,16 @@ pub mod asynchronous {
                 .kvs
                 .insert((namespace.clone(), name.clone()), (ttl, attr.clone()))
                 .await;
-            let subscribers = WS_DATA.kvs_subscribers.clone();
-            WsData::broadcast_kvs_operation(
-                subscribers,
-                KvsOperation {
-                    timestamp: SystemTime::now(),
-                    operation: KvsOperationKind::Set(attr.clone(), ttl),
-                },
-            )
-            .await;
         }
+        let subscribers = WS_DATA.kvs_subscribers.clone();
+        WsData::broadcast_kvs_operation(
+            subscribers,
+            KvsOperation {
+                timestamp: SystemTime::now(),
+                operation: KvsOperationKind::Set(attributes.to_vec(), ttl),
+            },
+        )
+        .await;
     }
 
     pub async fn search_attributes(ns: &Option<String>, name: &Option<String>) -> Vec<Attribute> {
@@ -100,19 +100,21 @@ pub mod asynchronous {
             }
         }
         let subscribers = WS_DATA.kvs_subscribers.clone();
+        let mut attrs = Vec::with_capacity(keys_to_delete.len());
         for key in keys_to_delete {
             let res = WS_DATA.kvs.remove(&key).await;
             if let Some((_ttl, attr)) = res {
-                WsData::broadcast_kvs_operation(
-                    subscribers.clone(),
-                    KvsOperation {
-                        timestamp: SystemTime::now(),
-                        operation: KvsOperationKind::Delete(attr),
-                    },
-                )
-                .await;
+                attrs.push(attr);
             }
         }
+        WsData::broadcast_kvs_operation(
+            subscribers.clone(),
+            KvsOperation {
+                timestamp: SystemTime::now(),
+                operation: KvsOperationKind::Delete(attrs),
+            },
+        )
+        .await;
     }
 
     pub async fn get_attribute(ns: &str, name: &str) -> Option<Attribute> {
@@ -135,7 +137,7 @@ pub mod asynchronous {
                 subscribers,
                 KvsOperation {
                     timestamp: SystemTime::now(),
-                    operation: KvsOperationKind::Delete(attr.clone()),
+                    operation: KvsOperationKind::Delete(vec![attr.clone()]),
                 },
             )
             .await;
@@ -282,7 +284,7 @@ mod tests {
             KvsOperation {
                 timestamp: _,
                 operation: KvsOperationKind::Set(attr, ttl)
-            } if attr.namespace.as_str() == "jkl" && attr.name.as_str() == "yay" && ttl == Some(200)
+            } if attr[0].namespace.as_str() == "jkl" && attr[0].name.as_str() == "yay" && ttl == Some(200)
         ));
         let received = rt.block_on(async { subscription.recv().await }).unwrap();
         assert!(matches!(
@@ -290,7 +292,7 @@ mod tests {
             KvsOperation {
                 timestamp: _,
                 operation: KvsOperationKind::Set(attr, ttl)
-            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
+            } if attr[0].namespace.as_str() == "ghi" && attr[0].name.as_str() == "yay" && ttl.is_none()
         ));
         del_attribute("ghi", "yay");
         let received = rt.block_on(async { subscription.recv().await }).unwrap();
@@ -299,7 +301,7 @@ mod tests {
             KvsOperation {
                 timestamp: _,
                 operation: KvsOperationKind::Delete(attr)
-            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay"
+            } if attr[0].namespace.as_str() == "ghi" && attr[0].name.as_str() == "yay"
         ));
         set_attributes(&attribute_set, None);
         let received = rt.block_on(async { subscription.recv().await }).unwrap();
@@ -308,7 +310,7 @@ mod tests {
             KvsOperation {
                 timestamp: _,
                 operation: KvsOperationKind::Set(attr, ttl)
-            } if attr.namespace.as_str() == "ghi" && attr.name.as_str() == "yay" && ttl.is_none()
+            } if attr[0].namespace.as_str() == "ghi" && attr[0].name.as_str() == "yay" && ttl.is_none()
         ));
         Ok(())
     }

@@ -204,25 +204,25 @@ impl KvsSubscription {
     pub fn to_python(&self, op: KvsOperation) -> PyResult<PyObject> {
         with_gil!(|py| {
             Ok(match op.operation {
-                KvsOperationKind::Set(attr, ttl) => KvsSetOperation {
+                KvsOperationKind::Set(attrs, ttl) => KvsSetOperation {
                     timestamp: op
                         .timestamp
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis() as u64,
                     ttl,
-                    attribute: Attribute(attr),
+                    attributes: attrs.into_iter().map(Attribute).collect(),
                 }
                 .into_pyobject(py)?
                 .into_any()
                 .unbind(),
-                KvsOperationKind::Delete(attr) => KvsDeleteOperation {
+                KvsOperationKind::Delete(attrs) => KvsDeleteOperation {
                     timestamp: op
                         .timestamp
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis() as u64,
-                    attribute: Attribute(attr),
+                    attributes: attrs.into_iter().map(Attribute).collect(),
                 }
                 .into_pyobject(py)?
                 .into_any()
@@ -263,6 +263,19 @@ impl KvsSubscription {
         }
     }
 
+    /// Try to get the next message from the subscription.
+    /// This method will not block.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[Union[KvsSetOperation, KvsDeleteOperation]]
+    ///  The next message from the subscription, or None if the subscription is closed.
+    ///
+    /// Raises
+    /// ------
+    /// SystemError
+    ///  If the subscription is closed.
+    ///
     pub fn try_recv(&mut self) -> PyResult<Option<PyObject>> {
         let op = self.0.try_recv();
         match op {
@@ -283,7 +296,7 @@ pub struct KvsSetOperation {
     #[pyo3(get)]
     pub ttl: Option<u64>,
     #[pyo3(get)]
-    pub attribute: Attribute,
+    pub attributes: Vec<Attribute>,
 }
 
 #[pymethods]
@@ -303,7 +316,7 @@ pub struct KvsDeleteOperation {
     #[pyo3(get)]
     pub timestamp: u64,
     #[pyo3(get)]
-    pub attribute: Attribute,
+    pub attributes: Vec<Attribute>,
 }
 
 #[pymethods]
