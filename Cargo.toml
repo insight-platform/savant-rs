@@ -5,6 +5,8 @@ members = [
     "savant_core_py",
     "savant_python",
     "savant_protobuf",
+    "services/replay/replaydb",
+    "services/replay/replay",
     "savant_plugins/*",
 ]
 
@@ -22,28 +24,88 @@ license = "Apache-2.0"
 rust-version = "1.83"
 
 [workspace.dependencies]
+actix-ws = "0.3.0"
+actix-web = "4"
 anyhow = "1.0"
+
+bincode = { version = "2.0.0-rc.3" }
+bollard = "0.18"
+
+cbindgen = "0.24"
+ctrlc = "3"
+crc32fast = "1"
+colored = "3"
+crossbeam = "0.8"
+
+derive_builder = "0.20"
+
+env_logger = "0.11"
+etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.12" }
+etcd-client = { version = "0.13", features = ["tls"] }
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
+
+futures-util = "0.3"
+
 geo = "=0.28"
-lazy_static = "1.5"
-log = "0.4"
-savant_core = { path = "savant_core" }
-savant_core_py = { path = "savant_core_py" }
+globset = "0.4"
+
 hashbrown = { version = "0.15", features = ["serde"] }
+
+jmespath = { version = "0.3", features = ["sync"] }
+
+lazy_static = "1.5"
+libloading = "0.8"
+lru = { version = "0.13", features = ["hashbrown"] }
+log = "0.4"
+
+md-5 = "0.10"
+mini-moka = "0.10"
+moka = { version = "0.12", features = ["future"] }
+
+nix = { version = "0.29", features = ["process", "signal"] }
+
 opentelemetry = "=0.24"
 opentelemetry-otlp = { version = "=0.17", features = ["http-json", "http-proto", "tls", "reqwest-rustls"] }
+opentelemetry-jaeger-propagator = "0.3.0"
+opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.16.0"
+opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
+
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
+pretty_env_logger = "0.5"
 prometheus-client = "0.23"
-pyo3 = "0.23"
-pyo3-build-config = "0.23"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2"
-tokio = { version = "1.42", features = ["rt-multi-thread"] }
 prost = "0.13"
 prost-types = "0.13"
 prost-build = "0.13"
+pyo3 = "0.23"
+pyo3-build-config = "0.23"
 
+rand = "0.9"
+rayon = "1.10"
+regex = "1"
+replaydb = { path = "services/replay/replaydb" }
+reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+rocksdb = { version = "0.23", default-features = false, features = ["bindgen-runtime"] }
+ring = "0.17"
+
+savant_core = { path = "savant_core" }
+savant_core_py = { path = "savant_core_py" }
+savant_protobuf = { path = "savant_protobuf" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+serial_test = "3"
+
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros"] }
+tokio-timerfd = "0.2"
+tonic = { version = "0.12.2", features = ["tls-native-roots"] }
+twelf = { version = "0.15", features = ["json", "env", "shellexpand"], default-features = false }
+
+uuid = { version = "1", features = ["fast-rng", "v7"] }
+
+zmq = "0.10"
 
 [profile.release]
 opt-level = 3

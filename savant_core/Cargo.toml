@@ -15,52 +15,48 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-web = { workspace = true }
+actix-ws = { workspace = true }
 anyhow = { workspace = true }
+crc32fast = { workspace = true }
+crossbeam = { workspace = true }
+derive_builder = { workspace = true }
+etcd_dynamic_state = { workspace = true }
+etcd-client = { workspace = true }
 evalexpr = { workspace = true }
+futures-util = { workspace = true }
+globset = { workspace = true }
+jmespath = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
+libloading = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
+lru = { workspace = true }
+moka = { workspace = true }
+nix = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-stdout = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry-jaeger-propagator = { workspace = true }
 parking_lot = { workspace = true }
 prometheus-client = { workspace = true }
 prost = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+savant_protobuf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-
-# unique to savant_core
-actix-ws = "0.3.0"
-actix-web = "4"
-crc32fast = "1"
-crossbeam = "0.8"
-derive_builder = "0.20"
-etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.12" }
-etcd-client = { version = "0.13", features = ["tls"] }
-futures-util = "0.3"
-jmespath = { version = "0.3", features = ["sync"] }
-libloading = "0.8"
-moka = { version = "0.12", features = ["future"] }
-lru = { version = "0.12", features = ["hashbrown"] }
-nix = { version = "0.29", features = ["process", "signal"] }
-opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
-tonic = { version = "0.12.2", features = ["tls-native-roots"] }
-reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
-opentelemetry-stdout = { version = "0.5.0", features = ["trace"] }
-opentelemetry-semantic-conventions = "0.16.0"
-opentelemetry-jaeger-propagator = "0.3.0"
-rayon = "1.10"
-regex = "1"
-savant-protobuf = { path = "../savant_protobuf" }
-globset = "0.4"
-
-serde_yaml = "0.9"
-uuid = { version = "1.11", features = ["fast-rng", "v7"] }
-zmq = "0.10"
-rand = "0.8.5"
-
+tonic = { workspace = true }
+uuid = { workspace = true }
+zmq = { workspace = true }
 
 [lib]
 crate-type = ["dylib"]
@@ -70,9 +66,7 @@ name = "plugin-loader"
 path = "src/bin/plugin_loader.rs"
 
 [dev-dependencies]
-serial_test = "3"
-bollard = "0.18"
-futures-util = "0.3"
-reqwest = "0.12"
-env_logger = "0.11"
-ctrlc = "3"
+bollard = { workspace = true }
+ctrlc = { workspace = true }
+futures-util = { workspace = true }
+serial_test = { workspace = true }

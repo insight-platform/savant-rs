@@ -17,6 +17,7 @@ crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
+colored = { workspace = true }
 evalexpr = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
@@ -31,12 +32,9 @@ serde_json = { workspace = true }
 prometheus-client = { workspace = true }
 tokio = { workspace = true }
 
-# unique to savant_core_py
-colored = "2"
-
 [build-dependencies]
 pyo3-build-config = { workspace = true }
-cbindgen = "0.24"
+cbindgen = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"

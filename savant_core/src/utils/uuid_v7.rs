@@ -12,8 +12,8 @@ pub fn incremental_uuid_v7() -> Uuid {
     let timestamp = uuid.get_timestamp();
     let mut last_uuid = LAST_UUID.lock();
     if timestamp == last_uuid.get_timestamp() {
-        let mut rng = rand::thread_rng();
-        let n: u128 = rng.gen_range(1..100);
+        let mut rng = rand::rng();
+        let n: u128 = rng.random_range(1..100);
         *last_uuid = Uuid::from_u128(last_uuid.as_u128() + n);
     } else {
         *last_uuid = uuid;
