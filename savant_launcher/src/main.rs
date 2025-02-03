@@ -1,9 +1,31 @@
+use clap::Parser;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use savant_rs::*;
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[clap(short, long)]
+    module_name: String,
+    #[clap(short, long)]
+    function_name: String,
+    #[clap(short, long)]
+    python_root: Option<String>,
+}
+
 fn main() -> anyhow::Result<()> {
     init_logs();
+    let cli = Cli::parse();
+    let module_root = cli.python_root.unwrap_or_else(|| ".".to_string());
+    // check exists and is a directory
+    let metadata = std::fs::metadata(&module_root)?;
+    if !metadata.is_dir() {
+        return Err(anyhow::anyhow!("{} is not a directory", module_root));
+    }
+    let module_name = cli.module_name;
+    let function_name = cli.function_name;
+
     // get bootstrap directory is where the executable is located
     let gst_dir = std::env::current_exe()?
         .parent()
@@ -26,25 +48,6 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("GST_PLUGIN_PATH={}", std::env::var("GST_PLUGIN_PATH")?);
 
-    // bootstrap directory is either "." or argv
-    let bootstrap_module = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "./entrypoint.py".to_string());
-
-    let bootstrap_dir = std::path::Path::new(&bootstrap_module)
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("could not get parent directory of bootstrap module"))?
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("could not convert path to string"))?
-        .to_string();
-
-    let bootstrap_module = std::path::Path::new(&bootstrap_module)
-        .file_stem()
-        .ok_or_else(|| anyhow::anyhow!("could not get file stem of bootstrap module"))?
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("could not convert path to string"))?
-        .to_string();
-
     Python::with_gil(|py| {
         let module = PyModule::new(py, "savant_rs").map_err(|e| anyhow::anyhow!("{}", e))?;
         init_all(py, &module).map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -54,8 +57,10 @@ fn main() -> anyhow::Result<()> {
         let path = path_bind
             .downcast::<PyList>()
             .map_err(|_| anyhow::anyhow!("sys.path is not a list"))?;
-        path.insert(0, bootstrap_dir.as_str())?;
-        Python::import(py, bootstrap_module)?;
+        path.insert(0, module_root.as_str())?;
+        let m = Python::import(py, module_name)?;
+        let f = m.getattr(function_name.as_str())?.unbind();
+        f.call0(py)?;
         Ok(())
     })
 }

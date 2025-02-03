@@ -18,3 +18,4 @@ anyhow = { workspace = true }
 savant_rs = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 log = "0.4.22"
+clap = { workspace = true }
