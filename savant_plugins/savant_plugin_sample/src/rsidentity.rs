@@ -13,7 +13,7 @@ use gst::prelude::*;
 use gst::subclass::prelude::*;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, OnceLock};
 
 // This module contains the private implementation details of our element
 
@@ -30,6 +30,7 @@ pub struct Identity {
     srcpad: gst::Pad,
     sinkpad: gst::Pad,
     counter: Mutex<u64>,
+    module_import: OnceLock<Py<PyModule>>,
 }
 
 impl Identity {
@@ -49,13 +50,27 @@ impl Identity {
         let last = *bind;
         *bind = last + 1;
         Python::with_gil(|py| {
-            let sys_mod = py.import("sys").expect("sys module not found");
-            let version = sys_mod
-                .getattr("version")
-                .expect("version not found")
-                .to_string();
-            gst::log!(CAT, obj = pad, "Python version: {:?}", version);
-            let _ = last.into_pyobject(py);
+            let _ = self.module_import.get_or_init(|| {
+                let res = PyModule::import(py, "mymod");
+                match res {
+                    Err(e) => {
+                        gst::error!(CAT, "Error importing mymod: {:?}", e);
+                        panic!("Error importing mymod: {:?}", e);
+                    }
+                    Ok(m) => {
+                        log::info!("Imported mymod");
+                        m.unbind()
+                    }
+                }
+            });
+            //
+            // let version = sys_mod
+            //     .getattr("__GLOBAL_VAR__")
+            //     .expect("entrypoint.__GLOBAL_VAR__ not found")
+            //     .to_string();
+            //
+            // gst::log!(CAT, obj = pad, "Global Var Value: {:?}", version);
+            // let _ = last.into_pyobject(py);
         });
 
         self.srcpad.push(buffer)
@@ -183,10 +198,18 @@ impl ObjectSubclass for Identity {
         // Return an instance of our struct and also include our debug category here.
         // The debug category will be used later whenever we need to put something
         // into the debug logs
+        // Python::with_gil(|py| {
+        //     let res = PyModule::import(py, "mymod");
+        //     if let Err(e) = res {
+        //         gst::error!(CAT, "Error importing rsidentity: {:?}", e);
+        //     }
+        // });
+
         Self {
             srcpad,
             sinkpad,
             counter: Mutex::new(0),
+            module_import: OnceLock::new(),
         }
     }
 }
