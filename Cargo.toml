@@ -8,6 +8,7 @@ members = [
     "services/replay/replaydb",
     "services/replay/replay",
     "savant_plugins/*",
+    "savant_launcher",
 ]
 
 [workspace.package]
@@ -97,6 +98,8 @@ ring = "0.17"
 savant_core = { path = "savant_core" }
 savant_core_py = { path = "savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
+savant_rs = { path = "savant_python" }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"

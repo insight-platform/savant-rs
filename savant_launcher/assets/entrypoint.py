@@ -1,17 +1,17 @@
+from savant_rs.logging import log, LogLevel
+from savant_rs.primitives import AttributeValue, Attribute
+import numpy as np
+import cv2
+
 import os
 
-# import savant_plugin_sample
-
-os.environ["GST_PLUGIN_PATH"] = "/mnt/development/build/debug"
-os.environ["GST_DEBUG"] = "rsidentity:7"
+# os.environ["GST_PLUGIN_PATH"] = "/home/ivan/dev/savant/savant-rs/dist/build_artifacts"
+# os.environ["GST_DEBUG"] = "rsidentity:7"
 
 import gi
 
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
-
-
-# GST_PLUGIN_PATH=/mnt/development/build/debug
 
 
 def on_message(bus, message, loop):
@@ -27,6 +27,18 @@ def on_message(bus, message, loop):
 
 
 def main():
+    arr = np.zeros((3, 3, 3), dtype=np.uint8)
+    # print(arr)
+
+    attr = Attribute(namespace="some", name="attr", hint="x", values=[
+        AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
+        AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
+        AttributeValue.integer(1, confidence=0.5),
+        AttributeValue.float(1.0, confidence=0.5),
+    ])
+
+    # print(attr.json)
+
     # Initialize GStreamer
     Gst.init(None)
 
@@ -80,13 +92,12 @@ def main():
     pipeline.set_state(Gst.State.PLAYING)
 
     try:
-        print("Running GStreamer pipeline with identity element...")
+        log(LogLevel.Info, "entrypoint", "Starting pipeline...")
         loop.run()
     except KeyboardInterrupt:
-        print("Stopping pipeline...")
+        log(LogLevel.Info, "entrypoint", "Stopping pipeline...")
     finally:
         pipeline.set_state(Gst.State.NULL)
 
 
-if __name__ == "__main__":
-    main()
+main()

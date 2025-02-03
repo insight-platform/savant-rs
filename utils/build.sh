@@ -53,6 +53,7 @@ if [ -n "$PYTHON_INTERPRETER" ]; then
 fi
 cargo build $CARGO_BUILD_FLAG
 cp "$BUILD_ARTIFACT_LOCATION"/*.so $ARTIFACT_LOCATION
+cp "$BUILD_ARTIFACT_LOCATION"/savant_launcher $ARTIFACT_LOCATION
 cp $(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep "$RUST_TOOLCHAIN") $ARTIFACT_LOCATION
 
 # pack artifacts in a tarball
