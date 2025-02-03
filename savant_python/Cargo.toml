@@ -25,7 +25,3 @@ pyo3-build-config = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"
-
-[features]
-extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]

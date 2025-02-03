@@ -23,12 +23,10 @@ pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
 
+
 [build-dependencies]
 pyo3-build-config = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"
 
-[features]
-extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]
