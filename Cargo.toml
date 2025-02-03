@@ -49,6 +49,12 @@ futures-util = "0.3"
 geo = "=0.28"
 globset = "0.4"
 
+gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
+gst-base = { package = "gstreamer-base", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
+gst-video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
+gst-audio = { package = "gstreamer-audio", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
+gst-plugin-version-helper = "0.8"
+
 hashbrown = { version = "0.15", features = ["serde"] }
 
 jmespath = { version = "0.3", features = ["sync"] }

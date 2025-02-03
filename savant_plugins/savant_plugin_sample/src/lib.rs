@@ -1,3 +1,7 @@
+mod rsidentity;
+
+use gst::glib;
+use gst::prelude::StaticType;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use savant_core::pipeline::stage::PipelineStage;
@@ -10,6 +14,34 @@ use savant_core_py::primitives::attribute_value::AttributeValue;
 use savant_core_py::primitives::frame::VideoFrame;
 use savant_core_py::primitives::object::BorrowedVideoObject;
 use savant_core_py::utils::check_pybound_name;
+
+// The public Rust wrapper type for our element
+glib::wrapper! {
+    pub struct Identity(ObjectSubclass<rsidentity::Identity>) @extends gst::Element, gst::Object;
+}
+
+// Registers the type for our element, and then registers in GStreamer under
+// the name "rsidentity" for being able to instantiate it via e.g.
+// gst::ElementFactory::make().
+pub fn register(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
+    gst::Element::register(
+        Some(plugin),
+        "rsidentity",
+        gst::Rank::NONE,
+        Identity::static_type(),
+    )
+}
+
+gst::plugin_define!(
+    savant_plugin_sample,
+    env!("CARGO_PKG_DESCRIPTION"),
+    register,
+    env!("CARGO_PKG_VERSION"),
+    "APACHE-2.0",
+    env!("CARGO_PKG_NAME"),
+    env!("CARGO_PKG_NAME"),
+    env!("CARGO_PKG_REPOSITORY")
+);
 
 #[no_mangle]
 pub fn init_plugin(_: &str, pp: PluginParams) -> *mut dyn PipelineStageFunction {

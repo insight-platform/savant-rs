@@ -23,9 +23,15 @@ hashbrown = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
+gst = { workspace = true }
+gst-base = { workspace = true }
+gst-video = { workspace = true }
+gst-audio = { workspace = true }
+parking_lot = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
+gst-plugin-version-helper = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"
