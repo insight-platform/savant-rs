@@ -115,6 +115,3 @@ def main():
         log(LogLevel.Info, "entrypoint", "Stopping pipeline...")
     finally:
         pipeline.set_state(Gst.State.NULL)
-
-
-main()
