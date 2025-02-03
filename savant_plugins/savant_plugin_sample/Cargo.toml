@@ -20,7 +20,7 @@ crate-type = ["dylib"]
 [dependencies]
 anyhow = { workspace = true }
 hashbrown = { workspace = true }
-pyo3 = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
 

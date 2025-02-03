@@ -18,7 +18,7 @@ crate-type = ["dylib"]
 [dependencies]
 savant_core_py = { workspace = true }
 pretty_env_logger = { workspace = true }
-pyo3 = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
