@@ -47,6 +47,10 @@ if [ "$MODE" = "release" ]; then
 fi
 
 echo "Building python-embedded libraries"
+# if PYTHON_INTERPRETER is set, set PYO3_PYTHON to the same value
+if [ -n "$PYTHON_INTERPRETER" ]; then
+    export PYO3_PYTHON=$PYTHON_INTERPRETER
+fi
 cargo build $CARGO_BUILD_FLAG
 cp "$BUILD_ARTIFACT_LOCATION"/*.so $ARTIFACT_LOCATION
 cp $(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep "$RUST_TOOLCHAIN") $ARTIFACT_LOCATION
