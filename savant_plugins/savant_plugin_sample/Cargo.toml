@@ -19,10 +19,10 @@ crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
+hashbrown = { workspace = true }
 pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
-
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

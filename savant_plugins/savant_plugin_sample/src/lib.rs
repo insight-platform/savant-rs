@@ -1,5 +1,6 @@
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use savant_core::pipeline::stage::PipelineStage;
 use savant_core::pipeline::{
     Pipeline, PipelinePayload, PipelineStageFunction, PipelineStageFunctionOrder, PluginParams,
@@ -9,7 +10,6 @@ use savant_core_py::pipeline::StageFunction;
 use savant_core_py::primitives::attribute_value::AttributeValue;
 use savant_core_py::primitives::frame::VideoFrame;
 use savant_core_py::primitives::object::BorrowedVideoObject;
-use std::collections::HashMap;
 
 #[no_mangle]
 pub fn init_plugin(_: &str, pp: PluginParams) -> *mut dyn PipelineStageFunction {
@@ -57,17 +57,39 @@ impl PipelineStageFunction for Plugin {
 }
 
 #[pyfunction]
-pub fn get_instance(name: &str, params: HashMap<String, AttributeValue>) -> StageFunction {
-    let pp = PluginParams {
-        params: params.into_iter().map(|(k, v)| (k, v.0)).collect(),
-    };
-    StageFunction::new(unsafe { Box::from_raw(init_plugin(name, pp)) })
+pub fn get_instance(name: &str, params: &Bound<'_, PyDict>) -> PyResult<StageFunction> {
+    // HashMap<String, AttributeValue>
+    let params = params
+        .into_iter()
+        .map(|(k, v)| {
+            let v_type = v.get_type().name()?.to_string();
+            if v_type.as_str() != "AttributeValue" {
+                return Err(PyRuntimeError::new_err(format!(
+                    "Expected object of type Attribute, got {}",
+                    v_type
+                )));
+            }
+            let bound_attr = unsafe { v.downcast_unchecked::<AttributeValue>() };
+            let attr = bound_attr.borrow().clone();
+            Ok((k.to_string(), attr.0))
+        })
+        .collect::<PyResult<hashbrown::HashMap<_, _>>>()?;
+
+    let pp = PluginParams { params };
+    Ok(StageFunction::new(unsafe {
+        Box::from_raw(init_plugin(name, pp))
+    }))
 }
 
 #[pyfunction]
 pub fn access_frame(f: &Bound<'_, PyAny>) -> PyResult<()> {
     let type_name = f.get_type().name()?.to_string();
-    println!("Type: {}", type_name);
+    if type_name.as_str() != "VideoFrame" {
+        return Err(PyRuntimeError::new_err(format!(
+            "Expected object of type VideoFrame, got {}",
+            type_name
+        )));
+    }
     let frame = unsafe { f.downcast_unchecked::<VideoFrame>() };
     println!("Frame: {:?}", frame.borrow().get_uuid());
     Ok(())
@@ -78,7 +100,7 @@ pub fn access_object(o: &Bound<'_, PyAny>) -> PyResult<()> {
     let incoming_type = o.get_type().name()?.to_string();
     if incoming_type.as_str() != "BorrowedVideoObject" {
         return Err(PyRuntimeError::new_err(format!(
-            "Expected object of type 'BorrowedVideoObject', got {}",
+            "Expected object of type BorrowedVideoObject, got {}",
             incoming_type
         )));
     }
