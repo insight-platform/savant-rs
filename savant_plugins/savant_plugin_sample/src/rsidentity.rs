@@ -30,10 +30,23 @@ pub struct Identity {
     srcpad: gst::Pad,
     sinkpad: gst::Pad,
     counter: Mutex<u64>,
-    function: OnceLock<Py<PyAny>>,
+    function: OnceLock<PyResult<Py<PyAny>>>,
 }
 
 impl Identity {
+    fn init_func(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let res = PyModule::import(py, "mymod");
+        match res {
+            Err(e) => {
+                gst::error!(CAT, "Error importing mymod: {:?}", e);
+                Err(e)
+            }
+            Ok(m) => {
+                log::info!("Imported mymod");
+                Ok(m.getattr("run")?.unbind())
+            }
+        }
+    }
     // Called whenever a new buffer is passed to our sink pad. Here buffers should be processed and
     // whenever some output buffer is available have to push it out of the source pad.
     // Here we just pass through all buffers directly
@@ -50,26 +63,25 @@ impl Identity {
         let last = *bind;
         *bind = last + 1;
         Python::with_gil(|py| {
-            let func = self.function.get_or_init(|| {
-                let res = PyModule::import(py, "mymod");
-                match res {
-                    Err(e) => {
-                        gst::error!(CAT, "Error importing mymod: {:?}", e);
-                        panic!("Error importing mymod: {:?}", e);
-                    }
-                    Ok(m) => {
-                        log::info!("Imported mymod");
-                        m.getattr("run").unwrap().unbind()
-                    }
+            let func = self.function.get_or_init(|| self.init_func(py));
+            if let Ok(f) = func {
+                let res = f.call0(py);
+                if let Err(e) = res {
+                    log::error!("Error calling function: {:?}", e);
+                    Err(gst::FlowError::Error)
+                } else {
+                    Ok(gst::FlowSuccess::Ok)
                 }
-            });
-            func.call0(py).expect("Error calling mymod.run");
-        });
+            } else {
+                log::error!("Error initializing function");
+                Err(gst::FlowError::Error)
+            }
+        })?;
 
         self.srcpad.push(buffer)
     }
 
-    // Called whenever an event arrives on the sink pad. It has to be handled accordingly and in
+    // Called whenever an event arrives at the sink pad. It has to be handled accordingly and in
     // most cases has to be either passed to Pad::event_default() on this pad for default handling,
     // or Pad::push_event() on all pads with the opposite direction for direct forwarding.
     // Here we just pass through all events directly to the source pad.
@@ -187,16 +199,6 @@ impl ObjectSubclass for Identity {
                 )
             })
             .build();
-
-        // Return an instance of our struct and also include our debug category here.
-        // The debug category will be used later whenever we need to put something
-        // into the debug logs
-        // Python::with_gil(|py| {
-        //     let res = PyModule::import(py, "mymod");
-        //     if let Err(e) = res {
-        //         gst::error!(CAT, "Error importing rsidentity: {:?}", e);
-        //     }
-        // });
 
         Self {
             srcpad,

@@ -21,7 +21,7 @@ def state_change_worker():
 worker = threading.Thread(target=state_change_worker)
 worker.start()
 
-# os.environ["GST_DEBUG"] = "*:7"
+# os.environ["GST_DEBUG"] = "*:5"
 
 import gi
 
@@ -46,9 +46,6 @@ def main():
     # print(arr)
 
     attr = Attribute(namespace="some", name="attr", hint="x", values=[
-        AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
-        AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
-        AttributeValue.integer(1, confidence=0.5),
         AttributeValue.float(1.0, confidence=0.5),
     ])
 

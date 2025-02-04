@@ -25,4 +25,5 @@ worker.start()
 
 def run():
     thread_id = threading.get_ident()
-    # log(LogLevel.Info, "mymod", f'Running on thread {thread_id}')
+    # raise Exception("This is an exception")
+    log(LogLevel.Info, "mymod", f'Running on thread {thread_id}')
