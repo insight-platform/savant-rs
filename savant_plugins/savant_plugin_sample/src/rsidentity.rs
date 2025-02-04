@@ -30,7 +30,7 @@ pub struct Identity {
     srcpad: gst::Pad,
     sinkpad: gst::Pad,
     counter: Mutex<u64>,
-    module_import: OnceLock<Py<PyModule>>,
+    function: OnceLock<Py<PyAny>>,
 }
 
 impl Identity {
@@ -50,7 +50,7 @@ impl Identity {
         let last = *bind;
         *bind = last + 1;
         Python::with_gil(|py| {
-            let _ = self.module_import.get_or_init(|| {
+            let func = self.function.get_or_init(|| {
                 let res = PyModule::import(py, "mymod");
                 match res {
                     Err(e) => {
@@ -59,18 +59,11 @@ impl Identity {
                     }
                     Ok(m) => {
                         log::info!("Imported mymod");
-                        m.unbind()
+                        m.getattr("run").unwrap().unbind()
                     }
                 }
             });
-            //
-            // let version = sys_mod
-            //     .getattr("__GLOBAL_VAR__")
-            //     .expect("entrypoint.__GLOBAL_VAR__ not found")
-            //     .to_string();
-            //
-            // gst::log!(CAT, obj = pad, "Global Var Value: {:?}", version);
-            // let _ = last.into_pyobject(py);
+            func.call0(py).expect("Error calling mymod.run");
         });
 
         self.srcpad.push(buffer)
@@ -209,7 +202,7 @@ impl ObjectSubclass for Identity {
             srcpad,
             sinkpad,
             counter: Mutex::new(0),
-            module_import: OnceLock::new(),
+            function: OnceLock::new(),
         }
     }
 }

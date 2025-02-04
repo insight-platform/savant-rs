@@ -68,36 +68,38 @@ def main():
 
     # Create elements manually
     source = Gst.ElementFactory.make("videotestsrc", "source")
-    identity = Gst.ElementFactory.make("rsidentity", "identity-filter")
-    capsfilter = Gst.ElementFactory.make("capsfilter", "filter")
-    sink = Gst.ElementFactory.make("autovideosink", "sink")
+    identity1 = Gst.ElementFactory.make("rsidentity", "identity1")
+    queue = Gst.ElementFactory.make("queue", "queue")
+    identity2 = Gst.ElementFactory.make("rsidentity", "identity2")
+    sink = Gst.ElementFactory.make("fakesink", "sink")
 
-    if not source or not identity or not capsfilter or not sink:
+    if not source or not identity1 or not identity2 or not sink:
         print("Failed to create elements.")
         return
 
     # Set properties
     source.set_property("pattern", 0)  # 0 = Default test pattern
-
-    # Configure capsfilter (optional)
-    caps = Gst.Caps.from_string("video/x-raw, width=640, height=480, framerate=30/1")
-    capsfilter.set_property("caps", caps)
+    sink.set_property("sync", False)  # Don't sync to clock
 
     # Add elements to pipeline
     pipeline.add(source)
-    pipeline.add(identity)
-    pipeline.add(capsfilter)
+    pipeline.add(identity1)
+    pipeline.add(queue)
+    pipeline.add(identity2)
     pipeline.add(sink)
 
     # Manually link elements
-    if not source.link(identity):
-        print("Failed to link source to identity.")
+    if not source.link(identity1):
+        print("Failed to link source to identity1.")
         return
-    if not identity.link(capsfilter):
-        print("Failed to link identity to capsfilter.")
+    if not identity1.link(queue):
+        print("Failed to link identity1 to queue.")
         return
-    if not capsfilter.link(sink):
-        print("Failed to link capsfilter to sink.")
+    if not queue.link(identity2):
+        print("Failed to link queue to identity2.")
+        return
+    if not identity2.link(sink):
+        print("Failed to link identity2 to sink.")
         return
 
     # Start the pipeline
