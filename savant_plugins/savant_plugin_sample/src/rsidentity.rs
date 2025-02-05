@@ -8,13 +8,13 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use gst::glib;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
+use gst::{glib, Buffer};
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use std::sync::{LazyLock, OnceLock};
-
+use std::time::Instant;
 // This module contains the private implementation details of our element
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
@@ -38,7 +38,7 @@ impl Identity {
         let res = PyModule::import(py, "mymod");
         match res {
             Err(e) => {
-                gst::error!(CAT, "Error importing mymod: {:?}", e);
+                log::error!("Error importing mymod: {:?}", e);
                 Err(e)
             }
             Ok(m) => {
@@ -56,16 +56,19 @@ impl Identity {
     fn sink_chain(
         &self,
         pad: &gst::Pad,
-        buffer: gst::Buffer,
+        buffer: Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
+        let now = Instant::now();
         let mut bind = self.counter.lock();
         let last = *bind;
         *bind = last + 1;
+        let shared_buf = savant_core_py::gst::GstBuffer::new(buffer);
         Python::with_gil(|py| {
             let func = self.function.get_or_init(|| self.init_func(py));
+            log::info!("Rust PTS: {:?}", shared_buf.pts());
             if let Ok(f) = func {
-                let res = f.call0(py);
+                let res = f.call1(py, (shared_buf.clone(),));
                 if let Err(e) = res {
                     log::error!("Error calling function: {:?}", e);
                     Err(gst::FlowError::Error)
@@ -77,8 +80,15 @@ impl Identity {
                 Err(gst::FlowError::Error)
             }
         })?;
-
-        self.srcpad.push(buffer)
+        let elapsed = now.elapsed();
+        log::info!("Elapsed: {:?}", elapsed);
+        match shared_buf.extract() {
+            Ok(buf) => self.srcpad.push(buf),
+            Err(e) => {
+                log::error!("Error taking object sole ownership back: {:?}", e);
+                Err(gst::FlowError::Error)
+            }
+        }
     }
 
     // Called whenever an event arrives at the sink pad. It has to be handled accordingly and in

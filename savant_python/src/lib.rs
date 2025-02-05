@@ -72,6 +72,12 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule(gil_used = false)]
+pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<gst::GstBuffer>()?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
 pub fn webserver(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_webserver, m)?)?;
     m.add_function(wrap_pyfunction!(stop_webserver, m)?)?;
@@ -349,11 +355,13 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::webserver))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::metrics))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::kvs))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::gstreamer))?; // PYI
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
     let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
+    sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;

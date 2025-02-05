@@ -21,6 +21,8 @@ colored = { workspace = true }
 evalexpr = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
+gst = { workspace = true }
+gst-base = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 opentelemetry = { workspace = true }

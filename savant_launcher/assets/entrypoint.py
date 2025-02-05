@@ -1,5 +1,4 @@
 import time
-import os
 import threading
 import numpy as np
 from savant_rs.logging import log, LogLevel
@@ -67,10 +66,10 @@ def main():
     source = Gst.ElementFactory.make("videotestsrc", "source")
     identity1 = Gst.ElementFactory.make("rsidentity", "identity1")
     queue = Gst.ElementFactory.make("queue", "queue")
-    identity2 = Gst.ElementFactory.make("rsidentity", "identity2")
+    # identity2 = Gst.ElementFactory.make("rsidentity", "identity2")
     sink = Gst.ElementFactory.make("fakesink", "sink")
 
-    if not source or not identity1 or not identity2 or not sink:
+    if not source or not identity1 or not sink:
         print("Failed to create elements.")
         return
 
@@ -82,7 +81,6 @@ def main():
     pipeline.add(source)
     pipeline.add(identity1)
     pipeline.add(queue)
-    pipeline.add(identity2)
     pipeline.add(sink)
 
     # Manually link elements
@@ -92,11 +90,8 @@ def main():
     if not identity1.link(queue):
         print("Failed to link identity1 to queue.")
         return
-    if not queue.link(identity2):
-        print("Failed to link queue to identity2.")
-        return
-    if not identity2.link(sink):
-        print("Failed to link identity2 to sink.")
+    if not queue.link(sink):
+        print("Failed to link queue to sink.")
         return
 
     # Start the pipeline
