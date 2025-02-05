@@ -1,3 +1,4 @@
+use gst::BufferFlags;
 use parking_lot::RwLock;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -28,10 +29,33 @@ impl GstBuffer {
         bind.pts().map(|pts| pts.nseconds())
     }
 
+    #[new]
+    pub fn create_py() -> Self {
+        Self(Arc::new(RwLock::new(gst::Buffer::new())))
+    }
+
+    pub fn append(&self, buffer: GstBuffer) -> PyResult<()> {
+        let mut bind = self.0.write();
+        bind.append(buffer.0.read().clone());
+        Ok(())
+    }
+
+    #[setter]
+    pub fn set_pts(&self, pts: u64) {
+        let mut bind = self.0.write();
+        bind.make_mut().set_pts(gst::ClockTime::from_nseconds(pts));
+    }
+
     #[getter]
     pub fn dts(&self) -> Option<u64> {
         let bind = self.0.read();
         bind.dts().map(|dts| dts.nseconds())
+    }
+
+    #[setter]
+    pub fn set_dts(&self, dts: u64) {
+        let mut bind = self.0.write();
+        bind.make_mut().set_dts(gst::ClockTime::from_nseconds(dts));
     }
 
     #[getter]
@@ -46,6 +70,13 @@ impl GstBuffer {
         bind.duration().map(|duration| duration.nseconds())
     }
 
+    #[setter]
+    pub fn set_duration(&self, duration: u64) {
+        let mut bind = self.0.write();
+        bind.make_mut()
+            .set_duration(gst::ClockTime::from_nseconds(duration));
+    }
+
     #[getter]
     pub fn is_writable(&self) -> bool {
         let bind = self.0.read();
@@ -56,6 +87,19 @@ impl GstBuffer {
     pub fn flags(&self) -> u32 {
         let bind = self.0.read();
         bind.flags().bits()
+    }
+
+    #[setter]
+    pub fn set_flags(&self, flags: u32) {
+        let mut bind = self.0.write();
+        bind.make_mut()
+            .set_flags(BufferFlags::from_bits_retain(flags));
+    }
+
+    pub fn unset_flags(&self, flags: u32) {
+        let mut bind = self.0.write();
+        bind.make_mut()
+            .unset_flags(BufferFlags::from_bits_retain(flags));
     }
 
     #[getter]
@@ -76,16 +120,34 @@ impl GstBuffer {
         bind.offset()
     }
 
+    #[setter]
+    pub fn set_offset(&self, offset: u64) {
+        let mut bind = self.0.write();
+        bind.make_mut().set_offset(offset);
+    }
+
     #[getter]
     pub fn offset_end(&self) -> u64 {
         let bind = self.0.read();
         bind.offset_end()
     }
 
+    #[setter]
+    pub fn set_offset_end(&self, offset_end: u64) {
+        let mut bind = self.0.write();
+        bind.make_mut().set_offset_end(offset_end);
+    }
+
     #[getter]
     pub fn size(&self) -> usize {
         let bind = self.0.read();
         bind.size()
+    }
+
+    #[setter]
+    pub fn set_size(&self, size: usize) {
+        let mut bind = self.0.write();
+        bind.make_mut().set_size(size);
     }
 
     pub fn copy(&self) -> Self {

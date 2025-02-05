@@ -81,11 +81,14 @@ impl Identity {
             }
         })?;
         let elapsed = now.elapsed();
-        log::info!("Elapsed: {:?}", elapsed);
+        log::debug!("Elapsed time: {:?}", elapsed);
         match shared_buf.extract() {
             Ok(buf) => self.srcpad.push(buf),
             Err(e) => {
-                log::error!("Error taking object sole ownership back: {:?}", e);
+                log::error!(
+                    "Error acquiring Gstreamer Buffer object ownership back to Rust: {:?}",
+                    e
+                );
                 Err(gst::FlowError::Error)
             }
         }

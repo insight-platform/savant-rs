@@ -1,9 +1,6 @@
-import ctypes
-
 import gi
 
 gi.require_version('Gst', '1.0')
-from gi.repository import Gst, GLib
 
 from savant_rs.logging import log, LogLevel
 from savant_rs.webserver.kvs import get_attribute
@@ -38,5 +35,8 @@ ref = None
 def run(buf: GstBuffer):
     global ref
     ref = buf.copy()
+    ref.append(GstBuffer())
     thread_id = threading.get_ident()
-    log(LogLevel.Info, "mymod", f'Running on thread {thread_id}, Buffer {buf.dts_or_pts}')
+    log(LogLevel.Info, "mymod", f'Running on thread {thread_id}, '
+                                f'Buffer w={buf.is_writable}, '
+                                f'Ref w={ref.is_writable}')
