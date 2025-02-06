@@ -34,6 +34,11 @@ replacements = {}
 last = {}
 
 
+def ih(element_name: str):
+    log(LogLevel.Info, "mymod", f'Init at {element_name}')
+    return True
+
+
 def bh(element_name: str, buf: GstBuffer):
     global counter, last, replacements
     thread_id = threading.get_ident()

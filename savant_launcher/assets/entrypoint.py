@@ -66,7 +66,7 @@ def main():
 
     pipeline_str = ("videotestsrc pattern=black ! "
                     "video/x-raw, width=10, height=10 ! "
-                    "rspy module=mymod buffer-handler=bh event-handler=eh ! "
+                    "rspy module=mymod buffer-handler=bh event-handler=eh init-handler=ih ! "
                     "fakesink sync=false")
 
     # Create the pipeline

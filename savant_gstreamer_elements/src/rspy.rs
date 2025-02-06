@@ -12,7 +12,7 @@ use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst::{glib, Buffer};
 use parking_lot::RwLock;
-use pyo3::exceptions::PySystemError;
+use pyo3::exceptions::{PyRuntimeError, PySystemError};
 use pyo3::prelude::*;
 use savant_core_py::gst::FlowResult;
 use std::sync::{LazyLock, OnceLock};
@@ -30,6 +30,7 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 #[derive(Debug, Clone, Default)]
 pub struct RsPySettings {
     module: Option<String>,
+    init_handler: Option<String>,
     buffer_handler: Option<String>,
     event_handler: Option<String>,
 }
@@ -38,13 +39,20 @@ pub struct RsPySettings {
 pub struct RsPy {
     src_pad: gst::Pad,
     sink_pad: gst::Pad,
+    initialized: OnceLock<PyResult<Py<PyAny>>>,
     buffer_handler: OnceLock<PyResult<Py<PyAny>>>,
     event_handler: OnceLock<PyResult<Py<PyAny>>>,
     settings: RwLock<RsPySettings>,
 }
 
 impl RsPy {
-    fn init_func(&self, py: Python, module_name: &str, handler_name: &str) -> PyResult<Py<PyAny>> {
+    fn init_func(
+        &self,
+        py: Python,
+        module_name: &str,
+        init_handler_name: &str,
+        handler_name: &str,
+    ) -> PyResult<Py<PyAny>> {
         let module = PyModule::import(py, module_name);
         match module {
             Err(e) => {
@@ -56,7 +64,52 @@ impl RsPy {
             }
             Ok(m) => {
                 log::info!("Python module {} imported successfully.", module_name);
-                log::info!("Trying to get function {}", handler_name);
+
+                let init_handler = m.getattr(init_handler_name);
+                if let Err(e) = &init_handler {
+                    log::error!(
+                        "Error getting init function {} in module {}: {:?}, error: {:?}",
+                        init_handler_name,
+                        module_name,
+                        init_handler,
+                        e
+                    );
+                    return Err(PyRuntimeError::new_err(format!(
+                        "Unable to find the function {} in module {}, error: {:?}",
+                        init_handler_name, module_name, e
+                    )));
+                }
+
+                let res = self.initialized.get_or_init(|| {
+                    let res = init_handler?.call1((self.obj().name().to_string(),));
+                    match res {
+                        Err(e) => {
+                            log::error!(
+                                "Error calling init function: {:?} for module {}",
+                                e,
+                                module_name
+                            );
+                            Err(PyRuntimeError::new_err("Error calling init function"))
+                        }
+                        Ok(r) => {
+                            log::info!("Init function called successfully");
+                            Ok(r.unbind())
+                        }
+                    }
+                });
+                if let Err(e) = &res {
+                    log::error!("Error initializing function: {:?}", e);
+                    return Err(PyRuntimeError::new_err(format!(
+                        "Error initializing init function: {:?}",
+                        e,
+                    )));
+                }
+
+                log::info!(
+                    "Trying to find function {} in the module {}",
+                    handler_name,
+                    module_name
+                );
                 let res = m.getattr(handler_name);
                 if let Err(e) = &res {
                     log::error!(
@@ -65,6 +118,10 @@ impl RsPy {
                         res,
                         e
                     );
+                    return Err(PyRuntimeError::new_err(format!(
+                        "Unable to find the function {} in the module {}",
+                        handler_name, module_name
+                    )));
                 }
                 Ok(res?.unbind())
             }
@@ -91,6 +148,10 @@ impl RsPy {
                 self.init_func(
                     py,
                     module_name,
+                    settings
+                        .init_handler
+                        .as_ref()
+                        .unwrap_or(&String::from("init_handler")),
                     settings
                         .buffer_handler
                         .as_ref()
@@ -160,6 +221,10 @@ impl RsPy {
                 self.init_func(
                     py,
                     module_name,
+                    settings
+                        .init_handler
+                        .as_ref()
+                        .unwrap_or(&String::from("init_handler")),
                     settings
                         .event_handler
                         .as_ref()
@@ -303,6 +368,7 @@ impl ObjectSubclass for RsPy {
         Self {
             src_pad: srcpad,
             sink_pad: sinkpad,
+            initialized: OnceLock::new(),
             buffer_handler: OnceLock::new(),
             event_handler: OnceLock::new(),
             settings: RwLock::new(RsPySettings::default()),
@@ -331,6 +397,11 @@ impl ObjectImpl for RsPy {
                 glib::ParamSpecString::builder("module")
                     .nick("PythonModule")
                     .blurb("Python module to load")
+                    .build(),
+                glib::ParamSpecString::builder("init-handler")
+                    .nick("InitFunction")
+                    .blurb("The function called at plugin initialization")
+                    .default_value("init_handler")
                     .build(),
                 glib::ParamSpecString::builder("buffer-handler")
                     .nick("BufferFunction")
@@ -364,29 +435,41 @@ impl ObjectImpl for RsPy {
                 );
                 settings.module = Some(module);
             }
+            "init-handler" => {
+                let mut settings = self.settings.write();
+                let init_handler = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing init function from {:?} to {}",
+                    settings.init_handler,
+                    init_handler
+                );
+                settings.init_handler = Some(init_handler);
+            }
             "buffer-handler" => {
                 let mut settings = self.settings.write();
-                let buffer_function = value.get().expect("type checked upstream");
+                let buffer_handler = value.get().expect("type checked upstream");
                 gst::info!(
                     CAT,
                     imp = self,
                     "Changing buffer function from {:?} to {}",
                     settings.buffer_handler,
-                    buffer_function
+                    buffer_handler
                 );
-                settings.buffer_handler = Some(buffer_function);
+                settings.buffer_handler = Some(buffer_handler);
             }
             "event-handler" => {
                 let mut settings = self.settings.write();
-                let event_function = value.get().expect("type checked upstream");
+                let event_handler = value.get().expect("type checked upstream");
                 gst::info!(
                     CAT,
                     imp = self,
                     "Changing event function from {:?} to {}",
                     settings.event_handler,
-                    event_function
+                    event_handler
                 );
-                settings.event_handler = Some(event_function);
+                settings.event_handler = Some(event_handler);
             }
             _ => unimplemented!(),
         }
@@ -399,6 +482,10 @@ impl ObjectImpl for RsPy {
             "module" => {
                 let settings = self.settings.read();
                 settings.module.to_value()
+            }
+            "init-handler" => {
+                let settings = self.settings.read();
+                settings.init_handler.to_value()
             }
             "buffer-handler" => {
                 let settings = self.settings.read();
