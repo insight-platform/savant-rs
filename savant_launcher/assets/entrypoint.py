@@ -1,13 +1,15 @@
 import time
 import threading
 import numpy as np
-from savant_rs.logging import log, LogLevel
+from savant_rs.logging import log, LogLevel, set_log_level
 from savant_rs.primitives import AttributeValue, Attribute
 from savant_rs.webserver.kvs import set_attributes
 
 import shared_state
 
 shared_state.__STATE__ = 1
+
+set_log_level(LogLevel.Debug)
 
 
 def state_change_worker():

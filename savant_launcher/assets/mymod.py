@@ -5,6 +5,7 @@ gi.require_version('Gst', '1.0')
 from savant_rs.logging import log, LogLevel
 from savant_rs.webserver.kvs import get_attribute
 from savant_rs.gstreamer import GstBuffer
+from savant_rs.primitives import Attribute, AttributeValue
 import shared_state
 
 import time
@@ -29,14 +30,20 @@ def get_attr():
 worker = threading.Thread(target=get_attr)
 worker.start()
 
-ref = None
+counter = 0
+last = time.time()
 
 
 def run(buf: GstBuffer):
-    global ref
-    ref = buf.copy()
-    ref.append(GstBuffer())
+    global counter
+    global last
+    counter += 1
+    if counter % 1000 == 0:
+        log(LogLevel.Info, "mymod", f'Counter: {counter} Rate: {1000 / (time.time() - last)}')
+        last = time.time()
+    buf.replace_id_meta([1, 2, 3, 4])
+    res = buf.id_meta
+    assert res == [1, 2, 3, 4]
+
     thread_id = threading.get_ident()
-    log(LogLevel.Info, "mymod", f'Running on thread {thread_id}, '
-                                f'Buffer w={buf.is_writable}, '
-                                f'Ref w={ref.is_writable}')
+    log(LogLevel.Debug, "mymod", f'Running on thread {thread_id}, Buffer w={buf.is_writable}')

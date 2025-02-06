@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from savant_rs.primitives import Attribute
 
 
@@ -45,4 +45,11 @@ class GstBuffer:
     def append(self, buf: GstBuffer) -> GstBuffer: ...
 
     # fn get_savant_meta(&self) -> Vec<Attribute>
-    def get_savant_meta(self) -> List[Attribute]: ...
+    @property
+    def id_meta(self) -> List[Attribute]: ...
+
+    # pub fn replace_id_meta(&self, ids: Vec<i64>) -> PyResult<Option<Vec<i64>>>
+    def replace_id_meta(self, ids: List[int]) -> Optional[List[int]]: ...
+
+    # pub fn clear_id_meta(&self) -> PyResult<Option<Vec<i64>>>
+    def clear_id_meta(self) -> Optional[List[int]]: ...

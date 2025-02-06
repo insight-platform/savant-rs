@@ -66,7 +66,6 @@ impl Identity {
         let shared_buf = savant_core_py::gst::GstBuffer::new(buffer);
         Python::with_gil(|py| {
             let func = self.function.get_or_init(|| self.init_func(py));
-            log::info!("Rust PTS: {:?}", shared_buf.pts());
             if let Ok(f) = func {
                 let res = f.call1(py, (shared_buf.clone(),));
                 if let Err(e) = res {
