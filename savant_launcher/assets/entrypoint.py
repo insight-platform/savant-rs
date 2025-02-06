@@ -64,44 +64,22 @@ def main():
         print("Failed to create pipeline.")
         return
 
-    # Create elements manually
-    source = Gst.ElementFactory.make("videotestsrc", "source")
-    identity1 = Gst.ElementFactory.make("rsidentity", "identity1")
-    queue = Gst.ElementFactory.make("queue", "queue")
-    # identity2 = Gst.ElementFactory.make("rsidentity", "identity2")
-    sink = Gst.ElementFactory.make("fakesink", "sink")
+    pipeline_str = ("videotestsrc pattern=black ! "
+                    "video/x-raw, width=10, height=10 ! "
+                    "rsidentity ! "
+                    "rsidentity ! "
+                    "rsidentity ! "
+                    "fakesink sync=false")
 
-    if not source or not identity1 or not sink:
-        print("Failed to create elements.")
-        return
+    # Create the pipeline
+    pipeline = Gst.parse_launch(pipeline_str)
 
-    # Set properties
-    source.set_property("pattern", 0)  # 0 = Default test pattern
-    sink.set_property("sync", False)  # Don't sync to clock
-
-    # Add elements to pipeline
-    pipeline.add(source)
-    pipeline.add(identity1)
-    pipeline.add(queue)
-    pipeline.add(sink)
-
-    # Manually link elements
-    if not source.link(identity1):
-        print("Failed to link source to identity1.")
-        return
-    if not identity1.link(queue):
-        print("Failed to link identity1 to queue.")
-        return
-    if not queue.link(sink):
-        print("Failed to link queue to sink.")
-        return
-
-    # Start the pipeline
     loop = GLib.MainLoop()
     bus = pipeline.get_bus()
     bus.add_signal_watch()
     bus.connect("message", on_message, loop)
 
+    # Set the pipeline to the playing state
     pipeline.set_state(Gst.State.PLAYING)
 
     try:
