@@ -2,9 +2,9 @@ use gst::{glib, MetaAPI, MetaAPIExt};
 use std::{fmt, mem};
 
 #[repr(transparent)]
-pub(crate) struct SavantFrameBatchIdMeta(imp::SavantFrameBatchIdMeta);
+pub(crate) struct SavantIdMeta(imp::SavantIdMeta);
 
-impl SavantFrameBatchIdMeta {
+impl SavantIdMeta {
     pub fn ids(&self) -> &[i64] {
         &self.0.ids
     }
@@ -16,33 +16,33 @@ impl SavantFrameBatchIdMeta {
         unsafe {
             // Manually dropping because gst_buffer_add_meta() takes ownership of the
             // content of the struct
-            let mut params = mem::ManuallyDrop::new(imp::SavantFrameBatchIdMetaParams { ids });
+            let mut params = mem::ManuallyDrop::new(imp::SavantIdMetaParams { ids });
 
             let meta = gst::ffi::gst_buffer_add_meta(
                 buffer.as_mut_ptr(),
-                imp::savant_attribute_meta_get_info(),
-                &mut *params as *mut imp::SavantFrameBatchIdMetaParams as glib::ffi::gpointer,
-            ) as *mut imp::SavantFrameBatchIdMeta;
+                imp::savant_id_meta_get_info(),
+                &mut *params as *mut imp::SavantIdMetaParams as glib::ffi::gpointer,
+            ) as *mut imp::SavantIdMeta;
 
             Self::from_mut_ptr(buffer, meta)
         }
     }
 }
 
-unsafe impl Send for SavantFrameBatchIdMeta {}
-unsafe impl Sync for SavantFrameBatchIdMeta {}
+unsafe impl Send for SavantIdMeta {}
+unsafe impl Sync for SavantIdMeta {}
 
-unsafe impl MetaAPI for SavantFrameBatchIdMeta {
-    type GstType = imp::SavantFrameBatchIdMeta;
+unsafe impl MetaAPI for SavantIdMeta {
+    type GstType = imp::SavantIdMeta;
 
     fn meta_api() -> glib::Type {
-        imp::savant_attribute_meta_api_get_type()
+        imp::savant_id_meta_api_get_type()
     }
 }
 
-impl fmt::Debug for SavantFrameBatchIdMeta {
+impl fmt::Debug for SavantIdMeta {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("SavantFrameBatchIdMeta")
+        f.debug_struct("SavantIdMeta")
             .field("ids", &self.0.ids)
             .finish()
     }
@@ -55,20 +55,20 @@ mod imp {
     use std::ptr;
     use std::sync::LazyLock;
 
-    pub(super) struct SavantFrameBatchIdMetaParams {
+    pub(super) struct SavantIdMetaParams {
         pub ids: Vec<i64>,
     }
 
     #[repr(C)]
-    pub(crate) struct SavantFrameBatchIdMeta {
+    pub(crate) struct SavantIdMeta {
         parent: gst::ffi::GstMeta,
         pub(super) ids: Vec<i64>,
     }
 
-    pub(super) fn savant_attribute_meta_api_get_type() -> glib::Type {
+    pub(super) fn savant_id_meta_api_get_type() -> glib::Type {
         static TYPE: LazyLock<glib::Type> = LazyLock::new(|| unsafe {
             let t = from_glib(gst::ffi::gst_meta_api_type_register(
-                c_str!("GstSavantFrameBatchIdMetaAPI").as_ptr() as *const _,
+                c_str!("GstSavantIdMetaAPI").as_ptr() as *const _,
                 [ptr::null::<std::os::raw::c_char>()].as_ptr() as *mut *const _,
             ));
 
@@ -80,48 +80,45 @@ mod imp {
         *TYPE
     }
 
-    unsafe extern "C" fn savant_attribute_meta_init(
+    unsafe extern "C" fn savant_id_meta_init(
         meta: *mut gst::ffi::GstMeta,
         params: glib::ffi::gpointer,
         _buffer: *mut gst::ffi::GstBuffer,
     ) -> glib::ffi::gboolean {
         assert!(!params.is_null());
 
-        let meta = &mut *(meta as *mut SavantFrameBatchIdMeta);
-        let params = ptr::read(params as *const SavantFrameBatchIdMetaParams);
+        let meta = &mut *(meta as *mut SavantIdMeta);
+        let params = ptr::read(params as *const SavantIdMetaParams);
 
         ptr::write(&mut meta.ids, params.ids);
 
         true.into_glib()
     }
 
-    unsafe extern "C" fn savant_attribute_meta_free(
+    unsafe extern "C" fn savant_id_meta_free(
         meta: *mut gst::ffi::GstMeta,
         _buffer: *mut gst::ffi::GstBuffer,
     ) {
-        let meta = &mut *(meta as *mut SavantFrameBatchIdMeta);
+        let meta = &mut *(meta as *mut SavantIdMeta);
 
         ptr::drop_in_place(&mut meta.ids);
     }
 
-    unsafe extern "C" fn savant_attribute_meta_transform(
+    unsafe extern "C" fn savant_id_meta_transform(
         dest: *mut gst::ffi::GstBuffer,
         meta: *mut gst::ffi::GstMeta,
         _buffer: *mut gst::ffi::GstBuffer,
         _type_: glib::ffi::GQuark,
         _data: glib::ffi::gpointer,
     ) -> glib::ffi::gboolean {
-        let meta = &*(meta as *mut SavantFrameBatchIdMeta);
+        let meta = &*(meta as *mut SavantIdMeta);
 
-        super::SavantFrameBatchIdMeta::replace(
-            gst::BufferRef::from_mut_ptr(dest),
-            meta.ids.clone(),
-        );
+        super::SavantIdMeta::replace(gst::BufferRef::from_mut_ptr(dest), meta.ids.clone());
 
         true.into_glib()
     }
 
-    pub(super) unsafe fn savant_attribute_meta_get_info() -> *const gst::ffi::GstMetaInfo {
+    pub(super) unsafe fn savant_id_meta_get_info() -> *const gst::ffi::GstMetaInfo {
         struct MetaInfo(ptr::NonNull<gst::ffi::GstMetaInfo>);
         unsafe impl Send for MetaInfo {}
         unsafe impl Sync for MetaInfo {}
@@ -129,12 +126,12 @@ mod imp {
         static META_INFO: LazyLock<MetaInfo> = LazyLock::new(|| unsafe {
             MetaInfo(
                 ptr::NonNull::new(gst::ffi::gst_meta_register(
-                    savant_attribute_meta_api_get_type().into_glib(),
-                    c_str!("GstSavantFrameBatchIdMeta").as_ptr() as *const _,
-                    size_of::<SavantFrameBatchIdMeta>(),
-                    Some(savant_attribute_meta_init),
-                    Some(savant_attribute_meta_free),
-                    Some(savant_attribute_meta_transform),
+                    savant_id_meta_api_get_type().into_glib(),
+                    c_str!("GstSavantIdMeta").as_ptr() as *const _,
+                    size_of::<SavantIdMeta>(),
+                    Some(savant_id_meta_init),
+                    Some(savant_id_meta_free),
+                    Some(savant_id_meta_transform),
                 ) as *mut gst::ffi::GstMetaInfo)
                 .expect("Failed to register meta API"),
             )

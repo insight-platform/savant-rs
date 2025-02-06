@@ -11,7 +11,6 @@
 use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst::{glib, Buffer};
-use parking_lot::Mutex;
 use pyo3::prelude::*;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Instant;
@@ -19,21 +18,20 @@ use std::time::Instant;
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
-        "rsidentity",
+        "rspy",
         gst::DebugColorFlags::empty(),
-        Some("Identity Element"),
+        Some("PyFunc Element"),
     )
 });
 
 // Struct containing all the element data
-pub struct Identity {
-    srcpad: gst::Pad,
-    sinkpad: gst::Pad,
-    counter: Mutex<u64>,
+pub struct RsPy {
+    src_pad: gst::Pad,
+    sink_pad: gst::Pad,
     function: OnceLock<PyResult<Py<PyAny>>>,
 }
 
-impl Identity {
+impl RsPy {
     fn init_func(&self, py: Python) -> PyResult<Py<PyAny>> {
         let res = PyModule::import(py, "mymod");
         match res {
@@ -60,14 +58,12 @@ impl Identity {
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
         let now = Instant::now();
-        let mut bind = self.counter.lock();
-        let last = *bind;
-        *bind = last + 1;
         let shared_buf = savant_core_py::gst::GstBuffer::new(buffer);
         Python::with_gil(|py| {
             let func = self.function.get_or_init(|| self.init_func(py));
             if let Ok(f) = func {
-                let res = f.call1(py, (shared_buf.clone(),));
+                let element_name = self.obj().name().to_string();
+                let res = f.call1(py, (element_name, shared_buf.clone()));
                 if let Err(e) = res {
                     log::error!("Error calling function: {:?}", e);
                     Err(gst::FlowError::Error)
@@ -82,7 +78,7 @@ impl Identity {
         let elapsed = now.elapsed();
         log::debug!("Elapsed time: {:?}", elapsed);
         match shared_buf.extract() {
-            Ok(buf) => self.srcpad.push(buf),
+            Ok(buf) => self.src_pad.push(buf),
             Err(e) => {
                 log::error!(
                     "Error acquiring Gstreamer Buffer object ownership back to Rust: {:?}",
@@ -102,7 +98,7 @@ impl Identity {
     // events, and especially the gst::EventView type for inspecting events.
     fn sink_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.srcpad.push_event(event)
+        self.src_pad.push_event(event)
     }
 
     // Called whenever a query is sent to the sink pad. It has to be answered if the element can
@@ -116,7 +112,7 @@ impl Identity {
     // queries, and especially the gst::QueryView type for inspecting and modifying queries.
     fn sink_query(&self, pad: &gst::Pad, query: &mut gst::QueryRef) -> bool {
         gst::log!(CAT, obj = pad, "Handling query {:?}", query);
-        self.srcpad.peer_query(query)
+        self.src_pad.peer_query(query)
     }
 
     // Called whenever an event arrives on the source pad. It has to be handled accordingly and in
@@ -129,7 +125,7 @@ impl Identity {
     // events, and especially the gst::EventView type for inspecting events.
     fn src_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.sinkpad.push_event(event)
+        self.sink_pad.push_event(event)
     }
 
     // Called whenever a query is sent to the source pad. It has to be answered if the element can
@@ -143,7 +139,7 @@ impl Identity {
     // queries, and especially the gst::QueryView type for inspecting and modifying queries.
     fn src_query(&self, pad: &gst::Pad, query: &mut gst::QueryRef) -> bool {
         gst::log!(CAT, obj = pad, "Handling query {:?}", query);
-        self.sinkpad.peer_query(query)
+        self.sink_pad.peer_query(query)
     }
 }
 
@@ -151,9 +147,9 @@ impl Identity {
 // provides the entry points for creating a new instance and setting
 // up the class data
 #[glib::object_subclass]
-impl ObjectSubclass for Identity {
-    const NAME: &'static str = "GstRsIdentity";
-    type Type = super::Identity;
+impl ObjectSubclass for RsPy {
+    const NAME: &'static str = "GstRsPy";
+    type Type = super::RsPy;
     type ParentType = gst::Element;
 
     // Called when a new instance is to be created. We need to return an instance
@@ -166,80 +162,63 @@ impl ObjectSubclass for Identity {
         // - Catch panics from the pad functions and instead of aborting the process
         //   it will simply convert them into an error message and poison the element
         //   instance
-        // - Extract our Identity struct from the object instance and pass it to us
+        // - Extract our RsPy struct from the object instance and pass it to us
         //
         // Details about what each function is good for is next to each function definition
         let templ = klass.pad_template("sink").unwrap();
         let sinkpad = gst::Pad::builder_from_template(&templ)
             .chain_function(|pad, parent, buffer| {
-                Identity::catch_panic_pad_function(
+                RsPy::catch_panic_pad_function(
                     parent,
                     || Err(gst::FlowError::Error),
-                    |identity| identity.sink_chain(pad, buffer),
+                    |rspy| rspy.sink_chain(pad, buffer),
                 )
             })
             .event_function(|pad, parent, event| {
-                Identity::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity| identity.sink_event(pad, event),
-                )
+                RsPy::catch_panic_pad_function(parent, || false, |rspy| rspy.sink_event(pad, event))
             })
             .query_function(|pad, parent, query| {
-                Identity::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity| identity.sink_query(pad, query),
-                )
+                RsPy::catch_panic_pad_function(parent, || false, |rspy| rspy.sink_query(pad, query))
             })
             .build();
 
         let templ = klass.pad_template("src").unwrap();
         let srcpad = gst::Pad::builder_from_template(&templ)
             .event_function(|pad, parent, event| {
-                Identity::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity| identity.src_event(pad, event),
-                )
+                RsPy::catch_panic_pad_function(parent, || false, |rspy| rspy.src_event(pad, event))
             })
             .query_function(|pad, parent, query| {
-                Identity::catch_panic_pad_function(
-                    parent,
-                    || false,
-                    |identity| identity.src_query(pad, query),
-                )
+                RsPy::catch_panic_pad_function(parent, || false, |rspy| rspy.src_query(pad, query))
             })
             .build();
 
         Self {
-            srcpad,
-            sinkpad,
-            counter: Mutex::new(0),
+            src_pad: srcpad,
+            sink_pad: sinkpad,
             function: OnceLock::new(),
         }
     }
 }
 
 // Implementation of glib::Object virtual methods
-impl ObjectImpl for Identity {
+impl ObjectImpl for RsPy {
     // Called right after construction of a new instance
     fn constructed(&self) {
         // Call the parent class' ::constructed() implementation first
         self.parent_constructed();
 
-        // Here we actually add the pads we created in Identity::new() to the
+        // Here we actually add the pads we created in RsPy::new() to the
         // element so that GStreamer is aware of their existence.
         let obj = self.obj();
-        obj.add_pad(&self.sinkpad).unwrap();
-        obj.add_pad(&self.srcpad).unwrap();
+        obj.add_pad(&self.sink_pad).unwrap();
+        obj.add_pad(&self.src_pad).unwrap();
     }
 }
 
-impl GstObjectImpl for Identity {}
+impl GstObjectImpl for RsPy {}
 
 // Implementation of gst::Element virtual methods
-impl ElementImpl for Identity {
+impl ElementImpl for RsPy {
     // Set the element specific metadata. This information is what
     // is visible from gst-inspect-1.0 and can also be programmatically
     // retrieved from the gst::Registry after initial registration
@@ -247,10 +226,10 @@ impl ElementImpl for Identity {
     fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
         static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
             gst::subclass::ElementMetadata::new(
-                "Identity",
+                "RsPy",
                 "Generic",
                 "Does nothing with the data",
-                "Sebastian Dröge <sebastian@centricular.com>",
+                "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on the artwork of Sebastian Dröge <sebastian@centricular.com>",
             )
         });
 

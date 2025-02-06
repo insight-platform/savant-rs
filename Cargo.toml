@@ -7,12 +7,13 @@ members = [
     "savant_protobuf",
     "services/replay/replaydb",
     "services/replay/replay",
-    "savant_plugins/*",
+    #"savant_plugins/*",
+    "savant_gstreamer_elements",
     "savant_launcher",
 ]
 
 [workspace.package]
-version = "0.4.13"
+version = "1.0.0"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"

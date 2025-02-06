@@ -5,7 +5,6 @@ gi.require_version('Gst', '1.0')
 from savant_rs.logging import log, LogLevel
 from savant_rs.webserver.kvs import get_attribute
 from savant_rs.gstreamer import GstBuffer
-from savant_rs.primitives import Attribute, AttributeValue
 import shared_state
 
 import time
@@ -35,13 +34,13 @@ replacements = {}
 last = {}
 
 
-def run(buf: GstBuffer):
+def run(element_name: str, buf: GstBuffer):
     global counter, last, replacements
     thread_id = threading.get_ident()
     counter[thread_id] = counter.get(thread_id, 0) + 1
     if counter[thread_id] % 1000 == 0:
         log(LogLevel.Info, "mymod",
-            f'Thread: {thread_id}, Counter: {counter.get(thread_id, 0)}, Replacements: {replacements.get(thread_id, 0)}, Rate: {1000 / (time.time() - last.get(thread_id, 0))}')
+            f'Thread: {thread_id}, Element {element_name}, Counter: {counter.get(thread_id, 0)}, Replacements: {replacements.get(thread_id, 0)}, Rate: {1000 / (time.time() - last.get(thread_id, 0))}')
         last[thread_id] = time.time()
     prev_meta = buf.id_meta
     if prev_meta:

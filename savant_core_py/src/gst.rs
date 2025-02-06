@@ -1,6 +1,6 @@
-mod attribute_meta;
+mod id_meta;
 
-use crate::gst::attribute_meta::SavantFrameBatchIdMeta;
+use crate::gst::id_meta::SavantIdMeta;
 use gst::BufferFlags;
 use parking_lot::RwLock;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -170,7 +170,7 @@ impl GstBuffer {
     #[getter]
     pub fn get_id_meta(&self) -> Option<Vec<i64>> {
         let bind = self.0.read();
-        let meta = bind.meta::<SavantFrameBatchIdMeta>()?;
+        let meta = bind.meta::<SavantIdMeta>()?;
         Some(meta.ids().to_vec())
     }
 
@@ -180,7 +180,7 @@ impl GstBuffer {
         let buffer = bind.get_mut().ok_or(PyRuntimeError::new_err(
             "Unable to get write access to the buffer.",
         ))?;
-        SavantFrameBatchIdMeta::replace(buffer, ids);
+        SavantIdMeta::replace(buffer, ids);
         Ok(old_ids)
     }
 
@@ -195,7 +195,7 @@ impl GstBuffer {
             "Unable to get write access to the buffer.",
         ))?;
 
-        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<SavantFrameBatchIdMeta>();
+        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<SavantIdMeta>();
         if meta_ref_mut_opt.is_none() {
             return Ok(None);
         }

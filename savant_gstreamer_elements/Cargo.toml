@@ -1,5 +1,5 @@
 [package]
-name = "savant_plugin_sample"
+name = "savant_gstreamer_elements"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -34,6 +34,4 @@ parking_lot = { workspace = true }
 pyo3-build-config = { workspace = true }
 gst-plugin-version-helper = { workspace = true }
 
-[package.metadata.maturin]
-python-source = "python"
 

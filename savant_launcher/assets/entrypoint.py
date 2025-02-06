@@ -66,9 +66,9 @@ def main():
 
     pipeline_str = ("videotestsrc pattern=black ! "
                     "video/x-raw, width=10, height=10 ! "
-                    "rsidentity ! "
-                    "rsidentity ! "
-                    "rsidentity ! "
+                    "rspy ! "
+                    "rspy ! "
+                    "rspy ! "
                     "fakesink sync=false")
 
     # Create the pipeline
