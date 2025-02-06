@@ -4,7 +4,7 @@ gi.require_version('Gst', '1.0')
 
 from savant_rs.logging import log, LogLevel
 from savant_rs.webserver.kvs import get_attribute
-from savant_rs.gstreamer import GstBuffer
+from savant_rs.gstreamer import GstBuffer, FlowResult
 import shared_state
 
 import time
@@ -34,7 +34,7 @@ replacements = {}
 last = {}
 
 
-def run(element_name: str, buf: GstBuffer):
+def bh(element_name: str, buf: GstBuffer):
     global counter, last, replacements
     thread_id = threading.get_ident()
     counter[thread_id] = counter.get(thread_id, 0) + 1
@@ -50,3 +50,10 @@ def run(element_name: str, buf: GstBuffer):
         assert res == [1, 2, 3, 4]
     else:
         buf.replace_id_meta([0, 1, 2, 3])
+
+    return FlowResult.Ok
+
+
+def eh(element_name: str):
+    log(LogLevel.Info, "mymod", f'Event at {element_name}: not-yet-implemented')
+    return True

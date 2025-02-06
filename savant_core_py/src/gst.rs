@@ -7,6 +7,24 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
+#[pyclass(eq, eq_int)]
+#[derive(Clone, PartialEq)]
+pub enum FlowResult {
+    CustomSuccess2,
+    CustomSuccess1,
+    CustomSuccess,
+    Ok,
+    NotLinked,
+    Flushing,
+    Eos,
+    NotNegotiated,
+    Error,
+    NotSupported,
+    CustomError,
+    CustomError1,
+    CustomError2,
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub struct GstBuffer(Arc<RwLock<gst::Buffer>>);

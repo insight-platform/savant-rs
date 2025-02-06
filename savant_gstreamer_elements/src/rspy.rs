@@ -11,7 +11,10 @@
 use gst::prelude::*;
 use gst::subclass::prelude::*;
 use gst::{glib, Buffer};
+use parking_lot::RwLock;
+use pyo3::exceptions::PySystemError;
 use pyo3::prelude::*;
+use savant_core_py::gst::FlowResult;
 use std::sync::{LazyLock, OnceLock};
 use std::time::Instant;
 // This module contains the private implementation details of our element
@@ -24,24 +27,46 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     )
 });
 
+#[derive(Debug, Clone, Default)]
+pub struct RsPySettings {
+    module: Option<String>,
+    buffer_handler: Option<String>,
+    event_handler: Option<String>,
+}
+
 // Struct containing all the element data
 pub struct RsPy {
     src_pad: gst::Pad,
     sink_pad: gst::Pad,
-    function: OnceLock<PyResult<Py<PyAny>>>,
+    buffer_handler: OnceLock<PyResult<Py<PyAny>>>,
+    event_handler: OnceLock<PyResult<Py<PyAny>>>,
+    settings: RwLock<RsPySettings>,
 }
 
 impl RsPy {
-    fn init_func(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let res = PyModule::import(py, "mymod");
-        match res {
+    fn init_func(&self, py: Python, module_name: &str, handler_name: &str) -> PyResult<Py<PyAny>> {
+        let module = PyModule::import(py, module_name);
+        match module {
             Err(e) => {
                 log::error!("Error importing mymod: {:?}", e);
-                Err(e)
+                Err(PySystemError::new_err(format!(
+                    "Unable to get write access to the buffer: {}",
+                    e
+                )))
             }
             Ok(m) => {
-                log::info!("Imported mymod");
-                Ok(m.getattr("run")?.unbind())
+                log::info!("Python module {} imported successfully.", module_name);
+                log::info!("Trying to get function {}", handler_name);
+                let res = m.getattr(handler_name);
+                if let Err(e) = &res {
+                    log::error!(
+                        "Error getting function {}: {:?}, error: {:?}",
+                        handler_name,
+                        res,
+                        e
+                    );
+                }
+                Ok(res?.unbind())
             }
         }
     }
@@ -60,21 +85,58 @@ impl RsPy {
         let now = Instant::now();
         let shared_buf = savant_core_py::gst::GstBuffer::new(buffer);
         Python::with_gil(|py| {
-            let func = self.function.get_or_init(|| self.init_func(py));
+            let func = self.buffer_handler.get_or_init(|| {
+                let settings = self.settings.read();
+                let module_name = settings.module.as_ref().expect("module name is set");
+                self.init_func(
+                    py,
+                    module_name,
+                    settings
+                        .buffer_handler
+                        .as_ref()
+                        .unwrap_or(&String::from("buffer_handler")),
+                )
+            });
+
             if let Ok(f) = func {
                 let element_name = self.obj().name().to_string();
                 let res = f.call1(py, (element_name, shared_buf.clone()));
-                if let Err(e) = res {
-                    log::error!("Error calling function: {:?}", e);
-                    Err(gst::FlowError::Error)
-                } else {
-                    Ok(gst::FlowSuccess::Ok)
+                match res {
+                    Err(e) => {
+                        log::error!("Error calling buffer processing function: {:?}", e);
+                        Err(gst::FlowError::Error)
+                    }
+                    Ok(r) => {
+                        let flow_res = r.extract::<FlowResult>(py);
+                        match flow_res {
+                            Ok(res) => match res {
+                                FlowResult::CustomSuccess2 => Ok(gst::FlowSuccess::CustomSuccess2),
+                                FlowResult::CustomSuccess1 => Ok(gst::FlowSuccess::CustomSuccess1),
+                                FlowResult::CustomSuccess => Ok(gst::FlowSuccess::CustomSuccess),
+                                FlowResult::Ok => Ok(gst::FlowSuccess::Ok),
+                                FlowResult::NotLinked => Err(gst::FlowError::NotLinked),
+                                FlowResult::Flushing => Err(gst::FlowError::Flushing),
+                                FlowResult::Eos => Err(gst::FlowError::Eos),
+                                FlowResult::NotNegotiated => Err(gst::FlowError::NotNegotiated),
+                                FlowResult::Error => Err(gst::FlowError::Error),
+                                FlowResult::NotSupported => Err(gst::FlowError::NotSupported),
+                                FlowResult::CustomError => Err(gst::FlowError::CustomError),
+                                FlowResult::CustomError1 => Err(gst::FlowError::CustomError1),
+                                FlowResult::CustomError2 => Err(gst::FlowError::CustomError2),
+                            },
+                            Err(e) => {
+                                log::error!("Error extracting FlowResult: {:?}", e);
+                                Err(gst::FlowError::Error)
+                            }
+                        }
+                    }
                 }
             } else {
-                log::error!("Error initializing function");
+                log::error!("Error initializing buffer processing function");
                 Err(gst::FlowError::Error)
             }
         })?;
+
         let elapsed = now.elapsed();
         log::debug!("Elapsed time: {:?}", elapsed);
         match shared_buf.extract() {
@@ -89,6 +151,50 @@ impl RsPy {
         }
     }
 
+    fn event_function_invocation(&self, _pad: &gst::Pad, _event: &gst::Event) -> PyResult<bool> {
+        let now = Instant::now();
+        let res = Python::with_gil(|py| {
+            let func = self.event_handler.get_or_init(|| {
+                let settings = self.settings.read();
+                let module_name = settings.module.as_ref().expect("module name is set");
+                self.init_func(
+                    py,
+                    module_name,
+                    settings
+                        .event_handler
+                        .as_ref()
+                        .unwrap_or(&String::from("event_handler")),
+                )
+            });
+
+            if let Ok(f) = func {
+                let element_name = self.obj().name().to_string();
+                let res = f.call1(py, (element_name,));
+                match res {
+                    Err(e) => {
+                        log::error!("Error calling event processing function: {:?}", e);
+                        Err(PySystemError::new_err(
+                            "Error calling event processing function",
+                        ))
+                    }
+                    Ok(res) => {
+                        log::debug!("Event processing function returned: {:?}", res);
+                        let bool_res = res.extract::<bool>(py);
+                        Ok(bool_res)
+                    }
+                }
+            } else {
+                log::error!("Error initializing event processing function");
+                Err(PySystemError::new_err(
+                    "Error initializing event processing function",
+                ))
+            }
+        })?;
+        let elapsed = now.elapsed();
+        log::debug!("Elapsed time: {:?}", elapsed);
+        res
+    }
+
     // Called whenever an event arrives at the sink pad. It has to be handled accordingly and in
     // most cases has to be either passed to Pad::event_default() on this pad for default handling,
     // or Pad::push_event() on all pads with the opposite direction for direct forwarding.
@@ -98,7 +204,22 @@ impl RsPy {
     // events, and especially the gst::EventView type for inspecting events.
     fn sink_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.src_pad.push_event(event)
+        let res = self.event_function_invocation(pad, &event).unwrap_or(false);
+        res && self.src_pad.push_event(event)
+    }
+
+    // Called whenever an event arrives to the source pad. It has to be handled accordingly and in
+    // most cases has to be either passed to Pad::event_default() on the same pad for default
+    // handling, or Pad::push_event() on all pads with the opposite direction for direct
+    // forwarding.
+    // Here we just pass through all events directly to the sink pad.
+    //
+    // See the documentation of gst::Event and gst::EventRef to see what can be done with
+    // events, and especially the gst::EventView type for inspecting events.
+    fn src_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
+        gst::log!(CAT, obj = pad, "Handling event {:?}", event);
+        let res = self.event_function_invocation(pad, &event).unwrap_or(false);
+        res && self.sink_pad.push_event(event)
     }
 
     // Called whenever a query is sent to the sink pad. It has to be answered if the element can
@@ -113,19 +234,6 @@ impl RsPy {
     fn sink_query(&self, pad: &gst::Pad, query: &mut gst::QueryRef) -> bool {
         gst::log!(CAT, obj = pad, "Handling query {:?}", query);
         self.src_pad.peer_query(query)
-    }
-
-    // Called whenever an event arrives on the source pad. It has to be handled accordingly and in
-    // most cases has to be either passed to Pad::event_default() on the same pad for default
-    // handling, or Pad::push_event() on all pads with the opposite direction for direct
-    // forwarding.
-    // Here we just pass through all events directly to the sink pad.
-    //
-    // See the documentation of gst::Event and gst::EventRef to see what can be done with
-    // events, and especially the gst::EventView type for inspecting events.
-    fn src_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
-        gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.sink_pad.push_event(event)
     }
 
     // Called whenever a query is sent to the source pad. It has to be answered if the element can
@@ -195,7 +303,9 @@ impl ObjectSubclass for RsPy {
         Self {
             src_pad: srcpad,
             sink_pad: sinkpad,
-            function: OnceLock::new(),
+            buffer_handler: OnceLock::new(),
+            event_handler: OnceLock::new(),
+            settings: RwLock::new(RsPySettings::default()),
         }
     }
 }
@@ -213,6 +323,94 @@ impl ObjectImpl for RsPy {
         obj.add_pad(&self.sink_pad).unwrap();
         obj.add_pad(&self.src_pad).unwrap();
     }
+
+    fn properties() -> &'static [glib::ParamSpec] {
+        // Metadata for the properties
+        static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
+            vec![
+                glib::ParamSpecString::builder("module")
+                    .nick("PythonModule")
+                    .blurb("Python module to load")
+                    .build(),
+                glib::ParamSpecString::builder("buffer-handler")
+                    .nick("BufferFunction")
+                    .blurb("The function called for gstreamer buffer processing")
+                    .default_value("buffer_handler")
+                    .build(),
+                glib::ParamSpecString::builder("event-handler")
+                    .nick("EventFunction")
+                    .blurb("The function called for gstreamer event processing")
+                    .default_value("event_handler")
+                    .build(),
+            ]
+        });
+
+        PROPERTIES.as_ref()
+    }
+
+    // Called whenever a value of a property is changed. It can be called
+    // at any time from any thread.
+    fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+        match pspec.name() {
+            "module" => {
+                let mut settings = self.settings.write();
+                let module = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing module name from {:?} to {}",
+                    settings.module,
+                    module
+                );
+                settings.module = Some(module);
+            }
+            "buffer-handler" => {
+                let mut settings = self.settings.write();
+                let buffer_function = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing buffer function from {:?} to {}",
+                    settings.buffer_handler,
+                    buffer_function
+                );
+                settings.buffer_handler = Some(buffer_function);
+            }
+            "event-handler" => {
+                let mut settings = self.settings.write();
+                let event_function = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing event function from {:?} to {}",
+                    settings.event_handler,
+                    event_function
+                );
+                settings.event_handler = Some(event_function);
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    // Called whenever a value of a property is read. It can be called
+    // at any time from any thread.
+    fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        match pspec.name() {
+            "module" => {
+                let settings = self.settings.read();
+                settings.module.to_value()
+            }
+            "buffer-handler" => {
+                let settings = self.settings.read();
+                settings.buffer_handler.to_value()
+            }
+            "event-handler" => {
+                let settings = self.settings.read();
+                settings.event_handler.to_value()
+            }
+            _ => unimplemented!(),
+        }
+    }
 }
 
 impl GstObjectImpl for RsPy {}
@@ -227,9 +425,9 @@ impl ElementImpl for RsPy {
         static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
             gst::subclass::ElementMetadata::new(
                 "RsPy",
-                "Generic",
+                "Module invoking custom Python functions for buffers and events",
                 "Does nothing with the data",
-                "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on the artwork of Sebastian Dröge <sebastian@centricular.com>",
+                "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on work of Sebastian Dröge <sebastian@centricular.com>",
             )
         });
 
