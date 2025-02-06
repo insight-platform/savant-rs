@@ -1,4 +1,5 @@
 from typing import Optional
+from savant_rs.primitives import Attribute
 
 
 class GstBuffer:
@@ -42,3 +43,6 @@ class GstBuffer:
     def copy_deep(self) -> GstBuffer: ...
 
     def append(self, buf: GstBuffer) -> GstBuffer: ...
+
+    # fn get_savant_meta(&self) -> Vec<Attribute>
+    def get_savant_meta(self) -> List[Attribute]: ...

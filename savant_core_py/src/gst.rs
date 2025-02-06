@@ -1,6 +1,10 @@
+mod attribute_meta;
+
+use crate::gst::attribute_meta::SavantAttributeMeta;
+use crate::primitives::attribute::Attribute;
 use gst::BufferFlags;
 use parking_lot::RwLock;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -32,12 +36,6 @@ impl GstBuffer {
     #[new]
     pub fn create_py() -> Self {
         Self(Arc::new(RwLock::new(gst::Buffer::new())))
-    }
-
-    pub fn append(&self, buffer: GstBuffer) -> PyResult<()> {
-        let mut bind = self.0.write();
-        bind.append(buffer.0.read().clone());
-        Ok(())
     }
 
     #[setter]
@@ -162,5 +160,121 @@ impl GstBuffer {
             .copy_deep()
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(Arc::new(RwLock::new(new_buf))))
+    }
+
+    pub fn append(&self, buffer: GstBuffer) -> PyResult<()> {
+        let mut bind = self.0.write();
+        bind.append(buffer.0.read().clone());
+        Ok(())
+    }
+
+    #[getter]
+    pub fn get_savant_meta(&self) -> Option<Vec<Attribute>> {
+        let bind = self.0.read();
+        let attribute_meta_opt = bind.meta::<SavantAttributeMeta>();
+        if attribute_meta_opt.is_none() {
+            return None;
+        }
+        let attribute_meta = attribute_meta_opt.unwrap();
+        Some(
+            attribute_meta
+                .attributes()
+                .iter()
+                .map(|a| Attribute(a.clone()))
+                .collect(),
+        )
+    }
+
+    pub fn replace_savant_meta(&self, attributes: Vec<Attribute>) -> Option<Vec<Attribute>> {
+        let mut bind = self.0.write();
+        let old_attributes = self.get_savant_meta();
+
+        let mut buffer = bind.get_mut()?;
+        let core_attributes = attributes.iter().map(|a| a.0.clone()).collect::<Vec<_>>();
+        SavantAttributeMeta::replace(&mut buffer, core_attributes);
+        old_attributes
+    }
+
+    pub fn clear_savant_meta(&self) -> PyResult<Option<Vec<Attribute>>> {
+        let mut bind = self.0.write();
+        let old_attributes = self.get_savant_meta();
+        if old_attributes.is_none() {
+            return Ok(None);
+        }
+
+        let buffer_ref_mut = bind.get_mut().ok_or(PyRuntimeError::new_err(
+            "Unable to get write access to the buffer.",
+        ))?;
+
+        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<SavantAttributeMeta>();
+        if meta_ref_mut_opt.is_none() {
+            return Ok(None);
+        }
+
+        let meta_ref_mut = meta_ref_mut_opt.unwrap();
+        meta_ref_mut
+            .remove()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Ok(old_attributes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::gst::GstBuffer;
+    use crate::primitives::attribute::Attribute;
+
+    #[test]
+    fn test_savant_meta() -> anyhow::Result<()> {
+        gst::init().unwrap();
+        let buf = GstBuffer::create_py();
+        let old_attributes = vec![Attribute::new("test", "test", vec![], None, true, false)];
+        let new_attributes = vec![Attribute::new("test2", "test2", vec![], None, true, false)];
+
+        assert!(
+            buf.get_savant_meta().is_none(),
+            "Must return None, when no meta is present"
+        );
+
+        assert!(
+            buf.clear_savant_meta()?.is_none(),
+            "Must return None, when no meta is present"
+        );
+
+        assert!(
+            buf.replace_savant_meta(old_attributes.clone()).is_none(),
+            "Must return None, when no meta is present during replacement"
+        );
+
+        let old_attributes_retrieved = buf.get_savant_meta().unwrap();
+        assert_eq!(
+            old_attributes_retrieved, old_attributes,
+            "Must return the old attributes when they are set"
+        );
+
+        let prev_attributes = buf.replace_savant_meta(new_attributes.clone());
+        assert_eq!(
+            prev_attributes.unwrap(),
+            old_attributes,
+            "Must return the old attributes when they are replaced with new attributes"
+        );
+
+        let new_attributes_retrieved = buf.get_savant_meta().unwrap();
+        assert_eq!(
+            new_attributes_retrieved, new_attributes,
+            "Must return the new attributes"
+        );
+
+        let last_attrs = buf.clear_savant_meta()?.unwrap();
+        assert_eq!(
+            last_attrs, new_attributes,
+            "Must return the new attributes when they are cleared"
+        );
+
+        unsafe {
+            gst::deinit();
+        }
+        Ok(())
     }
 }
