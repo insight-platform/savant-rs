@@ -10,8 +10,6 @@ import shared_state
 import time
 import threading
 
-# from pyvips.gobject import GObject
-
 log(LogLevel.Info, "mymod", "Hello, world!")
 
 attr = get_attribute("some", "attr")

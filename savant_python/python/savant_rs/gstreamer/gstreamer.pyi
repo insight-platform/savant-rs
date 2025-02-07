@@ -5,6 +5,9 @@ from savant_rs.primitives import Attribute
 
 class GstBuffer:
     @property
+    def raw_pointer(self) -> int: ...
+
+    @property
     def pts(self) -> Optional[int]: ...
 
     @property

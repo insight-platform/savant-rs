@@ -2,7 +2,7 @@ use gst::{glib, MetaAPI, MetaAPIExt};
 use std::{fmt, mem};
 
 #[repr(transparent)]
-pub(crate) struct SavantIdMeta(imp::SavantIdMeta);
+pub struct SavantIdMeta(imp::SavantIdMeta);
 
 impl SavantIdMeta {
     pub fn ids(&self) -> &[i64] {
@@ -51,16 +51,15 @@ impl fmt::Debug for SavantIdMeta {
 mod imp {
     use gst::glib;
     use gst::glib::translate::{from_glib, IntoGlib};
-    use pyo3::ffi::c_str;
     use std::ptr;
     use std::sync::LazyLock;
 
-    pub(super) struct SavantIdMetaParams {
+    pub struct SavantIdMetaParams {
         pub ids: Vec<i64>,
     }
 
     #[repr(C)]
-    pub(crate) struct SavantIdMeta {
+    pub struct SavantIdMeta {
         parent: gst::ffi::GstMeta,
         pub(super) ids: Vec<i64>,
     }
@@ -68,7 +67,7 @@ mod imp {
     pub(super) fn savant_id_meta_api_get_type() -> glib::Type {
         static TYPE: LazyLock<glib::Type> = LazyLock::new(|| unsafe {
             let t = from_glib(gst::ffi::gst_meta_api_type_register(
-                c_str!("GstSavantIdMetaAPI").as_ptr() as *const _,
+                c"GstSavantIdMetaAPI".as_ptr() as *const _,
                 [ptr::null::<std::os::raw::c_char>()].as_ptr() as *mut *const _,
             ));
 
@@ -127,7 +126,7 @@ mod imp {
             MetaInfo(
                 ptr::NonNull::new(gst::ffi::gst_meta_register(
                     savant_id_meta_api_get_type().into_glib(),
-                    c_str!("GstSavantIdMeta").as_ptr() as *const _,
+                    c"GstSavantIdMeta".as_ptr() as *const _,
                     size_of::<SavantIdMeta>(),
                     Some(savant_id_meta_init),
                     Some(savant_id_meta_free),

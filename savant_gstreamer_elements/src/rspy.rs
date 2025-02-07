@@ -19,6 +19,10 @@ use std::sync::{LazyLock, OnceLock};
 use std::time::Instant;
 // This module contains the private implementation details of our element
 
+const INIT_HANDLER_DEFAULT_NAME: &str = "init_handler";
+const BUFFER_HANDLER_DEFAULT_NAME: &str = "buffer_handler";
+const EVENT_HANDLER_DEFAULT_NAME: &str = "event_handler";
+
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
         "rspy",
@@ -46,20 +50,25 @@ pub struct RsPy {
 }
 
 impl RsPy {
-    fn init_func(
+    fn find_handler(
         &self,
         py: Python,
         module_name: &str,
         init_handler_name: &str,
         handler_name: &str,
     ) -> PyResult<Py<PyAny>> {
+        log::info!(
+            "Initializing handler function {} in module {}",
+            init_handler_name,
+            module_name
+        );
         let module = PyModule::import(py, module_name);
         match module {
             Err(e) => {
                 log::error!("Error importing mymod: {:?}", e);
-                Err(PySystemError::new_err(format!(
-                    "Unable to get write access to the buffer: {}",
-                    e
+                Err(PyRuntimeError::new_err(format!(
+                    "Unable to initialize module {}, error: {}",
+                    module_name, e
                 )))
             }
             Ok(m) => {
@@ -68,14 +77,13 @@ impl RsPy {
                 let init_handler = m.getattr(init_handler_name);
                 if let Err(e) = &init_handler {
                     log::error!(
-                        "Error getting init function {} in module {}: {:?}, error: {:?}",
+                        "Error finding init function {} in module {}, error: {:?}",
                         init_handler_name,
                         module_name,
-                        init_handler,
                         e
                     );
                     return Err(PyRuntimeError::new_err(format!(
-                        "Unable to find the function {} in module {}, error: {:?}",
+                        "Unable to find init function {} in module {}, error: {:?}",
                         init_handler_name, module_name, e
                     )));
                 }
@@ -85,35 +93,43 @@ impl RsPy {
                     match res {
                         Err(e) => {
                             log::error!(
-                                "Error calling init function: {:?} for module {}",
-                                e,
-                                module_name
+                                "Error calling init function {}in module {}, error: {:?}",
+                                init_handler_name,
+                                module_name,
+                                e
                             );
-                            Err(PyRuntimeError::new_err("Error calling init function"))
+                            Err(PyRuntimeError::new_err(format!(
+                                "Error calling init function {} in module {}, error: {:?}",
+                                init_handler_name, module_name, e
+                            )))
                         }
                         Ok(r) => {
-                            log::info!("Init function called successfully");
+                            log::info!(
+                                "Init function {} in module {} called successfully",
+                                init_handler_name,
+                                module_name
+                            );
                             Ok(r.unbind())
                         }
                     }
                 });
                 if let Err(e) = &res {
-                    log::error!("Error initializing function: {:?}", e);
                     return Err(PyRuntimeError::new_err(format!(
-                        "Error initializing init function: {:?}",
-                        e,
+                        "Error initializing init function {} in module {}, error: {:?}",
+                        init_handler_name, module_name, e
                     )));
                 }
 
                 log::info!(
-                    "Trying to find function {} in the module {}",
+                    "Trying to find handler function {} in the module {}",
                     handler_name,
                     module_name
                 );
+
                 let res = m.getattr(handler_name);
                 if let Err(e) = &res {
                     log::error!(
-                        "Error getting function {}: {:?}, error: {:?}",
+                        "Error finding handler function {}: {:?}, error: {:?}",
                         handler_name,
                         res,
                         e
@@ -140,26 +156,29 @@ impl RsPy {
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
         let now = Instant::now();
-        let shared_buf = savant_core_py::gst::GstBuffer::new(buffer);
+        let shared_buf = savant_core_py::gst::GstBuffer::from_gst_buffer(buffer);
+
+        let settings = self.settings.read();
+        let module_name = settings.module.as_ref().expect("Module name must be set");
+
+        let init_handler_default_name = String::from(INIT_HANDLER_DEFAULT_NAME);
+        let init_handler_name = settings
+            .init_handler
+            .as_ref()
+            .unwrap_or(&init_handler_default_name);
+
+        let handler_default_name = String::from(BUFFER_HANDLER_DEFAULT_NAME);
+        let handler_name = settings
+            .buffer_handler
+            .as_ref()
+            .unwrap_or(&handler_default_name);
+
         Python::with_gil(|py| {
-            let func = self.buffer_handler.get_or_init(|| {
-                let settings = self.settings.read();
-                let module_name = settings.module.as_ref().expect("module name is set");
-                self.init_func(
-                    py,
-                    module_name,
-                    settings
-                        .init_handler
-                        .as_ref()
-                        .unwrap_or(&String::from("init_handler")),
-                    settings
-                        .buffer_handler
-                        .as_ref()
-                        .unwrap_or(&String::from("buffer_handler")),
-                )
+            let handler = self.buffer_handler.get_or_init(|| {
+                self.find_handler(py, module_name, init_handler_name, handler_name)
             });
 
-            if let Ok(f) = func {
+            if let Ok(f) = handler {
                 let element_name = self.obj().name().to_string();
                 let res = f.call1(py, (element_name, shared_buf.clone()));
                 match res {
@@ -214,22 +233,25 @@ impl RsPy {
 
     fn event_function_invocation(&self, _pad: &gst::Pad, _event: &gst::Event) -> PyResult<bool> {
         let now = Instant::now();
+
+        let settings = self.settings.read();
+        let module_name = settings.module.as_ref().expect("Module name must be set");
+
+        let init_handler_default_name = String::from(INIT_HANDLER_DEFAULT_NAME);
+        let init_handler_name = settings
+            .init_handler
+            .as_ref()
+            .unwrap_or(&init_handler_default_name);
+
+        let handler_default_name = String::from(EVENT_HANDLER_DEFAULT_NAME);
+        let handler_name = settings
+            .event_handler
+            .as_ref()
+            .unwrap_or(&handler_default_name);
+
         let res = Python::with_gil(|py| {
             let func = self.event_handler.get_or_init(|| {
-                let settings = self.settings.read();
-                let module_name = settings.module.as_ref().expect("module name is set");
-                self.init_func(
-                    py,
-                    module_name,
-                    settings
-                        .init_handler
-                        .as_ref()
-                        .unwrap_or(&String::from("init_handler")),
-                    settings
-                        .event_handler
-                        .as_ref()
-                        .unwrap_or(&String::from("event_handler")),
-                )
+                self.find_handler(py, module_name, init_handler_name, handler_name)
             });
 
             if let Ok(f) = func {

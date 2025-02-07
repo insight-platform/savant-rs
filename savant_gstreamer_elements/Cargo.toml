@@ -27,6 +27,7 @@ gst = { workspace = true }
 gst-base = { workspace = true }
 gst-video = { workspace = true }
 gst-audio = { workspace = true }
+lazy_static = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 

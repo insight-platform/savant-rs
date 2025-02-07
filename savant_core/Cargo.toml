@@ -25,6 +25,8 @@ etcd_dynamic_state = { workspace = true }
 etcd-client = { workspace = true }
 evalexpr = { workspace = true }
 futures-util = { workspace = true }
+gst = { workspace = true }
+gst-base = { workspace = true }
 globset = { workspace = true }
 jmespath = { workspace = true }
 hashbrown = { workspace = true }
