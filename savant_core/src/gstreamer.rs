@@ -191,6 +191,11 @@ impl GstBuffer {
 
         Ok(old_ids)
     }
+
+    pub fn memory(&self, idx: usize) -> Option<gst::Memory> {
+        let bind = self.0.read();
+        bind.memory(idx)
+    }
 }
 
 #[cfg(test)]

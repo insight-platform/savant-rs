@@ -1,3 +1,4 @@
+mod py_handler;
 mod rspy;
 
 use gst::glib;

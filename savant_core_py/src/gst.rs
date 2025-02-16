@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use savant_core::gstreamer::GstBuffer as RustGstBuffer;
 
 #[pyclass(eq, eq_int)]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum FlowResult {
     CustomSuccess2,
     CustomSuccess1,
@@ -21,6 +21,23 @@ pub enum FlowResult {
     CustomError,
     CustomError1,
     CustomError2,
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct GstEvent;
+
+#[pyclass]
+#[derive(Clone)]
+pub struct GstMemory(gst::Memory);
+
+#[pymethods]
+impl GstMemory {
+    pub fn read_with(&self, callable: PyObject) -> PyResult<PyObject> {
+        let mmap = err_to_pyo3!(self.0.map_readable(), PyRuntimeError)?;
+        let memory = mmap.as_slice();
+        Python::with_gil(|py| callable.call1(py, (memory,)))
+    }
 }
 
 #[pyclass]
@@ -167,5 +184,10 @@ impl GstBuffer {
 
     pub fn clear_id_meta(&self) -> PyResult<Option<Vec<i64>>> {
         err_to_pyo3!(self.0.clear_id_meta(), PyRuntimeError)
+    }
+
+    pub fn memory(&self, idx: usize) -> Option<GstMemory> {
+        let mem = self.0.memory(idx)?;
+        Some(GstMemory(mem))
     }
 }

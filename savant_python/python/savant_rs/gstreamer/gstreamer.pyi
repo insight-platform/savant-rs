@@ -3,6 +3,11 @@ from typing import Optional, List
 from savant_rs.primitives import Attribute
 
 
+class GstMemory:
+
+    def read(self, func: callable) -> object: ...
+
+
 class GstBuffer:
     @property
     def raw_pointer(self) -> int: ...
@@ -57,6 +62,8 @@ class GstBuffer:
 
     # pub fn clear_id_meta(&self) -> PyResult<Option<Vec<i64>>>
     def clear_id_meta(self) -> Optional[List[int]]: ...
+
+    def memory(self, idx: int) -> GstMemory: ...
 
 
 class FlowResult(Enum):
