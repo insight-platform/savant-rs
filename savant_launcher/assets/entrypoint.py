@@ -1,3 +1,4 @@
+import json
 import time
 import threading
 import numpy as np
@@ -52,25 +53,31 @@ def main():
 
     set_attributes([attr])
 
-    # print(attr.json)
-
     # Initialize GStreamer
     Gst.init(None)
 
     # Create GStreamer pipeline
-    pipeline = Gst.Pipeline.new("test-pipeline")
+    pipeline = Gst.Pipeline.new("pipeline")
 
     if not pipeline:
         print("Failed to create pipeline.")
         return
 
-    pipeline_str = ("videotestsrc pattern=black ! "
-                    "video/x-raw, width=10, height=10 ! "
-                    "rspy module=mymod class=MyHandler ! "
-                    "fakesink sync=false")
+    pipeline_str = ("""videotestsrc pattern=black ! 
+                    video/x-raw, width=10, height=10 ! 
+                    rspy module=mymod class=MyHandler name=rspy ! 
+                    fakesink sync=false""")
 
     # Create the pipeline
     pipeline = Gst.parse_launch(pipeline_str)
+
+    # find existing rspy element in the pipeline
+    rspy = pipeline.get_by_name("rspy")
+    if rspy is None:
+        print("Failed to find rspy element")
+        return
+    # set parameters for the rspy element
+    rspy.set_property("parameters", json.dumps({"some": "parameter", "other": 1}))
 
     loop = GLib.MainLoop()
     bus = pipeline.get_bus()

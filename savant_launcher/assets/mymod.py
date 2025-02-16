@@ -31,7 +31,6 @@ counter = {}
 replacements = {}
 last = {}
 
-
 # def ih(element_name: str):
 #     log(LogLevel.Info, "mymod", f'Init at {element_name}')
 #     return True
@@ -61,6 +60,8 @@ last = {}
 #     log(LogLevel.Info, "mymod", f'Event at {element_name}: not-yet-implemented')
 #     return True
 
+NUM = 100000
+
 
 class MyHandler:
     def __init__(self, **kwargs):
@@ -69,13 +70,14 @@ class MyHandler:
         self.last = {}
         for k, v in kwargs.items():
             setattr(self, k, v)
+            print(f'{k}: {v}')
 
     def __call__(self, element_name: str, buf: GstBuffer):
         thread_id = threading.get_ident()
         self.counter[thread_id] = self.counter.get(thread_id, 0) + 1
-        if self.counter[thread_id] % 1000 == 0:
+        if self.counter[thread_id] % NUM == 0:
             log(LogLevel.Info, "mymod",
-                f'Thread: {thread_id}, Element {element_name}, Counter: {self.counter.get(thread_id, 0)}, Replacements: {self.replacements.get(thread_id, 0)}, Rate: {1000 / (time.time() - self.last.get(thread_id, 0))}')
+                f'Thread: {thread_id}, Element {element_name}, Counter: {self.counter.get(thread_id, 0)}, Replacements: {self.replacements.get(thread_id, 0)}, Rate: {NUM / (time.time() - self.last.get(thread_id, 0))}')
             self.last[thread_id] = time.time()
         prev_meta = buf.id_meta
         if prev_meta:
