@@ -12,16 +12,15 @@ shared_state.__STATE__ = 1
 
 set_log_level(LogLevel.Debug)
 
-
-def state_change_worker():
-    while True:
-        shared_state.__STATE__ += 1
-        log(LogLevel.Info, "entrypoint", f'{shared_state.__STATE__}')
-        time.sleep(1)
-
-
-worker = threading.Thread(target=state_change_worker)
-worker.start()
+# def state_change_worker():
+#     while True:
+#         shared_state.__STATE__ += 1
+#         log(LogLevel.Info, "entrypoint", f'{shared_state.__STATE__}')
+#         time.sleep(1)
+#
+#
+# worker = threading.Thread(target=state_change_worker)
+# worker.start()
 
 # os.environ["GST_DEBUG"] = "*:5"
 
@@ -43,7 +42,11 @@ def on_message(bus, message, loop):
         loop.quit()
 
 
+pipeline = None
+
+
 def main():
+    global pipeline
     arr = np.zeros((3, 3, 3), dtype=np.uint8)
     # print(arr)
 
@@ -65,14 +68,15 @@ def main():
 
     pipeline_str = ("""videotestsrc pattern=black ! 
                     video/x-raw, width=10, height=10 ! 
-                    rspy module=mymod class=MyHandler name=rspy ! 
+                    rspy module=mymod class=MyHandler name=rspy0 ! 
+                    rspy module=mymod class=MyHandler name=rspy1 ! 
                     fakesink sync=false""")
 
     # Create the pipeline
     pipeline = Gst.parse_launch(pipeline_str)
 
     # find existing rspy element in the pipeline
-    rspy = pipeline.get_by_name("rspy")
+    rspy = pipeline.get_by_name("rspy0")
     if rspy is None:
         print("Failed to find rspy element")
         return

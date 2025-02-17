@@ -7,14 +7,20 @@ pub struct PyHandler {
 }
 
 impl PyHandler {
-    pub fn new(py: Python, module_name: &str, class_name: &str, args: &str) -> PyResult<Self> {
+    pub fn new(
+        py: Python,
+        module_name: &str,
+        class_name: &str,
+        element_name: &str,
+        args: &str,
+    ) -> PyResult<Self> {
         let module = PyModule::import(py, module_name)?;
         let json_module = PyModule::import(py, "json")?;
         let json = json_module.getattr("loads")?;
         let args_binding = json.call1((args,))?;
         let args = args_binding.downcast::<PyDict>()?;
         let class = module.getattr(class_name)?;
-        let instance = class.call((), Some(args))?.unbind();
+        let instance = class.call((element_name,), Some(args))?.unbind();
         Ok(Self { instance })
     }
 
@@ -40,8 +46,9 @@ mod tests {
         #[pymethods]
         impl MyClass {
             #[new]
-            #[pyo3(signature = (**kwargs))]
-            fn new(kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+            #[pyo3(signature = (element_name, **kwargs))]
+            fn new(element_name: &str, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+                assert!(!element_name.is_empty());
                 assert!(!kwargs.is_none());
                 Self
             }
@@ -59,7 +66,7 @@ mod tests {
             sys_modules.set_item("mymod", &module)?;
             module.add_class::<MyClass>()?;
 
-            let handler = PyHandler::new(py, "mymod", "MyClass", r#"{"object": 1}"#)?;
+            let handler = PyHandler::new(py, "mymod", "MyClass", "element", r#"{"object": 1}"#)?;
             let res = handler.call(py, ())?;
             let res = res.extract::<FlowResult>(py)?;
             assert_eq!(res, FlowResult::Ok);

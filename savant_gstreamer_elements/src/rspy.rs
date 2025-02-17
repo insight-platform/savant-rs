@@ -11,12 +11,12 @@
 use crate::py_handler::PyHandler;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
-use gst::{glib, Buffer};
-use parking_lot::RwLock;
+use gst::{glib, Buffer, Event};
+use gst_audio::glib::ParamFlags;
+use parking_lot::{Mutex, RwLock};
 use pyo3::prelude::*;
-use savant_core_py::gst::FlowResult;
-use std::sync::{LazyLock, OnceLock};
-use std::time::Instant;
+use savant_core_py::gst::{FlowResult, InvocationReason};
+use std::sync::{Arc, LazyLock, OnceLock};
 // This module contains the private implementation details of our element
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
@@ -40,10 +40,13 @@ pub struct RsPy {
     sink_pad: gst::Pad,
     instance: OnceLock<PyHandler>,
     settings: RwLock<RsPySettings>,
+    buffer: Arc<Mutex<Option<Buffer>>>,
+    sink_event: Arc<Mutex<Option<Event>>>,
+    src_event: Arc<Mutex<Option<Event>>>,
 }
 
 impl RsPy {
-    fn load_handler(&self) -> PyHandler {
+    fn load_handler(&self, element_name: &str) -> PyHandler {
         Python::with_gil(|py| {
             let settings = self.settings.read();
             let module_name = settings.module.as_ref().expect("Module name must be set");
@@ -51,7 +54,7 @@ impl RsPy {
             let default_parameters = "{}".to_string();
             let parameters = settings.parameters.as_ref().unwrap_or(&default_parameters);
 
-            PyHandler::new(py, module_name, class_name, parameters)
+            PyHandler::new(py, module_name, class_name, element_name, parameters)
                 .expect("Error initializing Python handler")
         })
     }
@@ -68,13 +71,17 @@ impl RsPy {
         buffer: Buffer,
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
-        let now = Instant::now();
-        let shared_buf = savant_core_py::gst::GstBuffer::from_gst_buffer(buffer);
+        {
+            let mut buf_bind = self.buffer.lock();
+            *buf_bind = Some(buffer.clone());
+        }
 
         Python::with_gil(|py| {
-            let handler = self.instance.get_or_init(|| self.load_handler());
             let element_name = self.obj().name().to_string();
-            let res = handler.call(py, (element_name, shared_buf.clone()));
+            let handler = self
+                .instance
+                .get_or_init(|| self.load_handler(&element_name));
+            let res = handler.call(py, (element_name, InvocationReason::Buffer)); // , shared_buf.clone()
             match res {
                 Err(e) => {
                     log::error!("Error calling buffer processing function: {:?}", e);
@@ -106,19 +113,33 @@ impl RsPy {
                 }
             }
         })?;
+        self.src_pad.push(buffer)
+    }
 
-        let elapsed = now.elapsed();
-        log::debug!("Elapsed time: {:?}", elapsed);
-        match shared_buf.extract() {
-            Ok(buf) => self.src_pad.push(buf),
-            Err(e) => {
-                log::error!(
-                    "Error acquiring Gstreamer Buffer object ownership back to Rust: {:?}",
-                    e
-                );
-                Err(gst::FlowError::Error)
+    fn invoke_for_event(&self, reason: InvocationReason) -> bool {
+        Python::with_gil(|py| {
+            let element_name = self.obj().name().to_string();
+            let handler = self
+                .instance
+                .get_or_init(|| self.load_handler(&element_name));
+            let res = handler.call(py, (element_name, reason));
+            match res {
+                Ok(obj) => {
+                    let bool_res = obj.extract::<bool>(py);
+                    match bool_res {
+                        Ok(res) => res,
+                        Err(e) => {
+                            log::error!("Error extracting bool result: {:?}", e);
+                            false
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Error calling event processing function: {:?}", e);
+                    false
+                }
             }
-        }
+        })
     }
 
     // Called whenever an event arrives at the sink pad. It has to be handled accordingly and in
@@ -128,9 +149,13 @@ impl RsPy {
     //
     // See the documentation of gst::Event and gst::EventRef to see what can be done with
     // events, and especially the gst::EventView type for inspecting events.
-    fn sink_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
+    fn sink_event(&self, pad: &gst::Pad, event: Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.src_pad.push_event(event)
+        {
+            let mut sink_event_bind = self.sink_event.lock();
+            *sink_event_bind = Some(event.clone());
+        }
+        self.invoke_for_event(InvocationReason::SinkEvent) && self.src_pad.push_event(event)
     }
 
     // Called whenever an event arrives to the source pad. It has to be handled accordingly and in
@@ -141,9 +166,13 @@ impl RsPy {
     //
     // See the documentation of gst::Event and gst::EventRef to see what can be done with
     // events, and especially the gst::EventView type for inspecting events.
-    fn src_event(&self, pad: &gst::Pad, event: gst::Event) -> bool {
+    fn src_event(&self, pad: &gst::Pad, event: Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
-        self.sink_pad.push_event(event)
+        {
+            let mut src_event_bind = self.src_event.lock();
+            *src_event_bind = Some(event.clone());
+        }
+        self.invoke_for_event(InvocationReason::SourceEvent) && self.sink_pad.push_event(event)
     }
 
     // Called whenever a query is sent to the sink pad. It has to be answered if the element can
@@ -229,6 +258,9 @@ impl ObjectSubclass for RsPy {
             sink_pad: sinkpad,
             instance: OnceLock::new(),
             settings: RwLock::new(RsPySettings::default()),
+            buffer: Arc::new(Mutex::new(None)),
+            sink_event: Arc::new(Mutex::new(None)),
+            src_event: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -263,6 +295,21 @@ impl ObjectImpl for RsPy {
                     .nick("Parameters")
                     .blurb("The **kwargs for the class constructor")
                     .default_value("{}")
+                    .build(),
+                glib::ParamSpecBoxed::builder::<Buffer>("current-buffer")
+                    .nick("Buffer")
+                    .blurb("The buffer to process")
+                    .flags(ParamFlags::READABLE)
+                    .build(),
+                glib::ParamSpecBoxed::builder::<Event>("sink-event")
+                    .nick("SinkEvent")
+                    .blurb("The sink event to process")
+                    .flags(ParamFlags::READABLE)
+                    .build(),
+                glib::ParamSpecBoxed::builder::<Event>("source-event")
+                    .nick("SourceEvent")
+                    .blurb("The source event to process")
+                    .flags(ParamFlags::READABLE)
                     .build(),
             ]
         });
@@ -329,6 +376,24 @@ impl ObjectImpl for RsPy {
             "parameters" => {
                 let settings = self.settings.read();
                 settings.parameters.to_value()
+            }
+            "current-buffer" => {
+                let buf = self.buffer.clone();
+                let mut buf_bind = buf.lock();
+                let buf = buf_bind.take();
+                buf.to_value()
+            }
+            "sink-event" => {
+                let sink_event = self.sink_event.clone();
+                let mut sink_event_bind = sink_event.lock();
+                let sink_event = sink_event_bind.take();
+                sink_event.to_value()
+            }
+            "source-event" => {
+                let src_event = self.src_event.clone();
+                let mut src_event_bind = src_event.lock();
+                let src_event = src_event_bind.take();
+                src_event.to_value()
             }
             _ => unimplemented!(),
         }
