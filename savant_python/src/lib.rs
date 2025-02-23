@@ -326,7 +326,7 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
             std::env::set_var(log_env_var_name, log_env_var_level);
         }
     }
-    pretty_env_logger::try_init_custom_env(log_env_var_name)
+    pretty_env_logger::try_init_timed_custom_env(log_env_var_name)
         .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
     set_log_level(LogLevel::Error);
 

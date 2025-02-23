@@ -15,10 +15,10 @@ from savant_rs.primitives import AttributeValue
 
 set_log_level(LogLevel.Trace)
 
-plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
-plugin_function_2 = savant_plugin_sample.get_instance(
-    "doesnotmatter", dict(attr=AttributeValue.integer(1))
-)
+# plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
+# plugin_function_2 = savant_plugin_sample.get_instance(
+#    "doesnotmatter", dict(attr=AttributeValue.integer(1))
+# )
 
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import (
@@ -56,8 +56,8 @@ if __name__ == "__main__":
             (
                 "input",
                 VideoPipelineStagePayloadType.Frame,
-                plugin_function_1,
-                plugin_function_2,
+                StageFunction.none(),
+                StageFunction.none(),
             ),
             (
                 "proc1",
@@ -179,6 +179,8 @@ if __name__ == "__main__":
         with ns.nested_span("sleep") as root_span:
             root_span.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
+
+
     # shutdown()
 
     def f(span):
@@ -218,6 +220,7 @@ if __name__ == "__main__":
             "Context Depth: {}".format(TelemetrySpan.context_depth()),
         )
 
+
     thr1 = Thread(target=f, args=(root_spans_1_propagated,))
     thr2 = Thread(target=f, args=(root_spans_1_propagated,))
     t = time.time()
@@ -232,7 +235,7 @@ if __name__ == "__main__":
     try:
         with root_spans_1_propagated.nested_span("sleep-1") as root_span:
             with root_span.nested_span_when(
-                "sleep-debugging", log_level_enabled(LogLevel.Debug)
+                    "sleep-debugging", log_level_enabled(LogLevel.Debug)
             ) as sds:
                 log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):
