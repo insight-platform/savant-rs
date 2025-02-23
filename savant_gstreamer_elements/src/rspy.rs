@@ -8,13 +8,13 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::py_handler::PyHandler;
 use gst::prelude::*;
 use gst::subclass::prelude::*;
-use gst::{glib, Buffer, Event};
+use gst::{glib, Buffer, Element, Event, StateChange};
 use gst_audio::glib::ParamFlags;
 use parking_lot::{Mutex, RwLock};
 use pyo3::prelude::*;
+use savant_core_py::gst::py_handler::PyHandler;
 use savant_core_py::gst::{FlowResult, InvocationReason};
 use std::sync::{Arc, LazyLock, OnceLock};
 // This module contains the private implementation details of our element
@@ -32,6 +32,15 @@ pub struct RsPySettings {
     module: Option<String>,
     class: Option<String>,
     parameters: Option<String>,
+    pipeline_name: Option<String>,
+    pipeline_stage: Option<String>,
+}
+
+#[derive(Default)]
+pub struct InteropParameters {
+    buffer: Option<Buffer>,
+    source_event: Option<Event>,
+    sink_event: Option<Event>,
 }
 
 // Struct containing all the element data
@@ -40,23 +49,28 @@ pub struct RsPy {
     sink_pad: gst::Pad,
     instance: OnceLock<PyHandler>,
     settings: RwLock<RsPySettings>,
-    buffer: Arc<Mutex<Option<Buffer>>>,
-    sink_event: Arc<Mutex<Option<Event>>>,
-    src_event: Arc<Mutex<Option<Event>>>,
+    interop: Arc<Mutex<InteropParameters>>,
 }
 
 impl RsPy {
     fn load_handler(&self, element_name: &str) -> PyHandler {
+        gst::info!(CAT, "Loading handler for element {}", element_name);
         Python::with_gil(|py| {
             let settings = self.settings.read();
             let module_name = settings.module.as_ref().expect("Module name must be set");
             let class_name = settings.class.as_ref().expect("Class name must be set");
             let default_parameters = "{}".to_string();
             let parameters = settings.parameters.as_ref().unwrap_or(&default_parameters);
-
-            PyHandler::new(py, module_name, class_name, element_name, parameters)
-                .expect("Error initializing Python handler")
+            let h = PyHandler::new(py, module_name, class_name, element_name, parameters)
+                .expect("Error initializing Python handler");
+            gst::info!(CAT, "Handler loaded for element {}", element_name);
+            h
         })
+    }
+
+    fn get_handler(&self) -> &PyHandler {
+        self.instance
+            .get_or_init(|| self.load_handler(self.obj().name().as_str()))
     }
 
     // Called whenever a new buffer is passed to our sink pad. Here buffers should be processed and
@@ -72,15 +86,14 @@ impl RsPy {
     ) -> Result<gst::FlowSuccess, gst::FlowError> {
         gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
         {
-            let mut buf_bind = self.buffer.lock();
-            *buf_bind = Some(buffer.clone());
+            let mut bind = self.interop.lock();
+            bind.buffer = Some(buffer.clone());
         }
 
         Python::with_gil(|py| {
             let element_name = self.obj().name().to_string();
-            let handler = self
-                .instance
-                .get_or_init(|| self.load_handler(&element_name));
+            let handler = self.get_handler();
+
             let res = handler.call(py, (element_name, InvocationReason::Buffer)); // , shared_buf.clone()
             match res {
                 Err(e) => {
@@ -119,20 +132,15 @@ impl RsPy {
     fn invoke_for_event(&self, reason: InvocationReason) -> bool {
         Python::with_gil(|py| {
             let element_name = self.obj().name().to_string();
-            let handler = self
-                .instance
-                .get_or_init(|| self.load_handler(&element_name));
+            let handler = self.get_handler();
             let res = handler.call(py, (element_name, reason));
             match res {
                 Ok(obj) => {
                     let bool_res = obj.extract::<bool>(py);
-                    match bool_res {
-                        Ok(res) => res,
-                        Err(e) => {
-                            log::error!("Error extracting bool result: {:?}", e);
-                            false
-                        }
-                    }
+                    bool_res.unwrap_or_else(|e| {
+                        log::error!("Error extracting bool result: {:?}", e);
+                        false
+                    })
                 }
                 Err(e) => {
                     log::error!("Error calling event processing function: {:?}", e);
@@ -152,8 +160,8 @@ impl RsPy {
     fn sink_event(&self, pad: &gst::Pad, event: Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
         {
-            let mut sink_event_bind = self.sink_event.lock();
-            *sink_event_bind = Some(event.clone());
+            let mut bind = self.interop.lock();
+            bind.sink_event = Some(event.clone());
         }
         self.invoke_for_event(InvocationReason::SinkEvent) && self.src_pad.push_event(event)
     }
@@ -169,8 +177,8 @@ impl RsPy {
     fn src_event(&self, pad: &gst::Pad, event: Event) -> bool {
         gst::log!(CAT, obj = pad, "Handling event {:?}", event);
         {
-            let mut src_event_bind = self.src_event.lock();
-            *src_event_bind = Some(event.clone());
+            let mut bind = self.interop.lock();
+            bind.source_event = Some(event.clone());
         }
         self.invoke_for_event(InvocationReason::SourceEvent) && self.sink_pad.push_event(event)
     }
@@ -258,27 +266,13 @@ impl ObjectSubclass for RsPy {
             sink_pad: sinkpad,
             instance: OnceLock::new(),
             settings: RwLock::new(RsPySettings::default()),
-            buffer: Arc::new(Mutex::new(None)),
-            sink_event: Arc::new(Mutex::new(None)),
-            src_event: Arc::new(Mutex::new(None)),
+            interop: Arc::new(Mutex::new(InteropParameters::default())),
         }
     }
 }
 
 // Implementation of glib::Object virtual methods
 impl ObjectImpl for RsPy {
-    // Called right after construction of a new instance
-    fn constructed(&self) {
-        // Call the parent class' ::constructed() implementation first
-        self.parent_constructed();
-
-        // Here we actually add the pads we created in RsPy::new() to the
-        // element so that GStreamer is aware of their existence.
-        let obj = self.obj();
-        obj.add_pad(&self.sink_pad).unwrap();
-        obj.add_pad(&self.src_pad).unwrap();
-    }
-
     fn properties() -> &'static [glib::ParamSpec] {
         // Metadata for the properties
         static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
@@ -295,6 +289,16 @@ impl ObjectImpl for RsPy {
                     .nick("Parameters")
                     .blurb("The **kwargs for the class constructor")
                     .default_value("{}")
+                    .build(),
+                glib::ParamSpecString::builder("savant-pipeline-name")
+                    .nick("PipelineName")
+                    .blurb("The pipeline to work with")
+                    .flags(ParamFlags::WRITABLE)
+                    .build(),
+                glib::ParamSpecString::builder("savant-pipeline-stage")
+                    .nick("PipelineStage")
+                    .blurb("The stage to work with")
+                    .flags(ParamFlags::WRITABLE)
                     .build(),
                 glib::ParamSpecBoxed::builder::<Buffer>("current-buffer")
                     .nick("Buffer")
@@ -320,9 +324,9 @@ impl ObjectImpl for RsPy {
     // Called whenever a value of a property is changed. It can be called
     // at any time from any thread.
     fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
+        let mut settings = self.settings.write();
         match pspec.name() {
             "module" => {
-                let mut settings = self.settings.write();
                 let module = value.get().expect("type checked upstream");
                 gst::info!(
                     CAT,
@@ -334,7 +338,6 @@ impl ObjectImpl for RsPy {
                 settings.module = Some(module);
             }
             "class" => {
-                let mut settings = self.settings.write();
                 let class = value.get().expect("type checked upstream");
                 gst::info!(
                     CAT,
@@ -346,7 +349,6 @@ impl ObjectImpl for RsPy {
                 settings.class = Some(class);
             }
             "parameters" => {
-                let mut settings = self.settings.write();
                 let parameters = value.get().expect("type checked upstream");
                 gst::info!(
                     CAT,
@@ -357,46 +359,64 @@ impl ObjectImpl for RsPy {
                 );
                 settings.parameters = Some(parameters);
             }
-            _ => unimplemented!(),
+            "savant-pipeline-name" => {
+                let pipeline_name = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing pipeline name to {}",
+                    pipeline_name
+                );
+                settings.pipeline_name = Some(pipeline_name);
+            }
+            "savant-pipeline-stage" => {
+                let pipeline_stage = value.get().expect("type checked upstream");
+                gst::info!(
+                    CAT,
+                    imp = self,
+                    "Changing pipeline stage to {}",
+                    pipeline_stage
+                );
+                settings.pipeline_stage = Some(pipeline_stage);
+            }
+            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
         }
     }
 
     // Called whenever a value of a property is read. It can be called
     // at any time from any thread.
     fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        let settings = self.settings.read();
         match pspec.name() {
-            "module" => {
-                let settings = self.settings.read();
-                settings.module.to_value()
-            }
-            "class" => {
-                let settings = self.settings.read();
-                settings.class.to_value()
-            }
-            "parameters" => {
-                let settings = self.settings.read();
-                settings.parameters.to_value()
-            }
+            "module" => settings.module.to_value(),
+            "class" => settings.class.to_value(),
+            "parameters" => settings.parameters.to_value(),
             "current-buffer" => {
-                let buf = self.buffer.clone();
-                let mut buf_bind = buf.lock();
-                let buf = buf_bind.take();
+                let buf = self.interop.lock().buffer.take();
                 buf.to_value()
             }
             "sink-event" => {
-                let sink_event = self.sink_event.clone();
-                let mut sink_event_bind = sink_event.lock();
-                let sink_event = sink_event_bind.take();
+                let sink_event = self.interop.lock().sink_event.take();
                 sink_event.to_value()
             }
             "source-event" => {
-                let src_event = self.src_event.clone();
-                let mut src_event_bind = src_event.lock();
-                let src_event = src_event_bind.take();
-                src_event.to_value()
+                let source_event = self.interop.lock().source_event.take();
+                source_event.to_value()
             }
-            _ => unimplemented!(),
+            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
         }
+    }
+
+    // Called right after construction of a new instance
+    fn constructed(&self) {
+        // Call the parent class' ::constructed() implementation first
+        self.parent_constructed();
+
+        // Here we actually add the pads we created in RsPy::new() to the
+        // element so that GStreamer is aware of their existence.
+        let obj = self.obj();
+        obj.add_pad(&self.sink_pad).unwrap();
+        obj.add_pad(&self.src_pad).unwrap();
     }
 }
 
@@ -412,8 +432,8 @@ impl ElementImpl for RsPy {
         static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
             gst::subclass::ElementMetadata::new(
                 "RsPy",
-                "Module invoking custom Python functions for buffers and events",
-                "Does nothing with the data",
+                "Custom PyFunc Invocation Module",
+                "A module invoking a custom Python function for buffers and events",
                 "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on work of Sebastian Dröge <sebastian@centricular.com>",
             )
         });
@@ -458,10 +478,22 @@ impl ElementImpl for RsPy {
     // the element again.
     fn change_state(
         &self,
-        transition: gst::StateChange,
+        transition: StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        gst::trace!(CAT, imp = self, "Changing state {:?}", transition);
-
+        gst::info!(CAT, imp = self, "Changing state {:?}", transition);
+        _ = self.get_handler();
+        match transition {
+            StateChange::NullToReady => {}
+            StateChange::ReadyToPaused => {}
+            StateChange::PausedToPlaying => {}
+            StateChange::PlayingToPaused => {}
+            StateChange::PausedToReady => {}
+            StateChange::ReadyToNull => {}
+            StateChange::NullToNull => {}
+            StateChange::ReadyToReady => {}
+            StateChange::PausedToPaused => {}
+            StateChange::PlayingToPlaying => {}
+        }
         // Call the parent class' implementation of ::change_state()
         self.parent_change_state(transition)
     }

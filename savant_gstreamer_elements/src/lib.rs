@@ -1,10 +1,8 @@
-mod py_handler;
 mod rspy;
 // mod zeromq_src;
 
 use gst::glib;
 use gst::prelude::StaticType;
-
 // The public Rust wrapper type for our element
 glib::wrapper! {
     pub struct RsPy(ObjectSubclass<rspy::RsPy>) @extends gst::Element, gst::Object;

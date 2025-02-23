@@ -81,6 +81,7 @@ pub struct Pipeline(pub(crate) Arc<implementation::Pipeline>);
 impl Pipeline {
     #[allow(clippy::type_complexity)]
     pub fn new(
+        name: &str,
         stages: Vec<(
             String,
             PipelineStagePayloadType,
@@ -89,17 +90,13 @@ impl Pipeline {
         )>,
         configuration: PipelineConfiguration,
     ) -> Result<Self> {
-        let pipeline = Arc::new(implementation::Pipeline::new(stages, configuration)?);
+        let pipeline = Arc::new(implementation::Pipeline::new(name, stages, configuration)?);
         let p = Self(pipeline);
         register_pipeline(p.0.clone());
         Ok(p)
     }
 
-    pub fn set_name(&self, name: String) -> Result<()> {
-        self.0.set_name(name)
-    }
-
-    pub fn get_name(&self) -> Option<String> {
+    pub fn get_name(&self) -> String {
         self.0.get_name()
     }
 
@@ -127,7 +124,7 @@ impl Pipeline {
         self.0.clear_source_ordering(source_id)
     }
 
-    pub fn set_root_span_name(&self, name: String) -> Result<()> {
+    pub fn set_root_span_name(&self, name: &str) -> Result<()> {
         self.0.set_root_span_name(name)
     }
 
@@ -332,17 +329,8 @@ pub(super) mod implementation {
     unsafe impl Sync for Pipeline {}
 
     impl Pipeline {
-        pub fn set_name(&self, name: String) -> Result<()> {
-            self.name.set(name).map_err(|last| {
-                anyhow::anyhow!(
-                    "The pipeline name can only be set once. The current value: {}",
-                    last
-                )
-            })
-        }
-
-        pub fn get_name(&self) -> Option<String> {
-            self.name.get().cloned()
+        pub fn get_name(&self) -> String {
+            self.name.get().cloned().expect("Pipeline name is not set")
         }
 
         pub fn get_stage_name(&self, stage_id: usize) -> Option<String> {
@@ -375,6 +363,7 @@ pub(super) mod implementation {
 
         #[allow(clippy::type_complexity)]
         pub fn new(
+            name: &str,
             stages: Vec<(
                 String,
                 PipelineStagePayloadType,
@@ -389,6 +378,7 @@ pub(super) mod implementation {
                 configuration.timestamp_period,
             );
             let mut pipeline = Self {
+                name: OnceLock::from(name.to_string()),
                 configuration,
                 stats,
                 ..Default::default()
@@ -416,8 +406,8 @@ pub(super) mod implementation {
             self.frame_locations.read().len()
         }
 
-        pub fn set_root_span_name(&self, name: String) -> Result<()> {
-            self.root_span_name.set(name).map_err(|last| {
+        pub fn set_root_span_name(&self, name: &str) -> Result<()> {
+            self.root_span_name.set(name.to_string()).map_err(|last| {
                 anyhow::anyhow!(
                     "The root span name can only be set once. The current value: {}",
                     last
@@ -1090,6 +1080,7 @@ pub(super) mod implementation {
     #[cfg(test)]
     pub(crate) fn create_test_pipeline() -> anyhow::Result<Pipeline> {
         let pipeline = Pipeline::new(
+            "test_pipeline",
             vec![
                 (
                     "input".to_string(),

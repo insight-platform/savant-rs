@@ -73,9 +73,9 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<gst::GstBuffer>()?;
     m.add_class::<gst::FlowResult>()?;
     m.add_class::<gst::InvocationReason>()?;
+    m.add_function(wrap_pyfunction!(gst::register_handler, m)?)?;
     Ok(())
 }
 

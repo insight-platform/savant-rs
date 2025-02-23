@@ -50,6 +50,7 @@ evalexpr = { version = "11", features = ["rand", "regex_support"] }
 futures-util = "0.3"
 
 geo = "=0.28"
+glib = "0.20"
 globset = "0.4"
 
 gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
@@ -57,6 +58,7 @@ gst-base = { package = "gstreamer-base", git = "https://gitlab.freedesktop.org/g
 gst-video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
 gst-audio = { package = "gstreamer-audio", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", branch = "main" }
 gst-plugin-version-helper = "0.8"
+gstreamer = "0.23.5"
 
 hashbrown = { version = "0.15", features = ["serde"] }
 

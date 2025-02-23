@@ -331,7 +331,7 @@ impl PipelineConfiguration {
 impl Pipeline {
     #[new]
     fn new(
-        name: String,
+        name: &str,
         stages: Vec<(String, VideoPipelineStagePayloadType, PyObject, PyObject)>,
         configuration: PipelineConfiguration,
     ) -> PyResult<Self> {
@@ -356,7 +356,7 @@ impl Pipeline {
             })
             .collect::<PyResult<Vec<_>>>()?;
 
-        let p = rust::Pipeline::new(stages, configuration.0)
+        let p = rust::Pipeline::new(name, stages, configuration.0)
             .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {}", e)))?;
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;

@@ -74,7 +74,7 @@ fn get_pipeline(
         .map(|(name, payload)| (name.clone(), payload.clone(), None, None))
         .collect();
 
-    let pipeline = Pipeline::new(pipeline_stages, conf)?;
+    let pipeline = Pipeline::new("bench_pipeline", pipeline_stages, conf)?;
     stages.pop();
     pipeline.set_root_span_name("bench".to_owned())?;
     Ok((pipeline, stages))

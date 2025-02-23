@@ -1,4 +1,5 @@
 use clap::Parser;
+use log::info;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use savant_rs::*;
@@ -12,6 +13,8 @@ struct Cli {
     function_name: String,
     #[clap(short, long)]
     python_root: Option<String>,
+    #[arg(last = true)]
+    slop: Vec<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -46,21 +49,22 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    log::info!("GST_PLUGIN_PATH={}", std::env::var("GST_PLUGIN_PATH")?);
+    info!("GST_PLUGIN_PATH={}", std::env::var("GST_PLUGIN_PATH")?);
 
-    Python::with_gil(|py| {
-        let module = PyModule::new(py, "savant_rs").map_err(|e| anyhow::anyhow!("{}", e))?;
-        init_all(py, &module).map_err(|e| anyhow::anyhow!("{}", e))?;
+    let invocation: PyResult<()> = Python::with_gil(|py| {
+        let module = PyModule::new(py, "savant_rs")?;
+        init_all(py, &module)?;
         // add the current directory to the Python module load path
         let sys = PyModule::import(py, "sys")?;
         let path_bind = sys.as_ref().getattr("path")?;
-        let path = path_bind
-            .downcast::<PyList>()
-            .map_err(|_| anyhow::anyhow!("sys.path is not a list"))?;
+        let path = path_bind.downcast::<PyList>()?;
         path.insert(0, module_root.as_str())?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name.as_str())?.unbind();
         f.call0(py)?;
         Ok(())
-    })
+    });
+    invocation?;
+
+    Ok(())
 }

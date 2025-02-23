@@ -1,7 +1,30 @@
+use hashbrown::HashMap;
+use lazy_static::lazy_static;
+use log::info;
+use parking_lot::Mutex;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::sync::GILOnceCell;
+use pyo3::types::{PyDict, PyFunction, PyTuple, PyType};
 use pyo3::{PyObject, PyResult};
 
+type GilOnceType = GILOnceCell<Py<PyType>>;
+type GilOnceFunc = GILOnceCell<Py<PyFunction>>;
+
+lazy_static! {
+    static ref CLASSES: Mutex<HashMap<(String, String), GilOnceType>> = Mutex::new(HashMap::new());
+}
+
+#[pyfunction]
+pub fn preload_type(py: Python, module_name: &str, class_name: &str) -> PyResult<()> {
+    info!("Preloading type {} from module {}", class_name, module_name);
+    let mut bind = CLASSES.lock();
+    bind.entry((module_name.to_string(), class_name.to_string()))
+        .or_default()
+        .import(py, module_name, class_name)?;
+    Ok(())
+}
+
+#[pyclass]
 pub struct PyHandler {
     pub instance: PyObject,
 }
@@ -14,13 +37,20 @@ impl PyHandler {
         element_name: &str,
         args: &str,
     ) -> PyResult<Self> {
-        let module = PyModule::import(py, module_name)?;
-        let json_module = PyModule::import(py, "json")?;
-        let json = json_module.getattr("loads")?;
-        let args_binding = json.call1((args,))?;
-        let args = args_binding.downcast::<PyDict>()?;
-        let class = module.getattr(class_name)?;
-        let instance = class.call((element_name,), Some(args))?.unbind();
+        info!("Creating PyHandler");
+        let mut bind = CLASSES.lock();
+        let handler_type = bind
+            .entry((module_name.to_string(), class_name.to_string()))
+            .or_default()
+            .import(py, module_name, class_name)?;
+        info!("Module {} Class {} imported", module_name, class_name);
+        static JSON_LOADS: GilOnceFunc = GILOnceCell::new();
+        let kwargs_any = JSON_LOADS.import(py, "json", "loads")?.call1((args,))?;
+        info!("Kwargs created");
+        let kwargs = kwargs_any.downcast::<PyDict>()?;
+        info!("Kwargs casted to PyDict");
+        let instance = handler_type.call((element_name,), Some(kwargs))?.unbind();
+        info!("Handler instance created");
         Ok(Self { instance })
     }
 
@@ -35,8 +65,9 @@ impl PyHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gst::FlowResult;
+    use pyo3::ffi::c_str;
     use pyo3::types::PyDict;
-    use savant_core_py::gst::FlowResult;
 
     #[test]
     fn test_py_handler() -> PyResult<()> {

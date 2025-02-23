@@ -1,8 +1,4 @@
-import gi
-
 import entrypoint
-
-gi.require_version('Gst', '1.0')
 
 from savant_rs.logging import log, LogLevel
 from savant_rs.gstreamer import InvocationReason, FlowResult
@@ -20,14 +16,14 @@ class MyHandler:
         self.last = {}
         for k, v in kwargs.items():
             setattr(self, k, v)
-            print(f'{k}: {v}')
 
         self.element = entrypoint.pipeline.get_by_name(element_name)
         if self.element is None:
-            print("Failed to find rspy element")
-            return
+            print(f"Failed to find rspy element {element_name}")
+            exit(1)
 
     def __call__(self, element_name: str, reason: InvocationReason):
+
         if reason == InvocationReason.Buffer:
             _ = self.element.get_property("current-buffer")
             thread_id = threading.get_ident()
