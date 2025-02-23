@@ -18,7 +18,7 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
-    init_logs();
+    init_logs()?;
     let cli = Cli::parse();
     let module_root = cli.python_root.unwrap_or_else(|| ".".to_string());
     // check exists and is a directory

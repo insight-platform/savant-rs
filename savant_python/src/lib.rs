@@ -1,3 +1,4 @@
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::wrap_pymodule;
@@ -326,23 +327,30 @@ pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    init_logs();
+    init_logs()?;
     init_all(py, m)
 }
 
-pub fn init_logs() {
+pub fn init_logs() -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
-    let log_env_var_level = "info";
+    let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
         unsafe {
             std::env::set_var(log_env_var_name, log_env_var_level);
         }
     }
-    pretty_env_logger::try_init_custom_env(log_env_var_name).unwrap();
+    err_to_pyo3!(
+        pretty_env_logger::try_init_timed_custom_env(log_env_var_name),
+        PyRuntimeError
+    )?;
+
+    set_log_level(LogLevel::Error);
+    Ok(())
 }
 
 pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?; // PYI
+
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;
     m.add_wrapped(wrap_pymodule!(self::geometry))?;
