@@ -1,23 +1,11 @@
-// Copyright (C) 2018 Sebastian Dröge <sebastian@centricular.com>
-//
-// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
-// http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
-// <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
-// option. This file may not be copied, modified, or distributed
-// except according to those terms.
-//
-// SPDX-License-Identifier: MIT OR Apache-2.0
-
 use gst::prelude::*;
 use gst::subclass::prelude::*;
-use gst::{glib, Buffer, Element, Event, StateChange};
+use gst::{glib, Buffer, Event, StateChange};
 use gst_audio::glib::ParamFlags;
 use parking_lot::{Mutex, RwLock};
 use pyo3::prelude::*;
-use savant_core_py::gst::py_handler::PyHandler;
-use savant_core_py::gst::{FlowResult, InvocationReason};
-use std::sync::{Arc, LazyLock, OnceLock};
-// This module contains the private implementation details of our element
+use savant_core_py::gst::{FlowResult, InvocationReason, REGISTERED_HANDLERS};
+use std::sync::{Arc, LazyLock};
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -29,11 +17,8 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 
 #[derive(Debug, Clone, Default)]
 pub struct RsPySettings {
-    module: Option<String>,
-    class: Option<String>,
-    parameters: Option<String>,
-    pipeline_name: Option<String>,
-    pipeline_stage: Option<String>,
+    pub pipeline_name: Option<String>,
+    pub pipeline_stage: Option<String>,
 }
 
 #[derive(Default)]
@@ -47,32 +32,11 @@ pub struct InteropParameters {
 pub struct RsPy {
     src_pad: gst::Pad,
     sink_pad: gst::Pad,
-    instance: OnceLock<PyHandler>,
     settings: RwLock<RsPySettings>,
     interop: Arc<Mutex<InteropParameters>>,
 }
 
 impl RsPy {
-    fn load_handler(&self, element_name: &str) -> PyHandler {
-        gst::info!(CAT, "Loading handler for element {}", element_name);
-        Python::with_gil(|py| {
-            let settings = self.settings.read();
-            let module_name = settings.module.as_ref().expect("Module name must be set");
-            let class_name = settings.class.as_ref().expect("Class name must be set");
-            let default_parameters = "{}".to_string();
-            let parameters = settings.parameters.as_ref().unwrap_or(&default_parameters);
-            let h = PyHandler::new(py, module_name, class_name, element_name, parameters)
-                .expect("Error initializing Python handler");
-            gst::info!(CAT, "Handler loaded for element {}", element_name);
-            h
-        })
-    }
-
-    fn get_handler(&self) -> &PyHandler {
-        self.instance
-            .get_or_init(|| self.load_handler(self.obj().name().as_str()))
-    }
-
     // Called whenever a new buffer is passed to our sink pad. Here buffers should be processed and
     // whenever some output buffer is available have to push it out of the source pad.
     // Here we just pass through all buffers directly
@@ -92,9 +56,12 @@ impl RsPy {
 
         Python::with_gil(|py| {
             let element_name = self.obj().name().to_string();
-            let handler = self.get_handler();
+            let handlers_bind = REGISTERED_HANDLERS.read();
+            let handler = handlers_bind
+                .get(&element_name)
+                .unwrap_or_else(|| panic!("Handler {} not found", element_name));
 
-            let res = handler.call(py, (element_name, InvocationReason::Buffer)); // , shared_buf.clone()
+            let res = handler.call1(py, (element_name, InvocationReason::Buffer)); // , shared_buf.clone()
             match res {
                 Err(e) => {
                     log::error!("Error calling buffer processing function: {:?}", e);
@@ -132,8 +99,11 @@ impl RsPy {
     fn invoke_for_event(&self, reason: InvocationReason) -> bool {
         Python::with_gil(|py| {
             let element_name = self.obj().name().to_string();
-            let handler = self.get_handler();
-            let res = handler.call(py, (element_name, reason));
+            let handlers_bind = REGISTERED_HANDLERS.read();
+            let handler = handlers_bind
+                .get(&element_name)
+                .unwrap_or_else(|| panic!("Handler {} not found", element_name));
+            let res = handler.call1(py, (element_name, reason));
             match res {
                 Ok(obj) => {
                     let bool_res = obj.extract::<bool>(py);
@@ -264,7 +234,6 @@ impl ObjectSubclass for RsPy {
         Self {
             src_pad: srcpad,
             sink_pad: sinkpad,
-            instance: OnceLock::new(),
             settings: RwLock::new(RsPySettings::default()),
             interop: Arc::new(Mutex::new(InteropParameters::default())),
         }
@@ -277,19 +246,6 @@ impl ObjectImpl for RsPy {
         // Metadata for the properties
         static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
             vec![
-                glib::ParamSpecString::builder("module")
-                    .nick("PythonModule")
-                    .blurb("Python module to load")
-                    .build(),
-                glib::ParamSpecString::builder("class")
-                    .nick("Class")
-                    .blurb("The Class representing the object")
-                    .build(),
-                glib::ParamSpecString::builder("parameters")
-                    .nick("Parameters")
-                    .blurb("The **kwargs for the class constructor")
-                    .default_value("{}")
-                    .build(),
                 glib::ParamSpecString::builder("savant-pipeline-name")
                     .nick("PipelineName")
                     .blurb("The pipeline to work with")
@@ -326,39 +282,6 @@ impl ObjectImpl for RsPy {
     fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
         let mut settings = self.settings.write();
         match pspec.name() {
-            "module" => {
-                let module = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing module name from {:?} to {}",
-                    settings.module,
-                    module
-                );
-                settings.module = Some(module);
-            }
-            "class" => {
-                let class = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing init function from {:?} to {}",
-                    settings.class,
-                    class
-                );
-                settings.class = Some(class);
-            }
-            "parameters" => {
-                let parameters = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing parameters from {:?} to {}",
-                    settings.parameters,
-                    parameters
-                );
-                settings.parameters = Some(parameters);
-            }
             "savant-pipeline-name" => {
                 let pipeline_name = value.get().expect("type checked upstream");
                 gst::info!(
@@ -386,11 +309,7 @@ impl ObjectImpl for RsPy {
     // Called whenever a value of a property is read. It can be called
     // at any time from any thread.
     fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
-        let settings = self.settings.read();
         match pspec.name() {
-            "module" => settings.module.to_value(),
-            "class" => settings.class.to_value(),
-            "parameters" => settings.parameters.to_value(),
             "current-buffer" => {
                 let buf = self.interop.lock().buffer.take();
                 buf.to_value()
@@ -481,20 +400,6 @@ impl ElementImpl for RsPy {
         transition: StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         gst::info!(CAT, imp = self, "Changing state {:?}", transition);
-        _ = self.get_handler();
-        match transition {
-            StateChange::NullToReady => {}
-            StateChange::ReadyToPaused => {}
-            StateChange::PausedToPlaying => {}
-            StateChange::PlayingToPaused => {}
-            StateChange::PausedToReady => {}
-            StateChange::ReadyToNull => {}
-            StateChange::NullToNull => {}
-            StateChange::ReadyToReady => {}
-            StateChange::PausedToPaused => {}
-            StateChange::PlayingToPlaying => {}
-        }
-        // Call the parent class' implementation of ::change_state()
         self.parent_change_state(transition)
     }
 }
