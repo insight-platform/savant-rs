@@ -4,7 +4,6 @@ protocol = "sparse"
 # enable x86 optimizations V3
 [target.x86_64-unknown-linux-gnu]
 rustflags = "-C target-cpu=x86-64-v3 -C prefer-dynamic"
-env = { CXXFLAGS = "-mpclmul -msse2" }
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = "-C prefer-dynamic"
