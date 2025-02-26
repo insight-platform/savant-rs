@@ -19,7 +19,7 @@ env:
 jobs:
   linux:
     runs-on:
-      - self-hosted
+      - ${{ matrix.hosting }}
       - ${{ matrix.runner }}
     permissions:
       contents: read
@@ -33,11 +33,13 @@ jobs:
             arch: linux/arm64
             tag: ghcr.io/insight-platform/replay-arm64
             runner: ARM64
+            hosting: self-hosted
           - docker_file: docker/services/Dockerfile.replay
             name: replay-x86
             arch: linux/amd64
             tag: ghcr.io/insight-platform/replay-x86
             runner: X64
+            hosting: ubuntu-latest
 
     steps:
       - name: Checkout repository
