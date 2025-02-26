@@ -13,7 +13,6 @@ on:
     branches: [ "main" ]
 
 env:
-  # Use docker.io for Docker Hub if empty
   REGISTRY: ghcr.io
 
 jobs:
@@ -87,13 +86,11 @@ jobs:
       - name: Set Docker image tag
         id: set-tag
         run: |
-          IMAGE_NAME="your-dockerhub-username/your-image-name"
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "TAG=latest" >> $GITHUB_ENV
           else
             echo "TAG=${{ env.TAG_NAME }}" >> $GITHUB_ENV
           fi
-          echo "IMAGE=${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Push docker image for ${{ env.GITHUB_REF_SLUG }}
         if: github.event_name != 'pull_request'

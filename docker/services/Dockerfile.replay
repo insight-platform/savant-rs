@@ -8,14 +8,14 @@ RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/
 
 FROM debian:bookworm-slim AS runner
 
-RUN apt-get update && apt install -y \
-      gstreamer1.0-plugins-base \
-      gstreamer1.0-plugins-good \
-      gstreamer1.0-plugins-bad \
-      gstreamer1.0-plugins-ugly \
-      gstreamer1.0-libav \
-      gstreamer1.0-pulseaudio \
-      libpython3-dev
+# RUN apt-get update && apt install -y \
+#      gstreamer1.0-plugins-base \
+#      gstreamer1.0-plugins-good \
+#      gstreamer1.0-plugins-bad \
+#      gstreamer1.0-plugins-ugly \
+#      gstreamer1.0-libav \
+#      gstreamer1.0-pulseaudio \
+#      libpython3-dev
 
 COPY --from=builder /opt /opt
 
