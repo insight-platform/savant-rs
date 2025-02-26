@@ -1,15 +1,21 @@
-FROM rust:1.78 AS builder
+FROM rust:1.85 AS builder
 
 WORKDIR /opt/replay
-COPY ../../services/Replay .
-COPY ../../services/Replay/replay/assets/test.json /opt/etc/config.json
 
-RUN build/docker-deps.sh
-RUN cargo build --release
-RUN build/copy-deps.sh
-RUN cargo clean
+RUN --mount=type=bind,source=.,target=/opt/savant-rs /opt/savant-rs/utils/services/replay/docker-deps.sh
+RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build cargo build --release -p replay
+RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs /opt/savant-rs/utils/services/replay/copy-deps.sh
 
 FROM debian:bookworm-slim AS runner
+
+RUN apt-get update && apt install -y \
+      gstreamer1.0-plugins-base \
+      gstreamer1.0-plugins-good \
+      gstreamer1.0-plugins-bad \
+      gstreamer1.0-plugins-ugly \
+      gstreamer1.0-libav \
+      gstreamer1.0-pulseaudio \
+      libpython3-dev
 
 COPY --from=builder /opt /opt
 

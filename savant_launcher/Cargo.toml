@@ -13,14 +13,13 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-env_logger = { workspace = true }
 anyhow = { workspace = true }
-savant_rs = { workspace = true }
-savant_core_py = { workspace = true }
-pyo3 = { workspace = true, features = ["auto-initialize"] }
-log = "0.4.22"
 clap = { workspace = true }
-gst = { workspace = true }
-gst-base = { workspace = true }
-gstreamer = { workspace = true }
-glib = { workspace = true }
+log = "0.4.22"
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+savant_rs = { workspace = true }
+# savant_core_py = { workspace = true }
+#gst = { workspace = true }
+#gst-base = { workspace = true }
+#gstreamer = { workspace = true }
+#glib = { workspace = true }

@@ -1,8 +1,8 @@
-FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.6 AS builder
+FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.7 AS builder
 
 COPY . .
 ARG PYTHON_INTERPRETER
-RUN make release
+RUN BUILD_ENVIRONMENT=manylinux make release
 RUN rm -rf target
 
 FROM alpine:3.18 AS dist

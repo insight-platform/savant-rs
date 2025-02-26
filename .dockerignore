@@ -3,3 +3,5 @@ python
 .github
 .idea
 docs
+venv*
+dist

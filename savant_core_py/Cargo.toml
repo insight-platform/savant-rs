@@ -21,13 +21,13 @@ colored = { workspace = true }
 evalexpr = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
-gst = { workspace = true }
-gst-base = { workspace = true }
+#gst = { workspace = true }
+#gst-base = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 opentelemetry = { workspace = true }
 parking_lot = { workspace = true }
-pyo3 = { workspace = true, features = ["auto-initialize"] }
+pyo3 = { workspace = true }
 savant_core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

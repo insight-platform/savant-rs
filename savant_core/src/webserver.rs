@@ -236,7 +236,7 @@ pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
         let name = pipeline.get_name();
         let entry = bind.get(&name);
         if entry.is_some() {
-            let message = format!("Pipeline with name {} already exists in stats.", &name);
+            let message = format!("Pipeline with name {} already exists in registry.", &name);
             error!("{}", message);
             panic!("{}", message);
         }

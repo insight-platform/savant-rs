@@ -1,5 +1,5 @@
 mod rspy;
-mod zeromq_src;
+// mod zeromq_src;
 
 use gst::glib;
 use gst::prelude::StaticType;
@@ -8,21 +8,21 @@ glib::wrapper! {
     pub struct RsPy(ObjectSubclass<rspy::RsPy>) @extends gst::Element, gst::Object;
 }
 
-glib::wrapper! {
-    pub struct ZeromqSrc(ObjectSubclass<zeromq_src::ZeromqSrc>) @extends gst_base::PushSrc, gst_base::BaseSrc, gst::Element, gst::Object;
-}
+// glib::wrapper! {
+//     pub struct ZeromqSrc(ObjectSubclass<zeromq_src::ZeromqSrc>) @extends gst_base::PushSrc, gst_base::BaseSrc, gst::Element, gst::Object;
+// }
 
 // Registers the type for our element, and then registers in GStreamer under
 // the name "rspy" for being able to instantiate it via e.g.
 // gst::ElementFactory::make().
 pub fn register(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     gst::Element::register(Some(plugin), "rspy", gst::Rank::NONE, RsPy::static_type())?;
-    gst::Element::register(
-        Some(plugin),
-        "zeromq_src",
-        gst::Rank::NONE,
-        ZeromqSrc::static_type(),
-    )?;
+    // gst::Element::register(
+    //     Some(plugin),
+    //     "zeromq_src",
+    //     gst::Rank::NONE,
+    //     ZeromqSrc::static_type(),
+    // )?;
     Ok(())
 }
 

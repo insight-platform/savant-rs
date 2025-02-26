@@ -46,19 +46,22 @@ if [ "$MODE" = "release" ]; then
   CARGO_BUILD_FLAG="--release"
 fi
 
-echo "Building python-embedded libraries"
-# if PYTHON_INTERPRETER is set, set PYO3_PYTHON to the same value
-if [ -n "$PYTHON_INTERPRETER" ]; then
-    export PYO3_PYTHON=$PYTHON_INTERPRETER
-fi
-cargo build $CARGO_BUILD_FLAG
-cp "$BUILD_ARTIFACT_LOCATION"/*.so $ARTIFACT_LOCATION
-cp "$BUILD_ARTIFACT_LOCATION"/savant_launcher $ARTIFACT_LOCATION
-cp $(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep "$RUST_TOOLCHAIN") $ARTIFACT_LOCATION
+if [ "$BUILD_ENVIRONMENT" != "manylinux" ]; then
 
-# pack artifacts in a tarball
-echo "Packing artifacts"
-cd $ARTIFACT_LOCATION && tar -czf ../embedded_python-"$ARCHITECTURE".tar.gz *.so
+  echo "Building python-embedded libraries"
+  if [ -n "$PYTHON_INTERPRETER" ]; then
+      export PYO3_PYTHON=$PYTHON_INTERPRETER
+  fi
+  cargo build $CARGO_BUILD_FLAG -p savant_rs -p savant_gstreamer_elements -p savant_launcher
+  cp "$BUILD_ARTIFACT_LOCATION"/*.so $ARTIFACT_LOCATION
+  cp "$BUILD_ARTIFACT_LOCATION"/savant_launcher $ARTIFACT_LOCATION
+  cp $(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep "$RUST_TOOLCHAIN") $ARTIFACT_LOCATION
+
+  # pack artifacts in a tarball
+  echo "Packing artifacts"
+  cd $ARTIFACT_LOCATION && tar -czf ../embedded_python-"$ARCHITECTURE".tar.gz *.so
+
+fi
 
 MATURIN_PYTHON_SEARCH_ARGS=-f
 
@@ -77,9 +80,9 @@ fi
 
 CARGO_INCREMENTAL=true maturin build $EXTRA_FLAGS -o "$PROJECT_DIR"/dist
 
-cd "$PROJECT_DIR"
-
-for d in $(find savant_plugins/* -maxdepth 0 -type d); do
-		cd $d && CARGO_INCREMENTAL=true maturin build $EXTRA_FLAGS -o "$PROJECT_DIR"/dist
-		cd "$PROJECT_DIR"
-done
+#cd "$PROJECT_DIR"
+#
+#for d in $(find savant_plugins/* -maxdepth 0 -type d); do
+#		cd $d && CARGO_INCREMENTAL=true maturin build $EXTRA_FLAGS -o "$PROJECT_DIR"/dist
+#		cd "$PROJECT_DIR"
+#done
