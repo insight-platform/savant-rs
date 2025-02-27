@@ -12,14 +12,14 @@ fn bench_solely_owned_areas(bbox_count: usize, parallel: bool) {
     let pos_y_range = 0.0..1080.0;
     let width_range = 50.0..600.0;
     let height_range = 50.0..400.0;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let bboxes: Vec<RBBox> = (0..bbox_count)
         .map(|_| {
             RBBox::new(
-                rng.gen_range(pos_x_range.clone()),
-                rng.gen_range(pos_y_range.clone()),
-                rng.gen_range(width_range.clone()),
-                rng.gen_range(height_range.clone()),
+                rng.random_range(pos_x_range.clone()),
+                rng.random_range(pos_y_range.clone()),
+                rng.random_range(width_range.clone()),
+                rng.random_range(height_range.clone()),
                 Some(0.0),
             )
         })

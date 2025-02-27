@@ -73,6 +73,14 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[pymodule(gil_used = false)]
+pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<gst::FlowResult>()?;
+    m.add_class::<gst::InvocationReason>()?;
+    m.add_function(wrap_pyfunction!(gst::register_handler, m)?)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
 pub fn webserver(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_webserver, m)?)?;
     m.add_function(wrap_pyfunction!(stop_webserver, m)?)?;
@@ -319,6 +327,11 @@ pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    init_logs()?;
+    init_all(py, m)
+}
+
+pub fn init_logs() -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = "trace";
     if std::env::var(log_env_var_name).is_err() {
@@ -326,10 +339,16 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
             std::env::set_var(log_env_var_name, log_env_var_level);
         }
     }
-    pretty_env_logger::try_init_timed_custom_env(log_env_var_name)
-        .map_err(|_| PyRuntimeError::new_err("Failed to initialize logger"))?;
-    set_log_level(LogLevel::Error);
+    err_to_pyo3!(
+        pretty_env_logger::try_init_timed_custom_env(log_env_var_name),
+        PyRuntimeError
+    )?;
 
+    set_log_level(LogLevel::Error);
+    Ok(())
+}
+
+pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?; // PYI
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
@@ -346,11 +365,13 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::webserver))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::metrics))?; // PYI
     m.add_wrapped(wrap_pymodule!(self::kvs))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::gstreamer))?; // PYI
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
     let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
+    sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;

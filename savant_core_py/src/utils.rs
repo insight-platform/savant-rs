@@ -12,6 +12,18 @@ pub mod python;
 pub mod symbol_mapper;
 
 #[pyfunction]
+pub fn check_pybound_name(bo: &Bound<'_, PyAny>, expected_name: &str) -> PyResult<()> {
+    let name = bo.get_type().name()?.to_string();
+    if name.as_str() != expected_name {
+        return Err(PyValueError::new_err(format!(
+            "Ingress function must be a StageFunction, got {}",
+            name
+        )));
+    }
+    Ok(())
+}
+
+#[pyfunction]
 #[inline]
 pub fn round_2_digits(v: f32) -> f32 {
     savant_core::round_2_digits(v)

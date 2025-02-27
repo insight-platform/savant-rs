@@ -34,7 +34,7 @@ impl PipelineMetricBuilder {
             "Found {} registered pipeline(s)",
             registered_pipelines.len()
         );
-        for p in registered_pipelines {
+        for p in registered_pipelines.values() {
             let stats = p.get_stat_records(1);
             if stats.is_empty() {
                 debug!("No stats for pipeline {:?}", p.get_name());
@@ -43,12 +43,8 @@ impl PipelineMetricBuilder {
             let last_record = &stats[0];
             let pipeline_name = p.get_name();
             debug!("Building metrics for pipeline {:?}", &pipeline_name);
-            let (additional_label_names, additional_label_values) = if let Some(pn) = pipeline_name
-            {
-                (["pipeline_name"].as_slice(), vec![pn.clone()])
-            } else {
-                ([].as_slice(), vec![])
-            };
+            let (additional_label_names, additional_label_values) =
+                (["pipeline_name"].as_slice(), vec![pipeline_name.clone()]);
 
             let additional_label_value_refs = additional_label_values
                 .iter()

@@ -1,5 +1,5 @@
-import savant_plugin_sample
 import savant_rs
+import savant_plugin_sample
 from savant_rs.logging import log, LogLevel
 from savant_rs.logging import set_log_level
 from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration, StageFunction

@@ -78,7 +78,7 @@ pub struct KvsOperation {
 
 #[allow(clippy::type_complexity)]
 struct WsData {
-    pipelines: Arc<Mutex<Vec<Arc<implementation::Pipeline>>>>,
+    pipelines: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<PipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
@@ -131,7 +131,7 @@ impl WsData {
             }
         });
         WsData {
-            pipelines: Arc::new(Mutex::new(Vec::new())),
+            pipelines: Arc::new(Mutex::new(HashMap::new())),
             status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
@@ -230,31 +230,48 @@ lazy_static! {
 
 pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
-    let stats = WS_DATA.pipelines.clone();
+    let pipelines = WS_DATA.pipelines.clone();
     runtime.block_on(async move {
-        let mut bind = stats.lock().await;
-        bind.push(pipeline);
-        info!("Pipeline registered in stats.");
+        let mut bind = pipelines.lock().await;
+        let name = pipeline.get_name();
+        let entry = bind.get(&name);
+        if entry.is_some() {
+            let message = format!("Pipeline with name {} already exists in registry.", &name);
+            error!("{}", message);
+            panic!("{}", message);
+        }
+        bind.insert(name.clone(), pipeline.clone());
+        info!("Pipeline {} registered.", name);
     });
 }
 
 pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
     let runtime = get_or_init_async_runtime();
     let stats = WS_DATA.pipelines.clone();
+    let pipeline_name = pipeline.get_name();
     runtime.block_on(async move {
         let mut bind = stats.lock().await;
         let prev_len = bind.len();
-        debug!("Removing pipeline from stats.");
-        bind.retain(|p| !Arc::ptr_eq(p, &pipeline));
+        debug!("Removing pipeline {} from stats.", &pipeline_name);
+        bind.remove(&pipeline_name);
         if bind.len() == prev_len {
             error!("Failed to remove pipeline from stats.");
         }
     });
 }
 
-pub(crate) async fn get_registered_pipelines() -> Vec<Arc<implementation::Pipeline>> {
+pub(crate) async fn get_registered_pipelines() -> HashMap<String, Arc<implementation::Pipeline>> {
     let s = WS_DATA.pipelines.lock().await;
     s.clone()
+}
+
+pub fn get_pipeline(name: &str) -> Option<Arc<implementation::Pipeline>> {
+    let runtime = get_or_init_async_runtime();
+    let pipelines = WS_DATA.pipelines.clone();
+    runtime.block_on(async {
+        let bind = pipelines.lock().await;
+        bind.get(name).cloned()
+    })
 }
 
 pub fn set_status(s: PipelineStatus) -> anyhow::Result<()> {
@@ -622,7 +639,6 @@ mod tests {
         // }
         // _ = env_logger::try_init();
         let pipeline = Arc::new(create_test_pipeline()?);
-        pipeline.set_name("test_pipeline".into())?;
         register_pipeline(pipeline.clone());
         let id1 = pipeline.add_frame("input", gen_frame())?;
         // sleep for 5 ms

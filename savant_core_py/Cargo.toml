@@ -17,9 +17,12 @@ crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
+colored = { workspace = true }
 evalexpr = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
+#gst = { workspace = true }
+#gst-base = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 opentelemetry = { workspace = true }
@@ -31,16 +34,9 @@ serde_json = { workspace = true }
 prometheus-client = { workspace = true }
 tokio = { workspace = true }
 
-# unique to savant_core_py
-colored = "2"
-
 [build-dependencies]
 pyo3-build-config = { workspace = true }
-cbindgen = "0.24"
+cbindgen = { workspace = true }
 
 [package.metadata.maturin]
 python-source = "python"
-
-[features]
-extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]

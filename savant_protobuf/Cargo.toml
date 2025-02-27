@@ -1,5 +1,5 @@
 [package]
-name = "savant-protobuf"
+name = "savant_protobuf"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -14,7 +14,6 @@ rust-version.workspace = true
 
 [dependencies]
 prost = { workspace = true }
-prost-types = { workspace = true }
 
 [build-dependencies]
 prost-build = { workspace = true }

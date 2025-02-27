@@ -150,3 +150,10 @@ macro_rules! release_gil {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! err_to_pyo3 {
+    ($expr:expr, $py_err:ty) => {
+        $expr.map_err(|e| <$py_err>::new_err(e.to_string()))
+    };
+}

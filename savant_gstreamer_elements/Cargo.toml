@@ -1,5 +1,5 @@
 [package]
-name = "savant_plugin_sample"
+name = "savant_gstreamer_elements"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -19,16 +19,20 @@ crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
+hashbrown = { workspace = true }
 pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
+gst = { workspace = true }
+gst-base = { workspace = true }
+gst-video = { workspace = true }
+gst-audio = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
+gst-plugin-version-helper = { workspace = true }
 
-[package.metadata.maturin]
-python-source = "python"
 
-[features]
-extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]

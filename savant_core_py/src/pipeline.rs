@@ -15,8 +15,9 @@ use crate::primitives::batch::VideoFrameBatch;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::objects_view::VideoObjectsView;
-use crate::release_gil;
+use crate::utils::check_pybound_name;
 use crate::utils::otlp::TelemetrySpan;
+use crate::{release_gil, with_gil};
 
 #[pyclass]
 pub struct StageFunction(Mutex<Option<Box<dyn RustPipelineStageFunction>>>);
@@ -330,24 +331,32 @@ impl PipelineConfiguration {
 impl Pipeline {
     #[new]
     fn new(
-        name: String,
-        stages: Vec<(
-            String,
-            VideoPipelineStagePayloadType,
-            StageFunction,
-            StageFunction,
-        )>,
+        name: &str,
+        stages: Vec<(String, VideoPipelineStagePayloadType, PyObject, PyObject)>,
         configuration: PipelineConfiguration,
     ) -> PyResult<Self> {
         let stages = stages
             .into_iter()
-            .map(|(n, t, i, e)| {
-                let ingress = i.0.lock().take();
-                let egress = e.0.lock().take();
-                (n, t.into(), ingress, egress)
+            .map(|(n, t, ingress_func, egress_func)| {
+                with_gil!(|py| {
+                    let ingress = ingress_func.into_bound(py);
+                    //let ingress_type = ingress.get_type().name()?.to_string();
+                    check_pybound_name(&ingress, "StageFunction")?;
+                    let egress = egress_func.into_bound(py);
+                    check_pybound_name(&egress, "StageFunction")?;
+
+                    let typed_ingress = unsafe { ingress.downcast_unchecked::<StageFunction>() };
+                    let typed_egress = unsafe { egress.downcast_unchecked::<StageFunction>() };
+
+                    let ingress = typed_ingress.borrow().0.lock().take();
+                    let egress = typed_egress.borrow().0.lock().take();
+
+                    Ok((n, t.into(), ingress, egress))
+                })
             })
-            .collect();
-        let p = rust::Pipeline::new(stages, configuration.0)
+            .collect::<PyResult<Vec<_>>>()?;
+
+        let p = rust::Pipeline::new(name, stages, configuration.0)
             .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {}", e)))?;
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;

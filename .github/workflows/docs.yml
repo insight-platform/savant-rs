@@ -16,6 +16,8 @@ on:
     tags:
       - '*'
   pull_request:
+    paths:
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +27,7 @@ permissions:
 
 jobs:
   build-docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     # if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - uses: actions/checkout@v4
@@ -40,11 +42,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Gstreamer dependencies
+        run: |
+          sudo apt-get update && sudo apt install -y \
+            libgstreamer1.0-dev \
+            libunwind-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav libgstrtspserver-1.0-dev libges-1.0-dev \
+            libpython3-dev
+
       - name: Build Docs
         run: |
           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(dirname $(dirname $(rustup which cargo)))/lib
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-          make docs
+          PYTHON_INTERPRETER=python3.10 make docs
           tar \
           --dereference --hard-dereference \
           --directory docs/build/html -cvf artifact.tar .

@@ -1,0 +1,58 @@
+{
+  "common": {
+    "pass_metadata_only": false,
+    "management_port": ${API_PORT:-8080},
+    "stats_period": {
+      "secs": 60,
+      "nanos": 0
+    },
+    "job_writer_cache_max_capacity": 1000,
+    "job_writer_cache_ttl": {
+      "secs": 60,
+      "nanos": 0
+    },
+    "job_eviction_ttl": {
+      "secs": 60,
+      "nanos": 0
+    }
+  },
+  "in_stream": {
+    "url": "${IN_STREAM:-router+bind:tcp://0.0.0.0:5555}",
+    "receive_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "receive_hwm": 1000,
+    "topic_prefix_spec": {
+      "none": null
+    },
+    "source_cache_size": 1000,
+    "inflight_ops": 100,
+    "fix_ipc_permissions": 511
+  },
+  "out_stream": {
+    "url": "pub+bind:tcp://0.0.0.0:5556",
+    "send_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "send_retries": 3,
+    "receive_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "receive_retries": 3,
+    "send_hwm": 1000,
+    "receive_hwm": 100,
+    "inflight_ops": 100
+  },
+  "storage": {
+    "rocksdb": {
+      "path": "${DB_PATH:-/tmp/rocksdb}",
+      "data_expiration_ttl": {
+        "secs": 60,
+        "nanos": 0
+      }
+    }
+  }
+}

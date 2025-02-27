@@ -156,6 +156,7 @@ mod tests {
     #[test]
     fn test_move_as_is() {
         let pipeline = Pipeline::new(
+            "test",
             vec![
                 (
                     "stage1".to_owned(),
@@ -183,6 +184,7 @@ mod tests {
     #[test]
     fn test_move_and_pack() {
         let pipeline = Pipeline::new(
+            "test",
             vec![
                 (
                     "stage1".to_owned(),
@@ -216,6 +218,7 @@ mod tests {
     #[test]
     fn test_move_and_unpack() {
         let pipeline = Pipeline::new(
+            "test",
             vec![
                 (
                     "stage1".to_owned(),
