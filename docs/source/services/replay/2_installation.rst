@@ -61,7 +61,7 @@ Replay uses the following ports:
 
 If the service is deployed as a dead-end consumer, you do not need to use any other ports. Nevertheless, depending on the configuration file, you may need have an extra port opened for egress, when the service is deployed as intermediate node as depicted in the next image:
 
-.. image:: ../_static/replay_usage_diagram.png
+.. image:: ./_static/replay_usage_diagram.png
     :alt: Replay with Ingress and Egress
 
 Configuration File
