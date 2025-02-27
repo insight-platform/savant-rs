@@ -50,6 +50,7 @@ jobs:
             gstreamer1.0-plugins-ugly \
             gstreamer1.0-libav \
             gstreamer1.0-pulseaudio \
+            gstreamer-1.0-dev \
             libpython3-dev
 
       - name: Build Docs
