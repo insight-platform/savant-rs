@@ -70,8 +70,8 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}"
           load: true
           context: .
-      #          cache-from: type=gha
-      #          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
 
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
@@ -101,5 +101,5 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.TAG }}"
           push: true
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max

@@ -104,7 +104,7 @@ regex = "1"
 replaydb = { path = "services/replay/replaydb" }
 replay = { path = "services/replay/replay" }
 reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
-rocksdb = { version = "0.23", default-features = false, features = ["bindgen-runtime"] }
+rocksdb = { version = "0.23", default-features = false, features = ["bindgen-runtime", "lz4"] }
 ring = "0.17"
 
 savant_core = { path = "savant_core" }
