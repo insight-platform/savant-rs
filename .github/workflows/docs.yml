@@ -16,6 +16,8 @@ on:
     tags:
       - '*'
   pull_request:
+    paths:
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:

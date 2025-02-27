@@ -58,8 +58,8 @@ jobs:
       # Set up BuildKit Docker container builder to be able to build
       # multi-platform images and export cache
       # https://github.com/docker/setup-buildx-action
-      #      - name: Set up Docker Buildx
-      #        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
 
       - name: Build docker image for ${{ env.GITHUB_REF_SLUG }}
         if: github.event_name == 'pull_request'
@@ -70,8 +70,8 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}"
           load: true
           context: .
-          # cache-from: type=gha
-          # cache-to: type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
@@ -101,5 +101,5 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.TAG }}"
           push: true
           context: .
-          # cache-from: type=gha
-          # cache-to: type=gha,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
