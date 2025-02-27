@@ -25,7 +25,7 @@ X86_64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/replay-x86:main
+      ghcr.io/insight-platform/replay-x86:latest
 
 
 ARM64:
@@ -35,7 +35,7 @@ ARM64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/replay-arm64:main
+      ghcr.io/insight-platform/replay-arm64:latest
 
 
 The service will use the default configuration file and store data in the ``data`` directory on the host machine.
@@ -137,7 +137,7 @@ The above-mentioned configuration file is used by default, when you launch Repla
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
       -v $(pwd)/config.json:/opt/config.json \
-      ghcr.io/insight-platform/replay-x86:main /opt/config.json
+      ghcr.io/insight-platform/replay-x86:latest /opt/config.json
 
 Configuration Parameters
 -----------------------------
