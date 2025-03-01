@@ -1,7 +1,4 @@
-import numpy as np
 from savant_rs.logging import log, LogLevel, set_log_level
-from savant_rs.primitives import AttributeValue, Attribute
-from savant_rs.webserver.kvs import set_attributes
 from savant_rs.gstreamer import register_handler, InvocationReason, FlowResult
 import time
 import threading
@@ -9,7 +6,7 @@ import threading
 import gi
 
 gi.require_version('Gst', '1.0')
-from gi.repository import Gst, GLib, GObject
+from gi.repository import Gst
 
 set_log_level(LogLevel.Debug)
 
@@ -27,12 +24,12 @@ class PyFuncHandler:
         self.pipeline = pipeline
         self.element = None
 
-    def __call__(self, element_name: str, reason: InvocationReason):
+    def __call__(self, element_name: str, reason: InvocationReason, *args):
         if self.element is None:
             self.element = self.pipeline.get_by_name(element_name)
 
         if reason == InvocationReason.Buffer:
-            _ = self.element.get_property("current-buffer")
+            buf = self.element.get_property("current-buffer")
             thread_id = threading.get_ident()
             self.counter[thread_id] = self.counter.get(thread_id, 0) + 1
             if self.counter[thread_id] % NUM == 0:
@@ -49,6 +46,13 @@ class PyFuncHandler:
             _ = self.element.get_property("sink-event")
             return True
 
+        if reason == InvocationReason.StateChange:
+            current_state, next_state = args
+            current_state = Gst.State(current_state).value_nick
+            next_state = Gst.State(next_state).value_nick
+            log(LogLevel.Info, "mymod", f"Element {element_name} state change: {current_state} -> {next_state}")
+            return True
+
 
 def on_message(_, message, loop):
     """Handles messages from the GStreamer bus."""
@@ -63,14 +67,12 @@ def on_message(_, message, loop):
 
 
 def main():
-    # Initialize GStreamer
-    GObject.threads_init()
-    Gst.init(None)
+    # Create GStreamer pipeline (gst::init is called by the launcher)
 
     pipeline_str = ("""videotestsrc pattern=black ! 
                     video/x-raw, width=10, height=10 ! queue ! 
                     rspy name=rspy0 savant-pipeline-name=pipeline savant-pipeline-stage=rspy0 !  
-                    rspy name=rspy1 savant-pipeline-name=pipeline savant-pipeline-stage=rspy1 ! 
+                    rspy name=rspy1 savant-pipeline-name=pipeline savant-pipeline-stage=rspy1 !
                     fakesink sync=false""")
 
     # Create the pipeline
@@ -82,18 +84,4 @@ def main():
     rspy1_handler = PyFuncHandler(pipeline, some="parameter", other=1)
     register_handler("rspy1", rspy1_handler)
 
-    loop = GLib.MainLoop()
-    bus = pipeline.get_bus()
-    bus.add_signal_watch()
-    bus.connect("message", on_message, loop)
-
-    # Set the pipeline to the playing state
-    pipeline.set_state(Gst.State.PLAYING)
-
-    try:
-        log(LogLevel.Info, "entrypoint", "Starting pipeline...")
-        loop.run()
-    except KeyboardInterrupt:
-        log(LogLevel.Info, "entrypoint", "Stopping pipeline...")
-    finally:
-        pipeline.set_state(Gst.State.NULL)
+    return pipeline

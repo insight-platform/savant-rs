@@ -27,6 +27,7 @@ pub enum InvocationReason {
     Buffer,
     SinkEvent,
     SourceEvent,
+    StateChange,
 }
 
 lazy_static! {
