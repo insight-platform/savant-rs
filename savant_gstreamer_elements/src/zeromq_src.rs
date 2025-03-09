@@ -31,6 +31,9 @@ const DEFAULT_ROUTING_ID_CACHE_SIZE: usize = 512;
 const DEFAULT_INVOKE_ON_MESSAGE: bool = false;
 const DEFAULT_FILTER_FRAMES: bool = false;
 
+const SAVANT_EOS_EVENT_NAME: &str = "savant-eos";
+const SAVANT_EOS_EVENT_SOURCE_ID_PROPERTY: &str = "source-id";
+
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
         "zeromq_src",
@@ -102,9 +105,16 @@ impl ZeromqSrc {
                 let handler = handlers_bind.get(&element_name);
 
                 if let Some(handler) = handler {
-                    let message = *message.clone();
+                    let message = message.clone();
                     let py_message = PyMessage::new(message);
-                    let res = handler.call1(py, (element_name, InvocationReason::Buffer)); // , shared_buf.clone()
+                    let res = handler.call1(
+                        py,
+                        (
+                            element_name,
+                            InvocationReason::IngressMessageTransformer,
+                            py_message,
+                        ),
+                    );
                     match res {
                         Ok(res) => {
                             gst::trace!(CAT, imp = self, "Handler invoked successfully");
@@ -135,6 +145,22 @@ impl ZeromqSrc {
         } else {
             Ok(Cow::Borrowed(message))
         }
+    }
+
+    fn handle_video_frame(
+        &self,
+        frame: &savant_core::primitives::frame::VideoFrameProxy,
+        data: &Vec<Vec<u8>>,
+    ) -> Option<Result<CreateSuccess, FlowError>> {
+        todo!()
+    }
+
+    fn handle_video_frame_batch(
+        &self,
+        batch: &savant_core::primitives::rust::VideoFrameBatch,
+        data: &Vec<Vec<u8>>,
+    ) -> Option<Result<CreateSuccess, FlowError>> {
+        todo!()
     }
 }
 
@@ -204,14 +230,87 @@ impl ZeromqSrc {
         data: &Vec<Vec<u8>>,
     ) -> Option<Result<CreateSuccess, FlowError>> {
         match message.payload() {
-            MessageEnvelope::EndOfStream(_) => {}
-            MessageEnvelope::VideoFrame(_) => {}
-            MessageEnvelope::VideoFrameBatch(_) => {}
-            MessageEnvelope::Shutdown(_) => {}
+            MessageEnvelope::EndOfStream(eos) => self.handle_eos(eos),
+            MessageEnvelope::VideoFrame(vf) => self.handle_video_frame(vf, data),
+            MessageEnvelope::VideoFrameBatch(b) => self.handle_video_frame_batch(b, data),
+            MessageEnvelope::Shutdown(shutdown) => self.handle_shutdown(shutdown),
             _ => unimplemented!("This state must not be reached in this method"),
         }
-        let external_data_opt = data.get(0); // the rest of the data is not handled yet
     }
+
+    fn handle_eos(
+        &self,
+        eos: &savant_core::primitives::eos::EndOfStream,
+    ) -> Option<Result<CreateSuccess, FlowError>> {
+        gst::info!(
+            CAT,
+            imp = self,
+            "Received EOS message for the source {}",
+            eos.source_id
+        );
+        let savant_eos_event = build_savant_eos_event(&eos.source_id);
+        let pads = self.obj().pads();
+        for pad in pads {
+            if pad.direction() == gst::PadDirection::Src {
+                if !pad.push_event(savant_eos_event.clone()) {
+                    gst::error!(
+                        CAT,
+                        imp = self,
+                        "Failed to push EOS event to pad {}",
+                        pad.name()
+                    );
+                    return Some(Err(FlowError::Error));
+                }
+            }
+        }
+        None
+    }
+
+    fn handle_shutdown(
+        &self,
+        shutdown: &savant_core::primitives::shutdown::Shutdown,
+    ) -> Option<Result<CreateSuccess, FlowError>> {
+        let settings_bind = self.settings.read();
+        let shutdown_auth_opt = settings_bind.shutdown_authorization.as_ref();
+        if shutdown_auth_opt.is_none() {
+            gst::warning!(
+                CAT,
+                imp = self,
+                "Received shutdown message but shutdown authorization is not set"
+            );
+            return None;
+        }
+        let shutdown_auth = shutdown_auth_opt.unwrap();
+        if shutdown.get_auth() != shutdown_auth.as_str() {
+            gst::warning!(
+                CAT,
+                imp = self,
+                "Received shutdown message but authorization is incorrect"
+            );
+            return None;
+        }
+        gst::info!(CAT, imp = self, "Received shutdown message");
+        for pad in self.obj().pads() {
+            if pad.direction() == gst::PadDirection::Src {
+                if !pad.push_event(gst::event::Eos::new()) {
+                    gst::error!(
+                        CAT,
+                        imp = self,
+                        "Failed to push EOS event to pad {}",
+                        pad.name()
+                    );
+                }
+            }
+        }
+        Some(Err(FlowError::Eos))
+    }
+}
+
+fn build_savant_eos_event(source_id: &str) -> gst::Event {
+    let eos_struct = gst::Structure::builder(SAVANT_EOS_EVENT_NAME)
+        .field(SAVANT_EOS_EVENT_SOURCE_ID_PROPERTY, source_id)
+        .build();
+    gst::event::CustomDownstream::new(eos_struct)
 }
 
 #[glib::object_subclass]

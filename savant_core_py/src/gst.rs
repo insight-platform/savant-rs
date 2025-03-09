@@ -28,6 +28,7 @@ pub enum InvocationReason {
     SinkEvent,
     SourceEvent,
     StateChange,
+    IngressMessageTransformer,
 }
 
 lazy_static! {
