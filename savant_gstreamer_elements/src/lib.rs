@@ -2,8 +2,9 @@ mod rspy;
 pub mod utils;
 mod zeromq_src;
 
-use gst::glib;
 use gst::prelude::StaticType;
+use gst::{glib, FlowError};
+use gst_base::subclass::base_src::CreateSuccess;
 // The public Rust wrapper type for our element
 glib::wrapper! {
     pub struct RsPy(ObjectSubclass<rspy::RsPy>) @extends gst::Element, gst::Object;
@@ -37,6 +38,8 @@ gst::plugin_define!(
     env!("CARGO_PKG_NAME"),
     env!("CARGO_PKG_REPOSITORY")
 );
+
+pub type OptionalGstFlowReturn = Option<Result<CreateSuccess, FlowError>>;
 
 // use pyo3::prelude::*;
 // use savant_core::pipeline::{

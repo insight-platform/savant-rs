@@ -1,3 +1,5 @@
+// This module contains the private implementation details of our element
+
 use anyhow::bail;
 use gst::glib::ParamFlags;
 use gst::prelude::*;
@@ -9,6 +11,9 @@ use gst_base::subclass::prelude::PushSrcImpl;
 use parking_lot::RwLock;
 use pyo3::prelude::*;
 use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
+use savant_core::primitives::eos::EndOfStream;
+use savant_core::primitives::rust::{VideoFrameBatch, VideoFrameProxy};
+use savant_core::primitives::shutdown::Shutdown;
 use savant_core::transport::zeromq::{ReaderConfig, ReaderResult, SyncReader, TopicPrefixSpec};
 use savant_core::utils::bytes_to_hex_string;
 use savant_core::webserver::is_shutdown_set;
@@ -19,7 +24,7 @@ use std::num::NonZeroU64;
 use std::sync::{LazyLock, OnceLock};
 
 use crate::utils::convert_ts;
-// This module contains the private implementation details of our element
+use crate::OptionalGstFlowReturn;
 
 const DEFAULT_IS_LIVE: bool = false;
 const DEFAULT_BLACKLIST_SIZE: u64 = 256;
@@ -36,6 +41,10 @@ const DEFAULT_FILTER_FRAMES: bool = false;
 
 const SAVANT_EOS_EVENT_NAME: &str = "savant-eos";
 const SAVANT_EOS_EVENT_SOURCE_ID_PROPERTY: &str = "source-id";
+
+const SKIP_PROCESSING: OptionalGstFlowReturn = None;
+const ERROR_PROCESSING: OptionalGstFlowReturn = Some(Err(FlowError::Error));
+const EOS_PROCESSING: OptionalGstFlowReturn = Some(Err(FlowError::Eos));
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -152,9 +161,9 @@ impl ZeromqSrc {
 
     fn handle_video_frame(
         &self,
-        frame: &savant_core::primitives::frame::VideoFrameProxy,
+        frame: &VideoFrameProxy,
         data: &Vec<Vec<u8>>,
-    ) -> Option<Result<CreateSuccess, FlowError>> {
+    ) -> OptionalGstFlowReturn {
         let frame_pts = convert_ts(frame.get_pts(), frame.get_time_base());
 
         let frame_dts = frame
@@ -191,7 +200,7 @@ impl ZeromqSrc {
                 max_width,
                 max_height
             );
-            return None;
+            return SKIP_PROCESSING;
         }
 
         let res = self.invoke_custom_ingress_py_function_on_frame(frame);
@@ -215,7 +224,7 @@ impl ZeromqSrc {
                     frame_pts,
                     frame.get_source_id()
                 );
-                None
+                SKIP_PROCESSING
             }
             Err(e) => {
                 gst::error!(
@@ -224,20 +233,20 @@ impl ZeromqSrc {
                     "Error invoking custom ingress Python function. Error: {}",
                     e
                 );
-                Some(Err(FlowError::Error))
+                ERROR_PROCESSING
             }
         }
     }
 
     fn handle_video_frame_batch(
         &self,
-        batch: &savant_core::primitives::rust::VideoFrameBatch,
+        batch: &VideoFrameBatch,
         data: &Vec<Vec<u8>>,
-    ) -> Option<Result<CreateSuccess, FlowError>> {
+    ) -> OptionalGstFlowReturn {
         todo!()
     }
 
-    fn handle_ws_shutdown(&self) -> Option<Result<CreateSuccess, FlowError>> {
+    fn handle_ws_shutdown(&self) -> OptionalGstFlowReturn {
         gst::info!(CAT, imp = self, "Received shutdown signal from WebServer");
         for pad in self.obj().pads() {
             if pad.direction() == gst::PadDirection::Src {
@@ -251,13 +260,10 @@ impl ZeromqSrc {
                 }
             }
         }
-        Some(Err(FlowError::Eos))
+        EOS_PROCESSING
     }
 
-    fn is_greater_than_max_resolution(
-        &self,
-        frame: &savant_core::primitives::rust::VideoFrameProxy,
-    ) -> bool {
+    fn is_greater_than_max_resolution(&self, frame: &VideoFrameProxy) -> bool {
         let settings_bind = self.settings.read();
         let max_width = settings_bind.max_width;
         let max_height = settings_bind.max_height;
@@ -266,27 +272,23 @@ impl ZeromqSrc {
 
     fn invoke_custom_ingress_py_function_on_frame(
         &self,
-        _frame: &savant_core::primitives::rust::VideoFrameProxy,
+        _frame: &VideoFrameProxy,
     ) -> anyhow::Result<bool> {
         Ok(true)
     }
 
-    fn create_frame_buffer(
-        &self,
-        frame: &savant_core::primitives::rust::VideoFrameProxy,
-        data: &[Vec<u8>],
-    ) -> gst::Buffer {
+    fn create_frame_buffer(&self, frame: &VideoFrameProxy, data: &[Vec<u8>]) -> gst::Buffer {
         todo!()
     }
 }
 
 impl ZeromqSrc {
-    pub(crate) fn handle_unsupported_payload(&self, unsupported_message: &Message) {
+    pub(crate) fn handle_unsupported_payload(&self, m: &Message) {
         gst::warning!(
             CAT,
             imp = self,
             "Unsupported message payload {:?}, the message will be ignored.",
-            unsupported_message
+            m
         );
     }
 }
@@ -344,7 +346,7 @@ impl ZeromqSrc {
         &self,
         message: &Message,
         data: &Vec<Vec<u8>>,
-    ) -> Option<Result<CreateSuccess, FlowError>> {
+    ) -> OptionalGstFlowReturn {
         if is_shutdown_set() {
             return self.handle_ws_shutdown();
         }
@@ -358,10 +360,7 @@ impl ZeromqSrc {
         }
     }
 
-    fn handle_eos(
-        &self,
-        eos: &savant_core::primitives::eos::EndOfStream,
-    ) -> Option<Result<CreateSuccess, FlowError>> {
+    fn handle_eos(&self, eos: &EndOfStream) -> OptionalGstFlowReturn {
         gst::info!(
             CAT,
             imp = self,
@@ -379,17 +378,14 @@ impl ZeromqSrc {
                         "Failed to push EOS event to pad {}",
                         pad.name()
                     );
-                    return Some(Err(FlowError::Error));
+                    return ERROR_PROCESSING;
                 }
             }
         }
-        None
+        SKIP_PROCESSING
     }
 
-    fn handle_shutdown(
-        &self,
-        shutdown: &savant_core::primitives::shutdown::Shutdown,
-    ) -> Option<Result<CreateSuccess, FlowError>> {
+    fn handle_shutdown(&self, shutdown: &Shutdown) -> OptionalGstFlowReturn {
         let settings_bind = self.settings.read();
         let shutdown_auth_opt = settings_bind.shutdown_authorization.as_ref();
         if shutdown_auth_opt.is_none() {
@@ -398,7 +394,7 @@ impl ZeromqSrc {
                 imp = self,
                 "Received shutdown message but shutdown authorization is not set"
             );
-            return None;
+            return SKIP_PROCESSING;
         }
         let shutdown_auth = shutdown_auth_opt.unwrap();
         if shutdown.get_auth() != shutdown_auth.as_str() {
@@ -407,7 +403,7 @@ impl ZeromqSrc {
                 imp = self,
                 "Received shutdown message but authorization is incorrect"
             );
-            return None;
+            return SKIP_PROCESSING;
         }
         gst::info!(CAT, imp = self, "Received shutdown message");
         for pad in self.obj().pads() {
@@ -422,7 +418,7 @@ impl ZeromqSrc {
                 }
             }
         }
-        Some(Err(FlowError::Eos))
+        EOS_PROCESSING
     }
 }
 
