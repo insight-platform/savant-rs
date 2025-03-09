@@ -1,4 +1,5 @@
 mod rspy;
+pub mod utils;
 mod zeromq_src;
 
 use gst::glib;

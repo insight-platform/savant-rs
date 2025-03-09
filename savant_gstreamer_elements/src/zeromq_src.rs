@@ -8,14 +8,17 @@ use gst_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
 use gst_base::subclass::prelude::PushSrcImpl;
 use parking_lot::RwLock;
 use pyo3::prelude::*;
-use savant_core::message::{Message, MessageEnvelope};
+use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
 use savant_core::transport::zeromq::{ReaderConfig, ReaderResult, SyncReader, TopicPrefixSpec};
 use savant_core::utils::bytes_to_hex_string;
+use savant_core::webserver::is_shutdown_set;
 use savant_core_py::gst::{InvocationReason, REGISTERED_HANDLERS};
 use savant_core_py::primitives::message::Message as PyMessage;
 use std::borrow::Cow;
 use std::num::NonZeroU64;
 use std::sync::{LazyLock, OnceLock};
+
+use crate::utils::convert_ts;
 // This module contains the private implementation details of our element
 
 const DEFAULT_IS_LIVE: bool = false;
@@ -94,7 +97,7 @@ pub struct ZeromqSrc {
 }
 
 impl ZeromqSrc {
-    pub(crate) fn invoke_custom_py_function_on_message<'a>(
+    pub(crate) fn invoke_custom_transform_py_function_on_message<'a>(
         &'_ self,
         message: &'a Message,
     ) -> anyhow::Result<Cow<'a, Message>> {
@@ -152,7 +155,78 @@ impl ZeromqSrc {
         frame: &savant_core::primitives::frame::VideoFrameProxy,
         data: &Vec<Vec<u8>>,
     ) -> Option<Result<CreateSuccess, FlowError>> {
-        todo!()
+        let frame_pts = convert_ts(frame.get_pts(), frame.get_time_base());
+
+        let frame_dts = frame
+            .get_dts()
+            .map(|dts| convert_ts(dts, frame.get_time_base()));
+
+        let frame_duration = frame
+            .get_duration()
+            .map(|duration| convert_ts(duration, frame.get_time_base()));
+
+        gst::debug!(
+            CAT,
+            imp = self,
+            "Received frame: PTS: {}, DTS: {:?}, Duration: {:?}, keyframe: {:?}, from source {}",
+            frame_pts,
+            frame_dts,
+            frame_duration,
+            frame.get_keyframe(),
+            frame.get_source_id()
+        );
+
+        if self.is_greater_than_max_resolution(frame) {
+            let settings_bind = self.settings.read();
+            let max_width = settings_bind.max_width;
+            let max_height = settings_bind.max_height;
+
+            gst::warning!(
+                CAT,
+                imp = self,
+                "Frame source_id={} resolution (W={}, H={}) is greater than max allowed resolution (W={}, H={}), skipping",
+                frame.get_source_id(),
+                frame.get_width(),
+                frame.get_height(),
+                max_width,
+                max_height
+            );
+            return None;
+        }
+
+        let res = self.invoke_custom_ingress_py_function_on_frame(frame);
+        match res {
+            Ok(true) => {
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Custom ingress Python function returned True, processing the frame at PTS={}, source_id={}",
+                    frame_pts,
+                    frame.get_source_id()
+                );
+                let buf = self.create_frame_buffer(frame, data);
+                Some(Ok(CreateSuccess::NewBuffer(buf)))
+            }
+            Ok(false) => {
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Custom ingress Python function returned False, skipping the frame at PTS={}, source_id={}",
+                    frame_pts,
+                    frame.get_source_id()
+                );
+                None
+            }
+            Err(e) => {
+                gst::error!(
+                    CAT,
+                    imp = self,
+                    "Error invoking custom ingress Python function. Error: {}",
+                    e
+                );
+                Some(Err(FlowError::Error))
+            }
+        }
     }
 
     fn handle_video_frame_batch(
@@ -160,6 +234,48 @@ impl ZeromqSrc {
         batch: &savant_core::primitives::rust::VideoFrameBatch,
         data: &Vec<Vec<u8>>,
     ) -> Option<Result<CreateSuccess, FlowError>> {
+        todo!()
+    }
+
+    fn handle_ws_shutdown(&self) -> Option<Result<CreateSuccess, FlowError>> {
+        gst::info!(CAT, imp = self, "Received shutdown signal from WebServer");
+        for pad in self.obj().pads() {
+            if pad.direction() == gst::PadDirection::Src {
+                if !pad.push_event(gst::event::Eos::new()) {
+                    gst::error!(
+                        CAT,
+                        imp = self,
+                        "Failed to push EOS event to pad {}",
+                        pad.name()
+                    );
+                }
+            }
+        }
+        Some(Err(FlowError::Eos))
+    }
+
+    fn is_greater_than_max_resolution(
+        &self,
+        frame: &savant_core::primitives::rust::VideoFrameProxy,
+    ) -> bool {
+        let settings_bind = self.settings.read();
+        let max_width = settings_bind.max_width;
+        let max_height = settings_bind.max_height;
+        frame.get_width() > max_width as i64 || frame.get_height() > max_height as i64
+    }
+
+    fn invoke_custom_ingress_py_function_on_frame(
+        &self,
+        _frame: &savant_core::primitives::rust::VideoFrameProxy,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
+    fn create_frame_buffer(
+        &self,
+        frame: &savant_core::primitives::rust::VideoFrameProxy,
+        data: &[Vec<u8>],
+    ) -> gst::Buffer {
         todo!()
     }
 }
@@ -229,6 +345,10 @@ impl ZeromqSrc {
         message: &Message,
         data: &Vec<Vec<u8>>,
     ) -> Option<Result<CreateSuccess, FlowError>> {
+        if is_shutdown_set() {
+            return self.handle_ws_shutdown();
+        }
+        validate_seq_id(message); // checks if the sequence id is valid and reports a warning if it is not
         match message.payload() {
             MessageEnvelope::EndOfStream(eos) => self.handle_eos(eos),
             MessageEnvelope::VideoFrame(vf) => self.handle_video_frame(vf, data),
@@ -751,7 +871,8 @@ impl PushSrcImpl for ZeromqSrc {
                     routing_id,
                     data,
                 } => {
-                    let message = self.invoke_custom_py_function_on_message(message.as_ref());
+                    let message =
+                        self.invoke_custom_transform_py_function_on_message(message.as_ref());
                     match message {
                         Ok(m) => match m.payload() {
                             MessageEnvelope::VideoFrameUpdate(_)
