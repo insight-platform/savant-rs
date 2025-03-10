@@ -124,7 +124,9 @@ impl ObjectImpl for ZeromqSrc {
         let mut settings = self.settings.lock();
         match pspec.name() {
             "savant-pipeline-name" => {
-                let pipeline_name = value.get().expect("type checked upstream");
+                let pipeline_name = value
+                    .get()
+                    .expect("Incorrect type for savant-pipeline-name. Expected String");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -134,7 +136,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.pipeline_name = Some(pipeline_name);
             }
             "savant-pipeline-stage" => {
-                let pipeline_stage_name = value.get().expect("type checked upstream");
+                let pipeline_stage_name = value
+                    .get()
+                    .expect("Incorrect type for savant-pipeline-stage. Expected String");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -144,28 +148,38 @@ impl ObjectImpl for ZeromqSrc {
                 settings.pipeline_stage_name = Some(pipeline_stage_name);
             }
             "zmq-socket-uri" => {
-                let socket_uri = value.get().expect("type checked upstream");
+                let socket_uri = value
+                    .get()
+                    .expect("Incorrect type for zmq-socket-uri. Expected String");
                 gst::info!(CAT, imp = self, "Changing socket URI to {}", socket_uri);
                 settings.socket_uri = Some(socket_uri);
             }
             "zmq-receive-hwm" => {
-                let receive_hwm = value.get().expect("type checked upstream");
+                let receive_hwm = value
+                    .get()
+                    .expect("Incorrect type for zmq-receive-hwm. Expected i32");
                 gst::info!(CAT, imp = self, "Changing receive HWM to {}", receive_hwm);
                 assert!(receive_hwm > 0, "Receive HWM must be non-negative",);
                 settings.receive_hwm = receive_hwm;
             }
             "zmq-topic" => {
-                let topic = value.get().expect("type checked upstream");
+                let topic = value
+                    .get()
+                    .expect("Incorrect type for zmq-topic. Expected String");
                 gst::info!(CAT, imp = self, "Changing topic to {}", topic);
                 settings.topic_prefix_spec = TopicPrefixSpec::source_id(topic);
             }
             "zmq-topic-prefix" => {
-                let topic_prefix = value.get().expect("type checked upstream");
+                let topic_prefix = value
+                    .get()
+                    .expect("Incorrect type for zmq-topic-prefix. Expected String");
                 gst::info!(CAT, imp = self, "Changing topic prefix to {}", topic_prefix);
                 settings.topic_prefix_spec = TopicPrefixSpec::prefix(topic_prefix);
             }
             "shutdown-authorization" => {
-                let shutdown_authorization = value.get().expect("type checked upstream");
+                let shutdown_authorization = value
+                    .get()
+                    .expect("Incorrect type for shutdown-authorization. Expected String");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -175,17 +189,23 @@ impl ObjectImpl for ZeromqSrc {
                 settings.shutdown_authorization = Some(shutdown_authorization);
             }
             "max-width" => {
-                let max_width: u64 = value.get().expect("type checked upstream");
+                let max_width: u64 = value
+                    .get()
+                    .expect("Incorrect type for max-width. Expected u64");
                 gst::info!(CAT, imp = self, "Changing max width to {}", max_width);
                 settings.max_width = max_width;
             }
             "max-height" => {
-                let max_height: u64 = value.get().expect("type checked upstream");
+                let max_height: u64 = value
+                    .get()
+                    .expect("Incorrect type for max-height. Expected u64");
                 gst::info!(CAT, imp = self, "Changing max height to {}", max_height);
                 settings.max_height = max_height;
             }
             "pass-through-mode" => {
-                let pass_through_mode = value.get().expect("type checked upstream");
+                let pass_through_mode = value
+                    .get()
+                    .expect("Incorrect type for pass-through-mode. Expected bool");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -195,7 +215,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.pass_through_mode = pass_through_mode;
             }
             "blacklist-size" => {
-                let blacklist_size = value.get().expect("type checked upstream");
+                let blacklist_size = value
+                    .get()
+                    .expect("Incorrect type for blacklist-size. Expected u64");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -206,7 +228,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.blacklist_size = blacklist_size;
             }
             "blacklist-ttl" => {
-                let blacklist_ttl = value.get().expect("type checked upstream");
+                let blacklist_ttl = value
+                    .get()
+                    .expect("Incorrect type for blacklist-ttl. Expected u64");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -217,7 +241,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.blacklist_ttl = blacklist_ttl;
             }
             "fix-ipc-permissions" => {
-                let fix_ipc_permissions = value.get().expect("type checked upstream");
+                let fix_ipc_permissions = value
+                    .get()
+                    .expect("Incorrect type for fix-ipc-permissions. Expected u32");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -231,7 +257,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.fix_ipc_permissions = Some(fix_ipc_permissions);
             }
             "receive-timeout" => {
-                let receive_timeout = value.get().expect("type checked upstream");
+                let receive_timeout = value
+                    .get()
+                    .expect("Incorrect type for receive-timeout. Expected i32");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -242,7 +270,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.receive_timeout = receive_timeout;
             }
             "invoke-on-message" => {
-                let invoke_on_message = value.get().expect("type checked upstream");
+                let invoke_on_message = value
+                    .get()
+                    .expect("Incorrect type for invoke-on-message. Expected bool");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -252,7 +282,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.invoke_on_message = invoke_on_message;
             }
             "filter-frames" => {
-                let filter_frames = value.get().expect("type checked upstream");
+                let filter_frames = value
+                    .get()
+                    .expect("Incorrect type for filter-frames. Expected bool");
                 gst::info!(
                     CAT,
                     imp = self,
@@ -262,7 +294,9 @@ impl ObjectImpl for ZeromqSrc {
                 settings.filter_frames = filter_frames;
             }
             "is-live" => {
-                let is_live = value.get().expect("type checked upstream");
+                let is_live = value
+                    .get()
+                    .expect("Incorrect type for is-live. Expected bool");
                 gst::info!(CAT, imp = self, "Changing is live to {}", is_live);
                 settings.is_live = is_live;
             }

@@ -84,3 +84,6 @@ class InvocationReason(Enum):
 
 
 def register_handler(element_name: str, h: object) -> None: ...
+
+
+def unregister_handler(name: str) -> None: ...

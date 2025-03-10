@@ -301,5 +301,5 @@ fn human_readable_routing_id(routing_id: &Option<Vec<u8>>) -> String {
     routing_id
         .as_ref()
         .map(|r| bytes_to_hex_string(r))
-        .unwrap_or(String::from("routing-id-unset"))
+        .unwrap_or(String::from("routing-id-not-set"))
 }
