@@ -63,10 +63,6 @@ zmq = { workspace = true }
 [lib]
 crate-type = ["dylib"]
 
-[[bin]]
-name = "plugin-loader"
-path = "src/bin/plugin_loader.rs"
-
 [dev-dependencies]
 bollard = { workspace = true }
 ctrlc = { workspace = true }
