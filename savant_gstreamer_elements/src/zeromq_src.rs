@@ -321,7 +321,7 @@ impl ZeromqSrc {
             MessageEnvelope::VideoFrame(_) => self.handle_video_frame(message, data),
             MessageEnvelope::VideoFrameBatch(_) => self.handle_video_frame_batch(message, data),
             MessageEnvelope::Shutdown(shutdown) => self.handle_shutdown(shutdown),
-            _ => unimplemented!("This state must not be reached in this method"),
+            _ => panic!("This state must not be reached in this method"),
         }
     }
 }

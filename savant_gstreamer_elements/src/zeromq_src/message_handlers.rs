@@ -45,16 +45,6 @@ impl ZeromqSrc {
         context: &PropagatedContext,
         data: &[Vec<u8>],
     ) -> OptionalGstBufferReturn {
-        let frame_pts = convert_ts(frame.get_pts(), frame.get_time_base());
-
-        let frame_dts = frame
-            .get_dts()
-            .map(|dts| convert_ts(dts, frame.get_time_base()));
-
-        let frame_duration = frame
-            .get_duration()
-            .map(|duration| convert_ts(duration, frame.get_time_base()));
-
         gst::debug!(
             CAT,
             imp = self,
@@ -166,7 +156,17 @@ impl ZeromqSrc {
         frame.get_width() > max_width as i64 || frame.get_height() > max_height as i64
     }
 
-    fn create_frame_buffer(&self, _frame: &VideoFrameProxy, _data: &[Vec<u8>]) -> gst::Buffer {
+    fn create_frame_buffer(&self, frame: &VideoFrameProxy, _data: &[Vec<u8>]) -> gst::Buffer {
+        let frame_pts = convert_ts(frame.get_pts(), frame.get_time_base());
+
+        let frame_dts = frame
+            .get_dts()
+            .map(|dts| convert_ts(dts, frame.get_time_base()));
+
+        let frame_duration = frame
+            .get_duration()
+            .map(|duration| convert_ts(duration, frame.get_time_base()));
+
         todo!()
     }
 
@@ -215,7 +215,7 @@ impl ZeromqSrc {
                 let topic_str = String::from_utf8_lossy(topic);
                 gst::debug!(CAT, imp = self, "Blacklisted topic: {:?}", topic_str);
             }
-            _ => unimplemented!("This state must not be reached in this method!"),
+            _ => panic!("This state must not be reached in this method!"),
         }
     }
 

@@ -302,7 +302,10 @@ impl ObjectImpl for RsPy {
                 );
                 settings.pipeline_stage = Some(pipeline_stage);
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Set operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -322,7 +325,10 @@ impl ObjectImpl for RsPy {
                 let source_event = self.interop.lock().source_event.take();
                 source_event.to_value()
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Get operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 

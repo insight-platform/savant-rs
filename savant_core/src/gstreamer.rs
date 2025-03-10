@@ -1,5 +1,6 @@
 use crate::gstreamer::id_meta::SavantIdMeta;
 use gst::BufferFlags;
+use id_meta::SavantIdMetaKind;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -154,13 +155,16 @@ impl GstBuffer {
         bind.append(buffer.0.read().clone());
     }
 
-    pub fn get_id_meta(&self) -> Option<Vec<i64>> {
+    pub fn get_id_meta(&self) -> Option<Vec<SavantIdMetaKind>> {
         let bind = self.0.read();
         let meta = bind.meta::<SavantIdMeta>()?;
         Some(meta.ids().to_vec())
     }
 
-    pub fn replace_id_meta(&self, ids: Vec<i64>) -> anyhow::Result<Option<Vec<i64>>> {
+    pub fn replace_id_meta(
+        &self,
+        ids: Vec<SavantIdMetaKind>,
+    ) -> anyhow::Result<Option<Vec<SavantIdMetaKind>>> {
         let old_ids = self.clear_id_meta()?;
         let mut bind = self.0.write();
         let buffer = bind
@@ -170,7 +174,7 @@ impl GstBuffer {
         Ok(old_ids)
     }
 
-    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<i64>>> {
+    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<SavantIdMetaKind>>> {
         let old_ids = self.get_id_meta();
         if old_ids.is_none() {
             return Ok(None);
@@ -200,14 +204,14 @@ impl GstBuffer {
 
 #[cfg(test)]
 mod tests {
+    use crate::gstreamer::id_meta::SavantIdMetaKind::*;
     use crate::gstreamer::GstBuffer;
-
     #[test]
     fn test_savant_meta() -> anyhow::Result<()> {
         gst::init().unwrap();
         let buf = GstBuffer::new();
-        let old_attributes = vec![0, 1, 2];
-        let new_attributes = vec![3, 4, 6];
+        let old_attributes = vec![Frame(0), Frame(1), Frame(2)];
+        let new_attributes = vec![Frame(3), Frame(4), Frame(6)];
 
         assert!(
             buf.get_id_meta().is_none(),

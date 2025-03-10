@@ -300,7 +300,10 @@ impl ObjectImpl for ZeromqSrc {
                 gst::info!(CAT, imp = self, "Changing is live to {}", is_live);
                 settings.is_live = is_live;
             }
-            _ => unimplemented!(),
+            _ => panic!(
+                "Set operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -315,7 +318,10 @@ impl ObjectImpl for ZeromqSrc {
         obj.set_format(gst::Format::Time);
     }
 
-    fn property(&self, _id: usize, _pspec: &glib::ParamSpec) -> glib::Value {
-        unimplemented!("Getting properties is not implemented yet");
+    fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {
+        panic!(
+            "Get operation for property {} is not implemented yet",
+            pspec.name()
+        );
     }
 }

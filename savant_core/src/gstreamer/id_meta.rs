@@ -1,17 +1,23 @@
 use gst::{glib, MetaAPI, MetaAPIExt};
 use std::{fmt, mem};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SavantIdMetaKind {
+    Frame(i64),
+    Batch(i64),
+}
+
 #[repr(transparent)]
 pub struct SavantIdMeta(imp::SavantIdMeta);
 
 impl SavantIdMeta {
-    pub fn ids(&self) -> &[i64] {
+    pub fn ids(&self) -> &[SavantIdMetaKind] {
         &self.0.ids
     }
 
     pub fn replace(
         buffer: &mut gst::BufferRef,
-        ids: Vec<i64>,
+        ids: Vec<SavantIdMetaKind>,
     ) -> gst::MetaRefMut<Self, gst::meta::Standalone> {
         unsafe {
             // Manually dropping because gst_buffer_add_meta() takes ownership of the
@@ -54,14 +60,16 @@ mod imp {
     use std::ptr;
     use std::sync::LazyLock;
 
+    use super::SavantIdMetaKind;
+
     pub struct SavantIdMetaParams {
-        pub ids: Vec<i64>,
+        pub ids: Vec<SavantIdMetaKind>,
     }
 
     #[repr(C)]
     pub struct SavantIdMeta {
         parent: gst::ffi::GstMeta,
-        pub(super) ids: Vec<i64>,
+        pub(super) ids: Vec<SavantIdMetaKind>,
     }
 
     pub(super) fn savant_id_meta_api_get_type() -> glib::Type {
