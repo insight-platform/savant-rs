@@ -13,7 +13,7 @@ use crate::zeromq_src::CAT;
 use super::ZeromqSrc;
 
 impl ZeromqSrc {
-    pub(crate) fn invoke_custom_transform_py_function_on_message<'a>(
+    pub(crate) fn invoke_custom_py_function_on_message<'a>(
         &'_ self,
         message: &'a Message,
     ) -> anyhow::Result<Cow<'a, Message>> {

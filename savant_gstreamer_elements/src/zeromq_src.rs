@@ -33,9 +33,6 @@ const DEFAULT_ROUTING_ID_CACHE_SIZE: usize = 512;
 const DEFAULT_INVOKE_ON_MESSAGE: bool = false;
 const DEFAULT_FILTER_FRAMES: bool = false;
 
-const SAVANT_EOS_EVENT_NAME: &str = "savant-eos";
-const SAVANT_EOS_EVENT_SOURCE_ID_PROPERTY: &str = "source-id";
-
 const SKIP_PROCESSING: OptionalGstFlowReturn = None;
 const ERROR_PROCESSING_RES_ERR: Result<CreateSuccess, FlowError> = Err(FlowError::Error);
 const ERROR_PROCESSING_OPT: OptionalGstFlowReturn = Some(ERROR_PROCESSING_RES_ERR);
@@ -268,13 +265,10 @@ impl PushSrcImpl for ZeromqSrc {
                     routing_id,
                     data,
                 } => {
-                    let message =
-                        self.invoke_custom_transform_py_function_on_message(message.as_ref());
+                    let message = self.invoke_custom_py_function_on_message(message.as_ref());
                     match message {
                         Ok(m) => match m.payload() {
-                            MessageEnvelope::VideoFrameUpdate(_)
-                            | MessageEnvelope::UserData(_)
-                            | MessageEnvelope::Unknown(_) => {
+                            MessageEnvelope::VideoFrameUpdate(_) | MessageEnvelope::Unknown(_) => {
                                 self.handle_unsupported_payload(m.as_ref())
                             }
                             _ => {
@@ -322,7 +316,8 @@ impl ZeromqSrc {
         }
         validate_seq_id(message); // checks if the sequence id is valid and reports a warning if it is not
         match message.payload() {
-            MessageEnvelope::EndOfStream(eos) => self.handle_eos(eos),
+            MessageEnvelope::UserData(_) => self.handle_user_data(message),
+            MessageEnvelope::EndOfStream(eos) => self.handle_savant_stream_eos(eos),
             MessageEnvelope::VideoFrame(_) => self.handle_video_frame(message, data),
             MessageEnvelope::VideoFrameBatch(_) => self.handle_video_frame_batch(message, data),
             MessageEnvelope::Shutdown(shutdown) => self.handle_shutdown(shutdown),

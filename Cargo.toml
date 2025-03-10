@@ -36,6 +36,7 @@ actix-ws = "0.3.0"
 actix-web = "4"
 anyhow = "1.0"
 
+base64 = { version = "0.22" }
 bincode = { version = "2.0.0-rc.3" }
 bollard = "0.18"
 

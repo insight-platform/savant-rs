@@ -2,6 +2,12 @@ mod rspy;
 pub mod utils;
 mod zeromq_src;
 
+const SAVANT_EOS_EVENT_NAME: &str = "savant-eos";
+const SAVANT_EOS_EVENT_SOURCE_ID_PROPERTY: &str = "source-id";
+
+const SAVANT_USERDATA_EVENT_NAME: &str = "savant-userdata";
+const SAVANT_USERDATA_EVENT_DATA_PROPERTY: &str = "data";
+
 use gst::prelude::StaticType;
 use gst::{glib, FlowError};
 use gst_base::subclass::base_src::CreateSuccess;
