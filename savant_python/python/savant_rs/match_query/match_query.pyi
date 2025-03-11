@@ -4,6 +4,28 @@ from savant_rs.primitives import VideoObjectsView
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
 
+__all__ = [
+    'FloatExpression',
+    'IntExpression',
+    'StringExpression',
+    'MatchQuery',
+    'TlsConfig',
+    'EtcdCredentials',
+    'utility_resolver_name',
+    'etcd_resolver_name',
+    'env_resolver_name',
+    'config_resolver_name',
+    'register_utility_resolver',
+    'register_env_resolver',
+    'register_etcd_resolver',
+    'register_config_resolver',
+    'update_config_resolver',
+    'unregister_resolver',
+    'QueryFunctions',
+    'filter',
+    'partition',
+]
+
 class FloatExpression:
     @classmethod
     def eq(cls, arg: float) -> FloatExpression: ...

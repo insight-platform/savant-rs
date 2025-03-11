@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-from .primitives import VideoFrame, VideoFrameBatch, VideoFrameUpdate
-from .utils import TelemetrySpan
+from savant_rs.primitives import VideoFrame, VideoFrameBatch, VideoFrameUpdate
+from savant_rs.utils import TelemetrySpan
 
 __all__ = [
     "StageFunction",

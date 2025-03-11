@@ -2,7 +2,20 @@ from typing import List, Optional, Union
 
 from savant_rs.primitives import Attribute
 
-# pub fn set_attributes(attributes: Vec<Attribute>, ttl: Option<u64>)
+__all__ = [
+    'set_attributes',
+    'search_attributes',
+    'search_keys',
+    'del_attributes',
+    'get_attribute',
+    'del_attribute',
+    'serialize_attributes',
+    'deserialize_attributes',
+    'KvsSetOperation',
+    'KvsDeleteOperation',
+    'KvsSubscription',
+]
+
 def set_attributes(attributes: List[Attribute], ttl: Optional[int]) -> None: ...
 def search_attributes(
     ns: Optional[str], name: Optional[str], no_gil: bool

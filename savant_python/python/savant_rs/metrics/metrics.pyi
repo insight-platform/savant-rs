@@ -1,5 +1,12 @@
 from typing import Dict, List, Optional
 
+__all__ = [
+    'CounterFamily',
+    'GaugeFamily',
+    'delete_metric_family',
+    'set_extra_labels',
+]
+
 class CounterFamily:
     @classmethod
     def get_or_create_counter_family(

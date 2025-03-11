@@ -1,3 +1,3 @@
-from .atomic_counter import AtomicCounter
+from .atomic_counter import *  # type: ignore
 
-__all__ = ['AtomicCounter']
+__all__ = atomic_counter.__all__  # type: ignore

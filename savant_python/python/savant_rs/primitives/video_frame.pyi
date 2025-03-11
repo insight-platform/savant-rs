@@ -1,18 +1,13 @@
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import MatchQuery
+from savant_rs.primitives import *
 from savant_rs.primitives.geometry import (Intersection, Point, PolygonalArea,
                                            RBBox)
-from savant_rs.utils import VideoObjectBBoxTransformation
+from savant_rs.utils import TelemetrySpan, VideoObjectBBoxTransformation
 from savant_rs.utils.serialization import Message
-
-from .attribute import *
-from .attribute_value import *
-from .end_of_stream import *
-from .shutdown import *
-from .user_data import *
 
 __all__ = [
     "ObjectUpdatePolicy",
@@ -22,6 +17,7 @@ __all__ = [
     "VideoFrameTransformation",
     "VideoFrame",
     "VideoFrameUpdate",
+    "VideoFrameBatch",
 ]
 
 class ObjectUpdatePolicy(Enum):
@@ -37,11 +33,11 @@ class ExternalFrame:
 
 class VideoFrameContent:
     @classmethod
-    def external(cls, method: str, location: Optional[str]) -> "VideoFrameContent": ...
+    def external(cls, method: str, location: Optional[str]) -> VideoFrameContent: ...
     @classmethod
-    def internal(cls, data: bytes) -> "VideoFrameContent": ...
+    def internal(cls, data: bytes) -> VideoFrameContent: ...
     @classmethod
-    def none(cls) -> "VideoFrameContent": ...
+    def none(cls) -> VideoFrameContent: ...
     def is_external(self) -> bool: ...
     def is_internal(self) -> bool: ...
     def is_none(self) -> bool: ...
@@ -146,9 +142,9 @@ class VideoFrame:
         track_id: Optional[int],
         track_box: Optional[RBBox],
         attributes: Optional[List[Attribute]],
-    ) -> "BorrowedVideoObject": ...
-    def get_object(self, id: int) -> Optional["BorrowedVideoObject"]: ...
-    def get_all_objects(self) -> "VideoObjectsView": ...
+    ) -> BorrowedVideoObject: ...
+    def get_object(self, id: int) -> Optional[BorrowedVideoObject]: ...
+    def get_all_objects(self) -> VideoObjectsView: ...
 
 class VideoFrameUpdate:
     frame_attribute_policy: AttributeUpdatePolicy
@@ -158,8 +154,8 @@ class VideoFrameUpdate:
     def __init__(self): ...
     def add_frame_attribute(self, attribute: Attribute): ...
     def add_object_attribute(self, object_id: int, attribute: Attribute): ...
-    def add_object(self, object: "VideoObject", parent_id: Optional[int]): ...
-    def get_objects(self) -> List[Tuple["VideoObject", Optional[int]]]: ...
+    def add_object(self, object: VideoObject, parent_id: Optional[int]): ...
+    def get_objects(self) -> List[Tuple[VideoObject, Optional[int]]]: ...
     @property
     def json(self) -> str: ...
     @property
@@ -168,19 +164,19 @@ class VideoFrameUpdate:
     @classmethod
     def from_protobuf(
         cls, protobuf: bytes, no_gil: bool = True
-    ) -> "VideoFrameUpdate": ...
+    ) -> VideoFrameUpdate: ...
 
 class VideoFrameTransformation:
     @staticmethod
-    def initial_size(width: int, height: int) -> "VideoFrameTransformation": ...
+    def initial_size(width: int, height: int) -> VideoFrameTransformation: ...
     @staticmethod
-    def scale(width: int, height: int) -> "VideoFrameTransformation": ...
+    def scale(width: int, height: int) -> VideoFrameTransformation: ...
     @staticmethod
     def padding(
         left: int, top: int, right: int, bottom: int
-    ) -> "VideoFrameTransformation": ...
+    ) -> VideoFrameTransformation: ...
     @staticmethod
-    def resulting_size(width: int, height: int) -> "VideoFrameTransformation": ...
+    def resulting_size(width: int, height: int) -> VideoFrameTransformation: ...
     @property
     def is_initial_size(self) -> bool: ...
     @property
@@ -197,3 +193,84 @@ class VideoFrameTransformation:
     def as_padding(self) -> Optional[Tuple[int, int, int, int]]: ...
     @property
     def as_resulting_size(self) -> Optional[Tuple[int, int]]: ...
+
+class VideoFrameBatch:
+    """A batch of video frames that can be processed together."""
+
+    @property
+    def frames(self) -> Dict[int, VideoFrame]:
+        """Get all frames in the batch.
+
+        Returns
+        -------
+        Dict[int, VideoFrame]
+            Dictionary mapping frame IDs to VideoFrame objects
+        """
+        ...
+
+    @property
+    def frame_ids(self) -> List[int]:
+        """Get IDs of all frames in the batch.
+
+        Returns
+        -------
+        List[int]
+            List of frame IDs in the batch
+        """
+        ...
+
+    def add_frame(self, frame: VideoFrame) -> int:
+        """Add a frame to the batch.
+
+        Parameters
+        ----------
+        frame : VideoFrame
+            The frame to add
+
+        Returns
+        -------
+        int
+            ID assigned to the frame in the batch
+        """
+        ...
+
+    def get_frame(self, frame_id: int) -> Optional[VideoFrame]:
+        """Get a frame from the batch by its ID.
+
+        Parameters
+        ----------
+        frame_id : int
+            ID of the frame to retrieve
+
+        Returns
+        -------
+        Optional[VideoFrame]
+            The frame if found, None otherwise
+        """
+        ...
+
+    def to_message(self) -> Message:
+        """Convert the batch to a message for serialization.
+
+        Returns
+        -------
+        Message
+            Message containing the batch data
+        """
+        ...
+
+    @classmethod
+    def from_frames(cls, frames: List[VideoFrame]) -> VideoFrameBatch:
+        """Create a new batch from a list of frames.
+
+        Parameters
+        ----------
+        frames : List[VideoFrame]
+            List of frames to include in the batch
+
+        Returns
+        -------
+        VideoFrameBatch
+            New batch containing the provided frames
+        """
+        ...

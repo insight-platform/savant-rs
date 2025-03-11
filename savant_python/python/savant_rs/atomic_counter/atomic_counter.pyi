@@ -1,3 +1,7 @@
+__all__ = [
+    'AtomicCounter',
+]
+
 class AtomicCounter:
     """A thread-safe atomic counter."""
 
