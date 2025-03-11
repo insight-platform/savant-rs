@@ -4,6 +4,24 @@ from typing import Union, Optional
 from savant_rs.primitives import VideoFrame
 
 
+__all__ = [
+    'eval_expr',
+    'gen_frame',
+    'gen_empty_frame',
+    'round_2_digits',
+    'estimate_gil_contention',
+    'enable_dl_detection',
+    'incremental_uuid_v7',
+    'TelemetrySpan',
+    'MaybeTelemetrySpan',
+    'PropagatedContext',
+    'ByteBuffer',
+    'VideoObjectBBoxType',
+    'VideoObjectBBoxTransformation',
+    'BBoxMetricType'
+]
+
+
 def eval_expr(expr: str, ttl: int, no_gil: bool = True) -> Union[int, float, str, bool, None, list[...]]: ...
 
 
@@ -143,15 +161,3 @@ class BBoxMetricType:
     IoU: ...
     IoS: ...
     IoOther: ...
-
-
-class AtomicCounter:
-    def __init__(self, initial_value: int): ...
-
-    @property
-    def next(self) -> int: ...
-
-    def set(self, value: int) -> int: ...
-
-    @property
-    def get(self) -> int: ...

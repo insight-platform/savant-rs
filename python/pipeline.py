@@ -1,7 +1,6 @@
 import time
 from threading import Thread, current_thread
 
-import savant_plugin_sample
 import savant_rs
 from savant_rs.logging import log, LogLevel, log_level_enabled
 from savant_rs.logging import set_log_level
@@ -11,14 +10,9 @@ from savant_rs.pipeline import (
     VideoPipelineConfiguration,
     StageFunction,
 )
-from savant_rs.primitives import AttributeValue
 
 set_log_level(LogLevel.Trace)
 
-# plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
-# plugin_function_2 = savant_plugin_sample.get_instance(
-#    "doesnotmatter", dict(attr=AttributeValue.integer(1))
-# )
 
 from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
 from savant_rs.primitives import (

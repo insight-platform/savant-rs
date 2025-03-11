@@ -8,8 +8,6 @@ from savant_rs.primitives import AttributeValue
 print(savant_rs.version())
 set_log_level(LogLevel.Info)
 
-plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
-plugin_function_2 = savant_plugin_sample.get_instance("doesnotmatter", dict(attr=AttributeValue.integer(1)))
 
 from savant_rs.utils import gen_frame
 from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
@@ -25,7 +23,7 @@ if __name__ == "__main__":
     conf.timestamp_period = 1000  # every sec
 
     p = VideoPipeline("video-pipeline-root", [
-        ("input", VideoPipelineStagePayloadType.Frame, plugin_function_1, plugin_function_2),
+        ("input", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
         ("proc1", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
         ("proc2", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
         ("output", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
