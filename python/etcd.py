@@ -1,11 +1,8 @@
 from pathlib import Path
 
-from savant_rs.match_query import (
-    TlsConfig,
-    register_etcd_resolver,
-    register_env_resolver,
-    EtcdCredentials,
-)
+from savant_rs.match_query import (EtcdCredentials, TlsConfig,
+                                   register_env_resolver,
+                                   register_etcd_resolver)
 from savant_rs.utils import eval_expr
 
 register_env_resolver()

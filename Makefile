@@ -40,3 +40,12 @@ core-tests:
 bench:
 	@echo "Running benchmarks..."
 	cd savant_core && cargo bench --no-default-features -- --show-output --nocapture
+
+
+reformat:
+	unify --in-place --recursive python
+	unify --in-place --recursive savant_python/python
+	black python
+	black savant_python/python
+	isort python
+	isort savant_python/python

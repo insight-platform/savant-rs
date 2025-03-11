@@ -1,4 +1,5 @@
-from typing import List, Optional, Dict, Tuple
+from typing import Dict, List, Optional, Tuple
+
 from savant_rs.primitives import VideoObjectsView
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
@@ -193,16 +194,12 @@ def register_config_resolver(params: Dict[str, str]): ...
 def update_config_resolver(params: Dict[str, str]): ...
 def unregister_resolver(name: str): ...
 
-
 class QueryFunctions:
     @classmethod
-    def filter(cls,
-               v: VideoObjectsView,
-               q: MatchQuery,
-               no_gil: bool = True) -> VideoObjectsView: ...
-
+    def filter(
+        cls, v: VideoObjectsView, q: MatchQuery, no_gil: bool = True
+    ) -> VideoObjectsView: ...
     @classmethod
-    def partition(cls,
-                  v: VideoObjectsView,
-                  q: MatchQuery,
-                  no_gil: bool = True) -> Tuple[VideoObjectsView, VideoObjectsView]: ... 
+    def partition(
+        cls, v: VideoObjectsView, q: MatchQuery, no_gil: bool = True
+    ) -> Tuple[VideoObjectsView, VideoObjectsView]: ...

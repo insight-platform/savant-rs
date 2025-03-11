@@ -1,21 +1,23 @@
 from typing import Optional, Union
+
+from savant_rs.primitives import (EndOfStream, Shutdown, UserData, VideoFrame,
+                                  VideoFrameBatch, VideoFrameUpdate)
 from savant_rs.utils import ByteBuffer
-from savant_rs.primitives import VideoFrame, VideoFrameUpdate, VideoFrameBatch, EndOfStream, Shutdown, UserData
 
 __all__ = [
-    'Message',
-    'save_message',
-    'save_message_to_bytebuffer',
-    'save_message_to_bytes',
-    'load_message',
-    'load_message_from_bytebuffer',
-    'load_message_from_bytes',
-    'clear_source_seq_id',
+    "Message",
+    "save_message",
+    "save_message_to_bytebuffer",
+    "save_message_to_bytes",
+    "load_message",
+    "load_message_from_bytebuffer",
+    "load_message_from_bytes",
+    "clear_source_seq_id",
 ]
 
 class Message:
     """A class representing different types of messages in the Savant system."""
-    
+
     @staticmethod
     def unknown(s: str) -> "Message":
         """Create a new undefined message.
@@ -31,7 +33,7 @@ class Message:
             The message of Unknown type
         """
         ...
-    
+
     @staticmethod
     def shutdown(shutdown: Shutdown) -> "Message":
         """Create a new shutdown message.
@@ -47,7 +49,7 @@ class Message:
             The message of Shutdown type
         """
         ...
-    
+
     @staticmethod
     def user_data(t: UserData) -> "Message":
         """Create a new user data message.
@@ -63,7 +65,7 @@ class Message:
             The message of UserData type
         """
         ...
-    
+
     @staticmethod
     def video_frame(frame: VideoFrame) -> "Message":
         """Create a new video frame message.
@@ -79,7 +81,7 @@ class Message:
             The message of VideoFrame type
         """
         ...
-    
+
     @staticmethod
     def video_frame_update(update: VideoFrameUpdate) -> "Message":
         """Create a new video frame update message.
@@ -95,7 +97,7 @@ class Message:
             The message of VideoFrameUpdate type
         """
         ...
-    
+
     @staticmethod
     def video_frame_batch(batch: VideoFrameBatch) -> "Message":
         """Create a new video frame batch message.
@@ -111,7 +113,7 @@ class Message:
             The message of VideoFrameBatch type
         """
         ...
-    
+
     @staticmethod
     def end_of_stream(eos: EndOfStream) -> "Message":
         """Create a new end of stream message.
@@ -127,7 +129,7 @@ class Message:
             The message of EndOfStream type
         """
         ...
-    
+
     def is_unknown(self) -> bool:
         """Checks if the message is of Unknown type.
 
@@ -197,7 +199,7 @@ class Message:
             True if the message is of EndOfStream type, False otherwise
         """
         ...
-    
+
     def as_user_data(self) -> Optional[UserData]:
         """Returns the message as UserData type.
 
@@ -255,7 +257,9 @@ def save_message(message: Message, no_gil: bool = True) -> bytes:
     """
     ...
 
-def save_message_to_bytebuffer(message: Message, with_hash: bool = True, no_gil: bool = True) -> ByteBuffer:
+def save_message_to_bytebuffer(
+    message: Message, with_hash: bool = True, no_gil: bool = True
+) -> ByteBuffer:
     """Save a message to a byte buffer.
 
     Parameters

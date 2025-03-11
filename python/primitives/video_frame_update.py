@@ -1,8 +1,8 @@
-from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
-    AttributeUpdatePolicy
-from savant_rs.utils import gen_frame
-from savant_rs.utils.serialization import save_message, load_message, Message
 from savant_rs.match_query import MatchQuery as Q
+from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
+                                  VideoFrameUpdate)
+from savant_rs.utils import gen_frame
+from savant_rs.utils.serialization import Message, load_message, save_message
 
 frame = gen_frame()
 update = VideoFrameUpdate()
@@ -18,7 +18,7 @@ for o in objects:
 
 attributes = frame.attributes
 
-for (namespace, label) in attributes:
+for namespace, label in attributes:
     attr = frame.get_attribute(namespace, label)
     update.add_frame_attribute(attr)
 

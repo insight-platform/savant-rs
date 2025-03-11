@@ -5,7 +5,7 @@ import threading
 
 import gi
 
-gi.require_version('Gst', '1.0')
+gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
 set_log_level(LogLevel.Debug)
@@ -33,8 +33,11 @@ class PyFuncHandler:
             thread_id = threading.get_ident()
             self.counter[thread_id] = self.counter.get(thread_id, 0) + 1
             if self.counter[thread_id] % NUM == 0:
-                log(LogLevel.Info, "mymod",
-                    f'Thread: {thread_id}, Element {element_name}, Counter: {self.counter.get(thread_id, 0)}, Replacements: {self.replacements.get(thread_id, 0)}, Rate: {NUM / (time.time() - self.last.get(thread_id, 0))}')
+                log(
+                    LogLevel.Info,
+                    "mymod",
+                    f"Thread: {thread_id}, Element {element_name}, Counter: {self.counter.get(thread_id, 0)}, Replacements: {self.replacements.get(thread_id, 0)}, Rate: {NUM / (time.time() - self.last.get(thread_id, 0))}",
+                )
                 self.last[thread_id] = time.time()
             return FlowResult.Ok
 
@@ -50,7 +53,11 @@ class PyFuncHandler:
             current_state, next_state = args
             current_state = Gst.State(current_state).value_nick
             next_state = Gst.State(next_state).value_nick
-            log(LogLevel.Info, "mymod", f"Element {element_name} state change: {current_state} -> {next_state}")
+            log(
+                LogLevel.Info,
+                "mymod",
+                f"Element {element_name} state change: {current_state} -> {next_state}",
+            )
             return True
 
 
@@ -69,11 +76,11 @@ def on_message(_, message, loop):
 def main():
     # Create GStreamer pipeline (gst::init is called by the launcher)
 
-    pipeline_str = ("""videotestsrc pattern=black ! 
+    pipeline_str = """videotestsrc pattern=black ! 
                     video/x-raw, width=10, height=10 ! queue ! 
                     rspy name=rspy0 savant-pipeline-name=pipeline savant-pipeline-stage=rspy0 !  
                     rspy name=rspy1 savant-pipeline-name=pipeline savant-pipeline-stage=rspy1 !
-                    fakesink sync=false""")
+                    fakesink sync=false"""
 
     # Create the pipeline
     pipeline = Gst.parse_launch(pipeline_str)
