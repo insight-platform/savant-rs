@@ -8,6 +8,7 @@ use gst_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
 use gst_base::subclass::prelude::PushSrcImpl;
 use parking_lot::Mutex;
 use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
+use savant_core::rust::Pipeline;
 use savant_core::transport::zeromq::{ReaderConfig, ReaderResult, SyncReader, TopicPrefixSpec};
 use savant_core::utils::bytes_to_hex_string;
 use savant_core::webserver::is_shutdown_set;
@@ -95,6 +96,7 @@ impl Default for Settings {
 pub struct ZeromqSrc {
     settings: Mutex<Settings>,
     reader: OnceLock<SyncReader>,
+    pipeline_info: OnceLock<Option<(Pipeline, String, String)>>,
 }
 
 impl GstObjectImpl for ZeromqSrc {}

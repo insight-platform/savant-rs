@@ -2,13 +2,15 @@ use base64::prelude::*;
 use gst::subclass::prelude::*;
 use gst::{prelude::*, FlowError};
 use gst_base::subclass::base_src::CreateSuccess;
+use savant_core::gstreamer::id_meta::SavantIdMetaKind;
 use savant_core::message::{save_message, Message};
 use savant_core::primitives::eos::EndOfStream;
-use savant_core::primitives::rust::VideoFrameProxy;
+use savant_core::primitives::rust::{VideoFrameContent, VideoFrameProxy};
 use savant_core::primitives::shutdown::Shutdown;
-use savant_core::rust::PropagatedContext;
+use savant_core::rust::{Pipeline, PropagatedContext};
 use savant_core::transport::zeromq::ReaderResult;
 use savant_core::utils::bytes_to_hex_string;
+use savant_core::webserver::get_pipeline;
 
 use crate::utils::convert_ts;
 use crate::zeromq_src::{CAT, EOS_PROCESSING_OPT, ERROR_PROCESSING_OPT, SKIP_PROCESSING};
@@ -97,8 +99,72 @@ impl ZeromqSrc {
             "Custom ingress Python function returned True, processing the frame [{}]",
             get_frame_key_info_as_string(frame)
         );
-        let buf = self.create_frame_buffer(frame, data);
+        let buf = self.build_frame_buffer(frame, data);
+        if buf.is_none() {
+            return None;
+        }
+        let buf = buf.unwrap();
+        let frame_meta = self.register_frame_in_pipeline(frame, context);
+        let buf = savant_core::gstreamer::GstBuffer::from(buf);
+        if let Some(frame_meta) = frame_meta {
+            buf.replace_id_meta(vec![frame_meta]).unwrap_or_else(|e| {
+                panic!("Failed to replace ID meta for frame: {}", e);
+            });
+        }
+        let buf = buf.extract().unwrap_or_else(|e| {
+            panic!("Failed to extract GstBuffer from GstBuffer: {}", e);
+        });
         Some(Ok(buf))
+    }
+
+    fn register_frame_in_pipeline(
+        &self,
+        frame: &VideoFrameProxy,
+        context: &PropagatedContext,
+    ) -> Option<SavantIdMetaKind> {
+        let pipeline_info = self.pipeline_info.get_or_init(|| {
+            let settings_bind = self.settings.lock();
+            let pipeline_name = settings_bind.pipeline_name.as_ref();
+            let stage_name = settings_bind.pipeline_stage_name.as_ref();
+            if !pipeline_name.is_some() || !stage_name.is_some() {
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Pipeline name or stage name is not set, skipping frame registration"
+                );
+                return None;
+            }
+            let pipeline_name = pipeline_name.unwrap().to_string();
+            let stage_name = stage_name.unwrap().to_string();
+
+            let res = get_pipeline(&pipeline_name).map(Pipeline::from);
+            res.map(|p| (p, pipeline_name, stage_name))
+        });
+        if let Some((pipeline, pipeline_name, stage_name)) = pipeline_info {
+            let frame_idx = pipeline
+                .add_frame_with_telemetry(stage_name, frame.clone(), context.extract())
+                .unwrap_or_else(|e| {
+                    let message = format!(
+                        "Failed to add frame [{}] to pipeline {}, stage {}: {}",
+                        get_frame_key_info_as_string(frame),
+                        pipeline_name,
+                        stage_name,
+                        e
+                    );
+                    gst::error!(CAT, imp = self, "{}", &message);
+                    panic!("{}", &message);
+                });
+            gst::debug!(
+                CAT,
+                imp = self,
+                "Frame [{}] registered in pipeline [{}]",
+                frame_idx,
+                pipeline_name
+            );
+            Some(SavantIdMetaKind::Frame(frame_idx))
+        } else {
+            None
+        }
     }
 
     pub(crate) fn handle_video_frame(
@@ -156,18 +222,55 @@ impl ZeromqSrc {
         frame.get_width() > max_width as i64 || frame.get_height() > max_height as i64
     }
 
-    fn create_frame_buffer(&self, frame: &VideoFrameProxy, _data: &[Vec<u8>]) -> gst::Buffer {
-        let frame_pts = convert_ts(frame.get_pts(), frame.get_time_base());
+    fn build_frame_buffer(
+        &self,
+        frame: &VideoFrameProxy,
+        external_content: &[Vec<u8>],
+    ) -> Option<gst::Buffer> {
+        let content_spec = frame.get_content();
+        match content_spec.as_ref() {
+            VideoFrameContent::External(_) => {
+                let external_content_opt = external_content.first();
+                if external_content_opt.is_none() {
+                    gst::warning!(
+                        CAT,
+                        imp = self,
+                        "No external content found for frame [{}] which has external content",
+                        get_frame_key_info_as_string(frame)
+                    );
+                    return None;
+                }
+                let external_content = external_content_opt.unwrap();
 
-        let frame_dts = frame
-            .get_dts()
-            .map(|dts| convert_ts(dts, frame.get_time_base()));
-
-        let frame_duration = frame
-            .get_duration()
-            .map(|duration| convert_ts(duration, frame.get_time_base()));
-
-        todo!()
+                let mut buf = gst::Buffer::with_size(external_content.len()).unwrap();
+                {
+                    let buf_mut = buf.make_mut();
+                    let mut map = buf_mut.map_writable().unwrap();
+                    let data = map.as_mut_slice();
+                    data.copy_from_slice(external_content);
+                }
+                Some(buf)
+            }
+            VideoFrameContent::Internal(content) => {
+                let mut buf = gst::Buffer::with_size(content.len()).unwrap();
+                {
+                    let buf_mut = buf.make_mut();
+                    let mut map = buf_mut.map_writable().unwrap();
+                    let data = map.as_mut_slice();
+                    data.copy_from_slice(content);
+                }
+                Some(buf)
+            }
+            VideoFrameContent::None => {
+                gst::debug!(
+                    CAT,
+                    imp = self,
+                    "Frame [{}] has no content, skipping",
+                    get_frame_key_info_as_string(frame)
+                );
+                None
+            }
+        }
     }
 
     pub(crate) fn handle_unsupported_payload(&self, m: &Message) {
