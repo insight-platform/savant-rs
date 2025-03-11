@@ -1,0 +1,13 @@
+__all__ = ['AtomicCounter']
+
+
+class AtomicCounter:
+    def __init__(self, initial_value: int): ...
+
+    @property
+    def next(self) -> int: ...
+
+    def set(self, value: int) -> int: ...
+
+    @property
+    def get(self) -> int: ... 

@@ -23,3 +23,11 @@ Cargo.lock
 /Cargo.lock
 /docs/build
 /docs/source/generated
+
+/venv
+/venv312
+
+**/*.pyc
+
+.zed
+.vscode
