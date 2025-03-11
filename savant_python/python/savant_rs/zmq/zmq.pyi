@@ -12,19 +12,22 @@ __all__ = [
     'ReaderConfig',
     'ReaderConfigBuilder',
     'WriterResultSendTimeout',
-    'WriterResultActTimeout',
+    'WriterResultAckTimeout',
     'WriterResultAck',
     'WriterResultSuccess',
     'ReaderResultMessage',
-    'ReaderResultEndOfStream',
     'ReaderResultTimeout',
     'ReaderResultPrefixMismatch',
+    'ReaderResultBlacklisted',
     'BlockingWriter',
     'BlockingReader',
     'WriteOperationResult',
     'NonBlockingWriter',
     'NonBlockingReader',
 ]
+
+class ReaderResultBlacklisted:
+    topic: bytes
 
 class WriterSocketType(Enum):
     Pub: int
@@ -111,7 +114,7 @@ class ReaderConfigBuilder:
 class WriterResultSendTimeout:
     pass
 
-class WriterResultActTimeout:
+class WriterResultAckTimeout:
     timeout: int
 
 class WriterResultAck:
@@ -131,9 +134,6 @@ class ReaderResultMessage:
     def data_len(self) -> int: ...
     def data(self, index: int) -> bytes: ...
 
-class ReaderResultEndOfStream:
-    topic: bytes
-    routing_id: Optional[bytes]
 
 class ReaderResultTimeout:
     pass
@@ -150,7 +150,7 @@ class BlockingWriter:
     def send_eos(self, topic: str) -> None: ...
     def send_message(self, topic: str, message: Message) -> Union[
         WriterResultSendTimeout,
-        WriterResultActTimeout,
+        WriterResultAckTimeout,
         WriterResultAck,
         WriterResultSuccess,
     ]: ...
@@ -164,7 +164,6 @@ class BlockingReader:
         self,
     ) -> Union[
         ReaderResultMessage,
-        ReaderResultEndOfStream,
         ReaderResultTimeout,
         ReaderResultPrefixMismatch,
     ]: ...
@@ -174,7 +173,7 @@ class WriteOperationResult:
         self,
     ) -> Union[
         WriterResultSendTimeout,
-        WriterResultActTimeout,
+        WriterResultAckTimeout,
         WriterResultAck,
         WriterResultSuccess,
     ]: ...
@@ -183,7 +182,7 @@ class WriteOperationResult:
     ) -> Optional[
         Union[
             WriterResultSendTimeout,
-            WriterResultActTimeout,
+            WriterResultAckTimeout,
             WriterResultAck,
             WriterResultSuccess,
         ]
@@ -209,7 +208,6 @@ class NonBlockingReader:
         self,
     ) -> Union[
         ReaderResultMessage,
-        ReaderResultEndOfStream,
         ReaderResultTimeout,
         ReaderResultPrefixMismatch,
     ]: ...
@@ -218,7 +216,6 @@ class NonBlockingReader:
     ) -> Optional[
         Union[
             ReaderResultMessage,
-            ReaderResultEndOfStream,
             ReaderResultTimeout,
             ReaderResultPrefixMismatch,
         ]

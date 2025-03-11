@@ -112,28 +112,28 @@ pub fn kvs(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 pub fn zmq(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<WriterSocketType>()?; // PYI
-    m.add_class::<WriterConfigBuilder>()?; // PYI
-    m.add_class::<WriterConfig>()?; // PYI
-    m.add_class::<WriterResultSendTimeout>()?; // PYI
-    m.add_class::<WriterResultAckTimeout>()?; // PYI
-    m.add_class::<WriterResultAck>()?; // PYI
-    m.add_class::<WriterResultSuccess>()?; // PYI
+    m.add_class::<WriterSocketType>()?;
+    m.add_class::<WriterConfigBuilder>()?;
+    m.add_class::<WriterConfig>()?;
+    m.add_class::<WriterResultSendTimeout>()?;
+    m.add_class::<WriterResultAckTimeout>()?;
+    m.add_class::<WriterResultAck>()?;
+    m.add_class::<WriterResultSuccess>()?;
 
-    m.add_class::<blocking::BlockingWriter>()?; // PYI
-    m.add_class::<nonblocking::NonBlockingWriter>()?; // PYI
-    m.add_class::<nonblocking::WriteOperationResult>()?; // PYI
+    m.add_class::<blocking::BlockingWriter>()?;
+    m.add_class::<nonblocking::NonBlockingWriter>()?;
+    m.add_class::<nonblocking::WriteOperationResult>()?;
 
-    m.add_class::<ReaderSocketType>()?; // PYI
-    m.add_class::<TopicPrefixSpec>()?; // PYI
-    m.add_class::<ReaderConfigBuilder>()?; // PYI
-    m.add_class::<ReaderConfig>()?; // PYI
-    m.add_class::<ReaderResultMessage>()?; // PYI
+    m.add_class::<ReaderSocketType>()?;
+    m.add_class::<TopicPrefixSpec>()?;
+    m.add_class::<ReaderConfigBuilder>()?;
+    m.add_class::<ReaderConfig>()?;
+    m.add_class::<ReaderResultMessage>()?;
     m.add_class::<ReaderResultBlacklisted>()?;
-    m.add_class::<ReaderResultTimeout>()?; // PYI
-    m.add_class::<ReaderResultPrefixMismatch>()?; // PYI
+    m.add_class::<ReaderResultTimeout>()?;
+    m.add_class::<ReaderResultPrefixMismatch>()?;
 
-    m.add_class::<blocking::BlockingReader>()?; // PYI
+    m.add_class::<blocking::BlockingReader>()?;
     m.add_class::<nonblocking::NonBlockingReader>()?;
 
     Ok(())
@@ -179,22 +179,22 @@ pub fn serialization(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(eval_expr, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(gen_frame, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?; // PYI
-                                                            // utility
-    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(incremental_uuid_v7, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(eval_expr, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(gen_empty_frame, m)?)?;
+    // utility
+    m.add_function(wrap_pyfunction!(round_2_digits, m)?)?;
+    m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
+    m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?;
+    m.add_function(wrap_pyfunction!(incremental_uuid_v7, m)?)?;
 
-    m.add_class::<PropagatedContext>()?; // PYI
-    m.add_class::<TelemetrySpan>()?; // PYI
-    m.add_class::<MaybeTelemetrySpan>()?; // PYI
-    m.add_class::<ByteBuffer>()?; // PYI
-    m.add_class::<VideoObjectBBoxType>()?; // PYI
-    m.add_class::<VideoObjectBBoxTransformation>()?; // PYI
-    m.add_class::<BBoxMetricType>()?; // PYI
+    m.add_class::<PropagatedContext>()?;
+    m.add_class::<TelemetrySpan>()?;
+    m.add_class::<MaybeTelemetrySpan>()?;
+    m.add_class::<ByteBuffer>()?;
+    m.add_class::<VideoObjectBBoxType>()?;
+    m.add_class::<VideoObjectBBoxTransformation>()?;
+    m.add_class::<BBoxMetricType>()?;
     m.add_class::<AtomicCounter>()?;
 
     m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
@@ -221,28 +221,28 @@ pub fn geometry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<Attribute>()?; // PYI
-    m.add_class::<AttributeUpdatePolicy>()?; // PYI
-    m.add_class::<ObjectUpdatePolicy>()?; // PYI
-    m.add_class::<AttributeValue>()?; // PYI
-    m.add_class::<AttributeValueType>()?; // PYI
-    m.add_class::<AttributeValuesView>()?; // PYI
-    m.add_class::<EndOfStream>()?; // PYI
-    m.add_class::<Shutdown>()?; // PYI
-    m.add_class::<UserData>()?; // PYI
+    m.add_class::<Attribute>()?;
+    m.add_class::<AttributeUpdatePolicy>()?;
+    m.add_class::<ObjectUpdatePolicy>()?;
+    m.add_class::<AttributeValue>()?;
+    m.add_class::<AttributeValueType>()?;
+    m.add_class::<AttributeValuesView>()?;
+    m.add_class::<EndOfStream>()?;
+    m.add_class::<Shutdown>()?;
+    m.add_class::<UserData>()?;
 
-    m.add_class::<VideoFrame>()?; // PYI
-    m.add_class::<VideoFrameBatch>()?; // PYI
-    m.add_class::<VideoFrameContent>()?; // PYI
-    m.add_class::<VideoFrameTranscodingMethod>()?; // PYI
-    m.add_class::<VideoFrameUpdate>()?; // PYI
-    m.add_class::<VideoFrameTransformation>()?; // PYI
+    m.add_class::<VideoFrame>()?;
+    m.add_class::<VideoFrameBatch>()?;
+    m.add_class::<VideoFrameContent>()?;
+    m.add_class::<VideoFrameTranscodingMethod>()?;
+    m.add_class::<VideoFrameUpdate>()?;
+    m.add_class::<VideoFrameTransformation>()?;
 
-    m.add_class::<BorrowedVideoObject>()?; // PYI
-    m.add_class::<VideoObject>()?; // PYI
-    m.add_class::<VideoObjectsView>()?; // PYI
+    m.add_class::<BorrowedVideoObject>()?;
+    m.add_class::<VideoObject>()?;
+    m.add_class::<VideoObjectsView>()?;
 
-    m.add_class::<IdCollisionResolutionPolicy>()?; // PYI
+    m.add_class::<IdCollisionResolutionPolicy>()?;
 
     m.add_wrapped(wrap_pymodule!(self::geometry))?;
     Ok(())
@@ -300,28 +300,28 @@ pub(crate) fn logging(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<ColorDraw>()?; // PYI
-    m.add_class::<BoundingBoxDraw>()?; // PYI
-    m.add_class::<DotDraw>()?; // PYI
-    m.add_class::<LabelDraw>()?; // PYI
-    m.add_class::<LabelPositionKind>()?; // PYI
-    m.add_class::<LabelPosition>()?; // PYI
-    m.add_class::<PaddingDraw>()?; // PYI
-    m.add_class::<ObjectDraw>()?; // PYI
+    m.add_class::<ColorDraw>()?;
+    m.add_class::<BoundingBoxDraw>()?;
+    m.add_class::<DotDraw>()?;
+    m.add_class::<LabelDraw>()?;
+    m.add_class::<LabelPositionKind>()?;
+    m.add_class::<LabelPosition>()?;
+    m.add_class::<PaddingDraw>()?;
+    m.add_class::<ObjectDraw>()?;
     m.add_class::<SetDrawLabelKind>()?;
     Ok(())
 }
 
 #[pymodule(gil_used = false)]
 pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<ContextPropagationFormat>()?; // PYI
-    m.add_class::<Protocol>()?; // PYI
-    m.add_class::<Identity>()?; // PYI
-    m.add_class::<ClientTlsConfig>()?; // PYI
-    m.add_class::<TracerConfiguration>()?; // PYI
-    m.add_class::<TelemetryConfiguration>()?; // PYI
-    m.add_function(wrap_pyfunction!(init, m)?)?; // PYI
-    m.add_function(wrap_pyfunction!(shutdown, m)?)?; // PYI
+    m.add_class::<ContextPropagationFormat>()?;
+    m.add_class::<Protocol>()?;
+    m.add_class::<Identity>()?;
+    m.add_class::<ClientTlsConfig>()?;
+    m.add_class::<TracerConfiguration>()?;
+    m.add_class::<TelemetryConfiguration>()?;
+    m.add_function(wrap_pyfunction!(init, m)?)?;
+    m.add_function(wrap_pyfunction!(shutdown, m)?)?;
     Ok(())
 }
 
@@ -349,23 +349,23 @@ pub fn init_logs() -> PyResult<()> {
 }
 
 pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(version, m)?)?; // PYI
+    m.add_function(wrap_pyfunction!(version, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;
     m.add_wrapped(wrap_pymodule!(self::geometry))?;
-    m.add_wrapped(wrap_pymodule!(self::draw_spec))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::utils))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::draw_spec))?;
+    m.add_wrapped(wrap_pymodule!(self::utils))?;
     m.add_wrapped(wrap_pymodule!(self::symbol_mapper))?;
     m.add_wrapped(wrap_pymodule!(self::serialization))?;
     m.add_wrapped(wrap_pymodule!(self::match_query))?;
-    m.add_wrapped(wrap_pymodule!(self::logging))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::zmq))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::telemetry))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::webserver))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::metrics))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::kvs))?; // PYI
-    m.add_wrapped(wrap_pymodule!(self::gstreamer))?; // PYI
+    m.add_wrapped(wrap_pymodule!(self::logging))?;
+    m.add_wrapped(wrap_pymodule!(self::zmq))?;
+    m.add_wrapped(wrap_pymodule!(self::telemetry))?;
+    m.add_wrapped(wrap_pymodule!(self::webserver))?;
+    m.add_wrapped(wrap_pymodule!(self::metrics))?;
+    m.add_wrapped(wrap_pymodule!(self::kvs))?;
+    m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.as_ref().getattr("modules")?;
