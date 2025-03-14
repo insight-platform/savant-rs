@@ -16,7 +16,7 @@ rust-version.workspace = true
 anyhow = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
-log = "0.4.22"
+log = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_rs = { workspace = true }
 # savant_core_py = { workspace = true }

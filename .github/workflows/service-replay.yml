@@ -8,7 +8,7 @@ on:
   push:
     branches: [ "main" ]
     # Publish semver tags as releases.
-    tags: [ 'v*.*.*' ]
+    tags: [ 'v*.*.*', '*.*.*' ]
   pull_request:
     branches: [ "main" ]
 
@@ -89,7 +89,7 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "TAG=latest" >> $GITHUB_ENV
           else
-            echo "TAG=${{ env.TAG_NAME }}" >> $GITHUB_ENV
+            echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
       - name: Push docker image for ${{ env.GITHUB_REF_SLUG }}
