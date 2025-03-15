@@ -19,6 +19,7 @@ ENV RUST_LOG=info
 
 EXPOSE 8080
 EXPOSE 5555
+EXPOSE 5556
 
 ENTRYPOINT ["/opt/bin/replay"]
 CMD ["/opt/etc/config.json"]

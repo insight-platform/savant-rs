@@ -1,7 +1,7 @@
 {
   "common": {
     "pass_metadata_only": false,
-    "management_port": ${API_PORT:-8080},
+    "management_port": 8080,
     "stats_period": {
       "secs": 60,
       "nanos": 0
@@ -17,35 +17,22 @@
     }
   },
   "in_stream": {
-    "url": "${IN_STREAM:-router+bind:tcp://0.0.0.0:5555}",
-    "receive_timeout": {
-      "secs": 1,
-      "nanos": 0
-    },
-    "receive_hwm": 1000,
-    "topic_prefix_spec": {
-      "none": null
-    },
-    "source_cache_size": 1000,
-    "inflight_ops": 100,
-    "fix_ipc_permissions": 511
+    "url": "router+bind:ipc:///tmp/${SOCKET_PATH_IN:-undefined}",
+    "options": {
+      "receive_timeout": {
+        "secs": 1,
+        "nanos": 0
+      },
+      "receive_hwm": 1000,
+      "topic_prefix_spec": {
+        "source_id": "source_id"
+      },
+      "source_cache_size": 1000,
+      "inflight_ops": 100,
+      "fix_ipc_permissions": 511
+    }
   },
-  "out_stream": {
-    "url": "pub+bind:tcp://0.0.0.0:5556",
-    "send_timeout": {
-      "secs": 1,
-      "nanos": 0
-    },
-    "send_retries": 3,
-    "receive_timeout": {
-      "secs": 1,
-      "nanos": 0
-    },
-    "receive_retries": 3,
-    "send_hwm": 1000,
-    "receive_hwm": 100,
-    "inflight_ops": 100
-  },
+  "out_stream": null,
   "storage": {
     "rocksdb": {
       "path": "${DB_PATH:-/tmp/rocksdb}",

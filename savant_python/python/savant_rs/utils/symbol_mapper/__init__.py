@@ -1,3 +1,3 @@
-from .symbol_mapper import * # type: ignore
+from .symbol_mapper import *  # type: ignore
 
-__all__ = symbol_mapper.__all__ # type: ignore
+__all__ = symbol_mapper.__all__  # type: ignore

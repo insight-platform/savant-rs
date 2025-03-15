@@ -4,6 +4,7 @@ use super::{
 };
 use crate::utils::default_once::DefaultOnceCell;
 use anyhow::bail;
+use hashbrown::HashMap;
 
 #[derive(Clone, Debug, Default)]
 pub struct WriterConfig(WriterConfigBuilder);
@@ -108,6 +109,7 @@ impl WriterConfigBuilder {
         Ok(self)
     }
 
+    #[cfg(test)]
     pub fn with_socket_type(self, socket_type: WriterSocketType) -> anyhow::Result<Self> {
         self.socket_type.set(socket_type)?;
         Ok(self)
@@ -161,6 +163,7 @@ impl WriterConfigBuilder {
         Ok(self)
     }
 
+    #[cfg(test)]
     pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
         self.bind.set(bind)?;
         Ok(self)
@@ -173,12 +176,45 @@ impl WriterConfigBuilder {
         self.fix_ipc_permissions.set(permissions)?;
         Ok(self)
     }
+
+    pub fn with_map_config(self, map: HashMap<String, String>) -> anyhow::Result<Self> {
+        match (self.endpoint.is_initialized(), map.get("url")) {
+            (true, Some(_)) => bail!("The 'url' already set. Exclude it from the map."),
+            (false, None) => {
+                bail!("The 'url' field value is required before building the writer config")
+            }
+            (_, url_opt) => {
+                let mut builder = if let Some(url) = url_opt {
+                    self.url(url)?
+                } else {
+                    self
+                };
+
+                for (key, value) in map.iter().filter(|(k, _)| *k != "url") {
+                    builder = match key.as_str() {
+                        "send_timeout" => builder.with_send_timeout(value.parse()?),
+                        "receive_timeout" => builder.with_receive_timeout(value.parse()?),
+                        "receive_retries" => builder.with_receive_retries(value.parse()?),
+                        "send_retries" => builder.with_send_retries(value.parse()?),
+                        "send_hwm" => builder.with_send_hwm(value.parse()?),
+                        "receive_hwm" => builder.with_receive_hwm(value.parse()?),
+                        "fix_ipc_permissions" => {
+                            builder.with_fix_ipc_permissions(Some(u32::from_str_radix(value, 8)?))
+                        }
+                        _ => bail!("Invalid field: {}", key),
+                    }?;
+                }
+                Ok(builder)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::transport::zeromq::writer_config::WriterConfig;
     use crate::transport::zeromq::WriterSocketType;
+    use hashbrown::HashMap;
 
     #[test]
     fn test_duplicate_configuration_fails() -> anyhow::Result<()> {
@@ -228,6 +264,62 @@ mod tests {
         let _ = WriterConfig::new()
             .with_bind(true)?
             .with_fix_ipc_permissions(Some(0777))?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_full_config() -> anyhow::Result<()> {
+        let map = HashMap::from([
+            ("url".to_string(), "pub+bind:tcp://1.1.1.1:1234".to_string()),
+            ("send_timeout".to_string(), "1000".to_string()),
+            ("receive_timeout".to_string(), "1000".to_string()),
+            ("receive_retries".to_string(), "3".to_string()),
+            ("send_retries".to_string(), "3".to_string()),
+            ("send_hwm".to_string(), "1000".to_string()),
+            ("receive_hwm".to_string(), "1000".to_string()),
+            ("fix_ipc_permissions".to_string(), "0753".to_string()),
+        ]);
+        let builder = WriterConfig::new().with_map_config(map)?;
+        let config = builder.build()?;
+        assert_eq!(config.endpoint().as_str(), "tcp://1.1.1.1:1234");
+        assert_eq!(config.bind(), &true);
+        assert_eq!(config.socket_type(), &WriterSocketType::Pub);
+        assert_eq!(config.send_timeout(), &1000);
+        assert_eq!(config.receive_timeout(), &1000);
+        assert_eq!(config.receive_retries(), &3);
+        assert_eq!(config.send_retries(), &3);
+        assert_eq!(config.send_hwm(), &1000);
+        assert_eq!(config.receive_hwm(), &1000);
+        assert_eq!(config.fix_ipc_permissions(), &Some(0o753));
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_partial_double_url_set_config() -> anyhow::Result<()> {
+        let builder = WriterConfig::new().url("pub+bind:tcp://1.1.1.1:1234")?;
+        let map = HashMap::from([("url".to_string(), "pub+bind:tcp://1.1.1.1:1234".to_string())]);
+        let builder = builder.with_map_config(map);
+        assert!(builder.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_no_url_at_all_config() -> anyhow::Result<()> {
+        let map = HashMap::from([("send_timeout".to_string(), "1000".to_string())]);
+        let builder = WriterConfig::new().with_map_config(map);
+        assert!(builder.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_explicit_url_and_partial_config() -> anyhow::Result<()> {
+        let map = HashMap::from([
+            ("send_timeout".to_string(), "1000".to_string()),
+            ("fix_ipc_permissions".to_string(), "0755".to_string()),
+        ]);
+        let _ = WriterConfig::new()
+            .url("pub+bind:tcp://1.1.1.1:1234")?
+            .with_map_config(map)?;
         Ok(())
     }
 }
