@@ -2,7 +2,6 @@ use base64::prelude::*;
 use gst::subclass::prelude::*;
 use gst::{prelude::*, FlowError};
 use gst_base::subclass::base_src::CreateSuccess;
-use savant_core::gstreamer::id_meta::SavantIdMetaKind;
 use savant_core::message::{save_message, Message};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::rust::{VideoFrameContent, VideoFrameProxy};
@@ -11,6 +10,7 @@ use savant_core::rust::{Pipeline, PropagatedContext};
 use savant_core::transport::zeromq::ReaderResult;
 use savant_core::utils::bytes_to_hex_string;
 use savant_core::webserver::get_pipeline;
+use savant_gstreamer::id_meta::SavantIdMetaKind;
 
 use crate::utils::convert_ts;
 use crate::zeromq_src::{CAT, EOS_PROCESSING_OPT, ERROR_PROCESSING_OPT, SKIP_PROCESSING};
@@ -105,7 +105,7 @@ impl ZeromqSrc {
         }
         let buf = buf.unwrap();
         let frame_meta = self.register_frame_in_pipeline(frame, context);
-        let buf = savant_core::gstreamer::GstBuffer::from(buf);
+        let buf = savant_gstreamer::GstBuffer::from(buf);
         if let Some(frame_meta) = frame_meta {
             buf.replace_id_meta(vec![frame_meta]).unwrap_or_else(|e| {
                 panic!("Failed to replace ID meta for frame: {}", e);

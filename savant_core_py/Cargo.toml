@@ -21,8 +21,6 @@ colored = { workspace = true }
 evalexpr = { workspace = true }
 hashbrown = { workspace = true }
 geo = { workspace = true }
-#gst = { workspace = true }
-#gst-base = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 opentelemetry = { workspace = true }
@@ -38,5 +36,3 @@ tokio = { workspace = true }
 pyo3-build-config = { workspace = true }
 cbindgen = { workspace = true }
 
-[package.metadata.maturin]
-python-source = "python"

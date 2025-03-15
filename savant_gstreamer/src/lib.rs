@@ -1,9 +1,3 @@
-use crate::gstreamer::id_meta::SavantIdMeta;
-use gst::BufferFlags;
-use id_meta::SavantIdMetaKind;
-use parking_lot::RwLock;
-use std::sync::Arc;
-
 pub mod id_meta;
 
 #[derive(Clone)]
@@ -155,26 +149,26 @@ impl GstBuffer {
         bind.append(buffer.0.read().clone());
     }
 
-    pub fn get_id_meta(&self) -> Option<Vec<SavantIdMetaKind>> {
+    pub fn get_id_meta(&self) -> Option<Vec<id_meta::SavantIdMetaKind>> {
         let bind = self.0.read();
-        let meta = bind.meta::<SavantIdMeta>()?;
+        let meta = bind.meta::<id_meta::SavantIdMeta>()?;
         Some(meta.ids().to_vec())
     }
 
     pub fn replace_id_meta(
         &self,
-        ids: Vec<SavantIdMetaKind>,
-    ) -> anyhow::Result<Option<Vec<SavantIdMetaKind>>> {
+        ids: Vec<id_meta::SavantIdMetaKind>,
+    ) -> anyhow::Result<Option<Vec<id_meta::SavantIdMetaKind>>> {
         let old_ids = self.clear_id_meta()?;
         let mut bind = self.0.write();
         let buffer = bind
             .get_mut()
             .ok_or(anyhow::anyhow!("Unable to get write access to the buffer.",))?;
-        SavantIdMeta::replace(buffer, ids);
+        id_meta::SavantIdMeta::replace(buffer, ids);
         Ok(old_ids)
     }
 
-    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<SavantIdMetaKind>>> {
+    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<id_meta::SavantIdMetaKind>>> {
         let old_ids = self.get_id_meta();
         if old_ids.is_none() {
             return Ok(None);
@@ -185,7 +179,7 @@ impl GstBuffer {
             .get_mut()
             .ok_or(anyhow::anyhow!("Unable to get write access to the buffer.",))?;
 
-        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<SavantIdMeta>();
+        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<id_meta::SavantIdMeta>();
         if meta_ref_mut_opt.is_none() {
             return Ok(None);
         }
@@ -204,8 +198,8 @@ impl GstBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::gstreamer::id_meta::SavantIdMetaKind::*;
-    use crate::gstreamer::GstBuffer;
+    use crate::id_meta::SavantIdMetaKind::*;
+    use crate::GstBuffer;
     #[test]
     fn test_savant_meta() -> anyhow::Result<()> {
         gst::init().unwrap();
@@ -259,3 +253,7 @@ mod tests {
         Ok(())
     }
 }
+
+use gst::BufferFlags;
+use parking_lot::RwLock;
+use std::sync::Arc;

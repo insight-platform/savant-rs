@@ -59,6 +59,7 @@ mod imp {
     use gst::glib::translate::{from_glib, IntoGlib};
     use std::ptr;
     use std::sync::LazyLock;
+    use std::mem::size_of;
 
     use super::SavantIdMetaKind;
 
@@ -146,4 +147,4 @@ mod imp {
 
         META_INFO.0.as_ptr()
     }
-}
+} 

@@ -12,8 +12,6 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
 crate-type = ["dylib"]
 
@@ -24,6 +22,7 @@ hashbrown = { workspace = true }
 pyo3 = { workspace = true }
 savant_core_py = { workspace = true }
 savant_core = { workspace = true }
+savant_gstreamer = { workspace = true }
 gst = { workspace = true }
 gst-base = { workspace = true }
 gst-video = { workspace = true }
