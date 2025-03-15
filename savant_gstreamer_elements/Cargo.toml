@@ -20,9 +20,9 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 hashbrown = { workspace = true }
 pyo3 = { workspace = true }
-savant_core_py = { workspace = true }
-savant_core = { workspace = true }
 savant_gstreamer = { workspace = true }
+savant_core = { workspace = true }
+savant_core_py = { workspace = true }
 gst = { workspace = true }
 gst-base = { workspace = true }
 gst-video = { workspace = true }

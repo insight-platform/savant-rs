@@ -12,7 +12,8 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -20,5 +21,3 @@ gst = { workspace = true }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 
-[lib]
-crate-type = ["dylib"]

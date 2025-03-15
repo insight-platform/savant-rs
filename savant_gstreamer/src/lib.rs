@@ -1,5 +1,9 @@
 pub mod id_meta;
 
+use gst::BufferFlags;
+use parking_lot::RwLock;
+use std::sync::Arc;
+
 #[derive(Clone)]
 pub struct GstBuffer(Arc<RwLock<gst::Buffer>>);
 
@@ -253,7 +257,3 @@ mod tests {
         Ok(())
     }
 }
-
-use gst::BufferFlags;
-use parking_lot::RwLock;
-use std::sync::Arc;
