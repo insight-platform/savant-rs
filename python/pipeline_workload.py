@@ -1,20 +1,19 @@
-import savant_rs
 import savant_plugin_sample
-from savant_rs.logging import log, LogLevel
-from savant_rs.logging import set_log_level
-from savant_rs.pipeline import VideoPipelineStagePayloadType, VideoPipeline, VideoPipelineConfiguration, StageFunction
+import savant_rs
+from savant_rs.logging import LogLevel, log, set_log_level
+from savant_rs.pipeline import (StageFunction, VideoPipeline,
+                                VideoPipelineConfiguration,
+                                VideoPipelineStagePayloadType)
 from savant_rs.primitives import AttributeValue
 
 print(savant_rs.version())
 set_log_level(LogLevel.Info)
 
-plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
-plugin_function_2 = savant_plugin_sample.get_instance("doesnotmatter", dict(attr=AttributeValue.integer(1)))
 
-from savant_rs.utils import gen_frame
-from savant_rs.primitives import VideoFrameUpdate, ObjectUpdatePolicy, \
-    AttributeUpdatePolicy
 from savant_rs.match_query import MatchQuery as Q
+from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
+                                  VideoFrameUpdate)
+from savant_rs.utils import gen_frame
 
 # LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py
 
@@ -24,12 +23,36 @@ if __name__ == "__main__":
     conf.frame_period = 100  # every single frame, insane
     conf.timestamp_period = 1000  # every sec
 
-    p = VideoPipeline("video-pipeline-root", [
-        ("input", VideoPipelineStagePayloadType.Frame, plugin_function_1, plugin_function_2),
-        ("proc1", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
-        ("proc2", VideoPipelineStagePayloadType.Batch, StageFunction.none(), StageFunction.none()),
-        ("output", VideoPipelineStagePayloadType.Frame, StageFunction.none(), StageFunction.none()),
-    ], conf)
+    p = VideoPipeline(
+        "video-pipeline-root",
+        [
+            (
+                "input",
+                VideoPipelineStagePayloadType.Frame,
+                StageFunction.none(),
+                StageFunction.none(),
+            ),
+            (
+                "proc1",
+                VideoPipelineStagePayloadType.Batch,
+                StageFunction.none(),
+                StageFunction.none(),
+            ),
+            (
+                "proc2",
+                VideoPipelineStagePayloadType.Batch,
+                StageFunction.none(),
+                StageFunction.none(),
+            ),
+            (
+                "output",
+                VideoPipelineStagePayloadType.Frame,
+                StageFunction.none(),
+                StageFunction.none(),
+            ),
+        ],
+        conf,
+    )
     p.sampling_period = 10
 
     for it in range(1_000):
@@ -43,8 +66,12 @@ if __name__ == "__main__":
         frame_id2 = p.add_frame("input", frame2)
         update = VideoFrameUpdate()
         update.object_policy = ObjectUpdatePolicy.AddForeignObjects
-        update.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
-        update.object_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+        update.frame_attribute_policy = (
+            AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+        )
+        update.object_attribute_policy = (
+            AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
+        )
         p.add_frame_update(frame_id1, update)
         frame1, ctxt1 = p.get_independent_frame(frame_id1)
         frame2, ctxt2 = p.get_independent_frame(frame_id2)

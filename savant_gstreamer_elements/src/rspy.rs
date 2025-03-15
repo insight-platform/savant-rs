@@ -302,7 +302,10 @@ impl ObjectImpl for RsPy {
                 );
                 settings.pipeline_stage = Some(pipeline_stage);
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Set operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -322,7 +325,10 @@ impl ObjectImpl for RsPy {
                 let source_event = self.interop.lock().source_event.take();
                 source_event.to_value()
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Get operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -399,7 +405,43 @@ impl ElementImpl for RsPy {
         &self,
         transition: StateChange,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        gst::info!(CAT, imp = self, "Changing state {:?}", transition);
-        self.parent_change_state(transition)
+        let res = Python::with_gil(|py| {
+            let element_name = self.obj().name().to_string();
+            let handlers_bind = REGISTERED_HANDLERS.read();
+            let handler = handlers_bind
+                .get(&element_name)
+                .unwrap_or_else(|| panic!("Handler {} not found", element_name));
+
+            let current_state = transition.current() as i32;
+            let next_state = transition.next() as i32;
+
+            handler.call1(
+                py,
+                (
+                    element_name,
+                    InvocationReason::StateChange,
+                    current_state,
+                    next_state,
+                ),
+            )
+        });
+
+        if let Err(e) = res {
+            log::error!("Error calling state change function: {:?}", e);
+            return Err(gst::StateChangeError);
+        }
+
+        let bool_res = Python::with_gil(|py| {
+            res.unwrap().extract::<bool>(py).unwrap_or_else(|e| {
+                log::error!("Error extracting bool result: {:?}", e);
+                false
+            })
+        });
+
+        if bool_res {
+            self.parent_change_state(transition)
+        } else {
+            Err(gst::StateChangeError)
+        }
     }
 }

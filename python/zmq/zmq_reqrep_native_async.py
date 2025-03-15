@@ -3,7 +3,8 @@ from time import time
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, NonBlockingReader, NonBlockingWriter
+from savant_rs.zmq import (NonBlockingReader, NonBlockingWriter,
+                           ReaderConfigBuilder, WriterConfigBuilder)
 
 socket_name = "ipc:///tmp/test_hello"
 
@@ -24,7 +25,12 @@ async def reader():
             assert len(m.data(0)) == BLOCK_SIZE
 
             if counter % 1000 == 0:
-                print("Read counter", counter, ", enqueued results", reader.enqueued_results())
+                print(
+                    "Read counter",
+                    counter,
+                    ", enqueued results",
+                    reader.enqueued_results(),
+                )
 
             counter -= 1
 
@@ -50,7 +56,7 @@ async def writer():
             print("Write counter", counter)
 
         counter -= 1
-        wait_time += (time() - wait)
+        wait_time += time() - wait
 
     print("Time taken", time() - start, wait_time)
 
@@ -64,5 +70,6 @@ try:
     loop.run_until_complete(run_system())
 finally:
     loop.run_until_complete(
-        loop.shutdown_asyncgens())  # see: https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.shutdown_asyncgens
+        loop.shutdown_asyncgens()
+    )  # see: https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.shutdown_asyncgens
     loop.close()

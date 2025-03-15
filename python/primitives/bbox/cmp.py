@@ -27,7 +27,12 @@ assert iou == 1.0
 iou = box1.iou(box3)
 assert iou > 0.9
 
-for f in [lambda: box1 > box2, lambda: box1 < box2, lambda: box1 >= box2, lambda: box1 <= box2]:
+for f in [
+    lambda: box1 > box2,
+    lambda: box1 < box2,
+    lambda: box1 >= box2,
+    lambda: box1 <= box2,
+]:
     try:
         f()
         assert False

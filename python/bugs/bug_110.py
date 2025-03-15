@@ -1,6 +1,7 @@
-from savant_rs.primitives import VideoObject, VideoFrame, VideoFrameContent, IdCollisionResolutionPolicy
+from savant_rs.primitives import (IdCollisionResolutionPolicy, VideoFrame,
+                                  VideoFrameContent, VideoObject)
 from savant_rs.primitives.geometry import BBox
-from savant_rs.utils.serialization import load_message, save_message, Message
+from savant_rs.utils.serialization import Message, load_message, save_message
 
 frame = VideoFrame(
     source_id="Test",
@@ -15,27 +16,33 @@ frame = VideoFrame(
     duration=None,
 )
 
-frame.add_object(VideoObject(
-    id=-1401514819,
-    namespace="yolov8n",
-    label="Car",
-    detection_box=BBox(485, 675, 886, 690).as_rbbox(),
-    confidence=0.933,
-    attributes=[],
-    track_id=None,
-    track_box=None
-), IdCollisionResolutionPolicy.Error)
+frame.add_object(
+    VideoObject(
+        id=-1401514819,
+        namespace="yolov8n",
+        label="Car",
+        detection_box=BBox(485, 675, 886, 690).as_rbbox(),
+        confidence=0.933,
+        attributes=[],
+        track_id=None,
+        track_box=None,
+    ),
+    IdCollisionResolutionPolicy.Error,
+)
 
-frame.add_object(VideoObject(
-    id=537435614,
-    namespace="LPDNet",
-    label="lpd",
-    detection_box=BBox(557.58374, 883.9291, 298.5735, 84.460144).as_rbbox(),
-    confidence=0.39770508,
-    attributes=[],
-    track_id=None,
-    track_box=None
-), IdCollisionResolutionPolicy.Error)
+frame.add_object(
+    VideoObject(
+        id=537435614,
+        namespace="LPDNet",
+        label="lpd",
+        detection_box=BBox(557.58374, 883.9291, 298.5735, 84.460144).as_rbbox(),
+        confidence=0.39770508,
+        attributes=[],
+        track_id=None,
+        track_box=None,
+    ),
+    IdCollisionResolutionPolicy.Error,
+)
 
 frame.set_parent_by_id(537435614, -1401514819)
 

@@ -99,7 +99,7 @@ pub fn clear_source_seq_id(source: &str) {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum MessageEnvelope {
+pub enum MessageEnvelope {
     EndOfStream(EndOfStream),
     VideoFrame(VideoFrameProxy),
     VideoFrameBatch(VideoFrameBatch),
@@ -204,7 +204,7 @@ impl Message {
         }
     }
 
-    pub(crate) fn payload(&self) -> &MessageEnvelope {
+    pub fn payload(&self) -> &MessageEnvelope {
         &self.payload
     }
 

@@ -1,24 +1,16 @@
 import savant_rs
-
-from savant_rs.logging import log, LogLevel, set_log_level
+from savant_rs.logging import LogLevel, log, set_log_level
 
 set_log_level(LogLevel.Trace)
 
-from savant_rs.pipeline import (
-    VideoPipelineStagePayloadType,
-    VideoPipeline,
-    VideoPipelineConfiguration,
-    StageFunction,
-)
-from savant_rs.primitives import (
-    VideoFrame,
-    VideoFrameContent,
-    VideoFrameTranscodingMethod,
-    VideoFrameTransformation,
-    Attribute,
-    AttributeValue,
-)
-from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
+from savant_rs.pipeline import (StageFunction, VideoPipeline,
+                                VideoPipelineConfiguration,
+                                VideoPipelineStagePayloadType)
+from savant_rs.primitives import (Attribute, AttributeValue, VideoFrame,
+                                  VideoFrameContent,
+                                  VideoFrameTranscodingMethod,
+                                  VideoFrameTransformation)
+from savant_rs.utils import TelemetrySpan, enable_dl_detection, gen_frame
 
 if __name__ == "__main__":
     savant_rs.version()

@@ -1,4 +1,7 @@
 use clap::Parser;
+use gst::glib::translate::FromGlibPtrBorrow;
+use gst::prelude::{ElementExt, GstObjectExt};
+use gst::Pipeline;
 use log::info;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -51,7 +54,9 @@ fn main() -> anyhow::Result<()> {
 
     info!("GST_PLUGIN_PATH={}", std::env::var("GST_PLUGIN_PATH")?);
 
-    let invocation: PyResult<()> = Python::with_gil(|py| {
+    gst::init()?;
+
+    let invocation: PyResult<(Py<PyAny>, PyResult<isize>)> = Python::with_gil(|py| {
         let module = PyModule::new(py, "savant_rs")?;
         init_all(py, &module)?;
         // add the current directory to the Python module load path
@@ -61,10 +66,26 @@ fn main() -> anyhow::Result<()> {
         path.insert(0, module_root.as_str())?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name.as_str())?.unbind();
-        f.call0(py)?;
-        Ok(())
+        let bound = f.call0(py)?.into_bound(py);
+        let addr = bound.hash();
+        let unbound_pipeline = bound.unbind();
+        Ok((unbound_pipeline, addr))
     });
-    invocation?;
+    let (unbound_pipeline, addr) = invocation?;
+    let addr = addr?;
+    info!("pipeline_addr={:#x}", addr);
 
+    let pipeline = unsafe { Pipeline::from_glib_borrow(addr as *mut gst::ffi::GstPipeline) };
+    info!("Pipeline name is: {:?}", pipeline.name());
+    pipeline.set_state(gst::State::Playing)?;
+    let main_loop = glib::MainLoop::new(None, false);
+    let main_loop_clone = main_loop.clone();
+    ctrlc::set_handler(move || {
+        info!("Ctrl-C received, stopping the pipeline!");
+        main_loop_clone.quit();
+    })?;
+    main_loop.run();
+    pipeline.set_state(gst::State::Null)?;
+    drop(unbound_pipeline);
     Ok(())
 }

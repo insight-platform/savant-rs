@@ -5,7 +5,8 @@ use super::{
 };
 use crate::utils::default_once::DefaultOnceCell;
 use anyhow::bail;
-use std::num::NonZeroU64;
+use hashbrown::HashMap;
+use std::{num::NonZeroU64, str::FromStr};
 
 #[derive(Clone, Debug, Default)]
 pub struct ReaderConfig(ReaderConfigBuilder);
@@ -110,11 +111,6 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
-    pub fn with_socket_type(self, socket_type: ReaderSocketType) -> anyhow::Result<Self> {
-        self.socket_type.set(socket_type)?;
-        Ok(self)
-    }
-
     pub fn with_receive_timeout(self, receive_timeout: i32) -> anyhow::Result<Self> {
         if receive_timeout <= 0 {
             bail!("Receive timeout must be non-negative");
@@ -141,6 +137,7 @@ impl ReaderConfigBuilder {
         Ok(self)
     }
 
+    #[cfg(test)]
     pub fn with_bind(self, bind: bool) -> anyhow::Result<Self> {
         self.bind.set(bind)?;
         Ok(self)
@@ -163,12 +160,60 @@ impl ReaderConfigBuilder {
         self.source_blacklist_ttl.set(ttl.get())?;
         Ok(self)
     }
+
+    pub fn with_map_config(self, map: HashMap<String, String>) -> anyhow::Result<Self> {
+        // Handle URL validation more efficiently
+        match (self.endpoint.is_initialized(), map.get("url")) {
+            (true, Some(_)) => bail!("The 'url' already set. Exclude it from the map."),
+            (false, None) => {
+                bail!("The 'url' field value is required before building the reader config")
+            }
+            (_, url_opt) => {
+                let mut builder = if let Some(url) = url_opt {
+                    self.url(url)?
+                } else {
+                    self
+                };
+
+                // Process remaining configuration options
+                for (key, value) in map.iter().filter(|(k, _)| *k != "url") {
+                    builder = match key.as_str() {
+                        "receive_timeout" => builder.with_receive_timeout(value.parse()?),
+                        "receive_hwm" => builder.with_receive_hwm(value.parse()?),
+                        "topic_prefix_spec" => {
+                            builder.with_topic_prefix_spec(TopicPrefixSpec::from_str(value)?)
+                        }
+                        "routing_ids_cache_size" => builder.with_routing_cache_size(value.parse()?),
+                        "fix_ipc_permissions" => {
+                            builder.with_fix_ipc_permissions(Some(u32::from_str_radix(value, 8)?))
+                        }
+                        "source_blacklist_size" => {
+                            let size = NonZeroU64::new(value.parse()?).ok_or_else(|| {
+                                anyhow::anyhow!("Source blacklist size must be non-zero")
+                            })?;
+                            builder.with_source_blacklist_size(size)
+                        }
+                        "source_blacklist_ttl" => {
+                            let ttl = NonZeroU64::new(value.parse()?).ok_or_else(|| {
+                                anyhow::anyhow!("Source blacklist ttl must be non-zero")
+                            })?;
+                            builder.with_source_blacklist_ttl(ttl)
+                        }
+                        _ => bail!("Invalid field: {}", key),
+                    }?;
+                }
+                Ok(builder)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use hashbrown::HashMap;
+
     use crate::transport::zeromq::reader_config::ReaderConfig;
-    use crate::transport::zeromq::ReaderSocketType;
+    use crate::transport::zeromq::{ReaderSocketType, TopicPrefixSpec};
 
     #[test]
     fn test_reader_config_with_endpoint() -> anyhow::Result<()> {
@@ -226,6 +271,68 @@ mod tests {
         let _ = ReaderConfig::new()
             .with_bind(true)?
             .with_fix_ipc_permissions(Some(0777))?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_full_config() -> anyhow::Result<()> {
+        let map = HashMap::from([
+            ("url".to_string(), "sub+bind:tcp://1.1.1.1:1234".to_string()),
+            ("receive_timeout".to_string(), "1000".to_string()),
+            ("receive_hwm".to_string(), "1000".to_string()),
+            (
+                "topic_prefix_spec".to_string(),
+                "source{source}".to_string(),
+            ),
+            ("routing_ids_cache_size".to_string(), "1000".to_string()),
+            ("fix_ipc_permissions".to_string(), "0753".to_string()),
+            ("source_blacklist_size".to_string(), "1000".to_string()),
+            ("source_blacklist_ttl".to_string(), "1000".to_string()),
+        ]);
+        let builder = ReaderConfig::new().with_map_config(map)?;
+        let config = builder.build()?;
+        assert_eq!(config.endpoint().as_str(), "tcp://1.1.1.1:1234");
+        assert_eq!(config.bind(), &true);
+        assert_eq!(config.socket_type(), &ReaderSocketType::Sub);
+        assert_eq!(config.receive_timeout(), &1000);
+        assert_eq!(config.receive_hwm(), &1000);
+        assert!(matches!(
+            config.topic_prefix_spec(),
+            TopicPrefixSpec::SourceId(source) if source == "source"
+        ));
+        assert_eq!(config.routing_cache_size(), &1000);
+        assert_eq!(config.fix_ipc_permissions(), &Some(0o753));
+        assert_eq!(config.source_blacklist_size(), &1000);
+        assert_eq!(config.source_blacklist_ttl(), &1000);
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_partial_double_url_set_config() -> anyhow::Result<()> {
+        let builder = ReaderConfig::new().url("sub+bind:tcp://1.1.1.1:1234")?;
+        let map = HashMap::from([("url".to_string(), "sub+bind:tcp://1.1.1.1:1234".to_string())]);
+        let builder = builder.with_map_config(map);
+        assert!(builder.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_no_url_at_all_config() -> anyhow::Result<()> {
+        let map = HashMap::from([("receive_timeout".to_string(), "1000".to_string())]);
+        let builder = ReaderConfig::new().with_map_config(map);
+        assert!(builder.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_try_from_map_explicit_url_and_partial_config() -> anyhow::Result<()> {
+        let map = HashMap::from([
+            ("receive_timeout".to_string(), "1000".to_string()),
+            ("fix_ipc_permissions".to_string(), "0755".to_string()),
+        ]);
+        let _ = ReaderConfig::new()
+            .url("sub+bind:tcp://1.1.1.1:1234")?
+            .with_map_config(map)?;
         Ok(())
     }
 }

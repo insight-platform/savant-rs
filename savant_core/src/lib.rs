@@ -25,7 +25,6 @@ pub mod test;
 pub mod transport;
 pub mod utils;
 
-//pub mod gstreamer;
 pub mod metrics;
 pub mod webserver;
 

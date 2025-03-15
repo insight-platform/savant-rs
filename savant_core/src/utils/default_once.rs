@@ -25,6 +25,10 @@ where
         Ok(())
     }
 
+    pub fn is_initialized(&self) -> bool {
+        self.cell.get().is_some()
+    }
+
     pub fn get_or_init(&self) -> &T {
         self.cell.get_or_init(|| self.default.clone())
     }

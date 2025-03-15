@@ -1,7 +1,30 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional, Tuple
 
+from savant_rs.primitives import VideoObjectsView
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import BBoxMetricType
+
+__all__ = [
+    'FloatExpression',
+    'IntExpression',
+    'StringExpression',
+    'MatchQuery',
+    'TlsConfig',
+    'EtcdCredentials',
+    'utility_resolver_name',
+    'etcd_resolver_name',
+    'env_resolver_name',
+    'config_resolver_name',
+    'register_utility_resolver',
+    'register_env_resolver',
+    'register_etcd_resolver',
+    'register_config_resolver',
+    'update_config_resolver',
+    'unregister_resolver',
+    'QueryFunctions',
+    'filter',
+    'partition',
+]
 
 class FloatExpression:
     @classmethod
@@ -192,3 +215,13 @@ def register_etcd_resolver(
 def register_config_resolver(params: Dict[str, str]): ...
 def update_config_resolver(params: Dict[str, str]): ...
 def unregister_resolver(name: str): ...
+
+class QueryFunctions:
+    @classmethod
+    def filter(
+        cls, v: VideoObjectsView, q: MatchQuery, no_gil: bool = True
+    ) -> VideoObjectsView: ...
+    @classmethod
+    def partition(
+        cls, v: VideoObjectsView, q: MatchQuery, no_gil: bool = True
+    ) -> Tuple[VideoObjectsView, VideoObjectsView]: ...

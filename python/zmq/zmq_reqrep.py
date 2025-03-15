@@ -2,9 +2,9 @@ from threading import Thread
 from time import time
 
 import zmq
-
 from savant_rs.utils import gen_frame
-from savant_rs.utils.serialization import load_message_from_bytes, save_message_to_bytes, Message
+from savant_rs.utils.serialization import (Message, load_message_from_bytes,
+                                           save_message_to_bytes)
 
 socket_name = "ipc:///tmp/test_hello"
 
@@ -18,7 +18,7 @@ def server():
     socket.connect(socket_name)
     while True:
         message = socket.recv_multipart()
-        if message[1] == b'end':
+        if message[1] == b"end":
             print("Received end")
             break
 
@@ -42,8 +42,8 @@ for _ in range(NUMBER):
     s = save_message_to_bytes(m)
     socket.send_multipart([s, buf_1024b])
     wait = time()
-    wait_time += (time() - wait)
+    wait_time += time() - wait
 
 print("Time taken", time() - start, wait_time)
-socket.send_multipart([b'end'])
+socket.send_multipart([b"end"])
 p1.join()

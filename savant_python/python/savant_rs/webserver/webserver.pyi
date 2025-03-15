@@ -1,16 +1,15 @@
+__all__ = [
+    'init_webserver',
+    'stop_webserver',
+    'set_shutdown_token',
+    'is_shutdown_set',
+    'set_status_running',
+    'set_shutdown_signal',
+]
+
 def init_webserver(port: int) -> None: ...
-
-
 def stop_webserver() -> None: ...
-
-
 def set_shutdown_token(token: str) -> None: ...
-
-
 def is_shutdown_set() -> bool: ...
-
-
 def set_status_running() -> None: ...
-
-
 def set_shutdown_signal(signal: int) -> None: ...

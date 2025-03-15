@@ -1,32 +1,19 @@
 import time
 from threading import Thread, current_thread
 
-import savant_plugin_sample
 import savant_rs
-from savant_rs.logging import log, LogLevel, log_level_enabled
-from savant_rs.logging import set_log_level
-from savant_rs.pipeline import (
-    VideoPipelineStagePayloadType,
-    VideoPipeline,
-    VideoPipelineConfiguration,
-    StageFunction,
-)
-from savant_rs.primitives import AttributeValue
+from savant_rs.logging import LogLevel, log, log_level_enabled, set_log_level
+from savant_rs.pipeline import (StageFunction, VideoPipeline,
+                                VideoPipelineConfiguration,
+                                VideoPipelineStagePayloadType)
 
 set_log_level(LogLevel.Trace)
 
-# plugin_function_1 = savant_plugin_sample.get_instance("doesnotmatter", {})
-# plugin_function_2 = savant_plugin_sample.get_instance(
-#    "doesnotmatter", dict(attr=AttributeValue.integer(1))
-# )
 
-from savant_rs.utils import gen_frame, TelemetrySpan, enable_dl_detection
-from savant_rs.primitives import (
-    VideoFrameUpdate,
-    ObjectUpdatePolicy,
-    AttributeUpdatePolicy,
-)
 from savant_rs.match_query import MatchQuery as Q
+from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
+                                  VideoFrameUpdate)
+from savant_rs.utils import TelemetrySpan, enable_dl_detection, gen_frame
 
 # LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py
 
@@ -180,7 +167,6 @@ if __name__ == "__main__":
             root_span.set_float_attribute("seconds", 0.01)
             time.sleep(0.01)
 
-
     # shutdown()
 
     def f(span):
@@ -220,7 +206,6 @@ if __name__ == "__main__":
             "Context Depth: {}".format(TelemetrySpan.context_depth()),
         )
 
-
     thr1 = Thread(target=f, args=(root_spans_1_propagated,))
     thr2 = Thread(target=f, args=(root_spans_1_propagated,))
     t = time.time()
@@ -235,7 +220,7 @@ if __name__ == "__main__":
     try:
         with root_spans_1_propagated.nested_span("sleep-1") as root_span:
             with root_span.nested_span_when(
-                    "sleep-debugging", log_level_enabled(LogLevel.Debug)
+                "sleep-debugging", log_level_enabled(LogLevel.Debug)
             ) as sds:
                 log(LogLevel.Info, "a::b::c", "Always seen when Info")
             if log_level_enabled(LogLevel.Debug):

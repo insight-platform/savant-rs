@@ -1,9 +1,15 @@
-from savant_rs.primitives import UserData, AttributeValue
-from savant_rs.utils.serialization import save_message_to_bytes, load_message_from_bytes, Message
+from savant_rs.primitives import AttributeValue, UserData
+from savant_rs.utils.serialization import (Message, load_message_from_bytes,
+                                           save_message_to_bytes)
 
 t = UserData("abc")
-t.set_persistent_attribute(namespace="some", name="attr", hint="x", is_hidden=False,
-                           values=[AttributeValue.float(1.0, confidence=0.5)])
+t.set_persistent_attribute(
+    namespace="some",
+    name="attr",
+    hint="x",
+    is_hidden=False,
+    values=[AttributeValue.float(1.0, confidence=0.5)],
+)
 
 pb = t.to_protobuf()
 restored = UserData.from_protobuf(pb)

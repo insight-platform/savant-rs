@@ -19,8 +19,7 @@ pub enum WriterSocketType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
-pub struct SinkConfiguration {
-    pub(crate) url: String,
+pub struct SinkOptions {
     pub(crate) send_timeout: Duration,
     pub(crate) send_retries: usize,
     pub(crate) receive_timeout: Duration,
@@ -30,10 +29,9 @@ pub struct SinkConfiguration {
     pub(crate) inflight_ops: usize,
 }
 
-impl Default for SinkConfiguration {
+impl Default for SinkOptions {
     fn default() -> Self {
         Self {
-            url: String::from("dealer+connect:ipc:///tmp/in"),
             send_timeout: Duration::from_secs(1),
             send_retries: 3,
             receive_timeout: Duration::from_secs(1),
@@ -41,6 +39,21 @@ impl Default for SinkConfiguration {
             send_hwm: 1000,
             receive_hwm: 1000,
             inflight_ops: 100,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+pub struct SinkConfiguration {
+    pub(crate) url: String,
+    pub(crate) options: Option<SinkOptions>,
+}
+
+impl Default for SinkConfiguration {
+    fn default() -> Self {
+        Self {
+            url: String::from("dealer+connect:ipc:///tmp/in"),
+            options: Some(SinkOptions::default()),
         }
     }
 }
@@ -59,13 +72,15 @@ impl SinkConfiguration {
     ) -> Self {
         Self {
             url: url.to_string(),
-            send_timeout,
-            send_retries,
-            receive_timeout,
-            receive_retries,
-            send_hwm,
-            receive_hwm,
-            inflight_ops,
+            options: Some(SinkOptions {
+                send_timeout,
+                send_retries,
+                receive_timeout,
+                receive_retries,
+                send_hwm,
+                receive_hwm,
+                inflight_ops,
+            }),
         }
     }
 
@@ -88,21 +103,19 @@ impl TryFrom<&SinkConfiguration> for NonBlockingWriter {
     type Error = anyhow::Error;
 
     fn try_from(configuration: &SinkConfiguration) -> Result<Self, Self::Error> {
+        let default_options = SinkOptions::default();
+        let options = configuration.options.as_ref().unwrap_or(&default_options);
         let conf = WriterConfigBuilder::default()
             .url(&configuration.url)?
-            .with_receive_timeout(configuration.receive_timeout.as_millis() as i32)?
-            .with_send_timeout(configuration.send_timeout.as_millis() as i32)?
-            .with_receive_retries(configuration.receive_retries as i32)?
-            .with_send_retries(configuration.send_retries as i32)?
-            .with_receive_hwm(configuration.receive_hwm as i32)?
-            .with_send_hwm(configuration.send_hwm as i32)?
+            .with_receive_timeout(options.receive_timeout.as_millis() as i32)?
+            .with_send_timeout(options.send_timeout.as_millis() as i32)?
+            .with_receive_retries(options.receive_retries as i32)?
+            .with_send_retries(options.send_retries as i32)?
+            .with_receive_hwm(options.receive_hwm as i32)?
+            .with_send_hwm(options.send_hwm as i32)?
             .build()?;
 
-        // if *conf.bind() {
-        //     bail!("JobWriter configuration must be a connect socket.");
-        // }
-
-        let mut w = NonBlockingWriter::new(&conf, configuration.inflight_ops)?;
+        let mut w = NonBlockingWriter::new(&conf, options.inflight_ops)?;
         w.start()?;
         Ok(w)
     }

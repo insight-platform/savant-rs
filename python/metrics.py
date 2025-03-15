@@ -1,8 +1,9 @@
+import signal
+from time import sleep
+
+import requests
 from savant_rs.metrics import *
 from savant_rs.webserver import *
-import requests
-from time import sleep
-import signal
 
 
 def handler(signum, _frame):
@@ -31,8 +32,12 @@ gauge = GaugeFamily.get_or_create_gauge_family(
 
 assert counter.set(1, ["value1", "value2"]) == 1  # new value returns the same value
 assert gauge.set(1.0, ["value1", "value2"]) == 1.0  # new value returns the same value
-assert counter.inc(1, ["value1", "value2"]) == 1  # updated value returns the previous value
-assert gauge.set(2.0, ["value1", "value2"]) == 1.0  # updated value returns the previous value
+assert (
+    counter.inc(1, ["value1", "value2"]) == 1
+)  # updated value returns the previous value
+assert (
+    gauge.set(2.0, ["value1", "value2"]) == 1.0
+)  # updated value returns the previous value
 
 counter = CounterFamily.get_counter_family("counter")
 gauge = GaugeFamily.get_gauge_family("gauge")

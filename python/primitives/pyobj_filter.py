@@ -1,11 +1,14 @@
-from threading import Thread, Barrier
+from threading import Barrier, Thread
 from timeit import default_timer as timer
 
-from savant_rs.primitives import VideoObject, VideoFrameBatch, IdCollisionResolutionPolicy
+from savant_rs.match_query import FloatExpression as FE
+from savant_rs.match_query import MatchQuery as Q
+from savant_rs.match_query import StringExpression as SE
+from savant_rs.match_query import register_utility_resolver
+from savant_rs.primitives import (IdCollisionResolutionPolicy, VideoFrameBatch,
+                                  VideoObject)
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.utils import gen_frame, enable_dl_detection
-from savant_rs.match_query import MatchQuery as Q, StringExpression as SE, FloatExpression as FE, \
-    register_utility_resolver
+from savant_rs.utils import enable_dl_detection, gen_frame
 
 enable_dl_detection()
 
@@ -42,26 +45,27 @@ def thread_python(barrier):
         return and_(
             or_(
                 lambda o: o.namespace in ["created_by_2", "created_by_4"],
-                or_(label_endswith("2"),
-                    label_endswith("4"),
-                    label_endswith("6"))),
+                or_(label_endswith("2"), label_endswith("4"), label_endswith("6")),
+            ),
             angle(),
-            or_(
-                lambda o: o.confidence > 0.5,
-                lambda o: o.confidence < 0.3))
+            or_(lambda o: o.confidence > 0.5, lambda o: o.confidence < 0.3),
+        )
 
     run_expr = expr()
 
-    objects = [VideoObject(
-        id=1,
-        namespace="created_by_{}".format(i),
-        label="person_{}".format(i),
-        detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
-        confidence=random.random(),
-        attributes=[],
-        track_id=None,
-        track_box=None
-    ) for i in range(N)]
+    objects = [
+        VideoObject(
+            id=1,
+            namespace="created_by_{}".format(i),
+            label="person_{}".format(i),
+            detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+            confidence=random.random(),
+            attributes=[],
+            track_id=None,
+            track_box=None,
+        )
+        for i in range(N)
+    ]
 
     barrier.wait()
     t = timer()
@@ -93,23 +97,27 @@ def thread_full(barrier):
     f = gen_frame()
     f.delete_objects(Q.idle())
     for i in range(0, N):
-        f.add_object(VideoObject(
-            id=i,
-            namespace="created_by_{}".format(i),
-            label="person_{}".format(i),
-            detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
-            confidence=random.random(),
-            attributes=[],
-            track_id=None,
-            track_box=None
+        f.add_object(
+            VideoObject(
+                id=i,
+                namespace="created_by_{}".format(i),
+                label="person_{}".format(i),
+                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                confidence=random.random(),
+                attributes=[],
+                track_id=None,
+                track_box=None,
+            ),
+            IdCollisionResolutionPolicy.Error,
+        )
 
-        ), IdCollisionResolutionPolicy.Error)
-
-    full_expr = Q.eval(""" 
+    full_expr = Q.eval(
+        """ 
     (contains(("created_by_4", "created_by_2"), namespace) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
     !is_empty(bbox.angle) &&
     (confidence > 0.5 || confidence < 0.3)
-    """)
+    """
+    )
 
     barrier.wait()
     t = timer()
@@ -140,16 +148,19 @@ def thread_decomposed(barrier):
     f = gen_frame()
     f.delete_objects(Q.idle())
     for i in range(0, N):
-        f.add_object(VideoObject(
-            id=i,
-            namespace="created_by_{}".format(i),
-            label="person_{}".format(i),
-            detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
-            confidence=random.random(),
-            attributes=[],
-            track_id=None,
-            track_box=None
-        ), IdCollisionResolutionPolicy.Error)
+        f.add_object(
+            VideoObject(
+                id=i,
+                namespace="created_by_{}".format(i),
+                label="person_{}".format(i),
+                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                confidence=random.random(),
+                attributes=[],
+                track_id=None,
+                track_box=None,
+            ),
+            IdCollisionResolutionPolicy.Error,
+        )
 
     decomposed_expr = Q.and_(
         Q.or_(
@@ -157,9 +168,11 @@ def thread_decomposed(barrier):
             Q.eval("""namespace == "created_by_2" """),
             Q.eval("""ends_with(label,"2")"""),
             Q.eval("""ends_with(label,"4")"""),
-            Q.eval("""ends_with(label,"6")""")),
+            Q.eval("""ends_with(label,"6")"""),
+        ),
         Q.eval("""!is_empty(bbox.angle)"""),
-        Q.eval("""confidence > 0.5 || confidence < 0.3"""))
+        Q.eval("""confidence > 0.5 || confidence < 0.3"""),
+    )
 
     barrier.wait()
     t = timer()
@@ -192,23 +205,28 @@ def measure_batch_full():
         f.source_id = f"source_{id}"
         f.delete_objects(Q.idle())
         for i in range(0, N):
-            f.add_object(VideoObject(
-                id=i,
-                namespace="created_by_{}".format(i),
-                label="person_{}".format(i),
-                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
-                confidence=random.random(),
-                attributes=[],
-                track_id=None,
-                track_box=None
-            ), IdCollisionResolutionPolicy.Error)
+            f.add_object(
+                VideoObject(
+                    id=i,
+                    namespace="created_by_{}".format(i),
+                    label="person_{}".format(i),
+                    detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                    confidence=random.random(),
+                    attributes=[],
+                    track_id=None,
+                    track_box=None,
+                ),
+                IdCollisionResolutionPolicy.Error,
+            )
         batch.add(id, f)
 
-    full_expr = Q.eval(""" 
+    full_expr = Q.eval(
+        """ 
         (contains(("created_by_4", "created_by_2"), namespace) || ends_with(label, "2") || ends_with(label, "4") || ends_with(label, "6")) &&
         !is_empty(bbox.angle) &&
         (confidence > 0.5 || confidence < 0.3)
-        """)
+        """
+    )
 
     t = timer()
     res = batch.access_objects(full_expr)
@@ -225,16 +243,19 @@ def measure_batch_full_dsl():
         f.source_id = f"source_{id}"
         f.delete_objects(Q.idle())
         for i in range(0, N):
-            f.add_object(VideoObject(
-                id=i,
-                namespace="created_by_{}".format(i),
-                label="person_{}".format(i),
-                detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
-                confidence=random.random(),
-                attributes=[],
-                track_id=None,
-                track_box=None
-            ), IdCollisionResolutionPolicy.Error)
+            f.add_object(
+                VideoObject(
+                    id=i,
+                    namespace="created_by_{}".format(i),
+                    label="person_{}".format(i),
+                    detection_box=RBBox(0.1, 0.2, 0.3, 0.4, 30.0),
+                    confidence=random.random(),
+                    attributes=[],
+                    track_id=None,
+                    track_box=None,
+                ),
+                IdCollisionResolutionPolicy.Error,
+            )
         batch.add(id, f)
 
     optimized_expr = Q.and_(
@@ -243,11 +264,11 @@ def measure_batch_full_dsl():
             Q.namespace(SE.eq("created_by_2")),
             Q.namespace(SE.ends_with("2")),
             Q.namespace(SE.ends_with("4")),
-            Q.namespace(SE.ends_with("6"))),
+            Q.namespace(SE.ends_with("6")),
+        ),
         Q.box_angle_defined(),
-        Q.or_(
-            Q.confidence(FE.gt(0.5)),
-            Q.confidence(FE.lt(0.3))))
+        Q.or_(Q.confidence(FE.gt(0.5)), Q.confidence(FE.lt(0.3))),
+    )
 
     t = timer()
     res = batch.access_objects(optimized_expr)

@@ -8,19 +8,7 @@ cat <<EOF
 {
   "sink": {
     "url": "pub+connect:tcp://127.0.0.1:6666",
-    "send_timeout": {
-      "secs": 1,
-      "nanos": 0
-    },
-    "send_retries": 3,
-    "receive_timeout": {
-      "secs": 1,
-      "nanos": 0
-    },
-    "receive_retries": 3,
-    "send_hwm": 1000,
-    "receive_hwm": 1000,
-    "inflight_ops": 100
+    "options": null 
   },
   "configuration": {
     "ts_sync": true,

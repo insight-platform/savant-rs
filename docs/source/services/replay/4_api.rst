@@ -129,19 +129,21 @@ Creates a new job. Returns the job UUID.
     {
       "sink": {
         "url": "pub+connect:tcp://127.0.0.1:6666",
-        "send_timeout": {
-          "secs": 1,
-          "nanos": 0
-        },
-        "send_retries": 3,
-        "receive_timeout": {
-          "secs": 1,
-          "nanos": 0
-        },
-        "receive_retries": 3,
-        "send_hwm": 1000,
-        "receive_hwm": 1000,
-        "inflight_ops": 100
+        "options": {
+          "send_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "send_retries": 3,
+          "receive_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "receive_retries": 3,
+          "send_hwm": 1000,
+          "receive_hwm": 1000,
+          "inflight_ops": 100
+        }
       },
       "configuration": {
         "ts_sync": true,
@@ -440,31 +442,35 @@ All Configuration Parameters
       - sink URL
       - ``pub+connect:tcp://127.0.0.1:6666``
       - ``"dealer+connect:tcp://1.1.1.1:6666"``
-    * - ``sink.send_timeout``
+    * - ``sink.options``
+      - sink options
+      - ``null``
+      - ``{...}``
+    * - ``sink.options.send_timeout``
       - send timeout
       - ``{"secs": 1, "nanos": 0}``
       - ``{"secs": 5, "nanos": 0}``
-    * - ``sink.send_retries``
+    * - ``sink.options.send_retries``
       - send retries
       - ``3``
       - ``5``
-    * - ``sink.receive_timeout``
+    * - ``sink.options.receive_timeout``
       - receive timeout, used by ``req/rep`` for every message delivery, ``dealer/router`` for EOS delivery
       - ``{"secs": 1, "nanos": 0}``
       - ``{"secs": 5, "nanos": 0}``
-    * - ``sink.receive_retries``
+    * - ``sink.options.receive_retries``
       - receive retries, used by ``req/rep`` for every message delivery, ``dealer/router`` for EOS delivery
       - ``3``
       - ``5``
-    * - ``sink.send_hwm``
+    * - ``sink.options.send_hwm``
       - The high-water mark for the egress stream. This parameter is used to control backpressure. Please consult with 0MQ documentation for more details.
       - ``1000``
       - ``500``
-    * - ``sink.receive_hwm``
+    * - ``sink.options.receive_hwm``
       - The high-water mark for the egress stream. This parameter is used to control backpressure. Please consult with 0MQ documentation for more details. Change only if you are using ``req/rep`` communication.
       - ``100``
       - ``50``
-    * - ``sink.inflight_ops``
+    * - ``sink.options.inflight_ops``
       - The maximum number of inflight operations for the egress stream. This parameter is used to allow the service to endure a high load. Default value is OK for most cases.
       - ``100``
       - ``50``

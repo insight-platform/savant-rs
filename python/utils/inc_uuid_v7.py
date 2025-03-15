@@ -1,5 +1,6 @@
-import savant_rs.utils as utils
 import time
+
+import savant_rs.utils as utils
 
 for i in range(10):
     print(utils.incremental_uuid_v7())

@@ -10,8 +10,8 @@ If you do not want to run Replay in Docker, you can build it from source or cont
 
 Docker Images for ARM64 and X86_64 are available on GitHub Container Registry:
 
-- `replay-x86 <https://github.com/insight-platform/Replay/pkgs/container/replay-x86>`_ - for X86_64 CPUs;
-- `replay-arm64 <https://github.com/insight-platform/Replay/pkgs/container/replay-arm64>`_ - for ARM64 CPUs.
+- `savant-replay-x86 <https://github.com/insight-platform/Replay/pkgs/container/savant-replay-x86>`_ - for X86_64 CPUs;
+- `savant-replay-arm64 <https://github.com/insight-platform/Replay/pkgs/container/savant-replay-arm64>`_ - for ARM64 CPUs.
 
 Quick Installation
 ------------------
@@ -25,7 +25,7 @@ X86_64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/replay-x86:latest
+      ghcr.io/insight-platform/savant-replay-x86:latest
 
 
 ARM64:
@@ -35,12 +35,12 @@ ARM64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/replay-arm64:latest
+      ghcr.io/insight-platform/savant-replay-arm64:latest
 
 
 The service will use the default configuration file and store data in the ``data`` directory on the host machine.
 
-Instead of the ``main`` tag you can use the specific version of the image, e.g. ``v0.1.1``. Refer to the `GitHub Container Registry <https://github.com/orgs/insight-platform/packages?repo_name=Replay>`_ for the list of available tags.
+Instead of the ``latest`` tag you can use the specific version of the image, e.g. ``v0.5.6``. Refer to the `GitHub Container Registry <https://github.com/orgs/insight-platform/packages?repo_name=Replay>`_ for the list of available tags.
 
 Environment Variables
 ---------------------
@@ -58,6 +58,7 @@ Replay uses the following ports:
 
 - ``8080`` - the port for the REST API;
 - ``5555`` - the port for ingress data (Savant ZeroMQ protocol).
+- ``5556`` - the port for egress data, if used (Savant ZeroMQ protocol).
 
 If the service is deployed as a dead-end consumer, you do not need to use any other ports. Nevertheless, depending on the configuration file, you may need have an extra port opened for egress, when the service is deployed as intermediate node as depicted in the next image:
 
@@ -91,32 +92,36 @@ The configuration file is a JSON file that contains the following parameters:
       },
       "in_stream": {
         "url": "router+bind:tcp://0.0.0.0:5555",
-        "receive_timeout": {
-          "secs": 1,
-          "nanos": 0
-        },
-        "receive_hwm": 1000,
-        "topic_prefix_spec": {
-          "none": null
-        },
-        "source_cache_size": 1000,
-        "inflight_ops": 100
+        "options": {
+          "receive_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "receive_hwm": 1000,
+          "topic_prefix_spec": {
+            "none": null
+          },
+          "source_cache_size": 1000,
+          "inflight_ops": 100
+        }
       },
       "out_stream": {
         "url": "pub+bind:tcp://0.0.0.0:5556",
-        "send_timeout": {
+        "options": {
+          "send_timeout": {
           "secs": 1,
           "nanos": 0
-        },
-        "send_retries": 3,
-        "receive_timeout": {
-          "secs": 1,
-          "nanos": 0
-        },
-        "receive_retries": 3,
-        "send_hwm": 1000,
-        "receive_hwm": 100,
-        "inflight_ops": 100
+          },
+          "send_retries": 3,
+          "receive_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "receive_retries": 3,
+          "send_hwm": 1000,
+          "receive_hwm": 100,
+          "inflight_ops": 100
+        }
       },
       "storage": {
         "rocksdb": {
@@ -177,27 +182,31 @@ Configuration Parameters
       - The URL for the data ingress in Savant ZMQ format.
       - ``router+bind:tcp://0.0.0.0:5555``
       - ``rep+connect:tcp://1.1.1.1:1234``
-    * - ``in_stream.receive_timeout``
+    * - ``in_stream.options``
+      - The options for the ingress stream.
+      - ``null``
+      - ``{...}``
+    * - ``in_stream.options.receive_timeout``
       - The timeout for receiving data from the ingress stream. Default value is OK for most cases.
       - ``{"secs": 1, "nanos": 0}``
       - ``{"secs": 2, "nanos": 0}``
-    * - ``in_stream.receive_hwm``
+    * - ``in_stream.options.receive_hwm``
       - The high-water mark for the ingress stream. This parameter is used to control backpressure. Please consult with 0MQ documentation for more details.
       - ``1000``
       - ``500``
-    * - ``in_stream.topic_prefix_spec``
+    * - ``in_stream.options.topic_prefix_spec``
       - The topic prefix specification for the ingress stream. The default value is ``none``, which means that all the streams are accepted, you can also filter by source ID or source prefix to accept only specific streams.
       - ``{"none": null}``
       - ``{"source_id": "topic"}`` or ``{"prefix": "prefix"}``
-    * - ``in_stream.source_cache_size``
+    * - ``in_stream.options.source_cache_size``
       - The size of the whitelist cache used only when prefix-based filtering is in use. This parameter is used to quickly check if the source ID is in the whitelist or must be checked.
       - ``1000``
       - ``500``
-    * - ``in_stream.inflight_ops``
+    * - ``in_stream.options.inflight_ops``
       - The maximum number of inflight operations for the ingress stream. This parameter is used to allow the service to endure a high load. Default value is OK for most cases.
       - ``100``
       - ``50``
-    * - ``in_stream.fix_ipc_permissions``
+    * - ``in_stream.options.fix_ipc_permissions``
       - If set to ``true``, Replay will fix the UNIX file permissions for IPC sockets. This is useful when you run Replay in Docker with IPC sockets.
       - ``null``
       - ``777``
@@ -209,31 +218,35 @@ Configuration Parameters
       - The URL for the data egress in Savant ZMQ format.
       - ``pub+bind:tcp://0.0.0.0:5556``
       - ``null``
-    * - ``out_stream.send_timeout``
+    * - ``out_stream.options``
+      - The options for the egress stream.
+      - ``null``
+      - ``{...}``
+    * - ``out_stream.options.send_timeout``
       - The timeout for sending data to the egress stream. Default value is OK for most cases.
       - ``{"secs": 1, "nanos": 0}``
       - ``{"secs": 2, "nanos": 0}``
-    * - ``out_stream.send_retries``
+    * - ``out_stream.options.send_retries``
       - The number of retries for sending data to the egress stream. Default value is OK for most cases. For unstable or busy recepients you may want to increase this value.
       - ``3``
       - ``5``
-    * - ``out_stream.receive_timeout``
+    * - ``out_stream.options.receive_timeout``
       - The timeout for receiving data from the egress stream. Default value is OK for most cases. Valid only for ``dealer`` and ``req`` socket types.
       - ``{"secs": 1, "nanos": 0}``
       - ``{"secs": 2, "nanos": 0}``
-    * - ``out_stream.receive_retries``
+    * - ``out_stream.options.receive_retries``
       - The number of retries for receiving data from the egress stream (crucial for ``req/rep`` communication). Default value is OK for most cases. For unstable or busy senders you may want to increase this value.
       - ``3``
       - ``5``
-    * - ``out_stream.send_hwm``
+    * - ``out_stream.options.send_hwm``
       - The high-water mark for the egress stream. This parameter is used to control backpressure. Please consult with 0MQ documentation for more details.
       - ``1000``
       - ``500``
-    * - ``out_stream.receive_hwm``
+    * - ``out_stream.options.receive_hwm``
       - The high-water mark for the egress stream. This parameter is used to control backpressure. Please consult with 0MQ documentation for more details. Change only if you are using ``req/rep`` communication.
       - ``100``
       - ``50``
-    * - ``out_stream.inflight_ops``
+    * - ``out_stream.options.inflight_ops``
       - The maximum number of inflight operations for the egress stream. This parameter is used to allow the service to endure a high load. Default value is OK for most cases.
       - ``100``
       - ``50``

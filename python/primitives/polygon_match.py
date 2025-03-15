@@ -1,18 +1,27 @@
 from pprint import pprint
 from timeit import default_timer as timer
 
-from savant_rs.primitives.geometry import PolygonalArea, Point, Segment, IntersectionKind
+from savant_rs.primitives.geometry import (IntersectionKind, Point,
+                                           PolygonalArea, Segment)
 
-area = PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])
+area = PolygonalArea(
+    [Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]
+)
 assert area.is_self_intersecting() == False
 
-bad_area = PolygonalArea([Point(-1, -1), Point(1, 1), Point(1, -1), Point(-1, 1)], ["up", None, "down", None])
+bad_area = PolygonalArea(
+    [Point(-1, -1), Point(1, 1), Point(1, -1), Point(-1, 1)], ["up", None, "down", None]
+)
 assert bad_area.is_self_intersecting() == True
 
-bad_area2 = PolygonalArea([Point(-1, -1), Point(1, 1), Point(1, 1), Point(-1, 1)], ["up", None, "down", None])
+bad_area2 = PolygonalArea(
+    [Point(-1, -1), Point(1, 1), Point(1, 1), Point(-1, 1)], ["up", None, "down", None]
+)
 assert bad_area2.is_self_intersecting() == True
 
-good_area2 = PolygonalArea([Point(-1, -1), Point(1, 1), Point(-1, 1)], ["up", None, "down"])
+good_area2 = PolygonalArea(
+    [Point(-1, -1), Point(1, 1), Point(-1, 1)], ["up", None, "down"]
+)
 assert good_area2.is_self_intersecting() == False
 
 crosses_031 = Segment(Point(-2, 1), Point(2, 1))
@@ -26,8 +35,18 @@ enters_vertex = Segment(Point(2, 2), Point(0, 0))
 outside = Segment(Point(-2, 2), Point(2, 2))
 inside = Segment(Point(-0.5, -0.5), Point(0.5, 0.5))
 
-l = [crosses_31, crosses_20, crosses_031, crosses_013, leaves_vertex, crosses_vertices, crosses_whole_edge,
-     enters_vertex, outside, inside]
+l = [
+    crosses_31,
+    crosses_20,
+    crosses_031,
+    crosses_013,
+    leaves_vertex,
+    crosses_vertices,
+    crosses_whole_edge,
+    enters_vertex,
+    outside,
+    inside,
+]
 
 t = timer()
 
@@ -39,18 +58,18 @@ print("Spent", timer() - t)
 pprint(list(zip(l, res)))
 
 r = res[0]
-assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(3, None), (1, None)])
+assert r.kind == IntersectionKind.Cross
+assert r.edges == [(3, None), (1, None)]
 
 r = res[1]
-assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(2, "down"), (0, "up")])
+assert r.kind == IntersectionKind.Cross
+assert r.edges == [(2, "down"), (0, "up")]
 
 r = res[2]
-assert (r.kind == IntersectionKind.Cross)
-assert (r.edges == [(0, "up"), (3, None), (1, None)])
+assert r.kind == IntersectionKind.Cross
+assert r.edges == [(0, "up"), (3, None), (1, None)]
 
 r = res[3]
-assert (r.kind == IntersectionKind.Cross)
+assert r.kind == IntersectionKind.Cross
 print(r.edges)
-assert (r.edges == [(1, None), (0, "up"), (3, None)])
+assert r.edges == [(1, None), (0, "up"), (3, None)]
