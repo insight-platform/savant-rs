@@ -1,0 +1,25 @@
+/* Increase content width */
+.wy-nav-content {
+    max-width: 80% !important;
+}
+
+/* Ensure code blocks don't overflow */
+.wy-nav-content pre {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+/* Adjust table width */
+.wy-nav-content table.docutils {
+    max-width: 100%;
+    overflow-x: auto;
+    display: block;
+}
+
+/* Limit table column widths */
+.wy-nav-content table.docutils th,
+.wy-nav-content table.docutils td {
+    max-width: 500px;
+    white-space: normal;
+    word-wrap: break-word;
+}
