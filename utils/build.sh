@@ -13,7 +13,7 @@ cleanup() {
 trap 'cleanup $?' EXIT
 trap 'cleanup 1' INT TERM
 
-ARCHITECTURE=$(dpkg --print-architecture)
+ARCHITECTURE=$(uname -m)
 readonly ARCHITECTURE
 
 MODE="${1:-}"
