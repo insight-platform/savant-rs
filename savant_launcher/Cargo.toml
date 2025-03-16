@@ -19,7 +19,6 @@ ctrlc = { workspace = true }
 log = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_rs = { workspace = true }
-gst = { workspace = true }
-gst-base = { workspace = true }
 gstreamer = { workspace = true }
+gstreamer-base = { workspace = true }
 glib = { workspace = true }

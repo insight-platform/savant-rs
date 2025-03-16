@@ -23,10 +23,10 @@ pyo3 = { workspace = true }
 savant_gstreamer = { workspace = true }
 savant_core = { workspace = true }
 savant_core_py = { workspace = true }
-gst = { workspace = true }
-gst-base = { workspace = true }
-gst-video = { workspace = true }
-gst-audio = { workspace = true }
+gstreamer = { workspace = true }
+gstreamer-base = { workspace = true }
+gstreamer-video = { workspace = true }
+gstreamer-audio = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }

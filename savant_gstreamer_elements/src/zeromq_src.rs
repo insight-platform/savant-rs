@@ -1,11 +1,11 @@
 // This module contains the private implementation details of our element
 
-use gst::prelude::*;
-use gst::subclass::prelude::*;
-use gst::{BufferRef, ClockTime, ErrorMessage, FlowError};
-use gst_base::prelude::BaseSrcExt;
-use gst_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
-use gst_base::subclass::prelude::PushSrcImpl;
+use gstreamer::prelude::*;
+use gstreamer::subclass::prelude::*;
+use gstreamer::{BufferRef, ClockTime, ErrorMessage, FlowError};
+use gstreamer_base::prelude::BaseSrcExt;
+use gstreamer_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
+use gstreamer_base::subclass::prelude::PushSrcImpl;
 use parking_lot::Mutex;
 use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
 use savant_core::rust::Pipeline;
@@ -39,10 +39,10 @@ const ERROR_PROCESSING_RES_ERR: Result<CreateSuccess, FlowError> = Err(FlowError
 const ERROR_PROCESSING_OPT: OptionalGstFlowReturn = Some(ERROR_PROCESSING_RES_ERR);
 const EOS_PROCESSING_OPT: OptionalGstFlowReturn = Some(Err(FlowError::Eos));
 
-static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
-    gst::DebugCategory::new(
+static CAT: LazyLock<gstreamer::DebugCategory> = LazyLock::new(|| {
+    gstreamer::DebugCategory::new(
         "zeromq_src",
-        gst::DebugColorFlags::empty(),
+        gstreamer::DebugColorFlags::empty(),
         Some("ZeroMQ Source Element"),
     )
 });
@@ -102,33 +102,30 @@ pub struct ZeromqSrc {
 impl GstObjectImpl for ZeromqSrc {}
 
 impl ElementImpl for ZeromqSrc {
-    fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
-            gst::subclass::ElementMetadata::new(
+    fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
+        static ELEMENT_METADATA: LazyLock<gstreamer::subclass::ElementMetadata> = LazyLock::new(
+            || {
+                gstreamer::subclass::ElementMetadata::new(
                 "ZeroMQ Savant Source",
                 "Source/Video",
                 "Creates video frames",
                 "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on work of Sebastian Dröge <sebastian@centricular.com>",
             )
-        });
+            },
+        );
 
         Some(&*ELEMENT_METADATA)
     }
 
-    fn pad_templates() -> &'static [gst::PadTemplate] {
-        static PAD_TEMPLATES: LazyLock<Vec<gst::PadTemplate>> = LazyLock::new(|| {
-            // On the src pad, we can produce F32/F64 with any sample rate
-            // and any number of channels
-            let caps = gst_audio::AudioCapsBuilder::new_interleaved()
-                .format_list([gst_audio::AUDIO_FORMAT_F32, gst_audio::AUDIO_FORMAT_F64])
-                .build();
+    fn pad_templates() -> &'static [gstreamer::PadTemplate] {
+        static PAD_TEMPLATES: LazyLock<Vec<gstreamer::PadTemplate>> = LazyLock::new(|| {
             // The src pad template must be named "src" for basesrc
             // and specific a pad that is always there
-            let src_pad_template = gst::PadTemplate::new(
+            let src_pad_template = gstreamer::PadTemplate::new(
                 "src",
-                gst::PadDirection::Src,
-                gst::PadPresence::Always,
-                &caps,
+                gstreamer::PadDirection::Src,
+                gstreamer::PadPresence::Always,
+                &gstreamer::Caps::new_any(),
             )
             .unwrap();
 
@@ -140,10 +137,10 @@ impl ElementImpl for ZeromqSrc {
 
     fn change_state(
         &self,
-        transition: gst::StateChange,
-    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+        transition: gstreamer::StateChange,
+    ) -> Result<gstreamer::StateChangeSuccess, gstreamer::StateChangeError> {
         // Configure live'ness once here just before starting the source
-        if let gst::StateChange::ReadyToPaused = transition {
+        if let gstreamer::StateChange::ReadyToPaused = transition {
             self.obj().set_live(self.settings.lock().is_live);
         }
 
@@ -157,8 +154,11 @@ impl BaseSrcImpl for ZeromqSrc {
         let settings_bind = self.settings.lock();
 
         let socket_uri = settings_bind.socket_uri.as_ref().ok_or_else(|| {
-            gst::error!(CAT, imp = self, "No socket URI provided");
-            gst::error_msg!(gst::ResourceError::Settings, ["No socket URI provided"])
+            gstreamer::error!(CAT, imp = self, "No socket URI provided");
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Settings,
+                ["No socket URI provided"]
+            )
         })?;
 
         let reader_settings_builder = || {
@@ -181,21 +181,21 @@ impl BaseSrcImpl for ZeromqSrc {
         };
 
         let reader_config = reader_settings_builder().map_err(|e| {
-            gst::error!(
+            gstreamer::error!(
                 CAT,
                 imp = self,
                 "Failed to create ZMQ reader settings: {}",
                 e.to_string()
             );
-            gst::error_msg!(
-                gst::ResourceError::Settings,
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Settings,
                 ["Failed to create ZMQ reader settings: {}", e.to_string()]
             )
         })?;
 
         self.reader.get_or_init(|| {
             SyncReader::new(&reader_config).unwrap_or_else(|e| {
-                gst::error!(
+                gstreamer::error!(
                     CAT,
                     imp = self,
                     "Failed to create ZMQ reader for settings {:?}: {}",
@@ -210,19 +210,19 @@ impl BaseSrcImpl for ZeromqSrc {
     }
 
     fn stop(&self) -> Result<(), ErrorMessage> {
-        let reader = self.reader.get().ok_or(gst::error_msg!(
-            gst::ResourceError::Failed,
+        let reader = self.reader.get().ok_or(gstreamer::error_msg!(
+            gstreamer::ResourceError::Failed,
             ["Failed to receive reader object, not started"]
         ))?;
         reader.shutdown().map_err(|e| {
-            gst::error!(
+            gstreamer::error!(
                 CAT,
                 imp = self,
                 "Failed to shutdown ZMQ reader: {}",
                 e.to_string()
             );
-            gst::error_msg!(
-                gst::ResourceError::Failed,
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Failed,
                 ["Failed to shutdown ZMQ reader: {}", e.to_string()]
             )
         })
@@ -235,9 +235,9 @@ impl BaseSrcImpl for ZeromqSrc {
 
 impl PushSrcImpl for ZeromqSrc {
     fn create(&self, _buffer: Option<&mut BufferRef>) -> Result<CreateSuccess, FlowError> {
-        gst::trace!(CAT, imp = self, "Creating new buffer");
+        gstreamer::trace!(CAT, imp = self, "Creating new buffer");
         let reader = self.reader.get().ok_or_else(|| {
-            gst::error!(
+            gstreamer::error!(
                 CAT,
                 imp = self,
                 "Failed to receive zeromq reader object, not created."
@@ -247,11 +247,11 @@ impl PushSrcImpl for ZeromqSrc {
         // wait until gst element status is playing
         loop {
             let (_, cur, _) = self.obj().state(Some(ClockTime::from_mseconds(100)));
-            if cur != gst::State::Playing {
+            if cur != gstreamer::State::Playing {
                 continue;
             }
             let read_result = reader.receive().map_err(|e| {
-                gst::error!(
+                gstreamer::error!(
                     CAT,
                     imp = self,
                     "Failed to receive packet from ZMQ reader: {}",
@@ -278,7 +278,7 @@ impl PushSrcImpl for ZeromqSrc {
                                 if let Some(res) = res {
                                     return res;
                                 }
-                                gst::debug!(CAT, imp = self, "The message processor returned None. Skipping the message: {:?}", m);
+                                gstreamer::debug!(CAT, imp = self, "The message processor returned None. Skipping the message: {:?}", m);
                             }
                         },
                         Err(e) => {
@@ -288,7 +288,7 @@ impl PushSrcImpl for ZeromqSrc {
                                 .unwrap_or(String::new());
                             let topic_str = String::from_utf8_lossy(topic);
                             let prefix_spec = self.settings.lock().topic_prefix_spec.clone();
-                            gst::error!(
+                            gstreamer::error!(
                                 CAT,
                                 imp = self,
                                 "Failed to handle message for routing_id{}/topic {}, prefix spec is {:?}, error: {:?}",

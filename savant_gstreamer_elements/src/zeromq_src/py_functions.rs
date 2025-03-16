@@ -1,6 +1,6 @@
 use anyhow::bail;
-use gst::prelude::*;
-use gst::subclass::prelude::*;
+use gstreamer::prelude::*;
+use gstreamer::subclass::prelude::*;
 use pyo3::prelude::*;
 use savant_core::message::Message;
 use savant_core::primitives::rust::VideoFrameProxy;
@@ -36,12 +36,12 @@ impl ZeromqSrc {
                     );
                     match res {
                         Ok(res) => {
-                            gst::trace!(CAT, imp = self, "Handler invoked successfully");
+                            gstreamer::trace!(CAT, imp = self, "Handler invoked successfully");
                             let message = res.extract::<PyMessage>(py);
                             match message {
                                 Ok(message) => Ok(Cow::Owned(message.extract())),
                                 Err(e) => {
-                                    gst::error!(
+                                    gstreamer::error!(
                                         CAT,
                                         imp = self,
                                         "Handler invocation failed: {}",
@@ -52,7 +52,7 @@ impl ZeromqSrc {
                             }
                         }
                         Err(e) => {
-                            gst::error!(CAT, imp = self, "Handler invocation failed: {}", e);
+                            gstreamer::error!(CAT, imp = self, "Handler invocation failed: {}", e);
                             bail!("Handler invocation failed: {}", e);
                         }
                     }

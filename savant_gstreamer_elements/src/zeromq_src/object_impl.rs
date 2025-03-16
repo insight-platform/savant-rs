@@ -1,10 +1,10 @@
 // This module contains the private implementation details of our element
 
-use gst::glib;
-use gst::glib::ParamFlags;
-use gst::prelude::*;
-use gst::subclass::prelude::*;
-use gst_base::prelude::BaseSrcExt;
+use gstreamer::glib;
+use gstreamer::glib::ParamFlags;
+use gstreamer::prelude::*;
+use gstreamer::subclass::prelude::*;
+use gstreamer_base::prelude::BaseSrcExt;
 use savant_core::transport::zeromq::TopicPrefixSpec;
 use std::sync::LazyLock;
 
@@ -19,7 +19,7 @@ use super::ZeromqSrc;
 impl ObjectSubclass for ZeromqSrc {
     const NAME: &'static str = "GstZeroMqSrc";
     type Type = crate::ZeromqSrc;
-    type ParentType = gst_base::PushSrc;
+    type ParentType = gstreamer_base::PushSrc;
 }
 
 impl ObjectImpl for ZeromqSrc {
@@ -127,7 +127,7 @@ impl ObjectImpl for ZeromqSrc {
                 let pipeline_name = value
                     .get()
                     .expect("Incorrect type for savant-pipeline-name. Expected String");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing pipeline name to {}",
@@ -139,7 +139,7 @@ impl ObjectImpl for ZeromqSrc {
                 let pipeline_stage_name = value
                     .get()
                     .expect("Incorrect type for savant-pipeline-stage. Expected String");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing pipeline stage name to {}",
@@ -151,14 +151,14 @@ impl ObjectImpl for ZeromqSrc {
                 let socket_uri = value
                     .get()
                     .expect("Incorrect type for zmq-socket-uri. Expected String");
-                gst::info!(CAT, imp = self, "Changing socket URI to {}", socket_uri);
+                gstreamer::info!(CAT, imp = self, "Changing socket URI to {}", socket_uri);
                 settings.socket_uri = Some(socket_uri);
             }
             "zmq-receive-hwm" => {
                 let receive_hwm = value
                     .get()
                     .expect("Incorrect type for zmq-receive-hwm. Expected i32");
-                gst::info!(CAT, imp = self, "Changing receive HWM to {}", receive_hwm);
+                gstreamer::info!(CAT, imp = self, "Changing receive HWM to {}", receive_hwm);
                 assert!(receive_hwm > 0, "Receive HWM must be non-negative",);
                 settings.receive_hwm = receive_hwm;
             }
@@ -166,21 +166,21 @@ impl ObjectImpl for ZeromqSrc {
                 let topic = value
                     .get()
                     .expect("Incorrect type for zmq-topic. Expected String");
-                gst::info!(CAT, imp = self, "Changing topic to {}", topic);
+                gstreamer::info!(CAT, imp = self, "Changing topic to {}", topic);
                 settings.topic_prefix_spec = TopicPrefixSpec::source_id(topic);
             }
             "zmq-topic-prefix" => {
                 let topic_prefix = value
                     .get()
                     .expect("Incorrect type for zmq-topic-prefix. Expected String");
-                gst::info!(CAT, imp = self, "Changing topic prefix to {}", topic_prefix);
+                gstreamer::info!(CAT, imp = self, "Changing topic prefix to {}", topic_prefix);
                 settings.topic_prefix_spec = TopicPrefixSpec::prefix(topic_prefix);
             }
             "shutdown-authorization" => {
                 let shutdown_authorization = value
                     .get()
                     .expect("Incorrect type for shutdown-authorization. Expected String");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing shutdown authorization to {}",
@@ -192,21 +192,21 @@ impl ObjectImpl for ZeromqSrc {
                 let max_width: u64 = value
                     .get()
                     .expect("Incorrect type for max-width. Expected u64");
-                gst::info!(CAT, imp = self, "Changing max width to {}", max_width);
+                gstreamer::info!(CAT, imp = self, "Changing max width to {}", max_width);
                 settings.max_width = max_width;
             }
             "max-height" => {
                 let max_height: u64 = value
                     .get()
                     .expect("Incorrect type for max-height. Expected u64");
-                gst::info!(CAT, imp = self, "Changing max height to {}", max_height);
+                gstreamer::info!(CAT, imp = self, "Changing max height to {}", max_height);
                 settings.max_height = max_height;
             }
             "pass-through-mode" => {
                 let pass_through_mode = value
                     .get()
                     .expect("Incorrect type for pass-through-mode. Expected bool");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing pass-through mode to {}",
@@ -218,7 +218,7 @@ impl ObjectImpl for ZeromqSrc {
                 let blacklist_size = value
                     .get()
                     .expect("Incorrect type for blacklist-size. Expected u64");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing blacklist size to {}",
@@ -231,7 +231,7 @@ impl ObjectImpl for ZeromqSrc {
                 let blacklist_ttl = value
                     .get()
                     .expect("Incorrect type for blacklist-ttl. Expected u64");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing blacklist TTL to {}",
@@ -244,7 +244,7 @@ impl ObjectImpl for ZeromqSrc {
                 let fix_ipc_permissions = value
                     .get()
                     .expect("Incorrect type for fix-ipc-permissions. Expected u32");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing fix IPC permissions to {}",
@@ -260,7 +260,7 @@ impl ObjectImpl for ZeromqSrc {
                 let receive_timeout = value
                     .get()
                     .expect("Incorrect type for receive-timeout. Expected i32");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing receive timeout to {}",
@@ -273,7 +273,7 @@ impl ObjectImpl for ZeromqSrc {
                 let invoke_on_message = value
                     .get()
                     .expect("Incorrect type for invoke-on-message. Expected bool");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing invoke on message to {}",
@@ -285,7 +285,7 @@ impl ObjectImpl for ZeromqSrc {
                 let filter_frames = value
                     .get()
                     .expect("Incorrect type for filter-frames. Expected bool");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing filter frames to {}",
@@ -297,7 +297,7 @@ impl ObjectImpl for ZeromqSrc {
                 let is_live = value
                     .get()
                     .expect("Incorrect type for is-live. Expected bool");
-                gst::info!(CAT, imp = self, "Changing is live to {}", is_live);
+                gstreamer::info!(CAT, imp = self, "Changing is live to {}", is_live);
                 settings.is_live = is_live;
             }
             _ => panic!(
@@ -315,7 +315,7 @@ impl ObjectImpl for ZeromqSrc {
         // Initialize live-ness and notify the base class that
         // we'd like to operate in Time format
         obj.set_live(DEFAULT_IS_LIVE);
-        obj.set_format(gst::Format::Time);
+        obj.set_format(gstreamer::Format::Time);
     }
 
     fn property(&self, _id: usize, pspec: &glib::ParamSpec) -> glib::Value {

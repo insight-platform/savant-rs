@@ -62,12 +62,16 @@ geo = "=0.28"
 glib = "0.20"
 globset = "0.4"
 
-gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
-gst-base = { package = "gstreamer-base", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
-gst-video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
-gst-audio = { package = "gstreamer-audio", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
+#gst = { package = "gstreamer", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
+#gst-base = { package = "gstreamer-base", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
+#gst-video = { package = "gstreamer-video", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
+#gst-audio = { package = "gstreamer-audio", git = "https://gitlab.freedesktop.org/gstreamer/gstreamer-rs", tag = "0.23.5" }
+
+gstreamer = "0.23.5" 
+gstreamer-base = "0.23.5"
+gstreamer-video = "0.23.5"
+gstreamer-audio = "0.23.5"
 gst-plugin-version-helper = "0.8"
-gstreamer = "0.23.5"
 
 hashbrown = { version = "0.15", features = ["serde"] }
 

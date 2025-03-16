@@ -1,14 +1,14 @@
 pub mod id_meta;
 
-use gst::BufferFlags;
+use gstreamer::BufferFlags;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct GstBuffer(Arc<RwLock<gst::Buffer>>);
+pub struct GstBuffer(Arc<RwLock<gstreamer::Buffer>>);
 
-impl From<gst::Buffer> for GstBuffer {
-    fn from(buffer: gst::Buffer) -> Self {
+impl From<gstreamer::Buffer> for GstBuffer {
+    fn from(buffer: gstreamer::Buffer) -> Self {
         Self::new_from(buffer)
     }
 }
@@ -21,14 +21,14 @@ impl Default for GstBuffer {
 
 impl GstBuffer {
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(gst::Buffer::new())))
+        Self(Arc::new(RwLock::new(gstreamer::Buffer::new())))
     }
 
-    fn new_from(buffer: gst::Buffer) -> Self {
+    fn new_from(buffer: gstreamer::Buffer) -> Self {
         Self(Arc::new(RwLock::new(buffer)))
     }
 
-    pub fn extract(self) -> anyhow::Result<gst::Buffer> {
+    pub fn extract(self) -> anyhow::Result<gstreamer::Buffer> {
         let lock = Arc::try_unwrap(self.0).map_err(|_| {
             anyhow::anyhow!("Could not extract GstBuffer because multiple object references exist")
         })?;
@@ -47,7 +47,8 @@ impl GstBuffer {
 
     pub fn set_pts_ns(&self, pts: u64) {
         let mut bind = self.0.write();
-        bind.make_mut().set_pts(gst::ClockTime::from_nseconds(pts));
+        bind.make_mut()
+            .set_pts(gstreamer::ClockTime::from_nseconds(pts));
     }
 
     pub fn dts_ns(&self) -> Option<u64> {
@@ -57,7 +58,8 @@ impl GstBuffer {
 
     pub fn set_dts_ns(&self, dts: u64) {
         let mut bind = self.0.write();
-        bind.make_mut().set_dts(gst::ClockTime::from_nseconds(dts));
+        bind.make_mut()
+            .set_dts(gstreamer::ClockTime::from_nseconds(dts));
     }
 
     pub fn dts_or_pts_ns(&self) -> Option<u64> {
@@ -73,7 +75,7 @@ impl GstBuffer {
     pub fn set_duration_ns(&self, duration: u64) {
         let mut bind = self.0.write();
         bind.make_mut()
-            .set_duration(gst::ClockTime::from_nseconds(duration));
+            .set_duration(gstreamer::ClockTime::from_nseconds(duration));
     }
 
     pub fn is_writable(&self) -> bool {
@@ -194,7 +196,7 @@ impl GstBuffer {
         Ok(old_ids)
     }
 
-    pub fn memory(&self, idx: usize) -> Option<gst::Memory> {
+    pub fn memory(&self, idx: usize) -> Option<gstreamer::Memory> {
         let bind = self.0.read();
         bind.memory(idx)
     }
@@ -206,7 +208,7 @@ mod tests {
     use crate::GstBuffer;
     #[test]
     fn test_savant_meta() -> anyhow::Result<()> {
-        gst::init().unwrap();
+        gstreamer::init().unwrap();
         let buf = GstBuffer::new();
         let old_attributes = vec![Frame(0), Frame(1), Frame(2)];
         let new_attributes = vec![Frame(3), Frame(4), Frame(6)];
@@ -252,7 +254,7 @@ mod tests {
         );
 
         unsafe {
-            gst::deinit();
+            gstreamer::deinit();
         }
         Ok(())
     }
