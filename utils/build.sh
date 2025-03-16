@@ -57,6 +57,9 @@ export RUST_TOOLCHAIN
 RUST_TOOLCHAIN=$(rustup default | awk '{print $1}')
 echo "Rust toolchain: $RUST_TOOLCHAIN"
 
+# debug
+find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep -F "$RUST_TOOLCHAIN"
+
 # Find Rust std directory more securely
 RUST_STD_DIR=$(find "$HOME" -name 'libstd-*.so' 2>/dev/null | grep -F "$RUST_TOOLCHAIN" | head -n1 | xargs -r dirname)
 readonly RUST_STD_DIR
