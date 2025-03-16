@@ -1,10 +1,10 @@
 export PROJECT_DIR=$(CURDIR)
 export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
-.PHONY: docs clippy build_savant build_savant_release clean tests bench
+.PHONY: docs build_savant build_savant_release clean tests bench reformat
 
-dev: clean clippy build_savant
-release: clean clippy build_savant_release
+dev: clean build_savant
+release: clean build_savant_release
 
 install:
 	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
@@ -12,10 +12,6 @@ install:
 docs: dev install docs/source/index.rst
 	@echo "Building docs..."
 	cd docs && make clean html
-
-clippy:
-	@echo "Running clippy..."
-	cargo clippy
 
 build_savant:
 	@echo "Building..."
