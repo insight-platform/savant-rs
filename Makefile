@@ -9,9 +9,11 @@ release: clean build_savant_release
 install:
 	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
 
-docs: dev install docs/source/index.rst
+docs:
 	@echo "Building docs..."
-	cd docs && make clean html
+	make dev install
+	cd $(PROJECT_DIR)/docs && make clean html
+	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf /opt/docs-artifact.tar .
 
 build_savant:
 	@echo "Building..."
