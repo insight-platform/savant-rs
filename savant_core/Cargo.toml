@@ -59,10 +59,11 @@ uuid = { workspace = true }
 zmq = { workspace = true }
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["dylib", "rlib"]
 
 [dev-dependencies]
 bollard = { workspace = true }
 ctrlc = { workspace = true }
 futures-util = { workspace = true }
 serial_test = { workspace = true }
+
