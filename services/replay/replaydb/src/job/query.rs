@@ -1,6 +1,6 @@
 use crate::job::configuration::JobConfiguration;
 use crate::job::stop_condition::JobStopCondition;
-use crate::job_writer::SinkConfiguration;
+use crate::job_writer::{SinkConfiguration, SinkOptions};
 use crate::store::JobOffset;
 use anyhow::Result;
 use savant_core::primitives::Attribute;
@@ -39,6 +39,16 @@ impl JobQuery {
             anchor_keyframe,
             anchor_wait_duration,
         }
+    }
+
+    // Apply default sink options if not already set
+    pub fn with_default_sink_options(mut self, default_options: Option<SinkOptions>) -> Self {
+        if let Some(default_opts) = default_options {
+            if self.sink.options.is_none() {
+                self.sink.options = Some(default_opts);
+            }
+        }
+        self
     }
 
     pub fn json(&self) -> Result<String> {

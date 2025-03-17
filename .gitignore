@@ -15,6 +15,7 @@ Cargo.lock
 **/*.gz
 **/*.zip
 **/*.so
+**/*.tar
 # Added by cargo
 
 /.idea

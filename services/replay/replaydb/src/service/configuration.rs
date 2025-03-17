@@ -1,4 +1,4 @@
-use crate::job_writer::SinkConfiguration;
+use crate::job_writer::{SinkConfiguration, SinkOptions};
 use anyhow::{bail, Result};
 use savant_core::transport::zeromq::{NonBlockingReader, ReaderConfigBuilder};
 use serde::{Deserialize, Serialize};
@@ -6,7 +6,7 @@ use std::result;
 use std::time::Duration;
 use twelf::{config, Layer};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum TopicPrefixSpec {
     #[serde(rename = "source_id")]
     SourceId(String),
@@ -16,7 +16,7 @@ pub enum TopicPrefixSpec {
     None,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SourceOptions {
     pub(crate) receive_timeout: Duration,
     pub(crate) receive_hwm: usize,
@@ -26,7 +26,7 @@ pub struct SourceOptions {
     pub(crate) inflight_ops: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SourceConfiguration {
     pub(crate) url: String,
     pub(crate) options: Option<SourceOptions>,
@@ -41,7 +41,7 @@ pub enum Storage {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
     pub management_port: u16,
     pub stats_period: Duration,
@@ -49,10 +49,11 @@ pub struct CommonConfiguration {
     pub job_writer_cache_max_capacity: u64,
     pub job_writer_cache_ttl: Duration,
     pub job_eviction_ttl: Duration,
+    pub default_job_sink_options: Option<SinkOptions>,
 }
 
 #[config]
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct ServiceConfiguration {
     pub common: CommonConfiguration,
     pub in_stream: SourceConfiguration,

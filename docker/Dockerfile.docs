@@ -24,4 +24,4 @@ ENV CARGO_TARGET_DIR=/tmp/build
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
-    cd /opt/savant-rs && PYTHON_INTERPRETER=python3.13 make docs
+    cd /opt/savant-rs && PYTHON_INTERPRETER=python3.13 make docs && cp docs-artifact.tar ../

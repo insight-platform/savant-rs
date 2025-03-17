@@ -88,6 +88,21 @@ The configuration file is a JSON file that contains the following parameters:
         "job_eviction_ttl": {
           "secs": 60,
           "nanos": 0
+        },
+        "default_job_sink_options": {
+          "send_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "send_retries": 3,
+          "receive_timeout": {
+            "secs": 1,
+            "nanos": 0
+          },
+          "receive_retries": 3,
+          "send_hwm": 1000,
+          "receive_hwm": 100,
+          "inflight_ops": 100
         }
       },
       "in_stream": {
@@ -178,6 +193,10 @@ Configuration Parameters
       - The time period completed jobs remain available in API for status requests.
       - ``{"secs": 60, "nanos": 0}``
       - ``{"secs": 30, "nanos": 0}``
+    * - ``common.default_job_sink_options``
+      - Default sink options to be applied to jobs if they don't specify their own options. If not set, jobs must provide their own sink options.
+      - ``null``
+      - See ``out_stream.options`` format.
     * - ``in_stream.url``
       - The URL for the data ingress in Savant ZMQ format.
       - ``router+bind:tcp://0.0.0.0:5555``

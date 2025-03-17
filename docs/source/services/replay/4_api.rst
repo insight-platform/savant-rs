@@ -117,6 +117,9 @@ Create New Job
 
 Creates a new job. Returns the job UUID.
 
+.. note::
+   If default sink options are configured in the service configuration, you can omit the ``options`` field in the ``sink`` object. The default options will be applied automatically. This is useful when you have multiple jobs with similar sink configurations.
+
 .. code-block:: bash
 
     #!/bin/bash
@@ -223,6 +226,36 @@ Creates a new job. Returns the job UUID.
 
     Q=$(query $1)
     curl -X PUT -H "Content-Type: application/json" -d "$Q" http://127.0.0.1:8080/api/v1/job | json_pp
+
+Example with Default Sink Options
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you've configured default sink options in the service configuration, you can simplify your job request by omitting the options field:
+
+.. code-block:: json
+
+    {
+      "sink": {
+        "url": "pub+connect:tcp://127.0.0.1:6666"
+      },
+      "configuration": {
+        // configuration fields
+      },
+      "stop_condition": {
+        "frame_count": 10000
+      },
+      "anchor_keyframe": "018f76e3-a0b9-7f67-8f76-ab0402fda78e",
+      "anchor_wait_duration": {
+        "secs": 1,
+        "nanos": 0
+      },
+      "offset": {
+        "blocks": 5
+      },
+      "attributes": [
+        // attributes
+      ]
+    }
 
 Augmenting Attributes
 ^^^^^^^^^^^^^^^^^^^^^

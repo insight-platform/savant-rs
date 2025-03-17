@@ -19,6 +19,8 @@ A sink is a ZeroMQ socket, which is always a `connect`-type socket and can be ``
 
 Jobs can communicate with any properly-defined Savant nodes, accepting data from Savant upstream nodes.
 
+Each sink can have its own options for configuring timeouts, retries, high water marks, and other ZeroMQ parameters. You can specify these options per job, or you can set default options in the service configuration. If a job doesn't specify its own sink options, the default options from the configuration will be applied. This makes it easier to manage multiple jobs with consistent settings, while still allowing customization when needed.
+
 Anchor Frame
 ------------
 
