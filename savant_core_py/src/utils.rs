@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::{release_gil, with_gil};
 
+pub mod bigint;
 pub mod byte_buffer;
 pub mod eval_resolvers;
 pub mod otlp;

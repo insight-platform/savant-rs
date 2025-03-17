@@ -1,21 +1,19 @@
 export PROJECT_DIR=$(CURDIR)
 export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
-.PHONY: docs clippy build_savant build_savant_release clean tests bench
+.PHONY: docs build_savant build_savant_release clean tests bench reformat
 
-dev: clean clippy build_savant
-release: clean clippy build_savant_release
+dev: clean build_savant
+release: clean build_savant_release
 
 install:
 	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
 
-docs: dev install docs/source/index.rst
+docs:
 	@echo "Building docs..."
-	cd docs && make clean html
-
-clippy:
-	@echo "Running clippy..."
-	cargo clippy
+	make dev install
+	cd $(PROJECT_DIR)/docs && make clean html
+	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .
 
 build_savant:
 	@echo "Building..."
@@ -40,3 +38,12 @@ core-tests:
 bench:
 	@echo "Running benchmarks..."
 	cd savant_core && cargo bench --no-default-features -- --show-output --nocapture
+
+
+reformat:
+	unify --in-place --recursive python
+	unify --in-place --recursive savant_python/python
+	black python
+	black savant_python/python
+	isort python
+	isort savant_python/python

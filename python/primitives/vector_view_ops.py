@@ -1,5 +1,7 @@
+from savant_rs.match_query import IntExpression as IE
+from savant_rs.match_query import MatchQuery as Q
+from savant_rs.match_query import QueryFunctions as QF
 from savant_rs.utils import gen_frame
-from savant_rs.match_query import MatchQuery as Q, IntExpression as IE, QueryFunctions as QF
 
 f = gen_frame()
 

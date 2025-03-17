@@ -1,8 +1,10 @@
 use clap::Parser;
+use gstreamer::glib::translate::FromGlibPtrBorrow;
+use gstreamer::prelude::{ElementExt, GstObjectExt};
+use gstreamer::Pipeline;
 use log::info;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
-use savant_rs::*;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -18,7 +20,7 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
-    init_logs()?;
+    savant_rs::init_logs()?;
     let cli = Cli::parse();
     let module_root = cli.python_root.unwrap_or_else(|| ".".to_string());
     // check exists and is a directory
@@ -51,9 +53,11 @@ fn main() -> anyhow::Result<()> {
 
     info!("GST_PLUGIN_PATH={}", std::env::var("GST_PLUGIN_PATH")?);
 
-    let invocation: PyResult<()> = Python::with_gil(|py| {
+    gstreamer::init()?;
+
+    let invocation: PyResult<(Py<PyAny>, PyResult<isize>)> = Python::with_gil(|py| {
         let module = PyModule::new(py, "savant_rs")?;
-        init_all(py, &module)?;
+        savant_rs::init_all(py, &module)?;
         // add the current directory to the Python module load path
         let sys = PyModule::import(py, "sys")?;
         let path_bind = sys.as_ref().getattr("path")?;
@@ -61,10 +65,26 @@ fn main() -> anyhow::Result<()> {
         path.insert(0, module_root.as_str())?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name.as_str())?.unbind();
-        f.call0(py)?;
-        Ok(())
+        let bound = f.call0(py)?.into_bound(py);
+        let addr = bound.hash();
+        let unbound_pipeline = bound.unbind();
+        Ok((unbound_pipeline, addr))
     });
-    invocation?;
+    let (unbound_pipeline, addr) = invocation?;
+    let addr = addr?;
+    info!("pipeline_addr={:#x}", addr);
 
+    let pipeline = unsafe { Pipeline::from_glib_borrow(addr as *mut gstreamer::ffi::GstPipeline) };
+    info!("Pipeline name is: {:?}", pipeline.name());
+    pipeline.set_state(gstreamer::State::Playing)?;
+    let main_loop = glib::MainLoop::new(None, false);
+    let main_loop_clone = main_loop.clone();
+    ctrlc::set_handler(move || {
+        info!("Ctrl-C received, stopping the pipeline!");
+        main_loop_clone.quit();
+    })?;
+    main_loop.run();
+    pipeline.set_state(gstreamer::State::Null)?;
+    drop(unbound_pipeline);
     Ok(())
 }

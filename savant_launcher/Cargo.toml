@@ -15,11 +15,10 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+ctrlc = { workspace = true }
 log = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_rs = { workspace = true }
-# savant_core_py = { workspace = true }
-#gst = { workspace = true }
-#gst-base = { workspace = true }
-#gstreamer = { workspace = true }
-#glib = { workspace = true }
+gstreamer = { workspace = true }
+gstreamer-base = { workspace = true }
+glib = { workspace = true }

@@ -1,16 +1,16 @@
-use gst::prelude::*;
-use gst::subclass::prelude::*;
-use gst::{glib, Buffer, Event, StateChange};
-use gst_audio::glib::ParamFlags;
+use gstreamer::prelude::*;
+use gstreamer::subclass::prelude::*;
+use gstreamer::{glib, Buffer, Event, StateChange};
+use gstreamer_audio::glib::ParamFlags;
 use parking_lot::{Mutex, RwLock};
 use pyo3::prelude::*;
 use savant_core_py::gst::{FlowResult, InvocationReason, REGISTERED_HANDLERS};
 use std::sync::{Arc, LazyLock};
 
-static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
-    gst::DebugCategory::new(
+static CAT: LazyLock<gstreamer::DebugCategory> = LazyLock::new(|| {
+    gstreamer::DebugCategory::new(
         "rspy",
-        gst::DebugColorFlags::empty(),
+        gstreamer::DebugColorFlags::empty(),
         Some("PyFunc Element"),
     )
 });
@@ -30,8 +30,8 @@ pub struct InteropParameters {
 
 // Struct containing all the element data
 pub struct RsPy {
-    src_pad: gst::Pad,
-    sink_pad: gst::Pad,
+    src_pad: gstreamer::Pad,
+    sink_pad: gstreamer::Pad,
     settings: RwLock<RsPySettings>,
     interop: Arc<Mutex<InteropParameters>>,
 }
@@ -41,14 +41,14 @@ impl RsPy {
     // whenever some output buffer is available have to push it out of the source pad.
     // Here we just pass through all buffers directly
     //
-    // See the documentation of gst::Buffer and gst::BufferRef to see what can be done with
+    // See the documentation of gstreamer::Buffer and gstreamer::BufferRef to see what can be done with
     // buffers.
     fn sink_chain(
         &self,
-        pad: &gst::Pad,
+        pad: &gstreamer::Pad,
         buffer: Buffer,
-    ) -> Result<gst::FlowSuccess, gst::FlowError> {
-        gst::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
+    ) -> Result<gstreamer::FlowSuccess, gstreamer::FlowError> {
+        gstreamer::log!(CAT, obj = pad, "Handling buffer {:?}", buffer);
         {
             let mut bind = self.interop.lock();
             bind.buffer = Some(buffer.clone());
@@ -65,29 +65,33 @@ impl RsPy {
             match res {
                 Err(e) => {
                     log::error!("Error calling buffer processing function: {:?}", e);
-                    Err(gst::FlowError::Error)
+                    Err(gstreamer::FlowError::Error)
                 }
                 Ok(r) => {
                     let flow_res = r.extract::<FlowResult>(py);
                     match flow_res {
                         Ok(res) => match res {
-                            FlowResult::CustomSuccess2 => Ok(gst::FlowSuccess::CustomSuccess2),
-                            FlowResult::CustomSuccess1 => Ok(gst::FlowSuccess::CustomSuccess1),
-                            FlowResult::CustomSuccess => Ok(gst::FlowSuccess::CustomSuccess),
-                            FlowResult::Ok => Ok(gst::FlowSuccess::Ok),
-                            FlowResult::NotLinked => Err(gst::FlowError::NotLinked),
-                            FlowResult::Flushing => Err(gst::FlowError::Flushing),
-                            FlowResult::Eos => Err(gst::FlowError::Eos),
-                            FlowResult::NotNegotiated => Err(gst::FlowError::NotNegotiated),
-                            FlowResult::Error => Err(gst::FlowError::Error),
-                            FlowResult::NotSupported => Err(gst::FlowError::NotSupported),
-                            FlowResult::CustomError => Err(gst::FlowError::CustomError),
-                            FlowResult::CustomError1 => Err(gst::FlowError::CustomError1),
-                            FlowResult::CustomError2 => Err(gst::FlowError::CustomError2),
+                            FlowResult::CustomSuccess2 => {
+                                Ok(gstreamer::FlowSuccess::CustomSuccess2)
+                            }
+                            FlowResult::CustomSuccess1 => {
+                                Ok(gstreamer::FlowSuccess::CustomSuccess1)
+                            }
+                            FlowResult::CustomSuccess => Ok(gstreamer::FlowSuccess::CustomSuccess),
+                            FlowResult::Ok => Ok(gstreamer::FlowSuccess::Ok),
+                            FlowResult::NotLinked => Err(gstreamer::FlowError::NotLinked),
+                            FlowResult::Flushing => Err(gstreamer::FlowError::Flushing),
+                            FlowResult::Eos => Err(gstreamer::FlowError::Eos),
+                            FlowResult::NotNegotiated => Err(gstreamer::FlowError::NotNegotiated),
+                            FlowResult::Error => Err(gstreamer::FlowError::Error),
+                            FlowResult::NotSupported => Err(gstreamer::FlowError::NotSupported),
+                            FlowResult::CustomError => Err(gstreamer::FlowError::CustomError),
+                            FlowResult::CustomError1 => Err(gstreamer::FlowError::CustomError1),
+                            FlowResult::CustomError2 => Err(gstreamer::FlowError::CustomError2),
                         },
                         Err(e) => {
                             log::error!("Error extracting FlowResult: {:?}", e);
-                            Err(gst::FlowError::Error)
+                            Err(gstreamer::FlowError::Error)
                         }
                     }
                 }
@@ -125,10 +129,10 @@ impl RsPy {
     // or Pad::push_event() on all pads with the opposite direction for direct forwarding.
     // Here we just pass through all events directly to the source pad.
     //
-    // See the documentation of gst::Event and gst::EventRef to see what can be done with
-    // events, and especially the gst::EventView type for inspecting events.
-    fn sink_event(&self, pad: &gst::Pad, event: Event) -> bool {
-        gst::log!(CAT, obj = pad, "Handling event {:?}", event);
+    // See the documentation of gstreamer::Event and gstreamer::EventRef to see what can be done with
+    // events, and especially the gstreamer::EventView type for inspecting events.
+    fn sink_event(&self, pad: &gstreamer::Pad, event: Event) -> bool {
+        gstreamer::log!(CAT, obj = pad, "Handling event {:?}", event);
         {
             let mut bind = self.interop.lock();
             bind.sink_event = Some(event.clone());
@@ -142,10 +146,10 @@ impl RsPy {
     // forwarding.
     // Here we just pass through all events directly to the sink pad.
     //
-    // See the documentation of gst::Event and gst::EventRef to see what can be done with
-    // events, and especially the gst::EventView type for inspecting events.
-    fn src_event(&self, pad: &gst::Pad, event: Event) -> bool {
-        gst::log!(CAT, obj = pad, "Handling event {:?}", event);
+    // See the documentation of gstreamer::Event and gstreamer::EventRef to see what can be done with
+    // events, and especially the gstreamer::EventView type for inspecting events.
+    fn src_event(&self, pad: &gstreamer::Pad, event: Event) -> bool {
+        gstreamer::log!(CAT, obj = pad, "Handling event {:?}", event);
         {
             let mut bind = self.interop.lock();
             bind.source_event = Some(event.clone());
@@ -160,10 +164,10 @@ impl RsPy {
     // opposite direction.
     // Here we just forward all queries directly to the source pad's peers.
     //
-    // See the documentation of gst::Query and gst::QueryRef to see what can be done with
-    // queries, and especially the gst::QueryView type for inspecting and modifying queries.
-    fn sink_query(&self, pad: &gst::Pad, query: &mut gst::QueryRef) -> bool {
-        gst::log!(CAT, obj = pad, "Handling query {:?}", query);
+    // See the documentation of gstreamer::Query and gstreamer::QueryRef to see what can be done with
+    // queries, and especially the gstreamer::QueryView type for inspecting and modifying queries.
+    fn sink_query(&self, pad: &gstreamer::Pad, query: &mut gstreamer::QueryRef) -> bool {
+        gstreamer::log!(CAT, obj = pad, "Handling query {:?}", query);
         self.src_pad.peer_query(query)
     }
 
@@ -174,10 +178,10 @@ impl RsPy {
     // opposite direction.
     // Here we just forward all queries directly to the sink pad's peers.
     //
-    // See the documentation of gst::Query and gst::QueryRef to see what can be done with
-    // queries, and especially the gst::QueryView type for inspecting and modifying queries.
-    fn src_query(&self, pad: &gst::Pad, query: &mut gst::QueryRef) -> bool {
-        gst::log!(CAT, obj = pad, "Handling query {:?}", query);
+    // See the documentation of gstreamer::Query and gstreamer::QueryRef to see what can be done with
+    // queries, and especially the gstreamer::QueryView type for inspecting and modifying queries.
+    fn src_query(&self, pad: &gstreamer::Pad, query: &mut gstreamer::QueryRef) -> bool {
+        gstreamer::log!(CAT, obj = pad, "Handling query {:?}", query);
         self.sink_pad.peer_query(query)
     }
 }
@@ -189,7 +193,7 @@ impl RsPy {
 impl ObjectSubclass for RsPy {
     const NAME: &'static str = "GstRsPy";
     type Type = super::RsPy;
-    type ParentType = gst::Element;
+    type ParentType = gstreamer::Element;
 
     // Called when a new instance is to be created. We need to return an instance
     // of our struct here and also get the class struct passed in case it's needed
@@ -205,11 +209,11 @@ impl ObjectSubclass for RsPy {
         //
         // Details about what each function is good for is next to each function definition
         let templ = klass.pad_template("sink").unwrap();
-        let sinkpad = gst::Pad::builder_from_template(&templ)
+        let sinkpad = gstreamer::Pad::builder_from_template(&templ)
             .chain_function(|pad, parent, buffer| {
                 RsPy::catch_panic_pad_function(
                     parent,
-                    || Err(gst::FlowError::Error),
+                    || Err(gstreamer::FlowError::Error),
                     |rspy| rspy.sink_chain(pad, buffer),
                 )
             })
@@ -222,7 +226,7 @@ impl ObjectSubclass for RsPy {
             .build();
 
         let templ = klass.pad_template("src").unwrap();
-        let srcpad = gst::Pad::builder_from_template(&templ)
+        let srcpad = gstreamer::Pad::builder_from_template(&templ)
             .event_function(|pad, parent, event| {
                 RsPy::catch_panic_pad_function(parent, || false, |rspy| rspy.src_event(pad, event))
             })
@@ -284,7 +288,7 @@ impl ObjectImpl for RsPy {
         match pspec.name() {
             "savant-pipeline-name" => {
                 let pipeline_name = value.get().expect("type checked upstream");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing pipeline name to {}",
@@ -294,7 +298,7 @@ impl ObjectImpl for RsPy {
             }
             "savant-pipeline-stage" => {
                 let pipeline_stage = value.get().expect("type checked upstream");
-                gst::info!(
+                gstreamer::info!(
                     CAT,
                     imp = self,
                     "Changing pipeline stage to {}",
@@ -302,7 +306,10 @@ impl ObjectImpl for RsPy {
                 );
                 settings.pipeline_stage = Some(pipeline_stage);
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Set operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -322,7 +329,10 @@ impl ObjectImpl for RsPy {
                 let source_event = self.interop.lock().source_event.take();
                 source_event.to_value()
             }
-            _ => unimplemented!("Parameter {} is not supported.", pspec.name()),
+            _ => panic!(
+                "Get operation for property {} is not supported.",
+                pspec.name()
+            ),
         }
     }
 
@@ -341,21 +351,23 @@ impl ObjectImpl for RsPy {
 
 impl GstObjectImpl for RsPy {}
 
-// Implementation of gst::Element virtual methods
+// Implementation of gstreamer::Element virtual methods
 impl ElementImpl for RsPy {
     // Set the element specific metadata. This information is what
     // is visible from gst-inspect-1.0 and can also be programmatically
-    // retrieved from the gst::Registry after initial registration
+    // retrieved from the gstreamer::Registry after initial registration
     // without having to load the plugin in memory.
-    fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
-            gst::subclass::ElementMetadata::new(
+    fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
+        static ELEMENT_METADATA: LazyLock<gstreamer::subclass::ElementMetadata> = LazyLock::new(
+            || {
+                gstreamer::subclass::ElementMetadata::new(
                 "RsPy",
                 "Custom PyFunc Invocation Module",
                 "A module invoking a custom Python function for buffers and events",
                 "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on work of Sebastian Dröge <sebastian@centricular.com>",
             )
-        });
+            },
+        );
 
         Some(&*ELEMENT_METADATA)
     }
@@ -366,22 +378,22 @@ impl ElementImpl for RsPy {
     // pads that could exist for this type.
     //
     // Actual instances can create pads based on those pad templates
-    fn pad_templates() -> &'static [gst::PadTemplate] {
-        static PAD_TEMPLATES: LazyLock<Vec<gst::PadTemplate>> = LazyLock::new(|| {
+    fn pad_templates() -> &'static [gstreamer::PadTemplate] {
+        static PAD_TEMPLATES: LazyLock<Vec<gstreamer::PadTemplate>> = LazyLock::new(|| {
             // Our element can accept any possible caps on both pads
-            let caps = gst::Caps::new_any();
-            let src_pad_template = gst::PadTemplate::new(
+            let caps = gstreamer::Caps::new_any();
+            let src_pad_template = gstreamer::PadTemplate::new(
                 "src",
-                gst::PadDirection::Src,
-                gst::PadPresence::Always,
+                gstreamer::PadDirection::Src,
+                gstreamer::PadPresence::Always,
                 &caps,
             )
             .unwrap();
 
-            let sink_pad_template = gst::PadTemplate::new(
+            let sink_pad_template = gstreamer::PadTemplate::new(
                 "sink",
-                gst::PadDirection::Sink,
-                gst::PadPresence::Always,
+                gstreamer::PadDirection::Sink,
+                gstreamer::PadPresence::Always,
                 &caps,
             )
             .unwrap();
@@ -398,8 +410,44 @@ impl ElementImpl for RsPy {
     fn change_state(
         &self,
         transition: StateChange,
-    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        gst::info!(CAT, imp = self, "Changing state {:?}", transition);
-        self.parent_change_state(transition)
+    ) -> Result<gstreamer::StateChangeSuccess, gstreamer::StateChangeError> {
+        let res = Python::with_gil(|py| {
+            let element_name = self.obj().name().to_string();
+            let handlers_bind = REGISTERED_HANDLERS.read();
+            let handler = handlers_bind
+                .get(&element_name)
+                .unwrap_or_else(|| panic!("Handler {} not found", element_name));
+
+            let current_state = transition.current() as i32;
+            let next_state = transition.next() as i32;
+
+            handler.call1(
+                py,
+                (
+                    element_name,
+                    InvocationReason::StateChange,
+                    current_state,
+                    next_state,
+                ),
+            )
+        });
+
+        if let Err(e) = res {
+            log::error!("Error calling state change function: {:?}", e);
+            return Err(gstreamer::StateChangeError);
+        }
+
+        let bool_res = Python::with_gil(|py| {
+            res.unwrap().extract::<bool>(py).unwrap_or_else(|e| {
+                log::error!("Error extracting bool result: {:?}", e);
+                false
+            })
+        });
+
+        if bool_res {
+            self.parent_change_state(transition)
+        } else {
+            Err(gstreamer::StateChangeError)
+        }
     }
 }

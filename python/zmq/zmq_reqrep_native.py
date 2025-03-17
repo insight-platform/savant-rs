@@ -1,11 +1,11 @@
 from threading import Thread
-from time import time, sleep
+from time import sleep, time
 
+from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import WriterConfigBuilder, ReaderConfigBuilder, BlockingWriter, BlockingReader
-from savant_rs.logging import set_log_level
-from savant_rs.logging import LogLevel
+from savant_rs.zmq import (BlockingReader, BlockingWriter, ReaderConfigBuilder,
+                           WriterConfigBuilder)
 
 set_log_level(LogLevel.Info)
 
@@ -25,7 +25,7 @@ def server():
     for _ in range(NUMBER):
         wait = time()
         m = reader.receive()
-        wait_time += (time() - wait)
+        wait_time += time() - wait
         assert len(m.data(0)) == BLOCK_SIZE
     print("Reader time awaited", wait_time)
 
@@ -49,7 +49,7 @@ for _ in range(NUMBER):
     m = Message.video_frame(frame)
     wait = time()
     writer.send_message("topic", m, buf)
-    wait_time += (time() - wait)
+    wait_time += time() - wait
 
 print("Writer time taken", time() - start, "awaited", wait_time)
 p1.join()

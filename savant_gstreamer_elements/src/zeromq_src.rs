@@ -1,15 +1,25 @@
-use gst::glib::ParamFlags;
-use gst::prelude::*;
-use gst::subclass::prelude::*;
-use gst::{glib, Buffer};
-use gst_base::prelude::BaseSrcExt;
-use parking_lot::RwLock;
-use pyo3::prelude::*;
-use savant_core::transport::zeromq::{ReaderSocketType, SyncReader, TopicPrefixSpec};
-use savant_core_py::gst::FlowResult;
-use std::sync::{LazyLock, OnceLock};
-use std::time::Instant;
 // This module contains the private implementation details of our element
+
+use gstreamer::prelude::*;
+use gstreamer::subclass::prelude::*;
+use gstreamer::{BufferRef, ClockTime, ErrorMessage, FlowError};
+use gstreamer_base::prelude::BaseSrcExt;
+use gstreamer_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
+use gstreamer_base::subclass::prelude::PushSrcImpl;
+use parking_lot::Mutex;
+use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
+use savant_core::rust::Pipeline;
+use savant_core::transport::zeromq::{ReaderConfig, ReaderResult, SyncReader, TopicPrefixSpec};
+use savant_core::utils::bytes_to_hex_string;
+use savant_core::webserver::is_shutdown_set;
+use std::num::NonZeroU64;
+use std::sync::{LazyLock, OnceLock};
+
+mod message_handlers;
+mod object_impl;
+mod py_functions;
+
+use crate::OptionalGstFlowReturn;
 
 const DEFAULT_IS_LIVE: bool = false;
 const DEFAULT_BLACKLIST_SIZE: u64 = 256;
@@ -17,11 +27,22 @@ const DEFAULT_BLACKLIST_TTL: u64 = 60;
 const DEFAULT_MAX_WIDTH: u64 = 15360; // 16K resolution
 const DEFAULT_MAX_HEIGHT: u64 = 8640; // 16K resolution
 const DEFAULT_PASS_THROUGH_MODE: bool = false;
+const DEFAULT_RECEIVE_HWM: i32 = 1000;
+const DEFAULT_RECEIVE_TIMEOUT: i32 = 1;
+const DEFAULT_FIX_IPC_PERMISSIONS: u32 = 0o777;
+const DEFAULT_ROUTING_ID_CACHE_SIZE: usize = 512;
+const DEFAULT_INVOKE_ON_MESSAGE: bool = false;
+const DEFAULT_FILTER_FRAMES: bool = false;
 
-static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
-    gst::DebugCategory::new(
+const SKIP_PROCESSING: OptionalGstFlowReturn = None;
+const ERROR_PROCESSING_RES_ERR: Result<CreateSuccess, FlowError> = Err(FlowError::Error);
+const ERROR_PROCESSING_OPT: OptionalGstFlowReturn = Some(ERROR_PROCESSING_RES_ERR);
+const EOS_PROCESSING_OPT: OptionalGstFlowReturn = Some(Err(FlowError::Eos));
+
+static CAT: LazyLock<gstreamer::DebugCategory> = LazyLock::new(|| {
+    gstreamer::DebugCategory::new(
         "zeromq_src",
-        gst::DebugColorFlags::empty(),
+        gstreamer::DebugColorFlags::empty(),
         Some("ZeroMQ Source Element"),
     )
 });
@@ -29,7 +50,8 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 #[derive(Debug, Clone)]
 struct Settings {
     socket_uri: Option<String>,
-    receive_hwm: Option<i32>,
+    receive_hwm: i32,
+    receive_timeout: i32,
     topic_prefix_spec: TopicPrefixSpec,
     pipeline_name: Option<String>,
     pipeline_stage_name: Option<String>,
@@ -39,14 +61,19 @@ struct Settings {
     pass_through_mode: bool,
     blacklist_size: u64,
     blacklist_ttl: u64,
+    fix_ipc_permissions: Option<u32>,
+    routing_cache_size: usize,
     is_live: bool,
+    invoke_on_message: bool,
+    filter_frames: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             socket_uri: None,
-            receive_hwm: None,
+            receive_hwm: DEFAULT_RECEIVE_HWM,
+            receive_timeout: DEFAULT_RECEIVE_TIMEOUT,
             topic_prefix_spec: TopicPrefixSpec::Prefix("".to_string()),
             pipeline_name: None,
             pipeline_stage_name: None,
@@ -56,247 +83,49 @@ impl Default for Settings {
             pass_through_mode: DEFAULT_PASS_THROUGH_MODE,
             blacklist_size: DEFAULT_BLACKLIST_SIZE,
             blacklist_ttl: DEFAULT_BLACKLIST_TTL,
+            fix_ipc_permissions: None,
+            routing_cache_size: DEFAULT_ROUTING_ID_CACHE_SIZE,
             is_live: DEFAULT_IS_LIVE,
+            invoke_on_message: DEFAULT_INVOKE_ON_MESSAGE,
+            filter_frames: DEFAULT_FILTER_FRAMES,
         }
     }
 }
 
 #[derive(Default)]
 pub struct ZeromqSrc {
-    settings: RwLock<Settings>,
+    settings: Mutex<Settings>,
     reader: OnceLock<SyncReader>,
-}
-
-#[glib::object_subclass]
-impl ObjectSubclass for ZeromqSrc {
-    const NAME: &'static str = "GstZeroMqSrc";
-    type Type = super::ZeromqSrc;
-    type ParentType = gst_base::PushSrc;
-}
-
-impl ObjectImpl for ZeromqSrc {
-    fn properties() -> &'static [glib::ParamSpec] {
-        static PROPERTIES: LazyLock<Vec<glib::ParamSpec>> = LazyLock::new(|| {
-            vec![
-                glib::ParamSpecString::builder("savant-pipeline-name")
-                    .nick("PipelineName")
-                    .blurb("The pipeline to work with")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecString::builder("savant-pipeline-stage")
-                    .nick("PipelineStage")
-                    .blurb("The stage to work with")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecString::builder("zmq-socket-uri")
-                    .nick("SocketURI")
-                    .blurb("The ZeroMQ socket URI")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecInt::builder("zmq-receive-hwm")
-                    .nick("ReceiveHWM")
-                    .blurb("The ZeroMQ receive high water mark")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecString::builder("zmq-topic")
-                    .nick("Topic")
-                    .blurb("The ZeroMQ topic prefix")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecString::builder("zmq-topic-prefix")
-                    .nick("TopicPrefix")
-                    .blurb("The ZeroMQ topic prefix")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecString::builder("shutdown-authorization")
-                    .nick("ShutdownAuthorization")
-                    .blurb("The authorization token to shutdown the pipeline")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecUInt::builder("max-width")
-                    .nick("MaxWidth")
-                    .blurb("The maximum width of the video frame")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecUInt::builder("max-height")
-                    .nick("MaxHeight")
-                    .blurb("The maximum height of the video frame")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecBoolean::builder("pass-through-mode")
-                    .nick("PassThroughMode")
-                    .blurb("Whether to pass through the video frame")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecUInt::builder("blacklist-size")
-                    .nick("BlacklistSize")
-                    .blurb("The size of the blacklist")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecUInt::builder("blacklist-ttl")
-                    .nick("BlacklistTTL")
-                    .blurb("The time-to-live of the blacklist")
-                    .flags(ParamFlags::WRITABLE)
-                    .build(),
-                glib::ParamSpecBoolean::builder("is-live")
-                    .nick("IsLive")
-                    .blurb("Live output")
-                    .default_value(DEFAULT_IS_LIVE)
-                    .mutable_ready()
-                    .build(),
-            ]
-        });
-        PROPERTIES.as_ref()
-    }
-
-    fn set_property(&self, _id: usize, value: &glib::Value, pspec: &glib::ParamSpec) {
-        let mut settings = self.settings.write();
-        match pspec.name() {
-            "savant-pipeline-name" => {
-                let pipeline_name = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing pipeline name to {}",
-                    pipeline_name
-                );
-                settings.pipeline_name = Some(pipeline_name);
-            }
-            "savant-pipeline-stage" => {
-                let pipeline_stage_name = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing pipeline stage name to {}",
-                    pipeline_stage_name
-                );
-                settings.pipeline_stage_name = Some(pipeline_stage_name);
-            }
-            "zmq-socket-uri" => {
-                let socket_uri = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing socket URI to {}", socket_uri);
-                settings.socket_uri = Some(socket_uri);
-            }
-            "zmq-receive-hwm" => {
-                let receive_hwm = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing receive HWM to {}", receive_hwm);
-                settings.receive_hwm = Some(receive_hwm);
-            }
-            "zmq-topic" => {
-                let topic = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing topic to {}", topic);
-                settings.topic_prefix_spec = TopicPrefixSpec::source_id(topic);
-            }
-            "zmq-topic-prefix" => {
-                let topic_prefix = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing topic prefix to {}", topic_prefix);
-                settings.topic_prefix_spec = TopicPrefixSpec::prefix(topic_prefix);
-            }
-            "shutdown-authorization" => {
-                let shutdown_authorization = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing shutdown authorization to {}",
-                    shutdown_authorization
-                );
-                settings.shutdown_authorization = Some(shutdown_authorization);
-            }
-            "max-width" => {
-                let max_width: u64 = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing max width to {}", max_width);
-                settings.max_width = max_width;
-            }
-            "max-height" => {
-                let max_height: u64 = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing max height to {}", max_height);
-                settings.max_height = max_height;
-            }
-            "pass-through-mode" => {
-                let pass_through_mode = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing pass-through mode to {}",
-                    pass_through_mode
-                );
-                settings.pass_through_mode = pass_through_mode;
-            }
-            "blacklist-size" => {
-                let blacklist_size = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing blacklist size to {}",
-                    blacklist_size
-                );
-                settings.blacklist_size = blacklist_size;
-            }
-            "blacklist-ttl" => {
-                let blacklist_ttl = value.get().expect("type checked upstream");
-                gst::info!(
-                    CAT,
-                    imp = self,
-                    "Changing blacklist TTL to {}",
-                    blacklist_ttl
-                );
-                settings.blacklist_ttl = blacklist_ttl;
-            }
-            "is-live" => {
-                let is_live = value.get().expect("type checked upstream");
-                gst::info!(CAT, imp = self, "Changing is live to {}", is_live);
-                settings.is_live = is_live;
-            }
-            _ => unimplemented!(),
-        }
-    }
-
-    fn constructed(&self) {
-        // Call the parent class' ::constructed() implementation first
-        self.parent_constructed();
-
-        let obj = self.obj();
-        // Initialize live-ness and notify the base class that
-        // we'd like to operate in Time format
-        obj.set_live(DEFAULT_IS_LIVE);
-        obj.set_format(gst::Format::Time);
-    }
-
-    fn property(&self, _id: usize, _pspec: &glib::ParamSpec) -> glib::Value {
-        unimplemented!("Getting properties is not implemented yet");
-    }
+    pipeline_info: OnceLock<Option<(Pipeline, String, String)>>,
 }
 
 impl GstObjectImpl for ZeromqSrc {}
 
 impl ElementImpl for ZeromqSrc {
-    fn metadata() -> Option<&'static gst::subclass::ElementMetadata> {
-        static ELEMENT_METADATA: LazyLock<gst::subclass::ElementMetadata> = LazyLock::new(|| {
-            gst::subclass::ElementMetadata::new(
+    fn metadata() -> Option<&'static gstreamer::subclass::ElementMetadata> {
+        static ELEMENT_METADATA: LazyLock<gstreamer::subclass::ElementMetadata> = LazyLock::new(
+            || {
+                gstreamer::subclass::ElementMetadata::new(
                 "ZeroMQ Savant Source",
                 "Source/Video",
                 "Creates video frames",
                 "Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>, based on work of Sebastian Dröge <sebastian@centricular.com>",
             )
-        });
+            },
+        );
 
         Some(&*ELEMENT_METADATA)
     }
 
-    fn pad_templates() -> &'static [gst::PadTemplate] {
-        static PAD_TEMPLATES: LazyLock<Vec<gst::PadTemplate>> = LazyLock::new(|| {
-            // On the src pad, we can produce F32/F64 with any sample rate
-            // and any number of channels
-            let caps = gst_audio::AudioCapsBuilder::new_interleaved()
-                .format_list([gst_audio::AUDIO_FORMAT_F32, gst_audio::AUDIO_FORMAT_F64])
-                .build();
+    fn pad_templates() -> &'static [gstreamer::PadTemplate] {
+        static PAD_TEMPLATES: LazyLock<Vec<gstreamer::PadTemplate>> = LazyLock::new(|| {
             // The src pad template must be named "src" for basesrc
             // and specific a pad that is always there
-            let src_pad_template = gst::PadTemplate::new(
+            let src_pad_template = gstreamer::PadTemplate::new(
                 "src",
-                gst::PadDirection::Src,
-                gst::PadPresence::Always,
-                &caps,
+                gstreamer::PadDirection::Src,
+                gstreamer::PadPresence::Always,
+                &gstreamer::Caps::new_any(),
             )
             .unwrap();
 
@@ -308,14 +137,193 @@ impl ElementImpl for ZeromqSrc {
 
     fn change_state(
         &self,
-        transition: gst::StateChange,
-    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+        transition: gstreamer::StateChange,
+    ) -> Result<gstreamer::StateChangeSuccess, gstreamer::StateChangeError> {
         // Configure live'ness once here just before starting the source
-        if let gst::StateChange::ReadyToPaused = transition {
-            self.obj().set_live(self.settings.read().is_live);
+        if let gstreamer::StateChange::ReadyToPaused = transition {
+            self.obj().set_live(self.settings.lock().is_live);
         }
 
         // Call the parent class' implementation of ::change_state()
         self.parent_change_state(transition)
+    }
+}
+
+impl BaseSrcImpl for ZeromqSrc {
+    fn start(&self) -> Result<(), ErrorMessage> {
+        let settings_bind = self.settings.lock();
+
+        let socket_uri = settings_bind.socket_uri.as_ref().ok_or_else(|| {
+            gstreamer::error!(CAT, imp = self, "No socket URI provided");
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Settings,
+                ["No socket URI provided"]
+            )
+        })?;
+
+        let reader_settings_builder = || {
+            ReaderConfig::new()
+                .url(socket_uri)?
+                .with_receive_timeout(settings_bind.receive_timeout)?
+                .with_receive_hwm(settings_bind.receive_hwm)?
+                .with_fix_ipc_permissions(settings_bind.fix_ipc_permissions)?
+                .with_routing_cache_size(settings_bind.routing_cache_size)?
+                .with_topic_prefix_spec(settings_bind.topic_prefix_spec.clone())?
+                .with_source_blacklist_size(
+                    NonZeroU64::new(settings_bind.blacklist_size)
+                        .expect("Blacklist size must be non-zero"),
+                )?
+                .with_source_blacklist_ttl(
+                    NonZeroU64::new(settings_bind.blacklist_ttl)
+                        .expect("Blacklist TTL must be non-zero"),
+                )?
+                .build()
+        };
+
+        let reader_config = reader_settings_builder().map_err(|e| {
+            gstreamer::error!(
+                CAT,
+                imp = self,
+                "Failed to create ZMQ reader settings: {}",
+                e.to_string()
+            );
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Settings,
+                ["Failed to create ZMQ reader settings: {}", e.to_string()]
+            )
+        })?;
+
+        self.reader.get_or_init(|| {
+            SyncReader::new(&reader_config).unwrap_or_else(|e| {
+                gstreamer::error!(
+                    CAT,
+                    imp = self,
+                    "Failed to create ZMQ reader for settings {:?}: {}",
+                    &reader_config,
+                    e
+                );
+                panic!("Failed to create ZMQ reader: {}", e)
+            })
+        });
+
+        Ok(())
+    }
+
+    fn stop(&self) -> Result<(), ErrorMessage> {
+        let reader = self.reader.get().ok_or(gstreamer::error_msg!(
+            gstreamer::ResourceError::Failed,
+            ["Failed to receive reader object, not started"]
+        ))?;
+        reader.shutdown().map_err(|e| {
+            gstreamer::error!(
+                CAT,
+                imp = self,
+                "Failed to shutdown ZMQ reader: {}",
+                e.to_string()
+            );
+            gstreamer::error_msg!(
+                gstreamer::ResourceError::Failed,
+                ["Failed to shutdown ZMQ reader: {}", e.to_string()]
+            )
+        })
+    }
+
+    fn is_seekable(&self) -> bool {
+        false
+    }
+}
+
+impl PushSrcImpl for ZeromqSrc {
+    fn create(&self, _buffer: Option<&mut BufferRef>) -> Result<CreateSuccess, FlowError> {
+        gstreamer::trace!(CAT, imp = self, "Creating new buffer");
+        let reader = self.reader.get().ok_or_else(|| {
+            gstreamer::error!(
+                CAT,
+                imp = self,
+                "Failed to receive zeromq reader object, not created."
+            );
+            FlowError::Error
+        })?;
+        // wait until gst element status is playing
+        loop {
+            let (_, cur, _) = self.obj().state(Some(ClockTime::from_mseconds(100)));
+            if cur != gstreamer::State::Playing {
+                continue;
+            }
+            let read_result = reader.receive().map_err(|e| {
+                gstreamer::error!(
+                    CAT,
+                    imp = self,
+                    "Failed to receive packet from ZMQ reader: {}",
+                    e.to_string()
+                );
+                FlowError::Error
+            })?;
+
+            match &read_result {
+                ReaderResult::Message {
+                    message,
+                    topic,
+                    routing_id,
+                    data,
+                } => {
+                    let message = self.invoke_custom_py_function_on_message(message.as_ref());
+                    match message {
+                        Ok(m) => match m.payload() {
+                            MessageEnvelope::VideoFrameUpdate(_) | MessageEnvelope::Unknown(_) => {
+                                self.handle_unsupported_payload(m.as_ref())
+                            }
+                            _ => {
+                                let res = self.handle_message(m.as_ref(), data);
+                                if let Some(res) = res {
+                                    return res;
+                                }
+                                gstreamer::debug!(CAT, imp = self, "The message processor returned None. Skipping the message: {:?}", m);
+                            }
+                        },
+                        Err(e) => {
+                            let routing_id_hex = routing_id
+                                .as_ref()
+                                .map(|r| bytes_to_hex_string(r))
+                                .unwrap_or(String::new());
+                            let topic_str = String::from_utf8_lossy(topic);
+                            let prefix_spec = self.settings.lock().topic_prefix_spec.clone();
+                            gstreamer::error!(
+                                CAT,
+                                imp = self,
+                                "Failed to handle message for routing_id{}/topic {}, prefix spec is {:?}, error: {:?}",
+                                routing_id_hex,
+                                topic_str,
+                                prefix_spec,
+                                e
+                            );
+                            return ERROR_PROCESSING_RES_ERR;
+                        }
+                    }
+                }
+                _ => self.handle_auxiliary_reader_states(&read_result),
+            }
+        }
+    }
+}
+
+impl ZeromqSrc {
+    pub(crate) fn handle_message(
+        &self,
+        message: &Message,
+        data: &[Vec<u8>],
+    ) -> OptionalGstFlowReturn {
+        if is_shutdown_set() {
+            return self.handle_ws_shutdown();
+        }
+        validate_seq_id(message); // checks if the sequence id is valid and reports a warning if it is not
+        match message.payload() {
+            MessageEnvelope::UserData(_) => self.handle_user_data(message),
+            MessageEnvelope::EndOfStream(eos) => self.handle_savant_stream_eos(eos),
+            MessageEnvelope::VideoFrame(_) => self.handle_video_frame(message, data),
+            MessageEnvelope::VideoFrameBatch(_) => self.handle_video_frame_batch(message, data),
+            MessageEnvelope::Shutdown(shutdown) => self.handle_shutdown(shutdown),
+            _ => panic!("This state must not be reached in this method"),
+        }
     }
 }

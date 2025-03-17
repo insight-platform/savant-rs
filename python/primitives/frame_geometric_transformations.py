@@ -1,4 +1,4 @@
-from savant_rs.utils import gen_frame, VideoObjectBBoxTransformation
+from savant_rs.utils import VideoObjectBBoxTransformation, gen_frame
 
 f = gen_frame()
 obj = f.get_object(0)
@@ -10,7 +10,7 @@ print(obj)
 
 transformations = [
     VideoObjectBBoxTransformation.scale(2.0, 2.0),
-    VideoObjectBBoxTransformation.shift(10, 10)
+    VideoObjectBBoxTransformation.shift(10, 10),
 ]
 
 f.transform_geometry(transformations)

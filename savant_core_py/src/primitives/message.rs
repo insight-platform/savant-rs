@@ -13,6 +13,16 @@ use savant_core::primitives::rust as rust_primitives;
 #[derive(Clone, Debug)]
 pub struct Message(pub(crate) rust_primitives::Message);
 
+impl Message {
+    pub fn new(message: rust_primitives::Message) -> Self {
+        Self(message)
+    }
+
+    pub fn extract(self) -> rust_primitives::Message {
+        self.0
+    }
+}
+
 #[pymethods]
 impl Message {
     #[classattr]
