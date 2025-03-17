@@ -1,0 +1,27 @@
+FROM ghcr.io/insight-platform/py313_rust:v0.0.8 AS builder
+
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && apt install -y \
+    jq \
+    libgstreamer1.0-dev \
+    libunwind-dev \
+    libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav libgstrtspserver-1.0-dev libges-1.0-dev \
+    libpython3-dev
+
+RUN --mount=type=bind,rw,source=.,target=/opt/savant-rs \
+    /opt/savant-rs/utils/install_protoc.sh
+
+RUN --mount=type=bind,source=.,target=/opt/savant-rs \
+    pip install -r /opt/savant-rs/requirements.txt
+
+# add rust path to PATH
+ENV PATH="/root/.cargo/bin:$PATH"
+ENV CARGO_TARGET_DIR=/tmp/build
+
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/tmp/build \
+    --mount=type=bind,rw,source=.,target=/opt/savant-rs \
+    cd /opt/savant-rs && PYTHON_INTERPRETER=python3.13 make docs && cp docs-artifact.tar ../

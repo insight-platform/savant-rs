@@ -8,6 +8,7 @@ use crate::primitives::message::Message;
 use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::release_gil;
+use crate::utils::bigint::fit_i64;
 use crate::with_gil;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
@@ -947,7 +948,7 @@ impl VideoFrame {
         parent_id: Option<i64>,
         confidence: Option<f32>,
         detection_box: Option<RBBox>,
-        track_id: Option<i64>,
+        track_id: Option<num_bigint::BigInt>,
         track_box: Option<RBBox>,
         attributes: Option<Vec<Attribute>>,
     ) -> PyResult<BorrowedVideoObject> {
@@ -965,6 +966,8 @@ impl VideoFrame {
                 "Detection box must be specified for new objects",
             ));
         }
+
+        let track_id = track_id.map(fit_i64);
 
         self.0
             .create_object(

@@ -30,7 +30,9 @@ box = box.wrapping_box
 print("Wrapping box:", box)
 
 # max_x is limited to 180, max_y is limited to 500
-box = box.get_visual_box(padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=180, max_y=500)
+box = box.get_visual_box(
+    padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=180, max_y=500
+)
 print("Visual box:", box)
 
 ltrb = box.as_ltrb()
@@ -79,7 +81,9 @@ box = box.wrapping_box
 print("Wrapping box:", box)
 
 # max_x is limited to 100, max_y is limited to 500
-box = box.get_visual_box(padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=100, max_y=500)
+box = box.get_visual_box(
+    padding=PaddingDraw(5, 5, 5, 5), border_width=2, max_x=100, max_y=500
+)
 print("Graphical wrapping box:", box)
 
 print(BBox.ltwh(0, 0, 100, 100))

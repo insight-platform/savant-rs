@@ -1,0 +1,13 @@
+__all__ = [
+    'AtomicCounter',
+]
+
+class AtomicCounter:
+    """A thread-safe atomic counter."""
+
+    def __init__(self, initial: int) -> None: ...
+    def set(self, value: int) -> None: ...
+    @property
+    def next(self) -> int: ...
+    @property
+    def get(self) -> int: ...

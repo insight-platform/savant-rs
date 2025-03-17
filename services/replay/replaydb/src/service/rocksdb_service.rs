@@ -36,6 +36,7 @@ pub struct RocksDbService {
     >,
     job_eviction_ttl: Duration,
     stopped_jobs: HashMap<Uuid, (Option<String>, JobConfiguration, SystemTime)>,
+    config: ServiceConfiguration,
 }
 
 impl TryFrom<&ServiceConfiguration> for SyncRocksDbStore {
@@ -96,6 +97,7 @@ impl RocksDbService {
             job_map: HashMap::new(),
             job_eviction_ttl: config.common.job_eviction_ttl,
             stopped_jobs: HashMap::new(),
+            config: config.clone(),
         })
     }
 
@@ -112,7 +114,13 @@ impl RocksDbService {
 }
 
 impl JobManager for RocksDbService {
-    async fn add_job(&mut self, job_query: JobQuery) -> Result<Uuid> {
+    async fn add_job(&mut self, mut job_query: JobQuery) -> Result<Uuid> {
+        // Apply default sink options from the configuration if needed
+        let default_options = self.config.common.default_job_sink_options.clone();
+
+        // Apply default sink options to the job query if they exist
+        job_query = job_query.with_default_sink_options(default_options);
+
         let configuration = job_query.configuration.clone();
         let mut job = self.job_factory.create_job(job_query).await?;
         let job_id = job.get_id();

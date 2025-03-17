@@ -1,6 +1,7 @@
 use crate::zmq::basic_types::{ReaderSocketType, TopicPrefixSpec, WriterSocketType};
 use pyo3::exceptions::PyValueError;
-use pyo3::{pyclass, pymethods, Py, PyAny, PyResult};
+use pyo3::types::{PyDict, PyDictMethods};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
 use std::num::NonZeroU64;
 
@@ -118,40 +119,35 @@ impl WriterConfigBuilder {
         )?)))
     }
 
-    /// Sets the socket type
+    /// Sets the configuration from a dictionary of key-value pairs.
     ///
     /// Parameters
     /// ----------
-    /// socket_type: :py:class:`WriterSocketType`
-    ///   The socket type to use, defaults to ``WriterSocketType.Dealer``
+    /// map: dict[str, Any]
+    ///   A dictionary of key-value pairs to set the configuration from.
+    ///   if the url is already set, it must not be included in the map.
     ///
-    pub fn with_socket_type(&mut self, socket_type: WriterSocketType) -> PyResult<()> {
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the configuration is invalid
+    ///
+    pub fn with_map_config(&mut self, map: &Bound<'_, PyDict>) -> PyResult<()> {
+        let std_map = map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         self.0 = Some(
             self.0
                 .take()
                 .unwrap()
-                .with_socket_type(socket_type.into())
+                .with_map_config(std_map)
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to set ZeroMQ socket type: {:?}", e))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {:?}", e))
                 })?,
         );
         Ok(())
     }
-
-    /// Specifies either socket binds or connects
-    ///
-    /// Parameters
-    /// ----------
-    /// bind: bool
-    ///   If ``True``, the socket will bind, otherwise it will connect. Defaults to ``True``
-    ///
-    pub fn with_bind(&mut self, bind: bool) -> PyResult<()> {
-        self.0 = Some(self.0.take().unwrap().with_bind(bind).map_err(|e| {
-            PyValueError::new_err(format!("Failed to set ZeroMQ socket bind mode: {:?}", e))
-        })?);
-        Ok(())
-    }
-
     /// Sets the send timeout for the ZeroMQ socket
     ///
     /// Parameters
@@ -453,42 +449,34 @@ impl ReaderConfigBuilder {
         )?)))
     }
 
-    /// Sets the socket type
+    /// Sets the configuration from a dictionary of key-value pairs.
     ///
     /// Parameters
     /// ----------
-    /// socket_type: :py:class:`ReaderSocketType`
-    ///   The socket type to use, defaults to ``ReaderSocketType.Sub``
+    /// map: dict[str, Any]
+    ///   A dictionary of key-value pairs to set the configuration from.
+    ///   if the url is already set, it must not be included in the map.
     ///
     /// Raises
     /// ------
     /// ValueError
-    ///   If the socket type is double set. Defaults to ``ReaderSocketType.Router``
+    ///   If the configuration is invalid
     ///
-    pub fn with_socket_type(&mut self, socket_type: ReaderSocketType) -> PyResult<()> {
+    ///
+    pub fn with_map_config(&mut self, map: &Bound<'_, PyDict>) -> PyResult<()> {
+        let std_map = map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         self.0 = Some(
             self.0
                 .take()
                 .unwrap()
-                .with_socket_type(socket_type.into())
+                .with_map_config(std_map)
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to set ZeroMQ socket type: {:?}", e))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {:?}", e))
                 })?,
         );
-        Ok(())
-    }
-
-    /// Specifies either socket binds or connects
-    ///
-    /// Parameters
-    /// ----------
-    /// bind: bool
-    ///   If ``True``, the socket will bind, otherwise it will connect. Defaults to ``True``
-    ///
-    pub fn with_bind(&mut self, bind: bool) -> PyResult<()> {
-        self.0 = Some(self.0.take().unwrap().with_bind(bind).map_err(|e| {
-            PyValueError::new_err(format!("Failed to set ZeroMQ socket bind mode: {:?}", e))
-        })?);
         Ok(())
     }
 

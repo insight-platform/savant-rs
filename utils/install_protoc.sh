@@ -1,4 +1,17 @@
-#!/bin/sh -e
+#!/bin/bash
+
+# Exit on error, undefined variables, and pipe failures
+set -euo pipefail
+
+# Function to clean up temporary files and processes on exit
+cleanup() {
+    # Add cleanup tasks here if needed
+    exit "${1:-0}"
+}
+
+# Set up trap for script termination
+trap 'cleanup $?' EXIT
+trap 'cleanup 1' INT TERM
 
 ARCH=$(uname -m)
 
@@ -14,7 +27,7 @@ else
     exit 1
 fi
 
-unzip *.zip
+unzip -f *.zip
 cp bin/protoc /usr/bin
 chmod 755 /usr/bin/protoc
 

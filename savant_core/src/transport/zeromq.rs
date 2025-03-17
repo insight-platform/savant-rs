@@ -160,6 +160,32 @@ pub enum TopicPrefixSpec {
     None,
 }
 
+impl std::str::FromStr for TopicPrefixSpec {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == "none" {
+            return Ok(TopicPrefixSpec::None);
+        }
+
+        if let Some(source) = s.strip_prefix("source{") {
+            if let Some(source_id) = source.strip_suffix("}") {
+                return Ok(TopicPrefixSpec::SourceId(source_id.to_string()));
+            }
+        }
+
+        if let Some(prefix) = s.strip_prefix("prefix{") {
+            if let Some(prefix_str) = prefix.strip_suffix("}") {
+                return Ok(TopicPrefixSpec::Prefix(prefix_str.to_string()));
+            }
+        }
+
+        bail!(
+            "Invalid TopicPrefixSpec format. Expected 'none', 'source{{...}}', or 'prefix{{...}}'"
+        )
+    }
+}
+
 impl TopicPrefixSpec {
     pub fn source_id(source_id: &str) -> Self {
         Self::SourceId(source_id.to_string())
@@ -533,6 +559,30 @@ mod tests {
         assert!(spec.matches(b"source_id"));
         assert!(spec.matches(b"source_id/abc"));
         assert!(spec.matches(b"source_id/abc/def"));
+    }
+
+    #[test]
+    fn test_topic_prefix_spec_from_str() {
+        use std::str::FromStr;
+
+        // Test none
+        let spec = TopicPrefixSpec::from_str("none").unwrap();
+        assert!(matches!(spec, TopicPrefixSpec::None));
+
+        // Test source
+        let spec = TopicPrefixSpec::from_str("source{test_source}").unwrap();
+        assert!(matches!(spec, TopicPrefixSpec::SourceId(s) if s == "test_source"));
+
+        // Test prefix
+        let spec = TopicPrefixSpec::from_str("prefix{test/prefix}").unwrap();
+        assert!(matches!(spec, TopicPrefixSpec::Prefix(p) if p == "test/prefix"));
+
+        // Test invalid inputs
+        assert!(TopicPrefixSpec::from_str("").is_err());
+        assert!(TopicPrefixSpec::from_str("source").is_err());
+        assert!(TopicPrefixSpec::from_str("source{unclosed").is_err());
+        assert!(TopicPrefixSpec::from_str("prefix{unclosed").is_err());
+        assert!(TopicPrefixSpec::from_str("unknown{test}").is_err());
     }
 }
 

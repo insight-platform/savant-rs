@@ -2,13 +2,16 @@ import json
 from timeit import default_timer as timer
 
 from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.match_query import MatchQuery as Q, \
-    IntExpression as IE, QueryFunctions as QF
-from savant_rs.primitives import VideoObject, AttributeValue, \
-    Attribute, VideoFrame, VideoFrameContent, VideoFrameTransformation, IdCollisionResolutionPolicy
+from savant_rs.match_query import IntExpression as IE
+from savant_rs.match_query import MatchQuery as Q
+from savant_rs.match_query import QueryFunctions as QF
+from savant_rs.primitives import (Attribute, AttributeValue,
+                                  IdCollisionResolutionPolicy, VideoFrame,
+                                  VideoFrameContent, VideoFrameTransformation,
+                                  VideoObject)
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
-from savant_rs.utils.serialization import save_message, load_message, Message
+from savant_rs.utils.serialization import Message, load_message, save_message
 
 # set_log_level(LogLevel.Trace)
 
@@ -56,7 +59,9 @@ print(frame.json)
 
 frame.add_transformation(VideoFrameTransformation.initial_size(1920, 1080))
 frame.add_transformation(VideoFrameTransformation.scale(3840, 2160))
-frame.add_transformation(VideoFrameTransformation.padding(left=0, top=120, right=0, bottom=0))
+frame.add_transformation(
+    VideoFrameTransformation.padding(left=0, top=120, right=0, bottom=0)
+)
 
 print(frame.transformations)
 
@@ -67,38 +72,66 @@ print(frame.transformations[0].is_scale)
 
 frame.clear_transformations()
 
-frame.set_persistent_attribute(namespace="some", name="attr", hint="x", values=[
-    AttributeValue.none(),
-    AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
-    AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
-    AttributeValue.integer(1, confidence=0.5),
-    AttributeValue.float(1.0, confidence=0.5),
-    AttributeValue.string("hello", confidence=0.5),
-    AttributeValue.boolean(True, confidence=0.5),
-    AttributeValue.strings(["hello", "world"], confidence=0.5),
-    AttributeValue.integers([1, 2, 3], confidence=0.5),
-    AttributeValue.floats([1.0, 2.0, 3.0], confidence=0.5),
-    AttributeValue.booleans([True, False, True], confidence=0.5),
-    AttributeValue.bbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
-    AttributeValue.bboxes([BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()], confidence=0.5),
-    AttributeValue.point(Point(0.1, 0.2), confidence=0.5),
-    AttributeValue.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
-    AttributeValue.polygon(
-        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
-        confidence=0.5),
-    AttributeValue.polygons([
-        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None]),
-        PolygonalArea([Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)], ["up", None, "down", None])],
-        confidence=0.5),
-])
+frame.set_persistent_attribute(
+    namespace="some",
+    name="attr",
+    hint="x",
+    values=[
+        AttributeValue.none(),
+        AttributeValue.bytes(dims=[8, 3, 8, 8], blob=bytes(3 * 8 * 8), confidence=None),
+        AttributeValue.bytes_from_list(dims=[4, 1], blob=[0, 1, 2, 3], confidence=None),
+        AttributeValue.integer(1, confidence=0.5),
+        AttributeValue.float(1.0, confidence=0.5),
+        AttributeValue.string("hello", confidence=0.5),
+        AttributeValue.boolean(True, confidence=0.5),
+        AttributeValue.strings(["hello", "world"], confidence=0.5),
+        AttributeValue.integers([1, 2, 3], confidence=0.5),
+        AttributeValue.floats([1.0, 2.0, 3.0], confidence=0.5),
+        AttributeValue.booleans([True, False, True], confidence=0.5),
+        AttributeValue.bbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
+        AttributeValue.bboxes(
+            [BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()],
+            confidence=0.5,
+        ),
+        AttributeValue.point(Point(0.1, 0.2), confidence=0.5),
+        AttributeValue.points([Point(0.1, 0.2), Point(0.1, 0.2)], confidence=0.5),
+        AttributeValue.polygon(
+            PolygonalArea(
+                [Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)],
+                ["up", None, "down", None],
+            ),
+            confidence=0.5,
+        ),
+        AttributeValue.polygons(
+            [
+                PolygonalArea(
+                    [Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)],
+                    ["up", None, "down", None],
+                ),
+                PolygonalArea(
+                    [Point(-1, 1), Point(1, 1), Point(1, -1), Point(-1, -1)],
+                    ["up", None, "down", None],
+                ),
+            ],
+            confidence=0.5,
+        ),
+    ],
+)
 
-frame.set_persistent_attribute(namespace="other", name="attr", values=[
-    AttributeValue.integer(1, confidence=0.5),
-])
+frame.set_persistent_attribute(
+    namespace="other",
+    name="attr",
+    values=[
+        AttributeValue.integer(1, confidence=0.5),
+    ],
+)
 
-frame.set_temporary_attribute("hidden", "attribute",
-                              values=[AttributeValue.temporary_python_object(dict(x=5), confidence=0.5)],
-                              is_hidden=True)
+frame.set_temporary_attribute(
+    "hidden",
+    "attribute",
+    values=[AttributeValue.temporary_python_object(dict(x=5), confidence=0.5)],
+    is_hidden=True,
+)
 
 print("All public attributes", frame.attributes)  # hidden is not there
 # but we can access it directly
@@ -120,7 +153,7 @@ obj = VideoObject(
     confidence=0.5,
     attributes=[],
     track_id=1,
-    track_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()
+    track_box=BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(),
 )
 
 # demonstrates protobuf serialization
@@ -145,18 +178,32 @@ print("Object with two children:", vec[0])
 vec = vec[0]
 print("Object", vec)
 
-vec.set_attribute(Attribute(namespace="other", name="attr", values=[
-    AttributeValue.integer(1, confidence=0.5),
-]))
+vec.set_attribute(
+    Attribute(
+        namespace="other",
+        name="attr",
+        values=[
+            AttributeValue.integer(1, confidence=0.5),
+        ],
+    )
+)
 
-vec.set_attribute(Attribute(namespace="some", name="attr", values=[
-    AttributeValue.integers([1, 2, 3], confidence=0.5),
-]))
+vec.set_attribute(
+    Attribute(
+        namespace="some",
+        name="attr",
+        values=[
+            AttributeValue.integers([1, 2, 3], confidence=0.5),
+        ],
+    )
+)
 
 # demonstrates chained filtering on ObjectsView object
 #
 f = gen_frame()
-one, two = QF.partition(QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))), Q.id(IE.eq(1)))
+one, two = QF.partition(
+    QF.filter(f.access_objects(Q.idle()), Q.id(IE.one_of(1, 2))), Q.id(IE.eq(1))
+)
 
 print("One", one)
 print("Two", two)

@@ -76,7 +76,7 @@ fn get_pipeline(
 
     let pipeline = Pipeline::new("bench_pipeline", pipeline_stages, conf)?;
     stages.pop();
-    pipeline.set_root_span_name("bench".to_owned())?;
+    pipeline.set_root_span_name("bench")?;
     Ok((pipeline, stages))
 }
 

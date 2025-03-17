@@ -1,15 +1,14 @@
-use crate::gstreamer::id_meta::SavantIdMeta;
-use gst::BufferFlags;
+pub mod id_meta;
+
+use gstreamer::BufferFlags;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-pub mod id_meta;
-
 #[derive(Clone)]
-pub struct GstBuffer(Arc<RwLock<gst::Buffer>>);
+pub struct GstBuffer(Arc<RwLock<gstreamer::Buffer>>);
 
-impl From<gst::Buffer> for GstBuffer {
-    fn from(buffer: gst::Buffer) -> Self {
+impl From<gstreamer::Buffer> for GstBuffer {
+    fn from(buffer: gstreamer::Buffer) -> Self {
         Self::new_from(buffer)
     }
 }
@@ -22,14 +21,14 @@ impl Default for GstBuffer {
 
 impl GstBuffer {
     pub fn new() -> Self {
-        Self(Arc::new(RwLock::new(gst::Buffer::new())))
+        Self(Arc::new(RwLock::new(gstreamer::Buffer::new())))
     }
 
-    fn new_from(buffer: gst::Buffer) -> Self {
+    fn new_from(buffer: gstreamer::Buffer) -> Self {
         Self(Arc::new(RwLock::new(buffer)))
     }
 
-    pub fn extract(self) -> anyhow::Result<gst::Buffer> {
+    pub fn extract(self) -> anyhow::Result<gstreamer::Buffer> {
         let lock = Arc::try_unwrap(self.0).map_err(|_| {
             anyhow::anyhow!("Could not extract GstBuffer because multiple object references exist")
         })?;
@@ -48,7 +47,8 @@ impl GstBuffer {
 
     pub fn set_pts_ns(&self, pts: u64) {
         let mut bind = self.0.write();
-        bind.make_mut().set_pts(gst::ClockTime::from_nseconds(pts));
+        bind.make_mut()
+            .set_pts(gstreamer::ClockTime::from_nseconds(pts));
     }
 
     pub fn dts_ns(&self) -> Option<u64> {
@@ -58,7 +58,8 @@ impl GstBuffer {
 
     pub fn set_dts_ns(&self, dts: u64) {
         let mut bind = self.0.write();
-        bind.make_mut().set_dts(gst::ClockTime::from_nseconds(dts));
+        bind.make_mut()
+            .set_dts(gstreamer::ClockTime::from_nseconds(dts));
     }
 
     pub fn dts_or_pts_ns(&self) -> Option<u64> {
@@ -74,7 +75,7 @@ impl GstBuffer {
     pub fn set_duration_ns(&self, duration: u64) {
         let mut bind = self.0.write();
         bind.make_mut()
-            .set_duration(gst::ClockTime::from_nseconds(duration));
+            .set_duration(gstreamer::ClockTime::from_nseconds(duration));
     }
 
     pub fn is_writable(&self) -> bool {
@@ -154,23 +155,26 @@ impl GstBuffer {
         bind.append(buffer.0.read().clone());
     }
 
-    pub fn get_id_meta(&self) -> Option<Vec<i64>> {
+    pub fn get_id_meta(&self) -> Option<Vec<id_meta::SavantIdMetaKind>> {
         let bind = self.0.read();
-        let meta = bind.meta::<SavantIdMeta>()?;
+        let meta = bind.meta::<id_meta::SavantIdMeta>()?;
         Some(meta.ids().to_vec())
     }
 
-    pub fn replace_id_meta(&self, ids: Vec<i64>) -> anyhow::Result<Option<Vec<i64>>> {
+    pub fn replace_id_meta(
+        &self,
+        ids: Vec<id_meta::SavantIdMetaKind>,
+    ) -> anyhow::Result<Option<Vec<id_meta::SavantIdMetaKind>>> {
         let old_ids = self.clear_id_meta()?;
         let mut bind = self.0.write();
         let buffer = bind
             .get_mut()
             .ok_or(anyhow::anyhow!("Unable to get write access to the buffer.",))?;
-        SavantIdMeta::replace(buffer, ids);
+        id_meta::SavantIdMeta::replace(buffer, ids);
         Ok(old_ids)
     }
 
-    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<i64>>> {
+    pub fn clear_id_meta(&self) -> anyhow::Result<Option<Vec<id_meta::SavantIdMetaKind>>> {
         let old_ids = self.get_id_meta();
         if old_ids.is_none() {
             return Ok(None);
@@ -181,7 +185,7 @@ impl GstBuffer {
             .get_mut()
             .ok_or(anyhow::anyhow!("Unable to get write access to the buffer.",))?;
 
-        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<SavantIdMeta>();
+        let meta_ref_mut_opt = buffer_ref_mut.meta_mut::<id_meta::SavantIdMeta>();
         if meta_ref_mut_opt.is_none() {
             return Ok(None);
         }
@@ -192,7 +196,7 @@ impl GstBuffer {
         Ok(old_ids)
     }
 
-    pub fn memory(&self, idx: usize) -> Option<gst::Memory> {
+    pub fn memory(&self, idx: usize) -> Option<gstreamer::Memory> {
         let bind = self.0.read();
         bind.memory(idx)
     }
@@ -200,14 +204,14 @@ impl GstBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::gstreamer::GstBuffer;
-
+    use crate::id_meta::SavantIdMetaKind::*;
+    use crate::GstBuffer;
     #[test]
     fn test_savant_meta() -> anyhow::Result<()> {
-        gst::init().unwrap();
+        gstreamer::init().unwrap();
         let buf = GstBuffer::new();
-        let old_attributes = vec![0, 1, 2];
-        let new_attributes = vec![3, 4, 6];
+        let old_attributes = vec![Frame(0), Frame(1), Frame(2)];
+        let new_attributes = vec![Frame(3), Frame(4), Frame(6)];
 
         assert!(
             buf.get_id_meta().is_none(),
@@ -250,7 +254,7 @@ mod tests {
         );
 
         unsafe {
-            gst::deinit();
+            gstreamer::deinit();
         }
         Ok(())
     }

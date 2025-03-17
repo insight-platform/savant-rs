@@ -78,6 +78,12 @@ pub enum PipelinePayload {
 #[derive(Clone, Default, Debug)]
 pub struct Pipeline(pub(crate) Arc<implementation::Pipeline>);
 
+impl From<Arc<implementation::Pipeline>> for Pipeline {
+    fn from(value: Arc<implementation::Pipeline>) -> Self {
+        Self(value)
+    }
+}
+
 impl Pipeline {
     #[allow(clippy::type_complexity)]
     pub fn new(
