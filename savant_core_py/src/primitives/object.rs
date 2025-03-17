@@ -1,6 +1,7 @@
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
+use crate::utils::bigint::fit_i64;
 use crate::{release_gil, with_gil};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
@@ -47,7 +48,7 @@ impl VideoObject {
         detection_box: RBBox,
         attributes: Vec<Attribute>,
         confidence: Option<f32>,
-        track_id: Option<i64>,
+        track_id: Option<num_bigint::BigInt>,
         track_box: Option<RBBox>,
     ) -> Self {
         let object = rust::VideoObjectBuilder::default()
@@ -57,7 +58,7 @@ impl VideoObject {
             .detection_box(detection_box.0)
             .attributes(attributes.into_iter().map(|a| a.0).collect())
             .confidence(confidence)
-            .track_id(track_id)
+            .track_id(track_id.map(fit_i64))
             .track_box(track_box.map(|b| b.0))
             .build()
             .unwrap();
@@ -509,8 +510,8 @@ impl BorrowedVideoObject {
     }
 
     #[setter]
-    pub fn set_track_id(&mut self, track_id: Option<i64>) {
-        self.0.set_track_id(track_id);
+    pub fn set_track_id(&mut self, track_id: Option<num_bigint::BigInt>) {
+        self.0.set_track_id(track_id.map(fit_i64));
     }
 
     #[getter]
@@ -523,8 +524,8 @@ impl BorrowedVideoObject {
         self.0.set_track_box(bbox.0);
     }
 
-    pub fn set_track_info(&mut self, track_id: i64, bbox: RBBox) {
-        self.0.set_track_info(track_id, bbox.0);
+    pub fn set_track_info(&mut self, track_id: num_bigint::BigInt, bbox: RBBox) {
+        self.0.set_track_info(fit_i64(track_id), bbox.0);
     }
 
     pub fn clear_track_info(&mut self) {
