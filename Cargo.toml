@@ -9,7 +9,8 @@ members = [
     "services/replay/replay",
     "savant_gstreamer_elements",
     "savant_launcher",
-    "savant_gstreamer",
+    "savant_gstreamer", 
+    "savant_info",
 ]
 
 default-members = [
