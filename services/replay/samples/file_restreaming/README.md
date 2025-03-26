@@ -7,13 +7,13 @@ This sample shows how to ingest video file to Replay and then re-stream it to AO
 Run Replay with the following command (X86 version):
 
 ```bash
-docker pull ghcr.io/insight-platform/replay-x86:main
+docker pull ghcr.io/insight-platform/savant-replay-x86:latest
 
 docker run -it --rm \
   --network host \
   -v $(pwd)/replay_config.json:/opt/etc/config.json \
   -v $(pwd)/data:/opt/rocksdb \
-  ghcr.io/insight-platform/replay-x86:main
+  ghcr.io/insight-platform/savant-replay-x86:latest
 ```
 
 ## Launch AO-RTSP to View

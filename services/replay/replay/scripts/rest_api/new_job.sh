@@ -7,8 +7,7 @@ ANCHOR_KEYFRAME=$1
 cat <<EOF
 {
   "sink": {
-    "url": "pub+connect:tcp://127.0.0.1:6666",
-    "options": null 
+    "url": "pub+connect:tcp://127.0.0.1:6666"
   },
   "configuration": {
     "ts_sync": true,
