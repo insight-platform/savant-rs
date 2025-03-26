@@ -14,10 +14,25 @@
     "job_eviction_ttl": {
       "secs": 60,
       "nanos": 0
+    },
+    "default_job_sink_options": {
+      "send_timeout": {
+        "secs": 1,
+        "nanos": 0
+      },
+      "send_retries": 3,
+      "receive_timeout": {
+        "secs": 1,
+        "nanos": 0
+      },
+      "receive_retries": 3,
+      "send_hwm": 1000,
+      "receive_hwm": 100,
+      "inflight_ops": 100
     }
   },
   "in_stream": {
-    "url": "router+bind:ipc:///tmp/${SOCKET_PATH_IN:-undefined}",
+    "url": "router+bind:tcp://127.0.0.1:5555",
     "options": {
       "receive_timeout": {
         "secs": 1,
@@ -25,7 +40,7 @@
       },
       "receive_hwm": 1000,
       "topic_prefix_spec": {
-        "source_id": "source_id"
+        "source_id": "in-video"
       },
       "source_cache_size": 1000,
       "fix_ipc_permissions": 511,
