@@ -92,19 +92,17 @@ jobs:
             echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
-          eval $(docker run -it --rm --entrypoint /opt/bin/savant_info replay version)
-          echo "Retrieving savant-rs version: ${SAVANT_RS_VERSION}"
-          echo "RR_TAG=${SAVANT_RS_VERSION}-rolling" >> $GITHUB_ENV
+          docker run -it --rm --entrypoint /opt/bin/savant_info replay version >> $GITHUB_ENV
 
 
       # for main branch push with RR_TAG tag
-      - name: Push docker image for rolling release ${{ env.GITHUB_REF_SLUG }}
+      - name: Push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
         if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
           file: ${{ matrix.docker_file }}
           platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.RR_TAG }}"
+          tags: "${{matrix.tag}}:${{ env.RR_TAG }}-rolling"
           push: true
           context: .
           cache-from: type=gha
