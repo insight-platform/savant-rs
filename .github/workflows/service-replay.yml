@@ -92,8 +92,8 @@ jobs:
             echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
-          echo "Retrieving savant-rs version"
           eval $(docker run -it --rm --entrypoint /opt/bin/savant_info replay version)
+          echo "Retrieving savant-rs version: ${SAVANT_RS_VERSION}"
           echo "RR_TAG=${SAVANT_RS_VERSION}-rolling" >> $GITHUB_ENV
 
 
