@@ -92,7 +92,7 @@ jobs:
             echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
-      - name: Push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
+      - name: Build and push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
@@ -110,7 +110,7 @@ jobs:
           echo "SAVANT_RS_VERSION=${SAVANT_RS_VERSION}" >> $GITHUB_ENV
   
       # for main branch push with RR_TAG tag
-      - name: Push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
+      - name: Build and push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
         if: github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
