@@ -92,10 +92,24 @@ jobs:
             echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
-          docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }} version || true
-          docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }} version >> $GITHUB_ENV
+      - name: Push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          file: ${{ matrix.docker_file }}
+          platforms: ${{ matrix.arch }}
+          tags: "${{matrix.tag}}:${{ env.TAG }}"
+          push: true
+          context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  
 
-
+      - name: Set Docker RR image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
+        run: |
+          docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version || true
+          docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version >> $GITHUB_ENV
+  
       # for main branch push with RR_TAG tag
       - name: Push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
         if: github.ref == 'refs/heads/main'
@@ -104,18 +118,6 @@ jobs:
           file: ${{ matrix.docker_file }}
           platforms: ${{ matrix.arch }}
           tags: "${{matrix.tag}}:${{ env.RR_TAG }}-rolling"
-          push: true
-          context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
-        with:
-          file: ${{ matrix.docker_file }}
-          platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.TAG }}"
           push: true
           context: .
           cache-from: type=gha
