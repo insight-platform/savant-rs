@@ -37,6 +37,13 @@ if ! install -m 755 /tmp/build/release/replay "${TARGET_BIN_DIR}/"; then
     exit 1
 fi
 
+# Copy binary with executable permissions
+if ! install -m 755 /tmp/build/release/savant_info "${TARGET_BIN_DIR}/"; then
+    echo "Error: Failed to copy savant_info binary" >&2
+    exit 1
+fi
+
+
 # Copy configuration file
 if ! install -m 644 /opt/savant-rs/services/replay/replay/assets/test.json "${TARGET_ETC_DIR}/config.json"; then
     echo "Error: Failed to copy configuration file" >&2

@@ -4,7 +4,7 @@ WORKDIR /opt/replay
 
 RUN rustup component add rustfmt
 RUN --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/replay/docker-deps.sh
-RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build cargo build --release -p replay
+RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build cargo build --release -p replay -p savant_info
 RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/replay/copy-deps.sh
 
 FROM debian:bookworm-slim AS runner
