@@ -83,7 +83,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set Docker image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
+      - name: Configure docker image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
         id: set-tag
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -104,8 +104,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
   
-
-      - name: Set Docker RR image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
+      - name: Configure Docker rolling release image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
         run: |
           docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version || true
           docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version >> $GITHUB_ENV
@@ -117,7 +116,7 @@ jobs:
         with:
           file: ${{ matrix.docker_file }}
           platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.RR_TAG }}-rolling"
+          tags: "${{matrix.tag}}:${{ env.SAVANT_RS_VERSION }}-rolling"
           push: true
           context: .
           cache-from: type=gha
