@@ -83,7 +83,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set Docker image tag
+      - name: Set Docker image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
         id: set-tag
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -92,7 +92,7 @@ jobs:
             echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
           fi
 
-          docker run -it --rm --entrypoint /opt/bin/savant_info replay version >> $GITHUB_ENV
+          docker run -it --rm --entrypoint /opt/bin/savant_info "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}" version >> $GITHUB_ENV
 
 
       # for main branch push with RR_TAG tag
