@@ -124,6 +124,41 @@ pub fn init(config: &TelemetryConfiguration) {
     telemetry::init(&config.0);
 }
 
+/// Initializes OpenTelemetry from a file.
+///
+/// Configuration file sample:
+///  
+/// {
+///     "tracer": {
+///         "service_name": "savant-core",
+///         "protocol": "grpc",
+///         "endpoint": "http://localhost:4318",
+///         "timeout": {
+///             "secs": 10,
+///             "nanos": 0
+///         },
+///         "tls": {
+///             "certificate": "path/to/certificate.pem",
+///             "identity": {
+///                 "key": "path/to/key.pem",
+///                 "certificate": "path/to/certificate.pem"
+///             }
+///         }
+///     }
+/// }
+///
+/// Explore more details on the configuration file format at https://docs.savant-ai.io/develop/advanced_topics/9_open_telemetry.html
+///
+/// Params
+/// ------
+/// path: :py:class:`str`
+///   The path to the file containing the configuration for OpenTelemetry
+///
+#[pyfunction]
+pub fn init_from_file(path: &str) {
+    telemetry::init_from_file(path);
+}
+
 /// Shuts down OpenTelemetry.
 #[pyfunction]
 pub fn shutdown() {

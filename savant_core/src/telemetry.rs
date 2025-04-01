@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
 use std::fs;
 use std::time::Duration;
+use twelf::{config, Layer};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ContextPropagationFormat {
@@ -62,7 +63,8 @@ pub struct TracerConfiguration {
     pub timeout: Option<Duration>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[config]
+#[derive(Debug, Serialize, Clone)]
 pub struct TelemetryConfiguration {
     pub context_propagation_format: Option<ContextPropagationFormat>,
     pub tracer: Option<TracerConfiguration>,
@@ -75,15 +77,17 @@ impl TelemetryConfiguration {
             tracer: None,
         }
     }
+
+    pub fn from_file(path: &str) -> anyhow::Result<Self> {
+        let config = TelemetryConfiguration::with_layers(&[Layer::Json(path.into())])?;
+        Ok(config)
+    }
 }
 
 pub struct Configurator;
 
 impl Configurator {
     /// Initializes global tracer provider, propagator and error handler.
-    ///
-    /// # Panics
-    /// This will panic if called outside the context of a Tokio runtime when tracer is configured.
     pub fn new(service_namespace: &str, config: &TelemetryConfiguration) -> Self {
         let tracer_provider = match config.tracer.as_ref() {
             Some(tracer_config) => {
@@ -249,7 +253,7 @@ pub fn init(config: &TelemetryConfiguration) {
         Some(_) => panic!("Open Telemetry has been configured"),
         None => {
             let runtime = get_or_init_async_runtime();
-            let c = runtime.block_on(async { Configurator::new("savant-core", config) });
+            let c = runtime.block_on(async { Configurator::new("savant", config) });
             let result = configurator.set(c);
             if result.is_err() {
                 // should not happen
@@ -259,9 +263,54 @@ pub fn init(config: &TelemetryConfiguration) {
     }
 }
 
+pub fn init_from_file(path: &str) {
+    let config = TelemetryConfiguration::from_file(path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to load telemetry configuration from {}, error: {}",
+            path, e
+        )
+    });
+    init(&config);
+}
+
 pub fn shutdown() {
     let mut configurator = CONFIGURATOR.lock();
     if let Some(mut c) = configurator.take() {
         c.shutdown()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    #[test]
+    fn test_init_from_file() -> anyhow::Result<()> {
+        let conf_json = r#"
+        {
+            "tracer": {
+                "service_name": "savant-core",
+                "protocol": "grpc",
+                "endpoint": "http://localhost:4318",
+                "timeout": {
+                    "secs": 10,
+                    "nanos": 0
+                },
+                "tls": {
+                    "certificate": "path/to/certificate.pem",
+                    "identity": {
+                        "key": "path/to/key.pem",
+                        "certificate": "path/to/certificate.pem"
+                    }
+                }
+            }
+        }
+        "#;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(conf_json.as_bytes()).unwrap();
+        let _ = TelemetryConfiguration::from_file(file.path().to_str().unwrap())?;
+        Ok(())
     }
 }

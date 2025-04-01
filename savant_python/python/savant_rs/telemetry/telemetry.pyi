@@ -10,6 +10,7 @@ __all__ = [
     "TelemetryConfiguration",
     "init",
     "shutdown",
+    "init_from_file",
 ]
 
 class ContextPropagationFormat(Enum):
@@ -49,4 +50,5 @@ class TelemetryConfiguration:
     def no_op(cls) -> TelemetryConfiguration: ...
 
 def init(config: TelemetryConfiguration) -> None: ...
+def init_from_file(path: str) -> None: ...
 def shutdown() -> None: ...
