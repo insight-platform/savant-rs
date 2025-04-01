@@ -36,10 +36,10 @@ pub struct ClientTlsConfig(telemetry::ClientTlsConfig);
 #[pymethods]
 impl ClientTlsConfig {
     #[new]
-    #[pyo3(signature = (certificate=None, identity=None))]
-    pub fn new(certificate: Option<String>, identity: Option<Identity>) -> Self {
+    #[pyo3(signature = (ca=None, identity=None))]
+    pub fn new(ca: Option<String>, identity: Option<Identity>) -> Self {
         Self(telemetry::ClientTlsConfig {
-            certificate,
+            ca,
             identity: identity.map(|e| e.0),
         })
     }
@@ -138,7 +138,7 @@ pub fn init(config: &TelemetryConfiguration) {
 ///             "nanos": 0
 ///         },
 ///         "tls": {
-///             "certificate": "path/to/certificate.pem",
+///             "ca": "path/to/ca.pem",
 ///             "identity": {
 ///                 "key": "path/to/key.pem",
 ///                 "certificate": "path/to/certificate.pem"

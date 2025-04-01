@@ -50,7 +50,7 @@ pub struct Identity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientTlsConfig {
-    pub certificate: Option<String>,
+    pub ca: Option<String>,
     pub identity: Option<Identity>,
 }
 
@@ -108,7 +108,7 @@ impl Configurator {
 
                         tonic_tls_config = if let Some(tls_config) = tracer_config.tls.as_ref() {
                             tonic_tls_config =
-                                if let Some(root_certificate) = tls_config.certificate.as_ref() {
+                                if let Some(root_certificate) = tls_config.ca.as_ref() {
                                     let buf = fs::read(root_certificate)
                                         .expect("Failed to load root certificate");
                                     let cert = tonic::transport::Certificate::from_pem(buf);
@@ -155,17 +155,16 @@ impl Configurator {
                             .tls_built_in_root_certs(true)
                             .use_rustls_tls();
                         client_builder = if let Some(tls_config) = tracer_config.tls.as_ref() {
-                            client_builder =
-                                if let Some(certificate) = tls_config.certificate.as_ref() {
-                                    let buf = fs::read(certificate)
-                                        .expect("Failed to read root certificate");
-                                    let cert = reqwest::Certificate::from_pem(&buf)
-                                        .expect("Failed to load root certificate");
+                            client_builder = if let Some(certificate) = tls_config.ca.as_ref() {
+                                let buf =
+                                    fs::read(certificate).expect("Failed to read root certificate");
+                                let cert = reqwest::Certificate::from_pem(&buf)
+                                    .expect("Failed to load root certificate");
 
-                                    client_builder.add_root_certificate(cert)
-                                } else {
-                                    client_builder
-                                };
+                                client_builder.add_root_certificate(cert)
+                            } else {
+                                client_builder
+                            };
 
                             client_builder = if let Some(identity) = tls_config.identity.as_ref() {
                                 let mut buf = Vec::new();
@@ -299,7 +298,7 @@ mod tests {
                     "nanos": 0
                 },
                 "tls": {
-                    "certificate": "path/to/certificate.pem",
+                    "ca": "path/to/ca.pem",
                     "identity": {
                         "key": "path/to/key.pem",
                         "certificate": "path/to/certificate.pem"
