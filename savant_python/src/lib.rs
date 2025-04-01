@@ -321,6 +321,7 @@ pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TracerConfiguration>()?;
     m.add_class::<TelemetryConfiguration>()?;
     m.add_function(wrap_pyfunction!(init, m)?)?;
+    m.add_function(wrap_pyfunction!(init_from_file, m)?)?;
     m.add_function(wrap_pyfunction!(shutdown, m)?)?;
     Ok(())
 }

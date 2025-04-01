@@ -55,6 +55,7 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
+twelf = { workspace = true }
 uuid = { workspace = true }
 zmq = { workspace = true }
 
@@ -66,4 +67,5 @@ bollard = { workspace = true }
 ctrlc = { workspace = true }
 futures-util = { workspace = true }
 serial_test = { workspace = true }
+tempfile = { workspace = true }
 
