@@ -30,14 +30,13 @@ pub fn relative_time_uuid_v7(uuid: Uuid, offset_millis: i64) -> Uuid {
     let new_duration = if offset_millis > 0 {
         duration + Duration::from_millis(offset_millis as u64)
     } else {
-        duration - Duration::from_millis(offset_millis.abs() as u64)
+        duration - Duration::from_millis(offset_millis.unsigned_abs())
     };
-    let new_uuid = Uuid::new_v7(Timestamp::from_unix(
+    Uuid::new_v7(Timestamp::from_unix(
         context::ContextV7::new(),
         new_duration.as_secs(),
         new_duration.subsec_nanos(),
-    ));
-    new_uuid
+    ))
 }
 
 #[cfg(test)]
