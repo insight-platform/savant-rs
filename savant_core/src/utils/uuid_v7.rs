@@ -56,15 +56,17 @@ mod tests {
 
     #[test]
     fn test_relative_time_uuid_v7() {
-        let now_uuid = incremental_uuid_v7();
-        let future_uuid = relative_time_uuid_v7(now_uuid, 1);
-        let very_past_uuid = relative_time_uuid_v7(now_uuid, -10);
-        let past_uuid = relative_time_uuid_v7(now_uuid, -1);
-        assert!(very_past_uuid.as_u128() < past_uuid.as_u128());
-        assert!(past_uuid.as_u128() < now_uuid.as_u128());
-        assert!(now_uuid.as_u128() < future_uuid.as_u128());
-        sleep(Duration::from_millis(2));
-        let now_uuid2 = incremental_uuid_v7();
-        assert!(now_uuid2.as_u128() > future_uuid.as_u128());
+        for _ in 0..100 {
+            let now_uuid = incremental_uuid_v7();
+            let future_uuid = relative_time_uuid_v7(now_uuid, 1);
+            let very_past_uuid = relative_time_uuid_v7(now_uuid, -10);
+            let past_uuid = relative_time_uuid_v7(now_uuid, -1);
+            assert!(very_past_uuid.as_u128() < past_uuid.as_u128());
+            assert!(past_uuid.as_u128() < now_uuid.as_u128());
+            assert!(now_uuid.as_u128() < future_uuid.as_u128());
+            sleep(Duration::from_millis(2));
+            let now_uuid2 = incremental_uuid_v7();
+            assert!(now_uuid2.as_u128() > future_uuid.as_u128());
+        }
     }
 }
