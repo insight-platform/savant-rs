@@ -33,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus-client = { workspace = true }
 tokio = { workspace = true }
+uuid = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

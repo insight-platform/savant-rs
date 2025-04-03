@@ -187,6 +187,7 @@ pub fn utils(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(estimate_gil_contention, m)?)?;
     m.add_function(wrap_pyfunction!(enable_dl_detection, m)?)?;
     m.add_function(wrap_pyfunction!(incremental_uuid_v7, m)?)?;
+    m.add_function(wrap_pyfunction!(relative_time_uuid_v7, m)?)?;
 
     m.add_class::<PropagatedContext>()?;
     m.add_class::<TelemetrySpan>()?;

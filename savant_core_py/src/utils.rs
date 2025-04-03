@@ -1,6 +1,7 @@
 use evalexpr::Value;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use uuid::Uuid;
 
 use crate::logging::{log_level_enabled, LogLevel};
 use crate::{release_gil, with_gil};
@@ -77,7 +78,31 @@ pub fn enable_dl_detection() {
     savant_core::deadlock_detection::enable_dl_detection();
 }
 
+/// Returns a new UUID v7
+///
 #[pyfunction]
 pub fn incremental_uuid_v7() -> String {
     savant_core::utils::uuid_v7::incremental_uuid_v7().to_string()
+}
+
+/// Returns a new UUID v7 that is offset from the given UUID by the given number of milliseconds
+///
+/// The offset can be positive or negative
+///
+/// Parameters
+/// ----------
+/// uuid : str
+///   The UUID to offset
+/// offset_millis : int
+///   The number of milliseconds to offset the UUID by
+///
+/// Returns
+/// -------
+/// str
+///   The new UUID
+///
+#[pyfunction]
+pub fn relative_time_uuid_v7(uuid: &str, offset_millis: i64) -> String {
+    let uuid = Uuid::parse_str(uuid).unwrap();
+    savant_core::utils::uuid_v7::relative_time_uuid_v7(uuid, offset_millis).to_string()
 }
