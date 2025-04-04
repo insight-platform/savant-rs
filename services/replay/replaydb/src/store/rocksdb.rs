@@ -8,7 +8,9 @@ use bincode::config::{BigEndian, Configuration};
 use bincode::{Decode, Encode};
 use hashbrown::HashMap;
 use md5::{Digest, Md5};
+use opentelemetry::trace::Tracer;
 use rocksdb::{ColumnFamilyDescriptor, Direction, Options, ReadOptions, SliceTransform, DB};
+use savant_core::get_tracer;
 use savant_core::message::{load_message, save_message, Message};
 use uuid::Uuid;
 
@@ -172,6 +174,7 @@ impl super::Store for RocksDbStore {
         topic: &[u8],
         data: &[Vec<u8>],
     ) -> Result<usize> {
+        let _add_message_span = get_tracer().start("add-message");
         let mut frame_opt = None;
         let source_id = if message.is_video_frame() {
             let frame = message.as_video_frame().unwrap();
@@ -193,17 +196,16 @@ impl super::Store for RocksDbStore {
         let index = self.current_index_value(&source_id)?;
         let mut batch = rocksdb::WriteBatch::default();
 
+        let _rocksdb_message_span = get_tracer().start("rocksdb-message-put-operation");
         let message_key = MessageKey {
             source_md5: source_hash,
             index,
         };
-
         let message_value = MessageValue {
             message: save_message(message)?,
             topic: topic.to_vec(),
             data: data.to_vec(),
         };
-
         let message_key_bytes = bincode::encode_to_vec(message_key, self.configuration)?;
         let message_value_bytes = bincode::encode_to_vec(message_value, self.configuration)?;
         let cf = self
@@ -211,8 +213,10 @@ impl super::Store for RocksDbStore {
             .cf_handle(CF_MESSAGE_DB)
             .expect("CF_MESSAGE_DB not found");
         batch.put_cf(cf, &message_key_bytes, &message_value_bytes);
+        drop(_rocksdb_message_span);
 
         if let Some(f) = frame_opt {
+            let _rocksdb_keyframe_span = get_tracer().start("rocksdb-keyframe-put-operation");
             let key = KeyframeKey {
                 source_md5: source_hash,
                 keyframe_uuid: f.get_uuid_u128(),
@@ -226,8 +230,10 @@ impl super::Store for RocksDbStore {
                 .cf_handle(CF_KEYFRAME_DB)
                 .expect("CF_KEYFRAME_DB not found");
             batch.put_cf(cf, &key_bytes, &value_bytes);
+            drop(_rocksdb_keyframe_span);
         }
 
+        let _rocksdb_index_span = get_tracer().start("rocksdb-index-put-operation");
         let index_key = IndexKey {
             source_md5: source_hash,
         };
@@ -242,8 +248,12 @@ impl super::Store for RocksDbStore {
             .cf_handle(CF_INDEX_DB)
             .expect("CF_INDEX_DB not found");
         batch.put_cf(cf, &index_key_bytes, &index_value_bytes);
+        drop(_rocksdb_index_span);
 
+        let _rocksdb_write_span = get_tracer().start("rocksdb-write-operation");
         self.db.write(batch)?;
+        drop(_rocksdb_write_span);
+
         self.resident_index_values.insert(source_id, index);
         Ok(index - 1)
     }

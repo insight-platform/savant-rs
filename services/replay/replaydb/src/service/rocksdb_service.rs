@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{bail, Result};
 use hashbrown::HashMap;
 use log::{info, warn};
+use savant_core::telemetry;
 use savant_core::transport::zeromq::{NonBlockingReader, NonBlockingWriter};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -211,6 +212,7 @@ impl JobManager for RocksDbService {
             let _ = job_handle.await;
             info!("Job: {} stopped", uuid);
         }
+        telemetry::shutdown();
         Ok(())
     }
 

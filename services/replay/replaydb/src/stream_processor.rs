@@ -2,6 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
+use opentelemetry::trace::Tracer;
+use opentelemetry::Context;
+use savant_core::get_tracer;
 use savant_core::message::Message;
 use savant_core::transport::zeromq::{
     NonBlockingReader, NonBlockingWriter, ReaderResult, WriterResult,
@@ -132,6 +135,11 @@ where
         }
     }
 
+    pub fn build_context(&self, message: &Message) -> Context {
+        let propagated_ctx = &message.meta().span_context;
+        propagated_ctx.extract()
+    }
+
     pub async fn run_once(&mut self) -> Result<()> {
         let message = self.receive_message().await;
         match message {
@@ -147,6 +155,9 @@ where
                     routing_id,
                     data,
                 } => {
+                    let tracer = get_tracer();
+                    let ctx = self.build_context(&message);
+                    let _root_span = tracer.start_with_context("replay", &ctx);
                     self.stats.packet_counter += 1;
                     self.stats.byte_counter += data.iter().map(|v| v.len() as u64).sum::<u64>();
                     log::debug!(
@@ -164,6 +175,7 @@ where
                             target: "replay::db::stream_processor::run_once",
                             "Adding message {:?} to database.", &message
                         );
+                        let _db_span = tracer.start("db-operation");
                         self.db
                             .lock()
                             .await
@@ -176,8 +188,10 @@ where
                         data.iter().map(|v| v.as_slice()).collect::<Vec<&[u8]>>()
                     };
 
+                    let _send_span = tracer.start("send-message");
                     self.send_message(std::str::from_utf8(&topic)?, &message, &data_slice)
                         .await?;
+                    drop(_send_span);
                 }
                 ReaderResult::Timeout => {
                     log::debug!(

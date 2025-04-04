@@ -1,6 +1,9 @@
 use crate::job_writer::{SinkConfiguration, SinkOptions};
 use anyhow::{bail, Result};
-use savant_core::transport::zeromq::{NonBlockingReader, ReaderConfigBuilder};
+use savant_core::{
+    telemetry::{self, TelemetryConfiguration},
+    transport::zeromq::{NonBlockingReader, ReaderConfigBuilder},
+};
 use serde::{Deserialize, Serialize};
 use std::result;
 use std::time::Duration;
@@ -50,6 +53,7 @@ pub struct CommonConfiguration {
     pub job_writer_cache_ttl: Duration,
     pub job_eviction_ttl: Duration,
     pub default_job_sink_options: Option<SinkOptions>,
+    pub telemetry_configuration: Option<String>,
 }
 
 #[config]
@@ -65,6 +69,11 @@ impl ServiceConfiguration {
     pub(crate) fn validate(&self) -> Result<()> {
         if self.common.management_port <= 1024 {
             bail!("Management port must be set to a value greater than 1024!");
+        }
+        if let Some(telemetry_configuration) = &self.common.telemetry_configuration {
+            telemetry::init_from_file(telemetry_configuration);
+        } else {
+            telemetry::init(&TelemetryConfiguration::no_op());
         }
         Ok(())
     }
