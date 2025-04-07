@@ -111,7 +111,8 @@ jobs:
   
       # for main branch push with RR_TAG tag
       - name: Build and push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
-        if: github.ref == 'refs/heads/main'
+        # only for main and tags
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
         uses: docker/build-push-action@v6
         with:
           file: ${{ matrix.docker_file }}
