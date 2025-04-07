@@ -106,6 +106,7 @@ jobs:
       - name: Configure Docker rolling release image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
         run: |
+          docker pull ${{matrix.tag}}:${{ env.TAG }}
           eval $(docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version)
           echo "SAVANT_RS_VERSION=${SAVANT_RS_VERSION}" >> $GITHUB_ENV
   
