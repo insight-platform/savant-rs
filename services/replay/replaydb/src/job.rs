@@ -97,7 +97,7 @@ pub(crate) struct Job<S: Store> {
     anchor_uuid: u128,
     anchor_wait_duration: Duration,
     offset: JobOffset,
-    position: usize,
+    index: usize,
     id: u128,
     stop_condition: Arc<SyncJobStopCondition>,
     configuration: JobConfiguration,
@@ -189,29 +189,48 @@ where
             configuration,
             last_ts: None,
             update,
-            position: 0,
+            index: 0,
         })
     }
 
-    async fn read_message(&self) -> Result<(Message, Vec<Vec<u8>>)> {
+    async fn read_message(&mut self) -> Result<(Message, Vec<Vec<u8>>)> {
         let now = Instant::now();
+
         loop {
-            let message = self
+            let message_opt = self
                 .store
                 .lock()
                 .await
-                .get_message(&self.configuration.stored_stream_id, self.position)
+                .get_message(&self.configuration.stored_stream_id, self.index)
                 .await?;
+
+            // the code must be positioned here to avoid the impact of "continue" coming later.
+            // so, even if the message is retrieved, it will be skipped if the idle time is exceeded.
+            //
             if now.elapsed() > self.configuration.max_idle_duration {
                 let log_message = format!(
-                    "No message received during the configured {} idle time (ms). Job Id: {} will be finished!",
-                    self.configuration.max_idle_duration.as_millis(),
-                    Uuid::from_u128(self.id)
-                );
+                        "No message received during the configured {} idle time (ms). Job Id: {} will be finished!",
+                        self.configuration.max_idle_duration.as_millis(),
+                        Uuid::from_u128(self.id)
+                    );
                 warn!(target: "replay::db::job::read_message", "{}", &log_message);
                 bail!("{}", log_message);
             }
-            match message {
+
+            let current_index = self
+                .store
+                .lock()
+                .await
+                .current_index_value(&self.configuration.stored_stream_id)?;
+
+            // we read historical messages but cannot get them, thus they may be expired,
+            // so we skip them and move to the next one
+            if message_opt.is_none() && self.index < current_index {
+                self.index += 1;
+                continue;
+            }
+
+            match message_opt {
                 Some((m, _, data)) => {
                     return Ok((m, data));
                 }
@@ -395,7 +414,7 @@ where
                 self.anchor_uuid, self.anchor_wait_duration, self.offset
             ));
         }
-        self.position = pos.unwrap();
+        self.index = pos.unwrap();
 
         if self.configuration.ts_sync {
             self.run_ts_synchronized_until_complete().await?;
@@ -424,7 +443,7 @@ where
             self.send_either(SendEither::Message(&m, &sliced_data))
                 .await?;
 
-            self.position += 1;
+            self.index += 1;
             if self.stop_condition.check(&m)? {
                 info!(
                     "Job Id: {} has been finished by stop condition!",
@@ -531,12 +550,10 @@ where
 
             let sliced_data = data.iter().map(|d| d.as_slice()).collect::<Vec<_>>();
 
-            //let send_measurement = Instant::now();
             self.send_either(SendEither::Message(&message, &sliced_data))
                 .await?;
-            //dbg!(send_measurement.elapsed());
 
-            self.position += 1;
+            self.index += 1;
 
             if self.stop_condition.check(&message)? {
                 info!(
@@ -580,9 +597,14 @@ mod tests {
 
     struct MockStore {
         pub messages: Vec<(Option<(Message, Vec<u8>, Vec<Vec<u8>>)>, Duration)>,
+        pub current_index: usize,
     }
 
     impl Store for MockStore {
+        fn current_index_value(&mut self, _source_id: &str) -> Result<usize> {
+            Ok(self.messages.len())
+        }
+
         async fn add_message(
             &mut self,
             _message: &Message,
@@ -597,10 +619,11 @@ mod tests {
             _source_id: &str,
             _id: usize,
         ) -> Result<Option<(Message, Vec<u8>, Vec<Vec<u8>>)>> {
-            let (m, d) = self.messages.remove(0);
-            tokio_timerfd::sleep(d).await?;
+            let (m, d) = self.messages.get(self.current_index).unwrap();
+            self.current_index += 1;
+            tokio_timerfd::sleep(*d).await?;
             //dbg!("get_message", self.messages.len(), systime_ms());
-            Ok(m)
+            Ok(m.clone())
         }
 
         async fn get_first(
@@ -676,6 +699,7 @@ mod tests {
         let f0 = gen_properly_filled_frame(true);
         let f0_uuid = f0.get_uuid();
         let store = MockStore {
+            current_index: 0,
             messages: vec![
                 (
                     Some((f0.to_message(), vec![], vec![])),
@@ -697,7 +721,7 @@ mod tests {
             .max_idle_duration(Duration::from_millis(50))
             .build_and_validate()?;
 
-        let job = Job::new(
+        let mut job = Job::new(
             store,
             w.clone(),
             Uuid::from_u128(0),
@@ -726,6 +750,7 @@ mod tests {
         let f0 = gen_properly_filled_frame(true);
         let f0_uuid = f0.get_uuid();
         let store = MockStore {
+            current_index: 0,
             messages: vec![
                 (None, Duration::from_millis(10)),
                 (None, Duration::from_millis(10)),
@@ -745,7 +770,7 @@ mod tests {
             .max_idle_duration(Duration::from_millis(50))
             .build_and_validate()?;
 
-        let job = Job::new(
+        let mut job = Job::new(
             store,
             w.clone(),
             Uuid::from_u128(0),
@@ -771,7 +796,10 @@ mod tests {
     async fn test_prepare_message() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -827,7 +855,10 @@ mod tests {
     async fn test_prepare_message_skip_intermediary_eos() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -869,7 +900,10 @@ mod tests {
     async fn test_check_discrepant_pts() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -920,7 +954,10 @@ mod tests {
     async fn test_check_discrepant_pts_stop_when_incorrect() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -962,7 +999,10 @@ mod tests {
     async fn test_send_either() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -1005,7 +1045,10 @@ mod tests {
     async fn test_send_either_timeout() -> Result<()> {
         let (mut r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -1049,6 +1092,7 @@ mod tests {
         ];
 
         let store = MockStore {
+            current_index: 0,
             messages: frames
                 .iter()
                 .map(|f| {
@@ -1111,6 +1155,7 @@ mod tests {
         }
         //dbg!("frames filled", thread_now.elapsed(),);
         let store = MockStore {
+            current_index: 0,
             messages: frames
                 .iter()
                 .map(|f| {
@@ -1180,6 +1225,7 @@ mod tests {
         let last_uuid: u128;
         let first_uuid: Uuid;
         let store = MockStore {
+            current_index: 0,
             messages: vec![
                 (
                     {
@@ -1284,6 +1330,7 @@ mod tests {
         }
 
         let store = MockStore {
+            current_index: 0,
             messages: frames
                 .iter()
                 .map(|f| {
@@ -1357,6 +1404,7 @@ mod tests {
         }
 
         let store = MockStore {
+            current_index: 0,
             messages: frames
                 .iter()
                 .map(|f| {
@@ -1441,6 +1489,7 @@ mod tests {
         ];
 
         let store = MockStore {
+            current_index: 0,
             messages: frames
                 .iter()
                 .map(|f| {
@@ -1503,7 +1552,10 @@ mod tests {
     async fn test_json() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let store = MockStore { messages: vec![] };
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![],
+        };
         let store = Arc::new(Mutex::new(store));
 
         let job_conf = JobConfigurationBuilder::default()
@@ -1546,6 +1598,56 @@ mod tests {
                 serde_json::to_string(&RoutingLabelsUpdateStrategy::Append(vec![]))?
             ]
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_future_message() -> Result<()> {
+        let (_, w) = get_channel().await?;
+
+        let first_frame = gen_properly_filled_frame(true);
+        let last_frame = gen_properly_filled_frame(true);
+        let store = MockStore {
+            current_index: 0,
+            messages: vec![
+                (
+                    Some((first_frame.to_message(), vec![], vec![])),
+                    Duration::from_secs(0),
+                ),
+                (None, Duration::from_secs(0)),
+                (None, Duration::from_secs(0)),
+                (None, Duration::from_secs(0)),
+                (None, Duration::from_secs(0)),
+                (
+                    Some((last_frame.to_message(), vec![], vec![])),
+                    Duration::from_secs(0),
+                ),
+            ],
+        };
+        let store = Arc::new(Mutex::new(store));
+
+        let job_conf = JobConfigurationBuilder::default()
+            .routing_labels(RoutingLabelsUpdateStrategy::Bypass)
+            .stored_stream_id("source_id".to_string())
+            .resulting_stream_id("resulting_id".to_string())
+            .max_idle_duration(Duration::from_millis(50))
+            .build_and_validate()?;
+
+        let mut job = Job::new(
+            store,
+            w.clone(),
+            Uuid::default(),
+            incremental_uuid_v7(),
+            Duration::from_millis(50),
+            JobOffset::Seconds(1.0),
+            JobStopCondition::last_frame(last_frame.get_uuid_u128()),
+            job_conf,
+            None,
+        )?;
+        let now = tokio::time::Instant::now();
+        let _first = job.read_message().await?;
+        let _second = job.read_message().await?;
+        assert!(now.elapsed() < Duration::from_millis(1));
         Ok(())
     }
 }

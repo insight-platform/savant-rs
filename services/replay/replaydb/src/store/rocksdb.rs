@@ -93,29 +93,6 @@ impl RocksDbStore {
         Ok(hash_bytes)
     }
 
-    fn current_index_value(&mut self, source_id: &str) -> Result<usize> {
-        if let Some(index) = self.resident_index_values.get(source_id) {
-            return Ok(*index);
-        }
-
-        let key = IndexKey {
-            source_md5: self.get_source_hash(source_id)?,
-        };
-
-        let key_bytes = bincode::encode_to_vec(key, self.configuration)?;
-        let cf = self.db.cf_handle(CF_INDEX_DB).unwrap();
-        let value_bytes = self.db.get_cf(cf, key_bytes)?;
-        let value = if let Some(value_bytes) = value_bytes {
-            let value: IndexValue = bincode::decode_from_slice(&value_bytes, self.configuration)?.0;
-            value.index
-        } else {
-            0
-        };
-
-        self.resident_index_values
-            .insert(source_id.to_string(), value);
-        Ok(value)
-    }
     pub fn new(path: &Path, ttl: Duration) -> Result<Self> {
         let configuration = bincode::config::standard().with_big_endian();
 
@@ -166,6 +143,30 @@ impl RocksDbStore {
 }
 
 impl super::Store for RocksDbStore {
+    fn current_index_value(&mut self, source_id: &str) -> Result<usize> {
+        if let Some(index) = self.resident_index_values.get(source_id) {
+            return Ok(*index);
+        }
+
+        let key = IndexKey {
+            source_md5: self.get_source_hash(source_id)?,
+        };
+
+        let key_bytes = bincode::encode_to_vec(key, self.configuration)?;
+        let cf = self.db.cf_handle(CF_INDEX_DB).unwrap();
+        let value_bytes = self.db.get_cf(cf, key_bytes)?;
+        let value = if let Some(value_bytes) = value_bytes {
+            let value: IndexValue = bincode::decode_from_slice(&value_bytes, self.configuration)?.0;
+            value.index
+        } else {
+            0
+        };
+
+        self.resident_index_values
+            .insert(source_id.to_string(), value);
+        Ok(value)
+    }
+
     async fn add_message(
         &mut self,
         message: &Message,
@@ -251,12 +252,16 @@ impl super::Store for RocksDbStore {
     async fn get_message(
         &mut self,
         source_id: &str,
-        id: usize,
+        index: usize,
     ) -> Result<Option<(Message, Vec<u8>, Vec<Vec<u8>>)>> {
+        let current_index = self.current_index_value(source_id)?;
+        if index > current_index {
+            return Ok(None);
+        }
         let source_hash = self.get_source_hash(source_id)?;
         let key = MessageKey {
             source_md5: source_hash,
-            index: id,
+            index,
         };
         let key_bytes = bincode::encode_to_vec(key, self.configuration)?;
         let cf = self
@@ -591,6 +596,26 @@ mod tests {
         let res_keyframes = db.find_keyframes(&source, None, None, 2).await?;
         assert_eq!(res_keyframes.len(), 2);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_future_message() -> Result<()> {
+        let dir = tempfile::TempDir::new()?;
+        let path = dir.path();
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let source_id = "test_source_id";
+        let message = gen_properly_filled_frame(true).to_message();
+        db.add_message(&message, &[], &[]).await?;
+        let message = gen_properly_filled_frame(true).to_message();
+        db.add_message(&message, &[], &[]).await?;
+
+        let now = std::time::Instant::now();
+        let res = db.get_message(source_id, 10).await?;
+        let elapsed = now.elapsed();
+        assert!(res.is_none());
+        // Should return very quickly, under 1ms
+        assert!(elapsed.as_millis() < 1);
         Ok(())
     }
 }

@@ -37,6 +37,8 @@ pub enum JobOffset {
 pub type SyncRocksDbStore = Arc<Mutex<rocksdb::RocksDbStore>>;
 
 pub(crate) trait Store {
+    fn current_index_value(&mut self, source_id: &str) -> Result<usize>;
+
     async fn add_message(
         &mut self,
         message: &Message,
@@ -48,7 +50,7 @@ pub(crate) trait Store {
     async fn get_message(
         &mut self,
         source_id: &str,
-        id: usize,
+        index: usize,
     ) -> Result<Option<(Message, Vec<u8>, Vec<Vec<u8>>)>>;
 
     async fn get_first(
@@ -79,6 +81,10 @@ mod tests {
     }
 
     impl Store for SampleStore {
+        fn current_index_value(&mut self, _source_id: &str) -> Result<usize> {
+            Ok(self.messages.len())
+        }
+
         async fn add_message(
             &mut self,
             message: &Message,
