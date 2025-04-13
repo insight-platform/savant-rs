@@ -97,7 +97,7 @@ pub(crate) struct Job<S: Store> {
     anchor_uuid: u128,
     anchor_wait_duration: Duration,
     offset: JobOffset,
-    position: usize,
+    index: usize,
     id: u128,
     stop_condition: Arc<SyncJobStopCondition>,
     configuration: JobConfiguration,
@@ -189,7 +189,7 @@ where
             configuration,
             last_ts: None,
             update,
-            position: 0,
+            index: 0,
         })
     }
 
@@ -201,7 +201,7 @@ where
                 .store
                 .lock()
                 .await
-                .get_message(&self.configuration.stored_stream_id, self.position)
+                .get_message(&self.configuration.stored_stream_id, self.index)
                 .await?;
 
             // the code must be positioned here to avoid the impact of "continue" coming later.
@@ -217,7 +217,7 @@ where
                 bail!("{}", log_message);
             }
 
-            let current_position = self
+            let current_index = self
                 .store
                 .lock()
                 .await
@@ -225,8 +225,8 @@ where
 
             // we read historical messages but cannot get them, thus they may be expired,
             // so we skip them and move to the next one
-            if message_opt.is_none() && self.position < current_position {
-                self.position += 1;
+            if message_opt.is_none() && self.index < current_index {
+                self.index += 1;
                 continue;
             }
 
@@ -414,7 +414,7 @@ where
                 self.anchor_uuid, self.anchor_wait_duration, self.offset
             ));
         }
-        self.position = pos.unwrap();
+        self.index = pos.unwrap();
 
         if self.configuration.ts_sync {
             self.run_ts_synchronized_until_complete().await?;
@@ -443,7 +443,7 @@ where
             self.send_either(SendEither::Message(&m, &sliced_data))
                 .await?;
 
-            self.position += 1;
+            self.index += 1;
             if self.stop_condition.check(&m)? {
                 info!(
                     "Job Id: {} has been finished by stop condition!",
@@ -553,7 +553,7 @@ where
             self.send_either(SendEither::Message(&message, &sliced_data))
                 .await?;
 
-            self.position += 1;
+            self.index += 1;
 
             if self.stop_condition.check(&message)? {
                 info!(

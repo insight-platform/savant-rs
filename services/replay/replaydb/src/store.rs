@@ -50,7 +50,7 @@ pub(crate) trait Store {
     async fn get_message(
         &mut self,
         source_id: &str,
-        position: usize,
+        index: usize,
     ) -> Result<Option<(Message, Vec<u8>, Vec<Vec<u8>>)>>;
 
     async fn get_first(

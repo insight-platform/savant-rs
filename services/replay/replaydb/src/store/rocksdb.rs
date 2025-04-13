@@ -252,16 +252,16 @@ impl super::Store for RocksDbStore {
     async fn get_message(
         &mut self,
         source_id: &str,
-        position: usize,
+        index: usize,
     ) -> Result<Option<(Message, Vec<u8>, Vec<Vec<u8>>)>> {
         let current_index = self.current_index_value(source_id)?;
-        if position > current_index {
+        if index > current_index {
             return Ok(None);
         }
         let source_hash = self.get_source_hash(source_id)?;
         let key = MessageKey {
             source_md5: source_hash,
-            index: position,
+            index,
         };
         let key_bytes = bincode::encode_to_vec(key, self.configuration)?;
         let cf = self
