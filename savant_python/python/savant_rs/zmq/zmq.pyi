@@ -16,6 +16,7 @@ __all__ = [
     'WriterResultAck',
     'WriterResultSuccess',
     'ReaderResultMessage',
+    'ReaderResultMessageVersionMismatch',
     'ReaderResultTimeout',
     'ReaderResultPrefixMismatch',
     'ReaderResultBlacklisted',
@@ -25,9 +26,6 @@ __all__ = [
     'NonBlockingWriter',
     'NonBlockingReader',
 ]
-
-class ReaderResultBlacklisted:
-    topic: bytes
 
 class WriterSocketType(Enum):
     Pub: int
@@ -127,6 +125,15 @@ class WriterResultAck:
 class WriterResultSuccess:
     retries_spent: int
     time_spent: int
+
+class ReaderResultMessageVersionMismatch:
+    topic: bytes
+    routing_id: Optional[bytes]
+    sender_version: str
+    expected_version: str
+
+class ReaderResultBlacklisted:
+    topic: bytes
 
 class ReaderResultMessage:
     message: Message

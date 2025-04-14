@@ -270,6 +270,34 @@ impl ReaderResultPrefixMismatch {
     }
 }
 
+/// Returned when a reader received a message with a protocol version mismatch.
+///
+#[pyclass]
+#[derive(Debug, Clone, Hash)]
+pub struct ReaderResultMessageVersionMismatch {
+    pub topic: Vec<u8>,
+    pub routing_id: Option<Vec<u8>>,
+    pub sender_version: String,
+    pub expected_version: String,
+}
+
+#[pymethods]
+impl ReaderResultMessageVersionMismatch {
+    fn __hash__(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
 pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<PyObject> {
     with_gil!(|py| {
         Ok(match res {
@@ -345,6 +373,20 @@ pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObj
                     .unbind()
             }
             zeromq::ReaderResult::TooShort(data) => data.into_pyobject(py)?.into_any().unbind(),
+            zeromq::ReaderResult::MessageVersionMismatch {
+                topic,
+                routing_id,
+                sender_version,
+                expected_version,
+            } => ReaderResultMessageVersionMismatch {
+                topic,
+                routing_id,
+                sender_version,
+                expected_version,
+            }
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
         })
     })
 }

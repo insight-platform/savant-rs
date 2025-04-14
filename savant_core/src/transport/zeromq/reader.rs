@@ -51,6 +51,12 @@ pub enum ReaderResult {
     },
     TooShort(Vec<Vec<u8>>),
     Blacklisted(Vec<u8>),
+    MessageVersionMismatch {
+        topic: Vec<u8>,
+        routing_id: Option<Vec<u8>>,
+        sender_version: String,
+        expected_version: String,
+    },
 }
 
 impl ReaderResult {
@@ -79,6 +85,20 @@ impl ReaderResult {
         Self::RoutingIdMismatch {
             topic: topic.to_vec(),
             routing_id: routing_id.cloned(),
+        }
+    }
+
+    pub fn message_version_mismatch(
+        topic: &[u8],
+        routing_id: &Option<&Vec<u8>>,
+        sender_version: &str,
+        expected_version: &str,
+    ) -> Self {
+        Self::MessageVersionMismatch {
+            topic: topic.to_vec(),
+            routing_id: routing_id.cloned(),
+            sender_version: sender_version.to_string(),
+            expected_version: expected_version.to_string(),
         }
     }
 }
@@ -216,6 +236,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             target: "savant_rs::zeromq::reader",
             "Received message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
+
         if let Err(e) = parts {
             if let zmq::Error::EAGAIN = e {
                 debug!(
@@ -283,6 +304,21 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         }
 
         let message = Box::new(crate::protobuf::deserialize(command)?);
+
+        if message.meta.protocol_version != savant_protobuf::version() {
+            debug!(
+                target: "savant_rs::zeromq::reader",
+                "Message protocol version mismatch: message version={:?}, program expects version={:?}", message.meta.protocol_version, savant_protobuf::version()
+            );
+            // blacklist the sender
+            self.blacklist_source(topic);
+            return Ok(ReaderResult::MessageVersionMismatch {
+                topic: topic.clone(),
+                routing_id: routing_id.cloned(),
+                sender_version: message.meta.protocol_version.clone(),
+                expected_version: savant_protobuf::version().to_string(),
+            });
+        }
 
         if message.is_end_of_stream() {
             if self.config.socket_type() != &ReaderSocketType::Sub {
@@ -472,6 +508,30 @@ mod tests {
             assert_eq!(
                 reader.socket.lock().as_mut().unwrap().take_buffer(),
                 vec![b"routing-id", CONFIRMATION_MESSAGE]
+            );
+            Ok(())
+        }
+
+        #[test]
+        fn test_version_mismatch() -> anyhow::Result<()> {
+            let conf = ReaderConfig::new()
+                .url("router+bind:ipc:///tmp/test")?
+                .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+                .build()?;
+
+            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut message = Message::end_of_stream(EndOfStream::new("topic".into()));
+            message.set_protocol_version("0.0.0".to_string());
+            reader
+                .socket
+                .lock()
+                .as_mut()
+                .unwrap()
+                .send_multipart(&[b"routing-id", b"topic", &serialize(&message)?], 0)?;
+            let m = reader.receive()?;
+            assert!(
+                matches!(m, ReaderResult::MessageVersionMismatch {topic,routing_id,sender_version,expected_version }
+                    if topic == b"topic" && routing_id == Some(b"routing-id".to_vec()) && sender_version == "0.0.0" && expected_version == savant_protobuf::version().to_string())
             );
             Ok(())
         }

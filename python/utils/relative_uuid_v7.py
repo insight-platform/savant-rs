@@ -1,6 +1,7 @@
-from time import sleep
-from savant_rs.utils import relative_time_uuid_v7, incremental_uuid_v7
 import uuid
+from time import sleep
+
+from savant_rs.utils import incremental_uuid_v7, relative_time_uuid_v7
 
 now_uuid = incremental_uuid_v7()
 parsed_now_uuid = uuid.UUID(now_uuid)
@@ -22,4 +23,3 @@ sleep(1)
 int_new_now_uuid = uuid.UUID(incremental_uuid_v7()).int
 
 assert int_new_now_uuid > int_future_uuid
-

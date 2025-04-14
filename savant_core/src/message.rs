@@ -143,6 +143,11 @@ pub struct Message {
 }
 
 impl Message {
+    #[cfg(test)]
+    pub fn set_protocol_version(&mut self, version: String) {
+        self.meta.protocol_version = version;
+    }
+
     pub fn unknown(s: String) -> Self {
         Self {
             meta: MessageMeta::new(0),

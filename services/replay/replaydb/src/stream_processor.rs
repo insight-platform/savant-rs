@@ -138,8 +138,8 @@ where
             Ok(m) => match m {
                 ReaderResult::Blacklisted(topic) => {
                     log::debug!(
-                        target: "replay::db::stream_processor::run_once",
-                        "Received blacklisted message: {}", topic_to_string(&topic));
+                                    target: "replay::db::stream_processor::run_once",
+                                    "Received blacklisted message: {}", topic_to_string(&topic));
                 }
                 ReaderResult::Message {
                     message,
@@ -180,9 +180,8 @@ where
                         .await?;
                 }
                 ReaderResult::Timeout => {
-                    log::debug!(
-                        target: "replay::db::stream_processor::run_once",
-                        "Timeout receiving message, waiting for next message.");
+                    log::debug!(target: "replay::db::stream_processor::run_once",
+                                "Timeout receiving message, waiting for next message.");
                 }
                 ReaderResult::PrefixMismatch { topic, routing_id } => {
                     log::warn!(
@@ -194,7 +193,7 @@ where
                 }
                 ReaderResult::RoutingIdMismatch { topic, routing_id } => {
                     log::warn!(
-                    target: "replay::db::stream_processor::run_once",
+                        target: "replay::db::stream_processor::run_once",
                         "Received message with mismatched routing_id: topic: {:?}, routing_id: {:?}",
                         topic_to_string(&topic),
                         topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new()))
@@ -204,6 +203,21 @@ where
                     log::warn!(
                         target: "replay::db::stream_processor::run_once",
                         "Received message that was too short: {:?}", m);
+                }
+                ReaderResult::MessageVersionMismatch {
+                    topic,
+                    routing_id,
+                    sender_version,
+                    expected_version,
+                } => {
+                    log::warn!(
+                        target: "replay::db::stream_processor::run_once",
+                        "Received message with mismatched version: topic: {:?}, routing_id: {:?}, sender_version: {:?}, expected_version: {:?}",
+                        topic_to_string(&topic),
+                        topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new())),
+                        sender_version,
+                        expected_version
+                    );
                 }
             },
             Err(e) => {
