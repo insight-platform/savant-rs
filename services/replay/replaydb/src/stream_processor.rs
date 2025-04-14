@@ -138,8 +138,8 @@ where
             Ok(m) => match m {
                 ReaderResult::Blacklisted(topic) => {
                     log::debug!(
-                                    target: "replay::db::stream_processor::run_once",
-                                    "Received blacklisted message: {}", topic_to_string(&topic));
+                        target: "replay::db::stream_processor::run_once",
+                        "Received blacklisted message: {}", topic_to_string(&topic));
                 }
                 ReaderResult::Message {
                     message,
@@ -180,8 +180,9 @@ where
                         .await?;
                 }
                 ReaderResult::Timeout => {
-                    log::debug!(target: "replay::db::stream_processor::run_once",
-                                "Timeout receiving message, waiting for next message.");
+                    log::debug!(
+                        target: "replay::db::stream_processor::run_once",
+                        "Timeout receiving message, waiting for next message.");
                 }
                 ReaderResult::PrefixMismatch { topic, routing_id } => {
                     log::warn!(
