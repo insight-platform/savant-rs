@@ -306,7 +306,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         let message = Box::new(crate::protobuf::deserialize(command)?);
 
         if message.meta.protocol_version != savant_protobuf::version() {
-            debug!(
+            warn!(
                 target: "savant_rs::zeromq::reader",
                 "Message protocol version mismatch: message version={:?}, program expects version={:?}", message.meta.protocol_version, savant_protobuf::version()
             );
