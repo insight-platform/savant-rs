@@ -1,4 +1,3 @@
-use crate::get_or_init_async_runtime;
 use log::error;
 use opentelemetry::global;
 use opentelemetry_jaeger_propagator::Propagator;
@@ -251,8 +250,7 @@ pub fn init(config: &TelemetryConfiguration) {
     match configurator.get() {
         Some(_) => panic!("Open Telemetry has been configured"),
         None => {
-            let runtime = get_or_init_async_runtime();
-            let c = runtime.block_on(async { Configurator::new("savant", config) });
+            let c = Configurator::new("savant", config);
             let result = configurator.set(c);
             if result.is_err() {
                 // should not happen

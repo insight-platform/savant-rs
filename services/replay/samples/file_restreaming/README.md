@@ -58,7 +58,7 @@ We are going to use the file source adapter to ingest the video file to Replay.
 docker run --rm -it --name source-video-files-test \
     --network host \
     -e FILE_TYPE=video \
-    -e SYNC_OUTPUT=False \
+    -e SYNC_OUTPUT=True \
     -e ZMQ_ENDPOINT=dealer+connect:tcp://127.0.0.1:5555 \
     -e SOURCE_ID=in-video \
     -e LOCATION=/data/shuffle_dance.mp4 \

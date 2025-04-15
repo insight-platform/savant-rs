@@ -72,6 +72,11 @@ impl TryFrom<&ServiceConfiguration> for RocksDbStreamProcessor {
             output,
             configuration.common.stats_period,
             configuration.common.pass_metadata_only,
+            configuration.common.stats_frame_period,
+            configuration
+                .common
+                .stats_timestamp_period
+                .map(|d| d.as_millis() as i64),
         ))
     }
 }

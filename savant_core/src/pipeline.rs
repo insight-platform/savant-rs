@@ -3,7 +3,11 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use hashbrown::HashMap;
+use log::debug;
+use log::error;
+use log::info;
 use opentelemetry::Context;
+use parking_lot::Mutex;
 
 pub use implementation::PipelineConfiguration;
 pub use implementation::PipelineConfigurationBuilder;
@@ -15,9 +19,54 @@ use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::webserver::{register_pipeline, unregister_pipeline};
+use lazy_static::lazy_static;
 
 const MAX_TRACKED_STREAMS: usize = 8192; // defines how many streams are tracked for the frame ordering
+
+//
+
+//     pipelines: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>>,
+
+lazy_static! {
+    static ref PIPELINES: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+}
+
+pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
+    let pipelines = PIPELINES.clone();
+    let mut bind = pipelines.lock();
+    let name = pipeline.get_name();
+    let entry = bind.get(&name);
+    if entry.is_some() {
+        let message = format!("Pipeline with name {} already exists in registry.", &name);
+        error!("{}", message);
+        panic!("{}", message);
+    }
+    bind.insert(name.clone(), pipeline.clone());
+    info!("Pipeline {} registered.", name);
+}
+
+pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
+    let stats = PIPELINES.clone();
+    let pipeline_name = pipeline.get_name();
+    let mut bind = stats.lock();
+    let prev_len = bind.len();
+    debug!("Removing pipeline {} from stats.", &pipeline_name);
+    bind.remove(&pipeline_name);
+    if bind.len() == prev_len {
+        error!("Failed to remove pipeline from stats.");
+    }
+}
+
+pub(crate) fn get_registered_pipelines() -> HashMap<String, Arc<implementation::Pipeline>> {
+    let s = PIPELINES.lock();
+    s.clone()
+}
+
+pub fn get_pipeline(name: &str) -> Option<Arc<implementation::Pipeline>> {
+    let s = PIPELINES.lock();
+    s.get(name).cloned()
+}
 
 pub mod stage;
 pub mod stage_function_loader;
