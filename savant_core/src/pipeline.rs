@@ -54,7 +54,9 @@ pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
     debug!("Removing pipeline {} from stats.", &pipeline_name);
     bind.remove(&pipeline_name);
     if bind.len() == prev_len {
-        error!("Failed to remove pipeline from stats.");
+        let message = format!("Failed to remove pipeline {} from stats.", &pipeline_name);
+        error!("{}", message);
+        panic!("{}", message);
     }
 }
 

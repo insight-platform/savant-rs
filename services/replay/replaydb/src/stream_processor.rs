@@ -47,8 +47,7 @@ where
         let conf = PipelineConfigurationBuilder::default()
             .frame_period(frame_period)
             .timestamp_period(timestamp_period)
-            .build()
-            .expect("Failed to build pipeline configuration");
+            .build()?;
 
         let pipeline = Pipeline::new(
             "replay",
@@ -73,8 +72,7 @@ where
                 ),
             ],
             conf,
-        )
-        .expect("Failed to create pipeline");
+        )?;
 
         Ok(Self {
             db,
