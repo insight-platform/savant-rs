@@ -3,13 +3,13 @@ use gstreamer::subclass::prelude::*;
 use gstreamer::{prelude::*, FlowError};
 use gstreamer_base::subclass::base_src::CreateSuccess;
 use savant_core::message::{save_message, Message};
+use savant_core::pipeline::get_pipeline;
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::rust::{VideoFrameContent, VideoFrameProxy};
 use savant_core::primitives::shutdown::Shutdown;
 use savant_core::rust::{Pipeline, PropagatedContext};
 use savant_core::transport::zeromq::ReaderResult;
 use savant_core::utils::bytes_to_hex_string;
-use savant_core::webserver::get_pipeline;
 use savant_gstreamer::id_meta::SavantIdMetaKind;
 
 use crate::utils::convert_ts;
