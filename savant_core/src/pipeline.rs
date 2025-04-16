@@ -344,6 +344,7 @@ pub(super) mod implementation {
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
         root_spans: SavantRwLock<HashMap<i64, Context>>,
+        outer_spans: SavantRwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
         frame_locations: SavantRwLock<HashMap<i64, usize>>,
         frame_ordering: SavantRwLock<LruCache<String, i64>>,
@@ -362,6 +363,7 @@ pub(super) mod implementation {
                 id_counter: AtomicI64::new(0),
                 frame_counter: AtomicI64::new(0),
                 root_spans: SavantRwLock::new(HashMap::new()),
+                outer_spans: SavantRwLock::new(HashMap::new()),
                 stages: Vec::new(),
                 frame_locations: SavantRwLock::new(HashMap::new()),
                 frame_ordering: SavantRwLock::new(LruCache::new(
@@ -639,6 +641,9 @@ pub(super) mod implementation {
                     .write()
                     .insert(id_counter, Context::current_with_span(span));
             }
+
+            self.outer_spans.write().insert(id_counter, parent_ctx);
+
             let source_id_compatibility_hash = frame.stream_compatibility_hash();
             let mut ordering = self.frame_ordering.write();
             let prev_ordering_seq = ordering.get(&source_id);
@@ -727,17 +732,18 @@ pub(super) mod implementation {
                     bail!("Object {} is not found in the stage {}", id, stage.name)
                 }
 
-                let mut bind = self.root_spans.write();
+                // let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx, _, _) => {
                         self.stats.register_frame(frame.get_object_count());
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
-                        let root_ctx = bind.remove(&id).unwrap();
-                        Ok(HashMap::from([(id, root_ctx)]))
+                        self.root_spans.write().remove(&id).unwrap();
+                        let outer_ctx = self.outer_spans.write().remove(&id).unwrap();
+                        Ok(HashMap::from([(id, outer_ctx)]))
                     }
                     PipelinePayload::Batch(batch, _, contexts, _, _) => Ok({
-                        let mut bind = self.root_spans.write();
+                        //let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
@@ -754,8 +760,9 @@ pub(super) mod implementation {
                                     )
                                 }
                                 ctx.span().end();
-                                let root_ctx = bind.remove(&id).unwrap();
-                                Ok((id, root_ctx))
+                                self.root_spans.write().remove(&id).unwrap();
+                                let outer_ctx = self.outer_spans.write().remove(&id).unwrap();
+                                Ok((id, outer_ctx))
                             })
                             .collect::<Result<HashMap<_, _>, _>>()?
                     }),

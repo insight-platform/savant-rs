@@ -77,6 +77,7 @@ where
         }
 
         let pipeline = Pipeline::new("replay", stages, conf)?;
+        pipeline.set_root_span_name("replay")?;
 
         Ok(Self {
             db,
