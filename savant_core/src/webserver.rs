@@ -10,7 +10,6 @@ use tokio::sync::Mutex;
 use crate::get_or_init_async_runtime;
 use crate::metrics::metric_collector::SystemMetricCollector;
 use crate::metrics::pipeline_metric_builder::PipelineMetricBuilder;
-use crate::pipeline::implementation;
 use crate::primitives::rust::AttributeSet;
 use crate::primitives::Attribute;
 use crate::protobuf::ToProtobuf;
@@ -25,7 +24,7 @@ use anyhow::bail;
 use futures_util::StreamExt;
 use hashbrown::HashMap;
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use moka::future::Cache;
 use moka::Expiry;
 use prometheus_client::encoding::text::encode;
@@ -78,7 +77,6 @@ pub struct KvsOperation {
 
 #[allow(clippy::type_complexity)]
 struct WsData {
-    pipelines: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>>,
     status: Arc<Mutex<PipelineStatus>>,
     shutdown_token: Arc<OnceLock<String>>,
     shutdown_status: Arc<OnceLock<bool>>,
@@ -131,7 +129,6 @@ impl WsData {
             }
         });
         WsData {
-            pipelines: Arc::new(Mutex::new(HashMap::new())),
             status: Arc::new(Mutex::new(PipelineStatus::Stopped)),
             shutdown_token: Arc::new(OnceLock::new()),
             shutdown_status: Arc::new(OnceLock::new()),
@@ -226,52 +223,6 @@ static WS_JOB: OnceLock<JoinHandle<()>> = OnceLock::new();
 lazy_static! {
     static ref WS_DATA: web::Data<WsData> = web::Data::new(WsData::new());
     static ref PID: Mutex<i32> = Mutex::new(0);
-}
-
-pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
-    let runtime = get_or_init_async_runtime();
-    let pipelines = WS_DATA.pipelines.clone();
-    runtime.block_on(async move {
-        let mut bind = pipelines.lock().await;
-        let name = pipeline.get_name();
-        let entry = bind.get(&name);
-        if entry.is_some() {
-            let message = format!("Pipeline with name {} already exists in registry.", &name);
-            error!("{}", message);
-            panic!("{}", message);
-        }
-        bind.insert(name.clone(), pipeline.clone());
-        info!("Pipeline {} registered.", name);
-    });
-}
-
-pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
-    let runtime = get_or_init_async_runtime();
-    let stats = WS_DATA.pipelines.clone();
-    let pipeline_name = pipeline.get_name();
-    runtime.block_on(async move {
-        let mut bind = stats.lock().await;
-        let prev_len = bind.len();
-        debug!("Removing pipeline {} from stats.", &pipeline_name);
-        bind.remove(&pipeline_name);
-        if bind.len() == prev_len {
-            error!("Failed to remove pipeline from stats.");
-        }
-    });
-}
-
-pub(crate) async fn get_registered_pipelines() -> HashMap<String, Arc<implementation::Pipeline>> {
-    let s = WS_DATA.pipelines.lock().await;
-    s.clone()
-}
-
-pub fn get_pipeline(name: &str) -> Option<Arc<implementation::Pipeline>> {
-    let runtime = get_or_init_async_runtime();
-    let pipelines = WS_DATA.pipelines.clone();
-    runtime.block_on(async {
-        let bind = pipelines.lock().await;
-        bind.get(name).cloned()
-    })
 }
 
 pub fn set_status(s: PipelineStatus) -> anyhow::Result<()> {
@@ -552,10 +503,10 @@ mod tests {
         set_extra_labels,
     };
     use crate::pipeline::implementation::create_test_pipeline;
+    use crate::pipeline::register_pipeline;
     use crate::test::gen_frame;
     use crate::webserver::{
-        init_webserver, register_pipeline, set_shutdown_token, set_status, stop_webserver,
-        PipelineStatus,
+        init_webserver, set_shutdown_token, set_status, stop_webserver, PipelineStatus,
     };
     use hashbrown::HashMap;
     use prometheus_client::registry::Unit;

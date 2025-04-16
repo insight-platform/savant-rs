@@ -70,84 +70,8 @@ Configuration File
 
 The configuration file is a JSON file that contains the following parameters:
 
-.. code-block:: json
-
-    {
-      "common": {
-        "pass_metadata_only": false,
-        "management_port": 8080,
-        "stats_period": {
-          "secs": 60,
-          "nanos": 0
-        },
-        "job_writer_cache_max_capacity": 1000,
-        "job_writer_cache_ttl": {
-          "secs": 60,
-          "nanos": 0
-        },
-        "job_eviction_ttl": {
-          "secs": 60,
-          "nanos": 0
-        },
-        "default_job_sink_options": {
-          "send_timeout": {
-            "secs": 1,
-            "nanos": 0
-          },
-          "send_retries": 3,
-          "receive_timeout": {
-            "secs": 1,
-            "nanos": 0
-          },
-          "receive_retries": 3,
-          "send_hwm": 1000,
-          "receive_hwm": 100,
-          "inflight_ops": 100
-        }
-      },
-      "in_stream": {
-        "url": "router+bind:tcp://0.0.0.0:5555",
-        "options": {
-          "receive_timeout": {
-            "secs": 1,
-            "nanos": 0
-          },
-          "receive_hwm": 1000,
-          "topic_prefix_spec": {
-            "none": null
-          },
-          "source_cache_size": 1000,
-          "inflight_ops": 100
-        }
-      },
-      "out_stream": {
-        "url": "pub+bind:tcp://0.0.0.0:5556",
-        "options": {
-          "send_timeout": {
-          "secs": 1,
-          "nanos": 0
-          },
-          "send_retries": 3,
-          "receive_timeout": {
-            "secs": 1,
-            "nanos": 0
-          },
-          "receive_retries": 3,
-          "send_hwm": 1000,
-          "receive_hwm": 100,
-          "inflight_ops": 100
-        }
-      },
-      "storage": {
-        "rocksdb": {
-          "path": "${DB_PATH:-/tmp/rocksdb}",
-          "data_expiration_ttl": {
-            "secs": 60,
-            "nanos": 0
-          }
-        }
-      }
-    }
+.. literalinclude:: ../../../../services/replay/replay/assets/test.json
+  :language: json
 
 The above-mentioned configuration file is used by default, when you launch Replay without specifying the configuration file. You can override the default configuration by providing your own configuration file and specifying it in the launch command:
 
@@ -197,6 +121,18 @@ Configuration Parameters
       - Default sink options to be applied to jobs if they don't specify their own options. If not set, jobs must provide their own sink options.
       - ``null``
       - See ``out_stream.options`` format.
+    * - ``common.telemetry_config_file``
+      - The path to a file containing telemetry configuration. When set, the service loads telemetry settings from this file.
+      - ``null``
+      - ``"/opt/telemetry_config.json"``
+    * - ``common.stats_frame_period``
+      - Defines how frequently the service should report statistics based on the number of frames processed. When set, statistics are logged after processing the specified number of frames.
+      - ``null``
+      - ``1000``
+    * - ``common.stats_timestamp_period``
+      - Defines how frequently the service should report statistics based on elapsed time. Controls the time interval between statistics reports.
+      - ``null``
+      - ``{"secs": 10, "nanos": 0}``
     * - ``in_stream.url``
       - The URL for the data ingress in Savant ZMQ format.
       - ``router+bind:tcp://0.0.0.0:5555``

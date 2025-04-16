@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use savant_core::message::Message;
+use savant_core::pipeline::{Pipeline, PipelineConfigurationBuilder, PipelineStagePayloadType};
 use savant_core::transport::zeromq::{
     NonBlockingReader, NonBlockingWriter, ReaderResult, WriterResult,
 };
@@ -27,6 +28,7 @@ struct StreamProcessor<T: Store> {
     stats_period: Duration,
     send_metadata_only: bool,
     stop_flag: bool,
+    pipeline: Pipeline,
 }
 
 impl<T> StreamProcessor<T>
@@ -39,8 +41,45 @@ where
         output: Option<NonBlockingWriter>,
         stats_period: Duration,
         send_metadata_only: bool,
-    ) -> Self {
-        Self {
+        frame_period: Option<i64>,
+        timestamp_period: Option<i64>,
+    ) -> Result<Self> {
+        let conf = PipelineConfigurationBuilder::default()
+            .frame_period(frame_period)
+            .timestamp_period(timestamp_period)
+            .build()?;
+
+        let mut stages = vec![
+            (
+                "store".to_string(),
+                PipelineStagePayloadType::Frame,
+                None,
+                None,
+            ),
+            (
+                "cleanup".to_string(),
+                PipelineStagePayloadType::Frame,
+                None,
+                None,
+            ),
+        ];
+
+        if output.is_some() {
+            stages.insert(
+                1,
+                (
+                    "egress".to_string(),
+                    PipelineStagePayloadType::Frame,
+                    None,
+                    None,
+                ),
+            );
+        }
+
+        let pipeline = Pipeline::new("replay", stages, conf)?;
+        pipeline.set_root_span_name("replay")?;
+
+        Ok(Self {
             db,
             input,
             output,
@@ -52,7 +91,8 @@ where
             last_stats: Instant::now(),
             send_metadata_only,
             stop_flag: false,
-        }
+            pipeline,
+        })
     }
 
     async fn receive_message(&mut self) -> Result<ReaderResult> {
@@ -147,6 +187,16 @@ where
                     routing_id,
                     data,
                 } => {
+                    let frame_id = if message.is_video_frame() {
+                        let context = message.get_span_context().extract();
+                        Some(self.pipeline.add_frame_with_telemetry(
+                            "store",
+                            message.as_video_frame().unwrap(),
+                            context,
+                        )?)
+                    } else {
+                        None
+                    };
                     self.stats.packet_counter += 1;
                     self.stats.byte_counter += data.iter().map(|v| v.len() as u64).sum::<u64>();
                     log::debug!(
@@ -169,6 +219,14 @@ where
                             .await
                             .add_message(&message, &topic, &data)
                             .await?;
+                        if let Some(frame_id) = frame_id {
+                            let stage_name = if self.output.is_some() {
+                                "egress"
+                            } else {
+                                "cleanup"
+                            };
+                            self.pipeline.move_as_is(stage_name, vec![frame_id])?;
+                        }
                     }
                     let data_slice = if self.send_metadata_only {
                         vec![]
@@ -178,6 +236,13 @@ where
 
                     self.send_message(std::str::from_utf8(&topic)?, &message, &data_slice)
                         .await?;
+
+                    if let Some(frame_id) = frame_id {
+                        if self.output.is_some() {
+                            self.pipeline.move_as_is("cleanup", vec![frame_id])?;
+                        }
+                        self.pipeline.delete(frame_id)?;
+                    }
                 }
                 ReaderResult::Timeout => {
                     log::debug!(
@@ -251,14 +316,21 @@ impl RocksDbStreamProcessor {
         output: Option<NonBlockingWriter>,
         stats_period: Duration,
         send_metadata_only: bool,
+        stats_frame_period: Option<i64>,
+        stats_timestamp_period: Option<i64>,
     ) -> Self {
-        Self(StreamProcessor::new(
-            db,
-            input,
-            output,
-            stats_period,
-            send_metadata_only,
-        ))
+        Self(
+            StreamProcessor::new(
+                db,
+                input,
+                output,
+                stats_period,
+                send_metadata_only,
+                stats_frame_period,
+                stats_timestamp_period,
+            )
+            .unwrap(),
+        )
     }
 
     pub async fn run_once(&mut self) -> Result<()> {
@@ -360,7 +432,10 @@ mod tests {
             Some(out_writer),
             Duration::from_secs(30),
             false,
-        );
+            None,
+            None,
+        )
+        .unwrap();
 
         let f = gen_properly_filled_frame(true);
         let uuid = f.get_uuid_u128();
@@ -396,6 +471,12 @@ mod tests {
             ReaderResult::TooShort(_) => {
                 panic!("Too short");
             }
+            ReaderResult::MessageVersionMismatch {
+                topic,
+                routing_id,
+                sender_version,
+                expected_version,
+            } => panic!("Message version mismatch: topic: {:?}, routing_id: {:?}, sender_version: {:?}, expected_version: {:?}", topic, routing_id, sender_version, expected_version),
         }
         Ok(())
     }

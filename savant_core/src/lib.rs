@@ -59,7 +59,7 @@ pub fn fast_hash(bytes: &[u8]) -> u32 {
 
 #[inline]
 pub fn get_tracer() -> BoxedTracer {
-    global::tracer("video_pipeline")
+    global::tracer("savant-tracer")
 }
 
 pub mod rust {

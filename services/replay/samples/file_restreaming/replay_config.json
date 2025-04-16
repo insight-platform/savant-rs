@@ -29,7 +29,12 @@
       "send_hwm": 1000,
       "receive_hwm": 100,
       "inflight_ops": 100
-    }
+    },
+    "stats_timestamp_period": {
+      "secs": 10,
+      "nanos": 0
+    },
+    "telemetry_config_file": null
   },
   "in_stream": {
     "url": "router+bind:tcp://127.0.0.1:5555",

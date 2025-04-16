@@ -3,7 +3,11 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use hashbrown::HashMap;
+use log::debug;
+use log::error;
+use log::info;
 use opentelemetry::Context;
+use parking_lot::Mutex;
 
 pub use implementation::PipelineConfiguration;
 pub use implementation::PipelineConfigurationBuilder;
@@ -15,9 +19,56 @@ use crate::primitives::frame::VideoFrameProxy;
 use crate::primitives::frame_batch::VideoFrameBatch;
 use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::webserver::{register_pipeline, unregister_pipeline};
+use lazy_static::lazy_static;
 
 const MAX_TRACKED_STREAMS: usize = 8192; // defines how many streams are tracked for the frame ordering
+
+//
+
+//     pipelines: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>>,
+
+lazy_static! {
+    static ref PIPELINES: Arc<Mutex<HashMap<String, Arc<implementation::Pipeline>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+}
+
+pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
+    let pipelines = PIPELINES.clone();
+    let mut bind = pipelines.lock();
+    let name = pipeline.get_name();
+    let entry = bind.get(&name);
+    if entry.is_some() {
+        let message = format!("Pipeline with name {} already exists in registry.", &name);
+        error!("{}", message);
+        panic!("{}", message);
+    }
+    bind.insert(name.clone(), pipeline.clone());
+    info!("Pipeline {} registered.", name);
+}
+
+pub(crate) fn unregister_pipeline(pipeline: Arc<implementation::Pipeline>) {
+    let stats = PIPELINES.clone();
+    let pipeline_name = pipeline.get_name();
+    let mut bind = stats.lock();
+    let prev_len = bind.len();
+    debug!("Removing pipeline {} from stats.", &pipeline_name);
+    bind.remove(&pipeline_name);
+    if bind.len() == prev_len {
+        let message = format!("Failed to remove pipeline {} from stats.", &pipeline_name);
+        error!("{}", message);
+        panic!("{}", message);
+    }
+}
+
+pub(crate) fn get_registered_pipelines() -> HashMap<String, Arc<implementation::Pipeline>> {
+    let s = PIPELINES.lock();
+    s.clone()
+}
+
+pub fn get_pipeline(name: &str) -> Option<Arc<implementation::Pipeline>> {
+    let s = PIPELINES.lock();
+    s.get(name).cloned()
+}
 
 pub mod stage;
 pub mod stage_function_loader;
@@ -293,6 +344,7 @@ pub(super) mod implementation {
         id_counter: AtomicI64,
         frame_counter: AtomicI64,
         root_spans: SavantRwLock<HashMap<i64, Context>>,
+        outer_spans: SavantRwLock<HashMap<i64, Context>>,
         stages: Vec<PipelineStage>,
         frame_locations: SavantRwLock<HashMap<i64, usize>>,
         frame_ordering: SavantRwLock<LruCache<String, i64>>,
@@ -311,6 +363,7 @@ pub(super) mod implementation {
                 id_counter: AtomicI64::new(0),
                 frame_counter: AtomicI64::new(0),
                 root_spans: SavantRwLock::new(HashMap::new()),
+                outer_spans: SavantRwLock::new(HashMap::new()),
                 stages: Vec::new(),
                 frame_locations: SavantRwLock::new(HashMap::new()),
                 frame_ordering: SavantRwLock::new(LruCache::new(
@@ -588,6 +641,9 @@ pub(super) mod implementation {
                     .write()
                     .insert(id_counter, Context::current_with_span(span));
             }
+
+            self.outer_spans.write().insert(id_counter, parent_ctx);
+
             let source_id_compatibility_hash = frame.stream_compatibility_hash();
             let mut ordering = self.frame_ordering.write();
             let prev_ordering_seq = ordering.get(&source_id);
@@ -676,17 +732,18 @@ pub(super) mod implementation {
                     bail!("Object {} is not found in the stage {}", id, stage.name)
                 }
 
-                let mut bind = self.root_spans.write();
+                // let mut bind = self.root_spans.write();
                 match removed.unwrap() {
                     PipelinePayload::Frame(frame, _, ctx, _, _) => {
                         self.stats.register_frame(frame.get_object_count());
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
-                        let root_ctx = bind.remove(&id).unwrap();
-                        Ok(HashMap::from([(id, root_ctx)]))
+                        self.root_spans.write().remove(&id).unwrap();
+                        let outer_ctx = self.outer_spans.write().remove(&id).unwrap();
+                        Ok(HashMap::from([(id, outer_ctx)]))
                     }
                     PipelinePayload::Batch(batch, _, contexts, _, _) => Ok({
-                        let mut bind = self.root_spans.write();
+                        //let mut bind = self.root_spans.write();
                         contexts
                             .into_iter()
                             .map(|(frame_id, ctx)| {
@@ -703,8 +760,9 @@ pub(super) mod implementation {
                                     )
                                 }
                                 ctx.span().end();
-                                let root_ctx = bind.remove(&id).unwrap();
-                                Ok((id, root_ctx))
+                                self.root_spans.write().remove(&id).unwrap();
+                                let outer_ctx = self.outer_spans.write().remove(&id).unwrap();
+                                Ok((id, outer_ctx))
                             })
                             .collect::<Result<HashMap<_, _>, _>>()?
                     }),

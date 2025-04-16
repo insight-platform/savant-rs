@@ -1,4 +1,3 @@
-use crate::get_or_init_async_runtime;
 use log::error;
 use opentelemetry::global;
 use opentelemetry_jaeger_propagator::Propagator;
@@ -13,6 +12,8 @@ use std::cell::OnceCell;
 use std::fs;
 use std::time::Duration;
 use twelf::{config, Layer};
+
+use crate::get_or_init_async_runtime;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ContextPropagationFormat {
@@ -251,8 +252,12 @@ pub fn init(config: &TelemetryConfiguration) {
     match configurator.get() {
         Some(_) => panic!("Open Telemetry has been configured"),
         None => {
-            let runtime = get_or_init_async_runtime();
-            let c = runtime.block_on(async { Configurator::new("savant", config) });
+            let c = if tokio::runtime::Handle::try_current().is_ok() {
+                Configurator::new("savant", config)
+            } else {
+                let rt = get_or_init_async_runtime();
+                rt.block_on(async { Configurator::new("savant", config) })
+            };
             let result = configurator.set(c);
             if result.is_err() {
                 // should not happen

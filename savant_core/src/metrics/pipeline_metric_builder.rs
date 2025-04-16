@@ -1,6 +1,6 @@
 use crate::metrics::{get_or_create_counter_family, get_or_create_gauge_family};
+use crate::pipeline::get_registered_pipelines;
 use crate::rust::FrameProcessingStatRecordType;
-use crate::webserver::get_registered_pipelines;
 use log::debug;
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ impl PipelineMetricBuilder {
         let stage_latency_label_names =
             ["record_type", "destination_stage_name", "source_stage_name"].as_slice();
 
-        let registered_pipelines = get_registered_pipelines().await;
+        let registered_pipelines = get_registered_pipelines();
         debug!(
             "Found {} registered pipeline(s)",
             registered_pipelines.len()

@@ -24,6 +24,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      deployments: write
     strategy:
       matrix:
         include:
@@ -69,8 +70,8 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}"
           load: true
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
 
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
@@ -100,8 +101,8 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.TAG }}"
           push: true
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
   
       - name: Configure Docker rolling release image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
@@ -121,5 +122,5 @@ jobs:
           tags: "${{matrix.tag}}:${{ env.SAVANT_RS_VERSION }}-rolling"
           push: true
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
