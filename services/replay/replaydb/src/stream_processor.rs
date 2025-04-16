@@ -49,30 +49,34 @@ where
             .timestamp_period(timestamp_period)
             .build()?;
 
-        let pipeline = Pipeline::new(
-            "replay",
-            vec![
-                (
-                    "store".to_string(),
-                    PipelineStagePayloadType::Frame,
-                    None,
-                    None,
-                ),
+        let mut stages = vec![
+            (
+                "store".to_string(),
+                PipelineStagePayloadType::Frame,
+                None,
+                None,
+            ),
+            (
+                "cleanup".to_string(),
+                PipelineStagePayloadType::Frame,
+                None,
+                None,
+            ),
+        ];
+
+        if output.is_some() {
+            stages.insert(
+                1,
                 (
                     "egress".to_string(),
                     PipelineStagePayloadType::Frame,
                     None,
                     None,
                 ),
-                (
-                    "cleanup".to_string(),
-                    PipelineStagePayloadType::Frame,
-                    None,
-                    None,
-                ),
-            ],
-            conf,
-        )?;
+            );
+        }
+
+        let pipeline = Pipeline::new("replay", stages, conf)?;
 
         Ok(Self {
             db,
@@ -215,7 +219,12 @@ where
                             .add_message(&message, &topic, &data)
                             .await?;
                         if let Some(frame_id) = frame_id {
-                            self.pipeline.move_as_is("egress", vec![frame_id])?;
+                            let stage_name = if self.output.is_some() {
+                                "egress"
+                            } else {
+                                "cleanup"
+                            };
+                            self.pipeline.move_as_is(stage_name, vec![frame_id])?;
                         }
                     }
                     let data_slice = if self.send_metadata_only {
@@ -226,8 +235,11 @@ where
 
                     self.send_message(std::str::from_utf8(&topic)?, &message, &data_slice)
                         .await?;
+
                     if let Some(frame_id) = frame_id {
-                        self.pipeline.move_as_is("cleanup", vec![frame_id])?;
+                        if self.output.is_some() {
+                            self.pipeline.move_as_is("cleanup", vec![frame_id])?;
+                        }
                         self.pipeline.delete(frame_id)?;
                     }
                 }
