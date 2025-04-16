@@ -197,6 +197,18 @@ Configuration Parameters
       - Default sink options to be applied to jobs if they don't specify their own options. If not set, jobs must provide their own sink options.
       - ``null``
       - See ``out_stream.options`` format.
+    * - ``common.telemetry_config_file``
+      - The path to a file containing telemetry configuration. When set, the service loads telemetry settings from this file.
+      - ``null``
+      - ``"/opt/telemetry_config.json"``
+    * - ``common.stats_frame_period``
+      - Defines how frequently the service should report statistics based on the number of frames processed. When set, statistics are logged after processing the specified number of frames.
+      - ``null``
+      - ``1000``
+    * - ``common.stats_timestamp_period``
+      - Defines how frequently the service should report statistics based on elapsed time. Controls the time interval between statistics reports.
+      - ``null``
+      - ``{"secs": 10, "nanos": 0}``
     * - ``in_stream.url``
       - The URL for the data ingress in Savant ZMQ format.
       - ``router+bind:tcp://0.0.0.0:5555``
