@@ -5,12 +5,13 @@ members = [
     "savant_core_py",
     "savant_python",
     "savant_protobuf",
-    "services/replay/replaydb",
-    "services/replay/replay",
     "savant_gstreamer_elements",
     "savant_launcher",
     "savant_gstreamer", 
-    "savant_info",
+    "savant_info", 
+    "services/replay/replaydb",
+    "services/replay/replay",
+    "services/retina_rtsp",
 ]
 
 default-members = [
@@ -108,6 +109,7 @@ regex = "1"
 replaydb = { path = "services/replay/replaydb" }
 replay = { path = "services/replay/replay" }
 reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+retina = "0.4.13"
 rocksdb = { version = "0.23", default-features = false, features = ["bindgen-runtime", "lz4"] }
 ring = "0.17"
 
@@ -130,6 +132,7 @@ tonic = { version = "0.12.2", features = ["tls-native-roots"] }
 twelf = { version = "0.15", features = ["json", "env", "shellexpand"], default-features = false }
 
 uuid = { version = "1", features = ["fast-rng", "v7"] }
+url = "2.5"
 
 zmq = "0.10"
 
