@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
     let mut jobs = JoinSet::new();
     for (group_name, _) in &conf.rtsp_sources {
         let conf = conf.clone();
+        // check uniqueness of group_name
         let group_name = group_name.clone();
         let rtsp_session_group = rtsp_session_group.clone();
         let sink = sink.clone();
