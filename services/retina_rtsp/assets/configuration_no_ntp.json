@@ -1,0 +1,38 @@
+{
+    "sink": {
+        "url": "pub+connect:tcp://127.0.0.1:6666",
+        "options": {
+            "send_timeout": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "send_retries": 3,
+            "receive_timeout": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "receive_retries": 3,
+            "send_hwm": 1000,
+            "receive_hwm": 1000,
+            "inflight_ops": 100
+        }
+    },
+    "rtsp_sources": {
+        "group0": {
+            "sources": [
+                {
+                    "source_id": "city-traffic",
+                    "url": "rtsp://hello.savant.video:8554/stream/city-traffic"
+                },
+                {
+                    "source_id": "town-centre",
+                    "url": "rtsp://hello.savant.video:8554/stream/town-centre"
+                }
+            ]
+        }
+    },
+    "reconnect_interval": {
+        "secs": 5,
+        "nanos": 0
+    }
+}

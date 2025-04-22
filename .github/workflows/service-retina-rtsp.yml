@@ -1,4 +1,4 @@
-name: Replay Service
+name: Retina RTSP Client Service
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref }}
@@ -27,16 +27,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - docker_file: docker/services/Dockerfile.replay
-            name: savant-replay-arm64
+          - docker_file: docker/services/Dockerfile.retina_rtsp
+            name: savant-retina-rtsp-arm64
             arch: linux/arm64
-            tag: ghcr.io/insight-platform/savant-replay-arm64
+            tag: ghcr.io/insight-platform/savant-retina-rtsp-arm64
             runner: ARM64
             hosting: self-hosted
-          - docker_file: docker/services/Dockerfile.replay
-            name: savant-replay-x86
+          - docker_file: docker/services/Dockerfile.retina_rtsp
+            name: savant-retina-rtsp-x86
             arch: linux/amd64
-            tag: ghcr.io/insight-platform/savant-replay-x86
+            tag: ghcr.io/insight-platform/savant-retina-rtsp-x86
             runner: ubuntu-latest
             hosting: ubuntu-latest
 
