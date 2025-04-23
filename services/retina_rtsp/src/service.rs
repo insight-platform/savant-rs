@@ -1,8 +1,16 @@
-use crate::configuration::ServiceConfiguration;
+use crate::{
+    configuration::ServiceConfiguration,
+    utils::{convert_to_annexb, ts2epoch_duration},
+};
 use anyhow::{bail, Context};
 use futures::StreamExt;
+use h264_reader::{
+    annexb::AnnexBReader,
+    nal::{Nal, RefNal, UnitType},
+    push::NalInterest,
+};
 use hashbrown::HashMap;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use replaydb::job_writer::JobWriter;
 use retina::{
     client::{
@@ -49,14 +57,6 @@ pub struct NtpSync {
     pub batch_duration: Duration,
     pub rtp_marks: HashMap<String, VecDeque<(i64, Duration, NonZeroU32)>>,
     pub batch_id: u64,
-}
-
-fn ts2epoch_duration(ts: NtpTimestamp) -> Duration {
-    let since_epoch = ts.0.wrapping_sub(retina::UNIX_EPOCH.0);
-    let sec_since_epoch = (since_epoch >> 32) as u32;
-    let ns = u32::try_from(((since_epoch & 0xFFFF_FFFF) * 1_000_000_000) >> 32)
-        .expect("should be < 1_000_000_000");
-    Duration::new(sec_since_epoch as u64, ns as u32)
 }
 
 impl NtpSync {
@@ -254,27 +254,6 @@ pub struct RtspServiceGroup {
     ntp_sync: Option<NtpSync>,
 }
 
-fn convert_to_annexb(frame: retina::codec::VideoFrame) -> anyhow::Result<Vec<u8>> {
-    let mut data = frame.into_data();
-    let mut i = 0;
-    while i < data.len() - 3 {
-        // Replace each NAL's length with the Annex B start code b"\x00\x00\x00\x01".
-        let len = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
-        data[i] = 0;
-        data[i + 1] = 0;
-        data[i + 2] = 0;
-        data[i + 3] = 1;
-        i += 4 + len;
-        if i > data.len() {
-            bail!("partial NAL body");
-        }
-    }
-    if i < data.len() {
-        bail!("partial NAL length");
-    }
-    Ok(data)
-}
-
 impl RtspServiceGroup {
     pub async fn new(
         conf: Arc<ServiceConfiguration>,
@@ -344,6 +323,9 @@ impl RtspServiceGroup {
                                 pixel_dimensions,
                                 frame_rate.map(|(num, den)| format!("{}/{}", num, den)).unwrap_or("UNKNOWN".to_string()),
                             );
+                            if codec == "hevc" {
+                                warn!("HEVC support is not tested and may not work");
+                            }
                             if supported {
                                 video_stream_positions.push(i);
                             }
@@ -500,7 +482,6 @@ impl RtspServiceGroup {
         data_item: CodecItem,
         sink: Arc<Mutex<JobWriter>>,
     ) -> anyhow::Result<()> {
-        //let mut readers = HashMap::new();
         match data_item {
             CodecItem::VideoFrame(video_frame) => {
                 let rtp_time = video_frame.timestamp().timestamp();
@@ -534,6 +515,43 @@ impl RtspServiceGroup {
                     .map(|(num, den)| format!("{}/{}", den, num))
                     .unwrap_or("30/1".to_string());
 
+                let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
+                    Cow::Owned(convert_to_annexb(video_frame)?)
+                } else {
+                    Cow::Borrowed(video_frame.data())
+                };
+
+                let mut kf = Some(true);
+                if matches!(stream_info.encoding.as_str(), "h264") {
+                    let mut reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
+                        if !nal.is_complete() {
+                            return NalInterest::Buffer;
+                        }
+                        if let Ok(header) = nal.header() {
+                            debug!(
+                                target: "retina_rtsp::service::h264_parser",
+                                "Source_id: {}, RTP time: {}, NAL header: {:?}",
+                                source_id, rtp_time, header
+                            );
+                            let unit_type = header.nal_unit_type();
+                            if matches!(unit_type, UnitType::SliceLayerWithoutPartitioningIdr) {
+                                kf = Some(true);
+                            } else {
+                                kf = Some(false);
+                            }
+                        }
+                        NalInterest::Ignore
+                    });
+                    reader.push(&frame_data);
+                }
+
+                if matches!(kf, Some(true)) {
+                    debug!(
+                        "Source_id: {}, RTP time: {}, Keyframe arrived",
+                        source_id, rtp_time
+                    );
+                }
+
                 let frame = VideoFrameProxy::new(
                     &source_id,
                     &frame_rate,
@@ -542,22 +560,18 @@ impl RtspServiceGroup {
                     VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
                     VideoFrameTranscodingMethod::Copy,
                     &Some(&stream_info.encoding),
-                    Some(true),
+                    kf,
                     (1, stream_info.clock_rate as i64),
                     rtp_time,
                     None,
                     None,
                 );
-                let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
-                    Cow::Owned(convert_to_annexb(video_frame)?)
-                } else {
-                    Cow::Borrowed(video_frame.data())
-                };
 
                 if let Some(ntp_sync) = &mut self.ntp_sync {
                     ntp_sync.prune_rtp_marks(&source_id, rtp_time);
                     ntp_sync.add_frame(rtp_time, frame, &frame_data);
                     let frames = ntp_sync.pull_frames();
+
                     for (frame, ts, frame_data) in frames {
                         debug!(
                             "Sending frame with NTP timestamp {:?} for source_id={}",

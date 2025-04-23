@@ -71,6 +71,7 @@ gstreamer-video = "0.23.5"
 gstreamer-audio = "0.23.5"
 gst-plugin-version-helper = "0.8"
 
+h264-reader = "0.8.0"
 hashbrown = { version = "0.15", features = ["serde"] }
 
 jmespath = { version = "0.3", features = ["sync"] }

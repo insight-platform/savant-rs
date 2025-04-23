@@ -1,5 +1,6 @@
 mod configuration;
 mod service;
+pub(crate) mod utils;
 
 use crate::configuration::ServiceConfiguration;
 use anyhow::{anyhow, Result};
