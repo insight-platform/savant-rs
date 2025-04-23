@@ -572,7 +572,7 @@ impl RtspServiceGroup {
                             ()
                         });
                     self.rtp_bases.entry(source_id.clone()).or_insert_with(|| {
-                        info!("Stream_id: {}, RTP base is set to: {}", source_id, rtp_time);
+                        info!("Stream_id: {}, PTS base is set to: {}", source_id, rtp_time);
                         rtp_time
                     });
                 }
