@@ -519,31 +519,28 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let mut kf = Some(true);
+                let mut kf = None;
                 let mut cursor = Cursor::new(frame_data.as_ref());
                 if matches!(stream_info.encoding.as_str(), "h264") {
                     while let Ok(nal) = H264Nalu::next(&mut cursor) {
                         debug!(
                             target: "retina_rtsp::service::h264_parser",
-                            "NAL header: {:?}",
-                            nal.header
+                            "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                            source_id, rtp_time, nal.header, nal.offset
                         );
                         if matches!(
                             nal.header.type_,
                             cros_codecs::codec::h264::parser::NaluType::SliceIdr
                         ) {
                             kf = Some(true);
-                            break;
-                        } else {
-                            kf = Some(false);
                         }
                     }
                 } else if matches!(stream_info.encoding.as_str(), "hevc") {
                     while let Ok(nal) = H265Nalu::next(&mut cursor) {
                         debug!(
                             target: "retina_rtsp::service::h265_parser",
-                            "NAL header: {:?}",
-                            nal.header
+                            "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                            source_id, rtp_time, nal.header, nal.offset
                         );
                         if matches!(
                             nal.header.type_,
@@ -552,11 +549,10 @@ impl RtspServiceGroup {
                                 | cros_codecs::codec::h265::parser::NaluType::CraNut
                         ) {
                             kf = Some(true);
-                            break;
-                        } else {
-                            kf = Some(false);
                         }
                     }
+                } else {
+                    kf = Some(true);
                 }
                 //         header
                 //     );
