@@ -6,6 +6,7 @@ apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     clang \
     ca-certificates \
+    libva-dev \
     curl \
     unzip && \
     apt-get clean && \
