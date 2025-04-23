@@ -605,6 +605,10 @@ impl RtspServiceGroup {
                     Some(rtp_time),
                     None,
                 );
+                debug!(
+                    target: "retina_rtsp::service::frame_creator",
+                    "Created a new frame: {:?}", 
+                    frame);
 
                 if let Some(ntp_sync) = &mut self.ntp_sync {
                     ntp_sync.prune_rtp_marks(&source_id, rtp_time);
