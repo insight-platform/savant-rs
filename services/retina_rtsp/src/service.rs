@@ -321,9 +321,6 @@ impl RtspServiceGroup {
                                 pixel_dimensions,
                                 frame_rate.map(|(num, den)| format!("{}/{}", num, den)).unwrap_or("UNKNOWN".to_string()),
                             );
-                            if codec == "hevc" {
-                                warn!("HEVC support is not tested and may not work");
-                            }
                             if supported {
                                 video_stream_positions.push(i);
                             }
