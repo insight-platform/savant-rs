@@ -14,9 +14,9 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+cros-codecs = { workspace = true }
 derive_builder = { workspace = true }
 env_logger = { workspace = true }
-h264-reader = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
 mini-moka = { workspace = true }

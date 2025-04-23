@@ -3,12 +3,9 @@ use crate::{
     utils::{convert_to_annexb, ts2epoch_duration},
 };
 use anyhow::{bail, Context};
+use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
+use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
 use futures::StreamExt;
-use h264_reader::{
-    annexb::AnnexBReader,
-    nal::{Nal, RefNal, UnitType},
-    push::NalInterest,
-};
 use hashbrown::HashMap;
 use log::{debug, error, info, warn};
 use replaydb::job_writer::JobWriter;
@@ -28,6 +25,7 @@ use savant_core::primitives::{
 use std::{
     borrow::Cow,
     collections::VecDeque,
+    io::Cursor,
     num::NonZeroU32,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -522,31 +520,72 @@ impl RtspServiceGroup {
                 };
 
                 let mut kf = Some(true);
+                let mut cursor = Cursor::new(frame_data.as_ref());
                 if matches!(stream_info.encoding.as_str(), "h264") {
-                    let mut reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
-                        if !nal.is_complete() {
-                            return NalInterest::Buffer;
+                    while let Ok(nal) = H264Nalu::next(&mut cursor) {
+                        debug!(
+                            target: "retina_rtsp::service::h264_parser",
+                            "NAL header: {:?}",
+                            nal.header
+                        );
+                        if matches!(
+                            nal.header.type_,
+                            cros_codecs::codec::h264::parser::NaluType::SliceIdr
+                        ) {
+                            kf = Some(true);
+                            break;
+                        } else {
+                            kf = Some(false);
                         }
-                        if let Ok(header) = nal.header() {
-                            debug!(
-                                target: "retina_rtsp::service::h264_parser",
-                                "Source_id: {}, RTP time: {}, NAL header: {:?}",
-                                source_id, rtp_time, header
-                            );
-                            let unit_type = header.nal_unit_type();
-                            if matches!(unit_type, UnitType::SliceLayerWithoutPartitioningIdr) {
-                                kf = Some(true);
-                            } else {
-                                kf = Some(false);
-                            }
+                    }
+                } else if matches!(stream_info.encoding.as_str(), "hevc") {
+                    while let Ok(nal) = H265Nalu::next(&mut cursor) {
+                        debug!(
+                            target: "retina_rtsp::service::h265_parser",
+                            "NAL header: {:?}",
+                            nal.header
+                        );
+                        if matches!(
+                            nal.header.type_,
+                            cros_codecs::codec::h265::parser::NaluType::IdrWRadl
+                                | cros_codecs::codec::h265::parser::NaluType::IdrNLp
+                                | cros_codecs::codec::h265::parser::NaluType::CraNut
+                        ) {
+                            kf = Some(true);
+                            break;
+                        } else {
+                            kf = Some(false);
                         }
-                        NalInterest::Ignore
-                    });
-                    reader.push(&frame_data);
+                    }
                 }
+                //         header
+                //     );
+                // }
+                // let mut reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
+                //     if !nal.is_complete() {
+                //         return NalInterest::Buffer;
+                //     }
+                //     if let Ok(header) = nal.header() {
+                //         debug!(
+                //             target: "retina_rtsp::service::h264_parser",
+                //             "Source_id: {}, RTP time: {}, NAL header: {:?}",
+                //             source_id, rtp_time, header
+                //         );
+                //         let unit_type = header.nal_unit_type();
+                //         if matches!(unit_type, UnitType::SliceLayerWithoutPartitioningIdr) {
+                //             kf = Some(true);
+                //         } else {
+                //             kf = Some(false);
+                //         }
+                //     }
+                //     NalInterest::Ignore
+                // });
+                // reader.push(&frame_data);
+                //}
 
                 if matches!(kf, Some(true)) {
                     debug!(
+                        target: "retina_rtsp::service::keyframe_detector",
                         "Source_id: {}, RTP time: {}, Keyframe arrived",
                         source_id, rtp_time
                     );
@@ -563,7 +602,7 @@ impl RtspServiceGroup {
                     kf,
                     (1, stream_info.clock_rate as i64),
                     rtp_time,
-                    None,
+                    Some(rtp_time),
                     None,
                 );
 
