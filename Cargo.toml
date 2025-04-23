@@ -47,6 +47,7 @@ bollard = "0.18"
 cbindgen = "0.24"
 ctrlc = "3"
 crc32fast = "1"
+cros-codecs = "0.0.5"
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 crossbeam = "0.8"
