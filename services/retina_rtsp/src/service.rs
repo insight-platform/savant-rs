@@ -35,6 +35,7 @@ use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1000;
+const TIME_BASE: (i64, i64) = (1, 1_000);
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -250,6 +251,7 @@ pub struct RtspServiceGroup {
     streams: HashMap<String, VideoStream>,
     active_streams: HashMap<String, ()>,
     stream_infos: HashMap<(String, usize), StreamInfo>,
+    rtp_bases: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
 }
 
@@ -405,6 +407,7 @@ impl RtspServiceGroup {
         Ok(Self {
             streams: sessions,
             stream_infos,
+            rtp_bases: HashMap::new(),
             active_streams: HashMap::new(),
             ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sync {
                 info!(
@@ -568,6 +571,13 @@ impl RtspServiceGroup {
                             );
                             ()
                         });
+                    self.rtp_bases.entry(source_id.clone()).or_insert_with(|| {
+                        info!(
+                            "Stream_id: {}, RTP time: {}, is active now",
+                            source_id, rtp_time
+                        );
+                        rtp_time
+                    });
                 }
 
                 if !self.active_streams.contains_key(&source_id) {
@@ -578,6 +588,10 @@ impl RtspServiceGroup {
                     return Ok(());
                 }
 
+                let pts_sec =
+                    (rtp_time - self.rtp_bases[&source_id]) as f64 / stream_info.clock_rate as f64;
+                let pts_millis = (pts_sec * TIME_BASE.1 as f64) as i64;
+
                 let frame = VideoFrameProxy::new(
                     &source_id,
                     &frame_rate,
@@ -587,9 +601,9 @@ impl RtspServiceGroup {
                     VideoFrameTranscodingMethod::Copy,
                     &Some(&stream_info.encoding),
                     Some(kf),
-                    (1, stream_info.clock_rate as i64),
-                    rtp_time,
-                    Some(rtp_time),
+                    TIME_BASE,
+                    pts_millis,
+                    Some(pts_millis),
                     None,
                 );
                 debug!(
