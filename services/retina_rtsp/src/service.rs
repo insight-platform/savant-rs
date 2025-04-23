@@ -248,6 +248,7 @@ impl NtpSync {
 
 pub struct RtspServiceGroup {
     streams: HashMap<String, VideoStream>,
+    active_streams: HashMap<String, ()>,
     stream_infos: HashMap<(String, usize), StreamInfo>,
     ntp_sync: Option<NtpSync>,
 }
@@ -404,6 +405,7 @@ impl RtspServiceGroup {
         Ok(Self {
             streams: sessions,
             stream_infos,
+            active_streams: HashMap::new(),
             ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sync {
                 info!(
                     "NTP sync enabled for group {}, window duration: {:?}, batch duration: {:?}",
@@ -516,7 +518,7 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let mut kf = None;
+                let mut kf = false;
                 let mut cursor = Cursor::new(frame_data.as_ref());
                 if matches!(stream_info.encoding.as_str(), "h264") {
                     while let Ok(nal) = H264Nalu::next(&mut cursor) {
@@ -529,7 +531,7 @@ impl RtspServiceGroup {
                             nal.header.type_,
                             cros_codecs::codec::h264::parser::NaluType::SliceIdr
                         ) {
-                            kf = Some(true);
+                            kf = true;
                         }
                     }
                 } else if matches!(stream_info.encoding.as_str(), "hevc") {
@@ -545,43 +547,35 @@ impl RtspServiceGroup {
                                 | cros_codecs::codec::h265::parser::NaluType::IdrNLp
                                 | cros_codecs::codec::h265::parser::NaluType::CraNut
                         ) {
-                            kf = Some(true);
+                            kf = true;
                         }
                     }
                 } else {
-                    kf = Some(true);
+                    kf = true;
                 }
-                //         header
-                //     );
-                // }
-                // let mut reader = AnnexBReader::accumulate(|nal: RefNal<'_>| {
-                //     if !nal.is_complete() {
-                //         return NalInterest::Buffer;
-                //     }
-                //     if let Ok(header) = nal.header() {
-                //         debug!(
-                //             target: "retina_rtsp::service::h264_parser",
-                //             "Source_id: {}, RTP time: {}, NAL header: {:?}",
-                //             source_id, rtp_time, header
-                //         );
-                //         let unit_type = header.nal_unit_type();
-                //         if matches!(unit_type, UnitType::SliceLayerWithoutPartitioningIdr) {
-                //             kf = Some(true);
-                //         } else {
-                //             kf = Some(false);
-                //         }
-                //     }
-                //     NalInterest::Ignore
-                // });
-                // reader.push(&frame_data);
-                //}
-
-                if matches!(kf, Some(true)) {
+                if kf {
                     debug!(
                         target: "retina_rtsp::service::keyframe_detector",
                         "Source_id: {}, RTP time: {}, Keyframe arrived",
                         source_id, rtp_time
                     );
+                    self.active_streams
+                        .entry(source_id.clone())
+                        .or_insert_with(|| {
+                            info!(
+                                "Stream_id: {}, RTP time: {}, is active now",
+                                source_id, rtp_time
+                            );
+                            ()
+                        });
+                }
+
+                if !self.active_streams.contains_key(&source_id) {
+                    warn!(
+                        "Stream_id: {}, RTP time: {}, is not active, skipping frame before the first keyframe is found",
+                        source_id, rtp_time
+                    );
+                    return Ok(());
                 }
 
                 let frame = VideoFrameProxy::new(
@@ -592,7 +586,7 @@ impl RtspServiceGroup {
                     VideoFrameContent::External(ExternalFrame::new("zeromq", &None)),
                     VideoFrameTranscodingMethod::Copy,
                     &Some(&stream_info.encoding),
-                    kf,
+                    Some(kf),
                     (1, stream_info.clock_rate as i64),
                     rtp_time,
                     Some(rtp_time),
