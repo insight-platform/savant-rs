@@ -30,7 +30,7 @@ pub struct SyncWindowDurationConfiguration {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RtspSourceGroup {
     pub sources: Vec<RtspSource>,
-    pub rtcp_sync: Option<SyncWindowDurationConfiguration>,
+    pub rtcp_sr_sync: Option<SyncWindowDurationConfiguration>,
 }
 
 #[config]

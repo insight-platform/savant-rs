@@ -413,7 +413,7 @@ impl RtspServiceGroup {
             stream_infos,
             rtp_bases: HashMap::new(),
             active_streams: HashMap::new(),
-            ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sync {
+            ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sr_sync {
                 info!(
                     "NTP sync enabled for group {}, window duration: {:?}, batch duration: {:?}",
                     group_name,
