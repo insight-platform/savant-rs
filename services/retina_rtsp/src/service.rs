@@ -85,6 +85,10 @@ impl NtpSync {
             .push_back((rtp_time, ts2epoch_duration(ntp_time), clock_rate));
     }
 
+    pub fn is_ready(&self, source_id: &String) -> bool {
+        self.rtp_marks.contains_key(source_id)
+    }
+
     pub fn prune_rtp_marks(&mut self, source_id: &String, rtp_time: i64) {
         let marks = self
             .rtp_marks
@@ -416,6 +420,7 @@ impl RtspServiceGroup {
                     window_duration.group_window_duration,
                     window_duration.batch_duration
                 );
+                warn!("A stream in group {} will become active when the first RTCP Sender Report will be received.", group_name);
                 Some(NtpSync::new(
                     window_duration.group_window_duration,
                     window_duration.batch_duration,
@@ -484,6 +489,12 @@ impl RtspServiceGroup {
     ) -> anyhow::Result<()> {
         match data_item {
             CodecItem::VideoFrame(video_frame) => {
+                if let Some(ntp_sync) = &mut self.ntp_sync {
+                    if !ntp_sync.is_ready(&source_id) {
+                        return Ok(());
+                    }
+                }
+
                 let rtp_time = video_frame.timestamp().timestamp();
                 let size = video_frame.data().len();
                 if position != video_frame.stream_id() {
@@ -521,41 +532,7 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let mut kf = false;
-                let mut cursor = Cursor::new(frame_data.as_ref());
-                if matches!(stream_info.encoding.as_str(), "h264") {
-                    while let Ok(nal) = H264Nalu::next(&mut cursor) {
-                        debug!(
-                            target: "retina_rtsp::service::h264_parser",
-                            "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                            source_id, rtp_time, nal.header, nal.offset
-                        );
-                        if matches!(
-                            nal.header.type_,
-                            cros_codecs::codec::h264::parser::NaluType::SliceIdr
-                        ) {
-                            kf = true;
-                        }
-                    }
-                } else if matches!(stream_info.encoding.as_str(), "hevc") {
-                    while let Ok(nal) = H265Nalu::next(&mut cursor) {
-                        debug!(
-                            target: "retina_rtsp::service::h265_parser",
-                            "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                            source_id, rtp_time, nal.header, nal.offset
-                        );
-                        if matches!(
-                            nal.header.type_,
-                            cros_codecs::codec::h265::parser::NaluType::IdrWRadl
-                                | cros_codecs::codec::h265::parser::NaluType::IdrNLp
-                                | cros_codecs::codec::h265::parser::NaluType::CraNut
-                        ) {
-                            kf = true;
-                        }
-                    }
-                } else {
-                    kf = true;
-                }
+                let kf = self.is_keyframe(&frame_data, &source_id, rtp_time, stream_info);
                 if kf {
                     debug!(
                         target: "retina_rtsp::service::keyframe_detector",
@@ -578,7 +555,7 @@ impl RtspServiceGroup {
                 }
 
                 if !self.active_streams.contains_key(&source_id) {
-                    warn!(
+                    debug!(
                         "Stream_id: {}, RTP time: {}, is not active, skipping frame before the first keyframe is found",
                         source_id, rtp_time
                     );
@@ -671,6 +648,52 @@ impl RtspServiceGroup {
             _ => todo!(),
         }
         Ok(())
+    }
+
+    fn is_keyframe(
+        &self,
+        frame_data: &[u8],
+        source_id: &str,
+        rtp_time: i64,
+        stream_info: &StreamInfo,
+    ) -> bool {
+        let mut kf = false;
+        let mut cursor = Cursor::new(frame_data);
+        if matches!(stream_info.encoding.as_str(), "h264") {
+            while let Ok(nal) = H264Nalu::next(&mut cursor) {
+                debug!(
+                    target: "retina_rtsp::service::h264_parser",
+                    "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                    source_id, rtp_time, nal.header, nal.offset
+                );
+                if matches!(
+                    nal.header.type_,
+                    cros_codecs::codec::h264::parser::NaluType::SliceIdr
+                ) {
+                    kf = true;
+                }
+            }
+        } else if matches!(stream_info.encoding.as_str(), "hevc") {
+            while let Ok(nal) = H265Nalu::next(&mut cursor) {
+                debug!(
+                    target: "retina_rtsp::service::h265_parser",
+                    "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                    source_id, rtp_time, nal.header, nal.offset
+                );
+                if matches!(
+                    nal.header.type_,
+                    cros_codecs::codec::h265::parser::NaluType::IdrWRadl
+                        | cros_codecs::codec::h265::parser::NaluType::IdrNLp
+                        | cros_codecs::codec::h265::parser::NaluType::CraNut
+                ) {
+                    kf = true;
+                }
+            }
+        } else {
+            // MJPEG frames are always keyframes
+            kf = true;
+        }
+        kf
     }
 }
 
