@@ -29,7 +29,7 @@
                     "url": "rtsp://hello.savant.video:8554/stream/town-centre"
                 }
             ],
-            "rtcp_sync": {
+            "rtcp_sr_sync": {
                 "group_window_duration": {
                     "secs": 5,
                     "nanos": 0
