@@ -80,6 +80,20 @@ impl NtpSync {
         ntp_time: NtpTimestamp,
         clock_rate: NonZeroU32,
     ) {
+        let cam_epoch_duration = ts2epoch_duration(ntp_time);
+        let my_epoch_duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let diff = cam_epoch_duration
+            .as_millis()
+            .abs_diff(my_epoch_duration.as_millis());
+        let sign = if my_epoch_duration >= cam_epoch_duration {
+            "+"
+        } else {
+            "-"
+        };
+        info!(
+            "Source_id: {}, NTP time: {:?}, my time: {:?}, diff (ours-cam): {}{:?} ms",
+            source_id, cam_epoch_duration, my_epoch_duration, sign, diff
+        );
         self.rtp_marks
             .entry(source_id.clone())
             .or_insert_with(VecDeque::new)
