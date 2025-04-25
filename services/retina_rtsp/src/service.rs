@@ -11,8 +11,8 @@ use log::{debug, error, info, warn};
 use replaydb::job_writer::JobWriter;
 use retina::{
     client::{
-        Credentials, Demuxed, Session, SessionGroup, SessionOptions, SetupOptions,
-        TcpTransportOptions, Transport,
+        Credentials, Demuxed, InitialTimestampPolicy, Session, SessionGroup, SessionOptions,
+        SetupOptions, TcpTransportOptions, Transport,
     },
     codec::CodecItem,
     NtpTimestamp,
@@ -35,7 +35,8 @@ use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
-const TIME_BASE: (i64, i64) = (1, 1_000);
+const TIME_BASE_NS: (i64, i64) = (1, 1_000_000);
+const ONE_NS: f64 = 1_000_000_000.0;
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -151,7 +152,7 @@ impl NtpSync {
                 );
                 return;
             }
-            let diff = (diff as f64 / clock_rate.get() as f64 * 1_000_000_000_f64) as u64;
+            let diff = (diff as f64 / clock_rate.get() as f64 * ONE_NS) as u64;
             let diff = Duration::from_nanos(diff);
 
             let ts = diff + ntp_mark;
@@ -393,9 +394,17 @@ impl RtspServiceGroup {
 
             let demuxed_session = session
                 .play(
-                    retina::client::PlayOptions::default().enforce_timestamps_with_max_jump_secs(
-                        NonZeroU32::new(MAX_JUMP_SECS).unwrap(),
-                    ),
+                    retina::client::PlayOptions::default()
+                        .enforce_timestamps_with_max_jump_secs(
+                            NonZeroU32::new(MAX_JUMP_SECS).unwrap(),
+                        )
+                        .initial_timestamp(
+                            if conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some() {
+                                InitialTimestampPolicy::Require
+                            } else {
+                                InitialTimestampPolicy::Default
+                            },
+                        ),
                 )
                 .await?
                 .demuxed()?;
@@ -505,7 +514,7 @@ impl RtspServiceGroup {
                     );
                 }
 
-                let rtp_time = video_frame.timestamp().timestamp();
+                let rtp_time = video_frame.timestamp().elapsed();
 
                 let last_rtp_record = self
                     .last_rtp_records
@@ -588,7 +597,7 @@ impl RtspServiceGroup {
 
                 let pts_sec =
                     (rtp_time - self.rtp_bases[&source_id]) as f64 / stream_info.clock_rate as f64;
-                let pts_millis = (pts_sec * TIME_BASE.1 as f64) as i64;
+                let pts_nanos = (pts_sec * TIME_BASE_NS.1 as f64) as i64;
 
                 let frame = VideoFrameProxy::new(
                     &source_id,
@@ -599,9 +608,9 @@ impl RtspServiceGroup {
                     VideoFrameTranscodingMethod::Copy,
                     &Some(&stream_info.encoding),
                     Some(kf),
-                    TIME_BASE,
-                    pts_millis,
-                    Some(pts_millis),
+                    TIME_BASE_NS,
+                    pts_nanos,
+                    Some(pts_nanos),
                     None,
                 );
                 debug!(
@@ -655,7 +664,7 @@ impl RtspServiceGroup {
                     self.ntp_sync.as_mut().map(|s| {
                         s.add_rtp_mark(
                             &source_id,
-                            t.timestamp(),
+                            t.elapsed(),
                             sr.ntp_timestamp(),
                             t.clock_rate().into(),
                         )
