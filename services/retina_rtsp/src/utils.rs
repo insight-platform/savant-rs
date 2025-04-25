@@ -10,10 +10,10 @@ pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
         .expect("should be < 1_000_000_000");
     if skew_millis > 0 {
         Duration::new(sec_since_epoch as u64, ns as u32)
-            - Duration::from_millis(skew_millis.abs() as u64)
+            + Duration::from_millis(skew_millis.abs() as u64)
     } else {
         Duration::new(sec_since_epoch as u64, ns as u32)
-            + Duration::from_millis(skew_millis.abs() as u64)
+            - Duration::from_millis(skew_millis.abs() as u64)
     }
 }
 
