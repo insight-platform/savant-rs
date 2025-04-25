@@ -34,7 +34,7 @@ use tokio::{select, sync::Mutex, task::JoinSet};
 use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
-const MAX_CHANNEL_CAPACITY: usize = 1000;
+const MAX_CHANNEL_CAPACITY: usize = 1_000;
 const TIME_BASE: (i64, i64) = (1, 1_000);
 
 #[derive(Debug, Clone)]
@@ -151,7 +151,7 @@ impl NtpSync {
                 );
                 return;
             }
-            let diff = diff as u64 * 1_000_000_000 / clock_rate.get() as u64;
+            let diff = (diff as f64 / clock_rate.get() as f64 * 1_000_000_000_f64) as u64;
             let diff = Duration::from_nanos(diff);
 
             let ts = diff + ntp_mark;
@@ -256,6 +256,7 @@ pub struct RtspServiceGroup {
     active_streams: HashMap<String, ()>,
     stream_infos: HashMap<(String, usize), StreamInfo>,
     rtp_bases: HashMap<String, i64>,
+    last_rtp_records: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
 }
 
@@ -412,6 +413,7 @@ impl RtspServiceGroup {
             streams: sessions,
             stream_infos,
             rtp_bases: HashMap::new(),
+            last_rtp_records: HashMap::new(),
             active_streams: HashMap::new(),
             ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sr_sync {
                 info!(
@@ -495,7 +497,29 @@ impl RtspServiceGroup {
                     }
                 }
 
+                if video_frame.loss() > 0 {
+                    warn!(
+                        "Detected {} lost RTP frames for source_id={}",
+                        video_frame.loss(),
+                        source_id
+                    );
+                }
+
                 let rtp_time = video_frame.timestamp().timestamp();
+
+                let last_rtp_record = self
+                    .last_rtp_records
+                    .entry(source_id.clone())
+                    .or_insert(rtp_time);
+                let diff = rtp_time - *last_rtp_record;
+                if diff < 0 {
+                    warn!(
+                        "Received RTP time {} is less than last RTP time {}, this is likely a stream bug.",
+                        rtp_time, last_rtp_record
+                    );
+                }
+                *last_rtp_record = rtp_time;
+
                 let size = video_frame.data().len();
                 if position != video_frame.stream_id() {
                     debug!(
