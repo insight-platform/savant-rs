@@ -3,12 +3,18 @@ use std::time::Duration;
 use anyhow::bail;
 use retina::NtpTimestamp;
 
-pub fn ts2epoch_duration(ts: NtpTimestamp) -> Duration {
+pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
     let since_epoch = ts.0.wrapping_sub(retina::UNIX_EPOCH.0);
     let sec_since_epoch = (since_epoch >> 32) as u32;
     let ns = u32::try_from(((since_epoch & 0xFFFF_FFFF) * 1_000_000_000) >> 32)
         .expect("should be < 1_000_000_000");
-    Duration::new(sec_since_epoch as u64, ns as u32)
+    if skew_millis > 0 {
+        Duration::new(sec_since_epoch as u64, ns as u32)
+            - Duration::from_millis(skew_millis.abs() as u64)
+    } else {
+        Duration::new(sec_since_epoch as u64, ns as u32)
+            + Duration::from_millis(skew_millis.abs() as u64)
+    }
 }
 
 pub fn convert_to_annexb(frame: retina::codec::VideoFrame) -> anyhow::Result<Vec<u8>> {

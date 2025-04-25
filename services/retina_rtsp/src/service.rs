@@ -57,15 +57,23 @@ pub struct NtpSync {
     pub batch_duration: Duration,
     pub rtp_marks: HashMap<String, VecDeque<(i64, Duration, NonZeroU32)>>,
     pub batch_id: u64,
+    pub skew_millis: HashMap<String, i64>,
+    pub network_skew_correction: bool,
 }
 
 impl NtpSync {
-    pub fn new(duration: Duration, batch_duration: Duration) -> Self {
+    pub fn new(
+        duration: Duration,
+        batch_duration: Duration,
+        network_skew_correction: bool,
+    ) -> Self {
         Self {
+            network_skew_correction,
             sync_window: VecDeque::new(),
             sync_window_duration: duration,
             batch_duration,
             rtp_marks: HashMap::new(),
+            skew_millis: HashMap::new(),
             batch_id: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -80,24 +88,42 @@ impl NtpSync {
         ntp_time: NtpTimestamp,
         clock_rate: NonZeroU32,
     ) {
-        let cam_epoch_duration = ts2epoch_duration(ntp_time);
+        let cam_epoch_duration = ts2epoch_duration(ntp_time, 0);
         let my_epoch_duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let diff = cam_epoch_duration
             .as_millis()
-            .abs_diff(my_epoch_duration.as_millis());
-        let sign = if my_epoch_duration >= cam_epoch_duration {
-            "+"
+            .abs_diff(my_epoch_duration.as_millis()) as i64;
+        let skew_millis = if my_epoch_duration >= cam_epoch_duration {
+            diff
         } else {
-            "-"
+            -diff
         };
+        let current_skew = self
+            .skew_millis
+            .entry(source_id.clone())
+            .or_insert_with(|| skew_millis);
+
+        *current_skew = (*current_skew + skew_millis) / 2;
+
         info!(
-            "Source_id: {}, NTP time: {:?}, my time: {:?}, diff (ours-cam): {}{:?} ms",
-            source_id, cam_epoch_duration, my_epoch_duration, sign, diff
+            "Source_id: {}, NTP time: {:?}, my time: {:?}, diff (ours - cam): {:?} ms",
+            source_id, cam_epoch_duration, my_epoch_duration, skew_millis
         );
         self.rtp_marks
             .entry(source_id.clone())
             .or_insert_with(VecDeque::new)
-            .push_back((rtp_time, ts2epoch_duration(ntp_time), clock_rate));
+            .push_back((
+                rtp_time,
+                ts2epoch_duration(
+                    ntp_time,
+                    if self.network_skew_correction {
+                        *current_skew
+                    } else {
+                        0
+                    },
+                ),
+                clock_rate,
+            ));
     }
 
     pub fn is_ready(&self, source_id: &String) -> bool {
@@ -446,9 +472,16 @@ impl RtspServiceGroup {
                     window_duration.batch_duration
                 );
                 warn!("A stream in group {} will become active when the first RTCP Sender Report will be received.", group_name);
+                let skew_correction = window_duration.network_skew_correction.unwrap_or(false);
+                if skew_correction {
+                    warn!(
+                        "Network skew correction is enabled. It relies on the actual network latency to correct unprecise NTP timestamps."
+                    );
+                }
                 Some(NtpSync::new(
                     window_duration.group_window_duration,
                     window_duration.batch_duration,
+                    window_duration.network_skew_correction.unwrap_or(false),
                 ))
             } else {
                 info!("NTP sync disabled for group {}", group_name);

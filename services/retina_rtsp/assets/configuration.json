@@ -37,7 +37,8 @@
                 "batch_duration": {
                     "secs": 0,
                     "nanos": 100000000
-                }
+                },
+                "network_skew_correction": true
             }
         }
     },

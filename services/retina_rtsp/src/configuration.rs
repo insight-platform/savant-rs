@@ -25,6 +25,7 @@ pub struct RtspSource {
 pub struct SyncWindowDurationConfiguration {
     pub group_window_duration: Duration,
     pub batch_duration: Duration,
+    pub network_skew_correction: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
