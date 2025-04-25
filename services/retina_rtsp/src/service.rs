@@ -299,6 +299,7 @@ pub struct RtspServiceGroup {
     rtp_bases: HashMap<String, i64>,
     last_rtp_records: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
+    rtcp_once: bool,
 }
 
 impl RtspServiceGroup {
@@ -459,6 +460,7 @@ impl RtspServiceGroup {
         }
         // log streams
         Ok(Self {
+            rtcp_once: conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some(),
             streams: sessions,
             stream_infos,
             rtp_bases: HashMap::new(),
@@ -708,7 +710,19 @@ impl RtspServiceGroup {
                         .next()
                         .map(retina::rtcp::PacketRef::as_sender_report),
                 ) {
+                    info!(
+                        "RTCP Sender report source_id={} RTP is {} NTP is {}",
+                        source_id,
+                        t,
+                        sr.ntp_timestamp().0
+                    );
+
                     self.ntp_sync.as_mut().map(|s| {
+                        if s.is_ready(&source_id) && self.rtcp_once {
+                            info!("RTCP is configured to be received only once, skipping further RTCP packets for source_id={}", source_id);
+                            return ();
+                        }
+
                         s.add_rtp_mark(
                             &source_id,
                             t.elapsed(),
@@ -716,13 +730,6 @@ impl RtspServiceGroup {
                             t.clock_rate().into(),
                         )
                     });
-
-                    info!(
-                        "RTCP Sender report source_id={} RTP is {} NTP is {}",
-                        source_id,
-                        t,
-                        sr.ntp_timestamp().0
-                    );
                 }
             }
             _ => todo!(),

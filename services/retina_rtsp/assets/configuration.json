@@ -38,7 +38,8 @@
                     "secs": 0,
                     "nanos": 100000000
                 },
-                "network_skew_correction": true
+                "network_skew_correction": false,
+                "rtcp_once": true
             }
         }
     },
