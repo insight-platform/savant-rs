@@ -41,6 +41,7 @@ pub struct ServiceConfiguration {
     pub sink: SinkConfiguration,
     pub rtsp_sources: HashMap<String, RtspSourceGroup>,
     pub reconnect_interval: Option<Duration>,
+    pub eos_on_restart: Option<bool>,
 }
 
 impl ServiceConfiguration {
@@ -49,6 +50,11 @@ impl ServiceConfiguration {
             let mut conf = Self::with_layers(&[Layer::Json(path.into())])?;
             if conf.reconnect_interval.is_none() {
                 conf.reconnect_interval = Some(DEFAULT_RECONNECT_INTERVAL);
+            }
+
+            // if eos_on_restart is not set, set it to true, default value
+            if conf.eos_on_restart.is_none() {
+                conf.eos_on_restart = Some(true);
             }
             conf
         };

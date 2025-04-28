@@ -1,7 +1,4 @@
-use crate::{
-    configuration::ServiceConfiguration,
-    utils::{convert_to_annexb, ts2epoch_duration},
-};
+use crate::{configuration::ServiceConfiguration, ntp_sync::NtpSync, utils::convert_to_annexb};
 use anyhow::{bail, Context};
 use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
 use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
@@ -15,28 +12,19 @@ use retina::{
         SetupOptions, TcpTransportOptions, Transport,
     },
     codec::CodecItem,
-    NtpTimestamp,
 };
 use savant_core::primitives::{
     frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
-    rust::{AttributeValue, ExternalFrame},
-    Attribute, WithAttributes,
+    rust::ExternalFrame,
 };
-use std::{
-    borrow::Cow,
-    collections::VecDeque,
-    io::Cursor,
-    num::NonZeroU32,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+
+use std::{borrow::Cow, io::Cursor, num::NonZeroU32, sync::Arc};
 use tokio::{select, sync::Mutex, task::JoinSet};
 use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
 const TIME_BASE_NS: (i64, i64) = (1, 1_000_000);
-const ONE_NS: f64 = 1_000_000_000.0;
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -51,255 +39,16 @@ pub struct VideoStream {
     pub session: Demuxed,
 }
 
-pub struct NtpSync {
-    pub sync_window: VecDeque<(Duration, VideoFrameProxy, Vec<u8>)>,
-    pub sync_window_duration: Duration,
-    pub batch_duration: Duration,
-    pub rtp_marks: HashMap<String, VecDeque<(i64, Duration, NonZeroU32)>>,
-    pub batch_id: u64,
-    pub skew_millis: HashMap<String, i64>,
-    pub network_skew_correction: bool,
-}
-
-impl NtpSync {
-    pub fn new(
-        duration: Duration,
-        batch_duration: Duration,
-        network_skew_correction: bool,
-    ) -> Self {
-        Self {
-            network_skew_correction,
-            sync_window: VecDeque::new(),
-            sync_window_duration: duration,
-            batch_duration,
-            rtp_marks: HashMap::new(),
-            skew_millis: HashMap::new(),
-            batch_id: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-        }
-    }
-
-    pub fn add_rtp_mark(
-        &mut self,
-        source_id: &String,
-        rtp_time: i64,
-        ntp_time: NtpTimestamp,
-        clock_rate: NonZeroU32,
-    ) {
-        let cam_epoch_duration = ts2epoch_duration(ntp_time, 0);
-        let my_epoch_duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let diff = cam_epoch_duration
-            .as_millis()
-            .abs_diff(my_epoch_duration.as_millis()) as i64;
-        let skew_millis = if my_epoch_duration >= cam_epoch_duration {
-            diff
-        } else {
-            -diff
-        };
-        let current_skew = self
-            .skew_millis
-            .entry(source_id.clone())
-            .or_insert_with(|| skew_millis);
-
-        *current_skew = (*current_skew + skew_millis) / 2;
-
-        info!(
-            "Source_id: {}, NTP time: {:?}, my time: {:?}, diff (ours - cam): {:?} ms",
-            source_id, cam_epoch_duration, my_epoch_duration, skew_millis
-        );
-        self.rtp_marks
-            .entry(source_id.clone())
-            .or_insert_with(VecDeque::new)
-            .push_back((
-                rtp_time,
-                ts2epoch_duration(
-                    ntp_time,
-                    if self.network_skew_correction {
-                        *current_skew
-                    } else {
-                        0
-                    },
-                ),
-                clock_rate,
-            ));
-    }
-
-    pub fn is_ready(&self, source_id: &String) -> bool {
-        self.rtp_marks.contains_key(source_id)
-    }
-
-    pub fn prune_rtp_marks(&mut self, source_id: &String, rtp_time: i64) {
-        let marks = self
-            .rtp_marks
-            .entry(source_id.clone())
-            .or_insert_with(VecDeque::new);
-
-        if marks.len() <= 1 {
-            return;
-        }
-
-        let mut drain_history = 0;
-        for (rtp, _, _) in marks.iter() {
-            if *rtp <= rtp_time {
-                drain_history += 1;
-            } else {
-                break;
-            }
-        }
-
-        let drain_history = drain_history.min(marks.len() - 1);
-        if drain_history > 1 {
-            for _ in 0..drain_history - 1 {
-                let elt = marks.pop_front().unwrap();
-                info!(
-                    "Pruned RTP mark {} for source_id={}, current RTP packet timestamp: {}",
-                    elt.0, source_id, rtp_time
-                );
-            }
-            info!(
-                "Current RTP mark for source_id={} is {}, packet RTP is {}, Packet RTP - RTP mark = {}",
-                source_id,
-                marks.front().unwrap().0,
-                rtp_time,
-                rtp_time - marks.front().unwrap().0
-            );
-        }
-    }
-
-    pub fn current_rtp_mark(&self, source_id: &String) -> Option<(i64, Duration, NonZeroU32)> {
-        let marks = self.rtp_marks.get(source_id);
-        marks
-            .map(|marks| {
-                if marks.is_empty() {
-                    return None;
-                }
-                let (rtp, ntp, clock_rate) = marks.front().unwrap();
-                Some((*rtp, *ntp, *clock_rate))
-            })
-            .flatten()
-    }
-
-    pub fn add_frame(&mut self, rtp: i64, mut frame: VideoFrameProxy, frame_data: &[u8]) {
-        let current_rtp_mark = self.current_rtp_mark(&frame.get_source_id());
-        if let Some((rtp_mark, ntp_mark, clock_rate)) = current_rtp_mark {
-            let diff = rtp - rtp_mark;
-            if diff < 0 {
-                error!(
-                    "RTP time {} is less than RTP mark {}, diff: {}",
-                    rtp, rtp_mark, diff
-                );
-                return;
-            }
-            let diff = (diff as f64 / clock_rate.get() as f64 * ONE_NS) as u64;
-            let diff = Duration::from_nanos(diff);
-
-            let ts = diff + ntp_mark;
-            debug!(
-                "Adding frame with RTP time {:0>16} and computed NTP timestamp {:?}, source_id={}",
-                rtp,
-                ts,
-                frame.get_source_id()
-            );
-            frame.set_attribute(Attribute::new(
-                "retina-rtsp",
-                "ntp-timestamp-ns",
-                vec![AttributeValue::string(&ts.as_nanos().to_string(), None)],
-                &None,
-                true,
-                false,
-            ));
-            self.sync_window.push_back((ts, frame, frame_data.to_vec()));
-            self.sync_window
-                .make_contiguous()
-                .sort_by(|(ts0, _, _), (ts1, _, _)| ts0.cmp(ts1));
-        }
-    }
-
-    pub fn pull_frames(&mut self) -> Vec<(VideoFrameProxy, Duration, Vec<u8>)> {
-        let mut res = HashMap::new();
-        if self.sync_window.is_empty() {
-            return res.into_values().collect();
-        }
-        let first = self.sync_window.front().unwrap().0;
-        let last = self.sync_window.back().unwrap().0;
-        let diff = last - first;
-        debug!(
-            "Pulling frames, current sync window duration: {:?}, required duration: {:?}, length: {}",
-            diff, self.sync_window_duration, self.sync_window.len()
-        );
-        if diff > self.sync_window_duration {
-            // we have window built and full
-            // now we must read a batch of frames
-            let mut current_duration = first;
-            let batch_id = self.batch_id;
-            let before_sync_window_len = self.sync_window.len();
-            while current_duration - first < self.batch_duration {
-                {
-                    let (_, frame, _) = self.sync_window.front_mut().unwrap();
-                    // no duplicates allowed
-                    if res.contains_key(&frame.get_source_id()) {
-                        break;
-                    }
-                }
-                let (ts, frame, frame_data) = self.sync_window.pop_front().unwrap();
-                res.insert(frame.get_source_id(), (frame, ts, frame_data));
-                current_duration = ts;
-            }
-            let batch_sources = res.keys().cloned().collect::<Vec<_>>();
-            let batch_participants = res
-                .into_values()
-                .map(|(mut frame, duration, frame_data)| {
-                    frame.set_attribute(Attribute::new(
-                        "retina-rtsp",
-                        "batch-id",
-                        vec![AttributeValue::string(&batch_id.to_string(), None)],
-                        &None,
-                        true,
-                        false,
-                    ));
-                    frame.set_attribute(Attribute::new(
-                        "retina-rtsp",
-                        "batch-sources",
-                        vec![AttributeValue::string_vector(
-                            batch_sources
-                                .as_slice()
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                            None,
-                        )],
-                        &None,
-                        true,
-                        false,
-                    ));
-                    (frame, duration, frame_data)
-                })
-                .collect();
-            self.batch_id += 1;
-            let after_sync_window_len = self.sync_window.len();
-            debug!(
-                "Pulled {} frames from sync window, before len: {}, after len: {}",
-                before_sync_window_len - after_sync_window_len,
-                before_sync_window_len,
-                after_sync_window_len
-            );
-            batch_participants
-        } else {
-            res.into_values().collect()
-        }
-    }
-}
-
 pub struct RtspServiceGroup {
     streams: HashMap<String, VideoStream>,
     active_streams: HashMap<String, ()>,
     stream_infos: HashMap<(String, usize), StreamInfo>,
     rtp_bases: HashMap<String, i64>,
     last_rtp_records: HashMap<String, i64>,
+    duration_calculator: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
     rtcp_once: bool,
+    eos_on_restart: bool,
 }
 
 impl RtspServiceGroup {
@@ -460,16 +209,22 @@ impl RtspServiceGroup {
         }
         // log streams
         Ok(Self {
-            rtcp_once: conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some(),
+            eos_on_restart: conf.eos_on_restart.unwrap_or(true),
+            rtcp_once: conf.rtsp_sources[&group_name]
+                .rtcp_sr_sync
+                .as_ref()
+                .map(|c| c.rtcp_once.unwrap_or(false))
+                .unwrap_or(false),
             streams: sessions,
             stream_infos,
+            duration_calculator: HashMap::new(),
             rtp_bases: HashMap::new(),
             last_rtp_records: HashMap::new(),
             active_streams: HashMap::new(),
             ntp_sync: if let Some(window_duration) = &conf.rtsp_sources[&group_name].rtcp_sr_sync {
                 info!(
                     "NTP sync enabled for group {}, window duration: {:?}, batch duration: {:?}",
-                    group_name,
+                    group_name.clone(),
                     window_duration.group_window_duration,
                     window_duration.batch_duration
                 );
@@ -481,6 +236,7 @@ impl RtspServiceGroup {
                     );
                 }
                 Some(NtpSync::new(
+                    group_name,
                     window_duration.group_window_duration,
                     window_duration.batch_duration,
                     window_duration.network_skew_correction.unwrap_or(false),
@@ -605,7 +361,7 @@ impl RtspServiceGroup {
 
                 let frame_rate = stream_info
                     .frame_rate
-                    .map(|(num, den)| format!("{}/{}", den, num))
+                    .map(|(num, den)| format!("{}/{}", den / num, 1))
                     .unwrap_or("30/1".to_string());
 
                 let frame_data = if matches!(stream_info.encoding.as_str(), "h264" | "hevc") {
@@ -621,15 +377,18 @@ impl RtspServiceGroup {
                         "Source_id: {}, RTP time: {}, Keyframe arrived",
                         source_id, rtp_time
                     );
-                    self.active_streams
-                        .entry(source_id.clone())
-                        .or_insert_with(|| {
-                            info!(
-                                "Stream_id: {}, RTP time: {}, is active now",
-                                source_id, rtp_time
-                            );
-                            ()
-                        });
+
+                    if !self.active_streams.contains_key(&source_id) {
+                        if self.eos_on_restart {
+                            info!("Source_id: {}, EOS on restart is enabled, sending EOS message to reset remote stream decoder state.", source_id);
+                            let _ = sink.lock().await.send_eos(&source_id)?;
+                        }
+                        self.active_streams.insert(source_id.clone(), ());
+                        info!(
+                            "Stream_id: {}, RTP time: {}, is active now",
+                            source_id, rtp_time
+                        );
+                    }
                     self.rtp_bases.entry(source_id.clone()).or_insert_with(|| {
                         info!("Stream_id: {}, PTS base is set to: {}", source_id, rtp_time);
                         rtp_time
@@ -648,6 +407,13 @@ impl RtspServiceGroup {
                     (rtp_time - self.rtp_bases[&source_id]) as f64 / stream_info.clock_rate as f64;
                 let pts_nanos = (pts_sec * TIME_BASE_NS.1 as f64) as i64;
 
+                let last_pts_nanos = self
+                    .duration_calculator
+                    .entry(source_id.clone())
+                    .or_insert(pts_nanos);
+                let frame_duration = pts_nanos - *last_pts_nanos;
+                *last_pts_nanos = pts_nanos;
+
                 let frame = VideoFrameProxy::new(
                     &source_id,
                     &frame_rate,
@@ -660,7 +426,7 @@ impl RtspServiceGroup {
                     TIME_BASE_NS,
                     pts_nanos,
                     Some(pts_nanos),
-                    None,
+                    Some(frame_duration),
                 );
                 debug!(
                     target: "retina_rtsp::service::frame_creator",

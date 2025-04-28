@@ -21,12 +21,12 @@
         "group0": {
             "sources": [
                 {
-                    "source_id": "city-traffic",
-                    "url": "rtsp://hello.savant.video:8554/stream/city-traffic"
+                    "source_id": "left",
+                    "url": "rtsp://127.0.0.1:554/stream/bullet_left"
                 },
                 {
-                    "source_id": "town-centre",
-                    "url": "rtsp://hello.savant.video:8554/stream/town-centre"
+                    "source_id": "right",
+                    "url": "rtsp://127.0.0.1:554/stream/bullet_right"
                 }
             ],
             "rtcp_sr_sync": {

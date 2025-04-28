@@ -1,6 +1,6 @@
 {
     "sink": {
-        "url": "pub+connect:tcp://127.0.0.1:3333",
+        "url": "${ZMQ_ENDPOINT}",
         "options": {
             "send_timeout": {
                 "secs": 1,
@@ -21,12 +21,12 @@
         "group0": {
             "sources": [
                 {
-                    "source_id": "city-traffic",
-                    "url": "rtsp://hello.savant.video:8554/stream/city-traffic"
+                    "source_id": "main",
+                    "url": "${RTSP_MAIN_URI}"
                 },
                 {
-                    "source_id": "town-centre",
-                    "url": "rtsp://hello.savant.video:8554/stream/town-centre"
+                    "source_id": "overlay",
+                    "url": "${RTSP_OVERLAY_URI}"
                 }
             ],
             "rtcp_sr_sync": {
@@ -36,15 +36,14 @@
                 },
                 "batch_duration": {
                     "secs": 0,
-                    "nanos": 100000000
-                },
-                "network_skew_correction": false,
-                "rtcp_once": false
+                    "nanos": 22000000
+                }
             }
         }
     },
     "reconnect_interval": {
         "secs": 5,
         "nanos": 0
-    }
+    },
+    "eos_on_restart": true
 }

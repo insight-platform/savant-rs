@@ -1,4 +1,5 @@
 mod configuration;
+mod ntp_sync;
 mod service;
 pub(crate) mod utils;
 

@@ -3,6 +3,8 @@ use std::time::Duration;
 use anyhow::bail;
 use retina::NtpTimestamp;
 
+pub const ONE_NS: f64 = 1_000_000_000.0;
+
 pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
     let since_epoch = ts.0.wrapping_sub(retina::UNIX_EPOCH.0);
     let sec_since_epoch = (since_epoch >> 32) as u32;
