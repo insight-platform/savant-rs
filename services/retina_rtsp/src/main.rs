@@ -1,6 +1,7 @@
 mod configuration;
 mod ntp_sync;
 mod service;
+mod syncer;
 pub(crate) mod utils;
 
 use crate::configuration::ServiceConfiguration;

@@ -1,9 +1,19 @@
+use std::io::Cursor;
 use std::time::Duration;
 
 use anyhow::bail;
+use log::debug;
 use retina::NtpTimestamp;
 
+use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
+use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
+
+use crate::service::StreamInfo;
+
 pub const ONE_NS: f64 = 1_000_000_000.0;
+
+pub const H264_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x09, 0xF0];
+pub const HEVC_AU_DELIMITER: [u8; 6] = [0, 0, 0, 1, 0x23, 0xF0];
 
 pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
     let since_epoch = ts.0.wrapping_sub(retina::UNIX_EPOCH.0);
@@ -38,4 +48,104 @@ pub fn convert_to_annexb(frame: retina::codec::VideoFrame) -> anyhow::Result<Vec
         bail!("partial NAL length");
     }
     Ok(data)
+}
+
+pub fn check_contains_au_delimiter(
+    frame_data: &[u8],
+    source_id: &str,
+    rtp_time: i64,
+    stream_info: &StreamInfo,
+) -> bool {
+    let mut cursor = Cursor::new(frame_data);
+    debug!(
+        target: "retina_rtsp::service::parser",
+        "Stream_id: {}, RTP time: {}, Encoding: {}",
+        source_id, rtp_time, stream_info.encoding
+    );
+    let mut aud = false;
+    if matches!(stream_info.encoding.as_str(), "h264") {
+        if let Ok(nal) = H264Nalu::next(&mut cursor) {
+            debug!(
+                target: "retina_rtsp::service::parser::check_contains_au_delimiter",
+                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                source_id, rtp_time, nal.header, nal.offset
+            );
+            if matches!(
+                nal.header.type_,
+                cros_codecs::codec::h264::parser::NaluType::AuDelimiter
+            ) {
+                aud = true;
+            }
+        }
+    } else if matches!(stream_info.encoding.as_str(), "hevc") {
+        if let Ok(nal) = H265Nalu::next(&mut cursor) {
+            debug!(
+                target: "retina_rtsp::service::parser::check_contains_au_delimiter",
+                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                source_id, rtp_time, nal.header, nal.offset
+            );
+            if matches!(
+                nal.header.type_,
+                cros_codecs::codec::h265::parser::NaluType::AudNut
+            ) {
+                aud = true;
+            }
+        }
+    }
+    debug!(
+        target: "retina_rtsp::service::parser::check_contains_au_delimiter",
+        "Stream_id: {}, RTP time: {}, AU delimiter: {}",
+        source_id, rtp_time, aud
+    );
+    aud
+}
+
+pub fn is_keyframe(
+    frame_data: &[u8],
+    source_id: &str,
+    rtp_time: i64,
+    stream_info: &StreamInfo,
+) -> bool {
+    let mut kf = false;
+    let mut cursor = Cursor::new(frame_data);
+    debug!(
+        target: "retina_rtsp::service::parser",
+        "Stream_id: {}, RTP time: {}, Encoding: {}",
+        source_id, rtp_time, stream_info.encoding
+    );
+    if matches!(stream_info.encoding.as_str(), "h264") {
+        while let Ok(nal) = H264Nalu::next(&mut cursor) {
+            debug!(
+                target: "retina_rtsp::service::parser",
+                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                source_id, rtp_time, nal.header, nal.offset
+            );
+            if matches!(
+                nal.header.type_,
+                cros_codecs::codec::h264::parser::NaluType::SliceIdr
+            ) {
+                kf = true;
+            }
+        }
+    } else if matches!(stream_info.encoding.as_str(), "hevc") {
+        while let Ok(nal) = H265Nalu::next(&mut cursor) {
+            debug!(
+                target: "retina_rtsp::service::parser",
+                "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
+                source_id, rtp_time, nal.header, nal.offset
+            );
+            if matches!(
+                nal.header.type_,
+                cros_codecs::codec::h265::parser::NaluType::IdrWRadl
+                    | cros_codecs::codec::h265::parser::NaluType::IdrNLp
+                    | cros_codecs::codec::h265::parser::NaluType::CraNut
+            ) {
+                kf = true;
+            }
+        }
+    } else {
+        // MJPEG frames are always keyframes
+        kf = true;
+    }
+    kf
 }

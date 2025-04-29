@@ -1,7 +1,13 @@
-use crate::{configuration::ServiceConfiguration, ntp_sync::NtpSync, utils::convert_to_annexb};
+use crate::{
+    configuration::ServiceConfiguration,
+    ntp_sync::NtpSync,
+    syncer::Syncer,
+    utils::{
+        check_contains_au_delimiter, convert_to_annexb, is_keyframe, H264_AU_DELIMITER,
+        HEVC_AU_DELIMITER,
+    },
+};
 use anyhow::{bail, Context};
-use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
-use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
 use futures::StreamExt;
 use hashbrown::HashMap;
 use log::{debug, error, info, warn};
@@ -18,13 +24,13 @@ use savant_core::primitives::{
     rust::ExternalFrame,
 };
 
-use std::{borrow::Cow, io::Cursor, num::NonZeroU32, sync::Arc};
+use std::{borrow::Cow, num::NonZeroU32, sync::Arc, time::SystemTime};
 use tokio::{select, sync::Mutex, task::JoinSet};
 use url::Url;
 
 const MAX_JUMP_SECS: u32 = 10;
 const MAX_CHANNEL_CAPACITY: usize = 1_000;
-const TIME_BASE_NS: (i64, i64) = (1, 1_000_000);
+const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
@@ -43,10 +49,10 @@ pub struct RtspServiceGroup {
     streams: HashMap<String, VideoStream>,
     active_streams: HashMap<String, ()>,
     stream_infos: HashMap<(String, usize), StreamInfo>,
-    rtp_bases: HashMap<String, i64>,
+    rtp_bases: HashMap<String, (i64, SystemTime)>,
     last_rtp_records: HashMap<String, i64>,
-    duration_calculator: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
+    frame_buffer: Syncer,
     rtcp_once: bool,
     eos_on_restart: bool,
 }
@@ -217,7 +223,7 @@ impl RtspServiceGroup {
                 .unwrap_or(false),
             streams: sessions,
             stream_infos,
-            duration_calculator: HashMap::new(),
+            frame_buffer: Syncer::new(),
             rtp_bases: HashMap::new(),
             last_rtp_records: HashMap::new(),
             active_streams: HashMap::new(),
@@ -272,6 +278,7 @@ impl RtspServiceGroup {
                                 "Stream {} ended unexpectedly with error: {:?}",
                                 source_id, e
                             );
+                            break;
                         }
                     }
                 }
@@ -370,7 +377,28 @@ impl RtspServiceGroup {
                     Cow::Borrowed(video_frame.data())
                 };
 
-                let kf = self.is_keyframe(&frame_data, &source_id, rtp_time, stream_info);
+                let au_delimiter =
+                    check_contains_au_delimiter(&frame_data, &source_id, rtp_time, stream_info);
+
+                let frame_data = if !au_delimiter {
+                    // add au delimiter
+                    let new_data = if matches!(stream_info.encoding.as_str(), "h264") {
+                        let mut new_data = H264_AU_DELIMITER.to_vec();
+                        new_data.extend_from_slice(&frame_data);
+                        Cow::Owned(new_data)
+                    } else if matches!(stream_info.encoding.as_str(), "hevc") {
+                        let mut new_data = HEVC_AU_DELIMITER.to_vec();
+                        new_data.extend_from_slice(&frame_data);
+                        Cow::Owned(new_data)
+                    } else {
+                        frame_data
+                    };
+                    new_data
+                } else {
+                    frame_data
+                };
+
+                let kf = is_keyframe(&frame_data, &source_id, rtp_time, stream_info);
                 if kf {
                     debug!(
                         target: "retina_rtsp::service::keyframe_detector",
@@ -388,11 +416,10 @@ impl RtspServiceGroup {
                             "Stream_id: {}, RTP time: {}, is active now",
                             source_id, rtp_time
                         );
-                    }
-                    self.rtp_bases.entry(source_id.clone()).or_insert_with(|| {
+                        self.rtp_bases
+                            .insert(source_id.clone(), (rtp_time, SystemTime::now()));
                         info!("Stream_id: {}, PTS base is set to: {}", source_id, rtp_time);
-                        rtp_time
-                    });
+                    }
                 }
 
                 if !self.active_streams.contains_key(&source_id) {
@@ -403,16 +430,13 @@ impl RtspServiceGroup {
                     return Ok(());
                 }
 
-                let pts_sec =
-                    (rtp_time - self.rtp_bases[&source_id]) as f64 / stream_info.clock_rate as f64;
-                let pts_nanos = (pts_sec * TIME_BASE_NS.1 as f64) as i64;
-
-                let last_pts_nanos = self
-                    .duration_calculator
-                    .entry(source_id.clone())
-                    .or_insert(pts_nanos);
-                let frame_duration = pts_nanos - *last_pts_nanos;
-                *last_pts_nanos = pts_nanos;
+                let (pts_base, _base_time) = self.rtp_bases[&source_id];
+                debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, RTP time: {}, RTP base: {}, Clock rate: {}", source_id, rtp_time, pts_base, stream_info.clock_rate);
+                let pts_sec = (rtp_time - pts_base) as f64 / stream_info.clock_rate as f64;
+                let pts = pts_sec / TIME_BASE.0 as f64 * TIME_BASE.1 as f64;
+                debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, Float PTS: {}", source_id, pts);
+                let pts = pts.round() as i64;
+                debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, Int PTS: {}", source_id, pts);
 
                 let frame = VideoFrameProxy::new(
                     &source_id,
@@ -423,10 +447,10 @@ impl RtspServiceGroup {
                     VideoFrameTranscodingMethod::Copy,
                     &Some(&stream_info.encoding),
                     Some(kf),
-                    TIME_BASE_NS,
-                    pts_nanos,
-                    Some(pts_nanos),
-                    Some(frame_duration),
+                    TIME_BASE,
+                    pts,
+                    Some(pts),
+                    None,
                 );
                 debug!(
                     target: "retina_rtsp::service::frame_creator",
@@ -444,20 +468,38 @@ impl RtspServiceGroup {
                             ts,
                             frame.get_source_id()
                         );
-                        let message = frame.to_message();
-                        let _ = sink.lock().await.send_message(
-                            &frame.get_source_id(),
-                            &message,
-                            &[&frame_data],
-                        )?;
+                        if let Some((frame, data)) = self.frame_buffer.add_frame(frame, frame_data)
+                        {
+                            let message = frame.to_message();
+                            let _ = sink.lock().await.send_message(
+                                &frame.get_source_id(),
+                                &message,
+                                &[&data],
+                            )?;
+                            debug!(
+                                target: "retina_rtsp::service::send_frame",
+                                "Source_id: {}, Sent video frame with PTS {} to sink",
+                                frame.get_source_id(),
+                                frame.get_pts()
+                            );
+                        }
                     }
                 } else {
-                    let message = frame.to_message();
-                    let _ = sink
-                        .lock()
-                        .await
-                        .send_message(&source_id, &message, &[&frame_data])?;
-                    debug!("Sent video frame to sink");
+                    if let Some((frame, data)) =
+                        self.frame_buffer.add_frame(frame, frame_data.to_vec())
+                    {
+                        let message = frame.to_message();
+                        let _ = sink
+                            .lock()
+                            .await
+                            .send_message(&source_id, &message, &[&data])?;
+                        debug!(
+                            target: "retina_rtsp::service::send_frame",
+                            "Source_id: {}, Sent video frame with PTS {} to sink",
+                            frame.get_source_id(),
+                            frame.get_pts()
+                        );
+                    }
                 }
             }
             CodecItem::AudioFrame(audio_frame) => {
@@ -501,52 +543,6 @@ impl RtspServiceGroup {
             _ => todo!(),
         }
         Ok(())
-    }
-
-    fn is_keyframe(
-        &self,
-        frame_data: &[u8],
-        source_id: &str,
-        rtp_time: i64,
-        stream_info: &StreamInfo,
-    ) -> bool {
-        let mut kf = false;
-        let mut cursor = Cursor::new(frame_data);
-        if matches!(stream_info.encoding.as_str(), "h264") {
-            while let Ok(nal) = H264Nalu::next(&mut cursor) {
-                debug!(
-                    target: "retina_rtsp::service::h264_parser",
-                    "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                    source_id, rtp_time, nal.header, nal.offset
-                );
-                if matches!(
-                    nal.header.type_,
-                    cros_codecs::codec::h264::parser::NaluType::SliceIdr
-                ) {
-                    kf = true;
-                }
-            }
-        } else if matches!(stream_info.encoding.as_str(), "hevc") {
-            while let Ok(nal) = H265Nalu::next(&mut cursor) {
-                debug!(
-                    target: "retina_rtsp::service::h265_parser",
-                    "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
-                    source_id, rtp_time, nal.header, nal.offset
-                );
-                if matches!(
-                    nal.header.type_,
-                    cros_codecs::codec::h265::parser::NaluType::IdrWRadl
-                        | cros_codecs::codec::h265::parser::NaluType::IdrNLp
-                        | cros_codecs::codec::h265::parser::NaluType::CraNut
-                ) {
-                    kf = true;
-                }
-            }
-        } else {
-            // MJPEG frames are always keyframes
-            kf = true;
-        }
-        kf
     }
 }
 
