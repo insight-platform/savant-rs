@@ -53,3 +53,7 @@ html_theme_options = {
     'includehidden': True,
     'titles_only': False
 }
+
+suppress_warnings = [
+    'toc.duplicate_entry'
+]
