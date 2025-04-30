@@ -12,6 +12,12 @@ pub struct Syncer {
 }
 
 impl Syncer {
+    pub fn prune(&mut self, source_id: &str) {
+        self.duration_queues.remove(source_id);
+        self.sync_queues.remove(source_id);
+        self.last_sent.remove(source_id);
+    }
+
     pub fn new() -> Self {
         Self {
             duration_queues: HashMap::new(),

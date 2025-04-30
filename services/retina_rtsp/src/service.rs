@@ -1,5 +1,5 @@
 use crate::{
-    configuration::ServiceConfiguration,
+    configuration::{RtspSource, ServiceConfiguration},
     ntp_sync::NtpSync,
     syncer::Syncer,
     utils::{
@@ -34,6 +34,7 @@ const TIME_BASE: (i64, i64) = (1, 1_000_000_000);
 
 #[derive(Debug, Clone)]
 pub struct StreamInfo {
+    pub source_id: String,
     pub encoding: String,
     pub clock_rate: u32,
     pub pixel_dimensions: (u32, u32),
@@ -41,14 +42,14 @@ pub struct StreamInfo {
 }
 
 pub struct VideoStream {
-    pub position: usize,
     pub session: Demuxed,
+    pub stream_info: Arc<StreamInfo>,
 }
 
 pub struct RtspServiceGroup {
-    streams: HashMap<String, VideoStream>,
+    group_name: String,
+    conf: Arc<ServiceConfiguration>,
     active_streams: HashMap<String, ()>,
-    stream_infos: HashMap<(String, usize), StreamInfo>,
     rtp_bases: HashMap<String, (i64, SystemTime)>,
     last_rtp_records: HashMap<String, i64>,
     ntp_sync: Option<NtpSync>,
@@ -58,171 +59,168 @@ pub struct RtspServiceGroup {
 }
 
 impl RtspServiceGroup {
-    pub async fn new(
+    pub async fn init_source(
+        source: &RtspSource,
         conf: Arc<ServiceConfiguration>,
         group_name: String,
         session_group: Arc<SessionGroup>,
-    ) -> anyhow::Result<Self> {
-        let mut sessions = HashMap::new();
+    ) -> anyhow::Result<VideoStream> {
         let mut stream_infos = HashMap::new();
+        let creds = source.options.as_ref().map(|creds| Credentials {
+            username: creds.username.clone(),
+            password: creds.password.clone(),
+        });
 
-        for source in &conf.rtsp_sources[&group_name].sources {
-            let creds = source.options.as_ref().map(|creds| Credentials {
-                username: creds.username.clone(),
-                password: creds.password.clone(),
-            });
+        let url = Url::parse(&source.url)?;
+        let mut session = Session::describe(
+            url,
+            SessionOptions::default()
+                .creds(creds)
+                .session_group(session_group.clone()),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to connect to RTSP source {} ({})",
+                source.source_id, source.url
+            )
+        })?;
 
-            let url = Url::parse(&source.url)?;
-            let mut session = Session::describe(
-                url,
-                SessionOptions::default()
-                    .creds(creds)
-                    .session_group(session_group.clone()),
+        let mut video_stream_positions = Vec::new();
+        for (i, stream) in session.streams().iter().enumerate() {
+            let encoding_name = match stream.encoding_name() {
+                "jpeg" => "jpeg",
+                "h264" => "h264",
+                "h265" => "hevc",
+                _ => "unknown",
+            };
+
+            let stream_header = format!(
+                "Group: {}, SourceId: {}, Stream #{}: Media: {}, Encoding: {}, Clock rate: 1/{}",
+                group_name,
+                source.source_id,
+                i,
+                stream.media(),
+                encoding_name,
+                stream.clock_rate_hz()
+            );
+
+            if let Some(parameters) = stream.parameters() {
+                match parameters {
+                    retina::codec::ParametersRef::Video(video_parameters) => {
+                        let pixel_aspect_ratio = video_parameters.pixel_aspect_ratio();
+                        let pixel_dimensions = video_parameters.pixel_dimensions();
+                        let frame_rate = video_parameters.frame_rate();
+                        let codec = video_parameters.rfc6381_codec();
+
+                        let (support_char, supported) =
+                            if !matches!(encoding_name, "jpeg" | "h264" | "hevc") {
+                                ('🔴', false)
+                            } else {
+                                ('🟢', true)
+                            };
+
+                        info!(
+                            "{} 📹 [{}] RFC6381 Codec: {:?}, Pixel aspect ratio: {:?}, Frame dimensions: {:?}, Frame rate: {:?}",
+                            support_char,
+                            stream_header,
+                            codec,
+                            pixel_aspect_ratio.map(|(w, h)| format!("({}x{})", w, h)).unwrap_or("UNKNOWN".to_string()),
+                            pixel_dimensions,
+                            frame_rate.map(|(num, den)| format!("{}/{}", num, den)).unwrap_or("UNKNOWN".to_string()),
+                        );
+                        if supported {
+                            video_stream_positions.push(i);
+                        }
+                        stream_infos.insert(
+                            i,
+                            StreamInfo {
+                                source_id: source.source_id.clone(),
+                                encoding: encoding_name.to_string(),
+                                //rfc6381_codec: codec.to_string(),
+                                clock_rate: stream.clock_rate_hz(),
+                                //pixel_aspect_ratio: pixel_aspect_ratio,
+                                pixel_dimensions,
+                                frame_rate,
+                            },
+                        );
+                    }
+                    retina::codec::ParametersRef::Audio(audio_parameters) => {
+                        let codec = audio_parameters.rfc6381_codec();
+                        info!(
+                            "    🔉 ❌ RFC6381 Codec: {:?}, Clock rate: 1/{}",
+                            codec,
+                            audio_parameters.clock_rate(),
+                        );
+                    }
+                    retina::codec::ParametersRef::Message(message_parameters) => {
+                        info!("    ✉️ ❌ Message: {:?}", message_parameters);
+                    }
+                }
+            }
+        }
+        if video_stream_positions.is_empty() {
+            bail!(
+                "No video streams found for source {} ({})",
+                source.source_id,
+                source.url
+            );
+        }
+
+        let video_stream_position = source.stream_position.unwrap_or(video_stream_positions[0]);
+        if !video_stream_positions.contains(&video_stream_position) {
+            bail!(
+                "The requested stream position {} is out of range for source {} ({}), video streams available for indices: {:?}",
+                video_stream_position,
+                source.source_id,
+                source.url,
+                video_stream_positions
+            );
+        }
+
+        session
+            .setup(
+                video_stream_position,
+                SetupOptions::default().transport(Transport::Tcp(TcpTransportOptions::default())),
             )
             .await
             .with_context(|| {
                 format!(
-                    "Failed to connect to RTSP source {} ({})",
+                    "Failed to setup session for RTSP source {} ({})",
                     source.source_id, source.url
                 )
             })?;
 
-            info!("[Group: {}, SourceId: {}]", group_name, source.source_id);
-            let mut video_stream_positions = Vec::new();
-            for (i, stream) in session.streams().iter().enumerate() {
-                let encoding_name = match stream.encoding_name() {
-                    "jpeg" => "jpeg",
-                    "h264" => "h264",
-                    "h265" => "hevc",
-                    _ => "unknown",
-                };
-                info!(
-                    " ▶ Stream #{}: Media: {}, Encoding: {}, Clock rate: 1/{}",
-                    i,
-                    stream.media(),
-                    encoding_name,
-                    stream.clock_rate_hz()
-                );
-                if let Some(parameters) = stream.parameters() {
-                    match parameters {
-                        retina::codec::ParametersRef::Video(video_parameters) => {
-                            let pixel_aspect_ratio = video_parameters.pixel_aspect_ratio();
-                            let pixel_dimensions = video_parameters.pixel_dimensions();
-                            let frame_rate = video_parameters.frame_rate();
-                            let codec = video_parameters.rfc6381_codec();
+        let demuxed_session = session
+            .play(
+                retina::client::PlayOptions::default()
+                    .enforce_timestamps_with_max_jump_secs(NonZeroU32::new(MAX_JUMP_SECS).unwrap())
+                    .initial_timestamp(if conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some() {
+                        InitialTimestampPolicy::Require
+                    } else {
+                        InitialTimestampPolicy::Default
+                    }),
+            )
+            .await?
+            .demuxed()?;
 
-                            let (support_char, supported) =
-                                if !matches!(encoding_name, "jpeg" | "h264" | "hevc") {
-                                    ('🔴', false)
-                                } else {
-                                    ('🟢', true)
-                                };
+        Ok(VideoStream {
+            session: demuxed_session,
+            stream_info: Arc::new(stream_infos.remove(&video_stream_position).unwrap()),
+        })
+    }
 
-                            info!(
-                                "    {} 📹 RFC6381 Codec: {:?}, Pixel aspect ratio: {:?}, Frame dimensions: {:?}, Frame rate: {:?}",
-                                support_char,
-                                codec,
-                                pixel_aspect_ratio.map(|(w, h)| format!("({}x{})", w, h)).unwrap_or("UNKNOWN".to_string()),
-                                pixel_dimensions,
-                                frame_rate.map(|(num, den)| format!("{}/{}", num, den)).unwrap_or("UNKNOWN".to_string()),
-                            );
-                            if supported {
-                                video_stream_positions.push(i);
-                            }
-                            stream_infos.insert(
-                                (source.source_id.clone(), i),
-                                StreamInfo {
-                                    encoding: encoding_name.to_string(),
-                                    //rfc6381_codec: codec.to_string(),
-                                    clock_rate: stream.clock_rate_hz(),
-                                    //pixel_aspect_ratio: pixel_aspect_ratio,
-                                    pixel_dimensions,
-                                    frame_rate,
-                                },
-                            );
-                        }
-                        retina::codec::ParametersRef::Audio(audio_parameters) => {
-                            let codec = audio_parameters.rfc6381_codec();
-                            info!(
-                                "    🔉 ❌ RFC6381 Codec: {:?}, Clock rate: 1/{}",
-                                codec,
-                                audio_parameters.clock_rate(),
-                            );
-                        }
-                        retina::codec::ParametersRef::Message(message_parameters) => {
-                            info!("    ✉️ ❌ Message: {:?}", message_parameters);
-                        }
-                    }
-                }
-            }
-            if video_stream_positions.is_empty() {
-                bail!(
-                    "No video streams found for source {} ({})",
-                    source.source_id,
-                    source.url
-                );
-            }
-
-            let video_stream_position = source.stream_position.unwrap_or(video_stream_positions[0]);
-            if !video_stream_positions.contains(&video_stream_position) {
-                bail!(
-                    "The requested stream position {} is out of range for source {} ({}), video streams available for indices: {:?}",
-                    video_stream_position,
-                    source.source_id,
-                    source.url,
-                    video_stream_positions
-                );
-            }
-
-            session
-                .setup(
-                    video_stream_position,
-                    SetupOptions::default()
-                        .transport(Transport::Tcp(TcpTransportOptions::default())),
-                )
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to setup session for RTSP source {} ({})",
-                        source.source_id, source.url
-                    )
-                })?;
-
-            let demuxed_session = session
-                .play(
-                    retina::client::PlayOptions::default()
-                        .enforce_timestamps_with_max_jump_secs(
-                            NonZeroU32::new(MAX_JUMP_SECS).unwrap(),
-                        )
-                        .initial_timestamp(
-                            if conf.rtsp_sources[&group_name].rtcp_sr_sync.is_some() {
-                                InitialTimestampPolicy::Require
-                            } else {
-                                InitialTimestampPolicy::Default
-                            },
-                        ),
-                )
-                .await?
-                .demuxed()?;
-
-            sessions.insert(
-                source.source_id.clone(),
-                VideoStream {
-                    position: source.stream_position.unwrap_or(0),
-                    session: demuxed_session,
-                },
-            );
-        }
+    pub async fn new(conf: Arc<ServiceConfiguration>, group_name: String) -> anyhow::Result<Self> {
         // log streams
         Ok(Self {
+            group_name: group_name.clone(),
+            conf: conf.clone(),
             eos_on_restart: conf.eos_on_restart.unwrap_or(true),
             rtcp_once: conf.rtsp_sources[&group_name]
                 .rtcp_sr_sync
                 .as_ref()
                 .map(|c| c.rtcp_once.unwrap_or(false))
                 .unwrap_or(false),
-            streams: sessions,
-            stream_infos,
             frame_buffer: Syncer::new(),
             rtp_bases: HashMap::new(),
             last_rtp_records: HashMap::new(),
@@ -254,38 +252,68 @@ impl RtspServiceGroup {
         })
     }
 
-    pub async fn play(&mut self, sink: Arc<Mutex<JobWriter>>) -> anyhow::Result<()> {
-        let streams = self.streams.drain().collect::<HashMap<_, _>>();
+    pub async fn play(
+        &mut self,
+        sink: Arc<Mutex<JobWriter>>,
+        session_group: Arc<SessionGroup>,
+    ) -> anyhow::Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(MAX_CHANNEL_CAPACITY);
         let mut tasks = JoinSet::new();
-        for (source_id, mut stream) in streams {
+        for source in &self.conf.rtsp_sources[&self.group_name].sources {
             let tx = tx.clone();
-            let task = async move {
-                while let Some(res) = stream.session.next().await {
-                    match res {
-                        Ok(item) => tx
-                            .send((stream.position, source_id.clone(), item))
-                            .await
-                            .unwrap_or_else(|e| {
-                                let message = format!(
-                                    "Failed to send item to channel for RTSP source {}, error: {:?}",
+            let source_id = source.source_id.clone();
+            let conf = self.conf.clone();
+            let group_name = self.group_name.clone();
+            let source = source.clone();
+            let session_group = session_group.clone();
+
+            tasks.spawn(async move {
+                loop {
+                    let stream = Self::init_source(
+                        &source,
+                        conf.clone(),
+                        group_name.clone(),
+                        session_group.clone(),
+                    ).await;
+
+                    if let Err(e) = stream {
+                        error!("Failed to initialize stream for source {}, error: {:?}", source_id, e);
+                        tokio::time::sleep(conf.reconnect_interval.unwrap()).await;
+                        continue;
+                    }
+
+                    let mut stream = stream.unwrap();
+                    let mut restarted = true;
+                    while let Some(res) = stream.session.next().await {
+                        match res {
+                            Ok(item) => {
+                                
+                            tx
+                                .send((restarted, item, stream.stream_info.clone()))
+                                .await
+                                .unwrap_or_else(|e| {
+                                    let message = format!(
+                                        "Failed to send item to channel for RTSP source {}, error: {:?}",
+                                        source_id, e
+                                    );
+                                    panic!("{}", message);
+                                });
+                                restarted = false;
+                            },
+                            Err(e) => {
+                                error!(
+                                    "Stream {} ended unexpectedly with error: {:?}",
                                     source_id, e
                                 );
-                                panic!("{}", message);
-                            }),
-                        Err(e) => {
-                            error!(
-                                "Stream {} ended unexpectedly with error: {:?}",
-                                source_id, e
-                            );
-                            break;
+                                break;
+                            }
                         }
                     }
+                    error!("Stream {} ended unexpectedly", source_id);
                 }
-                error!("Stream {} ended unexpectedly", source_id);
-            };
-            tasks.spawn(task);
+            });
         }
+
         loop {
             select! {
                 err = tasks.join_next() => {
@@ -294,9 +322,9 @@ impl RtspServiceGroup {
                     }
                     break;
                 }
-                Some((position, source_id, data_item)) = rx.recv() => {
-                    debug!("Received item from {} {:?}", source_id, data_item);
-                    self.process_item(position, source_id, data_item, sink.clone()).await?;
+                Some((restarted,data_item, stream_info)) = rx.recv() => {
+                    debug!("Received item from {:?} {:?}", stream_info, data_item);
+                    self.process_item(restarted, &stream_info, data_item, sink.clone()).await?;
                 }
             }
         }
@@ -305,15 +333,24 @@ impl RtspServiceGroup {
 
     async fn process_item(
         &mut self,
-        position: usize,
-        source_id: String,
+        restarted: bool,
+        stream_info: &Arc<StreamInfo>,
         data_item: CodecItem,
         sink: Arc<Mutex<JobWriter>>,
     ) -> anyhow::Result<()> {
+        if restarted {
+            self.active_streams.remove(&stream_info.source_id);
+            self.rtp_bases.remove(&stream_info.source_id);
+            self.last_rtp_records.remove(&stream_info.source_id);
+
+            self.ntp_sync.as_mut().map(|s| s.prune(&stream_info.source_id));
+            self.frame_buffer.prune(&stream_info.source_id);
+        }
+        let source_id = &stream_info.source_id;
         match data_item {
             CodecItem::VideoFrame(video_frame) => {
                 if let Some(ntp_sync) = &mut self.ntp_sync {
-                    if !ntp_sync.is_ready(&source_id) {
+                    if !ntp_sync.is_ready(source_id) {
                         return Ok(());
                     }
                 }
@@ -342,17 +379,6 @@ impl RtspServiceGroup {
                 *last_rtp_record = rtp_time;
 
                 let size = video_frame.data().len();
-                if position != video_frame.stream_id() {
-                    debug!(
-                        "[SKIPPED] Received video frame from {} {:?}, size: {}, stream_id: {}, expected stream_id: {}",
-                        source_id,
-                        rtp_time,
-                        size,
-                        video_frame.stream_id(),
-                        position
-                    );
-                    return Ok(());
-                }
                 debug!(
                     "Received video frame from {}, stream_id: {}, rtp_time: {}, size: {}",
                     source_id,
@@ -360,11 +386,6 @@ impl RtspServiceGroup {
                     rtp_time,
                     size,
                 );
-                let stream_info = self
-                    .stream_infos
-                    .get(&(source_id.clone(), video_frame.stream_id()))
-                    .unwrap();
-                debug!("Stream info: {:?}", stream_info);
 
                 let frame_rate = stream_info
                     .frame_rate
@@ -406,7 +427,7 @@ impl RtspServiceGroup {
                         source_id, rtp_time
                     );
 
-                    if !self.active_streams.contains_key(&source_id) {
+                    if !self.active_streams.contains_key(source_id) {
                         if self.eos_on_restart {
                             info!("Source_id: {}, EOS on restart is enabled, sending EOS message to reset remote stream decoder state.", source_id);
                             let _ = sink.lock().await.send_eos(&source_id)?;
@@ -422,7 +443,7 @@ impl RtspServiceGroup {
                     }
                 }
 
-                if !self.active_streams.contains_key(&source_id) {
+                if !self.active_streams.contains_key(source_id) {
                     debug!(
                         "Stream_id: {}, RTP time: {}, is not active, skipping frame before the first keyframe is found",
                         source_id, rtp_time
@@ -430,7 +451,7 @@ impl RtspServiceGroup {
                     return Ok(());
                 }
 
-                let (pts_base, _base_time) = self.rtp_bases[&source_id];
+                let (pts_base, _base_time) = self.rtp_bases[source_id];
                 debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, RTP time: {}, RTP base: {}, Clock rate: {}", source_id, rtp_time, pts_base, stream_info.clock_rate);
                 let pts_sec = (rtp_time - pts_base) as f64 / stream_info.clock_rate as f64;
                 let pts = pts_sec / TIME_BASE.0 as f64 * TIME_BASE.1 as f64;
@@ -552,8 +573,7 @@ pub async fn run_group(
     session_group: Arc<SessionGroup>,
     sink: Arc<Mutex<JobWriter>>,
 ) -> anyhow::Result<()> {
-    let mut service_group =
-        RtspServiceGroup::new(conf.clone(), group_name.clone(), session_group).await?;
-    service_group.play(sink).await?;
+    let mut service_group = RtspServiceGroup::new(conf.clone(), group_name.clone()).await?;
+    service_group.play(sink, session_group).await?;
     Ok(())
 }

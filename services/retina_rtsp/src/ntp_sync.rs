@@ -26,6 +26,11 @@ pub struct NtpSync {
 }
 
 impl NtpSync {
+    pub fn prune(&mut self, source_id: &str) {
+        self.rtp_marks.remove(source_id);
+        self.skew_millis.remove(source_id);
+    }
+
     pub fn new(
         group_name: String,
         duration: Duration,

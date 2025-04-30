@@ -13,6 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+rand = { workspace = true }
 anyhow = { workspace = true }
 cros-codecs = { workspace = true }
 derive_builder = { workspace = true }
