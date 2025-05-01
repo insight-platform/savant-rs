@@ -396,6 +396,12 @@ mod tests {
             ReaderResult::TooShort(_) => {
                 panic!("Too short");
             }
+            ReaderResult::MessageVersionMismatch {
+                topic,
+                routing_id,
+                sender_version,
+                expected_version,
+            } => panic!("Message version mismatch: topic: {:?}, routing_id: {:?}, sender_version: {:?}, expected_version: {:?}", topic, routing_id, sender_version, expected_version),
         }
         Ok(())
     }

@@ -88,12 +88,19 @@ The configuration file supports variable substitution using environment variable
 Sink Configuration
 ------------------
 
-The sink configuration is used to specify the sink to which the video data will be sent. All Savant sinks are supported.
+The sink configuration is used to specify the sink to which the video data will be sent. All Savant sinks are supported. The ``options`` section is optional and can be omitted in many cases. Not all options are applicable to the connection URL, depending on the sink type. However, if you specify the ``options`` section, you must specify all the options regardless of their actual use in the particular sink type (it can be and probably will be changed in the future).
 
 RTSP Sources Configuration
 --------------------------
 
-The RTSP sources configuration is used to specify the RTSP sources to be used by the service. The sources are organized into groups. Each group can use RTPC SR synchronization or do not use it. If you want serve independent streams, you do not need to specify the synchronization configuration.
+The RTSP sources configuration is used to specify the RTSP sources to be used by the service. The sources are organized into groups. Groups are used to organize synchronized streams. Each group can use RTPC SR synchronization or do not use it. If you want serve independent streams, you do not need to specify the synchronization configuration for the group.
+
+For every source you can specify the following options:
+
+* ``source_id`` - the id of the source used in Savant, must be unique within the whole system;
+* ``url`` - the URL of the RTSP source;
+* ``stream_position`` - the position of the stream which can be explicitly set for RTSP servers supporting multiple streams (optional);
+* ``options`` - the options allowing to set username and password for the RTSP source (optional).
 
 RTSP Source Stream Position
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -123,42 +130,50 @@ The RTSP source options are used to specify the options for the RTSP sources. Th
 RTCP SR Sync Configuration
 --------------------------
 
+This feature allows synchronizing multiple streams with millisecond precision (basically, time drift of frames in a batch are expected to fit 1/FPS second). Normally, this feature assumes that all the streams operate on the same FPS and are configured to use NTP for time synchronization. Also, not all camera vendors support RTCP SR in their camears, some of them (like Hikvision) may require special cheat codes to activate RTCP SR in the camera via SSH.
+
 When the synchronization is enabled, the service will use the RTCP SR packets to synchronize the streams. The synchronization is done on the group level, streams across different groups are not synchronized.
 
-When the synchronization is enabled, every Savant VideoFrame contains extra attributes:
+When the synchronization is enabled, every Savant VideoFrame object contains extra attributes:
 
 * ("retina-rtsp", "batch-id") - the batch id of the frame
 * ("retina-rtsp", "batch-group-name") - the group name of the frame
 * ("retina-rtsp", "batch-sources") - the list of sources in the batch
 * ("retina-rtsp", "ntp-timestamp-ns") - the NTP timestamp of the frame in nanoseconds
 
-RTCP SR Sync Configuration introduces delay in frame delivery due to the need to synchronize the streams. The ``group_window_duration`` is the time window in seconds that the service will try to synchronize the streams. The ``batch_duration`` is the time window in seconds that the service will collect the frames before sending them to the sink.
-
-Every batch contains only one frame from each source.
+RTCP SR Sync Configuration introduces delay in frame delivery due to the need to synchronize the streams. The ``group_window_duration`` is the time window that the service will try to synchronize the streams. The ``batch_duration`` is the time window that the service will collect the frames from different sources into a single batch. Every batch always contains only one frame per source, but not all sources are always to be presented in every batch because of late arrivals or FPS mismatch.
 
 .. note::
 
     Even when streams are synchronized, it is not guaranteed that frames will be delivered in order. Every strams delivers frames independently. You must use the ``batch-id`` attribute to track the order of the frames and the ``batch-sources`` attribute to track the completeness of the batch.
 
-
 Network Skew Correction
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-The ``network_skew_correction`` flag enables the network skew correction. The default value is ``false``. This flag can be used to correct the synchronization when NTP is not configured properly, but the network is stable and the delay is constant. In this case, the service will use the RTCP SR packets to estimate the delay and correct the synchronization.
+The ``network_skew_correction`` flag enables the time correction based on computed network delay. The default value is ``false``. This flag can be used to correct the synchronization when NTP is not configured precisely, but RTCP SR arrive, and the network is stable and the delay is constant. In this case, the service will use the RTCP SR packets to estimate the delay and correct the synchronization.
 
 .. note::
 
-    We have not tested this feature properly, so use it with caution.
+    We have not tested this feature properly, so use it with caution. This is a workaround and not a proper solution; however, for second-grade-precision synchronization it could work.
 
 RTCP Once Option
 ^^^^^^^^^^^^^^^^
 
-The ``rtcp_once`` flag enables the RTCP SR synchronization only once. The default value is ``false``. If the flag is set to ``true``, the service will use the RTCP SR packets to synchronize the streams only once and then it will use the NTP timestamp of the first frame to synchronize the streams. This will be helpful if cameras demonstrate RTCP SR drifts due to incorrect or buggy NTP configuration.
+The ``rtcp_once`` flag enables the RTCP SR synchronization only once. The default value is ``false``. If the flag is set to ``true``, the service will use the RTCP SR packets to synchronize the streams only once and then it will use the NTP timestamp of the first frame to synchronize the streams. 
+
+This could be helpful if:
+
+- cameras demonstrate RTCP SR drifts due to incorrect or buggy NTP configuration;
+- if you want to protect the session from the occasional NTP reconfigurations which may cause time shifts leading to batching issues.
+
+.. note::
+
+    This feature is safe to use but it prevents from NTP adjustments. Depending on the camera clock precision, it could lead to the time shifts and batching issues.
 
 Reconnect Interval
 ------------------
 
-The ``reconnect_interval`` option is used to specify the interval in seconds between the attempts to reconnect to the RTSP sources.
+The ``reconnect_interval`` option is used to specify the interval between the attempts to reconnect to the RTSP sources after the connection is lost.
 
 EOS on Restart
 --------------
