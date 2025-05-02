@@ -1,0 +1,22 @@
+[package]
+name = "savant_services_common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+log = { workspace = true }
+mini-moka = { workspace = true }
+savant_core = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+
