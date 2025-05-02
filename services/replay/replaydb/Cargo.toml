@@ -27,6 +27,7 @@ uuid = { workspace = true }
 parking_lot = { workspace = true }
 rocksdb = { workspace = true }
 savant_core = { workspace = true }
+savant_services_common = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

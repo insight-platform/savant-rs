@@ -1,11 +1,11 @@
 use crate::job::query::JobQuery;
 use crate::job::{Job, RocksDbJob};
-use crate::job_writer::cache::JobWriterCache;
 use crate::store::rocksdb::RocksDbStore;
 use crate::store::{Store, SyncRocksDbStore};
 use anyhow::Result;
 use savant_core::primitives::frame_update::VideoFrameUpdate;
 use savant_core::utils::uuid_v7::incremental_uuid_v7;
+use savant_services_common::job_writer::cache::JobWriterCache;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,13 +87,26 @@ mod tests {
     use crate::job::factory::RocksDbJobFactory;
     use crate::job::query::JobQuery;
     use crate::job::stop_condition::JobStopCondition;
-    use crate::job_writer::SinkConfiguration;
     use crate::store::rocksdb::RocksDbStore;
     use crate::store::{gen_properly_filled_frame, JobOffset, Store};
     use anyhow::Result;
+    use savant_services_common::job_writer::SinkConfiguration;
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Mutex;
+
+    pub fn test_dealer_connect_sink() -> SinkConfiguration {
+        SinkConfiguration::new(
+            "dealer+connect:ipc:///tmp/in",
+            Duration::from_secs(1),
+            3,
+            Duration::from_secs(1),
+            3,
+            1000,
+            100,
+            100,
+        )
+    }
 
     #[tokio::test]
     async fn test_create_rocksdb_job() -> Result<()> {
@@ -130,7 +143,7 @@ mod tests {
         let stop_condition = JobStopCondition::frame_count(1);
         let offset = JobOffset::Blocks(1);
         let job_query = JobQuery::new(
-            SinkConfiguration::test_dealer_connect_sink(),
+            test_dealer_connect_sink(),
             configuration,
             stop_condition,
             f.get_uuid(),
@@ -183,7 +196,7 @@ mod tests {
         let stop_condition = JobStopCondition::frame_count(1);
         let offset = JobOffset::Blocks(1);
         let job_query = JobQuery::new(
-            SinkConfiguration::test_dealer_connect_sink(),
+            test_dealer_connect_sink(),
             configuration,
             stop_condition,
             f.get_uuid(),

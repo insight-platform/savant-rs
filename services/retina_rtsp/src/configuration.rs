@@ -1,6 +1,6 @@
 use anyhow::Result;
 use hashbrown::{HashMap, HashSet};
-use replaydb::job_writer::SinkConfiguration;
+use savant_services_common::job_writer::SinkConfiguration;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use twelf::{config, Layer};

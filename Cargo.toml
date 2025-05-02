@@ -11,7 +11,9 @@ members = [
     "savant_info", 
     "services/replay/replaydb",
     "services/replay/replay",
-    "services/retina_rtsp",
+    "services/retina_rtsp", 
+    "services/router", 
+    "services/common",
 ]
 
 default-members = [
@@ -45,12 +47,12 @@ bollard = "0.18"
 
 
 cbindgen = "0.24"
-ctrlc = "3"
-crc32fast = "1"
-cros-codecs = "0.0.5"
 clap = { version = "4", features = ["derive"] }
 colored = "3"
+crc32fast = "1"
+cros-codecs = "0.0.5"
 crossbeam = "0.8"
+ctrlc = "3"
 
 derive_builder = "0.20"
 
@@ -120,6 +122,7 @@ savant_core_py = { path = "savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
 savant_rs = { path = "savant_python" }
 savant_gstreamer = { path = "savant_gstreamer" }
+savant_services_common = { path = "services/common" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

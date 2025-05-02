@@ -1,9 +1,9 @@
 use crate::job::configuration::JobConfiguration;
 use crate::job::stop_condition::JobStopCondition;
-use crate::job_writer::{SinkConfiguration, SinkOptions};
 use crate::store::JobOffset;
 use anyhow::Result;
 use savant_core::primitives::Attribute;
+use savant_services_common::job_writer::{SinkConfiguration, SinkOptions};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
@@ -69,11 +69,11 @@ mod tests {
     use crate::job::configuration::JobConfigurationBuilder;
     use crate::job::query::JobQuery;
     use crate::job::stop_condition::JobStopCondition;
-    use crate::job_writer::SinkConfiguration;
     use crate::store::JobOffset;
     use savant_core::primitives::attribute_value::AttributeValue;
     use savant_core::primitives::Attribute;
     use savant_core::utils::uuid_v7::incremental_uuid_v7;
+    use savant_services_common::job_writer::SinkConfiguration;
     use std::time::Duration;
 
     #[test]

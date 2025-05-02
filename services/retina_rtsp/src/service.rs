@@ -11,7 +11,7 @@ use anyhow::{bail, Context};
 use futures::StreamExt;
 use hashbrown::HashMap;
 use log::{debug, error, info, warn};
-use replaydb::job_writer::JobWriter;
+use savant_services_common::job_writer::JobWriter;
 use retina::{
     client::{
         Credentials, Demuxed, InitialTimestampPolicy, Session, SessionGroup, SessionOptions,

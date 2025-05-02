@@ -15,10 +15,10 @@ use uuid::Uuid;
 use configuration::JobConfiguration;
 use stop_condition::JobStopCondition;
 
-use crate::job_writer::JobWriter;
 use crate::store::rocksdb::RocksDbStore;
 use crate::store::{JobOffset, Store};
 use crate::{best_ts, ParkingLotMutex};
+use savant_services_common::job_writer::JobWriter;
 
 pub mod configuration;
 pub mod factory;
@@ -592,8 +592,8 @@ mod tests {
     use crate::job::configuration::JobConfigurationBuilder;
     use crate::job::stop_condition::JobStopCondition;
     use crate::job::{Job, RoutingLabelsUpdateStrategy, SendEither};
-    use crate::job_writer::JobWriter;
     use crate::store::{gen_properly_filled_frame, JobOffset, Store};
+    use savant_services_common::job_writer::JobWriter;
 
     struct MockStore {
         pub messages: Vec<(Option<(Message, Vec<u8>, Vec<Vec<u8>>)>, Duration)>,

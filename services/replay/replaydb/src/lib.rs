@@ -5,7 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::{NoContext, Timestamp, Uuid};
 
 pub mod job;
-pub mod job_writer;
 pub mod service;
 pub mod store;
 pub mod stream_processor;
