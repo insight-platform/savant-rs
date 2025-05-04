@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 pub enum LabelFilterRule {
     #[serde(rename = "set")]
     Set(String),
-    #[serde(rename = "unset")]
-    Unset(String),
     #[serde(rename = "and")]
     And(Vec<LabelFilterRule>),
     #[serde(rename = "or")]
@@ -18,7 +16,6 @@ impl LabelFilterRule {
     pub fn matches(&self, value: &[String]) -> bool {
         match self {
             LabelFilterRule::Set(expected) => value.iter().any(|v| v == expected),
-            LabelFilterRule::Unset(expected) => value.iter().all(|v| v != expected),
             LabelFilterRule::And(rules) => rules.iter().all(|r| r.matches(value)),
             LabelFilterRule::Or(rules) => rules.iter().any(|r| r.matches(value)),
             LabelFilterRule::Not(rule) => !rule.matches(value),
@@ -73,10 +70,6 @@ mod tests {
         let rule = Not(Box::new(Set("test".to_string())));
         assert!(!rule.matches(&["test".to_string()]));
         assert!(rule.matches(&["test2".to_string()]));
-
-        let rule = And(vec![Set("test".to_string()), Unset("test2".to_string())]);
-        assert!(rule.matches(&["test".to_string(), "test3".to_string()]));
-        assert!(!rule.matches(&["test".to_string(), "test2".to_string()]));
 
         let rule = And(vec![
             Set("test".to_string()),

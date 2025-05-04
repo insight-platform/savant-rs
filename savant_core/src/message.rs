@@ -1,4 +1,5 @@
 pub mod label_filter;
+pub mod label_filter_parser;
 
 use crate::otlp::PropagatedContext;
 use crate::primitives::eos::EndOfStream;

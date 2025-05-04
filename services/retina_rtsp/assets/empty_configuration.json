@@ -1,0 +1,25 @@
+{
+    "sink": {
+        "url": "pub+connect:tcp://127.0.0.1:3333",
+        "options": {
+            "send_timeout": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "send_retries": 3,
+            "receive_timeout": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "receive_retries": 3,
+            "send_hwm": 1000,
+            "receive_hwm": 1000,
+            "inflight_ops": 100
+        }
+    },
+    "rtsp_sources": {},
+    "reconnect_interval": {
+        "secs": 5,
+        "nanos": 0
+    }
+}

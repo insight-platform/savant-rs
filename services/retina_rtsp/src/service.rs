@@ -11,7 +11,6 @@ use anyhow::{bail, Context};
 use futures::StreamExt;
 use hashbrown::HashMap;
 use log::{debug, error, info, warn};
-use savant_services_common::job_writer::JobWriter;
 use retina::{
     client::{
         Credentials, Demuxed, InitialTimestampPolicy, Session, SessionGroup, SessionOptions,
@@ -23,6 +22,7 @@ use savant_core::primitives::{
     frame::{VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod},
     rust::ExternalFrame,
 };
+use savant_services_common::job_writer::JobWriter;
 
 use std::{borrow::Cow, num::NonZeroU32, sync::Arc, time::SystemTime};
 use tokio::{select, sync::Mutex, task::JoinSet};
@@ -287,7 +287,6 @@ impl RtspServiceGroup {
                     while let Some(res) = stream.session.next().await {
                         match res {
                             Ok(item) => {
-                                
                             tx
                                 .send((restarted, item, stream.stream_info.clone()))
                                 .await
@@ -343,7 +342,9 @@ impl RtspServiceGroup {
             self.rtp_bases.remove(&stream_info.source_id);
             self.last_rtp_records.remove(&stream_info.source_id);
 
-            self.ntp_sync.as_mut().map(|s| s.prune(&stream_info.source_id));
+            self.ntp_sync
+                .as_mut()
+                .map(|s| s.prune(&stream_info.source_id));
             self.frame_buffer.prune(&stream_info.source_id);
         }
         let source_id = &stream_info.source_id;
