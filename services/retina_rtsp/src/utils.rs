@@ -5,10 +5,15 @@ use anyhow::bail;
 use log::debug;
 use retina::NtpTimestamp;
 
-use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
-use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
-
 use crate::service::StreamInfo;
+use cros_codecs::codec::h264::parser::Nalu as H264Nalu;
+use cros_codecs::codec::h264::parser::NaluType::AuDelimiter as H264AuDelimiter;
+use cros_codecs::codec::h264::parser::NaluType::SliceIdr as H264Idr;
+use cros_codecs::codec::h265::parser::Nalu as H265Nalu;
+use cros_codecs::codec::h265::parser::NaluType::AudNut as HEVCAuDelimiter;
+use cros_codecs::codec::h265::parser::NaluType::CraNut as H265IdrCraNut;
+use cros_codecs::codec::h265::parser::NaluType::IdrNLp as H265IdrNLp;
+use cros_codecs::codec::h265::parser::NaluType::IdrWRadl as H265IdrWRadl;
 
 pub const ONE_NS: f64 = 1_000_000_000.0;
 
@@ -70,10 +75,7 @@ pub fn check_contains_au_delimiter(
                 "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
                 source_id, rtp_time, nal.header, nal.offset
             );
-            if matches!(
-                nal.header.type_,
-                cros_codecs::codec::h264::parser::NaluType::AuDelimiter
-            ) {
+            if matches!(nal.header.type_, H264AuDelimiter) {
                 aud = true;
             }
         }
@@ -84,10 +86,7 @@ pub fn check_contains_au_delimiter(
                 "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
                 source_id, rtp_time, nal.header, nal.offset
             );
-            if matches!(
-                nal.header.type_,
-                cros_codecs::codec::h265::parser::NaluType::AudNut
-            ) {
+            if matches!(nal.header.type_, HEVCAuDelimiter) {
                 aud = true;
             }
         }
@@ -120,10 +119,7 @@ pub fn is_keyframe(
                 "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
                 source_id, rtp_time, nal.header, nal.offset
             );
-            if matches!(
-                nal.header.type_,
-                cros_codecs::codec::h264::parser::NaluType::SliceIdr
-            ) {
+            if matches!(nal.header.type_, H264Idr) {
                 kf = true;
             }
         }
@@ -134,12 +130,7 @@ pub fn is_keyframe(
                 "Stream_id: {}, RTP time: {}, NAL header: {:?}, offset: {}",
                 source_id, rtp_time, nal.header, nal.offset
             );
-            if matches!(
-                nal.header.type_,
-                cros_codecs::codec::h265::parser::NaluType::IdrWRadl
-                    | cros_codecs::codec::h265::parser::NaluType::IdrNLp
-                    | cros_codecs::codec::h265::parser::NaluType::CraNut
-            ) {
+            if matches!(nal.header.type_, H265IdrWRadl | H265IdrNLp | H265IdrCraNut) {
                 kf = true;
             }
         }
