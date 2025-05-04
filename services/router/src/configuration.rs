@@ -20,9 +20,9 @@ pub struct IngressConfiguration {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EgressConfiguration {
     pub name: Option<String>,
-    pub socket: SinkConfiguration,
+    pub socket: Option<SinkConfiguration>,
     pub matcher: Option<String>,
-    pub handler: Option<HandlerConfiguration>,
+    pub rename_handler: Option<HandlerConfiguration>,
 }
 
 #[config]

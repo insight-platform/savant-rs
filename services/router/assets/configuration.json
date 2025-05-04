@@ -49,9 +49,9 @@
                 }
             },
             "matcher": "[tag1] & [tag2]",
-            "handler": {
+            "rename_handler": {
                 "module": "egress.module",
-                "class_name": "Egress1Handler"
+                "class_name": "Egress1RenameHandler"
             }
         },
         {
