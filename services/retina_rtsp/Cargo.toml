@@ -23,7 +23,6 @@ log = { workspace = true }
 mini-moka = { workspace = true }
 parking_lot = { workspace = true }
 retina = { workspace = true }
-replaydb = { workspace = true }
 savant_core = { workspace = true }
 savant_services_common = { workspace = true }
 serde = { workspace = true }
