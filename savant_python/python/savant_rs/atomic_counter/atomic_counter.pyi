@@ -1,5 +1,5 @@
 __all__ = [
-    'AtomicCounter',
+    "AtomicCounter",
 ]
 
 class AtomicCounter:

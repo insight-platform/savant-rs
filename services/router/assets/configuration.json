@@ -16,12 +16,10 @@
                     "inflight_ops": 100
                 }
             },
-            "handler": {
-                "module": "ingress.module",
-                "class_name": "Ingress1Handler"
-            }
+            "handler": "handler_name"
         },
         {
+            "name": "ingress2",
             "socket": {
                 "url": "sub+connect:tcp://127.0.0.1:6666"
             }
@@ -49,18 +47,21 @@
                 }
             },
             "matcher": "[tag1] & [tag2]",
-            "rename_handler": {
-                "module": "egress.module",
-                "class_name": "Egress1RenameHandler"
-            }
+            "rename_handler": "other_handler_name"
         },
         {
+            "name": "egress2",
             "socket": {
                 "url": "pub+connect:tcp://127.0.0.1:3333"
             }
         }
     ],
     "common": {
+        "init": {
+            "module_name": "handler.module",
+            "function_name": "handler_name",
+            "args": []
+        },
         "name_cache": {
             "ttl": {
                 "secs": 10,

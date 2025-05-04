@@ -7,25 +7,22 @@ use serde::{Deserialize, Serialize};
 use twelf::{config, Layer};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HandlerConfiguration {
-    pub module: String,
-    pub class_name: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IngressConfiguration {
-    pub name: Option<String>,
+    pub name: String,
     pub socket: SourceConfiguration,
-    pub handler: Option<HandlerConfiguration>,
+    pub handler: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EgressConfiguration {
-    pub name: Option<String>,
+    pub name: String,
     pub socket: Option<SinkConfiguration>,
     pub matcher: Option<String>,
-    pub rename_handler: Option<HandlerConfiguration>,
+    pub rename_handler: Option<String>,
 }
+
+pub const DEFAULT_NAME_CACHE_TTL: Duration = Duration::from_secs(10);
+pub const DEFAULT_NAME_CACHE_SIZE: usize = 1000;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NameCacheConfiguration {
@@ -34,8 +31,25 @@ pub struct NameCacheConfiguration {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HandlerInitConfiguration {
+    pub module_name: String,
+    pub function_name: String,
+    pub args: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
     pub name_cache: Option<NameCacheConfiguration>,
+    pub init: Option<HandlerInitConfiguration>,
+}
+
+impl Default for NameCacheConfiguration {
+    fn default() -> Self {
+        Self {
+            ttl: DEFAULT_NAME_CACHE_TTL,
+            size: DEFAULT_NAME_CACHE_SIZE,
+        }
+    }
 }
 
 #[config]
@@ -48,12 +62,15 @@ pub struct ServiceConfiguration {
 }
 
 impl ServiceConfiguration {
-    pub(crate) fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&mut self) -> Result<()> {
+        if self.common.name_cache.is_none() {
+            self.common.name_cache = Some(NameCacheConfiguration::default());
+        }
         Ok(())
     }
 
     pub fn new(path: &str) -> Result<Self> {
-        let conf = Self::with_layers(&[Layer::Json(path.into())])?;
+        let mut conf = Self::with_layers(&[Layer::Json(path.into())])?;
         conf.validate()?;
         Ok(conf)
     }

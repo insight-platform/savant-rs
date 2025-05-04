@@ -19,4 +19,5 @@ log = { workspace = true }
 savant_core = { workspace = true }
 savant_services_common = { path = "../common" }
 serde = { workspace = true }
+serde_json = { workspace = true }
 twelf = { workspace = true }

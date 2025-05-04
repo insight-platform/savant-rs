@@ -1,5 +1,6 @@
 from savant_rs.logging import log, LogLevel, set_log_level
-from savant_rs.gstreamer import register_handler, InvocationReason, FlowResult
+from savant_rs import register_handler
+from savant_rs.gstreamer import InvocationReason, FlowResult
 import time
 import threading
 

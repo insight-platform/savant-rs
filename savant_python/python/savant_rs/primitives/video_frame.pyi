@@ -4,8 +4,7 @@ from typing import Dict, List, Optional, Tuple
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import MatchQuery
 from savant_rs.primitives import *
-from savant_rs.primitives.geometry import (Intersection, Point, PolygonalArea,
-                                           RBBox)
+from savant_rs.primitives.geometry import Intersection, Point, PolygonalArea, RBBox
 from savant_rs.utils import TelemetrySpan, VideoObjectBBoxTransformation
 from savant_rs.utils.serialization import Message
 
