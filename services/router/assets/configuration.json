@@ -1,0 +1,63 @@
+{
+    "ingres": [
+        {
+            "name": "ingress1",
+            "socket": {
+                "url": "sub+connect:tcp://127.0.0.1:6666",
+                "options": {
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_hwm": 1000,
+                    "topic_prefix_spec": "none",
+                    "source_cache_size": 1000,
+                    "fix_ipc_permissions": 511,
+                    "inflight_ops": 100
+                }
+            },
+            "handler": {
+                "module": "ingress.module",
+                "class_name": "Ingress1Handler"
+            }
+        },
+        {
+            "socket": {
+                "url": "sub+connect:tcp://127.0.0.1:6666"
+            }
+        }
+    ],
+    "egress": [
+        {
+            "name": "egress1",
+            "socket": {
+                "url": "pub+connect:tcp://127.0.0.1:3333",
+                "options": {
+                    "send_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "send_retries": 3,
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_retries": 3,
+                    "send_hwm": 1000,
+                    "receive_hwm": 1000,
+                    "inflight_ops": 100
+                }
+            },
+            "matcher": "[tag1] & [tag2]",
+            "handler": {
+                "module": "egress.module",
+                "class_name": "Egress1Handler"
+            }
+        },
+        {
+            "socket": {
+                "url": "pub+connect:tcp://127.0.0.1:3333"
+            }
+        }
+    ]
+}

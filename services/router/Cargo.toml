@@ -13,3 +13,10 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+savant_core = { workspace = true }
+savant_services_common = { path = "../common" }
+serde = { workspace = true }
+twelf = { workspace = true }
