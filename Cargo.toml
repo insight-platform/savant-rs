@@ -88,6 +88,7 @@ mini-moka = "0.10"
 moka = { version = "0.12", features = ["future"] }
 
 nix = { version = "0.29", features = ["process", "signal"] }
+nom = "7"
 num-bigint = "0.4"
 num-traits = "0.2"
 
