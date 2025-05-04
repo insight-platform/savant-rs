@@ -59,5 +59,14 @@
                 "url": "pub+connect:tcp://127.0.0.1:3333"
             }
         }
-    ]
+    ],
+    "common": {
+        "name_cache": {
+            "ttl": {
+                "secs": 10,
+                "nanos": 0
+            },
+            "size": 1000
+        }
+    }
 }

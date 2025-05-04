@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use savant_services_common::job_writer::SinkConfiguration;
 use savant_services_common::source::SourceConfiguration;
@@ -25,12 +27,24 @@ pub struct EgressConfiguration {
     pub rename_handler: Option<HandlerConfiguration>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NameCacheConfiguration {
+    pub ttl: Duration,
+    pub size: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommonConfiguration {
+    pub name_cache: Option<NameCacheConfiguration>,
+}
+
 #[config]
 #[derive(Debug, Serialize, Clone)]
 pub struct ServiceConfiguration {
     #[serde(rename = "ingres")]
     pub ingress: Vec<IngressConfiguration>,
     pub egress: Vec<EgressConfiguration>,
+    pub common: CommonConfiguration,
 }
 
 impl ServiceConfiguration {
