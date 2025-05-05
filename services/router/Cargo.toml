@@ -21,6 +21,7 @@ log = { workspace = true }
 lru = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 savant_core = { workspace = true }
+savant_core_py = { workspace = true }
 savant_rs = { workspace = true }
 savant_services_common = { path = "../common" }
 serde = { workspace = true }

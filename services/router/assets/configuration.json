@@ -48,8 +48,7 @@
             },
             "high_watermark": 0.9,
             "matcher": "[label1] & [label2]",
-            "source_mapper": "other_handler_name",
-            "topic_mapper": "other_handler_name"
+            "mapper": "other_handler_name"
         },
         {
             "name": "egress2",

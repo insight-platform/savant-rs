@@ -1,31 +1,23 @@
 use std::collections::VecDeque;
 
 use crate::{configuration::ServiceConfiguration, egress_mapper::EgressMapper};
-use anyhow::bail;
 use log::warn;
 use savant_core::{
-    message::{
-        label_filter::LabelFilterRule, label_filter_parser::LabelExpressionParser, Message,
-        MessageEnvelope,
-    },
+    message::{label_filter::LabelFilterRule, label_filter_parser::LabelExpressionParser, Message},
     transport::zeromq::{NonBlockingWriter, WriteOperationResult, WriterResult},
 };
 
 struct SinkSpec {
     label_expression: Option<LabelFilterRule>,
     writer_name: String,
-    writer: Option<NonBlockingWriter>,
+    writer: NonBlockingWriter,
     high_watermark: f64,
     op_results: VecDeque<WriteOperationResult>,
 }
 
 impl SinkSpec {
     pub fn can_send(&mut self) -> bool {
-        if self.writer.is_none() {
-            return false;
-        }
-
-        let writer = self.writer.as_ref().unwrap();
+        let writer = &mut self.writer;
         if self.op_results.len() >= writer.get_max_inflight_messages() {
             warn!(
                 "Sink {} has reached the limit of pending results (max: {})",
@@ -63,11 +55,7 @@ impl SinkSpec {
     }
 
     pub fn send(&mut self, topic: &str, m: &Message, payload: &[&[u8]]) -> anyhow::Result<()> {
-        if self.writer.is_none() {
-            return Ok(());
-        }
-
-        let writer = self.writer.as_mut().unwrap();
+        let writer = &mut self.writer;
 
         if let Some(label_expression) = &self.label_expression {
             if !label_expression.matches(&m.get_labels()) {
@@ -116,7 +104,7 @@ impl SinkSpec {
     }
 }
 
-struct Egress {
+pub struct Egress {
     sinks: Vec<SinkSpec>,
     source_mapper: EgressMapper,
 }
@@ -125,14 +113,7 @@ impl Egress {
     pub fn new(config: &ServiceConfiguration) -> anyhow::Result<Self> {
         let mut sinks = Vec::new();
         for sink in &config.egress {
-            let writer_opt = match &sink.socket {
-                Some(socket_conf) => Some({
-                    let mut writer = NonBlockingWriter::try_from(socket_conf)?;
-                    writer.start()?;
-                    writer
-                }),
-                None => None,
-            };
+            let mut writer = NonBlockingWriter::try_from(&sink.socket)?;
 
             sinks.push(SinkSpec {
                 label_expression: match &sink.matcher {
@@ -140,7 +121,7 @@ impl Egress {
                     None => None,
                 },
                 writer_name: sink.name.clone(),
-                writer: writer_opt,
+                writer,
                 high_watermark: sink.high_watermark.unwrap(),
                 op_results: VecDeque::new(),
             });

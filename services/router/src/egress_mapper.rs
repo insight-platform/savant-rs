@@ -1,19 +1,58 @@
 use hashbrown::HashMap;
 use lru::LruCache;
+use pyo3::Python;
 use savant_core::message::{Message, MessageEnvelope};
-use std::{num::NonZeroUsize, time::SystemTime};
+use savant_core_py::REGISTERED_HANDLERS;
+use std::{
+    num::NonZeroUsize,
+    time::{Duration, SystemTime},
+};
 
 use crate::configuration::ServiceConfiguration;
 
+pub struct MapCache {
+    cache: LruCache<String, (String, SystemTime)>,
+    ttl: Duration,
+}
+
+impl MapCache {
+    pub fn new(size: usize, ttl: Duration) -> Self {
+        Self {
+            cache: LruCache::new(NonZeroUsize::new(size).unwrap()),
+            ttl,
+        }
+    }
+
+    pub fn get_or_update(
+        &mut self,
+        key: &str,
+        is_permited: bool,
+        update: impl FnOnce() -> anyhow::Result<String>,
+    ) -> anyhow::Result<String> {
+        let cached_value = self.cache.get(key);
+        if let Some((cached_value, change_at)) = cached_value {
+            if !is_permited || SystemTime::now() < *change_at {
+                return Ok(cached_value.clone());
+            }
+        }
+
+        let new_value = update()?;
+        let expires_at = SystemTime::now().checked_add(self.ttl).unwrap();
+        self.cache
+            .put(key.to_string(), (new_value.clone(), expires_at));
+        Ok(new_value)
+    }
+}
+
 pub struct EgressMapper {
-    source_cache: LruCache<String, (String, SystemTime)>,
-    topic_cache: LruCache<String, (String, SystemTime)>,
+    source_cache: MapCache,
+    topic_cache: MapCache,
     source_mappers: HashMap<String, String>,
     topic_mappers: HashMap<String, String>,
 }
 
 impl EgressMapper {
-    fn change_source_id(m: &mut Message, new_source_id: &str) {
+    fn set_source(m: &mut Message, new_source_id: &str) {
         match m.payload_mut() {
             MessageEnvelope::EndOfStream(end_of_stream) => {
                 end_of_stream.source_id = new_source_id.to_string();
@@ -67,16 +106,13 @@ impl EgressMapper {
 
         let source_id = source_id_opt.unwrap();
 
-        let new_source_id_opt = self.get_mapped_source(
+        let new_source_id = self.get_mapped_source(
             sink_name,
             &source_id,
             &m.get_labels(),
             Self::switch_allowed(m),
         )?;
-
-        if let Some(new_source_id) = new_source_id_opt {
-            Self::change_source_id(&mut new_message, new_source_id.as_str());
-        }
+        Self::set_source(&mut new_message, &new_source_id);
         Ok(new_message)
     }
 
@@ -92,17 +128,24 @@ impl EgressMapper {
         source_id: &str,
         labels: &[String],
         switch_allowed: bool,
-    ) -> anyhow::Result<Option<String>> {
-        let cached_source = self.source_cache.get(source_id);
-        if let Some((cached_source, change_at)) = cached_source {
-            if !switch_allowed || SystemTime::now() < *change_at {
-                return Ok(Some(cached_source.clone()));
-            }
-        }
-
-        // invoke handler and get mapped source name
-
-        todo!()
+    ) -> anyhow::Result<String> {
+        self.source_cache
+            .get_or_update(source_id, switch_allowed, || {
+                let source_mapper = self.source_mappers.get(sink_name);
+                if let Some(source_mapper) = source_mapper {
+                    Python::with_gil(|py| {
+                        let handlers_bind = REGISTERED_HANDLERS.read();
+                        let handler = handlers_bind
+                            .get(source_mapper.as_str())
+                            .unwrap_or_else(|| panic!("Handler {} not found", source_mapper));
+                        let res = handler.call1(py, (sink_name, source_id, labels.to_vec()))?;
+                        let new_source_id = res.extract::<String>(py)?;
+                        Ok(new_source_id)
+                    })
+                } else {
+                    Ok(source_id.to_string())
+                }
+            })
     }
 
     fn get_mapped_topic(
@@ -112,13 +155,22 @@ impl EgressMapper {
         labels: &[String],
         switch_allowed: bool,
     ) -> anyhow::Result<String> {
-        let cached_topic = self.topic_cache.get(topic);
-        if let Some((cached_topic, change_at)) = cached_topic {
-            if !switch_allowed || SystemTime::now() < *change_at {
-                return Ok(cached_topic.clone());
+        self.topic_cache.get_or_update(topic, switch_allowed, || {
+            let topic_mapper = self.topic_mappers.get(topic);
+            if let Some(topic_mapper) = topic_mapper {
+                Python::with_gil(|py| {
+                    let handlers_bind = REGISTERED_HANDLERS.read();
+                    let handler = handlers_bind
+                        .get(topic_mapper.as_str())
+                        .unwrap_or_else(|| panic!("Handler {} not found", topic_mapper));
+                    let res = handler.call1(py, (sink_name, topic, labels.to_vec()))?;
+                    let new_topic = res.extract::<String>(py)?;
+                    Ok(new_topic)
+                })
+            } else {
+                Ok(topic.to_string())
             }
-        }
-        todo!()
+        })
     }
 }
 
@@ -136,13 +188,12 @@ impl From<&ServiceConfiguration> for EgressMapper {
             }
         }
 
+        let cache_size = config.common.name_cache.as_ref().unwrap().size;
+        let cache_ttl = config.common.name_cache.as_ref().unwrap().ttl;
+
         Self {
-            source_cache: LruCache::new(
-                NonZeroUsize::new(config.common.name_cache.as_ref().unwrap().size).unwrap(),
-            ),
-            topic_cache: LruCache::new(
-                NonZeroUsize::new(config.common.name_cache.as_ref().unwrap().size).unwrap(),
-            ),
+            source_cache: MapCache::new(cache_size, cache_ttl),
+            topic_cache: MapCache::new(cache_size, cache_ttl),
             source_mappers: source_handlers,
             topic_mappers: topic_handlers,
         }

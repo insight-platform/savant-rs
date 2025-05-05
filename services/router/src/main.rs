@@ -4,12 +4,13 @@ mod egress_mapper;
 
 use anyhow::{anyhow, Result};
 use configuration::ServiceConfiguration;
+use egress::Egress;
 use log::{debug, info};
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
     PyResult, Python,
 };
-use std::{env::args, sync::Arc};
+use std::env::args;
 
 fn main() -> Result<()> {
     savant_rs::init_logs()?;
@@ -25,7 +26,7 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or_else(|| anyhow!("missing configuration argument"))?;
     info!("Configuration: {}", conf_arg);
-    let conf = Arc::new(ServiceConfiguration::new(&conf_arg)?);
+    let conf = ServiceConfiguration::new(&conf_arg)?;
     debug!("Configuration: {:?}", conf);
 
     let module_root = conf.common.init.as_ref().unwrap().python_root.as_str();
@@ -64,6 +65,8 @@ fn main() -> Result<()> {
             module_name
         ));
     }
+
+    let _ = Egress::new(&conf)?;
 
     Ok(())
 }
