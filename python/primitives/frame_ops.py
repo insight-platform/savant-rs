@@ -5,10 +5,15 @@ from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import IntExpression as IE
 from savant_rs.match_query import MatchQuery as Q
 from savant_rs.match_query import QueryFunctions as QF
-from savant_rs.primitives import (Attribute, AttributeValue,
-                                  IdCollisionResolutionPolicy, VideoFrame,
-                                  VideoFrameContent, VideoFrameTransformation,
-                                  VideoObject)
+from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
+    IdCollisionResolutionPolicy,
+    VideoFrame,
+    VideoFrameContent,
+    VideoFrameTransformation,
+    VideoObject,
+)
 from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message, load_message, save_message

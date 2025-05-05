@@ -1,6 +1,9 @@
 from savant_rs.match_query import MatchQuery as Q
-from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
-                                  VideoFrameUpdate)
+from savant_rs.primitives import (
+    AttributeUpdatePolicy,
+    ObjectUpdatePolicy,
+    VideoFrameUpdate,
+)
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message, load_message, save_message
 

@@ -4,10 +4,8 @@ from typing import List, Optional
 from savant_rs.primitives import Attribute
 
 __all__ = [
-    'FlowResult',
-    'InvocationReason',
-    'register_handler',
-    'unregister_handler',
+    "FlowResult",
+    "InvocationReason",
 ]
 
 class FlowResult(Enum):
@@ -31,6 +29,3 @@ class InvocationReason(Enum):
     SourceEvent: ...
     StateChange: ...
     IngressMessageTransformer: ...
-
-def register_handler(element_name: str, h: object) -> None: ...
-def unregister_handler(name: str) -> None: ...

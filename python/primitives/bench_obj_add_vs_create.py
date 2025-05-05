@@ -1,7 +1,11 @@
 from timeit import timeit
 
-from savant_rs.primitives import (IdCollisionResolutionPolicy, VideoFrame,
-                                  VideoFrameContent, VideoObject)
+from savant_rs.primitives import (
+    IdCollisionResolutionPolicy,
+    VideoFrame,
+    VideoFrameContent,
+    VideoObject,
+)
 from savant_rs.primitives.geometry import BBox
 
 frame = VideoFrame(

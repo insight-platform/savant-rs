@@ -63,6 +63,10 @@ impl NonBlockingWriter {
         })
     }
 
+    pub fn get_max_inflight_messages(&self) -> usize {
+        self.max_inflight_messages
+    }
+
     pub fn inflight_messages(&self) -> usize {
         self.ops_queue.as_ref().unwrap().len()
     }

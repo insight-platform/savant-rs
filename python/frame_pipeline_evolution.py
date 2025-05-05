@@ -3,13 +3,20 @@ from savant_rs.logging import LogLevel, log, set_log_level
 
 set_log_level(LogLevel.Trace)
 
-from savant_rs.pipeline import (StageFunction, VideoPipeline,
-                                VideoPipelineConfiguration,
-                                VideoPipelineStagePayloadType)
-from savant_rs.primitives import (Attribute, AttributeValue, VideoFrame,
-                                  VideoFrameContent,
-                                  VideoFrameTranscodingMethod,
-                                  VideoFrameTransformation)
+from savant_rs.pipeline import (
+    StageFunction,
+    VideoPipeline,
+    VideoPipelineConfiguration,
+    VideoPipelineStagePayloadType,
+)
+from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
+    VideoFrame,
+    VideoFrameContent,
+    VideoFrameTranscodingMethod,
+    VideoFrameTransformation,
+)
 from savant_rs.utils import TelemetrySpan, enable_dl_detection, gen_frame
 
 if __name__ == "__main__":

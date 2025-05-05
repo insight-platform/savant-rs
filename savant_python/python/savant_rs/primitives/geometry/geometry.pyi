@@ -4,15 +4,15 @@ from typing import List, Optional, Tuple
 from savant_rs.draw_spec import PaddingDraw
 
 __all__ = [
-    'Point',
-    'Segment',
-    'IntersectionKind',
-    'Intersection',
-    'PolygonalArea',
-    'RBBox',
-    'BBox',
-    'solely_owned_areas',
-    'associate_bboxes',
+    "Point",
+    "Segment",
+    "IntersectionKind",
+    "Intersection",
+    "PolygonalArea",
+    "RBBox",
+    "BBox",
+    "solely_owned_areas",
+    "associate_bboxes",
 ]
 
 class Point:

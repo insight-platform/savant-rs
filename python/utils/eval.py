@@ -1,5 +1,4 @@
-from savant_rs.match_query import (register_env_resolver,
-                                   register_utility_resolver)
+from savant_rs.match_query import register_env_resolver, register_utility_resolver
 from savant_rs.utils import eval_expr
 
 register_env_resolver()

@@ -16,14 +16,15 @@ use tokio::{sync::Mutex, task::JoinSet};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("┌───────────────────────────────────────────────────────┐");
-    println!("│                  Retina RTSP Service                  │");
-    println!("│ This program is licensed under the APACHE 2.0 license │");
-    println!("│      For more information, see the LICENSE file       │");
-    println!("│            (c) 2025 BwSoft Management, LLC            │");
-    println!("└───────────────────────────────────────────────────────┘");
-
     env_logger::init();
+
+    info!("┌───────────────────────────────────────────────────────┐");
+    info!("│                  Retina RTSP Service                  │");
+    info!("│ This program is licensed under the APACHE 2.0 license │");
+    info!("│      For more information, see the LICENSE file       │");
+    info!("│            (c) 2025 BwSoft Management, LLC            │");
+    info!("└───────────────────────────────────────────────────────┘");
+
     let conf_arg = args()
         .nth(1)
         .ok_or_else(|| anyhow!("missing configuration argument"))?;

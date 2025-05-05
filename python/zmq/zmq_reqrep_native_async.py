@@ -3,8 +3,12 @@ from time import time
 
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import (NonBlockingReader, NonBlockingWriter,
-                           ReaderConfigBuilder, WriterConfigBuilder)
+from savant_rs.zmq import (
+    NonBlockingReader,
+    NonBlockingWriter,
+    ReaderConfigBuilder,
+    WriterConfigBuilder,
+)
 
 socket_name = "ipc:///tmp/test_hello"
 

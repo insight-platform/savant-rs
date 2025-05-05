@@ -1,10 +1,10 @@
 from typing import Dict, List, Optional
 
 __all__ = [
-    'CounterFamily',
-    'GaugeFamily',
-    'delete_metric_family',
-    'set_extra_labels',
+    "CounterFamily",
+    "GaugeFamily",
+    "delete_metric_family",
+    "set_extra_labels",
 ]
 
 class CounterFamily:

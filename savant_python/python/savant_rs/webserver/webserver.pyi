@@ -1,10 +1,10 @@
 __all__ = [
-    'init_webserver',
-    'stop_webserver',
-    'set_shutdown_token',
-    'is_shutdown_set',
-    'set_status_running',
-    'set_shutdown_signal',
+    "init_webserver",
+    "stop_webserver",
+    "set_shutdown_token",
+    "is_shutdown_set",
+    "set_status_running",
+    "set_shutdown_signal",
 ]
 
 def init_webserver(port: int) -> None: ...

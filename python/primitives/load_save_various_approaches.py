@@ -1,12 +1,15 @@
 from timeit import default_timer as timer
 
 from savant_rs.utils import gen_frame
-from savant_rs.utils.serialization import (Message, load_message,
-                                           load_message_from_bytebuffer,
-                                           load_message_from_bytes,
-                                           save_message,
-                                           save_message_to_bytebuffer,
-                                           save_message_to_bytes)
+from savant_rs.utils.serialization import (
+    Message,
+    load_message,
+    load_message_from_bytebuffer,
+    load_message_from_bytes,
+    save_message,
+    save_message_to_bytebuffer,
+    save_message_to_bytes,
+)
 
 f = gen_frame()
 m = Message.video_frame(f)
