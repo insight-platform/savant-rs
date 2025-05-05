@@ -1,4 +1,6 @@
 mod configuration;
+mod egress;
+mod egress_mapper;
 
 use anyhow::{anyhow, Result};
 use configuration::ServiceConfiguration;
@@ -30,9 +32,13 @@ fn main() -> Result<()> {
     let module_name = conf.common.init.as_ref().unwrap().module_name.as_str();
     let function_name = conf.common.init.as_ref().unwrap().function_name.as_str();
     let args = conf.common.init.as_ref().unwrap().args.as_ref().unwrap();
-    let _args_as_json = serde_json::to_string(args)?;
+    let json_str = serde_json::to_string(args)?;
 
     let invocation: PyResult<bool> = Python::with_gil(|py| {
+        let json_module = PyModule::import(py, "json")?;
+        let json_loads = json_module.getattr("loads")?;
+        let py_data = json_loads.call1((&json_str,))?;
+
         let module = PyModule::new(py, "savant_rs")?;
         savant_rs::init_all(py, &module)?;
         // add the current directory to the Python module load path
@@ -45,7 +51,7 @@ fn main() -> Result<()> {
         path.insert(0, module_root)?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name)?.unbind();
-        let res = f.call0(py)?.into_bound(py);
+        let res = f.call1(py, (py_data,))?.into_bound(py);
         Ok(res.downcast::<PyBool>()?.extract()?)
     });
     let res = invocation?;

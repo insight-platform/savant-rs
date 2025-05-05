@@ -43,11 +43,13 @@
                     "receive_retries": 3,
                     "send_hwm": 1000,
                     "receive_hwm": 1000,
-                    "inflight_ops": 100
+                    "inflight_ops": 1000
                 }
             },
-            "matcher": "[tag1] & [tag2]",
-            "rename_handler": "other_handler_name"
+            "high_watermark": 0.9,
+            "matcher": "[label1] & [label2]",
+            "source_mapper": "other_handler_name",
+            "topic_mapper": "other_handler_name"
         },
         {
             "name": "egress2",
@@ -61,7 +63,14 @@
             "python_root": "services/router/assets/python",
             "module_name": "module",
             "function_name": "init",
-            "args": []
+            "args": [
+                {
+                    "params": {
+                        "home_dir": "${HOME}",
+                        "user_name": "${USER}"
+                    }
+                }
+            ]
         },
         "name_cache": {
             "ttl": {

@@ -99,7 +99,7 @@ pub fn clear_source_seq_id(source: &str) {
     seq_store.reset_seq_id(source);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum MessageEnvelope {
     EndOfStream(EndOfStream),
     VideoFrame(VideoFrameProxy),
@@ -108,6 +108,20 @@ pub enum MessageEnvelope {
     UserData(UserData),
     Shutdown(Shutdown),
     Unknown(String),
+}
+
+impl Clone for MessageEnvelope {
+    fn clone(&self) -> Self {
+        match self {
+            Self::EndOfStream(arg0) => Self::EndOfStream(arg0.clone()),
+            Self::VideoFrame(arg0) => Self::VideoFrame(arg0.smart_copy()),
+            Self::VideoFrameBatch(arg0) => Self::VideoFrameBatch(arg0.smart_copy()),
+            Self::VideoFrameUpdate(arg0) => Self::VideoFrameUpdate(arg0.clone()),
+            Self::UserData(arg0) => Self::UserData(arg0.clone()),
+            Self::Shutdown(arg0) => Self::Shutdown(arg0.clone()),
+            Self::Unknown(arg0) => Self::Unknown(arg0.clone()),
+        }
+    }
 }
 
 pub const VERSION_LEN: usize = 4;
@@ -212,6 +226,10 @@ impl Message {
 
     pub fn payload(&self) -> &MessageEnvelope {
         &self.payload
+    }
+
+    pub fn payload_mut(&mut self) -> &mut MessageEnvelope {
+        &mut self.payload
     }
 
     pub fn meta(&self) -> &MessageMeta {

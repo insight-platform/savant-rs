@@ -13,12 +13,16 @@ pub struct IngressConfiguration {
     pub handler: Option<String>,
 }
 
+const DEFAULT_HIGH_WATERMARK: f64 = 0.9;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EgressConfiguration {
     pub name: String,
     pub socket: Option<SinkConfiguration>,
+    pub high_watermark: Option<f64>,
     pub matcher: Option<String>,
-    pub rename_handler: Option<String>,
+    pub source_mapper: Option<String>,
+    pub topic_mapper: Option<String>,
 }
 
 pub const DEFAULT_NAME_CACHE_TTL: Duration = Duration::from_secs(10);
@@ -80,6 +84,12 @@ impl ServiceConfiguration {
         if !metadata.is_dir() {
             return Err(anyhow::anyhow!("{} is not a directory", python_root));
         }
+
+        self.egress.iter_mut().for_each(|egress| {
+            if egress.high_watermark.is_none() {
+                egress.high_watermark = Some(DEFAULT_HIGH_WATERMARK);
+            }
+        });
 
         Ok(())
     }
