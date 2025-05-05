@@ -58,8 +58,9 @@
     ],
     "common": {
         "init": {
-            "module_name": "handler.module",
-            "function_name": "handler_name",
+            "python_root": "services/router/assets/python",
+            "module_name": "module",
+            "function_name": "init",
             "args": []
         },
         "name_cache": {
@@ -68,6 +69,10 @@
                 "nanos": 0
             },
             "size": 1000
+        },
+        "idle_sleep": {
+            "secs": 0,
+            "nanos": 1000000
         }
     }
 }

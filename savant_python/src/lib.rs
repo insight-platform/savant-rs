@@ -345,7 +345,7 @@ pub fn init_logs() -> PyResult<()> {
         PyRuntimeError
     )?;
 
-    set_log_level(LogLevel::Error);
+    //set_log_level(LogLevel::Error);
     Ok(())
 }
 

@@ -32,15 +32,19 @@ pub struct NameCacheConfiguration {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HandlerInitConfiguration {
+    pub python_root: String,
     pub module_name: String,
     pub function_name: String,
     pub args: Option<serde_json::Value>,
 }
 
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(2);
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
     pub name_cache: Option<NameCacheConfiguration>,
     pub init: Option<HandlerInitConfiguration>,
+    pub idle_sleep: Option<Duration>,
 }
 
 impl Default for NameCacheConfiguration {
@@ -66,6 +70,17 @@ impl ServiceConfiguration {
         if self.common.name_cache.is_none() {
             self.common.name_cache = Some(NameCacheConfiguration::default());
         }
+
+        if self.common.idle_sleep.is_none() {
+            self.common.idle_sleep = Some(DEFAULT_IDLE_TIMEOUT);
+        }
+
+        let python_root = self.common.init.as_ref().unwrap().python_root.clone();
+        let metadata = std::fs::metadata(&python_root)?;
+        if !metadata.is_dir() {
+            return Err(anyhow::anyhow!("{} is not a directory", python_root));
+        }
+
         Ok(())
     }
 
@@ -73,5 +88,16 @@ impl ServiceConfiguration {
         let mut conf = Self::with_layers(&[Layer::Json(path.into())])?;
         conf.validate()?;
         Ok(conf)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate() -> anyhow::Result<()> {
+        let _ = ServiceConfiguration::new("assets/configuration.json")?;
+        Ok(())
     }
 }
