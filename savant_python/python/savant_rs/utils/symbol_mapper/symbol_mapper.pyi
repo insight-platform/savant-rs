@@ -2,21 +2,21 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 __all__ = [
-    'RegistrationPolicy',
-    'build_model_object_key',
-    'clear_symbol_maps',
-    'dump_registry',
-    'get_model_id',
-    'get_model_name',
-    'get_object_id',
-    'get_object_ids',
-    'get_object_label',
-    'get_object_labels',
-    'is_model_registered',
-    'is_object_registered',
-    'parse_compound_key',
-    'register_model_objects',
-    'validate_base_key',
+    "RegistrationPolicy",
+    "build_model_object_key",
+    "clear_symbol_maps",
+    "dump_registry",
+    "get_model_id",
+    "get_model_name",
+    "get_object_id",
+    "get_object_ids",
+    "get_object_label",
+    "get_object_labels",
+    "is_model_registered",
+    "is_object_registered",
+    "parse_compound_key",
+    "register_model_objects",
+    "validate_base_key",
 ]
 
 class RegistrationPolicy(Enum):

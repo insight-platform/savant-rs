@@ -23,9 +23,9 @@ use nom::{
 /// - [tag1] | [tag2]          - Or([Set("tag1"), Set("tag2")])
 /// - "tag1" & !("tag2" | "tag3") - And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
 /// - [tag1] & !([tag2] | [tag3]) - And([Set("tag1"), Not(Or([Set("tag2"), Set("tag3")]))])
-pub struct TagExpressionParser;
+pub struct LabelExpressionParser;
 
-impl TagExpressionParser {
+impl LabelExpressionParser {
     /// Parse a human-friendly tag expression into a LabelFilterRule
     pub fn parse(input: &str) -> Result<LabelFilterRule> {
         match expression(input) {
@@ -130,38 +130,38 @@ mod tests {
 
     #[test]
     fn test_parse_simple_tag() {
-        let result = TagExpressionParser::parse(r#""tag1""#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1""#).unwrap();
         assert_eq!(result, Set("tag1".to_string()));
 
-        let result = TagExpressionParser::parse("[tag1]").unwrap();
+        let result = LabelExpressionParser::parse("[tag1]").unwrap();
         assert_eq!(result, Set("tag1".to_string()));
     }
 
     #[test]
     fn test_parse_not() {
-        let result = TagExpressionParser::parse(r#"!"tag1""#).unwrap();
+        let result = LabelExpressionParser::parse(r#"!"tag1""#).unwrap();
         assert_eq!(result, Not(Box::new(Set("tag1".to_string()))));
 
-        let result = TagExpressionParser::parse("![tag1]").unwrap();
+        let result = LabelExpressionParser::parse("![tag1]").unwrap();
         assert_eq!(result, Not(Box::new(Set("tag1".to_string()))));
     }
 
     #[test]
     fn test_parse_and() {
-        let result = TagExpressionParser::parse(r#""tag1" & "tag2""#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1" & "tag2""#).unwrap();
         assert_eq!(
             result,
             And(vec![Set("tag1".to_string()), Set("tag2".to_string())])
         );
 
-        let result = TagExpressionParser::parse("[tag1] & [tag2]").unwrap();
+        let result = LabelExpressionParser::parse("[tag1] & [tag2]").unwrap();
         assert_eq!(
             result,
             And(vec![Set("tag1".to_string()), Set("tag2".to_string())])
         );
 
         // Mix of quote styles
-        let result = TagExpressionParser::parse(r#""tag1" & [tag2]"#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1" & [tag2]"#).unwrap();
         assert_eq!(
             result,
             And(vec![Set("tag1".to_string()), Set("tag2".to_string())])
@@ -170,13 +170,13 @@ mod tests {
 
     #[test]
     fn test_parse_or() {
-        let result = TagExpressionParser::parse(r#""tag1" | "tag2""#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1" | "tag2""#).unwrap();
         assert_eq!(
             result,
             Or(vec![Set("tag1".to_string()), Set("tag2".to_string())])
         );
 
-        let result = TagExpressionParser::parse("[tag1] | [tag2]").unwrap();
+        let result = LabelExpressionParser::parse("[tag1] | [tag2]").unwrap();
         assert_eq!(
             result,
             Or(vec![Set("tag1".to_string()), Set("tag2".to_string())])
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn test_parse_complex() {
-        let result = TagExpressionParser::parse(r#""tag1" & !("tag2" | "tag3")"#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1" & !("tag2" | "tag3")"#).unwrap();
         assert_eq!(
             result,
             And(vec![
@@ -197,7 +197,7 @@ mod tests {
             ])
         );
 
-        let result = TagExpressionParser::parse("[tag1] & !([tag2] | [tag3])").unwrap();
+        let result = LabelExpressionParser::parse("[tag1] & !([tag2] | [tag3])").unwrap();
         assert_eq!(
             result,
             And(vec![
@@ -212,13 +212,13 @@ mod tests {
 
     #[test]
     fn test_parse_whitespace() {
-        let result = TagExpressionParser::parse(r#"  "tag1"  &  "tag2"  "#).unwrap();
+        let result = LabelExpressionParser::parse(r#"  "tag1"  &  "tag2"  "#).unwrap();
         assert_eq!(
             result,
             And(vec![Set("tag1".to_string()), Set("tag2".to_string())])
         );
 
-        let result = TagExpressionParser::parse("  [tag1]  &  [tag2]  ").unwrap();
+        let result = LabelExpressionParser::parse("  [tag1]  &  [tag2]  ").unwrap();
         assert_eq!(
             result,
             And(vec![Set("tag1".to_string()), Set("tag2".to_string())])
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_parse_word_operators() {
-        let result = TagExpressionParser::parse(r#""tag1" AND "tag2" OR "tag3""#).unwrap();
+        let result = LabelExpressionParser::parse(r#""tag1" AND "tag2" OR "tag3""#).unwrap();
         assert_eq!(
             result,
             Or(vec![
@@ -236,7 +236,7 @@ mod tests {
             ])
         );
 
-        let result = TagExpressionParser::parse("[tag1] AND [tag2] OR [tag3]").unwrap();
+        let result = LabelExpressionParser::parse("[tag1] AND [tag2] OR [tag3]").unwrap();
         assert_eq!(
             result,
             Or(vec![
@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_mixed_quote_styles() {
-        let result = TagExpressionParser::parse(r#"[tag1] & "tag2" | [tag3]"#).unwrap();
+        let result = LabelExpressionParser::parse(r#"[tag1] & "tag2" | [tag3]"#).unwrap();
         assert_eq!(
             result,
             Or(vec![

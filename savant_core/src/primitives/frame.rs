@@ -433,6 +433,11 @@ impl VideoFrameProxy {
             .collect()
     }
 
+    pub fn has_objects(&self) -> bool {
+        let inner = trace!(self.inner.read_recursive());
+        !inner.objects.is_empty()
+    }
+
     pub fn access_objects(&self, q: &MatchQuery) -> Vec<BorrowedVideoObject> {
         let inner = trace!(self.inner.read_recursive());
         let objects = inner.objects.values().cloned().collect::<Vec<_>>();

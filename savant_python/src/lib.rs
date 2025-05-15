@@ -76,7 +76,6 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<gst::FlowResult>()?;
     m.add_class::<gst::InvocationReason>()?;
-    m.add_function(wrap_pyfunction!(gst::register_handler, m)?)?;
     Ok(())
 }
 
@@ -346,12 +345,14 @@ pub fn init_logs() -> PyResult<()> {
         PyRuntimeError
     )?;
 
-    set_log_level(LogLevel::Error);
+    //set_log_level(LogLevel::Error);
     Ok(())
 }
 
 pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(register_handler, m)?)?;
+    m.add_function(wrap_pyfunction!(unregister_handler, m)?)?;
 
     m.add_wrapped(wrap_pymodule!(self::primitives))?;
     m.add_wrapped(wrap_pymodule!(self::pipeline))?;

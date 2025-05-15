@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::store::rocksdb::RocksDbStore;
 use crate::store::{Store, SyncRocksDbStore};
-use crate::topic_to_string;
+use savant_services_common::topic_to_string;
 
 #[derive(Debug)]
 struct StreamStats {

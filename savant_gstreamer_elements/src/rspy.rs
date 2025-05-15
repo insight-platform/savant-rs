@@ -4,7 +4,8 @@ use gstreamer::{glib, Buffer, Event, StateChange};
 use gstreamer_audio::glib::ParamFlags;
 use parking_lot::{Mutex, RwLock};
 use pyo3::prelude::*;
-use savant_core_py::gst::{FlowResult, InvocationReason, REGISTERED_HANDLERS};
+use savant_core_py::gst::{FlowResult, InvocationReason};
+use savant_core_py::REGISTERED_HANDLERS;
 use std::sync::{Arc, LazyLock};
 
 static CAT: LazyLock<gstreamer::DebugCategory> = LazyLock::new(|| {

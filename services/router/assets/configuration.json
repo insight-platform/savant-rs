@@ -1,0 +1,87 @@
+{
+    "ingres": [
+        {
+            "name": "ingress1",
+            "socket": {
+                "url": "sub+bind:tcp://127.0.0.1:6667",
+                "options": {
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_hwm": 1000,
+                    "topic_prefix_spec": "none",
+                    "source_cache_size": 1000,
+                    "fix_ipc_permissions": 511,
+                    "inflight_ops": 100
+                }
+            },
+            "handler": "handler_name"
+        },
+        {
+            "name": "ingress2",
+            "socket": {
+                "url": "sub+bind:tcp://127.0.0.1:6666"
+            }
+        }
+    ],
+    "egress": [
+        {
+            "name": "egress1",
+            "socket": {
+                "url": "pub+connect:tcp://127.0.0.1:3333",
+                "options": {
+                    "send_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "send_retries": 3,
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_retries": 3,
+                    "send_hwm": 1000,
+                    "receive_hwm": 1000,
+                    "inflight_ops": 1000
+                }
+            },
+            "high_watermark": 0.9,
+            "matcher": "[label1] & [label2]",
+            "mapper": "other_handler_name"
+        },
+        {
+            "name": "egress2",
+            "socket": {
+                "url": "pub+connect:tcp://127.0.0.1:3333"
+            }
+        }
+    ],
+    "common": {
+        "init": {
+            "python_root": "services/router/assets/python",
+            "module_name": "module",
+            "function_name": "init",
+            "args": [
+                {
+                    "params": {
+                        "home_dir": "${HOME}",
+                        "user_name": "${USER}"
+                    }
+                }
+            ]
+        },
+        "source_affinity_cache_size": 1000,
+        "name_cache": {
+            "ttl": {
+                "secs": 10,
+                "nanos": 0
+            },
+            "size": 1000
+        },
+        "idle_sleep": {
+            "secs": 0,
+            "nanos": 1000000
+        }
+    }
+}

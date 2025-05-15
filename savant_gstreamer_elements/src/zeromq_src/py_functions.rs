@@ -4,8 +4,9 @@ use gstreamer::subclass::prelude::*;
 use pyo3::prelude::*;
 use savant_core::message::Message;
 use savant_core::primitives::rust::VideoFrameProxy;
-use savant_core_py::gst::{InvocationReason, REGISTERED_HANDLERS};
+use savant_core_py::gst::InvocationReason;
 use savant_core_py::primitives::message::Message as PyMessage;
+use savant_core_py::REGISTERED_HANDLERS;
 use std::borrow::Cow;
 
 use crate::zeromq_src::CAT;

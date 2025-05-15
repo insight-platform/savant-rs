@@ -1,6 +1,6 @@
 from savant_rs.primitives import VideoFrame, VideoObject
 
-__all__ = ['gen_empty_frame', 'gen_frame', 'gen_object']
+__all__ = ["gen_empty_frame", "gen_frame", "gen_object"]
 
 def gen_empty_frame() -> VideoFrame: ...
 def gen_frame() -> VideoFrame: ...
