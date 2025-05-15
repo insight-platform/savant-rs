@@ -1,10 +1,12 @@
 mod configuration;
 mod egress;
 mod egress_mapper;
+mod ingress;
 
 use anyhow::{anyhow, Result};
 use configuration::ServiceConfiguration;
 use egress::Egress;
+use ingress::Ingress;
 use log::{debug, info};
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
@@ -32,8 +34,13 @@ fn main() -> Result<()> {
     let module_root = conf.common.init.as_ref().unwrap().python_root.as_str();
     let module_name = conf.common.init.as_ref().unwrap().module_name.as_str();
     let function_name = conf.common.init.as_ref().unwrap().function_name.as_str();
-    let args = conf.common.init.as_ref().unwrap().args.as_ref().unwrap();
-    let json_str = serde_json::to_string(args)?;
+    let args = conf.common.init.as_ref().unwrap().args.as_ref();
+
+    let json_str = if let Some(args) = args {
+        serde_json::to_string(args)?
+    } else {
+        "null".to_string()
+    };
 
     let invocation: PyResult<bool> = Python::with_gil(|py| {
         let json_module = PyModule::import(py, "json")?;
@@ -66,7 +73,21 @@ fn main() -> Result<()> {
         ));
     }
 
-    let _ = Egress::new(&conf)?;
+    let ingress = Ingress::new(&conf)?;
+    let mut egress = Egress::new(&conf)?;
+
+    loop {
+        for ingress_message in ingress.get()? {
+            let topic = &ingress_message.topic;
+            let message = &ingress_message.message;
+            let payload_bind = &ingress_message.payload;
+            let payload = payload_bind
+                .iter()
+                .map(|p| p.as_slice())
+                .collect::<Vec<_>>();
+            egress.process(topic, message, &payload)?;
+        }
+    }
 
     Ok(())
 }

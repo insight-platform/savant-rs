@@ -3,7 +3,7 @@
         {
             "name": "ingress1",
             "socket": {
-                "url": "sub+connect:tcp://127.0.0.1:6666",
+                "url": "sub+bind:tcp://127.0.0.1:6667",
                 "options": {
                     "receive_timeout": {
                         "secs": 1,
@@ -21,7 +21,7 @@
         {
             "name": "ingress2",
             "socket": {
-                "url": "sub+connect:tcp://127.0.0.1:6666"
+                "url": "sub+bind:tcp://127.0.0.1:6666"
             }
         }
     ],
@@ -71,6 +71,7 @@
                 }
             ]
         },
+        "source_affinity_cache_size": 1000,
         "name_cache": {
             "ttl": {
                 "secs": 10,

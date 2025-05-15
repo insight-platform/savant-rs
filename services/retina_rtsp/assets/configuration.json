@@ -22,11 +22,13 @@
             "sources": [
                 {
                     "source_id": "city-traffic",
-                    "url": "rtsp://hello.savant.video:8554/stream/city-traffic"
+                    "url": "rtsp://hello.savant.video:8554/stream/city-traffic",
+                    "options": ${OPTIONS:-null}
                 },
                 {
                     "source_id": "town-centre",
-                    "url": "rtsp://hello.savant.video:8554/stream/town-centre"
+                    "url": "rtsp://hello.savant.video:8554/stream/town-centre",
+                    "options": ${OPTIONS:-null}
                 }
             ],
             "rtcp_sr_sync": {

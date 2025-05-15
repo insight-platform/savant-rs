@@ -992,6 +992,10 @@ impl VideoFrame {
         self.0.get_all_objects().into()
     }
 
+    pub fn has_objects(&self) -> bool {
+        self.0.has_objects()
+    }
+
     #[pyo3(name = "access_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
