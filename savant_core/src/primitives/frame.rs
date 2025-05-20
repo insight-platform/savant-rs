@@ -18,7 +18,7 @@ use crate::utils::uuid_v7::incremental_uuid_v7;
 use crate::version;
 use anyhow::{anyhow, bail};
 use derive_builder::Builder;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde_json::Value;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -26,6 +26,10 @@ use std::mem;
 use std::sync::{Arc, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+use super::object::object_tree::ObjectTree;
+
+pub type VideoObjectTree = ObjectTree<VideoObject>;
 
 #[derive(Debug, Hash)]
 struct StreamCompatibilityInformation<'a> {
@@ -1036,45 +1040,125 @@ impl VideoFrameProxy {
         frame.objects.clear();
     }
 
-    // pub fn check_frame_fit(
-    //     objs: &Vec<BorrowedVideoObject>,
-    //     max_width: f32,
-    //     max_height: f32,
-    //     bbox_type: VideoObjectBBoxType,
-    // ) -> Result<(), i64> {
-    //     for obj in objs {
-    //         let bb_opt = match bbox_type {
-    //             VideoObjectBBoxType::Detection => Some(obj.get_detection_box()),
-    //             VideoObjectBBoxType::TrackingInfo => obj.get_track_box(),
-    //         };
-    //
-    //         bb_opt
-    //             .map(|bb| {
-    //                 let vertices = bb.get_vertices();
-    //                 for (x, y) in vertices {
-    //                     if x < 0.0 || x > max_width || y < 0.0 || y > max_height {
-    //                         return Err(obj.get_id());
-    //                     }
-    //                 }
-    //                 Ok(())
-    //             })
-    //             .unwrap_or(Ok(()))?;
-    //     }
-    //     Ok(())
-    // }
+    pub fn get_ancestory(&self, obj: &BorrowedVideoObject) -> Vec<i64> {
+        let mut ids = vec![obj.get_id()];
+        let mut current = obj.get_parent();
+        while let Some(parent) = current {
+            ids.push(parent.get_id());
+            current = parent.get_parent();
+        }
+        ids
+    }
+
+    pub fn reduce_to_common_parents(&self, q: &MatchQuery) -> Vec<BorrowedVideoObject> {
+        let mut reduced = true;
+        let mut objects = self.access_objects(q);
+        while reduced {
+            let mut unique_ancestors = HashSet::new();
+            let object_ids = objects.iter().map(|o| o.get_id()).collect::<HashSet<_>>();
+            for obj in &objects {
+                let ancestor_ids = self.get_ancestory(obj);
+                // reverse order iteration
+                for id in ancestor_ids.iter().rev() {
+                    if object_ids.contains(id) {
+                        unique_ancestors.insert(*id);
+                        break;
+                    }
+                }
+            }
+            let mut new_objects = Vec::new();
+
+            for obj in &objects {
+                let id = obj.get_id();
+                if unique_ancestors.contains(&id) {
+                    new_objects.push(obj.clone());
+                }
+            }
+            if new_objects.len() == objects.len() {
+                reduced = false;
+            }
+            objects = new_objects;
+        }
+        objects
+    }
+
+    fn export_tree(&self, obj: &BorrowedVideoObject) -> VideoObjectTree {
+        let mut tree = VideoObjectTree::new(obj.detached_copy());
+        let current = obj.get_id();
+        let children = self.get_children(current);
+        for c in children {
+            let child_tree = self.export_tree(&c);
+            tree.add_child(child_tree);
+        }
+        tree
+    }
+
+    pub fn export_complete_object_trees(
+        &self,
+        q: &MatchQuery,
+        delete_exported: bool,
+    ) -> anyhow::Result<Vec<VideoObjectTree>> {
+        let ancestors = self.reduce_to_common_parents(q);
+        let mut trees = Vec::new();
+        for o in &ancestors {
+            trees.push(self.export_tree(&o));
+        }
+        let trees = ancestors
+            .iter()
+            .map(|o| self.export_tree(o))
+            .collect::<Vec<_>>();
+        if delete_exported {
+            let mut object_ids = Vec::new();
+            for t in &trees {
+                let ids = t.get_object_ids()?;
+                object_ids.extend(ids);
+            }
+            self.delete_objects_with_ids(&object_ids);
+        }
+        Ok(trees)
+    }
+
+    pub fn import_object_trees(&self, trees: Vec<VideoObjectTree>) -> anyhow::Result<()> {
+        for t in trees {
+            t.walk_objects(
+                &mut |object: &VideoObject,
+                      _: Option<&VideoObject>,
+                      owned_parent: Option<&BorrowedVideoObject>| {
+                    let mut obj = self
+                        .add_object(object.clone(), IdCollisionResolutionPolicy::GenerateNewId)
+                        .unwrap();
+                    if let Some(parent) = owned_parent {
+                        obj.set_parent(Some(parent.get_id()))?;
+                    }
+                    Ok(obj)
+                },
+            )?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use hashbrown::HashSet;
+
     use crate::draw::DrawLabelKind;
-    use crate::match_query::{eq, one_of, MatchQuery};
+    use crate::match_query::{eq, one_of, MatchQuery as Q};
     use crate::primitives::object::private::{SealedWithFrame, SealedWithParent};
+    use crate::primitives::object::VideoObject;
     use crate::primitives::object::{
         IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
     };
     use crate::primitives::{RBBox, WithAttributes};
     use crate::test::{gen_empty_frame, gen_frame, gen_object, s};
     use std::sync::Arc;
+
+    fn gen_labeled_object(id: i64) -> VideoObject {
+        let mut obj = gen_object(id);
+        let label = format!("{:03}", id);
+        obj.set_label(&label);
+        obj
+    }
 
     #[test]
     fn test_access_objects_by_id() {
@@ -1132,7 +1216,7 @@ mod tests {
         let o = f.get_object(0).unwrap();
         assert!(o.get_frame().is_some());
 
-        let removed = f.delete_objects(&MatchQuery::Id(eq(0)));
+        let removed = f.delete_objects(&Q::Id(eq(0)));
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].get_id(), 0);
         assert!(removed[0].get_frame().is_none());
@@ -1147,7 +1231,7 @@ mod tests {
     #[test]
     fn test_delete_all_objects() {
         let f = gen_frame();
-        let objs = f.delete_objects(&MatchQuery::Idle);
+        let objs = f.delete_objects(&Q::Idle);
         assert_eq!(objs.len(), 3);
         let objects = f.get_all_objects();
         assert!(objects.is_empty());
@@ -1177,7 +1261,7 @@ mod tests {
     #[test]
     fn set_parent_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::ParentLabel(s("draw")));
+        frame.set_draw_label(&Q::Idle, DrawLabelKind::ParentLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.calculate_draw_label(), s("draw"));
 
@@ -1188,7 +1272,7 @@ mod tests {
     #[test]
     fn set_own_draw_label() {
         let frame = gen_frame();
-        frame.set_draw_label(&MatchQuery::Idle, DrawLabelKind::OwnLabel(s("draw")));
+        frame.set_draw_label(&Q::Idle, DrawLabelKind::OwnLabel(s("draw")));
         let parent_object = frame.get_object(0).unwrap();
         assert_eq!(parent_object.calculate_draw_label(), s("draw"));
 
@@ -1203,13 +1287,13 @@ mod tests {
     fn test_set_clear_parent_ops() -> anyhow::Result<()> {
         let frame = gen_frame();
         let parent = frame.get_object(0).unwrap();
-        frame.clear_parent(&MatchQuery::Id(one_of(&[1, 2])));
+        frame.clear_parent(&Q::Id(one_of(&[1, 2])));
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_none());
         let obj = frame.get_object(2).unwrap();
         assert!(obj.get_parent().is_none());
 
-        frame.set_parent(&MatchQuery::Id(one_of(&[1, 2])), &parent)?;
+        frame.set_parent(&Q::Id(one_of(&[1, 2])), &parent)?;
         let obj = frame.get_object(1).unwrap();
         assert!(obj.get_parent().is_some());
 
@@ -1255,7 +1339,7 @@ mod tests {
         let f1 = gen_frame();
         let f2 = gen_frame();
         let f1o = f1.get_object(0).unwrap();
-        assert!(f2.set_parent(&MatchQuery::Id(eq(1)), &f1o).is_err());
+        assert!(f2.set_parent(&Q::Id(eq(1)), &f1o).is_err());
     }
 
     #[test]
@@ -1269,7 +1353,7 @@ mod tests {
             .unwrap();
 
         let borrowed_object = f2.get_object(33).unwrap();
-        f2.set_parent(&MatchQuery::Id(eq(1)), &borrowed_object)?;
+        f2.set_parent(&Q::Id(eq(1)), &borrowed_object)?;
         Ok(())
     }
 
@@ -1370,5 +1454,241 @@ mod tests {
         assert_eq!(frame.get_max_object_id(), 0);
         let objs = frame.get_all_objects();
         assert_eq!(objs.len(), 1);
+    }
+
+    #[test]
+    fn test_get_common_parents() -> anyhow::Result<()> {
+        //         0
+        //        / \
+        //       1   3
+        //      / \    \
+        //     2   6    5
+        //    /
+        //   4
+        let frame = gen_empty_frame();
+        let obj0 = gen_object(0);
+        let obj0_ref = frame.add_object(obj0, IdCollisionResolutionPolicy::Error)?;
+
+        let obj1 = gen_object(1);
+        let obj1_ref = frame.add_object(obj1, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(1)), &obj0_ref)?;
+
+        let obj2 = gen_object(2);
+        let obj2_ref = frame.add_object(obj2, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(2)), &obj1_ref)?;
+
+        let obj3 = gen_object(3);
+        let obj3_ref = frame.add_object(obj3, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(3)), &obj0_ref)?;
+
+        let obj4 = gen_object(4);
+        let _obj4_ref = frame.add_object(obj4, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(4)), &obj2_ref)?;
+
+        let obj5 = gen_object(5);
+        let _obj5_ref = frame.add_object(obj5, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(5)), &obj3_ref)?;
+
+        let obj6 = gen_object(6);
+        let _obj6_ref = frame.add_object(obj6, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(6)), &obj1_ref)?;
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(eq(3)));
+        assert_eq!(common_parents.len(), 1);
+        assert_eq!(common_parents[0].get_id(), 3);
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(eq(0)));
+        assert_eq!(common_parents.len(), 1);
+        assert_eq!(common_parents[0].get_id(), 0);
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(one_of(&[0, 1, 3])));
+        assert_eq!(common_parents.len(), 1);
+        assert_eq!(common_parents[0].get_id(), 0);
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(one_of(&[0, 4])));
+        assert_eq!(common_parents.len(), 1);
+        assert_eq!(common_parents[0].get_id(), 0);
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(one_of(&[1, 4])));
+        assert_eq!(common_parents.len(), 1);
+        assert_eq!(common_parents[0].get_id(), 1);
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(one_of(&[1, 2, 3])));
+        assert_eq!(common_parents.len(), 2);
+        let ids = common_parents
+            .iter()
+            .map(|o| o.get_id())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&3));
+
+        let common_parents = frame.reduce_to_common_parents(&Q::Id(one_of(&[2, 4, 6, 5])));
+        assert_eq!(common_parents.len(), 3);
+        let ids = common_parents
+            .iter()
+            .map(|o| o.get_id())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&2));
+        assert!(ids.contains(&6));
+        assert!(ids.contains(&5));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_tree() -> anyhow::Result<()> {
+        //         0
+        //        / \
+        //       1   3
+        //      / \    \
+        //     2   6    5
+        //    /
+        //   4
+        let frame = gen_empty_frame();
+        let obj0 = gen_object(0);
+        let obj0_ref = frame.add_object(obj0, IdCollisionResolutionPolicy::Error)?;
+
+        let obj1 = gen_object(1);
+        let obj1_ref = frame.add_object(obj1, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(1)), &obj0_ref)?;
+
+        let obj2 = gen_object(2);
+        let obj2_ref = frame.add_object(obj2, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(2)), &obj1_ref)?;
+
+        let obj3 = gen_object(3);
+        let obj3_ref = frame.add_object(obj3, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(3)), &obj0_ref)?;
+
+        let obj4 = gen_object(4);
+        let _obj4_ref = frame.add_object(obj4, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(4)), &obj2_ref)?;
+
+        let obj5 = gen_object(5);
+        let _obj5_ref = frame.add_object(obj5, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(5)), &obj3_ref)?;
+
+        let obj6 = gen_object(6);
+        let _obj6_ref = frame.add_object(obj6, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(6)), &obj1_ref)?;
+
+        let tree = frame.export_tree(&obj0_ref);
+        let mut ids = HashSet::new();
+        tree.walk_objects(
+            &mut |o: &VideoObject, _: Option<&VideoObject>, _: Option<&()>| {
+                ids.insert(o.get_id());
+                Ok(())
+            },
+        )?;
+
+        assert_eq!(ids.len(), 7);
+        let expected_ids = vec![0, 1, 2, 3, 4, 5, 6]
+            .into_iter()
+            .collect::<HashSet<_>>();
+        assert_eq!(ids, expected_ids);
+
+        let tree = frame.export_tree(&obj3_ref);
+        let mut ids = HashSet::new();
+        tree.walk_objects(
+            &mut |o: &VideoObject, _: Option<&VideoObject>, _: Option<&()>| {
+                ids.insert(o.get_id());
+                Ok(())
+            },
+        )?;
+        assert_eq!(ids.len(), 2);
+        let expected_ids = vec![3, 5].into_iter().collect::<HashSet<_>>();
+        assert_eq!(ids, expected_ids);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_import_complete_object_trees() -> anyhow::Result<()> {
+        //         0
+        //        / \
+        //       1   3
+        //      / \    \
+        //     2   6    5
+        //    /
+        //   4
+
+        let gen_object = |id: i64| gen_labeled_object(id);
+        let frame = gen_empty_frame();
+        let obj0 = gen_object(0);
+        let obj0_ref = frame.add_object(obj0, IdCollisionResolutionPolicy::Error)?;
+
+        let obj1 = gen_object(1);
+        let obj1_ref = frame.add_object(obj1, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(1)), &obj0_ref)?;
+
+        let obj2 = gen_object(2);
+        let obj2_ref = frame.add_object(obj2, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(2)), &obj1_ref)?;
+
+        let obj3 = gen_object(3);
+        let obj3_ref = frame.add_object(obj3, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(3)), &obj0_ref)?;
+
+        let obj4 = gen_object(4);
+        let _obj4_ref = frame.add_object(obj4, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(4)), &obj2_ref)?;
+
+        let obj5 = gen_object(5);
+        let _obj5_ref = frame.add_object(obj5, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(5)), &obj3_ref)?;
+
+        let obj6 = gen_object(6);
+        let _obj6_ref = frame.add_object(obj6, IdCollisionResolutionPolicy::Error)?;
+        frame.set_parent(&Q::Id(eq(6)), &obj1_ref)?;
+
+        let trees = frame.export_complete_object_trees(&Q::Id(one_of(&[1, 3, 2])), true)?;
+        assert_eq!(trees.len(), 2);
+        let objects = frame.get_all_objects();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].get_id(), 0);
+
+        let mut object_tree_ids = trees
+            .iter()
+            .map(|t| {
+                let mut ids = t.get_object_ids().unwrap();
+                ids.sort();
+                ids
+            })
+            .collect::<Vec<_>>();
+        object_tree_ids.sort_by(|a, b| a.len().cmp(&b.len()));
+        assert_eq!(object_tree_ids[0], vec![3, 5]);
+        assert_eq!(object_tree_ids[1], vec![1, 2, 4, 6]);
+
+        frame.import_object_trees(trees)?;
+        let objects = frame.get_all_objects();
+        assert_eq!(objects.len(), 7);
+        for o in objects {
+            println!(
+                "Label: {}, ID: {}, Parent: {:?}",
+                o.get_label(),
+                o.get_id(),
+                o.get_parent().map(|p| p.get_id()).unwrap_or(-1)
+            );
+        }
+
+        println!("---Exporting again, without removal---");
+        let trees = frame.export_complete_object_trees(&Q::Id(one_of(&[1, 3, 2])), false)?;
+        assert_eq!(trees.len(), 2);
+        let objects = frame.get_all_objects();
+        assert_eq!(objects.len(), 7);
+
+        frame.import_object_trees(trees)?;
+        let objects = frame.get_all_objects();
+        assert_eq!(objects.len(), 13);
+        for o in objects {
+            println!(
+                "Label: {}, ID: {}, Parent: {:?}",
+                o.get_label(),
+                o.get_id(),
+                o.get_parent().map(|p| p.get_id()).unwrap_or(-1)
+            );
+        }
+
+        Ok(())
     }
 }
