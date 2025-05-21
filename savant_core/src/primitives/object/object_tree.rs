@@ -1,5 +1,6 @@
 use super::WithId;
 
+#[derive(Debug, Clone)]
 pub struct ObjectTree<T: WithId> {
     object: T,
     children: Vec<ObjectTree<T>>,

@@ -34,6 +34,7 @@ pub mod rust {
     pub use super::frame::VideoFrameProxy;
     pub use super::frame::VideoFrameTranscodingMethod;
     pub use super::frame::VideoFrameTransformation;
+    pub use super::frame::VideoObjectTree;
     pub use super::frame_batch::VideoFrameBatch;
     pub use super::frame_update::VideoFrameUpdate;
     pub use super::object::BorrowedVideoObject;

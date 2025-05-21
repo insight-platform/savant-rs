@@ -32,6 +32,7 @@ use savant_core_py::primitives::frame_update::{
 use savant_core_py::primitives::message::loader::*;
 use savant_core_py::primitives::message::saver::*;
 use savant_core_py::primitives::message::*;
+use savant_core_py::primitives::object::object_tree::VideoObjectTree;
 use savant_core_py::primitives::object::{
     BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject,
 };
@@ -240,6 +241,7 @@ pub fn primitives(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<BorrowedVideoObject>()?;
     m.add_class::<VideoObject>()?;
+    m.add_class::<VideoObjectTree>()?;
     m.add_class::<VideoObjectsView>()?;
 
     m.add_class::<IdCollisionResolutionPolicy>()?;

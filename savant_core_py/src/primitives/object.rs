@@ -1,3 +1,5 @@
+pub mod object_tree;
+
 use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};

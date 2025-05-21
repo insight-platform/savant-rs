@@ -1,5 +1,6 @@
 import json
 from timeit import default_timer as timer
+from typing import Optional
 
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import IntExpression as IE
@@ -18,7 +19,9 @@ from savant_rs.primitives.geometry import BBox, Point, PolygonalArea
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message, load_message, save_message
 
-# set_log_level(LogLevel.Trace)
+from savant_rs.logging import set_log_level, LogLevel
+
+set_log_level(LogLevel.Info)
 
 f = gen_frame()
 print(f.json_pretty)
@@ -235,6 +238,23 @@ assert len(objects) == 1
 frame.set_draw_label(Q.idle(), SetDrawLabelKind.own("person"))
 frame.set_draw_label(Q.idle(), SetDrawLabelKind.parent("also_person"))
 
+before_len = len(f.get_all_objects())
+trees = f.export_complete_object_trees(Q.idle(), delete_exported=True)
+
+print(trees)
+
+def walker(obj: VideoObject, parent: Optional[VideoObject], result: int):
+    print(obj.namespace,obj.label, parent.id if parent else None, result)
+    if result is None:
+        return 0
+    return result + 1
+
+trees[0].walk_objects(walker)
+
+f.import_object_trees(trees)
+
+after_len = len(f.get_all_objects())
+assert after_len == before_len
 frame.delete_objects(Q.idle())
 
 objects = frame.access_objects(Q.idle())

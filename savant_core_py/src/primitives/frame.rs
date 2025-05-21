@@ -7,9 +7,9 @@ use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::message::Message;
 use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
-use crate::release_gil;
 use crate::utils::bigint::fit_i64;
 use crate::with_gil;
+use crate::{err_to_pyo3, release_gil};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyObject, PyResult};
@@ -20,6 +20,8 @@ use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 use std::fmt::Debug;
 use std::mem;
+
+use super::object::object_tree::VideoObjectTree;
 
 #[pyclass]
 pub struct ExternalFrame(pub(crate) rust::ExternalFrame);
@@ -1025,6 +1027,32 @@ impl VideoFrame {
             .into_iter()
             .map(VideoObject)
             .collect()
+    }
+
+    pub fn export_complete_object_trees(
+        &self,
+        q: &MatchQuery,
+        delete_exported: bool,
+    ) -> PyResult<Vec<VideoObjectTree>> {
+        release_gil!(true, || {
+            Ok(err_to_pyo3!(
+                self.0.export_complete_object_trees(&q.0, delete_exported),
+                PyRuntimeError
+            )?
+            .into_iter()
+            .map(VideoObjectTree)
+            .collect())
+        })
+    }
+
+    pub fn import_object_trees(&self, trees: Vec<VideoObjectTree>) -> PyResult<()> {
+        let trees = trees.into_iter().map(|t| t.0).collect::<Vec<_>>();
+        release_gil!(true, || {
+            Ok(err_to_pyo3!(
+                self.0.import_object_trees(trees),
+                PyRuntimeError
+            )?)
+        })
     }
 
     #[pyo3(name = "set_parent")]
