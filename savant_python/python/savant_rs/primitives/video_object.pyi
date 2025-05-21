@@ -1,14 +1,15 @@
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
-from savant_rs.draw_spec import SetDrawLabelKind
-from savant_rs.match_query import MatchQuery
 from savant_rs.primitives import *
+from savant_rs.primitives.attribute import Attribute
+from savant_rs.primitives.attribute_value import AttributeValue
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import VideoObjectBBoxTransformation
 
 __all__ = [
     "VideoObject",
+    "VideoObjectTree",
     "VideoObjectBBoxType",
     "BorrowedVideoObject",
     "IdCollisionResolutionPolicy",
@@ -142,3 +143,7 @@ class VideoObjectsView:
     def track_ids(self) -> List[int]: ...
     @property
     def sorted_by_id(self) -> List[BorrowedVideoObject]: ...
+
+
+class VideoObjectTree:
+    def walk_objects(self, callable: Callable[[BorrowedVideoObject, Optional[BorrowedVideoObject], Optional[Any]], Any]) -> None: ...

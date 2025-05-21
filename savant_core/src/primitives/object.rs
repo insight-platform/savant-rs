@@ -1,3 +1,5 @@
+pub mod object_tree;
+
 use anyhow::bail;
 use serde_json::Value;
 use std::fmt::Debug;
@@ -29,6 +31,20 @@ pub enum IdCollisionResolutionPolicy {
     GenerateNewId,
     Overwrite,
     Error,
+}
+
+pub trait WithId {
+    fn get_id(&self) -> i64;
+    fn set_id(&mut self, id: i64);
+}
+
+impl WithId for VideoObject {
+    fn get_id(&self) -> i64 {
+        self.id
+    }
+    fn set_id(&mut self, id: i64) {
+        self.id = id;
+    }
 }
 
 #[derive(Debug, derive_builder::Builder, serde::Serialize, serde::Deserialize)]

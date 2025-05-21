@@ -4,9 +4,10 @@ from typing import Dict, List, Optional, Tuple
 from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import MatchQuery
 from savant_rs.primitives import *
-from savant_rs.primitives.geometry import Intersection, Point, PolygonalArea, RBBox
-from savant_rs.utils import TelemetrySpan, VideoObjectBBoxTransformation
+from savant_rs.primitives.geometry import RBBox
+from savant_rs.utils import VideoObjectBBoxTransformation
 from savant_rs.utils.serialization import Message
+from savant_rs.primitives.video_object import BorrowedVideoObject, VideoObjectTree
 
 __all__ = [
     "ObjectUpdatePolicy",
@@ -145,6 +146,10 @@ class VideoFrame:
     def get_object(self, id: int) -> Optional[BorrowedVideoObject]: ...
     def get_all_objects(self) -> VideoObjectsView: ...
     def has_objects(self) -> bool: ...
+    def export_complete_object_trees(
+        self, q: MatchQuery, delete_exported: bool
+    ) -> List[VideoObjectTree]: ...
+    def import_object_trees(self, trees: List[VideoObjectTree]) -> None: ...
 
 class VideoFrameUpdate:
     frame_attribute_policy: AttributeUpdatePolicy
