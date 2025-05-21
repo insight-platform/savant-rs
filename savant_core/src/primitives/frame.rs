@@ -1101,7 +1101,7 @@ impl VideoFrameProxy {
         let ancestors = self.reduce_to_common_parents(q);
         let mut trees = Vec::new();
         for o in &ancestors {
-            trees.push(self.export_tree(&o));
+            trees.push(self.export_tree(o));
         }
         let trees = ancestors
             .iter()

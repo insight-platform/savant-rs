@@ -63,7 +63,7 @@ fn quoted_string(input: &str) -> IResult<&str, String> {
 fn primary(input: &str) -> IResult<&str, LabelFilterRule> {
     alt((
         // Set("tag")
-        map(quoted_string, |s| LabelFilterRule::Set(s)),
+        map(quoted_string, LabelFilterRule::Set),
         // Not(expr)
         map(preceded(pair(char('!'), multispace0), primary), |rule| {
             LabelFilterRule::Not(Box::new(rule))
