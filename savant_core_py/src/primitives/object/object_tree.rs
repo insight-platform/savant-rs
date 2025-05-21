@@ -22,6 +22,25 @@ impl VideoObjectTree {
         self.__repr__()
     }
 
+    /// Walk the object tree and call the callable for each object.
+    ///
+    /// Parameters
+    /// ----------
+    /// callable : Callable
+    ///   A callable that will be called for each object in the tree. The callable signature is    
+    ///   ``(object: VideoObject, parent: Optional[VideoObject], result: Optional[Any]) -> Any``. The result is the result
+    ///   of the previous call (upper level in the tree). The callable should return the result of the current
+    ///   call.
+    ///
+    /// Returns
+    /// -------
+    /// None
+    ///
+    /// Raises
+    /// ------
+    /// PyRuntimeError
+    ///   If the walk fails.
+    ///
     pub fn walk_objects(&self, callable: &Bound<'_, PyAny>) -> PyResult<()> {
         let callable = |object: &rust::VideoObject,
                         parent: Option<&rust::VideoObject>,
