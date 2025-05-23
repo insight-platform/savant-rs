@@ -133,7 +133,6 @@ impl Egress {
     }
 
     pub fn process(&mut self, topic: &str, m: &Message, payload: &[&[u8]]) -> anyhow::Result<()> {
-        let labels = m.get_labels();
         for sink in &mut self.sinks {
             sink.handle_pending_responses()?;
             if !sink.can_send() {

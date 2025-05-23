@@ -42,7 +42,7 @@ pub struct HandlerInitConfiguration {
     pub args: Option<serde_json::Value>,
 }
 
-pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(2);
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(1);
 pub const DEFAULT_SOURCE_AFFINITY_CACHE_SIZE: usize = 1000;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

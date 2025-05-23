@@ -12,7 +12,6 @@ class Handler:
 
 
 def init(params: Any):
-    print(f"params: {params}")
     log(LogLevel.Info, "router::init", f"savant-rs version: {version()}")
     register_handler("name", Handler())
     return True
