@@ -1,12 +1,12 @@
-use std::num::NonZero;
-
 use crate::configuration::ServiceConfiguration;
 use log::debug;
-use lru::LruCache;
+use pyo3::Python;
 use savant_core::{
     message::Message,
     transport::zeromq::{NonBlockingReader, ReaderResult},
 };
+use savant_core_py::primitives::message::Message as PyMessage;
+use savant_core_py::REGISTERED_HANDLERS;
 use savant_services_common::topic_to_string;
 
 struct IngressStream {
@@ -17,8 +17,8 @@ struct IngressStream {
 
 pub struct IngressMessage {
     pub topic: String,
-    pub message: Message,
-    pub payload: Vec<Vec<u8>>,
+    pub message: Box<Message>,
+    pub data: Vec<Vec<u8>>,
 }
 
 impl IngressStream {
@@ -33,7 +33,6 @@ impl IngressStream {
 
 pub struct Ingress {
     streams: Vec<IngressStream>,
-    affinity_cache: LruCache<String, usize>,
 }
 
 impl Ingress {
@@ -44,13 +43,7 @@ impl Ingress {
             let stream = IngressStream::new(ingress.name.clone(), socket, ingress.handler.clone());
             streams.push(stream);
         }
-        let affinity_cache_size = config.common.source_affinity_cache_size.unwrap();
-
-        let affinity_cache = LruCache::new(NonZero::new(affinity_cache_size).unwrap());
-        Ok(Self {
-            streams,
-            affinity_cache,
-        })
+        Ok(Self { streams })
     }
 
     pub fn get(&self) -> anyhow::Result<Vec<IngressMessage>> {
@@ -65,9 +58,42 @@ impl Ingress {
                 ReaderResult::Message {
                     message,
                     topic,
-                    routing_id,
+                    routing_id: _,
                     data,
-                } => todo!(),
+                } => {
+                    let topic = topic_to_string(&topic);
+                    let ingress_stream_name = &stream.name;
+                    let handler_name_opt = &stream.handler;
+                    let message = if let Some(handler) = handler_name_opt {
+                        let message = PyMessage::new(*message);
+                        Python::with_gil(|py| {
+                            let handlers_bind = REGISTERED_HANDLERS.read();
+                            let handler = handlers_bind
+                                .get(handler.as_str())
+                                .unwrap_or_else(|| panic!("Handler {} not found", handler));
+                            let res = handler.call1(py, (ingress_stream_name, &topic, message))?;
+                            // is none, drop message
+                            if res.is_none(py) {
+                                Ok::<Option<Box<Message>>, anyhow::Error>(None)
+                            } else {
+                                let new_message = res.extract::<PyMessage>(py)?.extract();
+                                Ok::<Option<Box<Message>>, anyhow::Error>(Some(Box::new(
+                                    new_message,
+                                )))
+                            }
+                        })?
+                    } else {
+                        Some(Box::new(*message))
+                    };
+                    if let Some(message) = message {
+                        let message = IngressMessage {
+                            topic,
+                            message,
+                            data,
+                        };
+                        messages.push(message);
+                    }
+                }
                 ReaderResult::Timeout => {
                     debug!(
                         target: "router::ingress::get",
@@ -122,10 +148,5 @@ impl Ingress {
             }
         }
         Ok(messages)
-    }
-
-    fn get_affinity(&mut self, source_id: &str) -> Option<usize> {
-        let affinity = self.affinity_cache.get(source_id);
-        affinity.cloned()
     }
 }

@@ -42,12 +42,10 @@ pub struct HandlerInitConfiguration {
     pub args: Option<serde_json::Value>,
 }
 
-pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(2);
-pub const DEFAULT_SOURCE_AFFINITY_CACHE_SIZE: usize = 1000;
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
-    pub source_affinity_cache_size: Option<usize>,
     pub name_cache: Option<NameCacheConfiguration>,
     pub init: Option<HandlerInitConfiguration>,
     pub idle_sleep: Option<Duration>,
@@ -75,10 +73,6 @@ impl ServiceConfiguration {
     pub(crate) fn validate(&mut self) -> Result<()> {
         if self.common.name_cache.is_none() {
             self.common.name_cache = Some(NameCacheConfiguration::default());
-        }
-
-        if self.common.source_affinity_cache_size.is_none() {
-            self.common.source_affinity_cache_size = Some(DEFAULT_SOURCE_AFFINITY_CACHE_SIZE);
         }
 
         if self.common.idle_sleep.is_none() {

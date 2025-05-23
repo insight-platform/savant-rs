@@ -80,8 +80,8 @@
             "size": 1000
         },
         "idle_sleep": {
-            "secs": 0,
-            "nanos": 1000000
+            "secs": 1,
+            "nanos": 0
         }
     }
 }

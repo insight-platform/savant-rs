@@ -113,7 +113,7 @@ impl Egress {
     pub fn new(config: &ServiceConfiguration) -> anyhow::Result<Self> {
         let mut sinks = Vec::new();
         for sink in &config.egress {
-            let mut writer = NonBlockingWriter::try_from(&sink.socket)?;
+            let writer = NonBlockingWriter::try_from(&sink.socket)?;
 
             sinks.push(SinkSpec {
                 label_expression: match &sink.matcher {
@@ -133,7 +133,6 @@ impl Egress {
     }
 
     pub fn process(&mut self, topic: &str, m: &Message, payload: &[&[u8]]) -> anyhow::Result<()> {
-        let labels = m.get_labels();
         for sink in &mut self.sinks {
             sink.handle_pending_responses()?;
             if !sink.can_send() {
