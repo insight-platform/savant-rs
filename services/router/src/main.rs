@@ -99,6 +99,4 @@ fn main() -> Result<()> {
             egress.process(topic, message, &data)?;
         }
     }
-
-    Ok(())
 }

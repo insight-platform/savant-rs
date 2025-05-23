@@ -1,8 +1,5 @@
-use std::num::NonZero;
-
 use crate::configuration::ServiceConfiguration;
 use log::debug;
-use lru::LruCache;
 use pyo3::Python;
 use savant_core::{
     message::Message,
@@ -36,7 +33,6 @@ impl IngressStream {
 
 pub struct Ingress {
     streams: Vec<IngressStream>,
-    affinity_cache: LruCache<String, usize>,
 }
 
 impl Ingress {
@@ -47,13 +43,7 @@ impl Ingress {
             let stream = IngressStream::new(ingress.name.clone(), socket, ingress.handler.clone());
             streams.push(stream);
         }
-        let affinity_cache_size = config.common.source_affinity_cache_size.unwrap();
-
-        let affinity_cache = LruCache::new(NonZero::new(affinity_cache_size).unwrap());
-        Ok(Self {
-            streams,
-            affinity_cache,
-        })
+        Ok(Self { streams })
     }
 
     pub fn get(&self) -> anyhow::Result<Vec<IngressMessage>> {
@@ -158,10 +148,5 @@ impl Ingress {
             }
         }
         Ok(messages)
-    }
-
-    fn get_affinity(&mut self, source_id: &str) -> Option<usize> {
-        let affinity = self.affinity_cache.get(source_id);
-        affinity.cloned()
     }
 }

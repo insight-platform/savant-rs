@@ -113,7 +113,7 @@ impl Egress {
     pub fn new(config: &ServiceConfiguration) -> anyhow::Result<Self> {
         let mut sinks = Vec::new();
         for sink in &config.egress {
-            let mut writer = NonBlockingWriter::try_from(&sink.socket)?;
+            let writer = NonBlockingWriter::try_from(&sink.socket)?;
 
             sinks.push(SinkSpec {
                 label_expression: match &sink.matcher {
