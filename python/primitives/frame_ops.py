@@ -243,11 +243,13 @@ trees = f.export_complete_object_trees(Q.idle(), delete_exported=True)
 
 print(trees)
 
+
 def walker(obj: VideoObject, parent: Optional[VideoObject], result: int):
-    print(obj.namespace,obj.label, parent.id if parent else None, result)
+    print(obj.namespace, obj.label, parent.id if parent else None, result)
     if result is None:
         return 0
     return result + 1
+
 
 trees[0].walk_objects(walker)
 

@@ -3,7 +3,7 @@
         {
             "name": "ingress1",
             "socket": {
-                "url": "sub+bind:tcp://127.0.0.1:6667",
+                "url": "router+bind:tcp://127.0.0.1:6667",
                 "options": {
                     "receive_timeout": {
                         "secs": 1,
@@ -16,20 +16,14 @@
                     "inflight_ops": 100
                 }
             },
-            "handler": "handler_name"
-        },
-        {
-            "name": "ingress2",
-            "socket": {
-                "url": "sub+bind:tcp://127.0.0.1:6666"
-            }
+            "handler": "ingress_handler"
         }
     ],
     "egress": [
         {
             "name": "egress1",
             "socket": {
-                "url": "pub+connect:tcp://127.0.0.1:3333",
+                "url": "dealer+bind:tcp://127.0.0.1:3333",
                 "options": {
                     "send_timeout": {
                         "secs": 1,
@@ -48,13 +42,8 @@
             },
             "high_watermark": 0.9,
             "matcher": "[label1] & [label2]",
-            "mapper": "other_handler_name"
-        },
-        {
-            "name": "egress2",
-            "socket": {
-                "url": "pub+connect:tcp://127.0.0.1:3333"
-            }
+            "source_mapper": "egress_source_handler",
+            "topic_mapper": "egress_topic_handler"
         }
     ],
     "common": {
@@ -80,8 +69,8 @@
             "size": 1000
         },
         "idle_sleep": {
-            "secs": 1,
-            "nanos": 0
+            "secs": 0,
+            "nanos": 1000
         }
     }
 }

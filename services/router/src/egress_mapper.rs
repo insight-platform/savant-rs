@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use log::debug;
 use lru::LruCache;
 use pyo3::Python;
 use savant_core::message::{Message, MessageEnvelope};
@@ -143,6 +144,7 @@ impl EgressMapper {
                         Ok(new_source_id)
                     })
                 } else {
+                    debug!("source_mapper not defined for sink {}", sink_name);
                     Ok(source_id.to_string())
                 }
             })
@@ -156,7 +158,7 @@ impl EgressMapper {
         switch_allowed: bool,
     ) -> anyhow::Result<String> {
         self.topic_cache.get_or_update(topic, switch_allowed, || {
-            let topic_mapper = self.topic_mappers.get(topic);
+            let topic_mapper = self.topic_mappers.get(sink_name);
             if let Some(topic_mapper) = topic_mapper {
                 Python::with_gil(|py| {
                     let handlers_bind = REGISTERED_HANDLERS.read();
@@ -168,6 +170,7 @@ impl EgressMapper {
                     Ok(new_topic)
                 })
             } else {
+                debug!("topic_mapper not defined for sink {}", sink_name);
                 Ok(topic.to_string())
             }
         })
