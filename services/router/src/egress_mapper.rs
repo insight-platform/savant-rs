@@ -1,4 +1,5 @@
 use hashbrown::HashMap;
+use log::debug;
 use lru::LruCache;
 use pyo3::Python;
 use savant_core::message::{Message, MessageEnvelope};
@@ -26,12 +27,18 @@ impl MapCache {
     pub fn get_or_update(
         &mut self,
         key: &str,
-        is_permited: bool,
+        is_allowed: bool,
         update: impl FnOnce() -> anyhow::Result<String>,
     ) -> anyhow::Result<String> {
         let cached_value = self.cache.get(key);
         if let Some((cached_value, change_at)) = cached_value {
-            if !is_permited || SystemTime::now() < *change_at {
+            if !is_allowed || SystemTime::now() < *change_at {
+                debug!(
+                    "Is allowed: {}, change_at: {:?}, now: {:?}",
+                    is_allowed,
+                    change_at,
+                    SystemTime::now()
+                );
                 return Ok(cached_value.clone());
             }
         }
@@ -70,12 +77,13 @@ impl EgressMapper {
     pub fn map(
         &mut self,
         sink_name: &str,
+        message_id: usize,
         topic: &str,
         m: &Message,
     ) -> anyhow::Result<(String, Message)> {
         // only when not cached or video frame key frame
-        let new_topic = self.map_topic(sink_name, topic, m)?;
-        let new_m = self.map_source(sink_name, m)?;
+        let new_topic = self.map_topic(sink_name, message_id, topic, m)?;
+        let new_m = self.map_source(sink_name, message_id, m)?;
         Ok((new_topic, new_m))
     }
 
@@ -88,7 +96,12 @@ impl EgressMapper {
         }
     }
 
-    fn map_source(&mut self, sink_name: &str, m: &Message) -> anyhow::Result<Message> {
+    fn map_source(
+        &mut self,
+        sink_name: &str,
+        message_id: usize,
+        m: &Message,
+    ) -> anyhow::Result<Message> {
         let mut new_message = m.clone();
 
         let source_id_opt = match m.payload() {
@@ -108,6 +121,7 @@ impl EgressMapper {
 
         let new_source_id = self.get_mapped_source(
             sink_name,
+            message_id,
             &source_id,
             &m.get_labels(),
             Self::switch_allowed(m),
@@ -116,15 +130,27 @@ impl EgressMapper {
         Ok(new_message)
     }
 
-    fn map_topic(&mut self, sink_name: &str, topic: &str, m: &Message) -> anyhow::Result<String> {
-        let new_topic =
-            self.get_mapped_topic(sink_name, topic, &m.get_labels(), Self::switch_allowed(m))?;
+    fn map_topic(
+        &mut self,
+        sink_name: &str,
+        message_id: usize,
+        topic: &str,
+        m: &Message,
+    ) -> anyhow::Result<String> {
+        let new_topic = self.get_mapped_topic(
+            sink_name,
+            message_id,
+            topic,
+            &m.get_labels(),
+            Self::switch_allowed(m),
+        )?;
         Ok(new_topic)
     }
 
     fn get_mapped_source(
         &mut self,
         sink_name: &str,
+        message_id: usize,
         source_id: &str,
         labels: &[String],
         switch_allowed: bool,
@@ -138,11 +164,13 @@ impl EgressMapper {
                         let handler = handlers_bind
                             .get(source_mapper.as_str())
                             .unwrap_or_else(|| panic!("Handler {} not found", source_mapper));
-                        let res = handler.call1(py, (sink_name, source_id, labels.to_vec()))?;
+                        let res = handler
+                            .call1(py, (message_id, sink_name, source_id, labels.to_vec()))?;
                         let new_source_id = res.extract::<String>(py)?;
                         Ok(new_source_id)
                     })
                 } else {
+                    debug!("source_mapper not defined for sink {}", sink_name);
                     Ok(source_id.to_string())
                 }
             })
@@ -151,23 +179,25 @@ impl EgressMapper {
     fn get_mapped_topic(
         &mut self,
         sink_name: &str,
+        message_id: usize,
         topic: &str,
         labels: &[String],
         switch_allowed: bool,
     ) -> anyhow::Result<String> {
         self.topic_cache.get_or_update(topic, switch_allowed, || {
-            let topic_mapper = self.topic_mappers.get(topic);
+            let topic_mapper = self.topic_mappers.get(sink_name);
             if let Some(topic_mapper) = topic_mapper {
                 Python::with_gil(|py| {
                     let handlers_bind = REGISTERED_HANDLERS.read();
                     let handler = handlers_bind
                         .get(topic_mapper.as_str())
                         .unwrap_or_else(|| panic!("Handler {} not found", topic_mapper));
-                    let res = handler.call1(py, (sink_name, topic, labels.to_vec()))?;
+                    let res = handler.call1(py, (message_id, sink_name, topic, labels.to_vec()))?;
                     let new_topic = res.extract::<String>(py)?;
                     Ok(new_topic)
                 })
             } else {
+                debug!("topic_mapper not defined for sink {}", sink_name);
                 Ok(topic.to_string())
             }
         })

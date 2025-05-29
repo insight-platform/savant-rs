@@ -144,6 +144,10 @@ class VideoObjectsView:
     @property
     def sorted_by_id(self) -> List[BorrowedVideoObject]: ...
 
-
 class VideoObjectTree:
-    def walk_objects(self, callable: Callable[[BorrowedVideoObject, Optional[BorrowedVideoObject], Optional[Any]], Any]) -> None: ...
+    def walk_objects(
+        self,
+        callable: Callable[
+            [BorrowedVideoObject, Optional[BorrowedVideoObject], Optional[Any]], Any
+        ],
+    ) -> None: ...

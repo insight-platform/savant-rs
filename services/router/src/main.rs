@@ -15,6 +15,11 @@ use pyo3::{
 use std::env::args;
 
 fn main() -> Result<()> {
+    ctrlc::set_handler(move || {
+        info!("Ctrl+C received, shutting down...");
+        std::process::exit(0);
+    })?;
+
     savant_rs::init_logs()?;
 
     info!("┌───────────────────────────────────────────────────────┐");
@@ -23,6 +28,14 @@ fn main() -> Result<()> {
     info!("│      For more information, see the LICENSE file       │");
     info!("│            (c) 2025 BwSoft Management, LLC            │");
     info!("└───────────────────────────────────────────────────────┘");
+    // python version
+    Python::with_gil(|py| {
+        let version = py.version();
+        info!("Python version: {}", version);
+    });
+    // savant-rs version
+    let savant_rs_version = savant_core::version();
+    info!("Savant-rs library version: {}", savant_rs_version);
 
     let conf_arg = args()
         .nth(1)
@@ -73,21 +86,25 @@ fn main() -> Result<()> {
         ));
     }
 
-    let ingress = Ingress::new(&conf)?;
+    let mut ingress = Ingress::new(&conf)?;
     let mut egress = Egress::new(&conf)?;
 
     loop {
-        for ingress_message in ingress.get()? {
+        let messages = ingress.get()?;
+        if messages.is_empty() {
+            std::thread::sleep(conf.common.idle_sleep.unwrap());
+            debug!(
+                "No messages received, sleeping for {:?}",
+                conf.common.idle_sleep.unwrap()
+            );
+            continue;
+        }
+        for ingress_message in messages {
             let topic = &ingress_message.topic;
             let message = &ingress_message.message;
-            let payload_bind = &ingress_message.payload;
-            let payload = payload_bind
-                .iter()
-                .map(|p| p.as_slice())
-                .collect::<Vec<_>>();
-            egress.process(topic, message, &payload)?;
+            let data_bind = &ingress_message.data;
+            let data = data_bind.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
+            egress.process(ingress_message.message_id, topic, message, &data)?;
         }
     }
-
-    Ok(())
 }

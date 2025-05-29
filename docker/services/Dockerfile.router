@@ -1,0 +1,31 @@
+FROM rust:1.87 AS builder
+
+ENV PATH="/root/.cargo/bin:$PATH"
+ENV CARGO_TARGET_DIR=/tmp/build
+
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && apt install -y \
+    libunwind-dev \
+    libpython3-dev
+
+WORKDIR /opt/router
+
+RUN rustup component add rustfmt
+RUN --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/docker-deps.sh
+RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build cargo build --release -p router -p savant_info
+RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/router/copy-deps.sh
+
+FROM python:3.11 AS runner
+
+RUN --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/docker-deps.sh
+
+COPY --from=builder /opt /opt
+
+WORKDIR /opt/router
+
+ENV LD_LIBRARY_PATH=/opt/libs
+ENV LOGLEVEL=info
+ENV PYTHON_MODULE_ROOT=/opt/python
+
+ENTRYPOINT ["/opt/bin/router"]
+CMD ["/opt/etc/configuration.json"]
