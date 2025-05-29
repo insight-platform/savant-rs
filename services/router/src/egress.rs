@@ -62,7 +62,7 @@ impl SinkSpec {
                 return Ok(());
             }
         }
-        let res = writer.send_message(topic, &m, payload);
+        let res = writer.send_message(topic, m, payload);
         match res {
             Err(e) => {
                 warn!("Failed to send message to sink {}: {}", self.writer_name, e);
@@ -146,7 +146,7 @@ impl Egress {
             }
             let sink_name = sink.writer_name.clone();
             let (new_topic, new_message) =
-                self.source_mapper.map(&sink_name, message_id, topic, &m)?;
+                self.source_mapper.map(&sink_name, message_id, topic, m)?;
             sink.send(&new_topic, &new_message, payload)?;
         }
         Ok(())

@@ -73,7 +73,7 @@ fn main() -> Result<()> {
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name)?.unbind();
         let res = f.call1(py, (py_data,))?.into_bound(py);
-        Ok(res.downcast::<PyBool>()?.extract()?)
+        res.downcast::<PyBool>()?.extract()
     });
     let res = invocation?;
     if res {

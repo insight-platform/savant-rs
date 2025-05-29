@@ -1,7 +1,4 @@
 use savant_core::primitives::frame::VideoFrameProxy;
-use savant_core::utils::bytes_to_hex_string;
-use std::str::from_utf8;
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::{NoContext, Timestamp, Uuid};
 
 pub mod job;

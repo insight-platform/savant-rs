@@ -82,7 +82,7 @@ impl NtpSync {
         );
         self.rtp_marks
             .entry(source_id.clone())
-            .or_insert_with(VecDeque::new)
+            .or_default()
             .push_back((
                 rtp_time,
                 ts2epoch_duration(
@@ -102,10 +102,7 @@ impl NtpSync {
     }
 
     pub fn prune_rtp_marks(&mut self, source_id: &String, rtp_time: i64) {
-        let marks = self
-            .rtp_marks
-            .entry(source_id.clone())
-            .or_insert_with(VecDeque::new);
+        let marks = self.rtp_marks.entry(source_id.clone()).or_default();
 
         if marks.len() <= 1 {
             return;
@@ -141,15 +138,13 @@ impl NtpSync {
 
     pub fn current_rtp_mark(&self, source_id: &String) -> Option<(i64, Duration, NonZeroU32)> {
         let marks = self.rtp_marks.get(source_id);
-        marks
-            .map(|marks| {
-                if marks.is_empty() {
-                    return None;
-                }
-                let (rtp, ntp, clock_rate) = marks.front().unwrap();
-                Some((*rtp, *ntp, *clock_rate))
-            })
-            .flatten()
+        marks.and_then(|marks| {
+            if marks.is_empty() {
+                return None;
+            }
+            let (rtp, ntp, clock_rate) = marks.front().unwrap();
+            Some((*rtp, *ntp, *clock_rate))
+        })
     }
 
     pub fn add_frame(&mut self, rtp: i64, mut frame: VideoFrameProxy, frame_data: &[u8]) {

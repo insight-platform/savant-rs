@@ -26,11 +26,11 @@ pub fn ts2epoch_duration(ts: NtpTimestamp, skew_millis: i64) -> Duration {
     let ns = u32::try_from(((since_epoch & 0xFFFF_FFFF) * 1_000_000_000) >> 32)
         .expect("should be < 1_000_000_000");
     if skew_millis > 0 {
-        Duration::new(sec_since_epoch as u64, ns as u32)
-            + Duration::from_millis(skew_millis.abs() as u64)
+        Duration::new(sec_since_epoch as u64, ns)
+            + Duration::from_millis(skew_millis.unsigned_abs())
     } else {
-        Duration::new(sec_since_epoch as u64, ns as u32)
-            - Duration::from_millis(skew_millis.abs() as u64)
+        Duration::new(sec_since_epoch as u64, ns)
+            - Duration::from_millis(skew_millis.unsigned_abs())
     }
 }
 

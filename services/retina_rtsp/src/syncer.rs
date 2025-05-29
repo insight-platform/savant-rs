@@ -2,6 +2,7 @@ use hashbrown::HashMap;
 use log::{debug, warn};
 use savant_core::primitives::rust::VideoFrameProxy;
 use std::{
+    cmp::Ordering,
     collections::VecDeque,
     time::{Duration, SystemTime},
 };
@@ -45,10 +46,7 @@ impl Syncer {
     ) -> Option<(VideoFrameProxy, Vec<u8>)> {
         let source_id = frame.get_source_id();
 
-        let sync_queue = self
-            .sync_queues
-            .entry(source_id.clone())
-            .or_insert_with(VecDeque::new);
+        let sync_queue = self.sync_queues.entry(source_id.clone()).or_default();
         sync_queue.push_back((frame, data));
 
         self.last_sent
@@ -83,37 +81,36 @@ impl Syncer {
         data: Vec<u8>,
     ) -> Option<(VideoFrameProxy, Vec<u8>)> {
         let source_id = frame.get_source_id();
-        let queue = self
-            .duration_queues
-            .entry(source_id.clone())
-            .or_insert_with(VecDeque::new);
+        let queue = self.duration_queues.entry(source_id.clone()).or_default();
         queue.push_back((frame, data));
 
-        if queue.len() == 2 {
-            let (mut frame, data) = queue.pop_front().unwrap();
-            let (second_frame, _) = queue.front().unwrap();
-            let duration = second_frame.get_pts() - frame.get_pts();
-            if duration <= 0 {
-                warn!(
+        match queue.len().cmp(&2) {
+            Ordering::Equal => {
+                let (mut frame, data) = queue.pop_front().unwrap();
+                let (second_frame, _) = queue.front().unwrap();
+                let duration = second_frame.get_pts() - frame.get_pts();
+                if duration <= 0 {
+                    warn!(
                     "Source ID: {}, PTS: {}, Duration is less than 0, this should never happen! Frame will be dropped!",
                     source_id, frame.get_pts()
                 );
-                return None;
-            }
+                    return None;
+                }
 
-            debug!(
-                "Source ID: {}, Setting duration for frame with PTS: {} to: {}, next frame PTS: {}",
-                source_id,
-                frame.get_pts(),
-                duration,
-                second_frame.get_pts()
-            );
-            frame.set_duration(Some(duration));
-            Some((frame, data))
-        } else if queue.len() > 2 {
-            panic!("Queue size is greater than 2, this should never happen");
-        } else {
-            None
+                debug!(
+                    "Source ID: {}, Setting duration for frame with PTS: {} to: {}, next frame PTS: {}",
+                    source_id,
+                    frame.get_pts(),
+                    duration,
+                    second_frame.get_pts()
+                );
+                frame.set_duration(Some(duration));
+                Some((frame, data))
+            }
+            Ordering::Greater => {
+                panic!("Queue size is greater than 2, this should never happen");
+            }
+            Ordering::Less => None,
         }
     }
 }

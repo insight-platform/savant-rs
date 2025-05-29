@@ -342,9 +342,9 @@ impl RtspServiceGroup {
             self.rtp_bases.remove(&stream_info.source_id);
             self.last_rtp_records.remove(&stream_info.source_id);
 
-            self.ntp_sync
-                .as_mut()
-                .map(|s| s.prune(&stream_info.source_id));
+            if let Some(ntp_sync) = &mut self.ntp_sync {
+                ntp_sync.prune(&stream_info.source_id);
+            }
             self.frame_buffer.prune(&stream_info.source_id);
         }
         let source_id = &stream_info.source_id;
@@ -400,7 +400,7 @@ impl RtspServiceGroup {
                 };
 
                 let au_delimiter =
-                    check_contains_au_delimiter(&frame_data, &source_id, rtp_time, stream_info);
+                    check_contains_au_delimiter(&frame_data, source_id, rtp_time, stream_info);
 
                 let frame_data = if !au_delimiter {
                     // add au delimiter
@@ -420,7 +420,7 @@ impl RtspServiceGroup {
                     frame_data
                 };
 
-                let kf = is_keyframe(&frame_data, &source_id, rtp_time, stream_info);
+                let kf = is_keyframe(&frame_data, source_id, rtp_time, stream_info);
                 if kf {
                     debug!(
                         target: "retina_rtsp::service::keyframe_detector",
@@ -431,7 +431,7 @@ impl RtspServiceGroup {
                     if !self.active_streams.contains_key(source_id) {
                         if self.eos_on_restart {
                             info!("Source_id: {}, EOS on restart is enabled, sending EOS message to reset remote stream decoder state.", source_id);
-                            let _ = sink.lock().await.send_eos(&source_id)?;
+                            let _ = sink.lock().await.send_eos(source_id)?;
                         }
                         self.active_streams.insert(source_id.clone(), ());
                         info!(
@@ -461,7 +461,7 @@ impl RtspServiceGroup {
                 debug!(target: "retina_rtsp::pts_builder", "Source ID: {}, Int PTS: {}", source_id, pts);
 
                 let frame = VideoFrameProxy::new(
-                    &source_id,
+                    source_id,
                     &frame_rate,
                     stream_info.pixel_dimensions.0 as i64,
                     stream_info.pixel_dimensions.1 as i64,
@@ -480,7 +480,7 @@ impl RtspServiceGroup {
                     frame);
 
                 if let Some(ntp_sync) = &mut self.ntp_sync {
-                    ntp_sync.prune_rtp_marks(&source_id, rtp_time);
+                    ntp_sync.prune_rtp_marks(source_id, rtp_time);
                     ntp_sync.add_frame(rtp_time, frame, &frame_data);
                     let frames = ntp_sync.pull_frames();
 
@@ -506,22 +506,20 @@ impl RtspServiceGroup {
                             );
                         }
                     }
-                } else {
-                    if let Some((frame, data)) =
-                        self.frame_buffer.add_frame(frame, frame_data.to_vec())
-                    {
-                        let message = frame.to_message();
-                        let _ = sink
-                            .lock()
-                            .await
-                            .send_message(&source_id, &message, &[&data])?;
-                        debug!(
-                            target: "retina_rtsp::service::send_frame",
-                            "Source_id: {}, Sent video frame with PTS {} to sink",
-                            frame.get_source_id(),
-                            frame.get_pts()
-                        );
-                    }
+                } else if let Some((frame, data)) =
+                    self.frame_buffer.add_frame(frame, frame_data.to_vec())
+                {
+                    let message = frame.to_message();
+                    let _ = sink
+                        .lock()
+                        .await
+                        .send_message(source_id, &message, &[&data])?;
+                    debug!(
+                        target: "retina_rtsp::service::send_frame",
+                        "Source_id: {}, Sent video frame with PTS {} to sink",
+                        frame.get_source_id(),
+                        frame.get_pts()
+                    );
                 }
             }
             CodecItem::AudioFrame(audio_frame) => {
@@ -547,19 +545,14 @@ impl RtspServiceGroup {
                         sr.ntp_timestamp().0
                     );
 
-                    self.ntp_sync.as_mut().map(|s| {
-                        if s.is_ready(&source_id) && self.rtcp_once {
+                    if let Some(s) = &mut self.ntp_sync {
+                        if s.is_ready(source_id) && self.rtcp_once {
                             info!("RTCP is configured to be received only once, skipping further RTCP packets for source_id={}", source_id);
-                            return ();
+                            return Ok(());
                         }
 
-                        s.add_rtp_mark(
-                            &source_id,
-                            t.elapsed(),
-                            sr.ntp_timestamp(),
-                            t.clock_rate().into(),
-                        )
-                    });
+                        s.add_rtp_mark(source_id, t.elapsed(), sr.ntp_timestamp(), t.clock_rate())
+                    }
                 }
             }
             _ => todo!(),
