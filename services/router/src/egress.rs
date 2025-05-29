@@ -132,14 +132,21 @@ impl Egress {
         })
     }
 
-    pub fn process(&mut self, topic: &str, m: &Message, payload: &[&[u8]]) -> anyhow::Result<()> {
+    pub fn process(
+        &mut self,
+        message_id: usize,
+        topic: &str,
+        m: &Message,
+        payload: &[&[u8]],
+    ) -> anyhow::Result<()> {
         for sink in &mut self.sinks {
             sink.handle_pending_responses()?;
             if !sink.can_send() {
                 continue;
             }
             let sink_name = sink.writer_name.clone();
-            let (new_topic, new_message) = self.source_mapper.map(&sink_name, topic, &m)?;
+            let (new_topic, new_message) =
+                self.source_mapper.map(&sink_name, message_id, topic, &m)?;
             sink.send(&new_topic, &new_message, payload)?;
         }
         Ok(())

@@ -23,28 +23,24 @@
         {
             "name": "egress1",
             "socket": {
-                "url": "dealer+bind:tcp://127.0.0.1:3333",
-                "options": {
-                    "send_timeout": {
-                        "secs": 1,
-                        "nanos": 0
-                    },
-                    "send_retries": 3,
-                    "receive_timeout": {
-                        "secs": 1,
-                        "nanos": 0
-                    },
-                    "receive_retries": 3,
-                    "send_hwm": 1000,
-                    "receive_hwm": 1000,
-                    "inflight_ops": 1000
-                }
+                "url": "dealer+bind:tcp://127.0.0.1:3333"
             },
             "high_watermark": 0.9,
             "matcher": "[label1] & [label2]",
             "source_mapper": "egress_source_handler",
             "topic_mapper": "egress_topic_handler"
+        },
+        {
+            "name": "egress2",
+            "socket": {
+                "url": "dealer+bind:tcp://127.0.0.1:3334"
+            },
+            "high_watermark": 0.9,
+            "matcher": "[label1] & ([label3] | [label2])",
+            "source_mapper": "egress_source_handler",
+            "topic_mapper": "egress_topic_handler"
         }
+
     ],
     "common": {
         "init": {

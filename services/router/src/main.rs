@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         ));
     }
 
-    let ingress = Ingress::new(&conf)?;
+    let mut ingress = Ingress::new(&conf)?;
     let mut egress = Egress::new(&conf)?;
 
     loop {
@@ -96,7 +96,7 @@ fn main() -> Result<()> {
             let message = &ingress_message.message;
             let data_bind = &ingress_message.data;
             let data = data_bind.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
-            egress.process(topic, message, &data)?;
+            egress.process(ingress_message.message_id, topic, message, &data)?;
         }
     }
 }

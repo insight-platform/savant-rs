@@ -33,7 +33,7 @@ def main():
             if m.__class__ == ReaderResultTimeout:
                 continue
             i += 1
-            # print(m.topic)
+            print(m.topic)
 
         print(f"Received {i} messages")
 

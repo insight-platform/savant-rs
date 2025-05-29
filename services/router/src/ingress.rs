@@ -16,6 +16,7 @@ struct IngressStream {
 }
 
 pub struct IngressMessage {
+    pub message_id: usize,
     pub topic: String,
     pub message: Box<Message>,
     pub data: Vec<Vec<u8>>,
@@ -33,6 +34,7 @@ impl IngressStream {
 
 pub struct Ingress {
     streams: Vec<IngressStream>,
+    counter: usize,
 }
 
 impl Ingress {
@@ -43,12 +45,15 @@ impl Ingress {
             let stream = IngressStream::new(ingress.name.clone(), socket, ingress.handler.clone());
             streams.push(stream);
         }
-        Ok(Self { streams })
+        Ok(Self {
+            streams,
+            counter: 0,
+        })
     }
 
-    pub fn get(&self) -> anyhow::Result<Vec<IngressMessage>> {
+    pub fn get(&mut self) -> anyhow::Result<Vec<IngressMessage>> {
         let mut messages = Vec::new();
-        for stream in &self.streams {
+        for stream in &mut self.streams {
             let message = stream.socket.try_receive();
             if message.is_none() {
                 continue;
@@ -61,6 +66,8 @@ impl Ingress {
                     routing_id: _,
                     data,
                 } => {
+                    let message_id = self.counter;
+                    self.counter += 1;
                     let topic = topic_to_string(&topic);
                     let ingress_stream_name = &stream.name;
                     let handler_name_opt = &stream.handler;
@@ -71,7 +78,8 @@ impl Ingress {
                             let handler = handlers_bind
                                 .get(handler.as_str())
                                 .unwrap_or_else(|| panic!("Handler {} not found", handler));
-                            let res = handler.call1(py, (ingress_stream_name, &topic, message))?;
+                            let res = handler
+                                .call1(py, (message_id, ingress_stream_name, &topic, message))?;
                             // is none, drop message
                             if res.is_none(py) {
                                 Ok::<Option<Box<Message>>, anyhow::Error>(None)
@@ -87,6 +95,7 @@ impl Ingress {
                     };
                     if let Some(message) = message {
                         let message = IngressMessage {
+                            message_id,
                             topic,
                             message,
                             data,

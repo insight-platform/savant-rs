@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import sys
+import time
 
 from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.utils import gen_frame
@@ -26,10 +27,25 @@ def main():
         default=128*1024,
         help="Size of each message in bytes",
     )
+
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        help="Delay between messages in milliseconds",
+    )
+
+    parser.add_argument(
+        "--topic",
+        default="topic",
+        help="Topic to send messages to",
+    )
+
     args = parser.parse_args()
 
     # Generate test data
     frame = gen_frame()
+    frame.keyframe = True
     buf = bytes(args.block_size)
 
     # Configure and start writer
@@ -39,8 +55,11 @@ def main():
 
     try:
         for i in range(args.count):
+            if args.delay > 0:
+                time.sleep(args.delay / 1000)
+            
             m = Message.video_frame(frame)
-            res = writer.send_message("topic", m, buf)
+            res = writer.send_message(args.topic, m, buf)
             if res.__class__ != WriterResultSuccess:
                 print("Failed to send message")
                 continue
