@@ -46,8 +46,8 @@ jobs:
           - docker_file: docker/Dockerfile.manylinux_2_28_X64
             name: manylinux-x86
             arch: linux/amd64
-            runner: ubuntu-latest
-            hosting: ubuntu-latest
+            runner: X64
+            hosting: self-hosted
             label: x86
 
     timeout-minutes: 600

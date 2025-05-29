@@ -37,8 +37,8 @@ jobs:
             name: savant-router-x86
             arch: linux/amd64
             tag: ghcr.io/insight-platform/savant-router-x86
-            runner: ubuntu-latest
-            hosting: ubuntu-latest
+            runner: X64
+            hosting: self-hosted
 
     steps:
       - name: Checkout repository
