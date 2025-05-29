@@ -24,7 +24,7 @@ def main():
     parser.add_argument(
         "--block-size",
         type=int,
-        default=128*1024,
+        default=128 * 1024,
         help="Size of each message in bytes",
     )
 
@@ -57,7 +57,7 @@ def main():
         for i in range(args.count):
             if args.delay > 0:
                 time.sleep(args.delay / 1000)
-            
+
             m = Message.video_frame(frame)
             res = writer.send_message(args.topic, m, buf)
             if res.__class__ != WriterResultSuccess:

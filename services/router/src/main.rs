@@ -28,6 +28,14 @@ fn main() -> Result<()> {
     info!("│      For more information, see the LICENSE file       │");
     info!("│            (c) 2025 BwSoft Management, LLC            │");
     info!("└───────────────────────────────────────────────────────┘");
+    // python version
+    Python::with_gil(|py| {
+        let version = py.version();
+        info!("Python version: {}", version);
+    });
+    // savant-rs version
+    let savant_rs_version = savant_core::version();
+    info!("Savant-rs library version: {}", savant_rs_version);
 
     let conf_arg = args()
         .nth(1)
