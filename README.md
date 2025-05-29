@@ -1,4 +1,4 @@
-# Savant Rust Optimized Algorithms and Data Structures
+# Savant Rust Optimized Algorithms, Data Structures and Services
 
 Documentation is available at:
 https://insight-platform.github.io/savant-rs/
