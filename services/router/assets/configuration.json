@@ -44,7 +44,7 @@
     ],
     "common": {
         "init": {
-            "python_root": "services/router/assets/python",
+            "python_root": "${PYTHON_MODULE_ROOT:-/services/router/assets/python}",
             "module_name": "module",
             "function_name": "init",
             "args": [
