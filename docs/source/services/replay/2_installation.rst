@@ -25,7 +25,7 @@ X86_64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/savant-replay-x86:latest
+      ghcr.io/insight-platform/savant-replay-x86:savant-latest
 
 
 ARM64:
@@ -35,12 +35,12 @@ ARM64:
     docker run -it --rm \
       --network host \
       -v $(pwd)/data:/opt/rocksdb \
-      ghcr.io/insight-platform/savant-replay-arm64:latest
+      ghcr.io/insight-platform/savant-replay-arm64:savant-latest
 
 
 The service will use the default configuration file and store data in the ``data`` directory on the host machine.
 
-Instead of the ``latest`` tag you can use the specific version of the image, e.g. ``v0.5.6``. Refer to the `GitHub Container Registry <https://github.com/orgs/insight-platform/packages?repo_name=Replay>`_ for the list of available tags.
+Instead of the ``savant-latest`` tag you can use the specific version of the image, e.g. ``v0.5.10``. Refer to the `GitHub Container Registry <https://github.com/orgs/insight-platform/packages?repo_name=Replay>`_ for the list of available tags.
 
 Environment Variables
 ---------------------
