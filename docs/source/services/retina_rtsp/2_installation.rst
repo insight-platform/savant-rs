@@ -15,7 +15,7 @@ You can check the Savant-rs version used in Savant by running the following comm
 
 .. code-block:: bash
 
-   SAVANT_VERSION=0.5.9
+   SAVANT_VERSION=0.5.10
    docker run -it ghcr.io/insight-platform/savant-adapters-gstreamer:$SAVANT_VERSION
 
 
@@ -24,17 +24,17 @@ You can check the Savant-rs version used in Savant by running the following comm
    ============
 
    Savant Version 0.5.10
-   Savant RS Version 1.0.5
+   Savant RS Version 1.4.0
    DeepStream Version 7.0
 
 
-So, you can see that the version of savant-rs is 1.0.5. Thus, you need to use the same version of the Retina RTSP service.
+So, you can see that the version of savant-rs is 1.4.0. Thus, you need to use the same version of the Retina RTSP service.
 
 We support the following tags for the Retina RTSP service:
 
 * ``latest`` - the latest version (do not use it, we use it for the development purposes);
-* ``${SAVANT_RS}-rolling`` - the latest version of the Retina RTSP service for the specific version of Savant-rs, e.g. ``1.0.5-rolling``;
-* ``$SAVANT_VERSION`` - the specific version matching the version of Savant, e.g. ``0.5.9``;
+* ``${SAVANT_RS}-rolling`` - the latest version of the Retina RTSP service for the specific version of Savant-rs, e.g. ``1.4.0-rolling``;
+* ``$SAVANT_VERSION`` - the specific version matching the version of Savant, e.g. ``0.5.10``;
 * ``savant-latest`` - the latest version of the Retina RTSP service for the `latest` version of Savant.
 
 So, if you want to use the latest Savant, you probably need to use the ``${SAVANT_RS}-rolling`` tag for the Retina RTSP service. If you want to use the release version of Savant, you can use the ``$SAVANT_VERSION`` tag.
