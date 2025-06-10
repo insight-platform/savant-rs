@@ -9,3 +9,4 @@ Savant Rust Components
    savant_rs/index
    services/replay/index
    services/retina_rtsp/index
+   services/router/index
