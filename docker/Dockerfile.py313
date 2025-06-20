@@ -11,9 +11,6 @@ RUN --mount=type=cache,target=/var/cache/apt \
     gstreamer1.0-libav libgstrtspserver-1.0-dev libges-1.0-dev \
     libpython3-dev
 
-RUN --mount=type=bind,rw,source=.,target=/opt/savant-rs \
-    /opt/savant-rs/utils/install_protoc.sh
-
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
     pip install -r /opt/savant-rs/requirements.txt
 
