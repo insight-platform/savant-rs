@@ -4,6 +4,7 @@ WORKDIR /opt/retina_rtsp
 
 RUN rustup component add rustfmt
 RUN --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/docker-deps.sh
+RUN --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/protoc.sh
 RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build cargo build --release -p retina_rtsp -p savant_info
 RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/services/retina_rtsp/copy-deps.sh
 
