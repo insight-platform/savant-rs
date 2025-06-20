@@ -1,4 +1,4 @@
-FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.8 AS builder
+FROM ghcr.io/insight-platform/manylinux_2_28_arm64:v0.0.10 AS builder
 
 COPY . .
 ARG PYTHON_INTERPRETER
