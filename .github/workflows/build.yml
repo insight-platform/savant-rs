@@ -37,14 +37,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - docker_file: docker/Dockerfile.manylinux_2_28_ARM64
-            name: manylinux-arm
+          - name: manylinux-arm
             arch: linux/arm64
             runner: ARM64
             label: arm64
             hosting: self-hosted
-          - docker_file: docker/Dockerfile.manylinux_2_28_X64
-            name: manylinux-x86
+          - name: manylinux-x86
             arch: linux/amd64
             runner: X64
             hosting: self-hosted
@@ -60,7 +58,7 @@ jobs:
       - name: Build docker image
         uses: docker/build-push-action@v5
         with:
-          file: ${{ matrix.docker_file }}
+          file: docker/Dockerfile.manylinux
           platforms: ${{ matrix.arch }}
           tags: savant-rs
           push: false
