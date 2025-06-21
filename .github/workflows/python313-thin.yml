@@ -14,9 +14,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  REGISTRY_IMAGE: ghcr.io/insight-platform/savant-rs-py313
 
 jobs:
-  linux:
+  build:
     runs-on:
       - ${{ matrix.hosting }}
       - ${{ matrix.runner }}
@@ -25,27 +26,39 @@ jobs:
       packages: write
       id-token: write
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - docker_file: docker/Dockerfile.py313
-            name: savant-rs-arm64
-            arch: linux/arm64
-            tag: ghcr.io/insight-platform/savant-rs-py313-arm64
+          - platform: linux/arm64
             runner: ARM64
             hosting: self-hosted
-          - docker_file: docker/Dockerfile.py313
-            name: savant-rs-x86
-            arch: linux/amd64
-            tag: ghcr.io/insight-platform/savant-rs-py313-x86
+          - platform: linux/amd64
             runner: X64
             hosting: self-hosted
 
     steps:
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Inject slug/short variables
         uses: rlespinasse/github-slug-action@v4.4.1
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
@@ -55,71 +68,152 @@ jobs:
         with:
           cosign-release: 'v2.1.1'
 
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       # Set up BuildKit Docker container builder to be able to build
       # multi-platform images and export cache
       # https://github.com/docker/setup-buildx-action
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
 
-      - name: Build docker image for ${{ env.GITHUB_REF_SLUG }}
-        uses: docker/build-push-action@v5 # v5.0.0
+      # Build and push by digest for PRs (test build)
+      - name: Build docker image for testing
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
         with:
-          file: ${{ matrix.docker_file }}
-          platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}"
+          file: docker/Dockerfile.py313
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY_IMAGE }}:${{ env.GITHUB_REF_SLUG }}
           load: true
           context: .
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
 
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
-      - name: Log into registry ${{ env.REGISTRY }}
+      # Build and push by digest for main/tags
+      - name: Build and push by digest
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3 # v3.0.0
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          file: docker/Dockerfile.py313
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.REGISTRY_IMAGE }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          context: .
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs:
+      - build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure docker image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
-        id: set-tag
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "TAG=latest" >> $GITHUB_ENV
-          else
-            echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
-          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Build and push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          file: ${{ matrix.docker_file }}
-          platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.TAG }}"
-          push: true
-          context: .
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
-  
-      - name: Configure Docker rolling release image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
         run: |
-          docker pull ${{matrix.tag}}:${{ env.TAG }}
-          eval $(docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version)
-          echo "SAVANT_RS_VERSION=${SAVANT_RS_VERSION}" >> $GITHUB_ENV
-  
-      # for main branch push with RR_TAG tag
-      - name: Build and push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
-        # only for main and tags
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
-        uses: docker/build-push-action@v6
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
+
+  rolling-release:
+    runs-on: ubuntu-latest
+    needs:
+      - merge
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
         with:
-          file: ${{ matrix.docker_file }}
-          platforms: ${{ matrix.arch }}
-          tags: "${{matrix.tag}}:${{ env.SAVANT_RS_VERSION }}-rolling"
-          push: true
-          context: .
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta for main/tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+
+      - name: Get Savant-RS version for rolling release
+        run: |
+          eval $(docker run --rm --entrypoint /opt/bin/savant_info ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }} version)
+          echo "SAVANT_RS_VERSION=${SAVANT_RS_VERSION}" >> $GITHUB_ENV
+
+      - name: Create rolling release manifest and push
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY_IMAGE }}:${{ env.SAVANT_RS_VERSION }}-rolling \
+            ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
+
+      - name: Inspect rolling release image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ env.SAVANT_RS_VERSION }}-rolling
