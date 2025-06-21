@@ -5,8 +5,6 @@ ENV PYTHON_INTERPRETER=python3.13
 RUN --mount=type=cache,target=/var/cache/apt \
     apt-get update && apt install -y \
     jq \
-    clang \
-    libgstreamer1.0-dev \
     libunwind-dev \
     libgstreamer-plugins-base1.0-dev \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
@@ -32,7 +30,7 @@ RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/o
 
 RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/python313/copy-deps.sh
 
-FROM python:3.13 AS runner
+FROM python:3.13-slim AS runner
 
 COPY --from=builder /opt /opt
 COPY --from=builder /*.whl /tmp
