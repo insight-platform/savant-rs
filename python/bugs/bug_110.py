@@ -1,9 +1,5 @@
-from savant_rs.primitives import (
-    IdCollisionResolutionPolicy,
-    VideoFrame,
-    VideoFrameContent,
-    VideoObject,
-)
+from savant_rs.primitives import (IdCollisionResolutionPolicy, VideoFrame,
+                                  VideoFrameContent, VideoObject)
 from savant_rs.primitives.geometry import BBox
 from savant_rs.utils.serialization import Message, load_message, save_message
 

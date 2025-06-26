@@ -1,21 +1,16 @@
 from random import choice
 from timeit import default_timer as timer
 
-from savant_rs.utils.symbol_mapper import (
-    RegistrationPolicy,
-    build_model_object_key,
-    clear_symbol_maps,
-    get_model_name,
-    get_object_id,
-    get_object_ids,
-    get_object_label,
-    get_object_labels,
-    is_model_registered,
-    is_object_registered,
-    parse_compound_key,
-    register_model_objects,
-    validate_base_key,
-)
+from savant_rs.utils.symbol_mapper import (RegistrationPolicy,
+                                           build_model_object_key,
+                                           clear_symbol_maps, get_model_name,
+                                           get_object_id, get_object_ids,
+                                           get_object_label, get_object_labels,
+                                           is_model_registered,
+                                           is_object_registered,
+                                           parse_compound_key,
+                                           register_model_objects,
+                                           validate_base_key)
 
 models = [
     "model1",

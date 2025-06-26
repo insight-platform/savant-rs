@@ -527,6 +527,27 @@ impl RBBox {
     pub fn as_xcycwh_int(&self) -> (i64, i64, i64, i64) {
         self.0.as_xcycwh_int()
     }
+
+    /// Converts the :py:class:`RBBox` to a :py:class:`BBox`.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`BBox`
+    ///    A copy of the BBox object
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///    If the :py:class:`RBBox` has an angle defined
+    ///
+    pub fn into_bbox(&self) -> PyResult<BBox> {
+        if self.get_angle().is_some() {
+            return Err(PyValueError::new_err(
+                "Cannot convert RBBox to BBox because it has an angle defined",
+            ));
+        }
+        Ok(BBox(self.clone()))
+    }
 }
 
 #[pyclass]

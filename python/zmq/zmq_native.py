@@ -4,12 +4,8 @@ from time import sleep, time
 from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.utils import gen_frame
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import (
-    BlockingReader,
-    BlockingWriter,
-    ReaderConfigBuilder,
-    WriterConfigBuilder,
-)
+from savant_rs.zmq import (BlockingReader, BlockingWriter, ReaderConfigBuilder,
+                           WriterConfigBuilder)
 
 set_log_level(LogLevel.Info)
 

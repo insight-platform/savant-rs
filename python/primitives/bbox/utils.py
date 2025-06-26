@@ -1,4 +1,5 @@
-from savant_rs.primitives.geometry import RBBox, associate_bboxes, solely_owned_areas
+from savant_rs.primitives.geometry import (RBBox, associate_bboxes,
+                                           solely_owned_areas)
 from savant_rs.utils import BBoxMetricType
 
 red = RBBox.ltrb(0.0, 2.0, 2.0, 4.0)

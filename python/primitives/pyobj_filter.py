@@ -5,11 +5,8 @@ from savant_rs.match_query import FloatExpression as FE
 from savant_rs.match_query import MatchQuery as Q
 from savant_rs.match_query import StringExpression as SE
 from savant_rs.match_query import register_utility_resolver
-from savant_rs.primitives import (
-    IdCollisionResolutionPolicy,
-    VideoFrameBatch,
-    VideoObject,
-)
+from savant_rs.primitives import (IdCollisionResolutionPolicy, VideoFrameBatch,
+                                  VideoObject)
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import enable_dl_detection, gen_frame
 

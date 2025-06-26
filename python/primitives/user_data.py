@@ -1,9 +1,6 @@
 from savant_rs.primitives import AttributeValue, UserData
-from savant_rs.utils.serialization import (
-    Message,
-    load_message_from_bytes,
-    save_message_to_bytes,
-)
+from savant_rs.utils.serialization import (Message, load_message_from_bytes,
+                                           save_message_to_bytes)
 
 t = UserData("abc")
 t.set_persistent_attribute(
