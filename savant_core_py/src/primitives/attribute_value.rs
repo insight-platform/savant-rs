@@ -1,5 +1,5 @@
 use crate::primitives::segment::Intersection;
-use crate::primitives::{Point, PolygonalArea, RBBox};
+use crate::primitives::{Point, PolygonalArea, BBox, RBBox};
 use crate::with_gil;
 use pyo3::exceptions::{PyIndexError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
@@ -71,6 +71,8 @@ impl AttributeValue {
             AttributeValueVariant::BooleanVector(_) => AttributeValueType::BooleanList,
             AttributeValueVariant::BBox(_) => AttributeValueType::BBox,
             AttributeValueVariant::BBoxVector(_) => AttributeValueType::BBoxList,
+            AttributeValueVariant::RBBox(_) => AttributeValueType::RBBox,
+            AttributeValueVariant::RBBoxVector(_) => AttributeValueType::RBBoxList, 
             AttributeValueVariant::Point(_) => AttributeValueType::Point,
             AttributeValueVariant::PointVector(_) => AttributeValueType::PointList,
             AttributeValueVariant::Polygon(_) => AttributeValueType::Polygon,
@@ -364,7 +366,7 @@ impl AttributeValue {
     ///
     /// Parameters
     /// ----------
-    /// bbox : :class:`savant_rs.primitives.geometry.RBBox`
+    /// bbox : :class:`savant_rs.primitives.geometry.BBox`
     ///   The bounding box.
     /// confidence : float, optional
     ///   The confidence of the attribute value.
@@ -376,10 +378,33 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (bbox, confidence = None))]
-    pub fn bbox(bbox: RBBox, confidence: Option<f32>) -> Self {
+    pub fn bbox(bbox: BBox, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
             value: AttributeValueVariant::BBox(bbox.0.into()),
+        })
+    }
+
+    /// Creates a new attribute value of rotated bounding box type.
+    ///
+    /// Parameters
+    /// ----------
+    /// rbbox : :class:`savant_rs.primitives.geometry.RBBox`
+    ///   The rotated bounding box.
+    /// confidence : float, optional
+    ///   The confidence of the attribute value.
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
+    #[staticmethod]
+    #[pyo3(signature = (rbbox, confidence = None))]
+    pub fn rbbox(rbbox: RBBox, confidence: Option<f32>) -> Self {
+        Self(rust::AttributeValue {
+            confidence,
+            value: AttributeValueVariant::RBBox(rbbox.0.into()),
         })
     }
 
@@ -387,7 +412,7 @@ impl AttributeValue {
     ///
     /// Parameters
     /// ----------
-    /// bboxes : List[:class:`savant_rs.primitives.geometry.RBBox`]
+    /// bboxes : List[:class:`savant_rs.primitives.geometry.BBox`]
     ///   The list of bounding boxes.
     /// confidence : float, optional
     ///
@@ -398,7 +423,7 @@ impl AttributeValue {
     ///
     #[staticmethod]
     #[pyo3(signature = (bboxes, confidence = None))]
-    pub fn bboxes(bboxes: Vec<RBBox>, confidence: Option<f32>) -> Self {
+    pub fn bboxes(bboxes: Vec<BBox>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
             value: AttributeValueVariant::BBoxVector(
@@ -406,6 +431,31 @@ impl AttributeValue {
             ),
         })
     }
+
+   /// Creates a new attribute value of list of rotated bounding boxes type.
+    ///
+    /// Parameters
+    /// ----------
+    /// bboxes : List[:class:`savant_rs.primitives.geometry.RBBox`]
+    ///   The list of rotated bounding boxes.
+    /// confidence : float, optional
+    ///
+    /// Returns
+    /// -------
+    /// :class:`AttributeValue`
+    ///   The attribute value.
+    ///
+    #[staticmethod]
+    #[pyo3(signature = (rbboxes, confidence = None))]
+    pub fn rbboxes(rbboxes: Vec<RBBox>, confidence: Option<f32>) -> Self {
+        Self(rust::AttributeValue {
+            confidence,
+            value: AttributeValueVariant::RBBoxVector(
+                rbboxes.into_iter().map(|b| b.0.into()).collect(),
+            ),
+        })
+    }
+
 
     /// Creates a new attribute value of point type.
     ///
@@ -663,6 +713,39 @@ impl AttributeValue {
         }
     }
 
+    /// Returns the value of attribute as a :class:`savant_rs.primitives.geometry.BBox` or None if not a bounding box type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[:class:`savant_rs.primitives.geometry.BBox`]
+    ///   The value of attribute as a :class:`savant_rs.primitives.geometry.BBox` or None if not a bounding box type.
+    ///
+    pub fn as_bbox(&self) -> Option<BBox> {
+        match &self.0.value {
+            AttributeValueVariant::BBox(bbox) => Some(BBox(rust::BBox::from(bbox.clone()))),
+            _ => None,
+        }
+    }
+
+    /// Returns the value of attribute as a list of :class:`savant_rs.primitives.geometry.BBox` or None if not a list of bounding boxes type.
+    ///
+    /// Returns
+    /// -------
+    /// Optional[List[:class:`savant_rs.primitives.geometry.BBox`]]
+    ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.BBox` or None if not a list of bounding boxes type.
+    ///
+    pub fn as_bboxes(&self) -> Option<Vec<BBox>> {
+        match &self.0.value {
+            AttributeValueVariant::BBoxVector(bboxes) => Some(
+                bboxes
+                    .iter()
+                    .map(|bbox| BBox(rust::BBox::from(bbox.clone())))
+                    .collect(),
+            ),
+            _ => None,
+        }
+    }
+
     /// Returns the value of attribute as a :class:`savant_rs.primitives.geometry.RBBox` or None if not a bounding box type.
     ///
     /// Returns
@@ -670,9 +753,9 @@ impl AttributeValue {
     /// Optional[:class:`savant_rs.primitives.geometry.RBBox`]
     ///   The value of attribute as a :class:`savant_rs.primitives.geometry.RBBox` or None if not a bounding box type.
     ///
-    pub fn as_bbox(&self) -> Option<RBBox> {
+    pub fn as_rbbox(&self) -> Option<RBBox> {
         match &self.0.value {
-            AttributeValueVariant::BBox(bbox) => Some(RBBox(rust::RBBox::from(bbox.clone()))),
+            AttributeValueVariant::RBBox(bbox) => Some(RBBox(rust::RBBox::from(bbox.clone()))),
             _ => None,
         }
     }
@@ -684,9 +767,9 @@ impl AttributeValue {
     /// Optional[List[:class:`savant_rs.primitives.geometry.RBBox`]]
     ///   The value of attribute as a list of :class:`savant_rs.primitives.geometry.RBBox` or None if not a list of bounding boxes type.
     ///
-    pub fn as_bboxes(&self) -> Option<Vec<RBBox>> {
+    pub fn as_rbboxes(&self) -> Option<Vec<RBBox>> {
         match &self.0.value {
-            AttributeValueVariant::BBoxVector(bboxes) => Some(
+            AttributeValueVariant::RBBoxVector(bboxes) => Some(
                 bboxes
                     .iter()
                     .map(|bbox| RBBox(rust::RBBox::from(bbox.clone())))
@@ -789,6 +872,8 @@ pub enum AttributeValueType {
     BooleanList,
     BBox,
     BBoxList,
+    RBBox,
+    RBBoxList,
     Point,
     PointList,
     Polygon,
