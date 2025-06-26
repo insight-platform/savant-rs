@@ -4,12 +4,9 @@ from threading import Thread, current_thread
 import savant_plugin_sample
 import savant_rs
 from savant_rs.logging import LogLevel, log, log_level_enabled, set_log_level
-from savant_rs.pipeline import (
-    StageFunction,
-    VideoPipeline,
-    VideoPipelineConfiguration,
-    VideoPipelineStagePayloadType,
-)
+from savant_rs.pipeline import (StageFunction, VideoPipeline,
+                                VideoPipelineConfiguration,
+                                VideoPipelineStagePayloadType)
 from savant_rs.primitives import AttributeValue
 
 set_log_level(LogLevel.Trace)

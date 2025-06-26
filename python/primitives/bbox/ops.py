@@ -62,6 +62,12 @@ print(box)
 box = RBBox(50, 50, 50, 50, 45)
 print(box)
 
+try:
+    box.into_bbox()
+    assert False
+except Exception as e:
+    print(e)
+
 scale2 = box.scale(scale_x=2, scale_y=2)
 print(scale2)
 

@@ -1,12 +1,9 @@
 import savant_plugin_sample
 import savant_rs
 from savant_rs.logging import LogLevel, log, set_log_level
-from savant_rs.pipeline import (
-    StageFunction,
-    VideoPipeline,
-    VideoPipelineConfiguration,
-    VideoPipelineStagePayloadType,
-)
+from savant_rs.pipeline import (StageFunction, VideoPipeline,
+                                VideoPipelineConfiguration,
+                                VideoPipelineStagePayloadType)
 from savant_rs.primitives import AttributeValue
 
 print(savant_rs.version())
@@ -14,11 +11,8 @@ set_log_level(LogLevel.Info)
 
 
 from savant_rs.match_query import MatchQuery as Q
-from savant_rs.primitives import (
-    AttributeUpdatePolicy,
-    ObjectUpdatePolicy,
-    VideoFrameUpdate,
-)
+from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
+                                  VideoFrameUpdate)
 from savant_rs.utils import gen_frame
 
 # LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py

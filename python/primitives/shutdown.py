@@ -1,9 +1,6 @@
 from savant_rs.primitives import Shutdown
-from savant_rs.utils.serialization import (
-    Message,
-    load_message_from_bytes,
-    save_message_to_bytes,
-)
+from savant_rs.utils.serialization import (Message, load_message_from_bytes,
+                                           save_message_to_bytes)
 
 e = Shutdown("abc")
 

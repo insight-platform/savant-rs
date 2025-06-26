@@ -28,6 +28,7 @@ use crate::primitives::frame::VideoFrame;
 use crate::primitives::attribute::Attribute;
 
 use crate::primitives::batch::VideoFrameBatch;
+use crate::primitives::bbox::BBox;
 use crate::primitives::bbox::RBBox;
 
 use crate::primitives::eos::EndOfStream;

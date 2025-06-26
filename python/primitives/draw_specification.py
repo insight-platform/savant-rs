@@ -1,13 +1,6 @@
-from savant_rs.draw_spec import (
-    BoundingBoxDraw,
-    ColorDraw,
-    DotDraw,
-    LabelDraw,
-    LabelPosition,
-    LabelPositionKind,
-    ObjectDraw,
-    PaddingDraw,
-)
+from savant_rs.draw_spec import (BoundingBoxDraw, ColorDraw, DotDraw,
+                                 LabelDraw, LabelPosition, LabelPositionKind,
+                                 ObjectDraw, PaddingDraw)
 
 spec = ObjectDraw(
     bounding_box=BoundingBoxDraw(
