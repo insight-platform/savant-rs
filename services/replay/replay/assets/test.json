@@ -39,9 +39,7 @@
         "nanos": 0
       },
       "receive_hwm": 1000,
-      "topic_prefix_spec": {
-        "source_id": "source_id"
-      },
+      "topic_prefix_spec": "none",
       "source_cache_size": 1000,
       "inflight_ops": 100,
       "fix_ipc_permissions": 511

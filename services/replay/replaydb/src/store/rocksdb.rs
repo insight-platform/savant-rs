@@ -7,6 +7,7 @@ use anyhow::{bail, Result};
 use bincode::config::{BigEndian, Configuration};
 use bincode::{Decode, Encode};
 use hashbrown::HashMap;
+use log::info;
 use md5::{Digest, Md5};
 use rocksdb::{ColumnFamilyDescriptor, Direction, Options, ReadOptions, SliceTransform, DB};
 use savant_core::message::{load_message, save_message, Message};
@@ -93,7 +94,7 @@ impl RocksDbStore {
         Ok(hash_bytes)
     }
 
-    pub fn new(path: &Path, ttl: Duration) -> Result<Self> {
+    pub fn new(path: &Path, ttl: Duration, max_total_wal_size: u64) -> Result<Self> {
         let configuration = bincode::config::standard().with_big_endian();
 
         let mut cf_opts = Options::default();
@@ -101,6 +102,7 @@ impl RocksDbStore {
         cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(
             size_of::<MessageKey>() - size_of::<MessageKeyIndex>(),
         ));
+        cf_opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
         let cf_message = ColumnFamilyDescriptor::new(CF_MESSAGE_DB, cf_opts);
 
         let mut cf_opts = Options::default();
@@ -108,16 +110,19 @@ impl RocksDbStore {
         cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(
             size_of::<KeyframeKey>() - size_of::<KeyFrameUUID>(),
         ));
-
+        cf_opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
         let cf_keyframe = ColumnFamilyDescriptor::new(CF_KEYFRAME_DB, cf_opts);
 
-        let cf_opts = Options::default();
+        let mut cf_opts = Options::default();
+        cf_opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
         let cf_index = ColumnFamilyDescriptor::new(CF_INDEX_DB, cf_opts);
 
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
+        db_opts.set_max_total_wal_size(max_total_wal_size);
         db_opts.create_if_missing(true);
 
+        info!("Opening RocksDB database at {:?} with TTL: {:?}", path, ttl);
         let db = DB::open_cf_descriptors_with_ttl(
             &db_opts,
             path,
@@ -135,6 +140,11 @@ impl RocksDbStore {
 
     pub fn remove_db(path: &Path) -> Result<()> {
         Ok(DB::destroy(&Options::default(), path)?)
+    }
+
+    pub fn optimize(&self) -> Result<()> {
+        self.db.compact_range(None::<&[u8]>, None::<&[u8]>);
+        Ok(())
     }
 
     pub fn disk_size(&self, path: &Path) -> Result<usize> {
@@ -246,6 +256,7 @@ impl super::Store for RocksDbStore {
 
         self.db.write(batch)?;
         self.resident_index_values.insert(source_id, index);
+
         Ok(index - 1)
     }
 
@@ -414,7 +425,7 @@ mod tests {
     async fn test_rocksdb_init() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
 
         let source_id1 = "test_source_id-1";
         let source_id2 = "test_source_id-2";
@@ -443,7 +454,7 @@ mod tests {
         let frame = gen_frame();
         let source_id = frame.get_source_id();
         {
-            let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+            let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
             let m = frame.to_message();
             let id = db.add_message(&m, &[], &[]).await?;
             let (m2, _, _) = db.get_message(&source_id, id).await?.unwrap();
@@ -453,7 +464,7 @@ mod tests {
             );
         }
         {
-            let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+            let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
             let (_, _, _) = db.get_message(&source_id, 0).await?.unwrap();
             assert_eq!(db.current_index_value(&source_id)?, 1);
             let m = db.get_message(&source_id, 1).await?;
@@ -468,7 +479,7 @@ mod tests {
         const DELTA_FRAMES: usize = 10;
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
 
         // add to stream 1 (0)
         let f = gen_properly_filled_frame(true);
@@ -533,7 +544,7 @@ mod tests {
     async fn test_find_first_block_in_duration() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
         let f = gen_properly_filled_frame(true);
         let source_id = f.get_source_id();
         db.add_message(&f.to_message(), &[], &[]).await?;
@@ -564,7 +575,7 @@ mod tests {
     async fn test_keyframes() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
         let mut keyframes = vec![];
         const N: usize = 20;
         let source = gen_properly_filled_frame(true).get_source_id();
@@ -603,7 +614,7 @@ mod tests {
     async fn test_future_message() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let mut db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let mut db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
         let source_id = "test_source_id";
         let message = gen_properly_filled_frame(true).to_message();
         db.add_message(&message, &[], &[]).await?;

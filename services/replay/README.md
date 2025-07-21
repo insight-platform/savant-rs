@@ -34,9 +34,4 @@ The documentation is available at [GitHub Pages](https://insight-platform.github
 
 ## License
 
-Replay is licensed under the BSL-1.1 license. See [LICENSE](LICENSE) for more information.
-
-### Obtaining Production-Use License
-
-To obtain a production-use license, please fill out the form
-at [In-Sight Licensing](https://forms.gle/kstX7BrgzqrSLCJ18).
+Replay is licensed under the Apache 2.0 license. See [LICENSE](LICENSE) for more information.

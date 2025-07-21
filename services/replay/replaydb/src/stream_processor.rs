@@ -297,7 +297,7 @@ mod tests {
     async fn test_stream_processor() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let db = RocksDbStore::new(path, Duration::from_secs(60))?;
+        let db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
 
         let mut in_reader = NonBlockingReader::new(
             &ReaderConfig::new()

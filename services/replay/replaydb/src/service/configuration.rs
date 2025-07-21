@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use log::info;
 use savant_services_common::{
     job_writer::{SinkConfiguration, SinkOptions},
     source::SourceConfiguration,
@@ -7,12 +8,15 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use twelf::{config, Layer};
 
+const MAX_TOTAL_WAL_SIZE: u64 = 1024 * 1024 * 1024;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Storage {
     #[serde(rename = "rocksdb")]
     RocksDB {
         path: String,
         data_expiration_ttl: Duration,
+        max_total_wal_size: Option<u64>,
     },
 }
 
@@ -37,7 +41,19 @@ pub struct ServiceConfiguration {
 }
 
 impl ServiceConfiguration {
-    pub(crate) fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&mut self) -> Result<()> {
+        match &mut self.storage {
+            Storage::RocksDB {
+                path: _,
+                data_expiration_ttl: _,
+                max_total_wal_size,
+            } => {
+                if max_total_wal_size.is_none() {
+                    *max_total_wal_size = Some(MAX_TOTAL_WAL_SIZE);
+                }
+                info!("Max total WAL size is set to: {:?}", max_total_wal_size);
+            }
+        }
         if self.common.management_port <= 1024 {
             bail!("Management port must be set to a value greater than 1024!");
         }
@@ -45,7 +61,7 @@ impl ServiceConfiguration {
     }
 
     pub fn new(path: &str) -> Result<Self> {
-        let conf = Self::with_layers(&[Layer::Json(path.into())])?;
+        let mut conf = Self::with_layers(&[Layer::Json(path.into())])?;
         conf.validate()?;
         Ok(conf)
     }

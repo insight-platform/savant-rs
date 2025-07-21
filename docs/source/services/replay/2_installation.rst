@@ -144,7 +144,10 @@ The configuration file is a JSON file that contains the following parameters:
           "data_expiration_ttl": {
             "secs": 60,
             "nanos": 0
-          }
+          },
+          "compaction_period": {
+            "secs": 60,
+            "nanos": 0
         }
       }
     }
@@ -277,6 +280,10 @@ Configuration Parameters
       - The time-to-live for data in the RocksDB storage.
       - ``{"secs": 60, "nanos": 0}``
       - ``{"secs": 30, "nanos": 0}``
+    * - ``storage.rocksdb.max_total_wal_size``
+      - The maximum size of the write-ahead log (WAL) for the RocksDB storage.
+      - ``1024 * 1024 * 1024``
+      - ``2097152``
 
 Environment Variables in Configuration File
 -------------------------------------------
