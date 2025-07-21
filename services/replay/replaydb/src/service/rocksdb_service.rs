@@ -46,11 +46,11 @@ impl TryFrom<&ServiceConfiguration> for SyncRocksDbStore {
         let Storage::RocksDB {
             path,
             data_expiration_ttl,
-            compaction_period,
+            max_total_wal_size,
         } = configuration.storage.clone();
 
         let path = PathBuf::from(path);
-        let store = RocksDbStore::new(&path, data_expiration_ttl, compaction_period.unwrap())?;
+        let store = RocksDbStore::new(&path, data_expiration_ttl, max_total_wal_size.unwrap())?;
         let sync_store = Arc::new(Mutex::new(store));
         Ok(sync_store)
     }

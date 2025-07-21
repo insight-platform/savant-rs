@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use twelf::{config, Layer};
 
-const DEFAULT_COMPACTION_PERIOD: Duration = Duration::from_secs(60); // 1 minute
+const MAX_TOTAL_WAL_SIZE: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Storage {
@@ -16,7 +16,7 @@ pub enum Storage {
     RocksDB {
         path: String,
         data_expiration_ttl: Duration,
-        compaction_period: Option<Duration>,
+        max_total_wal_size: Option<u64>,
     },
 }
 
@@ -46,12 +46,12 @@ impl ServiceConfiguration {
             Storage::RocksDB {
                 path: _,
                 data_expiration_ttl: _,
-                compaction_period,
+                max_total_wal_size,
             } => {
-                if compaction_period.is_none() {
-                    *compaction_period = Some(DEFAULT_COMPACTION_PERIOD);
+                if max_total_wal_size.is_none() {
+                    *max_total_wal_size = Some(MAX_TOTAL_WAL_SIZE);
                 }
-                info!("Compaction period is set to: {:?}", compaction_period);
+                info!("Max total WAL size is set to: {:?}", max_total_wal_size);
             }
         }
         if self.common.management_port <= 1024 {

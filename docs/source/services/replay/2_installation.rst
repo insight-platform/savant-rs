@@ -280,10 +280,10 @@ Configuration Parameters
       - The time-to-live for data in the RocksDB storage.
       - ``{"secs": 60, "nanos": 0}``
       - ``{"secs": 30, "nanos": 0}``
-    * - ``storage.rocksdb.compaction_period``
-      - The period for periodic compaction of the RocksDB storage triggered manually by the service.
-      - ``{"secs": 60, "nanos": 0}``
-      - ``{"secs": 30, "nanos": 0}``
+    * - ``storage.rocksdb.max_total_wal_size``
+      - The maximum size of the write-ahead log (WAL) for the RocksDB storage.
+      - ``1024 * 1024 * 1024``
+      - ``2097152``
 
 Environment Variables in Configuration File
 -------------------------------------------
