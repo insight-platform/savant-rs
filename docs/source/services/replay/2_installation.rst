@@ -144,7 +144,10 @@ The configuration file is a JSON file that contains the following parameters:
           "data_expiration_ttl": {
             "secs": 60,
             "nanos": 0
-          }
+          },
+          "compaction_period": {
+            "secs": 60,
+            "nanos": 0
         }
       }
     }
@@ -275,6 +278,10 @@ Configuration Parameters
       - ``/opt/rocksdb``
     * - ``storage.rocksdb.data_expiration_ttl``
       - The time-to-live for data in the RocksDB storage.
+      - ``{"secs": 60, "nanos": 0}``
+      - ``{"secs": 30, "nanos": 0}``
+    * - ``storage.rocksdb.compaction_period``
+      - The period for periodic compaction of the RocksDB storage triggered manually by the service.
       - ``{"secs": 60, "nanos": 0}``
       - ``{"secs": 30, "nanos": 0}``
 

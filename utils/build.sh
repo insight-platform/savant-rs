@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Exit on error, undefined variables, and pipe failures
-set -euo pipefail
+# Exit on error, undefined variables
+set -eu
 
 # Function to clean up temporary files and processes on exit
 cleanup() {

@@ -115,6 +115,7 @@ mod tests {
         let store = Arc::new(Mutex::new(RocksDbStore::new(
             path,
             Duration::from_secs(60),
+            Duration::from_secs(60),
         )?));
 
         let mut factory =
@@ -161,6 +162,7 @@ mod tests {
         let path = dir.path();
         let store = Arc::new(Mutex::new(RocksDbStore::new(
             path,
+            Duration::from_secs(60),
             Duration::from_secs(60),
         )?));
 

@@ -22,12 +22,14 @@ mod web_service;
 
 #[actix_web::main]
 async fn main() -> Result<()> {
-    println!("This program is licensed under the APACHE 2.0 license");
-    println!("   For more information, see the LICENSE file        ");
-    println!("        (c) 2024 BwSoft Management, LLC              ");
-    println!("-----------------------------------------------------");
-
     env_logger::init();
+
+    info!("┌───────────────────────────────────────────────────────┐");
+    info!("│                Savant Replay Service                  │");
+    info!("│ This program is licensed under the APACHE 2.0 license │");
+    info!("│      For more information, see the LICENSE file       │");
+    info!("│            (c) 2025 BwSoft Management, LLC            │");
+    info!("└───────────────────────────────────────────────────────┘");
     let conf_arg = args()
         .nth(1)
         .ok_or_else(|| anyhow!("missing configuration argument"))?;
