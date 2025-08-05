@@ -107,7 +107,7 @@ impl RocksDbStore {
             compaction_style,
         } = config;
 
-        let compaction_style = *compaction_style;
+        let compaction_style = (*compaction_style).into();
 
         let configuration = bincode::config::standard().with_big_endian();
 
@@ -116,7 +116,7 @@ impl RocksDbStore {
         cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(
             size_of::<MessageKey>() - size_of::<MessageKeyIndex>(),
         ));
-        cf_opts.set_compaction_style(compaction_style.into());
+        cf_opts.set_compaction_style(compaction_style);
         let cf_message = ColumnFamilyDescriptor::new(CF_MESSAGE_DB, cf_opts);
 
         let mut cf_opts = Options::default();
@@ -124,11 +124,11 @@ impl RocksDbStore {
         cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(
             size_of::<KeyframeKey>() - size_of::<KeyFrameUUID>(),
         ));
-        cf_opts.set_compaction_style(compaction_style.into());
+        cf_opts.set_compaction_style(compaction_style);
         let cf_keyframe = ColumnFamilyDescriptor::new(CF_KEYFRAME_DB, cf_opts);
 
         let mut cf_opts = Options::default();
-        cf_opts.set_compaction_style(compaction_style.into());
+        cf_opts.set_compaction_style(compaction_style);
         let cf_index = ColumnFamilyDescriptor::new(CF_INDEX_DB, cf_opts);
 
         let mut db_opts = Options::default();
