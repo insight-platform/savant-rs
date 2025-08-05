@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use twelf::{config, Layer};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CompactionStyle {
     #[serde(rename = "level")]
     Level,
@@ -24,9 +24,9 @@ impl Default for CompactionStyle {
     }
 }
 
-impl CompactionStyle {
-    pub fn to_rocksdb_compaction_style(&self) -> rocksdb::DBCompactionStyle {
-        match self {
+impl From<CompactionStyle> for rocksdb::DBCompactionStyle {
+    fn from(style: CompactionStyle) -> Self {
+        match style {
             CompactionStyle::Level => rocksdb::DBCompactionStyle::Level,
             CompactionStyle::Universal => rocksdb::DBCompactionStyle::Universal,
             CompactionStyle::Fifo => rocksdb::DBCompactionStyle::Fifo,
@@ -120,8 +120,7 @@ pub mod tests {
 
     #[test]
     fn test_storage_config_default_values() {
-        let conf = serde_json::from_str::<Storage>(
-            r#"
+        let conf = serde_json::from_str::<Storage>(r#"
         {
             "rocksdb": {
                 "path": "test_path",
@@ -130,9 +129,7 @@ pub mod tests {
                     "nanos": 0
                 }
             }
-        }"#,
-        )
-        .unwrap();
+        }"#).unwrap();
 
         let Storage::RocksDB {
             path,
