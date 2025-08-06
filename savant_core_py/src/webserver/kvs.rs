@@ -255,11 +255,10 @@ impl KvsSubscription {
     ///
     pub fn recv(&mut self) -> PyResult<Option<PyObject>> {
         let op = release_gil!(true, || self.0.blocking_recv());
-        if op.is_none() {
-            Ok(None)
-        } else {
-            let op = op.unwrap();
+        if let Some(op) = op {
             Ok(Some(self.to_python(op)?))
+        } else {
+            Ok(None)
         }
     }
 

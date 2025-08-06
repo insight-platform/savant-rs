@@ -178,7 +178,7 @@ impl WriteOperationResult {
 pub struct NonBlockingWriter(Mutex<zeromq::NonBlockingWriter>);
 
 impl NonBlockingWriter {
-    fn locked(&self) -> MutexGuard<zeromq::NonBlockingWriter> {
+    fn locked(&self) -> MutexGuard<'_, zeromq::NonBlockingWriter> {
         self.0.lock()
     }
 }

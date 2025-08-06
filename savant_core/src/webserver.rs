@@ -344,28 +344,31 @@ pub fn set_shutdown_signal(signal: i32) -> anyhow::Result<()> {
 #[post("/shutdown/{token}/{mode}")]
 async fn shutdown_handler(params: web::Path<ShutdownParams>) -> HttpResponse {
     let shutdown_params: ShutdownParams = params.into_inner();
-    let shutdown_token = get_shutdown_token();
-    if shutdown_token.is_none() {
+
+    if let Some(shutdown_token) = get_shutdown_token() {
+        if shutdown_token != shutdown_params.token {
+            return HttpResponse::Unauthorized()
+                .body("Invalid shutdown token provided (ignoring the command).");
+        }
+    } else {
         return HttpResponse::InternalServerError()
             .body("No shutdown token set. Pipeline shutdown is not supported.");
-    } else if shutdown_token.unwrap() != shutdown_params.token {
-        return HttpResponse::Unauthorized()
-            .body("Invalid shutdown token provided (ignoring the command).");
-    } else {
-        let res = shutdown();
-        if res.is_err() {
-            return HttpResponse::InternalServerError()
-                .body("Failed to set shutdown status multiple times (already set).");
-        }
-        let res = set_status(PipelineStatus::Shutdown);
-        if res.is_err() {
-            return HttpResponse::InternalServerError().body("Failed to set pipeline status.");
-        }
-        if matches!(shutdown_params.mode, ShutdownMode::Signal) {
-            let pid = PID.lock().await;
-            _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(*pid), get_shutdown_signal());
-        }
     }
+
+    let res = shutdown();
+    if res.is_err() {
+        return HttpResponse::InternalServerError()
+            .body("Failed to set shutdown status multiple times (already set).");
+    }
+    let res = set_status(PipelineStatus::Shutdown);
+    if res.is_err() {
+        return HttpResponse::InternalServerError().body("Failed to set pipeline status.");
+    }
+    if matches!(shutdown_params.mode, ShutdownMode::Signal) {
+        let pid = PID.lock().await;
+        _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(*pid), get_shutdown_signal());
+    }
+
     HttpResponse::Ok().json("ok")
 }
 
