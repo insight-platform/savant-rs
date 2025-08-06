@@ -8,20 +8,15 @@ use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use twelf::{config, Layer};
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum CompactionStyle {
     #[serde(rename = "level")]
     Level,
     #[serde(rename = "universal")]
+    #[default]
     Universal,
     #[serde(rename = "fifo")]
     Fifo,
-}
-
-impl Default for CompactionStyle {
-    fn default() -> Self {
-        CompactionStyle::Universal
-    }
 }
 
 impl From<CompactionStyle> for rocksdb::DBCompactionStyle {
@@ -115,7 +110,8 @@ impl ServiceConfiguration {
     }
 }
 
-pub mod tests {
+#[cfg(test)]
+mod tests {
     use super::*;
 
     #[test]
