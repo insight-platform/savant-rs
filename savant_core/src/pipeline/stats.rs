@@ -558,7 +558,6 @@ mod tests {
         ));
         generator.time_counter.update_time(20);
         let mut frames = (0..5)
-            .into_iter()
             .flat_map(|_| generator.register_frame(1, false))
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 1);

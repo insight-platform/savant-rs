@@ -1155,7 +1155,7 @@ mod tests {
 
     fn gen_labeled_object(id: i64) -> VideoObject {
         let mut obj = gen_object(id);
-        let label = format!("{:03}", id);
+        let label = format!("{id:03}");
         obj.set_label(&label);
         obj
     }
@@ -1163,7 +1163,7 @@ mod tests {
     #[test]
     fn test_access_objects_by_id() {
         let t = gen_frame();
-        let objects = t.access_objects_with_id(&vec![0, 1]);
+        let objects = t.access_objects_with_id(&[0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1179,7 +1179,7 @@ mod tests {
     #[test]
     fn test_objects_by_id() {
         let t = gen_frame();
-        let objects = t.access_objects_with_id(&vec![0, 1]);
+        let objects = t.access_objects_with_id(&[0, 1]);
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].get_id(), 0);
         assert_eq!(objects[1].get_id(), 1);
@@ -1655,7 +1655,7 @@ mod tests {
                 ids
             })
             .collect::<Vec<_>>();
-        object_tree_ids.sort_by(|a, b| a.len().cmp(&b.len()));
+        object_tree_ids.sort_by_key(|a| a.len());
         assert_eq!(object_tree_ids[0], vec![3, 5]);
         assert_eq!(object_tree_ids[1], vec![1, 2, 4, 6]);
 

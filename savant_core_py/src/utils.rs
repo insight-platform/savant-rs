@@ -18,8 +18,7 @@ pub fn check_pybound_name(bo: &Bound<'_, PyAny>, expected_name: &str) -> PyResul
     let name = bo.get_type().name()?.to_string();
     if name.as_str() != expected_name {
         return Err(PyValueError::new_err(format!(
-            "Ingress function must be a StageFunction, got {}",
-            name
+            "Ingress function must be a StageFunction, got {name}"
         )));
     }
     Ok(())

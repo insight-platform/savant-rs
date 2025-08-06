@@ -1045,14 +1045,14 @@ mod tests {
         let eq_q: SE = eq("test");
         // assert!(eq_q.execute(&"test".to_string(), &mut ()));
         assert!(matches!(
-            eq_q.execute(&"test".to_string(), &mut ()),
+            eq_q.execute("test", &mut ()),
             ControlFlow::Continue(true)
         ));
 
         let ne_q: SE = ne("test");
         // assert!(ne_q.execute(&"test2".to_string(), &mut ()));
         assert!(matches!(
-            ne_q.execute(&"test2".to_string(), &mut ()),
+            ne_q.execute("test2", &mut ()),
             ControlFlow::Continue(true)
         ));
 
@@ -1060,18 +1060,18 @@ mod tests {
         // assert!(contains_q.execute(&"testimony".to_string(), &mut ()));
         // assert!(contains_q.execute(&"supertest".to_string(), &mut ()));
         assert!(matches!(
-            contains_q.execute(&"testimony".to_string(), &mut ()),
+            contains_q.execute("testimony", &mut ()),
             ControlFlow::Continue(true)
         ));
         assert!(matches!(
-            contains_q.execute(&"supertest".to_string(), &mut ()),
+            contains_q.execute("supertest", &mut ()),
             ControlFlow::Continue(true)
         ));
 
         let not_contains_q: SE = not_contains("test");
         // assert!(not_contains_q.execute(&"apple".to_string(), &mut ()));
         assert!(matches!(
-            not_contains_q.execute(&"apple".to_string(), &mut ()),
+            not_contains_q.execute("apple", &mut ()),
             ControlFlow::Continue(true)
         ));
 
@@ -1079,11 +1079,11 @@ mod tests {
         //assert!(starts_with_q.execute(&"testing".to_string(), &mut ()));
         //assert!(!starts_with_q.execute(&"tes".to_string(), &mut ()));
         assert!(matches!(
-            starts_with_q.execute(&"testing".to_string(), &mut ()),
+            starts_with_q.execute("testing", &mut ()),
             ControlFlow::Continue(true)
         ));
         assert!(matches!(
-            starts_with_q.execute(&"tes".to_string(), &mut ()),
+            starts_with_q.execute("tes", &mut ()),
             ControlFlow::Continue(false)
         ));
 
@@ -1091,11 +1091,11 @@ mod tests {
         //assert!(ends_with_q.execute(&"gettest".to_string(), &mut ()));
         //assert!(!ends_with_q.execute(&"supertes".to_string(), &mut ()));
         assert!(matches!(
-            ends_with_q.execute(&"gettest".to_string(), &mut ()),
+            ends_with_q.execute("gettest", &mut ()),
             ControlFlow::Continue(true)
         ));
         assert!(matches!(
-            ends_with_q.execute(&"supertes".to_string(), &mut ()),
+            ends_with_q.execute("supertes", &mut ()),
             ControlFlow::Continue(false)
         ));
 
@@ -1104,15 +1104,15 @@ mod tests {
         // assert!(one_of_q.execute(&"now".to_string(), &mut ()));
         // assert!(!one_of_q.execute(&"random".to_string(), &mut ()));
         assert!(matches!(
-            one_of_q.execute(&"me".to_string(), &mut ()),
+            one_of_q.execute("me", &mut ()),
             ControlFlow::Continue(true)
         ));
         assert!(matches!(
-            one_of_q.execute(&"now".to_string(), &mut ()),
+            one_of_q.execute("now", &mut ()),
             ControlFlow::Continue(true)
         ));
         assert!(matches!(
-            one_of_q.execute(&"random".to_string(), &mut ()),
+            one_of_q.execute("random", &mut ()),
             ControlFlow::Continue(false)
         ));
     }

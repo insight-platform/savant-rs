@@ -116,7 +116,8 @@ mod tests {
 
     #[test]
     fn test_storage_config_default_values() {
-        let conf = serde_json::from_str::<Storage>(r#"
+        let conf = serde_json::from_str::<Storage>(
+            r#"
         {
             "rocksdb": {
                 "path": "test_path",
@@ -125,7 +126,9 @@ mod tests {
                     "nanos": 0
                 }
             }
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         let Storage::RocksDB {
             path,

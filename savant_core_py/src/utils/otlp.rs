@@ -187,7 +187,7 @@ impl TelemetrySpan {
                     description: "python.exception".into(),
                 });
 
-                attrs.insert("python.exception.type".to_string(), format!("{:?}", e));
+                attrs.insert("python.exception.type".to_string(), format!("{e:?}"));
 
                 if let Some(v) = exc_value {
                     if let Ok(e) = v.downcast::<PyException>() {

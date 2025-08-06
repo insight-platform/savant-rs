@@ -238,7 +238,7 @@ impl KvsSubscription {
     fn new(name: &str, max_inflight_ops: usize) -> PyResult<Self> {
         subscribe(name, max_inflight_ops)
             .map(KvsSubscription)
-            .map_err(|e| PyValueError::new_err(format!("Failed to create subscription: {:?}", e)))
+            .map_err(|e| PyValueError::new_err(format!("Failed to create subscription: {e:?}")))
     }
 
     /// Get the next message from the subscription.

@@ -288,7 +288,7 @@ impl PipelineConfiguration {
             rust::PipelineConfigurationBuilder::default()
                 .build()
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to create pipeline configuration: {}", e))
+                    PyValueError::new_err(format!("Failed to create pipeline configuration: {e}"))
                 })?,
         ))
     }
@@ -357,7 +357,7 @@ impl Pipeline {
             .collect::<PyResult<Vec<_>>>()?;
 
         let p = rust::Pipeline::new(name, stages, configuration.0)
-            .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Failed to create pipeline: {e}")))?;
         p.set_root_span_name(name)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self(p))
@@ -431,10 +431,7 @@ impl Pipeline {
     #[setter]
     fn set_sampling_period(&self, period: i64) -> PyResult<()> {
         self.0.set_sampling_period(period).map_err(|e| {
-            PyValueError::new_err(format!(
-                "Failed to set sampling period to {}: {}",
-                period, e
-            ))
+            PyValueError::new_err(format!("Failed to set sampling period to {period}: {e}"))
         })
     }
 

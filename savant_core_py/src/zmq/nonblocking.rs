@@ -29,7 +29,7 @@ impl NonBlockingReader {
     pub fn new(config: ReaderConfig, results_queue_size: usize) -> PyResult<Self> {
         Ok(Self(
             zeromq::NonBlockingReader::new(&config.0, results_queue_size)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         ))
     }
 
@@ -41,7 +41,7 @@ impl NonBlockingReader {
         }
         self.0
             .start()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(())
     }
 
@@ -69,7 +69,7 @@ impl NonBlockingReader {
     pub fn shutdown(&mut self) -> PyResult<()> {
         self.0
             .shutdown()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
     }
 
     /// Receives a message. Blocks until a message is received. Does not release GIL.
@@ -93,7 +93,7 @@ impl NonBlockingReader {
         let res = self
             .0
             .receive()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         results::process_reader_result(res)
     }
 
@@ -102,7 +102,7 @@ impl NonBlockingReader {
             None => Ok(None),
             Some(res) => match res {
                 Ok(res) => Ok(Some(results::process_reader_result(res)?)),
-                Err(e) => Err(PyRuntimeError::new_err(format!("{:?}", e))),
+                Err(e) => Err(PyRuntimeError::new_err(format!("{e:?}"))),
             },
         }
     }
@@ -144,7 +144,7 @@ pub struct WriteOperationResult(zeromq::WriteOperationResult);
 impl WriteOperationResult {
     pub fn get(&self) -> PyResult<PyObject> {
         results::process_writer_result(release_gil!(true, || self.0.get()).map_err(|e| {
-            PyRuntimeError::new_err(format!("Failed to get write operation result: {:?}", e))
+            PyRuntimeError::new_err(format!("Failed to get write operation result: {e:?}"))
         })?)
     }
 
@@ -152,17 +152,13 @@ impl WriteOperationResult {
         match self.0.try_get() {
             Ok(Some(res)) => {
                 let res = res.map_err(|e| {
-                    PyRuntimeError::new_err(format!(
-                        "Failed to get write operation result: {:?}",
-                        e
-                    ))
+                    PyRuntimeError::new_err(format!("Failed to get write operation result: {e:?}"))
                 })?;
                 Ok(Some(results::process_writer_result(res)?))
             }
             Ok(None) => Ok(None),
             Err(e) => Err(PyRuntimeError::new_err(format!(
-                "Failed to get write operation result: {:?}",
-                e
+                "Failed to get write operation result: {e:?}"
             ))),
         }
     }
@@ -193,7 +189,7 @@ impl NonBlockingWriter {
     pub fn new(config: WriterConfig, max_infight_messages: usize) -> PyResult<Self> {
         Ok(Self(Mutex::new(
             zeromq::NonBlockingWriter::new(&config.0, max_infight_messages)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         )))
     }
 
@@ -224,7 +220,7 @@ impl NonBlockingWriter {
     pub fn start(&mut self) -> PyResult<()> {
         self.locked()
             .start()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
     }
 
     /// Shuts down the writer. If the writer is already shutdown, returns an error.
@@ -232,7 +228,7 @@ impl NonBlockingWriter {
     pub fn shutdown(&mut self) -> PyResult<()> {
         self.locked()
             .shutdown()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
     }
 
     /// Sends EOS to the specified topic.
@@ -258,7 +254,7 @@ impl NonBlockingWriter {
         Ok(WriteOperationResult(
             self.locked()
                 .send_eos(topic)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         ))
     }
 
@@ -295,7 +291,7 @@ impl NonBlockingWriter {
         Ok(WriteOperationResult(
             self.locked()
                 .send_message(topic, &message.0, &[bytes])
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         ))
     }
 }

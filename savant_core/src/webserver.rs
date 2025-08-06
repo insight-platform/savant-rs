@@ -177,13 +177,10 @@ impl WsData {
             if let Err(e) = tx.try_send(op.clone()) {
                 match e {
                     TrySendError::Full(m) => {
-                        warn!(
-                            "Subscriber {} is full, dropping message: {:?}",
-                            subscriber, m
-                        );
+                        warn!("Subscriber {subscriber} is full, dropping message: {m:?}");
                     }
                     TrySendError::Closed(_) => {
-                        info!("Subscriber {} is closed, removing from list.", subscriber);
+                        info!("Subscriber {subscriber} is closed, removing from list.");
                         to_remove.push(subscriber.clone());
                     }
                 }
@@ -237,11 +234,11 @@ pub(crate) fn register_pipeline(pipeline: Arc<implementation::Pipeline>) {
         let entry = bind.get(&name);
         if entry.is_some() {
             let message = format!("Pipeline with name {} already exists in registry.", &name);
-            error!("{}", message);
+            error!("{message}");
             panic!("{}", message);
         }
         bind.insert(name.clone(), pipeline.clone());
-        info!("Pipeline {} registered.", name);
+        info!("Pipeline {name} registered.");
     });
 }
 
@@ -397,7 +394,7 @@ async fn events_internal(
         .subscribe(&my_name, MAX_WS_INFLIGHT_OPS)
         .await
         .map_err(|e| {
-            error!("Failed to subscribe to KVS events: {}", e);
+            error!("Failed to subscribe to KVS events: {e}");
             ErrorInternalServerError("Failed to subscribe to KVS events")
         })?;
 
@@ -408,7 +405,7 @@ async fn events_internal(
             if let Ok(AggregatedMessage::Ping(msg)) = msg {
                 let res = command_session.pong(&msg).await;
                 if let Err(e) = res {
-                    error!("Failed to send PONG frame: {}", e);
+                    error!("Failed to send PONG frame: {e}");
                     return;
                 }
                 info!(
@@ -458,7 +455,7 @@ async fn events_internal(
                 let set = AttributeSet::from(attrs);
                 let serialized = set.to_pb();
                 if let Err(e) = serialized {
-                    warn!("Failed to serialize attributes: {}", e);
+                    warn!("Failed to serialize attributes: {e}");
                     return;
                 }
                 let serialized = serialized.unwrap();
@@ -481,7 +478,7 @@ async fn events_internal(
 async fn metrics_handler() -> HttpResponse {
     let content_type = "application/openmetrics-text; version=1.0.0; charset=utf-8";
     if let Err(e) = PipelineMetricBuilder::build().await {
-        error!("Failed to build pipeline metrics: {}", e);
+        error!("Failed to build pipeline metrics: {e}");
         return HttpResponse::InternalServerError()
             .content_type(content_type)
             .body("Failed to build pipeline metrics");
@@ -491,7 +488,7 @@ async fn metrics_handler() -> HttpResponse {
     registry.register_collector(boxed_collector);
     let mut body = String::new();
     if let Err(e) = encode(&mut body, &registry) {
-        error!("Failed to encode metrics: {}", e);
+        error!("Failed to encode metrics: {e}");
         return HttpResponse::InternalServerError()
             .content_type(content_type)
             .body("Failed to encode metrics");
@@ -681,13 +678,13 @@ mod tests {
             Some(Unit::Other(String::from("Time"))),
         );
 
-        c.lock().inc(1, &[&"value1", &"value2"])?;
+        c.lock().inc(1, &["value1", "value2"])?;
         let unix_time_now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs_f64();
 
-        g.lock().set(unix_time_now, &[&"value3", &"value4"])?;
+        g.lock().set(unix_time_now, &["value3", "value4"])?;
 
         let client = reqwest::Client::new();
         let r = rt.block_on(client.get("http://localhost:8888/metrics").send())?;

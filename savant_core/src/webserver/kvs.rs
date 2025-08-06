@@ -231,7 +231,7 @@ mod tests {
         let retrieved_all = search_attributes(&None, &None);
         assert_eq!(retrieved_all.len(), 2);
 
-        let abc_attribute = get_attribute(&"abc".to_string(), &"xax".to_string());
+        let abc_attribute = get_attribute("abc", "xax");
         assert_eq!(abc_attribute.as_ref().unwrap().name.as_str(), "xax");
 
         del_attributes(&None, &None);
@@ -451,7 +451,7 @@ mod tests {
             resp.bytes().await
         })?;
         assert_eq!(r.len(), 0);
-        let attr = get_attribute(&"ghi".to_string(), &"yay".to_string());
+        let attr = get_attribute("ghi", "yay");
         assert_eq!(attr.unwrap(), attribute_set.attributes[0]);
 
         // set with ttl
@@ -465,10 +465,10 @@ mod tests {
             assert_eq!(resp.status(), 200);
             resp.bytes().await
         })?;
-        let attr = get_attribute(&"jkl".to_string(), &"yay".to_string());
+        let attr = get_attribute("jkl", "yay");
         assert_eq!(attr.unwrap(), ttl_attribute_set.attributes[0]);
         sleep(Duration::from_millis(1001));
-        let attr = get_attribute(&"jkl".to_string(), &"yay".to_string());
+        let attr = get_attribute("jkl", "yay");
         assert!(attr.is_none());
 
         stop_webserver();

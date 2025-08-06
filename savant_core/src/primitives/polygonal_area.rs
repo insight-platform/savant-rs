@@ -231,12 +231,12 @@ mod tests {
         assert!(!area1.contains(&p3));
 
         assert_eq!(
-            area1.contains_many_points(&vec![p1.clone(), p2.clone(), p3.clone()]),
+            area1.contains_many_points(&[p1.clone(), p2.clone(), p3.clone()]),
             vec![true, true, false]
         );
 
         assert_eq!(
-            PolygonalArea::points_positions(&mut vec![area1, area2], &vec![p1, p2, p3]),
+            PolygonalArea::points_positions(&mut [area1, area2], &[p1, p2, p3]),
             vec![vec![true, true, false], vec![false, false, false]]
         )
     }
@@ -378,7 +378,7 @@ mod tests {
         let seg1 = Segment::new(Point::new(-2.0, 0.5), Point::new(3.0, 0.5));
         let seg2 = Segment::new(Point::new(-0.5, 2.0), Point::new(-0.5, -2.0));
         let intersections =
-            PolygonalArea::segments_intersections(&mut vec![area1, area2], &vec![seg1, seg2]);
+            PolygonalArea::segments_intersections(&mut [area1, area2], &[seg1, seg2]);
         assert_eq!(
             intersections,
             vec![
