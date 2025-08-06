@@ -240,7 +240,7 @@ mod tests {
     #[test]
     fn test_full_uri() -> anyhow::Result<()> {
         let endpoint = String::from("ipc:///abc/def");
-        let url = format!("sub+connect:{}", endpoint);
+        let url = format!("sub+connect:{endpoint}");
         let config = ReaderConfig::new().url(&url)?.build()?;
         assert_eq!(config.endpoint(), &endpoint);
         assert_eq!(config.bind(), &false);
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_writer_results_in_error() -> anyhow::Result<()> {
         let endpoint = String::from("ipc:///abc/def");
-        let url = format!("pub+connect:{}", endpoint);
+        let url = format!("pub+connect:{endpoint}");
         let config = ReaderConfig::new().url(&url);
         assert!(config.is_err());
         Ok(())
@@ -261,7 +261,7 @@ mod tests {
     fn set_fix_perms_without_bind_fails() -> anyhow::Result<()> {
         let config = ReaderConfig::new()
             .with_bind(false)?
-            .with_fix_ipc_permissions(Some(0777));
+            .with_fix_ipc_permissions(Some(0o777));
         assert!(config.is_err());
         Ok(())
     }
@@ -270,7 +270,7 @@ mod tests {
     fn set_fix_ipc_permissions_with_bind_ok() -> anyhow::Result<()> {
         let _ = ReaderConfig::new()
             .with_bind(true)?
-            .with_fix_ipc_permissions(Some(0777))?;
+            .with_fix_ipc_permissions(Some(0o777))?;
         Ok(())
     }
 

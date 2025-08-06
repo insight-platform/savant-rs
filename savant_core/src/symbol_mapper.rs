@@ -49,16 +49,13 @@ impl SymbolMapper {
         self.registry
             .iter()
             .map(|(key, (model_id, object_id))| {
-                format!(
-                    "Key={}, ModelId={}, ObjectId={:?}",
-                    key, model_id, object_id
-                )
+                format!("Key={key}, ModelId={model_id}, ObjectId={object_id:?}")
             })
             .collect()
     }
 
     pub fn build_model_object_key(model_name: &str, object_label: &str) -> String {
-        format!("{}{}{}", model_name, REGISTRY_KEY_SEPARATOR, object_label)
+        format!("{model_name}{REGISTRY_KEY_SEPARATOR}{object_label}")
     }
 
     pub fn get_model_id(&mut self, model_name: &str) -> anyhow::Result<i64> {
@@ -306,22 +303,22 @@ mod tests {
 
     #[test]
     fn test_validate_base_key() {
-        assert!(matches!(SymbolMapper::validate_base_key(""), Err(_)));
-        assert!(matches!(SymbolMapper::validate_base_key("model"), Ok(_)));
-        assert!(matches!(SymbolMapper::validate_base_key("mo.del"), Err(_)));
-        assert!(matches!(SymbolMapper::validate_base_key(".model"), Err(_)));
-        assert!(matches!(SymbolMapper::validate_base_key("model."), Err(_)));
+        assert!(SymbolMapper::validate_base_key("").is_err());
+        assert!(SymbolMapper::validate_base_key("model").is_ok());
+        assert!(SymbolMapper::validate_base_key("mo.del").is_err());
+        assert!(SymbolMapper::validate_base_key(".model").is_err());
+        assert!(SymbolMapper::validate_base_key("model.").is_err());
     }
 
     #[test]
     fn test_validate_object_key() {
-        assert!(matches!(SymbolMapper::parse_compound_key(""), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key("model"), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key(".m"), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key("."), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key("a."), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key("a.b.c"), Err(_)));
-        assert!(matches!(SymbolMapper::parse_compound_key("a.b"), Ok(_)));
+        assert!(SymbolMapper::parse_compound_key("").is_err());
+        assert!(SymbolMapper::parse_compound_key("model").is_err());
+        assert!(SymbolMapper::parse_compound_key(".m").is_err());
+        assert!(SymbolMapper::parse_compound_key(".").is_err());
+        assert!(SymbolMapper::parse_compound_key("a.").is_err());
+        assert!(SymbolMapper::parse_compound_key("a.b.c").is_err());
+        assert!(SymbolMapper::parse_compound_key("a.b").is_ok());
         let (model_name, object_name) = SymbolMapper::parse_compound_key("a.b").unwrap();
         assert_eq!(model_name, "a");
         assert_eq!(object_name, "b");
@@ -331,23 +328,21 @@ mod tests {
     fn register_incorrect_names() -> anyhow::Result<()> {
         let mut sm = SymbolMapper::default();
 
-        assert!(matches!(
-            sm.register_model_objects(
+        assert!(sm
+            .register_model_objects(
                 "model.",
                 &std::collections::HashMap::default(),
                 &RegistrationPolicy::ErrorIfNonUnique,
-            ),
-            Err(_)
-        ));
+            )
+            .is_err());
 
-        assert!(matches!(
-            sm.register_model_objects(
+        assert!(sm
+            .register_model_objects(
                 "model",
                 &[(1, s("obj.ect"))].into_iter().collect(),
                 &RegistrationPolicy::ErrorIfNonUnique,
-            ),
-            Err(_)
-        ));
+            )
+            .is_err());
 
         Ok(())
     }
@@ -356,14 +351,13 @@ mod tests {
     fn test_register_duplicate_objects_error_non_unique() -> anyhow::Result<()> {
         let mut sm = SymbolMapper::default();
 
-        assert!(matches!(
-            sm.register_model_objects(
+        assert!(sm
+            .register_model_objects(
                 "model",
                 &[(1, s("object")), (2, s("object"))].into_iter().collect(),
                 &RegistrationPolicy::ErrorIfNonUnique,
-            ),
-            Err(_)
-        ));
+            )
+            .is_err());
 
         let mut sm = SymbolMapper::default();
 
@@ -373,14 +367,13 @@ mod tests {
             &RegistrationPolicy::ErrorIfNonUnique,
         )?;
 
-        assert!(matches!(
-            sm.register_model_objects(
+        assert!(sm
+            .register_model_objects(
                 "model",
                 &[(1, s("object2"))].into_iter().collect(),
                 &RegistrationPolicy::ErrorIfNonUnique,
-            ),
-            Err(_)
-        ));
+            )
+            .is_err());
 
         Ok(())
     }
@@ -449,7 +442,7 @@ mod tests {
         assert_eq!(model_name, s("model"));
 
         let nonexistent_model_name = sm.get_model_name(1);
-        assert!(matches!(nonexistent_model_name, None));
+        assert!(nonexistent_model_name.is_none());
     }
 
     #[test]
@@ -463,7 +456,7 @@ mod tests {
         assert_eq!(object_label, s("object"));
 
         let nonexistent_object_label = sm.get_object_label(0, 1);
-        assert!(matches!(nonexistent_object_label, None));
+        assert!(nonexistent_object_label.is_none());
     }
 
     #[test]

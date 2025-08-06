@@ -289,6 +289,7 @@ mod tests {
     };
     use tokio::sync::Mutex;
 
+    use crate::service::configuration::{CompactionStyle, Storage};
     use crate::store::rocksdb::RocksDbStore;
     use crate::store::{gen_properly_filled_frame, Store};
     use crate::stream_processor::StreamProcessor;
@@ -297,7 +298,15 @@ mod tests {
     async fn test_stream_processor() -> Result<()> {
         let dir = tempfile::TempDir::new()?;
         let path = dir.path();
-        let db = RocksDbStore::new(path, Duration::from_secs(60), 1024 * 1024 * 1024)?;
+        let db = RocksDbStore::new(&Storage::RocksDB {
+            path: path.to_path_buf(),
+            data_expiration_ttl: Duration::from_secs(60),
+            disable_wal: false,
+            max_total_wal_size: 1024 * 1024 * 1024,
+            max_log_file_size: 0,
+            keep_log_file_num: 10,
+            compaction_style: CompactionStyle::Universal,
+        })?;
 
         let mut in_reader = NonBlockingReader::new(
             &ReaderConfig::new()

@@ -27,7 +27,7 @@ use crate::with_gil;
 pub fn save_message_gil(message: &Message, no_gil: bool) -> PyResult<Vec<u8>> {
     release_gil!(no_gil, || {
         savant_core::message::save_message(&message.0)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{:?}", e)))
+            .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{e:?}")))
     })
 }
 
@@ -57,7 +57,7 @@ pub fn save_message_to_bytebuffer_gil(
 ) -> PyResult<ByteBuffer> {
     release_gil!(no_gil, || {
         let m = savant_core::message::save_message(&message.0)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{:?}", e)))?;
+            .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{e:?}")))?;
         let hash_opt = if with_hash { Some(fast_hash(&m)) } else { None };
         Ok(ByteBuffer::new(m, hash_opt))
     })
@@ -82,7 +82,7 @@ pub fn save_message_to_bytebuffer_gil(
 #[pyo3(signature = (message, no_gil=true))]
 pub fn save_message_to_bytes_gil(message: &Message, no_gil: bool) -> PyResult<PyObject> {
     let bytes = release_gil!(no_gil, || savant_core::message::save_message(&message.0))
-        .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{:?}", e)))?;
+        .map_err(|e| pyo3::exceptions::PyException::new_err(format!("{e:?}")))?;
     with_gil!(|py| {
         let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
             b.copy_from_slice(&bytes);

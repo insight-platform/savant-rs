@@ -263,8 +263,7 @@ impl VideoFrameUpdate {
         let bytes = release_gil!(no_gil, || {
             self.0.to_pb().map_err(|e| {
                 PyRuntimeError::new_err(format!(
-                    "Failed to serialize video frame update to protobuf: {}",
-                    e
+                    "Failed to serialize video frame update to protobuf: {e}"
                 ))
             })
         })?;
@@ -287,8 +286,7 @@ impl VideoFrameUpdate {
                 from_pb::<savant_core::protobuf::VideoFrameUpdate, rust::VideoFrameUpdate>(bytes)
                     .map_err(|e| {
                     PyRuntimeError::new_err(format!(
-                        "Failed to deserialize video frame update from protobuf: {}",
-                        e
+                        "Failed to deserialize video frame update from protobuf: {e}"
                     ))
                 })?;
             Ok(Self(obj))

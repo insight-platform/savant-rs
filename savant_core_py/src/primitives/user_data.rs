@@ -199,7 +199,7 @@ impl UserData {
     fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
         let bytes = release_gil!(no_gil, || {
             self.0.to_pb().map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to serialize user data to protobuf: {}", e))
+                PyRuntimeError::new_err(format!("Failed to serialize user data to protobuf: {e}"))
             })
         })?;
         with_gil!(|py| {
@@ -217,8 +217,7 @@ impl UserData {
             let obj =
                 from_pb::<savant_core::protobuf::UserData, rust::UserData>(bytes).map_err(|e| {
                     PyRuntimeError::new_err(format!(
-                        "Failed to deserialize user data from protobuf: {}",
-                        e
+                        "Failed to deserialize user data from protobuf: {e}"
                     ))
                 })?;
             Ok(Self(obj))

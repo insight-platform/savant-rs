@@ -1179,10 +1179,7 @@ impl VideoFrame {
     fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
         let bytes = release_gil!(no_gil, || {
             self.0.to_pb().map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "Failed to serialize video frame to protobuf: {}",
-                    e
-                ))
+                PyRuntimeError::new_err(format!("Failed to serialize video frame to protobuf: {e}"))
             })
         })?;
         with_gil!(|py| {
@@ -1203,8 +1200,7 @@ impl VideoFrame {
             let obj = from_pb::<savant_core::protobuf::VideoFrame, rust::VideoFrameProxy>(bytes)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!(
-                        "Failed to deserialize video frame from protobuf: {}",
-                        e
+                        "Failed to deserialize video frame from protobuf: {e}"
                     ))
                 })?;
             Ok(Self(obj))

@@ -2326,7 +2326,7 @@ impl MatchQuery {
     #[staticmethod]
     fn from_json(json: String) -> PyResult<MatchQuery> {
         Ok(MatchQuery(rust::MatchQuery::from_json(&json).map_err(
-            |e| PyValueError::new_err(format!("Invalid JSON: {}", e)),
+            |e| PyValueError::new_err(format!("Invalid JSON: {e}")),
         )?))
     }
 
@@ -2363,7 +2363,7 @@ impl MatchQuery {
     #[staticmethod]
     fn from_yaml(yaml: String) -> PyResult<MatchQuery> {
         Ok(MatchQuery(rust::MatchQuery::from_yaml(&yaml).map_err(
-            |e| PyValueError::new_err(format!("Invalid YAML: {}", e)),
+            |e| PyValueError::new_err(format!("Invalid YAML: {e}")),
         )?))
     }
 }

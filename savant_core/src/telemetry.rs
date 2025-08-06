@@ -232,7 +232,7 @@ impl Configurator {
         }
 
         global::set_error_handler(|e| {
-            error!(target: "opentelemetry", "{}", e);
+            error!(target: "opentelemetry", "{e}");
         })
         .expect("Failed to set OpenTelemetry error handler");
 
@@ -264,10 +264,7 @@ pub fn init(config: &TelemetryConfiguration) {
 
 pub fn init_from_file(path: &str) {
     let config = TelemetryConfiguration::from_file(path).unwrap_or_else(|e| {
-        panic!(
-            "Failed to load telemetry configuration from {}, error: {}",
-            path, e
-        )
+        panic!("Failed to load telemetry configuration from {path}, error: {e}")
     });
     init(&config);
 }

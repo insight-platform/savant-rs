@@ -87,6 +87,7 @@ mod tests {
     use crate::job::factory::RocksDbJobFactory;
     use crate::job::query::JobQuery;
     use crate::job::stop_condition::JobStopCondition;
+    use crate::service::configuration::{CompactionStyle, Storage};
     use crate::store::rocksdb::RocksDbStore;
     use crate::store::{gen_properly_filled_frame, JobOffset, Store};
     use anyhow::Result;
@@ -110,13 +111,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_rocksdb_job() -> Result<()> {
-        let dir = tempfile::TempDir::new()?;
-        let path = dir.path();
-        let store = Arc::new(Mutex::new(RocksDbStore::new(
-            path,
-            Duration::from_secs(60),
-            1024 * 1024 * 1024,
-        )?));
+        let conf = create_test_db_config()?;
+        let store = Arc::new(Mutex::new(RocksDbStore::new(&conf)?));
 
         let mut factory =
             RocksDbJobFactory::new(store.clone(), 1024u64.try_into()?, Duration::from_secs(30))?;
@@ -158,13 +154,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_rocksdb_delayed_job() -> Result<()> {
-        let dir = tempfile::TempDir::new()?;
-        let path = dir.path();
-        let store = Arc::new(Mutex::new(RocksDbStore::new(
-            path,
-            Duration::from_secs(60),
-            1024 * 1024 * 1024,
-        )?));
+        let conf = create_test_db_config()?;
+        let store = Arc::new(Mutex::new(RocksDbStore::new(&conf)?));
 
         let mut factory =
             RocksDbJobFactory::new(store.clone(), 1024u64.try_into()?, Duration::from_secs(30))?;
@@ -208,5 +199,19 @@ mod tests {
         );
         let _job = factory.create_job(job_query).await?;
         Ok(())
+    }
+
+    fn create_test_db_config() -> Result<Storage> {
+        let dir = tempfile::TempDir::new()?;
+        let path = dir.path();
+        Ok(Storage::RocksDB {
+            path: path.to_path_buf(),
+            data_expiration_ttl: Duration::from_secs(60),
+            disable_wal: false,
+            max_total_wal_size: 1024 * 1024 * 1024,
+            max_log_file_size: 0,
+            keep_log_file_num: 1000,
+            compaction_style: CompactionStyle::Universal,
+        })
     }
 }

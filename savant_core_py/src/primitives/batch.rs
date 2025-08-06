@@ -74,8 +74,7 @@ impl VideoFrameBatch {
         let bytes = release_gil!(no_gil, || {
             self.0.to_pb().map_err(|e| {
                 PyRuntimeError::new_err(format!(
-                    "Failed to serialize video frame batch to protobuf: {}",
-                    e
+                    "Failed to serialize video frame batch to protobuf: {e}"
                 ))
             })
         })?;
@@ -95,8 +94,7 @@ impl VideoFrameBatch {
                 from_pb::<savant_core::protobuf::VideoFrameBatch, rust::VideoFrameBatch>(bytes)
                     .map_err(|e| {
                         PyRuntimeError::new_err(format!(
-                            "Failed to deserialize video frame batch from protobuf: {}",
-                            e
+                            "Failed to deserialize video frame batch from protobuf: {e}"
                         ))
                     })?;
             Ok(Self(obj))

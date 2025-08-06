@@ -22,7 +22,7 @@ impl WriterResultSendTimeout {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -49,7 +49,7 @@ impl WriterResultAckTimeout {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -81,7 +81,7 @@ impl WriterResultAck {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -111,7 +111,7 @@ impl WriterResultSuccess {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -206,7 +206,7 @@ impl ReaderResultTimeout {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -232,7 +232,7 @@ impl ReaderResultBlacklisted {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -262,7 +262,7 @@ impl ReaderResultPrefixMismatch {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {
@@ -290,7 +290,7 @@ impl ReaderResultMessageVersionMismatch {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __str__(&self) -> String {

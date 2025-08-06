@@ -115,7 +115,7 @@ impl WriterConfigBuilder {
     #[new]
     pub fn new(url: &str) -> PyResult<Self> {
         Ok(Self(Some(zeromq::WriterConfig::new().url(url).map_err(
-            |e| PyValueError::new_err(format!("Failed to set ZeroMQ socket URL: {:?}", e)),
+            |e| PyValueError::new_err(format!("Failed to set ZeroMQ socket URL: {e:?}")),
         )?)))
     }
 
@@ -143,7 +143,7 @@ impl WriterConfigBuilder {
                 .unwrap()
                 .with_map_config(std_map)
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {:?}", e))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {e:?}"))
                 })?,
         );
         Ok(())
@@ -163,8 +163,7 @@ impl WriterConfigBuilder {
                 .with_send_timeout(send_timeout)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket send timeout: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket send timeout: {e:?}"
                     ))
                 })?,
         );
@@ -186,8 +185,7 @@ impl WriterConfigBuilder {
                 .with_receive_timeout(receive_timeout)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket receive timeout: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket receive timeout: {e:?}"
                     ))
                 })?,
         );
@@ -213,8 +211,7 @@ impl WriterConfigBuilder {
                 .with_receive_retries(receive_retries)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket receive retries: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket receive retries: {e:?}"
                     ))
                 })?,
         );
@@ -236,8 +233,7 @@ impl WriterConfigBuilder {
                 .with_send_retries(send_retries)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket send retries: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket send retries: {e:?}"
                     ))
                 })?,
         );
@@ -258,7 +254,7 @@ impl WriterConfigBuilder {
                 .unwrap()
                 .with_send_hwm(send_hwm)
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to set ZeroMQ socket send HWM: {:?}", e))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket send HWM: {e:?}"))
                 })?,
         );
         Ok(())
@@ -278,10 +274,7 @@ impl WriterConfigBuilder {
                 .unwrap()
                 .with_receive_hwm(receive_hwm)
                 .map_err(|e| {
-                    PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket receive HWM: {:?}",
-                        e
-                    ))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket receive HWM: {e:?}"))
                 })?,
         );
         Ok(())
@@ -304,8 +297,7 @@ impl WriterConfigBuilder {
                 .with_fix_ipc_permissions(fix_ipc_permissions)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket IPC permissions: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket IPC permissions: {e:?}"
                     ))
                 })?,
         );
@@ -328,8 +320,7 @@ impl WriterConfigBuilder {
         Ok(WriterConfig(self.0.take().unwrap().build().map_err(
             |e| {
                 PyValueError::new_err(format!(
-                    "Failed to build ZeroMQ socket configuration: {:?}",
-                    e
+                    "Failed to build ZeroMQ socket configuration: {e:?}"
                 ))
             },
         )?))
@@ -445,7 +436,7 @@ impl ReaderConfigBuilder {
     #[new]
     pub fn new(url: &str) -> PyResult<Self> {
         Ok(Self(Some(zeromq::ReaderConfig::new().url(url).map_err(
-            |e| PyValueError::new_err(format!("Failed to set ZeroMQ socket URL: {:?}", e)),
+            |e| PyValueError::new_err(format!("Failed to set ZeroMQ socket URL: {e:?}")),
         )?)))
     }
 
@@ -474,7 +465,7 @@ impl ReaderConfigBuilder {
                 .unwrap()
                 .with_map_config(std_map)
                 .map_err(|e| {
-                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {:?}", e))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket config: {e:?}"))
                 })?,
         );
         Ok(())
@@ -500,8 +491,7 @@ impl ReaderConfigBuilder {
                 .with_receive_timeout(receive_timeout)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket receive timeout: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket receive timeout: {e:?}"
                     ))
                 })?,
         );
@@ -527,10 +517,7 @@ impl ReaderConfigBuilder {
                 .unwrap()
                 .with_receive_hwm(receive_hwm)
                 .map_err(|e| {
-                    PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket receive HWM: {:?}",
-                        e
-                    ))
+                    PyValueError::new_err(format!("Failed to set ZeroMQ socket receive HWM: {e:?}"))
                 })?,
         );
         Ok(())
@@ -556,8 +543,7 @@ impl ReaderConfigBuilder {
                 .with_topic_prefix_spec(topic_prefix_spec.0.clone())
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket topic prefix spec: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket topic prefix spec: {e:?}"
                     ))
                 })?,
         );
@@ -579,8 +565,7 @@ impl ReaderConfigBuilder {
                 .with_routing_cache_size(size)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket routing cache size: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket routing cache size: {e:?}"
                     ))
                 })?,
         );
@@ -609,8 +594,7 @@ impl ReaderConfigBuilder {
                 .with_fix_ipc_permissions(permissions)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket IPC permissions: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket IPC permissions: {e:?}"
                     ))
                 })?,
         );
@@ -633,8 +617,7 @@ impl ReaderConfigBuilder {
         Ok(ReaderConfig(self.0.take().unwrap().build().map_err(
             |e| {
                 PyValueError::new_err(format!(
-                    "Failed to build ZeroMQ socket configuration: {:?}",
-                    e
+                    "Failed to build ZeroMQ socket configuration: {e:?}"
                 ))
             },
         )?))
@@ -662,8 +645,7 @@ impl ReaderConfigBuilder {
                 ))?)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket source blacklist size: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket source blacklist size: {e:?}"
                     ))
                 })?,
         );
@@ -692,8 +674,7 @@ impl ReaderConfigBuilder {
                 ))?)
                 .map_err(|e| {
                     PyValueError::new_err(format!(
-                        "Failed to set ZeroMQ socket source blacklist TTL: {:?}",
-                        e
+                        "Failed to set ZeroMQ socket source blacklist TTL: {e:?}"
                     ))
                 })?,
         );

@@ -50,8 +50,7 @@ impl SeqStore {
             true
         } else if *v + 1 == seq_id {
             log::trace!(target: "savant_rs::message::validate_seq_iq", 
-                "Successfully validated seq_id={} for {}", 
-                seq_id, source);
+                "Successfully validated seq_id={seq_id} for {source}");
             *v += 1;
             true
         } else {
@@ -434,7 +433,7 @@ mod tests {
             ]
         );
 
-        let _ = f.access_objects_with_id(&vec![0]).pop().unwrap();
+        let _ = f.access_objects_with_id(&[0]).pop().unwrap();
     }
 
     #[test]

@@ -32,3 +32,5 @@ Cargo.lock
 
 .zed
 .vscode
+
+services/replay/samples/file_restreaming/data

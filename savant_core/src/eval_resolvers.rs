@@ -688,7 +688,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 max_retries -= 1;
                 if max_retries == 0 {
-                    panic!("Failed to connect to Etcd in {}", max_retries);
+                    panic!("Failed to connect to Etcd in {max_retries}");
                 }
             }
 

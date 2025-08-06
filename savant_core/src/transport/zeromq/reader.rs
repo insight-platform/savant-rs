@@ -420,7 +420,7 @@ mod tests {
                 .lock()
                 .as_mut()
                 .unwrap()
-                .send_multipart(&[b"routing-id", b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+                .send_multipart(&[b"routing-id", b"topic", &binary, &[0x0, 0x1, 0x2]], 0)?;
 
             let m = reader.receive()?;
             assert!(matches!(
@@ -531,7 +531,7 @@ mod tests {
             let m = reader.receive()?;
             assert!(
                 matches!(m, ReaderResult::MessageVersionMismatch {topic,routing_id,sender_version,expected_version }
-                    if topic == b"topic" && routing_id == Some(b"routing-id".to_vec()) && sender_version == "0.0.0" && expected_version == savant_protobuf::version().to_string())
+                    if topic == b"topic" && routing_id == Some(b"routing-id".to_vec()) && sender_version == "0.0.0" && expected_version == savant_protobuf::version())
             );
             Ok(())
         }
@@ -719,7 +719,7 @@ mod tests {
                 .lock()
                 .as_mut()
                 .unwrap()
-                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+                .send_multipart(&[b"topic", &binary, &[0x0, 0x1, 0x2]], 0)?;
 
             let m = reader.receive()?;
             assert!(matches!(
@@ -729,7 +729,7 @@ mod tests {
                     topic,
                     routing_id,
                     data
-                } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
+                } if message.is_user_data() && topic == b"topic" && routing_id.is_none() && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
                 reader.socket.lock().as_mut().unwrap().take_buffer(),
@@ -766,7 +766,7 @@ mod tests {
                 .lock()
                 .as_mut()
                 .unwrap()
-                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+                .send_multipart(&[b"topic", &binary, &[0x0, 0x1, 0x2]], 0)?;
             reader.blacklist_source(b"topic");
             assert!(reader.is_blacklisted(b"topic"));
 
@@ -799,7 +799,7 @@ mod tests {
                 .lock()
                 .as_mut()
                 .unwrap()
-                .send_multipart(&[b"topic", &binary, &vec![0x0, 0x1, 0x2]], 0)?;
+                .send_multipart(&[b"topic", &binary, &[0x0, 0x1, 0x2]], 0)?;
             reader.blacklist_source(b"topic");
             assert!(reader.is_blacklisted(b"topic"));
 
@@ -813,7 +813,7 @@ mod tests {
                     topic,
                     routing_id,
                     data
-                } if message.is_user_data() && topic == b"topic" && routing_id == &None && data == &vec![vec![0x0, 0x1, 0x2]]
+                } if message.is_user_data() && topic == b"topic" && routing_id.is_none() && data == &vec![vec![0x0, 0x1, 0x2]]
             ));
             assert_eq!(
                 reader.socket.lock().as_mut().unwrap().take_buffer(),

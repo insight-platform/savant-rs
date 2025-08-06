@@ -54,7 +54,12 @@
       "data_expiration_ttl": {
         "secs": 3600,
         "nanos": 0
-      }
+      },
+      "disable_wal": false,
+      "max_total_wal_size": 1073741824,
+      "compaction_style": "universal",
+      "max_log_file_size": 0,
+      "keep_log_file_num": 1000
     }
   }
 }

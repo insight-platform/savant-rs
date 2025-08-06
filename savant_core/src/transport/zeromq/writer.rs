@@ -167,8 +167,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                 if let zmq::Error::EAGAIN = e {
                     warn!(
                         target: "savant_rs::zeromq::writer",
-                        "Retrying to send message to ZeroMQ socket, retries left: {}",
-                        send_retries
+                        "Retrying to send message to ZeroMQ socket, retries left: {send_retries}"
                     );
                     send_retries -= 1;
                     continue;
@@ -201,7 +200,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                 let res = socket.recv_multipart(0);
                 debug!(
                     target: "savant_rs::zeromq::writer",
-                    "Received message from ZeroMQ socket: {:?}", res);
+                    "Received message from ZeroMQ socket: {res:?}");
                 if let Err(e) = res {
                     warn!(
                         target: "savant_rs::zeromq::writer",
@@ -212,8 +211,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
                     if let zmq::Error::EAGAIN = e {
                         warn!(
                             target: "savant_rs::zeromq::writer",
-                            "Retrying to receive message from ZeroMQ socket, retries left: {}",
-                            receive_retries
+                            "Retrying to receive message from ZeroMQ socket, retries left: {receive_retries}"
                         );
                         receive_retries -= 1;
                         continue;
@@ -246,7 +244,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         let spent = start.elapsed().as_millis();
         debug!(
             target: "savant_rs::zeromq::writer",
-            "Message sent to ZeroMQ socket. Time spent: {} ms", spent);
+            "Message sent to ZeroMQ socket. Time spent: {spent} ms");
         Ok(WriterResult::Success {
             retries_spent: *self.config.send_retries() - send_retries,
             time_spent: spent,

@@ -56,8 +56,7 @@ pub fn unregister_handler(name: &str) -> PyResult<()> {
     let res = handlers.remove(name);
     if res.is_none() {
         return Err(PyValueError::new_err(format!(
-            "Handler with name {} not found",
-            name
+            "Handler with name {name} not found"
         )));
     }
     Ok(())

@@ -62,8 +62,7 @@ impl PaddingDraw {
     pub fn new(left: i64, top: i64, right: i64, bottom: i64) -> PyResult<Self> {
         let pd = rust::PaddingDraw::new(left, top, right, bottom).map_err(|e| {
             PyValueError::new_err(format!(
-                "Invalid padding: left={}, top={}, right={}, bottom={}, exception: {}",
-                left, top, right, bottom, e
+                "Invalid padding: left={left}, top={top}, right={right}, bottom={bottom}, exception: {e}"
             ))
         })?;
 
@@ -180,8 +179,7 @@ impl ColorDraw {
     pub fn new(red: i64, green: i64, blue: i64, alpha: i64) -> PyResult<Self> {
         let cd = rust::ColorDraw::new(red, green, blue, alpha).map_err(|e| {
             PyValueError::new_err(format!(
-                "Invalid color: red={}, green={}, blue={}, alpha={}, exception: {}",
-                red, green, blue, alpha, e
+                "Invalid color: red={red}, green={green}, blue={blue}, alpha={alpha}, exception: {e}"
             ))
         })?;
         Ok(Self(cd))
@@ -302,8 +300,7 @@ impl BoundingBoxDraw {
         let bb = rust::BoundingBoxDraw::new(border_color, background_color, thickness, padding)
             .map_err(|e| {
                 PyValueError::new_err(format!(
-                    "Invalid bounding box: border_color={:?}, background_color={:?}, thickness={}, padding={:?}, exception: {}",
-                    border_color, background_color, thickness, padding, e
+                    "Invalid bounding box: border_color={border_color:?}, background_color={background_color:?}, thickness={thickness}, padding={padding:?}, exception: {e}"
                 ))
             })?;
 
@@ -388,8 +385,7 @@ impl DotDraw {
         let color = color.0;
         let dot_draw = rust::DotDraw::new(color, radius).map_err(|e| {
             PyValueError::new_err(format!(
-                "Invalid dot draw: color={:?}, radius={}, exception: {}",
-                color, radius, e
+                "Invalid dot draw: color={color:?}, radius={radius}, exception: {e}"
             ))
         })?;
 
@@ -484,7 +480,7 @@ impl LabelPosition {
     #[pyo3(signature = (position = LabelPositionKind::TopLeftOutside, margin_x = 0, margin_y = -10))]
     pub fn new(position: LabelPositionKind, margin_x: i64, margin_y: i64) -> PyResult<Self> {
         let position = rust::LabelPosition::new(position.into(), margin_x, margin_y)
-            .map_err(|e| PyValueError::new_err(format!("Invalid label position: {:?}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Invalid label position: {e:?}")))?;
 
         Ok(Self(position))
     }
@@ -583,7 +579,7 @@ impl LabelDraw {
             padding,
             format,
         )
-        .map_err(|e| PyValueError::new_err(format!("Invalid label draw: {:?}", e)))?;
+        .map_err(|e| PyValueError::new_err(format!("Invalid label draw: {e:?}")))?;
 
         Ok(Self(label_draw))
     }

@@ -672,7 +672,7 @@ mod tests {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
-        let result_buf = vec![0u8; 100];
+        let result_buf = [0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
         let ns = unsafe { savant_object_get_namespace(optr, result_buf, 100) };
         let ns = unsafe { std::slice::from_raw_parts(result_buf as *const u8, ns) };
@@ -685,7 +685,7 @@ mod tests {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
-        let result_buf = vec![0u8; 100];
+        let result_buf = [0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
         let label = unsafe { savant_object_get_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
@@ -698,7 +698,7 @@ mod tests {
         let f = gen_frame();
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
-        let result_buf = vec![0u8; 100];
+        let result_buf = [0u8; 100];
         let result_buf = result_buf.as_ptr() as *mut i8;
         let label = unsafe { savant_object_get_draw_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
@@ -972,7 +972,7 @@ mod tests {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr_mut = &mut o as *mut BorrowedVideoObject;
-        let values = vec![1.0, 2.0, 3.0];
+        let values = [1.0, 2.0, 3.0];
 
         let namespace = "newtest";
         let name = "newtest";
@@ -1009,7 +1009,7 @@ mod tests {
         let f = gen_frame();
         let mut o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr_mut = &mut o as *mut BorrowedVideoObject;
-        let values = vec![1, 2, 3];
+        let values = [1, 2, 3];
 
         let namespace = "newtest";
         let name = "newtest";

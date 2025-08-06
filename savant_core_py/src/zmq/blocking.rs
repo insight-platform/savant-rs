@@ -42,7 +42,7 @@ impl BlockingWriter {
         }
         self.0 = Some(
             zeromq::SyncWriter::new(&self.1 .0)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         );
         Ok(())
     }
@@ -56,7 +56,7 @@ impl BlockingWriter {
         let writer = self.0.take().unwrap();
         writer
             .shutdown()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(())
     }
 
@@ -89,7 +89,7 @@ impl BlockingWriter {
         let res = release_gil!(true, || {
             writer
                 .send_eos(topic)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
         })?;
         results::process_writer_result(res)
     }
@@ -133,7 +133,7 @@ impl BlockingWriter {
         let res = release_gil!(true, || {
             writer
                 .send_message(topic, &message.0, &[bytes])
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
         })?;
         results::process_writer_result(res)
     }
@@ -164,7 +164,7 @@ impl BlockingReader {
         }
         self.0 = Some(
             zeromq::SyncReader::new(&self.1 .0)
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?,
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?,
         );
         Ok(())
     }
@@ -188,7 +188,7 @@ impl BlockingReader {
         let reader = self.0.take().unwrap();
         reader
             .shutdown()
-            .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))?;
         Ok(())
     }
 
@@ -216,7 +216,7 @@ impl BlockingReader {
         let res = release_gil!(true, || {
             reader
                 .receive()
-                .map_err(|e| PyRuntimeError::new_err(format!("{:?}", e)))
+                .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
         })?;
         results::process_reader_result(res)
     }
