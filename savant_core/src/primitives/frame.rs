@@ -1317,7 +1317,7 @@ mod tests {
             .id(11)
             .namespace(s("random"))
             .label(s("something"))
-            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
+            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
             .build()
             .unwrap();
 
@@ -1325,7 +1325,7 @@ mod tests {
             .id(23)
             .namespace(s("random"))
             .label(s("something"))
-            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None).try_into().unwrap())
+            .detection_box(RBBox::new(1.0, 2.0, 10.0, 20.0, None))
             .parent_id(Some(p.get_id()))
             .build()
             .unwrap();
@@ -1394,7 +1394,7 @@ mod tests {
             "some-namespace",
             "some-label",
             None,
-            RBBox::new(0.0, 0.0, 0.0, 0.0, None).try_into().unwrap(),
+            RBBox::new(0.0, 0.0, 0.0, 0.0, None),
             None,
             None,
             None,

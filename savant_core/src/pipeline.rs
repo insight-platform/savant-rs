@@ -49,7 +49,7 @@ pub struct PluginParams {
 }
 
 pub type PipelineStageFunctionFactory =
-    fn(name: &str, parameters: PluginParams) -> *mut (dyn PipelineStageFunction);
+    fn(name: &str, parameters: PluginParams) -> *mut dyn PipelineStageFunction;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {

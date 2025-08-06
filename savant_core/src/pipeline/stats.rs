@@ -510,9 +510,9 @@ mod tests {
         }
         let records = stats_collector.get_records(20, |_| true);
         assert_eq!(records.len(), 10);
-        for i in 0..10 {
-            assert_eq!(records[i].ts, 19 - i as i64);
-            assert_eq!(records[i].frame_no, 19 - i);
+        for (i, r) in records.iter().enumerate().take(10) {
+            assert_eq!(r.ts, 19 - i as i64);
+            assert_eq!(r.frame_no, 19 - i);
         }
     }
 

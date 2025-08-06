@@ -261,7 +261,7 @@ mod tests {
     fn set_fix_perms_without_bind_fails() -> anyhow::Result<()> {
         let config = ReaderConfig::new()
             .with_bind(false)?
-            .with_fix_ipc_permissions(Some(0777));
+            .with_fix_ipc_permissions(Some(0o777));
         assert!(config.is_err());
         Ok(())
     }
@@ -270,7 +270,7 @@ mod tests {
     fn set_fix_ipc_permissions_with_bind_ok() -> anyhow::Result<()> {
         let _ = ReaderConfig::new()
             .with_bind(true)?
-            .with_fix_ipc_permissions(Some(0777))?;
+            .with_fix_ipc_permissions(Some(0o777))?;
         Ok(())
     }
 
