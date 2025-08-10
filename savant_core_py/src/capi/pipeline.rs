@@ -20,7 +20,7 @@ pub unsafe extern "C" fn pipeline2_move_as_is(
     let ids = from_raw_parts(ids, len);
     pipeline
         .move_as_is(dest_stage, ids.to_vec())
-        .unwrap_or_else(|e| panic!("Failed to move objects to {}, error: {}", dest_stage, e));
+        .unwrap_or_else(|e| panic!("Failed to move objects to {dest_stage}, error: {e}"));
 }
 
 /// # Safety
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn pipeline2_move_and_pack_frames(
     let ids = from_raw_parts(frame_ids, len);
     pipeline
         .move_and_pack_frames(dest_stage, ids.to_vec())
-        .unwrap_or_else(|e| panic!("Failed to move and pack to {}, error: {}", dest_stage, e))
+        .unwrap_or_else(|e| panic!("Failed to move and pack to {dest_stage}, error: {e}"))
 }
 
 /// # Safety
@@ -60,12 +60,7 @@ pub unsafe extern "C" fn pipeline2_move_and_unpack_batch(
     let pipeline = &*(handle as *const Pipeline);
     let ids = pipeline
         .move_and_unpack_batch(dest_stage, batch_id)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Failed to move and unpack to `{}`, error: {}",
-                dest_stage, e
-            )
-        });
+        .unwrap_or_else(|e| panic!("Failed to move and unpack to `{dest_stage}`, error: {e}"));
     if ids.len() > resulting_ids_len {
         panic!("Not enough space in resulting_ids");
     }
@@ -99,7 +94,7 @@ pub unsafe extern "C" fn pipeline2_apply_updates(handle: usize, id: i64) -> bool
         log_message(
             LogLevel::Error,
             "pipeline::capi::apply_updates",
-            format!("Failed to apply updates: {}", e).as_str(),
+            format!("Failed to apply updates: {e}").as_str(),
             None,
         );
         false
@@ -132,7 +127,7 @@ pub unsafe extern "C" fn pipeline2_clear_updates(handle: usize, id: i64) -> bool
         log_message(
             LogLevel::Error,
             "pipeline::capi::clear_updates",
-            format!("Failed to clear updates: {}", e).as_str(),
+            format!("Failed to clear updates: {e}").as_str(),
             None,
         );
         false

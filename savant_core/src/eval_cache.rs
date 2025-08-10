@@ -24,7 +24,7 @@ lazy_static! {
     );
 }
 
-pub fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression>> {
+pub fn get_compiled_jmp_filter(query: &str) -> anyhow::Result<Arc<jmespath::Expression<'_>>> {
     let mut compiled_jmp_filter = COMPILED_JMP_FILTER.lock();
     if let Some(c) = compiled_jmp_filter.get(query) {
         return Ok(c.clone());

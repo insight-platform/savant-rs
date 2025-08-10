@@ -123,11 +123,11 @@ pub fn parse_zmq_socket_uri(uri: String) -> anyhow::Result<ZmqSocketUri> {
         let (endpoint, source_index) = match proto {
             "ipc" => {
                 let fs_path = captures.get(IPC_PATH_CAPTURE_POS).unwrap().as_str();
-                (format!("{}:{}", proto, fs_path), IPC_SOURCE_CAPTURE_POS)
+                (format!("{proto}:{fs_path}"), IPC_SOURCE_CAPTURE_POS)
             }
             "tcp" => {
                 let tcp_address = captures.get(TCP_ADDRESS_CAPTURE_POS).unwrap().as_str();
-                (format!("{}:{}", proto, tcp_address), TCP_SOURCE_CAPTURE_POS)
+                (format!("{proto}:{tcp_address}"), TCP_SOURCE_CAPTURE_POS)
             }
             _ => bail!("Invalid ZeroMQ protocol {}", proto),
         };
@@ -223,7 +223,7 @@ struct RoutingIdFilter {
 
 impl RoutingIdFilter {
     pub fn new(size: usize) -> anyhow::Result<Self> {
-        debug!(target: "savant_rs::zeromq::routing-filter", "Creating routing id filter with LRU cache size = {}", size);
+        debug!(target: "savant_rs::zeromq::routing-filter", "Creating routing id filter with LRU cache size = {size}");
         Ok(Self {
             ids: hashbrown::HashMap::with_capacity(size),
             expired_routing_ids: LruCache::new(NonZeroUsize::try_from(size)?),
@@ -238,26 +238,22 @@ impl RoutingIdFilter {
         let routing_id = routing_id.unwrap();
         let current_valid_routing_id = self.ids.entry(topic.to_vec()).or_insert(routing_id.clone());
         debug!(target: "savant_rs::zeromq::routing-filter",
-            "The current registered routing id: {:?}, the received routing id: {:?}",
-            current_valid_routing_id, routing_id
+            "The current registered routing id: {current_valid_routing_id:?}, the received routing id: {routing_id:?}"
         );
 
         if current_valid_routing_id == routing_id {
-            debug!(target: "savant_rs::zeromq::routing-filter", "The current routing id {:?} is the same as the received one {:?}. Message is allowed.", 
-                current_valid_routing_id, routing_id);
+            debug!(target: "savant_rs::zeromq::routing-filter", "The current routing id {current_valid_routing_id:?} is the same as the received one {routing_id:?}. Message is allowed.");
             true
         } else if self
             .expired_routing_ids
             .contains(&(topic.to_vec(), routing_id.clone()))
         {
-            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {:?} is found among old routing ids. Message is not allowed.", 
-                routing_id);
+            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {routing_id:?} is found among old routing ids. Message is not allowed.");
             // routing id is outdated and we do not allow it anymore
             false
         } else {
             // routing id is new (because it is not in the cache) and we allow it.
-            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {:?} is new. The previous routing id {:?} is added to the expired. Message is allowed.", 
-                routing_id, current_valid_routing_id);
+            debug!(target: "savant_rs::zeromq::routing-filter", "The received routing id {routing_id:?} is new. The previous routing id {current_valid_routing_id:?} is added to the expired. Message is allowed.");
             self.expired_routing_ids
                 .put((topic.to_vec(), current_valid_routing_id.clone()), ());
             self.ids.entry(topic.to_vec()).and_modify(|id| {
@@ -607,14 +603,14 @@ mod integration_tests {
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
-                .url(&format!("rep+bind:ipc://{}", path))?
+                .url(&format!("rep+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
                 .build()?,
         )?;
 
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
-                .url(&format!("req+connect:ipc://{}", path))?
+                .url(&format!("req+connect:ipc://{path}"))?
                 .build()?,
         )?;
 
@@ -656,14 +652,14 @@ mod integration_tests {
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
-                .url(&format!("router+bind:ipc://{}", path))?
+                .url(&format!("router+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
                 .build()?,
         )?;
 
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
-                .url(&format!("dealer+connect:ipc://{}", path))?
+                .url(&format!("dealer+connect:ipc://{path}"))?
                 .build()?,
         )?;
 
@@ -708,7 +704,7 @@ mod integration_tests {
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
-                .url(&format!("router+bind:ipc://{}", path))?
+                .url(&format!("router+bind:ipc://{path}"))?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("fo".to_string()))?
                 .with_fix_ipc_permissions(Some(0o777))?
                 .build()?,
@@ -716,7 +712,7 @@ mod integration_tests {
 
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
-                .url(&format!("dealer+connect:ipc://{}", path))?
+                .url(&format!("dealer+connect:ipc://{path}"))?
                 .build()?,
         )?;
 
@@ -763,7 +759,7 @@ mod integration_tests {
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
-                .url(&format!("sub+bind:ipc://{}", path))?
+                .url(&format!("sub+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("test".to_string()))?
                 .with_receive_timeout(100)?
@@ -784,14 +780,14 @@ mod integration_tests {
 
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
-                .url(&format!("pub+bind:ipc://{}", path))?
+                .url(&format!("pub+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
                 .build()?,
         )?;
 
         let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
-                .url(&format!("sub+connect:ipc://{}", path))?
+                .url(&format!("sub+connect:ipc://{path}"))?
                 .with_receive_timeout(500)?
                 .build()?,
         )?;
@@ -831,7 +827,7 @@ mod integration_tests {
 
         let mut writer = Writer::<NoopResponder, ZmqSocketProvider>::new(
             &WriterConfig::new()
-                .url(&format!("dealer+bind:ipc://{}", path))?
+                .url(&format!("dealer+bind:ipc://{path}"))?
                 .with_send_timeout(100)?
                 .with_send_retries(1)?
                 .build()?,

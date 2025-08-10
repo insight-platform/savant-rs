@@ -16,7 +16,7 @@ pub fn enable_dl_detection() {
         log::error!(target: "parking_lot::deadlock_detector", "{} deadlocks detected", deadlocks.len());
 
         for (i, threads) in deadlocks.iter().enumerate() {
-            log::error!(target: "parking_lot::deadlock_detector", "Deadlock #{}", i);
+            log::error!(target: "parking_lot::deadlock_detector", "Deadlock #{i}");
             for t in threads {
                 log::error!(target: "parking_lot::deadlock_detector", "Thread Id {:#?}", t.thread_id());
                 log::error!(target: "parking_lot::deadlock_detector", "{:#?}", t.backtrace());

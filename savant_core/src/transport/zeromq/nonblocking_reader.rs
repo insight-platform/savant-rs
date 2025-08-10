@@ -155,7 +155,7 @@ mod tests {
         let now = std::time::Instant::now();
         let recv = reader.receive();
         let elapsed = now.elapsed().as_millis();
-        assert!(elapsed >= 100 && elapsed < 200);
+        assert!((100..200).contains(&elapsed));
         assert!(recv.is_ok());
         let recv = recv.unwrap();
         assert!(matches!(recv, ReaderResult::Timeout));

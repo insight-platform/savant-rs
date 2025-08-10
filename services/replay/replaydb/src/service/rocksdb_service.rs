@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -15,7 +14,7 @@ use crate::job::factory::RocksDbJobFactory;
 use crate::job::query::JobQuery;
 use crate::job::stop_condition::JobStopCondition;
 use crate::job::SyncJobStopCondition;
-use crate::service::configuration::{ServiceConfiguration, Storage};
+use crate::service::configuration::ServiceConfiguration;
 use crate::service::JobManager;
 use crate::store::rocksdb::RocksDbStore;
 use crate::store::{Store, SyncRocksDbStore};
@@ -43,14 +42,7 @@ impl TryFrom<&ServiceConfiguration> for SyncRocksDbStore {
     type Error = anyhow::Error;
 
     fn try_from(configuration: &ServiceConfiguration) -> Result<Self> {
-        let Storage::RocksDB {
-            path,
-            data_expiration_ttl,
-            max_total_wal_size,
-        } = configuration.storage.clone();
-
-        let path = PathBuf::from(path);
-        let store = RocksDbStore::new(&path, data_expiration_ttl, max_total_wal_size.unwrap())?;
+        let store = RocksDbStore::new(&configuration.storage)?;
         let sync_store = Arc::new(Mutex::new(store));
         Ok(sync_store)
     }

@@ -32,11 +32,11 @@ impl LogLevel {
     }
 
     pub(crate) fn __str__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{self:?}")
     }
 }
 
@@ -166,7 +166,7 @@ pub fn log_message(level: LogLevel, target: &str, message: &str, params: Option<
             let mut params_display = Vec::new();
 
             if trace_id != TraceId::INVALID {
-                params_display.push(format!("trace_id={}", trace_id));
+                params_display.push(format!("trace_id={trace_id}"));
             }
 
             if let Some(p) = &params {
@@ -178,7 +178,7 @@ pub fn log_message(level: LogLevel, target: &str, message: &str, params: Option<
 
             let mut params_display = params_display.join(", ");
             if !params_display.is_empty() {
-                params_display = format!("[{}] ", params_display);
+                params_display = format!("[{params_display}] ");
             }
 
             let params_str = &params_display.purple();

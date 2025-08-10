@@ -49,7 +49,7 @@ pub struct PluginParams {
 }
 
 pub type PipelineStageFunctionFactory =
-    fn(name: &str, parameters: PluginParams) -> *mut (dyn PipelineStageFunction);
+    fn(name: &str, parameters: PluginParams) -> *mut dyn PipelineStageFunction;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PipelineStagePayloadType {
@@ -623,7 +623,7 @@ pub(super) mod implementation {
                 );
             }
 
-            let ctx = self.get_stage_span(id_counter, format!("add/{}", stage_name));
+            let ctx = self.get_stage_span(id_counter, format!("add/{stage_name}"));
             let frame_payload =
                 PipelinePayload::Frame(frame, Vec::new(), ctx, None, SystemTime::now());
 
@@ -631,7 +631,7 @@ pub(super) mod implementation {
             stage.add_frame_payload(id_counter, frame_payload)?;
             self.frame_locations.write().insert(id_counter, index);
 
-            log::trace!(target: "savant_rs::pipeline", "Added frame {} to stage {}", id_counter, stage_name);
+            log::trace!(target: "savant_rs::pipeline", "Added frame {id_counter} to stage {stage_name}");
             Ok(id_counter)
         }
 
@@ -870,7 +870,7 @@ pub(super) mod implementation {
                     PipelinePayload::Frame(frame, updates, ctx, source_index, time) => {
                         self.add_frame_json(&frame, &ctx);
                         ctx.span().end();
-                        let ctx = self.get_stage_span(id, format!("stage/{}", dest_stage_name));
+                        let ctx = self.get_stage_span(id, format!("stage/{dest_stage_name}"));
                         PipelinePayload::Frame(frame, updates, ctx, source_index, time)
                     }
                     PipelinePayload::Batch(batch, updates, contexts, source_index, times) => {
@@ -883,8 +883,8 @@ pub(super) mod implementation {
                                 bail!("Frame {} not found in batch {}", frame_id, id)
                             }
                             ctx.span().end();
-                            let ctx = self
-                                .get_stage_span(*frame_id, format!("stage/{}", dest_stage_name));
+                            let ctx =
+                                self.get_stage_span(*frame_id, format!("stage/{dest_stage_name}"));
                             new_contexts.insert(*frame_id, ctx);
                         }
                         PipelinePayload::Batch(batch, updates, new_contexts, source_index, times)
@@ -968,7 +968,7 @@ pub(super) mod implementation {
                         bail!("Frame {} not found in batch {}", frame_id, batch_id)
                     }
                     ctx.span().end();
-                    let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
+                    let ctx = self.get_stage_span(frame_id, format!("stage/{dest_stage_name}"));
                     Ok((frame_id, ctx))
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
@@ -977,7 +977,7 @@ pub(super) mod implementation {
                 PipelinePayload::Batch(batch, batch_updates, contexts, last_stage, last_times);
             dest_stage.add_batch_payload(batch_id, payload)?;
             self.frame_locations.write().insert(batch_id, dest_index);
-            log::trace!(target: "savant_rs::pipeline", "Created batch {} to stage {}", batch_id, dest_stage_name);
+            log::trace!(target: "savant_rs::pipeline", "Created batch {batch_id} to stage {dest_stage_name}");
             Ok(batch_id)
         }
 
@@ -1031,7 +1031,7 @@ pub(super) mod implementation {
                 let ctx = contexts.remove(&frame_id).unwrap();
                 self.add_frame_json(&frame, &ctx);
                 ctx.span().end();
-                let ctx = self.get_stage_span(frame_id, format!("stage/{}", dest_stage_name));
+                let ctx = self.get_stage_span(frame_id, format!("stage/{dest_stage_name}"));
 
                 payloads.insert(
                     frame_id,
@@ -1262,7 +1262,7 @@ pub(super) mod implementation {
             update.add_frame_attribute(Attribute::persistent(
                 "update",
                 "attribute",
-                vec![AttributeValue::string("1".into(), None)],
+                vec![AttributeValue::string("1", None)],
                 &Some("test"),
                 false,
             ));
@@ -1304,19 +1304,19 @@ pub(super) mod implementation {
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), false);
+            assert!(!ctx.span().span_context().is_valid());
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), true);
+            assert!(ctx.span().span_context().is_valid());
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), false);
+            assert!(!ctx.span().span_context().is_valid());
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), true);
+            assert!(ctx.span().span_context().is_valid());
 
             Ok(())
         }
@@ -1330,11 +1330,11 @@ pub(super) mod implementation {
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), false);
+            assert!(!ctx.span().span_context().is_valid());
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), false);
+            assert!(!ctx.span().span_context().is_valid());
 
             Ok(())
         }
@@ -1348,11 +1348,11 @@ pub(super) mod implementation {
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), true);
+            assert!(ctx.span().span_context().is_valid());
 
             let id = pipeline.add_frame("input", gen_frame())?;
             let (_frame, ctx) = pipeline.get_independent_frame(id)?;
-            assert_eq!(ctx.span().span_context().is_valid(), true);
+            assert!(ctx.span().span_context().is_valid());
 
             Ok(())
         }

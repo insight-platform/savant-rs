@@ -74,8 +74,7 @@ impl VideoObject {
         let bytes =
             release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
                 PyRuntimeError::new_err(format!(
-                    "Failed to serialize video object to protobuf: {}",
-                    e
+                    "Failed to serialize video object to protobuf: {e}"
                 ))
             })?;
         with_gil!(|py| {
@@ -96,8 +95,7 @@ impl VideoObject {
             let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObject>(bytes)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!(
-                        "Failed to deserialize video object from protobuf: {}",
-                        e
+                        "Failed to deserialize video object from protobuf: {e}"
                     ))
                 })?;
             Ok(Self(obj))
@@ -545,8 +543,7 @@ impl BorrowedVideoObject {
         let bytes =
             release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
                 PyRuntimeError::new_err(format!(
-                    "Failed to serialize video object to protobuf: {}",
-                    e
+                    "Failed to serialize video object to protobuf: {e}"
                 ))
             })?;
         with_gil!(|py| {

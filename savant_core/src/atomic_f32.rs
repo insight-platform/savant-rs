@@ -71,6 +71,7 @@ impl fmt::Debug for AtomicF32 {
 mod tests {
     #[test]
     fn test_ser_deser() {
+        #[allow(clippy::approx_constant)]
         let a = super::AtomicF32::new(3.14);
         let serialized = serde_json::to_string(&a).unwrap();
         let deserialized: super::AtomicF32 = serde_json::from_str(&serialized).unwrap();

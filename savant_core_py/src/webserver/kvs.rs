@@ -238,7 +238,7 @@ impl KvsSubscription {
     fn new(name: &str, max_inflight_ops: usize) -> PyResult<Self> {
         subscribe(name, max_inflight_ops)
             .map(KvsSubscription)
-            .map_err(|e| PyValueError::new_err(format!("Failed to create subscription: {:?}", e)))
+            .map_err(|e| PyValueError::new_err(format!("Failed to create subscription: {e:?}")))
     }
 
     /// Get the next message from the subscription.
@@ -255,11 +255,10 @@ impl KvsSubscription {
     ///
     pub fn recv(&mut self) -> PyResult<Option<PyObject>> {
         let op = release_gil!(true, || self.0.blocking_recv());
-        if op.is_none() {
-            Ok(None)
-        } else {
-            let op = op.unwrap();
+        if let Some(op) = op {
             Ok(Some(self.to_python(op)?))
+        } else {
+            Ok(None)
         }
     }
 

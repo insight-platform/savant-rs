@@ -510,9 +510,9 @@ mod tests {
         }
         let records = stats_collector.get_records(20, |_| true);
         assert_eq!(records.len(), 10);
-        for i in 0..10 {
-            assert_eq!(records[i].ts, 19 - i as i64);
-            assert_eq!(records[i].frame_no, 19 - i);
+        for (i, r) in records.iter().enumerate().take(10) {
+            assert_eq!(r.ts, 19 - i as i64);
+            assert_eq!(r.frame_no, 19 - i);
         }
     }
 
@@ -558,7 +558,6 @@ mod tests {
         ));
         generator.time_counter.update_time(20);
         let mut frames = (0..5)
-            .into_iter()
             .flat_map(|_| generator.register_frame(1, false))
             .collect::<Vec<_>>();
         assert_eq!(frames.len(), 1);

@@ -284,6 +284,22 @@ Configuration Parameters
       - The maximum size of the write-ahead log (WAL) for the RocksDB storage.
       - ``1024 * 1024 * 1024``
       - ``2097152``
+    * - ``storage.rocksdb.disable_wal``
+      - If set to ``true``, Replay will disable the write-ahead log (WAL) for the RocksDB storage.
+      - ``false``
+      - ``true``
+    * - ``storage.rocksdb.compaction_style``
+      - The compaction style for the RocksDB storage, one of ``level``, ``universal``, ``fifo``.
+      - ``"universal"``
+      - ``"fifo"``
+    * - ``storage.rocksdb.max_log_file_size``
+      - The maximum size of the log file for the RocksDB storage.
+      - ``1024 * 1024 * 1024``
+      - ``2097152``
+    * - ``storage.rocksdb.keep_log_file_num``
+      - The number of log files to keep in the RocksDB storage.
+      - ``1000``
+      - ``10``
 
 Environment Variables in Configuration File
 -------------------------------------------
