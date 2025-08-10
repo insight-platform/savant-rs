@@ -18,7 +18,7 @@ impl SavantIdMeta {
     pub fn replace(
         buffer: &mut gstreamer::BufferRef,
         ids: Vec<SavantIdMetaKind>,
-    ) -> gstreamer::MetaRefMut<Self, gstreamer::meta::Standalone> {
+    ) -> gstreamer::MetaRefMut<'_, Self, gstreamer::meta::Standalone> {
         unsafe {
             // Manually dropping because gst_buffer_add_meta() takes ownership of the
             // content of the struct

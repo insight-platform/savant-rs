@@ -492,9 +492,7 @@ mod tests {
             .id(id)
             .namespace("model".to_string())
             .label("label".to_string())
-            .detection_box(
-                RBBox::new(0.0, 0.0, 1.0, 1.0, None),
-            )
+            .detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
             .confidence(Some(0.5))
             .attributes(vec![
                 Attribute::persistent(
