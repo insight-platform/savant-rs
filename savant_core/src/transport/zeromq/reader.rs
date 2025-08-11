@@ -149,14 +149,14 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
     pub fn destroy(&self) -> anyhow::Result<()> {
         info!(
-            target: "savant_rs::zeromq::reader",
+            target: "savant_rs::zeromq::reader::destroy",
             "Destroying ZeroMQ socket for endpoint {}",
             self.config.endpoint()
         );
         self.socket.lock().take();
         self.context.lock().take();
         info!(
-            target: "savant_rs::zeromq::reader",
+            target: "savant_rs::zeromq::reader::destroy",
             "ZeroMQ socket for endpoint {} destroyed",
             self.config.endpoint()
         );
@@ -169,7 +169,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
     pub fn blacklist_source(&self, source: &[u8]) {
         info!(
-            target: "savant_rs::zeromq::reader",
+            target: "savant_rs::zeromq::reader::blacklist_source",
             "Blacklisting source '{}' for endpoint '{}'",
             from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
             self.config.endpoint()
@@ -186,7 +186,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
     pub fn is_blacklisted(&self, source: &[u8]) -> bool {
         debug!(
-            target: "savant_rs::zeromq::reader",
+            target: "savant_rs::zeromq::reader::is_blacklisted",
             "Checking if source '{}' is blacklisted for endpoint '{}'",
             from_utf8(source).unwrap_or(&bytes_to_hex_string(source)),
             self.config.endpoint()
@@ -222,7 +222,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             );
         }
         debug!(
-            target: "savant_rs::zeromq::reader::receive:before_recv",
+            target: "savant_rs::zeromq::reader::receive::before_recv",
             "Waiting for message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
 
@@ -233,7 +233,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         };
 
         debug!(
-            target: "savant_rs::zeromq::reader::receive:after_recv",
+            target: "savant_rs::zeromq::reader::receive::after_recv",
             "Received message from ZeroMQ socket for endpoint {}",
             self.config.endpoint());
 
@@ -268,7 +268,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
         if parts.len() < min_required_parts {
             warn!(
-                target: "savant_rs::zeromq::reader::receive:too_short",
+                target: "savant_rs::zeromq::reader::receive::too_short",
                 "Received message with invalid number of parts from ZeroMQ socket for endpoint {}. Expected at least {} parts, but got {}",
                 self.config.endpoint(),
                 min_required_parts,
@@ -289,7 +289,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             };
         if self.is_blacklisted(topic) {
             debug!(
-                target: "savant_rs::zeromq::reader::receive:blacklisted",
+                target: "savant_rs::zeromq::reader::receive::blacklisted",
                 "Received message from blacklisted source {:?} from ZeroMQ socket for endpoint {}",
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
                 self.config.endpoint()
@@ -307,7 +307,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
         if message.meta.protocol_version != savant_protobuf::version() {
             warn!(
-                target: "savant_rs::zeromq::reader::receive:version_mismatch",
+                target: "savant_rs::zeromq::reader::receive::version_mismatch",
                 "Message protocol version mismatch: message version={:?}, program expects version={:?}", message.meta.protocol_version, savant_protobuf::version()
             );
             // blacklist the sender
@@ -323,7 +323,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         if message.is_end_of_stream() {
             if self.config.socket_type() != &ReaderSocketType::Sub {
                 debug!(
-                    target: "savant_rs::zeromq::reader::receive:eos",
+                    target: "savant_rs::zeromq::reader::receive::eos",
                     "Received end of stream message from ZeroMQ socket for endpoint {}",
                     self.config.endpoint()
                 );
@@ -346,7 +346,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
 
         if !self.config.topic_prefix_spec().matches(topic) {
             debug!(
-                target: "savant_rs::zeromq::reader::receive:prefix_mismatch",
+                target: "savant_rs::zeromq::reader::receive::prefix_mismatch",
                 "Received message with invalid topic from ZeroMQ socket for endpoint {}. Expected topic to match spec {:?}, but got {}",
                 self.config.endpoint(),
                 self.config.topic_prefix_spec(),
@@ -379,7 +379,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             })
         } else {
             debug!(
-                target: "savant_rs::zeromq::reader::receive:routing_id_mismatch",
+                target: "savant_rs::zeromq::reader::receive::routing_id_mismatch",
                 "Received message with invalid routing ID from ZeroMQ socket for endpoint {}. Got topic = {}, routing_id = {}",
                 self.config.endpoint(),
                 from_utf8(topic).unwrap_or(&bytes_to_hex_string(topic)),
