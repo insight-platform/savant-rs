@@ -103,6 +103,11 @@ impl VideoObject {
     }
 
     #[getter]
+    fn get_parent_id(&self) -> Option<i64> {
+        self.0.get_parent_id()
+    }
+
+    #[getter]
     fn get_namespace(&self) -> String {
         self.0.get_namespace()
     }
