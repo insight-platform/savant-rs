@@ -2,6 +2,10 @@ from savant_rs.draw_spec import PaddingDraw
 from savant_rs.logging import LogLevel, set_log_level
 from savant_rs.primitives.geometry import BBox, RBBox
 
+from savant_rs.primitives.geometry import associate_bboxes
+
+from savant_rs.utils import BBoxMetricType
+
 set_log_level(LogLevel.Trace)
 
 box = BBox(50, 50, 50, 50)
@@ -94,3 +98,16 @@ print("Graphical wrapping box:", box)
 
 print(BBox.ltwh(0, 0, 100, 100))
 print(BBox.ltrb(0, 0, 100, 100))
+
+b1 = BBox(0, 0, 100, 100)
+b2 = BBox(0, 0, 200, 200)
+assert b1.inside(b2)
+
+face_bb1 = BBox(0, 0, 10, 10)
+face_bb2 = BBox(20, 20, 10, 10)
+
+body_bb1 = BBox(0, 0, 20, 100)
+body_bb2 = BBox(20, 20, 20, 100)
+
+associations = associate_bboxes([face_bb1.as_rbbox(), face_bb2.as_rbbox()], [body_bb1.as_rbbox(), body_bb2.as_rbbox()], BBoxMetricType.IoSelf, -1.0)
+print(associations)

@@ -548,6 +548,44 @@ impl RBBox {
         }
         Ok(BBox(self.clone()))
     }
+
+    /// Checks if the :py:class:`RBBox` is inside the :py:class:`RBBox`.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`RBBox`
+    ///   other rotated bounding box
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the :py:class:`RBBox` is inside the :py:class:`RBBox`, False otherwise
+    ///
+    pub fn inside(&self, other: &Self) -> PyResult<bool> {
+        self.0
+            .inside(&other.0)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Checks if the :py:class:`RBBox` is inside the viewport.
+    ///
+    /// Parameters
+    /// ----------
+    /// width : float
+    ///   width of the viewport
+    /// height : float
+    ///   height of the viewport
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the :py:class:`RBBox` is inside the viewport, False otherwise
+    ///
+    pub fn inside_viewport(&self, width: f32, height: f32) -> PyResult<bool> {
+        self.0
+            .inside_viewport(width, height)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
 }
 
 #[pyclass]
@@ -826,10 +864,60 @@ impl BBox {
         Self(self.0.copy())
     }
 
+    /// Returns a new :py:class:`BBox` with the given padding.
+    ///
+    /// Parameters
+    /// ----------
+    /// padding : :py:class:`PaddingDraw`
+    ///   padding to apply
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`BBox`
+    ///   new padded bbox
+    ///
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let inner_copy = self.0.clone();
         let padded = inner_copy.new_padded(padding);
         Self(padded)
+    }
+
+    /// Checks if the :py:class:`BBox` is inside the :py:class:`BBox`.
+    ///
+    /// Parameters
+    /// ----------
+    /// other : :py:class:`BBox`
+    ///   other bounding box
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the :py:class:`BBox` is inside the :py:class:`BBox`, False otherwise
+    ///
+    pub fn inside(&self, other: &Self) -> PyResult<bool> {
+        self.0
+            .inside(&other.0)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Checks if the :py:class:`BBox` is inside the viewport.
+    ///
+    /// Parameters
+    /// ----------
+    /// width : float
+    ///   width of the viewport
+    /// height : float
+    ///   height of the viewport
+    ///
+    /// Returns
+    /// -------
+    /// bool
+    ///   True if the :py:class:`BBox` is inside the viewport, False otherwise
+    ///
+    pub fn inside_viewport(&self, width: f32, height: f32) -> PyResult<bool> {
+        self.0
+            .inside_viewport(width, height)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 }
 
