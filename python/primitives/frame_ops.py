@@ -90,8 +90,8 @@ frame.set_persistent_attribute(
         AttributeValue.integers([1, 2, 3], confidence=0.5),
         AttributeValue.floats([1.0, 2.0, 3.0], confidence=0.5),
         AttributeValue.booleans([True, False, True], confidence=0.5),
-        AttributeValue.bbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
-        AttributeValue.bboxes(
+        AttributeValue.rbbox(BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), confidence=0.5),
+        AttributeValue.rbboxes(
             [BBox(0.1, 0.2, 0.3, 0.4).as_rbbox(), BBox(0.1, 0.2, 0.3, 0.4).as_rbbox()],
             confidence=0.5,
         ),
@@ -179,6 +179,11 @@ print("Object with two children:", vec[0])
 # demonstrates ObjectsView index access operation
 vec = vec[0]
 print("Object", vec)
+
+parent_chain = f.get_parent_chain(vec)
+print(f"Parent chain for object {vec.id}: {parent_chain}")
+
+print(f"Parent id for object {vec.id}: {vec.parent_id}")
 
 vec.set_attribute(
     Attribute(

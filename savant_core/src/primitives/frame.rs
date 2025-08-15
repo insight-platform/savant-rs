@@ -1040,7 +1040,7 @@ impl VideoFrameProxy {
         frame.objects.clear();
     }
 
-    pub fn get_ancestory(&self, obj: &BorrowedVideoObject) -> Vec<i64> {
+    pub fn get_parent_chain(&self, obj: &BorrowedVideoObject) -> Vec<i64> {
         let mut ids = vec![obj.get_id()];
         let mut current = obj.get_parent();
         while let Some(parent) = current {
@@ -1057,7 +1057,7 @@ impl VideoFrameProxy {
             let mut unique_ancestors = HashSet::new();
             let object_ids = objects.iter().map(|o| o.get_id()).collect::<HashSet<_>>();
             for obj in &objects {
-                let ancestor_ids = self.get_ancestory(obj);
+                let ancestor_ids = self.get_parent_chain(obj);
                 // reverse order iteration
                 for id in ancestor_ids.iter().rev() {
                     if object_ids.contains(id) {

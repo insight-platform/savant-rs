@@ -103,11 +103,6 @@ impl VideoObject {
     }
 
     #[getter]
-    fn get_parent_id(&self) -> Option<i64> {
-        self.0.get_parent_id()
-    }
-
-    #[getter]
     fn get_namespace(&self) -> String {
         self.0.get_namespace()
     }
@@ -244,6 +239,18 @@ impl BorrowedVideoObject {
     #[getter]
     pub fn get_id(&self) -> i64 {
         self.0.get_id()
+    }
+
+    /// Returns the object's parent id.
+    ///
+    /// Returns
+    /// -------
+    /// int or None
+    ///   Object's parent id.
+    ///
+    #[getter]
+    fn get_parent_id(&self) -> Option<i64> {
+        self.0.get_parent_id()
     }
 
     /// Returns object confidence if set. When used as setter, allows setting object's confidence.
