@@ -774,6 +774,22 @@ impl VideoFrame {
         self.0.get_attributes()
     }
 
+    /// Returns the parent chain for the object.
+    ///
+    /// Parameters
+    /// ----------
+    /// obj : :py:class:`savant_rs.primitives.BorrowedVideoObject`
+    ///   The object to get the parent chain for.
+    ///
+    /// Returns
+    /// -------
+    /// List[int]
+    ///   The parent chain for the object, from closer to farther.
+    ///
+    pub fn get_parent_chain(&self, obj: &BorrowedVideoObject) -> Vec<i64> {
+        self.0.get_parent_chain(&obj.0)
+    }
+
     /// Returns the attribute object by namespace and name
     ///
     /// Parameters
