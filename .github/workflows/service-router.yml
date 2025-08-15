@@ -18,8 +18,9 @@ env:
 jobs:
   linux:
     runs-on:
-      - ${{ matrix.hosting }}
-      - ${{ matrix.runner }}
+      # - ${{ matrix.hosting }}
+      # - ${{ matrix.runner }}
+      group: ${{ matrix.group }}
     permissions:
       contents: read
       packages: write
@@ -31,14 +32,16 @@ jobs:
             name: savant-router-arm64
             arch: linux/arm64
             tag: ghcr.io/insight-platform/savant-router-arm64
-            runner: ARM64
-            hosting: self-hosted
+            # runner: ARM64
+            # hosting: self-hosted
+            group: native-builders-arm
           - docker_file: docker/services/Dockerfile.router
             name: savant-router-x86
             arch: linux/amd64
             tag: ghcr.io/insight-platform/savant-router-x86
-            runner: X64
-            hosting: self-hosted
+            # runner: X64
+            # hosting: self-hosted
+            group: native-builders-x86
 
     steps:
       - name: Checkout repository

@@ -19,8 +19,9 @@ env:
 jobs:
   build:
     runs-on:
-      - ${{ matrix.hosting }}
-      - ${{ matrix.runner }}
+      # - ${{ matrix.hosting }}
+      # - ${{ matrix.runner }}
+      group: ${{ matrix.group }}
     permissions:
       contents: read
       packages: write
@@ -30,11 +31,13 @@ jobs:
       matrix:
         include:
           - platform: linux/arm64
-            runner: ARM64
-            hosting: self-hosted
+            # runner: ARM64
+            # hosting: self-hosted
+            group: native-builders-arm
           - platform: linux/amd64
-            runner: X64
-            hosting: self-hosted
+            # runner: X64
+            # hosting: self-hosted
+            group: native-builders-x86
 
     steps:
       - name: Prepare

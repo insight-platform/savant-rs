@@ -28,8 +28,7 @@ permissions:
 jobs:
   build-docs:
     runs-on:
-      - self-hosted
-      - X64
+      group: native-builders-x86
     # if: "startsWith(github.ref, 'refs/tags/')"
     steps:
       - uses: actions/checkout@v4
