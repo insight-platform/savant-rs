@@ -404,6 +404,34 @@ impl RBBox {
         Some(intersection)
     }
 
+    pub fn inside(&self, other: &Self) -> Result<bool> {
+        if self.get_angle().unwrap_or(0.0) != other.get_angle().unwrap_or(0.0) {
+            let mut outer_poly = other.get_as_polygonal_area();
+            let inner_poly = self.get_as_polygonal_area();
+            let res = outer_poly.contains_many_points(&inner_poly.vertices);
+            Ok(res.len() == 4)
+        } else {
+            let me = RBBox::from(self.0.as_ref().clone());
+            me.set_angle(None);
+
+            let oth = RBBox::from(other.0.as_ref().clone());
+            oth.set_angle(None);
+
+            let (me_left, me_top, me_right, me_bottom) = me.as_ltrb().unwrap();
+            let (oth_left, oth_top, oth_right, oth_bottom) = oth.as_ltrb().unwrap();
+
+            Ok(me_left >= oth_left
+                && me_top >= oth_top
+                && me_right <= oth_right
+                && me_bottom <= oth_bottom)
+        }
+    }
+
+    pub fn inside_viewport(&self, width: f32, height: f32) -> Result<bool> {
+        let viewport_bbox = RBBox::new(width / 2.0, height / 2.0, width, height, None);
+        self.inside(&viewport_bbox)
+    }
+
     pub fn new_padded(&self, padding: &PaddingDraw) -> Self {
         let (left, right, top, bottom) = (
             padding.left as f32,
@@ -957,5 +985,29 @@ mod tests {
         assert_eq!(bb.get_height(), 40.0);
         bb2.set_angle(Some(10.0));
         assert_eq!(bb.get_angle(), Some(10.0));
+    }
+
+    #[test]
+    fn test_inside() {
+        let bb1 = RBBox::new(0.0, 0.0, 1.0, 1.0, Some(45.0));
+        let bb2 = RBBox::new(0.0, 0.0, 2.0, 2.0, Some(0.0));
+        assert!(bb1.inside(&bb2).unwrap());
+
+        let bb1 = RBBox::new(0.0, 0.0, 1.0, 1.0, Some(45.0));
+        let bb2 = RBBox::new(0.0, 0.0, 2.0, 2.0, Some(45.0));
+        assert!(bb1.inside(&bb2).unwrap());
+
+        let bb1 = RBBox::new(0.0, 0.0, 1.0, 1.0, None);
+        let bb2 = RBBox::new(0.5, 0.5, 2.0, 2.0, None);
+        assert!(bb1.inside(&bb2).unwrap());
+    }
+
+    #[test]
+    fn test_inside_viewport() {
+        let bb = RBBox::new(1.0, 1.0, 1.0, 1.0, None);
+        assert!(bb.inside_viewport(2.0, 2.0).unwrap());
+
+        let bb = RBBox::new(0.0, 0.0, 1.0, 1.0, None);
+        assert!(!bb.inside_viewport(1.0, 1.0).unwrap());
     }
 }
