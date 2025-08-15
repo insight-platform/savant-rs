@@ -39,19 +39,22 @@ jobs:
         include:
           - name: manylinux-arm
             arch: linux/arm64
-            runner: ARM64
+            # runner: ARM64
             label: arm64
-            hosting: self-hosted
+            # hosting: self-hosted
+            group: native-builders-arm
           - name: manylinux-x86
             arch: linux/amd64
-            runner: X64
-            hosting: self-hosted
+            # runner: X64
+            # hosting: self-hosted
             label: x86
+            group: native-builders-x86
 
     timeout-minutes: 600
     runs-on:
-      - ${{ matrix.hosting }}
-      - ${{ matrix.runner }}
+      # - ${{ matrix.hosting }}
+      # - ${{ matrix.runner }}
+      group: ${{ matrix.group }}
     steps:
       - uses: actions/checkout@v4
 
