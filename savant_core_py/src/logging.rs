@@ -31,11 +31,11 @@ impl LogLevel {
         LogLevel::Info
     }
 
-    pub(crate) fn __str__(&self) -> String {
+    pub fn __str__(&self) -> String {
         format!("{self:?}")
     }
 
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         format!("{self:?}")
     }
 }

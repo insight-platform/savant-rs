@@ -1,5 +1,5 @@
 {
-    "ingres": [
+    "ingress": [
         {
             "name": "ingress1",
             "socket": {

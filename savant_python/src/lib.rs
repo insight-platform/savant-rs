@@ -330,13 +330,13 @@ pub fn telemetry(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pymodule(gil_used = false)]
 fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    init_logs()?;
+    init_logs(LogLevel::Trace)?;
     init_all(py, m)
 }
 
-pub fn init_logs() -> PyResult<()> {
+pub fn init_logs(log_level: LogLevel) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
-    let log_env_var_level = "trace";
+    let log_env_var_level = log_level.__str__();
     if std::env::var(log_env_var_name).is_err() {
         unsafe {
             std::env::set_var(log_env_var_name, log_env_var_level);
