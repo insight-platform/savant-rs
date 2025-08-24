@@ -20,7 +20,7 @@ struct Cli {
 }
 
 fn main() -> anyhow::Result<()> {
-    savant_rs::init_logs()?;
+    savant_rs::init_logs(savant_rs::LogLevel::Info)?;
     let cli = Cli::parse();
     let module_root = cli.python_root.unwrap_or_else(|| ".".to_string());
     // check exists and is a directory

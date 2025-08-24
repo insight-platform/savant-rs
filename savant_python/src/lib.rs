@@ -334,6 +334,8 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     init_all(py, m)
 }
 
+pub use savant_core_py::logging::LogLevel;
+
 pub fn init_logs(log_level: LogLevel) -> PyResult<()> {
     let log_env_var_name = "LOGLEVEL";
     let log_env_var_level = log_level.__str__();
