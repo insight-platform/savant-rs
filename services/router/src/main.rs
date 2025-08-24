@@ -12,6 +12,7 @@ use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
     PyResult, Python,
 };
+use savant_core_py::logging::LogLevel;
 use std::env::args;
 
 fn main() -> Result<()> {
@@ -20,7 +21,7 @@ fn main() -> Result<()> {
         std::process::exit(0);
     })?;
 
-    savant_rs::init_logs()?;
+    savant_rs::init_logs(LogLevel::Info)?;
 
     info!("┌───────────────────────────────────────────────────────┐");
     info!("│                Savant Router Service                  │");

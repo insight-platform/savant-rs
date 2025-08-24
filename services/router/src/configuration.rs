@@ -63,7 +63,6 @@ impl Default for NameCacheConfiguration {
 #[config]
 #[derive(Debug, Serialize, Clone)]
 pub struct ServiceConfiguration {
-    #[serde(rename = "ingres")]
     pub ingress: Vec<IngressConfiguration>,
     pub egress: Vec<EgressConfiguration>,
     pub common: CommonConfiguration,
