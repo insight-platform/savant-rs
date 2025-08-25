@@ -1,4 +1,5 @@
-FROM rust:1.89 AS builder
+# do not upgrade to 1.89, it breaks the build because of Glibc 2.38 absence in the runner image
+FROM rust:1.87 AS builder 
 
 WORKDIR /opt/retina_rtsp
 
