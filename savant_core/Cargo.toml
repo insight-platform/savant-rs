@@ -65,8 +65,44 @@ crate-type = ["dylib", "rlib"]
 
 [dev-dependencies]
 bollard = { workspace = true }
+criterion = { workspace = true }
 ctrlc = { workspace = true }
 futures-util = { workspace = true }
 serial_test = { workspace = true }
 tempfile = { workspace = true }
 
+[[bench]]
+name = "bench_bbox_utils"
+harness = false
+
+[[bench]]
+name = "bench_bboxes"
+harness = false
+
+[[bench]]
+name = "bench_frame_save_load_pb"
+harness = false
+
+[[bench]]
+name = "bench_json_attrs"
+harness = false
+
+[[bench]]
+name = "bench_label_filter"
+harness = false
+
+[[bench]]
+name = "bench_message_save_load"
+harness = false
+
+[[bench]]
+name = "bench_object_filter"
+harness = false
+
+[[bench]]
+name = "bench_pipeline"
+harness = false
+
+[[bench]]
+name = "bench_zmq"
+harness = false
