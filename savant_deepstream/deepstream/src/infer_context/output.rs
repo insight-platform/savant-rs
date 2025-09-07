@@ -1,4 +1,4 @@
-use crate::{infer_tensor_meta::InferDims, DataType};
+use crate::{infer_context::DataType, infer_tensor_meta::InferDims};
 
 #[derive(Debug)]
 pub struct OutputLayer {
@@ -10,7 +10,7 @@ pub struct OutputLayer {
     pub host_address: *mut std::ffi::c_void,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FrameOutput {
     output_layers: Vec<OutputLayer>,
 }

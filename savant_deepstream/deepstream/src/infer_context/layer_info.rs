@@ -1,4 +1,4 @@
-use crate::{infer_tensor_meta::InferDims, DataType};
+use crate::{infer_context::DataType, infer_tensor_meta::InferDims};
 use deepstream_sys::NvDsInferLayerInfo;
 use std::ffi::CStr;
 
@@ -28,7 +28,7 @@ impl LayerInfo {
         match data_type {
             DataType::Float => elements * 4,
             DataType::Half => elements * 2,
-            DataType::Int8 => elements * 1,
+            DataType::Int8 => elements,
             DataType::Int32 => elements * 4,
         }
     }

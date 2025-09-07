@@ -1,10 +1,9 @@
-use crate::{
-    infer_context::output::{FrameOutput, OutputLayer},
+use crate::infer_context::{
+    output::{FrameOutput, OutputLayer},
     LayerInfo,
 };
 
 use super::InferFormat;
-use crossbeam::channel;
 use deepstream_sys::{
     NvDsInferContextBatchInput, NvDsInferContextBatchOutput, NvDsInferContextHandle,
     NvDsInferContext_ReleaseBatchOutput,
@@ -37,7 +36,6 @@ impl From<NetworkType> for u32 {
 pub struct BatchInput {
     pub(crate) inner: NvDsInferContextBatchInput,
     _frame_buffers: Vec<*mut std::ffi::c_void>,
-    _sender: channel::Sender<()>,
 }
 
 impl BatchInput {
@@ -45,30 +43,27 @@ impl BatchInput {
     ///
     /// # Returns
     /// A tuple containing the BatchInput and a receiver for buffer return notifications
-    pub fn new() -> (Self, channel::Receiver<()>) {
-        let (sender, _receiver) = channel::unbounded();
-
-        let batch_input = Self {
+    pub fn new() -> Self {
+        let mut batch_input = Self {
             inner: unsafe { std::mem::zeroed() },
             _frame_buffers: Vec::new(),
-            _sender: sender,
         };
 
         // Set up the internal callback
-        //batch_input.setup_internal_callback();
+        batch_input.setup_internal_callback();
 
-        (batch_input, _receiver)
+        batch_input
     }
 
     // /// Set up the internal callback for buffer return
-    // fn setup_internal_callback(&mut self) {
-    //     // Create a boxed sender to pass to the callback
-    //     //let sender_box = Box::new(self._sender.clone());
-    //     //let sender_ptr = Box::into_raw(sender_box);
+    fn setup_internal_callback(&mut self) {
+        //     // Create a boxed sender to pass to the callback
+        //     //let sender_box = Box::new(self._sender.clone());
+        //     //let sender_ptr = Box::into_raw(sender_box);
 
-    //     //self.inner.returnInputFunc = Some(buffer_return_callback_wrapper);
-    //     //self.inner.returnFuncData = sender_ptr as *mut std::ffi::c_void;
-    // }
+        //     //self.inner.returnInputFunc = Some(buffer_return_callback_wrapper);
+        //     //self.inner.returnFuncData = sender_ptr as *mut std::ffi::c_void;
+    }
 
     /// Set the input frames
     ///
@@ -93,7 +88,7 @@ impl BatchInput {
 
 impl Default for BatchInput {
     fn default() -> Self {
-        Self::new().0
+        Self::new()
     }
 }
 

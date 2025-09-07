@@ -1,8 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use cudarc::runtime::sys as cuda;
-use deepstream::{
-    infer_context::InferTensorOrder, InferContext, InferContextInitParams, InferFormat,
-    InferNetworkMode,
+use deepstream::infer_context::{
+    BatchInput, Context, InferContextInitParams, InferFormat, InferNetworkMode, InferTensorOrder,
 };
 use std::{ffi::c_void, ptr};
 
@@ -30,7 +29,7 @@ fn setup_cuda_memory() -> anyhow::Result<(*mut c_void, usize)> {
     Ok((dptr, row_width))
 }
 
-fn setup_infer_context() -> anyhow::Result<InferContext> {
+fn setup_infer_context() -> anyhow::Result<Context> {
     let mut init_params = InferContextInitParams::new();
     init_params
         .set_gpu_id(0)
@@ -45,32 +44,8 @@ fn setup_infer_context() -> anyhow::Result<InferContext> {
         .set_net_input_format(InferFormat::RGB)
         .set_infer_input_dims(CHANNELS, WIDTH, HEIGHT);
 
-    Ok(InferContext::new_with_default_logging(init_params)?)
+    Ok(Context::new_with_default_logging(init_params)?)
 }
-
-// fn benchmark_inference_single(c: &mut Criterion) {
-//     let mut infer_context = setup_infer_context().expect("Failed to setup infer context");
-//     let ctx = setup_cuda_context().expect("Failed to setup CUDA context");
-//     let stream = ctx.default_stream();
-//     let out = stream
-//         .alloc_zeros::<u8>(3 * 112 * 112)
-//         .expect("Failed to allocate GPU memory");
-//     let out_ptr = out.device_ptr(&stream).0 as *mut std::ffi::c_void;
-
-//     c.bench_function("inference_single", |b| {
-//         b.iter(|| {
-//             let (mut batch_input, _rcvr) = deepstream::BatchInput::new();
-//             batch_input.set_frames(vec![out_ptr], InferFormat::RGB, 3 * 112 * 112);
-//             infer_context
-//                 .queue_input_batch(&batch_input)
-//                 .expect("Failed to queue input");
-//             let _batch_output = infer_context
-//                 .dequeue_output_batch()
-//                 .expect("Failed to dequeue output");
-//             std::hint::black_box(_batch_output);
-//         })
-//     });
-// }
 
 fn benchmark_inference_batch_sizes(c: &mut Criterion) {
     let mut infer_context = setup_infer_context().expect("Failed to setup infer context");
@@ -84,7 +59,7 @@ fn benchmark_inference_batch_sizes(c: &mut Criterion) {
             batch_size,
             |b, &batch_size| {
                 b.iter(|| {
-                    let (mut batch_input, _rcvr) = deepstream::BatchInput::new();
+                    let mut batch_input = BatchInput::new();
                     let frame_ptrs: Vec<*mut std::ffi::c_void> =
                         (0..batch_size).map(|_| dptr).collect();
                     batch_input.set_frames(frame_ptrs, InferFormat::RGB, row_width);
@@ -94,12 +69,8 @@ fn benchmark_inference_batch_sizes(c: &mut Criterion) {
                     let batch_output = infer_context
                         .dequeue_output_batch()
                         .expect("Failed to dequeue output");
-                    // let dev_bufs = batch_output.output_device_buffers();
-                    // dbg!(dev_bufs);
-                    // let host_bufs = batch_output.host_buffers();
-                    // dbg!(host_bufs);
-
-                    std::hint::black_box(batch_output);
+                    let frame_outputs = batch_output.frame_outputs();
+                    std::hint::black_box(frame_outputs);
                 })
             },
         );
