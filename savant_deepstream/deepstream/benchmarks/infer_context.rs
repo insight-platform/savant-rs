@@ -74,9 +74,6 @@ fn setup_infer_context() -> anyhow::Result<InferContext> {
 
 fn benchmark_inference_batch_sizes(c: &mut Criterion) {
     let mut infer_context = setup_infer_context().expect("Failed to setup infer context");
-    for l in infer_context.layers() {
-        dbg!(l.layer_name(), l.binding_index(), l.data_type(), l.dims());
-    }
 
     let (dptr, row_width) = setup_cuda_memory().expect("Failed to setup CUDA memory");
     let mut group = c.benchmark_group("inference_batch_sizes");

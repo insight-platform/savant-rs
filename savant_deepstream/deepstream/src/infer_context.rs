@@ -384,8 +384,8 @@ mod tests {
 
     #[test]
     fn test_infer_context() -> Result<()> {
-        const WIDTH: usize = 112;
-        const HEIGHT: usize = 112;
+        const WIDTH: usize = 12;
+        const HEIGHT: usize = 12;
         const CHANNELS: usize = 3;
         const BATCH_SIZE: u32 = 4;
         const GPU_ID: i32 = 0;
@@ -396,7 +396,8 @@ mod tests {
             .init();
 
         let mut init_params = InferContextInitParams::new();
-        let model_name = "age_gender_mobilenet_v2_dynBatch";
+        // let model_name = "age_gender_mobilenet_v2_dynBatch";
+        let model_name = "identity";
         init_params
             .set_gpu_id(GPU_ID as u32)
             .set_max_batch_size(BATCH_SIZE)
@@ -472,6 +473,22 @@ mod tests {
 
         let frame_outputs = batch_output.frame_outputs();
         log::info!("Frame outputs: {:#?}", frame_outputs);
+        for frame_output in frame_outputs {
+            for layer_output in frame_output.output_layers() {
+                let tensor = unsafe {
+                    std::slice::from_raw_parts(
+                        layer_output.host_address as *const f32,
+                        layer_output.dimensions.num_elements as usize,
+                    )
+                };
+                log::info!(
+                    "Tensor name {}, shape {:?}: {:?}",
+                    layer_output.layer_name,
+                    layer_output.dimensions,
+                    tensor
+                );
+            }
+        }
 
         Ok(())
     }
