@@ -23,5 +23,11 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 
 [dev-dependencies]
+cudarc = { version = "0.17", features = ["cuda-12020"] }
 criterion = { workspace = true }
 env_logger = "0.10"
+
+[[bench]]
+name = "infer_context"
+path = "benchmarks/infer_context.rs"
+harness = false

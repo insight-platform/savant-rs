@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 struct BatchMetaLock(*mut NvDsBatchMeta);
 
+unsafe impl Send for BatchMetaLock {}
+
 impl BatchMetaLock {
     fn new(raw: *mut NvDsBatchMeta) -> Self {
         unsafe {
@@ -35,9 +37,12 @@ pub struct BatchMeta {
 impl BatchMeta {
     /// Get batch metadata from a GstBuffer
     ///
+    /// # Safety
+    /// Works with raw pointers.
+    ///
     /// This is the primary way to obtain batch metadata from a GStreamer buffer
     /// that contains DeepStream metadata.
-    pub fn from_gst_buffer(buffer: *mut GstBuffer) -> Result<Self> {
+    pub unsafe fn from_gst_buffer(buffer: *mut GstBuffer) -> Result<Self> {
         unsafe {
             let raw = deepstream_sys::gst_buffer_get_nvds_batch_meta(buffer);
             if raw.is_null() {
@@ -86,9 +91,9 @@ impl BatchMeta {
         while !current.is_null() {
             let data = unsafe { (*current).data };
             if !data.is_null() {
-                if let Ok(frame) = unsafe {
-                    FrameMeta::from_raw(data as *mut deepstream_sys::NvDsFrameMeta, &self)
-                } {
+                if let Ok(frame) =
+                    unsafe { FrameMeta::from_raw(data as *mut deepstream_sys::NvDsFrameMeta, self) }
+                {
                     frames.push(frame);
                 }
             }
@@ -228,7 +233,7 @@ impl BatchMeta {
             let data = unsafe { (*current).data };
             if !data.is_null() {
                 if let Ok(user_meta) = unsafe {
-                    crate::UserMeta::from_raw(data as *mut deepstream_sys::NvDsUserMeta, &self)
+                    crate::UserMeta::from_raw(data as *mut deepstream_sys::NvDsUserMeta, self)
                 } {
                     user_meta_list.push(user_meta);
                 }

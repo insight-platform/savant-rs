@@ -31,15 +31,15 @@ use std::{ffi::CString, ptr};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InferFormat {
     /// 24-bit interleaved R-G-B format
-    Rgb,
+    RGB,
     /// 24-bit interleaved B-G-R format
-    Bgr,
+    BGR,
     /// 8-bit Luma format
     Gray,
     /// 32-bit interleaved R-G-B-A format
-    Rgba,
+    RGBA,
     /// 32-bit interleaved B-G-R-x format
-    Bgrx,
+    BGRX,
     /// NCHW planar tensor format
     Tensor,
     /// Unknown format
@@ -49,11 +49,11 @@ pub enum InferFormat {
 impl From<InferFormat> for NvDsInferFormat {
     fn from(format: InferFormat) -> Self {
         match format {
-            InferFormat::Rgb => NvDsInferFormat_NvDsInferFormat_RGB,
-            InferFormat::Bgr => NvDsInferFormat_NvDsInferFormat_BGR,
+            InferFormat::RGB => NvDsInferFormat_NvDsInferFormat_RGB,
+            InferFormat::BGR => NvDsInferFormat_NvDsInferFormat_BGR,
             InferFormat::Gray => NvDsInferFormat_NvDsInferFormat_GRAY,
-            InferFormat::Rgba => NvDsInferFormat_NvDsInferFormat_RGBA,
-            InferFormat::Bgrx => NvDsInferFormat_NvDsInferFormat_BGRx,
+            InferFormat::RGBA => NvDsInferFormat_NvDsInferFormat_RGBA,
+            InferFormat::BGRX => NvDsInferFormat_NvDsInferFormat_BGRx,
             InferFormat::Tensor => NvDsInferFormat_NvDsInferFormat_Tensor,
             InferFormat::Unknown => NvDsInferFormat_NvDsInferFormat_Unknown,
         }
@@ -63,11 +63,11 @@ impl From<InferFormat> for NvDsInferFormat {
 impl From<NvDsInferFormat> for InferFormat {
     fn from(format: NvDsInferFormat) -> Self {
         match format {
-            x if x == NvDsInferFormat_NvDsInferFormat_RGB => InferFormat::Rgb,
-            x if x == NvDsInferFormat_NvDsInferFormat_BGR => InferFormat::Bgr,
+            x if x == NvDsInferFormat_NvDsInferFormat_RGB => InferFormat::RGB,
+            x if x == NvDsInferFormat_NvDsInferFormat_BGR => InferFormat::BGR,
             x if x == NvDsInferFormat_NvDsInferFormat_GRAY => InferFormat::Gray,
-            x if x == NvDsInferFormat_NvDsInferFormat_RGBA => InferFormat::Rgba,
-            x if x == NvDsInferFormat_NvDsInferFormat_BGRx => InferFormat::Bgrx,
+            x if x == NvDsInferFormat_NvDsInferFormat_RGBA => InferFormat::RGBA,
+            x if x == NvDsInferFormat_NvDsInferFormat_BGRx => InferFormat::BGRX,
             x if x == NvDsInferFormat_NvDsInferFormat_Tensor => InferFormat::Tensor,
             _ => InferFormat::Unknown,
         }
@@ -78,19 +78,19 @@ impl From<NvDsInferFormat> for InferFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InferTensorOrder {
     /// NCHW format: Number of batches, Channels, Height, Width
-    Nchw,
+    NCHW,
     /// NHWC format: Number of batches, Height, Width, Channels
-    Nhwc,
+    NHWC,
     /// NC format: Number of batches, Channels (for 1D data)
-    Nc,
+    NC,
 }
 
 impl From<InferTensorOrder> for NvDsInferTensorOrder {
     fn from(order: InferTensorOrder) -> Self {
         match order {
-            InferTensorOrder::Nchw => NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW,
-            InferTensorOrder::Nhwc => NvDsInferTensorOrder_NvDsInferTensorOrder_kNHWC,
-            InferTensorOrder::Nc => NvDsInferTensorOrder_NvDsInferTensorOrder_kNC,
+            InferTensorOrder::NCHW => NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW,
+            InferTensorOrder::NHWC => NvDsInferTensorOrder_NvDsInferTensorOrder_kNHWC,
+            InferTensorOrder::NC => NvDsInferTensorOrder_NvDsInferTensorOrder_kNC,
         }
     }
 }
@@ -98,10 +98,10 @@ impl From<InferTensorOrder> for NvDsInferTensorOrder {
 impl From<NvDsInferTensorOrder> for InferTensorOrder {
     fn from(order: NvDsInferTensorOrder) -> Self {
         match order {
-            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW => InferTensorOrder::Nchw,
-            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNHWC => InferTensorOrder::Nhwc,
-            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNC => InferTensorOrder::Nc,
-            _ => InferTensorOrder::Nchw, // Default to NCHW for unknown values
+            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW => InferTensorOrder::NCHW,
+            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNHWC => InferTensorOrder::NHWC,
+            x if x == NvDsInferTensorOrder_NvDsInferTensorOrder_kNC => InferTensorOrder::NC,
+            _ => InferTensorOrder::NCHW, // Default to NCHW for unknown values
         }
     }
 }
@@ -110,11 +110,11 @@ impl From<NvDsInferTensorOrder> for InferTensorOrder {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InferNetworkMode {
     /// 32-bit floating point precision
-    Fp32,
+    FP32,
     /// 8-bit integer precision
-    Int8,
+    INT8,
     /// 16-bit floating point precision
-    Fp16,
+    FP16,
     /// Best precision available
     Best,
 }
@@ -122,9 +122,9 @@ pub enum InferNetworkMode {
 impl From<InferNetworkMode> for NvDsInferNetworkMode {
     fn from(mode: InferNetworkMode) -> Self {
         match mode {
-            InferNetworkMode::Fp32 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP32,
-            InferNetworkMode::Int8 => NvDsInferNetworkMode_NvDsInferNetworkMode_INT8,
-            InferNetworkMode::Fp16 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP16,
+            InferNetworkMode::FP32 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP32,
+            InferNetworkMode::INT8 => NvDsInferNetworkMode_NvDsInferNetworkMode_INT8,
+            InferNetworkMode::FP16 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP16,
             InferNetworkMode::Best => NvDsInferNetworkMode_NvDsInferNetworkMode_BEST,
         }
     }
@@ -133,11 +133,11 @@ impl From<InferNetworkMode> for NvDsInferNetworkMode {
 impl From<NvDsInferNetworkMode> for InferNetworkMode {
     fn from(mode: NvDsInferNetworkMode) -> Self {
         match mode {
-            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP32 => InferNetworkMode::Fp32,
-            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_INT8 => InferNetworkMode::Int8,
-            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP16 => InferNetworkMode::Fp16,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP32 => InferNetworkMode::FP32,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_INT8 => InferNetworkMode::INT8,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP16 => InferNetworkMode::FP16,
             x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_BEST => InferNetworkMode::Best,
-            _ => InferNetworkMode::Fp32, // Default to FP32 for unknown values
+            _ => InferNetworkMode::FP32, // Default to FP32 for unknown values
         }
     }
 }
@@ -150,9 +150,6 @@ pub struct InferContextInitParams {
     inner: NvDsInferContextInitParams,
     // Keep owned strings to prevent deallocation
     _owned_strings: Vec<CString>,
-    // Keep owned output layer name pointers to prevent deallocation
-    _output_layer_names: Vec<CString>,
-    _output_layer_pointers: Vec<*mut std::os::raw::c_char>,
 }
 
 impl InferContextInitParams {
@@ -163,12 +160,16 @@ impl InferContextInitParams {
             NvDsInferContext_ResetInitParams(&mut inner);
         }
         inner.networkType = NvDsInferNetworkType_NvDsInferNetworkType_Other;
+        inner.copyInputToHostBuffers = 0;
+        inner.disableOutputHostCopy = 1;
+        inner.dumpIpTensor = 0;
+        inner.dumpOpTensor = 0;
+        inner.overwriteIpTensor = 0;
+        inner.overwriteOpTensor = 0;
 
         Self {
             inner,
             _owned_strings: Vec::new(),
-            _output_layer_names: Vec::new(),
-            _output_layer_pointers: Vec::new(),
         }
     }
 
@@ -238,6 +239,10 @@ impl InferContextInitParams {
         self
     }
 
+    pub fn max_batch_size(&self) -> u32 {
+        self.inner.maxBatchSize
+    }
+
     /// Set the GPU ID
     pub fn set_gpu_id(&mut self, id: u32) -> &mut Self {
         log::info!("Setting GPU ID: {}", id);
@@ -259,11 +264,11 @@ impl InferContextInitParams {
         self
     }
 
-    pub fn set_infer_input_dims(&mut self, c: u32, h: u32, w: u32) -> &mut Self {
+    pub fn set_infer_input_dims(&mut self, c: usize, h: usize, w: usize) -> &mut Self {
         log::info!("Setting infer input dimensions: {}x{}x{}", c, h, w);
-        self.inner.inferInputDims.c = c;
-        self.inner.inferInputDims.h = h;
-        self.inner.inferInputDims.w = w;
+        self.inner.inferInputDims.c = c as u32;
+        self.inner.inferInputDims.h = h as u32;
+        self.inner.inferInputDims.w = w as u32;
         self
     }
 
@@ -329,53 +334,9 @@ impl InferContextInitParams {
         Ok(self)
     }
 
-    pub fn set_output_layer_names(&mut self, names: &[&str]) -> Result<&mut Self> {
-        log::info!("Setting output layer names: {}", names.join(", "));
-        // Convert string slice to C strings and store them
-        let c_strings: std::result::Result<Vec<CString>, DeepStreamError> = names
-            .iter()
-            .map(|s| {
-                CString::new(*s).map_err(|e| {
-                    DeepStreamError::invalid_operation(&format!(
-                        "Invalid string in output layer names: {}",
-                        e
-                    ))
-                })
-            })
-            .collect();
-        let c_strings = c_strings?;
-
-        // Store the C strings to prevent deallocation
-        self._output_layer_names.extend(c_strings);
-
-        // Clear previous output layer pointers and create new ones
-        self._output_layer_pointers.clear();
-        self._output_layer_pointers = self
-            ._output_layer_names
-            .iter()
-            .map(|s| s.as_ptr() as *mut std::os::raw::c_char)
-            .collect();
-
-        // Set the fields in the inner structure
-        self.inner.numOutputLayers = self._output_layer_names.len() as u32;
-        if !self._output_layer_pointers.is_empty() {
-            self.inner.outputLayerNames = self._output_layer_pointers.as_mut_ptr();
-        } else {
-            self.inner.outputLayerNames = ptr::null_mut();
-        }
-
-        Ok(self)
-    }
-
     pub fn set_workspace_size(&mut self, size: u32) -> &mut Self {
         log::info!("Setting workspace size: {}", size);
         self.inner.workspaceSize = size;
-        self
-    }
-
-    pub fn set_output_host_copy(&mut self, host_copy: bool) -> &mut Self {
-        log::info!("Setting output device-to-host copy: {}", host_copy);
-        self.inner.disableOutputHostCopy = if !host_copy { 1 } else { 0 };
         self
     }
 
@@ -437,10 +398,15 @@ impl std::fmt::Debug for InferContextInitParams {
                 "network_mode",
                 &InferNetworkMode::from(self.inner.networkMode),
             )
-            .field("network_type", &self.inner.networkType)
             .field("network_scale_factor", &self.inner.networkScaleFactor)
-            .field("network_input_order", &self.inner.netInputOrder)
-            .field("network_input_format", &self.inner.networkInputFormat)
+            .field(
+                "network_input_order",
+                &InferTensorOrder::from(self.inner.netInputOrder),
+            )
+            .field(
+                "network_input_format",
+                &InferFormat::from(self.inner.networkInputFormat),
+            )
             .field(
                 "infer_input_dims",
                 &format!(
@@ -475,7 +441,6 @@ impl std::fmt::Debug for InferContextInitParams {
                 "mean_image_file_path",
                 &c_str_array_to_string(&self.inner.meanImageFilePath),
             )
-            .field("num_output_layers", &self.inner.numOutputLayers)
             .field("offsets", &format!("{:?}", self.inner.offsets))
             .field("num_offsets", &self.inner.numOffsets)
             .finish()

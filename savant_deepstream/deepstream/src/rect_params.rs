@@ -147,7 +147,7 @@ impl RectParams {
 
     /// Get the border width
     pub fn border_width(&self) -> u32 {
-        unsafe { (*self.raw).border_width as u32 }
+        unsafe { (*self.raw).border_width }
     }
 
     /// Set the border width

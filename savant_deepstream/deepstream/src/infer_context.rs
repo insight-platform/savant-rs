@@ -2,6 +2,8 @@ use crate::{DeepStreamError, Result};
 
 pub mod init_params;
 pub mod io;
+pub mod layer_info;
+pub mod output;
 use deepstream_sys::{
     NvDsInferContextHandle,
     NvDsInferContextLoggingFunc,
@@ -9,7 +11,6 @@ use deepstream_sys::{
     NvDsInferContext_DequeueOutputBatch,
     NvDsInferContext_Destroy,
     NvDsInferContext_FillLayersInfo,
-    NvDsInferContext_GetLabel,
     NvDsInferContext_GetNetworkInfo,
     NvDsInferContext_GetNumLayersInfo,
     NvDsInferContext_QueueInputBatch,
@@ -27,8 +28,9 @@ use deepstream_sys::{
     // Tensor order constants
 };
 pub use init_params::{InferContextInitParams, InferFormat, InferNetworkMode, InferTensorOrder};
-pub use io::{BatchInput, BatchOutput};
-use std::{ffi::CStr, marker::PhantomData, os::raw::c_char, ptr};
+pub use io::{BatchInput, BatchOutput, NetworkType};
+pub use layer_info::LayerInfo;
+use std::{ffi::CStr, os::raw::c_char, ptr};
 
 /// Data type enumeration for tensors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,9 +89,9 @@ impl From<u32> for LogLevel {
     }
 }
 
-impl Into<u32> for LogLevel {
-    fn into(self) -> u32 {
-        match self {
+impl From<LogLevel> for u32 {
+    fn from(log_level: LogLevel) -> u32 {
+        match log_level {
             LogLevel::Error => 0,
             LogLevel::Warning => 1,
             LogLevel::Info => 2,
@@ -104,7 +106,7 @@ impl Into<u32> for LogLevel {
 /// managing the underlying C handle and ensuring proper cleanup.
 pub struct InferContext {
     handle: NvDsInferContextHandle,
-    _phantom: PhantomData<*mut ()>, // Ensure !Send and !Sync
+    init_params: InferContextInitParams,
 }
 
 impl InferContext {
@@ -145,7 +147,7 @@ impl InferContext {
 
         Ok(Self {
             handle,
-            _phantom: PhantomData,
+            init_params,
         })
     }
 
@@ -168,6 +170,14 @@ impl InferContext {
     /// # Returns
     /// `Ok(())` if successful, or an error if queueing failed
     pub fn queue_input_batch(&mut self, batch_input: &BatchInput) -> Result<()> {
+        if batch_input.inner.numInputFrames > self.init_params.max_batch_size() {
+            return Err(DeepStreamError::invalid_operation(&format!(
+                "Enqueued batch size {} exceeds maximum network batch size {}",
+                batch_input.inner.numInputFrames,
+                self.init_params.max_batch_size()
+            )));
+        }
+
         let status = unsafe {
             NvDsInferContext_QueueInputBatch(self.handle, &batch_input.inner as *const _ as *mut _)
         };
@@ -187,7 +197,7 @@ impl InferContext {
     /// # Returns
     /// A `BatchOutput` containing the inference results, or an error if dequeueing failed
     pub fn dequeue_output_batch(&mut self) -> Result<BatchOutput> {
-        let mut batch_output = BatchOutput::new();
+        let mut batch_output = BatchOutput::new(self.output_layers());
 
         let status =
             unsafe { NvDsInferContext_DequeueOutputBatch(self.handle, batch_output.as_raw_mut()) };
@@ -230,7 +240,7 @@ impl InferContext {
     ///
     /// # Returns
     /// A vector of layer information structures
-    pub fn get_layers_info(&self) -> Vec<LayerInfo> {
+    pub fn layers(&self) -> Vec<LayerInfo> {
         let num_layers = self.get_num_layers_info();
         if num_layers == 0 {
             return Vec::new();
@@ -248,26 +258,11 @@ impl InferContext {
         layers_info
     }
 
-    /// Get the label for a class ID or attribute
-    ///
-    /// # Arguments
-    /// * `id` - Class ID for detectors, or attribute ID for classifiers
-    /// * `value` - Attribute value for classifiers; set to 0 for detectors
-    ///
-    /// # Returns
-    /// The label string if available, or None if not found
-    pub fn get_label(&self, id: u32, value: u32) -> Option<String> {
-        unsafe {
-            let label_ptr = NvDsInferContext_GetLabel(self.handle, id, value);
-            if label_ptr.is_null() {
-                None
-            } else {
-                CStr::from_ptr(label_ptr)
-                    .to_str()
-                    .ok()
-                    .map(|s| s.to_string())
-            }
-        }
+    pub fn output_layers(&self) -> Vec<LayerInfo> {
+        self.layers()
+            .into_iter()
+            .filter(|layer| !layer.is_input())
+            .collect()
     }
 
     /// Get the raw handle
@@ -332,69 +327,6 @@ impl Default for NetworkInfo {
     }
 }
 
-/// Safe wrapper for NvDsInferLayerInfo
-#[derive(Clone)]
-pub struct LayerInfo {
-    inner: NvDsInferLayerInfo,
-}
-
-impl LayerInfo {
-    /// Create a new layer info structure
-    pub fn new() -> Self {
-        Self {
-            inner: unsafe { std::mem::zeroed() },
-        }
-    }
-
-    /// Get the data type
-    pub fn data_type(&self) -> DataType {
-        DataType::from(self.inner.dataType)
-    }
-
-    /// Get the data type as raw value
-    pub fn data_type_raw(&self) -> u32 {
-        self.inner.dataType
-    }
-
-    /// Get the binding index
-    pub fn binding_index(&self) -> i32 {
-        self.inner.bindingIndex
-    }
-
-    /// Get the layer name
-    pub fn layer_name(&self) -> Option<String> {
-        unsafe {
-            if self.inner.layerName.is_null() {
-                None
-            } else {
-                CStr::from_ptr(self.inner.layerName)
-                    .to_str()
-                    .ok()
-                    .map(|s| s.to_string())
-            }
-        }
-    }
-
-    /// Check if this is an input layer
-    pub fn is_input(&self) -> bool {
-        self.inner.isInput != 0
-    }
-
-    /// Get access to the raw structure
-    ///
-    /// # Safety
-    /// This provides access to the raw C structure. Use with caution.
-    pub fn as_raw(&self) -> &NvDsInferLayerInfo {
-        &self.inner
-    }
-}
-
-impl Default for LayerInfo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Internal callback wrapper for logging
 unsafe extern "C" fn logging_callback_wrapper(
     _handle: NvDsInferContextHandle,
@@ -444,32 +376,103 @@ pub fn status_to_result(status: NvDsInferStatus) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::c_void;
+
     use super::*;
     use anyhow::Result;
+    use cudarc::runtime::sys as cuda;
 
     #[test]
     fn test_infer_context() -> Result<()> {
+        const WIDTH: usize = 112;
+        const HEIGHT: usize = 112;
+        const CHANNELS: usize = 3;
+        const BATCH_SIZE: u32 = 4;
+        const GPU_ID: i32 = 0;
         // Initialize logging
         //_ = env_logger::try_init();
         env_logger::Builder::from_default_env()
-            .filter_level(log::LevelFilter::Error)
+            .filter_level(log::LevelFilter::Info)
             .init();
 
         let mut init_params = InferContextInitParams::new();
+        let model_name = "age_gender_mobilenet_v2_dynBatch";
         init_params
-            .set_gpu_id(0)
-            .set_max_batch_size(16)
+            .set_gpu_id(GPU_ID as u32)
+            .set_max_batch_size(BATCH_SIZE)
             .set_unique_id(1)
-            .set_network_mode(InferNetworkMode::Fp16)
-            .set_onnx_file_path("assets/adaface_ir50_webface4m.onnx")?
-            .set_engine_file_path("assets/adaface_ir50_webface4m.onnx_b16_gpu0_fp16.engine")?
-            .set_network_scale_factor(0.007843137254902f32)
-            .set_offsets(&[127.5, 127.5, 127.5])?
-            .set_net_input_order(InferTensorOrder::Nchw)
-            .set_net_input_format(InferFormat::Bgr)
-            .set_infer_input_dims(3, 112, 112)
-            .set_output_layer_names(&["feature"])?;
-        let _infer_context = InferContext::new_with_default_logging(init_params)?;
+            .set_network_mode(InferNetworkMode::FP16)
+            .set_onnx_file_path(&format!("assets/{}.onnx", model_name))?
+            .set_engine_file_path(&format!(
+                "assets/{}.onnx_b{}_gpu{}_fp16.engine",
+                model_name, BATCH_SIZE, GPU_ID
+            ))?
+            .set_net_input_order(InferTensorOrder::NCHW)
+            .set_net_input_format(InferFormat::RGB)
+            .set_infer_input_dims(CHANNELS, WIDTH, HEIGHT);
+
+        //.set_output_layer_names(&["feature"])?;
+        log::debug!("Init params: {:?}", init_params);
+        let mut infer_context = InferContext::new_with_default_logging(init_params)?;
+
+        // Select device (creates the primary context for the runtime API)
+        unsafe {
+            cuda::cudaSetDevice(GPU_ID).result()?;
+        } // maps cudaError -> Result
+
+        let mut dptr: *mut c_void = ptr::null_mut();
+        let mut dptr2: *mut c_void = ptr::null_mut();
+        let mut row_width: usize = 0;
+
+        let row_bytes = WIDTH * CHANNELS * std::mem::size_of::<u8>();
+
+        // Allocate pitched 2D memory: height rows, each at least row_bytes
+        unsafe {
+            cuda::cudaMallocPitch(&mut dptr, &mut row_width as *mut usize, row_bytes, HEIGHT)
+                .result()?;
+            cuda::cudaMemset(dptr, 1, row_width * HEIGHT);
+
+            cuda::cudaMallocPitch(&mut dptr2, &mut row_width as *mut usize, row_bytes, HEIGHT)
+                .result()?;
+            cuda::cudaMemset(dptr2, 3, row_width * HEIGHT);
+        }
+
+        log::info!("Pitch bytes: {}", row_width);
+
+        // Get layer information for proper output access
+        let layer_infos = infer_context.layers();
+        log::info!("Number of layers: {}", layer_infos.len());
+
+        // Log layer information
+        for (i, layer_info) in layer_infos.iter().enumerate() {
+            log::info!(
+                "Layer {}: name={:?}, is_input={}, data_type={:?}, dims={:?}, binding_index={}",
+                i,
+                layer_info.layer_name(),
+                layer_info.is_input(),
+                layer_info.data_type(),
+                layer_info.dims(),
+                layer_info.binding_index(),
+            );
+        }
+
+        let (mut batch_input, _rcvr) = BatchInput::new();
+        batch_input.set_frames(vec![dptr, dptr2], InferFormat::RGB, row_width);
+        infer_context.queue_input_batch(&batch_input)?;
+
+        let batch_output = infer_context.dequeue_output_batch()?;
+        log::info!(
+            "{} frames, {} host buffers, {} device buffers",
+            batch_output.num_frames(),
+            batch_output.num_host_buffers(),
+            batch_output.num_output_device_buffers()
+        );
+        log::info!("Host buffers: {:?}", batch_output.host_buffers());
+        log::info!("Device buffers: {:?}", batch_output.output_device_buffers());
+
+        let frame_outputs = batch_output.frame_outputs();
+        log::info!("Frame outputs: {:#?}", frame_outputs);
+
         Ok(())
     }
 }

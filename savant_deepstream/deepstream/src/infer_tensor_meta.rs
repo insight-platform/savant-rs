@@ -20,16 +20,14 @@ pub struct InferTensorMeta {
 
 #[derive(Debug)]
 pub struct InferDims {
-    pub num_dims: u32,
-    pub dimensions: [u32; 8],
+    pub dimensions: Vec<u32>,
     pub num_elements: u32,
 }
 
 impl From<&NvDsInferDims> for InferDims {
     fn from(raw: &NvDsInferDims) -> Self {
         Self {
-            num_dims: raw.numDims,
-            dimensions: raw.d,
+            dimensions: raw.d[..raw.numDims as usize].to_vec(),
             num_elements: raw.numElements,
         }
     }

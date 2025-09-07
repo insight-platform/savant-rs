@@ -197,8 +197,8 @@ impl ObjectMeta {
             target_slice.copy_from_slice(&bytes[..copy_len]);
 
             // Fill remaining bytes with null
-            for i in copy_len..label_array.len() {
-                label_array[i] = 0;
+            for i in label_array.iter_mut().skip(copy_len) {
+                *i = 0;
             }
         }
         Ok(())
