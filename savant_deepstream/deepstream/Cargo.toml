@@ -13,6 +13,8 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow = { workspace = true }
+crossbeam = { workspace = true }
 deepstream-sys = { path = "../deepstream-sys" }
 glib = { workspace = true }
 gstreamer = { workspace = true }
@@ -22,3 +24,4 @@ parking_lot = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+env_logger = "0.10"

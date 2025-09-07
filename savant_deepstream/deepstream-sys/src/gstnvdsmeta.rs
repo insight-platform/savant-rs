@@ -1017,6 +1017,11 @@ pub const RESERVED_BYTES: u32 = 16;
 pub const MAX_COMPONENT_LEN: u32 = 64;
 pub const NVDS_META_STRING: &[u8; 9] = b"nvdsmeta\0";
 pub const NVDSINFER_MAX_DIMS: u32 = 8;
+pub const _PATH_MAX: u32 = 4096;
+pub const _MAX_CHANNELS: u32 = 4;
+pub const _MAX_STR_LENGTH: u32 = 1024;
+pub const NVDSINFER_MAX_BATCH_SIZE: u32 = 1024;
+pub const NVDSINFER_MIN_OUTPUT_BUFFERPOOL_SIZE: u32 = 2;
 pub type wchar_t = ::std::os::raw::c_int;
 #[repr(C)]
 #[repr(align(16))]
@@ -41910,6 +41915,755 @@ const _: () = {
     ["Offset of field: NvDsInferSegmentationMeta::unique_id"]
         [::std::mem::offset_of!(NvDsInferSegmentationMeta, unique_id) - 40usize];
 };
+pub const NvDsInferNetworkMode_NvDsInferNetworkMode_FP32: NvDsInferNetworkMode = 0;
+pub const NvDsInferNetworkMode_NvDsInferNetworkMode_INT8: NvDsInferNetworkMode = 1;
+pub const NvDsInferNetworkMode_NvDsInferNetworkMode_FP16: NvDsInferNetworkMode = 2;
+pub const NvDsInferNetworkMode_NvDsInferNetworkMode_BEST: NvDsInferNetworkMode = 3;
+#[doc = " Defines internal data formats used by the inference engine.\n The NvDsInferNetworkMode is aligned with network-level precision\n  options \"--fp16\",\"--int8\",\"--noTF32\" and \"--best\" for trtexec.\n  Please refer to\n https://docs.nvidia.com/deeplearning/tensorrt/developer-guide/index.html#trtexec-flags"]
+pub type NvDsInferNetworkMode = ::std::os::raw::c_uint;
+#[doc = " Specifies a detector. Detectors find objects and their coordinates,\nand their classes in an input frame."]
+pub const NvDsInferNetworkType_NvDsInferNetworkType_Detector: NvDsInferNetworkType = 0;
+#[doc = " Specifies a classifier. Classifiers classify an entire frame into\none of several classes."]
+pub const NvDsInferNetworkType_NvDsInferNetworkType_Classifier: NvDsInferNetworkType = 1;
+#[doc = " Specifies a segmentation network. A segmentation network classifies\neach pixel into one of several classes."]
+pub const NvDsInferNetworkType_NvDsInferNetworkType_Segmentation: NvDsInferNetworkType = 2;
+#[doc = " Specifies a instance segmentation network. A instance segmentation\nnetwork detects objects, bounding box and mask for objects, and\ntheir classes in an input frame"]
+pub const NvDsInferNetworkType_NvDsInferNetworkType_InstanceSegmentation: NvDsInferNetworkType = 3;
+#[doc = " Specifies other. Output layers of an \"other\" network are not parsed by\nNvDsInferContext. This is useful for networks that produce custom output.\nOutput can be parsed by the NvDsInferContext client or can be combined\nwith the Gst-nvinfer feature to flow output tensors as metadata."]
+pub const NvDsInferNetworkType_NvDsInferNetworkType_Other: NvDsInferNetworkType = 100;
+#[doc = " Defines network types."]
+pub type NvDsInferNetworkType = ::std::os::raw::c_uint;
+#[doc = " Specifies 24-bit interleaved R-G-B format."]
+pub const NvDsInferFormat_NvDsInferFormat_RGB: NvDsInferFormat = 0;
+#[doc = " Specifies 24-bit interleaved B-G-R format."]
+pub const NvDsInferFormat_NvDsInferFormat_BGR: NvDsInferFormat = 1;
+#[doc = " Specifies 8-bit Luma format."]
+pub const NvDsInferFormat_NvDsInferFormat_GRAY: NvDsInferFormat = 2;
+#[doc = " Specifies 32-bit interleaved R-G-B-A format."]
+pub const NvDsInferFormat_NvDsInferFormat_RGBA: NvDsInferFormat = 3;
+#[doc = " Specifies 32-bit interleaved B-G-R-x format."]
+pub const NvDsInferFormat_NvDsInferFormat_BGRx: NvDsInferFormat = 4;
+#[doc = " NCHW planar"]
+pub const NvDsInferFormat_NvDsInferFormat_Tensor: NvDsInferFormat = 5;
+#[doc = " NCHW planar"]
+pub const NvDsInferFormat_NvDsInferFormat_Unknown: NvDsInferFormat = 4294967295;
+#[doc = " Defines color formats."]
+pub type NvDsInferFormat = ::std::os::raw::c_uint;
+pub const NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW: NvDsInferTensorOrder = 0;
+pub const NvDsInferTensorOrder_NvDsInferTensorOrder_kNHWC: NvDsInferTensorOrder = 1;
+pub const NvDsInferTensorOrder_NvDsInferTensorOrder_kNC: NvDsInferTensorOrder = 2;
+pub const NvDsInferTensorOrder_NvDsInferUffOrder_kNCHW: NvDsInferTensorOrder = 0;
+pub const NvDsInferTensorOrder_NvDsInferUffOrder_kNHWC: NvDsInferTensorOrder = 1;
+pub const NvDsInferTensorOrder_NvDsInferUffOrder_kNC: NvDsInferTensorOrder = 2;
+#[doc = " Defines UFF input layer orders."]
+pub type NvDsInferTensorOrder = ::std::os::raw::c_uint;
+#[doc = " Holds detection and bounding box grouping parameters."]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NvDsInferDetectionParams {
+    pub __bindgen_anon_1: NvDsInferDetectionParams__bindgen_ty_1,
+    #[doc = " Hold the bounding box detection threshold to be applied post\n clustering operation."]
+    pub postClusterThreshold: f32,
+    #[doc = " Holds the epsilon to control merging of overlapping boxes. Refer to OpenCV\n groupRectangles and DBSCAN documentation for more information on epsilon."]
+    pub eps: f32,
+    #[doc = " Holds the minimum number of boxes in a cluster to be considered\nan object during grouping using DBSCAN."]
+    pub minBoxes: ::std::os::raw::c_int,
+    #[doc = " Holds the minimum number boxes in a cluster to be considered\nan object during grouping using OpenCV groupRectangles."]
+    pub groupThreshold: ::std::os::raw::c_int,
+    #[doc = " Minimum score in a cluster for the cluster to be considered an object\nduring grouping. Different clustering may cause the algorithm\nto use different scores."]
+    pub minScore: f32,
+    #[doc = " IOU threshold to be used with NMS mode of clustering."]
+    pub nmsIOUThreshold: f32,
+    #[doc = " Number of objects with objects to be filtered in the decensding order\n of probability"]
+    pub topK: ::std::os::raw::c_int,
+}
+#[doc = " Holds the bounding box detection threshold to be applied prior\n to clustering operation."]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union NvDsInferDetectionParams__bindgen_ty_1 {
+    pub threshold: f32,
+    pub preClusterThreshold: f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferDetectionParams__bindgen_ty_1"]
+        [::std::mem::size_of::<NvDsInferDetectionParams__bindgen_ty_1>() - 4usize];
+    ["Alignment of NvDsInferDetectionParams__bindgen_ty_1"]
+        [::std::mem::align_of::<NvDsInferDetectionParams__bindgen_ty_1>() - 4usize];
+    ["Offset of field: NvDsInferDetectionParams__bindgen_ty_1::threshold"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams__bindgen_ty_1, threshold) - 0usize];
+    ["Offset of field: NvDsInferDetectionParams__bindgen_ty_1::preClusterThreshold"][::std::mem::offset_of!(
+        NvDsInferDetectionParams__bindgen_ty_1,
+        preClusterThreshold
+    ) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferDetectionParams"]
+        [::std::mem::size_of::<NvDsInferDetectionParams>() - 32usize];
+    ["Alignment of NvDsInferDetectionParams"]
+        [::std::mem::align_of::<NvDsInferDetectionParams>() - 4usize];
+    ["Offset of field: NvDsInferDetectionParams::postClusterThreshold"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, postClusterThreshold) - 4usize];
+    ["Offset of field: NvDsInferDetectionParams::eps"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, eps) - 8usize];
+    ["Offset of field: NvDsInferDetectionParams::minBoxes"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, minBoxes) - 12usize];
+    ["Offset of field: NvDsInferDetectionParams::groupThreshold"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, groupThreshold) - 16usize];
+    ["Offset of field: NvDsInferDetectionParams::minScore"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, minScore) - 20usize];
+    ["Offset of field: NvDsInferDetectionParams::nmsIOUThreshold"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, nmsIOUThreshold) - 24usize];
+    ["Offset of field: NvDsInferDetectionParams::topK"]
+        [::std::mem::offset_of!(NvDsInferDetectionParams, topK) - 28usize];
+};
+pub const NvDsInferClusterMode_NVDSINFER_CLUSTER_GROUP_RECTANGLES: NvDsInferClusterMode = 0;
+pub const NvDsInferClusterMode_NVDSINFER_CLUSTER_DBSCAN: NvDsInferClusterMode = 1;
+pub const NvDsInferClusterMode_NVDSINFER_CLUSTER_NMS: NvDsInferClusterMode = 2;
+pub const NvDsInferClusterMode_NVDSINFER_CLUSTER_DBSCAN_NMS_HYBRID: NvDsInferClusterMode = 3;
+pub const NvDsInferClusterMode_NVDSINFER_CLUSTER_NONE: NvDsInferClusterMode = 4;
+#[doc = " Enum for clustering mode for detectors"]
+pub type NvDsInferClusterMode = ::std::os::raw::c_uint;
+#[doc = " Holds the initialization parameters required for the NvDsInferContext interface."]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct _NvDsInferContextInitParams {
+    #[doc = " Holds a unique identifier for the instance. This can be used\nto identify the instance that is generating log and error messages."]
+    pub uniqueID: ::std::os::raw::c_uint,
+    #[doc = " Holds an internal data format specifier used by the inference engine."]
+    pub networkMode: NvDsInferNetworkMode,
+    #[doc = " Holds the pathname of the prototxt file."]
+    pub protoFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the caffemodel file."]
+    pub modelFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the UFF model file."]
+    pub uffFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the ONNX model file."]
+    pub onnxFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the TLT encoded model file."]
+    pub tltEncodedModelFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the INT8 calibration file.\nRequired only when using INT8 mode."]
+    pub int8CalibrationFilePath: [::std::os::raw::c_char; 4096usize],
+    pub __bindgen_anon_1: _NvDsInferContextInitParams__bindgen_ty_1,
+    #[doc = " Holds the original input order for the UFF model."]
+    pub uffInputOrder: NvDsInferTensorOrder,
+    #[doc = " Holds the name of the input layer for the UFF model."]
+    pub uffInputBlobName: [::std::os::raw::c_char; 1024usize],
+    #[doc = " Holds the original input order for the network."]
+    pub netInputOrder: NvDsInferTensorOrder,
+    #[doc = " Holds the string key for decoding the TLT encoded model."]
+    pub tltModelKey: [::std::os::raw::c_char; 1024usize],
+    #[doc = " Holds the pathname of the serialized model engine file.\nWhen using the model engine file, other parameters required for creating\nthe model engine are ignored."]
+    pub modelEngineFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the maximum number of frames to be inferred together in a batch.\nThe number of input frames in a batch must be\nless than or equal to this."]
+    pub maxBatchSize: ::std::os::raw::c_uint,
+    #[doc = " Holds the pathname of the labels file containing strings for the class\nlabels. The labels file is optional. The file format is described in the\ncustom models section of the DeepStream SDK documentation."]
+    pub labelsFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the pathname of the mean image file (PPM format). File resolution\nmust be equal to the network input resolution."]
+    pub meanImageFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the normalization factor with which to scale the input pixels."]
+    pub networkScaleFactor: f32,
+    #[doc = " Holds the network input format."]
+    pub networkInputFormat: NvDsInferFormat,
+    #[doc = " Holds the per-channel offsets for mean subtraction. This is\nan alternative to the mean image file. The number of offsets in the array\nmust be equal to the number of input channels."]
+    pub offsets: [f32; 4usize],
+    pub numOffsets: ::std::os::raw::c_uint,
+    #[doc = " Holds the network type."]
+    pub networkType: NvDsInferNetworkType,
+    #[doc = " Holds a Boolean; true if DBScan is to be used for object clustering,\nor false if OpenCV groupRectangles is to be used."]
+    pub useDBScan: ::std::os::raw::c_int,
+    #[doc = " Holds the number of classes detected by a detector network."]
+    pub numDetectedClasses: ::std::os::raw::c_uint,
+    #[doc = " Holds per-class detection parameters. The array's size must be equal\nto @a numDetectedClasses."]
+    pub perClassDetectionParams: *mut NvDsInferDetectionParams,
+    #[doc = " Holds the minimum confidence threshold for the classifier to consider\na label valid."]
+    pub classifierThreshold: f32,
+    pub segmentationThreshold: f32,
+    #[doc = " Holds a pointer to an array of pointers to output layer names."]
+    pub outputLayerNames: *mut *mut ::std::os::raw::c_char,
+    #[doc = " Holds the number of output layer names."]
+    pub numOutputLayers: ::std::os::raw::c_uint,
+    #[doc = " Holds the pathname of the library containing custom methods\nrequired to support the network."]
+    pub customLibPath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Holds the name of the custom bounding box function\nin the custom library."]
+    pub customBBoxParseFuncName: [::std::os::raw::c_char; 1024usize],
+    #[doc = " Name of the custom classifier attribute parsing function in the custom\n  library."]
+    pub customClassifierParseFuncName: [::std::os::raw::c_char; 1024usize],
+    #[doc = " Holds a Boolean; true if the input layer contents are to be copied to\nhost memory for access by the application."]
+    pub copyInputToHostBuffers: ::std::os::raw::c_int,
+    #[doc = " Holds the ID of the GPU which is to run the inference."]
+    pub gpuID: ::std::os::raw::c_uint,
+    #[doc = " Holds a Boolean; true if DLA is to be used."]
+    pub useDLA: ::std::os::raw::c_int,
+    #[doc = " Holds the ID of the DLA core to use."]
+    pub dlaCore: ::std::os::raw::c_int,
+    #[doc = " Holds the number of sets of output buffers (host and device)\nto be allocated."]
+    pub outputBufferPoolSize: ::std::os::raw::c_uint,
+    #[doc = " Holds the pathname of the configuration file\nfor custom network creation. This can be used to store custom properties\nrequired by the custom network creation function."]
+    pub customNetworkConfigFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Name of the custom engine creation function in the custom library."]
+    pub customEngineCreateFuncName: [::std::os::raw::c_char; 1024usize],
+    #[doc = " For model parsers supporting both implicit batch dim and full dims,\n prefer to use implicit batch dim. By default, full dims network mode is\n used."]
+    pub forceImplicitBatchDimension: ::std::os::raw::c_int,
+    #[doc = " Max workspace size (unit MB) that will be used as tensorrt build\n settings for cuda engine."]
+    pub workspaceSize: ::std::os::raw::c_uint,
+    #[doc = " Inference input dimensions for runtime engine"]
+    pub inferInputDims: NvDsInferDimsCHW,
+    #[doc = " Holds the type of clustering mode"]
+    pub clusterMode: NvDsInferClusterMode,
+    #[doc = " Holds the name of the bounding box and instance mask parse function\nin the custom library."]
+    pub customBBoxInstanceMaskParseFuncName: [::std::os::raw::c_char; 1024usize],
+    #[doc = " Can be used to specify the format and datatype for bound output layers.\n For each layer specified the format is\n \"<layer-name>:<data-type>:<format>\""]
+    pub outputIOFormats: *mut *mut ::std::os::raw::c_char,
+    #[doc = " Holds number of output IO formats specified."]
+    pub numOutputIOFormats: ::std::os::raw::c_uint,
+    #[doc = "Can be used to specify the device type and inference precision of layers.\n For each layer specified the format is\n \"<layer-name>:<device-type>:<precision>\""]
+    pub layerDevicePrecisions: *mut *mut ::std::os::raw::c_char,
+    #[doc = " Holds number of layer device precisions specified"]
+    pub numLayerDevicePrecisions: ::std::os::raw::c_uint,
+    #[doc = " Holds output order for segmentation network"]
+    pub segmentationOutputOrder: NvDsInferTensorOrder,
+    #[doc = " Boolean flag indicating that caller will supply preprocessed tensors for\n  inferencing. NvDsInferContext will skip preprocessing initialization steps\n  and will not interpret network input layer dimensions."]
+    pub inputFromPreprocessedTensor: ::std::os::raw::c_int,
+    #[doc = " Boolean flag indicating that whether we will post processing on GPU\n  if this flag enabled, nvinfer will return gpu buffer to prossprocessing\n  user must write cuda post processing code"]
+    pub disableOutputHostCopy: ::std::os::raw::c_int,
+    #[doc = " Boolean flag indicating that whether we will automatically increase\n  bufferpool size when facing a bottleneck."]
+    pub autoIncMem: ::std::os::raw::c_int,
+    #[doc = " Max gpu memory that can be occupied while expanding the bufferpool."]
+    pub maxGPUMemPer: f64,
+    #[doc = " Boolean flag indicating whether or not to dump raw input tensor data."]
+    pub dumpIpTensor: ::std::os::raw::c_int,
+    #[doc = " Boolean flag indicating whether or not to dump raw input tensor data."]
+    pub dumpOpTensor: ::std::os::raw::c_int,
+    #[doc = " Boolean flag indicating whether or not to overwrite raw input tensor\n  data provided by the user into the buffer for inference."]
+    pub overwriteIpTensor: ::std::os::raw::c_int,
+    #[doc = " Path to the raw input tensor data that is going to be used to overwrite\n  the buffer."]
+    pub ipTensorFilePath: [::std::os::raw::c_char; 4096usize],
+    #[doc = " Boolean flag indicating whether or not to overwrite raw ouput tensor\n  data provided by the user into the buffer for inference."]
+    pub overwriteOpTensor: ::std::os::raw::c_int,
+    #[doc = " List of paths to the raw output tensor data that are going to be used\n  to overwrite the different output buffers."]
+    pub opTensorFilePath: *mut *mut ::std::os::raw::c_char,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union _NvDsInferContextInitParams__bindgen_ty_1 {
+    #[doc = " Holds the input dimensions for the model."]
+    pub inputDims: NvDsInferDimsCHW,
+    #[doc = " Holds the input dimensions for the UFF model."]
+    pub uffDimsCHW: NvDsInferDimsCHW,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsInferContextInitParams__bindgen_ty_1"]
+        [::std::mem::size_of::<_NvDsInferContextInitParams__bindgen_ty_1>() - 12usize];
+    ["Alignment of _NvDsInferContextInitParams__bindgen_ty_1"]
+        [::std::mem::align_of::<_NvDsInferContextInitParams__bindgen_ty_1>() - 4usize];
+    ["Offset of field: _NvDsInferContextInitParams__bindgen_ty_1::inputDims"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams__bindgen_ty_1, inputDims) - 0usize];
+    ["Offset of field: _NvDsInferContextInitParams__bindgen_ty_1::uffDimsCHW"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams__bindgen_ty_1, uffDimsCHW) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _NvDsInferContextInitParams"]
+        [::std::mem::size_of::<_NvDsInferContextInitParams>() - 55520usize];
+    ["Alignment of _NvDsInferContextInitParams"]
+        [::std::mem::align_of::<_NvDsInferContextInitParams>() - 8usize];
+    ["Offset of field: _NvDsInferContextInitParams::uniqueID"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, uniqueID) - 0usize];
+    ["Offset of field: _NvDsInferContextInitParams::networkMode"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, networkMode) - 4usize];
+    ["Offset of field: _NvDsInferContextInitParams::protoFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, protoFilePath) - 8usize];
+    ["Offset of field: _NvDsInferContextInitParams::modelFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, modelFilePath) - 4104usize];
+    ["Offset of field: _NvDsInferContextInitParams::uffFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, uffFilePath) - 8200usize];
+    ["Offset of field: _NvDsInferContextInitParams::onnxFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, onnxFilePath) - 12296usize];
+    ["Offset of field: _NvDsInferContextInitParams::tltEncodedModelFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, tltEncodedModelFilePath) - 16392usize];
+    ["Offset of field: _NvDsInferContextInitParams::int8CalibrationFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, int8CalibrationFilePath) - 20488usize];
+    ["Offset of field: _NvDsInferContextInitParams::uffInputOrder"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, uffInputOrder) - 24596usize];
+    ["Offset of field: _NvDsInferContextInitParams::uffInputBlobName"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, uffInputBlobName) - 24600usize];
+    ["Offset of field: _NvDsInferContextInitParams::netInputOrder"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, netInputOrder) - 25624usize];
+    ["Offset of field: _NvDsInferContextInitParams::tltModelKey"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, tltModelKey) - 25628usize];
+    ["Offset of field: _NvDsInferContextInitParams::modelEngineFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, modelEngineFilePath) - 26652usize];
+    ["Offset of field: _NvDsInferContextInitParams::maxBatchSize"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, maxBatchSize) - 30748usize];
+    ["Offset of field: _NvDsInferContextInitParams::labelsFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, labelsFilePath) - 30752usize];
+    ["Offset of field: _NvDsInferContextInitParams::meanImageFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, meanImageFilePath) - 34848usize];
+    ["Offset of field: _NvDsInferContextInitParams::networkScaleFactor"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, networkScaleFactor) - 38944usize];
+    ["Offset of field: _NvDsInferContextInitParams::networkInputFormat"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, networkInputFormat) - 38948usize];
+    ["Offset of field: _NvDsInferContextInitParams::offsets"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, offsets) - 38952usize];
+    ["Offset of field: _NvDsInferContextInitParams::numOffsets"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, numOffsets) - 38968usize];
+    ["Offset of field: _NvDsInferContextInitParams::networkType"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, networkType) - 38972usize];
+    ["Offset of field: _NvDsInferContextInitParams::useDBScan"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, useDBScan) - 38976usize];
+    ["Offset of field: _NvDsInferContextInitParams::numDetectedClasses"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, numDetectedClasses) - 38980usize];
+    ["Offset of field: _NvDsInferContextInitParams::perClassDetectionParams"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, perClassDetectionParams) - 38984usize];
+    ["Offset of field: _NvDsInferContextInitParams::classifierThreshold"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, classifierThreshold) - 38992usize];
+    ["Offset of field: _NvDsInferContextInitParams::segmentationThreshold"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, segmentationThreshold) - 38996usize];
+    ["Offset of field: _NvDsInferContextInitParams::outputLayerNames"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, outputLayerNames) - 39000usize];
+    ["Offset of field: _NvDsInferContextInitParams::numOutputLayers"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, numOutputLayers) - 39008usize];
+    ["Offset of field: _NvDsInferContextInitParams::customLibPath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, customLibPath) - 39012usize];
+    ["Offset of field: _NvDsInferContextInitParams::customBBoxParseFuncName"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, customBBoxParseFuncName) - 43108usize];
+    ["Offset of field: _NvDsInferContextInitParams::customClassifierParseFuncName"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        customClassifierParseFuncName
+    ) - 44132usize];
+    ["Offset of field: _NvDsInferContextInitParams::copyInputToHostBuffers"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, copyInputToHostBuffers) - 45156usize];
+    ["Offset of field: _NvDsInferContextInitParams::gpuID"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, gpuID) - 45160usize];
+    ["Offset of field: _NvDsInferContextInitParams::useDLA"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, useDLA) - 45164usize];
+    ["Offset of field: _NvDsInferContextInitParams::dlaCore"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, dlaCore) - 45168usize];
+    ["Offset of field: _NvDsInferContextInitParams::outputBufferPoolSize"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, outputBufferPoolSize) - 45172usize];
+    ["Offset of field: _NvDsInferContextInitParams::customNetworkConfigFilePath"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        customNetworkConfigFilePath
+    ) - 45176usize];
+    ["Offset of field: _NvDsInferContextInitParams::customEngineCreateFuncName"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        customEngineCreateFuncName
+    ) - 49272usize];
+    ["Offset of field: _NvDsInferContextInitParams::forceImplicitBatchDimension"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        forceImplicitBatchDimension
+    ) - 50296usize];
+    ["Offset of field: _NvDsInferContextInitParams::workspaceSize"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, workspaceSize) - 50300usize];
+    ["Offset of field: _NvDsInferContextInitParams::inferInputDims"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, inferInputDims) - 50304usize];
+    ["Offset of field: _NvDsInferContextInitParams::clusterMode"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, clusterMode) - 50316usize];
+    ["Offset of field: _NvDsInferContextInitParams::customBBoxInstanceMaskParseFuncName"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        customBBoxInstanceMaskParseFuncName
+    )
+        - 50320usize];
+    ["Offset of field: _NvDsInferContextInitParams::outputIOFormats"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, outputIOFormats) - 51344usize];
+    ["Offset of field: _NvDsInferContextInitParams::numOutputIOFormats"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, numOutputIOFormats) - 51352usize];
+    ["Offset of field: _NvDsInferContextInitParams::layerDevicePrecisions"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, layerDevicePrecisions) - 51360usize];
+    ["Offset of field: _NvDsInferContextInitParams::numLayerDevicePrecisions"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        numLayerDevicePrecisions
+    ) - 51368usize];
+    ["Offset of field: _NvDsInferContextInitParams::segmentationOutputOrder"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, segmentationOutputOrder) - 51372usize];
+    ["Offset of field: _NvDsInferContextInitParams::inputFromPreprocessedTensor"][::std::mem::offset_of!(
+        _NvDsInferContextInitParams,
+        inputFromPreprocessedTensor
+    ) - 51376usize];
+    ["Offset of field: _NvDsInferContextInitParams::disableOutputHostCopy"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, disableOutputHostCopy) - 51380usize];
+    ["Offset of field: _NvDsInferContextInitParams::autoIncMem"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, autoIncMem) - 51384usize];
+    ["Offset of field: _NvDsInferContextInitParams::maxGPUMemPer"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, maxGPUMemPer) - 51392usize];
+    ["Offset of field: _NvDsInferContextInitParams::dumpIpTensor"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, dumpIpTensor) - 51400usize];
+    ["Offset of field: _NvDsInferContextInitParams::dumpOpTensor"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, dumpOpTensor) - 51404usize];
+    ["Offset of field: _NvDsInferContextInitParams::overwriteIpTensor"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, overwriteIpTensor) - 51408usize];
+    ["Offset of field: _NvDsInferContextInitParams::ipTensorFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, ipTensorFilePath) - 51412usize];
+    ["Offset of field: _NvDsInferContextInitParams::overwriteOpTensor"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, overwriteOpTensor) - 55508usize];
+    ["Offset of field: _NvDsInferContextInitParams::opTensorFilePath"]
+        [::std::mem::offset_of!(_NvDsInferContextInitParams, opTensorFilePath) - 55512usize];
+};
+#[doc = " Holds the initialization parameters required for the NvDsInferContext interface."]
+pub type NvDsInferContextInitParams = _NvDsInferContextInitParams;
+#[doc = " Defines a callback function type for asynchronously returning\n the input client buffers to the NvDsInferContext client.\n\n @param[in] data  An opaque pointer provided to the input queueing function\n                  through NvDsInferContextBatchInput."]
+pub type NvDsInferContextReturnInputAsyncFunc =
+    ::std::option::Option<unsafe extern "C" fn(data: *mut ::std::os::raw::c_void)>;
+#[doc = " Holds information about one batch to be inferred."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferContextBatchInput {
+    #[doc = " Holds a pointer to an array of pointers to input frame buffers.\nThe size of the array must be at least @a numInputFrames."]
+    pub inputFrames: *mut *mut ::std::os::raw::c_void,
+    #[doc = " Holds the number of input frames, i.e. the size of the batch."]
+    pub numInputFrames: ::std::os::raw::c_uint,
+    #[doc = " Holds the format of the frame contents."]
+    pub inputFormat: NvDsInferFormat,
+    #[doc = " Holds the pitch of the input frames, in bytes."]
+    pub inputPitch: ::std::os::raw::c_uint,
+    #[doc = " Holds a callback for returning the input buffers to the client."]
+    pub returnInputFunc: NvDsInferContextReturnInputAsyncFunc,
+    #[doc = " A pointer to the data to be supplied with the callback in\n@a returnInputFunc."]
+    pub returnFuncData: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferContextBatchInput"]
+        [::std::mem::size_of::<NvDsInferContextBatchInput>() - 40usize];
+    ["Alignment of NvDsInferContextBatchInput"]
+        [::std::mem::align_of::<NvDsInferContextBatchInput>() - 8usize];
+    ["Offset of field: NvDsInferContextBatchInput::inputFrames"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, inputFrames) - 0usize];
+    ["Offset of field: NvDsInferContextBatchInput::numInputFrames"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, numInputFrames) - 8usize];
+    ["Offset of field: NvDsInferContextBatchInput::inputFormat"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, inputFormat) - 12usize];
+    ["Offset of field: NvDsInferContextBatchInput::inputPitch"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, inputPitch) - 16usize];
+    ["Offset of field: NvDsInferContextBatchInput::returnInputFunc"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, returnInputFunc) - 24usize];
+    ["Offset of field: NvDsInferContextBatchInput::returnFuncData"]
+        [::std::mem::offset_of!(NvDsInferContextBatchInput, returnFuncData) - 32usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferContextBatchPreprocessedInput {
+    pub tensors: *mut NvDsInferLayerInfo,
+    #[doc = " Holds the number of input tensors."]
+    pub numInputTensors: ::std::os::raw::c_uint,
+    #[doc = " Holds a callback for returning the input buffers to the client."]
+    pub returnInputFunc: NvDsInferContextReturnInputAsyncFunc,
+    #[doc = " A pointer to the data to be supplied with the callback in\n@a returnInputFunc."]
+    pub returnFuncData: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferContextBatchPreprocessedInput"]
+        [::std::mem::size_of::<NvDsInferContextBatchPreprocessedInput>() - 32usize];
+    ["Alignment of NvDsInferContextBatchPreprocessedInput"]
+        [::std::mem::align_of::<NvDsInferContextBatchPreprocessedInput>() - 8usize];
+    ["Offset of field: NvDsInferContextBatchPreprocessedInput::tensors"]
+        [::std::mem::offset_of!(NvDsInferContextBatchPreprocessedInput, tensors) - 0usize];
+    ["Offset of field: NvDsInferContextBatchPreprocessedInput::numInputTensors"]
+        [::std::mem::offset_of!(NvDsInferContextBatchPreprocessedInput, numInputTensors) - 8usize];
+    ["Offset of field: NvDsInferContextBatchPreprocessedInput::returnInputFunc"]
+        [::std::mem::offset_of!(NvDsInferContextBatchPreprocessedInput, returnInputFunc) - 16usize];
+    ["Offset of field: NvDsInferContextBatchPreprocessedInput::returnFuncData"]
+        [::std::mem::offset_of!(NvDsInferContextBatchPreprocessedInput, returnFuncData) - 24usize];
+};
+#[doc = " Holds information about one detected object."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferObject {
+    #[doc = " Holds the object's offset from the left boundary of the frame."]
+    pub left: f32,
+    #[doc = " Holds the object's offset from the top boundary of the frame."]
+    pub top: f32,
+    #[doc = " Holds the object's width."]
+    pub width: f32,
+    #[doc = " Holds the object's height."]
+    pub height: f32,
+    #[doc = " Holds the index for the object's class."]
+    pub classIndex: ::std::os::raw::c_int,
+    #[doc = " Holds a pointer to a string containing a label for the object."]
+    pub label: *mut ::std::os::raw::c_char,
+    pub confidence: f32,
+    pub mask: *mut f32,
+    #[doc = " Holds width of mask"]
+    pub mask_width: ::std::os::raw::c_uint,
+    #[doc = " Holds height of mask"]
+    pub mask_height: ::std::os::raw::c_uint,
+    #[doc = " Holds size of mask in bytes"]
+    pub mask_size: ::std::os::raw::c_uint,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferObject"][::std::mem::size_of::<NvDsInferObject>() - 64usize];
+    ["Alignment of NvDsInferObject"][::std::mem::align_of::<NvDsInferObject>() - 8usize];
+    ["Offset of field: NvDsInferObject::left"]
+        [::std::mem::offset_of!(NvDsInferObject, left) - 0usize];
+    ["Offset of field: NvDsInferObject::top"]
+        [::std::mem::offset_of!(NvDsInferObject, top) - 4usize];
+    ["Offset of field: NvDsInferObject::width"]
+        [::std::mem::offset_of!(NvDsInferObject, width) - 8usize];
+    ["Offset of field: NvDsInferObject::height"]
+        [::std::mem::offset_of!(NvDsInferObject, height) - 12usize];
+    ["Offset of field: NvDsInferObject::classIndex"]
+        [::std::mem::offset_of!(NvDsInferObject, classIndex) - 16usize];
+    ["Offset of field: NvDsInferObject::label"]
+        [::std::mem::offset_of!(NvDsInferObject, label) - 24usize];
+    ["Offset of field: NvDsInferObject::confidence"]
+        [::std::mem::offset_of!(NvDsInferObject, confidence) - 32usize];
+    ["Offset of field: NvDsInferObject::mask"]
+        [::std::mem::offset_of!(NvDsInferObject, mask) - 40usize];
+    ["Offset of field: NvDsInferObject::mask_width"]
+        [::std::mem::offset_of!(NvDsInferObject, mask_width) - 48usize];
+    ["Offset of field: NvDsInferObject::mask_height"]
+        [::std::mem::offset_of!(NvDsInferObject, mask_height) - 52usize];
+    ["Offset of field: NvDsInferObject::mask_size"]
+        [::std::mem::offset_of!(NvDsInferObject, mask_size) - 56usize];
+};
+#[doc = " Holds information on all objects detected by a detector network in one\n frame."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferDetectionOutput {
+    #[doc = " Holds a pointer to an array of objects."]
+    pub objects: *mut NvDsInferObject,
+    #[doc = " Holds the number of objects in @a objects."]
+    pub numObjects: ::std::os::raw::c_uint,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferDetectionOutput"]
+        [::std::mem::size_of::<NvDsInferDetectionOutput>() - 16usize];
+    ["Alignment of NvDsInferDetectionOutput"]
+        [::std::mem::align_of::<NvDsInferDetectionOutput>() - 8usize];
+    ["Offset of field: NvDsInferDetectionOutput::objects"]
+        [::std::mem::offset_of!(NvDsInferDetectionOutput, objects) - 0usize];
+    ["Offset of field: NvDsInferDetectionOutput::numObjects"]
+        [::std::mem::offset_of!(NvDsInferDetectionOutput, numObjects) - 8usize];
+};
+#[doc = " Holds information on all attributes classifed by a classifier network for\n one frame."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferClassificationOutput {
+    #[doc = " Holds a pointer to an array of attributes. There may be more than\none attribute, depending on the number of output coverage layers\n(multi-label classifiers)."]
+    pub attributes: *mut NvDsInferAttribute,
+    #[doc = " Holds the size of the @a attributes array."]
+    pub numAttributes: ::std::os::raw::c_uint,
+    #[doc = " Holds a pointer to a string containing a label for the\nclassified output."]
+    pub label: *mut ::std::os::raw::c_char,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferClassificationOutput"]
+        [::std::mem::size_of::<NvDsInferClassificationOutput>() - 24usize];
+    ["Alignment of NvDsInferClassificationOutput"]
+        [::std::mem::align_of::<NvDsInferClassificationOutput>() - 8usize];
+    ["Offset of field: NvDsInferClassificationOutput::attributes"]
+        [::std::mem::offset_of!(NvDsInferClassificationOutput, attributes) - 0usize];
+    ["Offset of field: NvDsInferClassificationOutput::numAttributes"]
+        [::std::mem::offset_of!(NvDsInferClassificationOutput, numAttributes) - 8usize];
+    ["Offset of field: NvDsInferClassificationOutput::label"]
+        [::std::mem::offset_of!(NvDsInferClassificationOutput, label) - 16usize];
+};
+#[doc = " Holds information parsed from segmentation network output for one frame."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferSegmentationOutput {
+    #[doc = " Holds the width of the output. Same as network width."]
+    pub width: ::std::os::raw::c_uint,
+    #[doc = " Holds the height of the output. Same as network height."]
+    pub height: ::std::os::raw::c_uint,
+    #[doc = " Holds the number of classes supported by the network."]
+    pub classes: ::std::os::raw::c_uint,
+    #[doc = " Holds a pointer to an array for the 2D pixel class map.\nThe output for pixel (x,y) is at index (y*width+x)."]
+    pub class_map: *mut ::std::os::raw::c_int,
+    #[doc = " Holds a pointer to an array containing raw probabilities.\nThe probability for class @a c and pixel (x,y) is at index\n(c*width*height + y*width+x)."]
+    pub class_probability_map: *mut f32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferSegmentationOutput"]
+        [::std::mem::size_of::<NvDsInferSegmentationOutput>() - 32usize];
+    ["Alignment of NvDsInferSegmentationOutput"]
+        [::std::mem::align_of::<NvDsInferSegmentationOutput>() - 8usize];
+    ["Offset of field: NvDsInferSegmentationOutput::width"]
+        [::std::mem::offset_of!(NvDsInferSegmentationOutput, width) - 0usize];
+    ["Offset of field: NvDsInferSegmentationOutput::height"]
+        [::std::mem::offset_of!(NvDsInferSegmentationOutput, height) - 4usize];
+    ["Offset of field: NvDsInferSegmentationOutput::classes"]
+        [::std::mem::offset_of!(NvDsInferSegmentationOutput, classes) - 8usize];
+    ["Offset of field: NvDsInferSegmentationOutput::class_map"]
+        [::std::mem::offset_of!(NvDsInferSegmentationOutput, class_map) - 16usize];
+    ["Offset of field: NvDsInferSegmentationOutput::class_probability_map"]
+        [::std::mem::offset_of!(NvDsInferSegmentationOutput, class_probability_map) - 24usize];
+};
+#[doc = " Holds the information inferred by the network on one frame."]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NvDsInferFrameOutput {
+    #[doc = " Holds an output type indicating the valid member in the union\nof @a detectionOutput, @a classificationOutput, and @a  segmentationOutput.\nThis is basically the network type."]
+    pub outputType: NvDsInferNetworkType,
+    pub __bindgen_anon_1: NvDsInferFrameOutput__bindgen_ty_1,
+}
+#[doc = " Holds a union of supported outputs. The valid member is determined by\n@a outputType."]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union NvDsInferFrameOutput__bindgen_ty_1 {
+    #[doc = " Holds detector output. Valid when @a outputType is\n@ref NvDsInferNetworkType_Detector."]
+    pub detectionOutput: NvDsInferDetectionOutput,
+    #[doc = " Holds classifier output. Valid when @a outputType is\n@ref NvDsInferNetworkType_Classifier."]
+    pub classificationOutput: NvDsInferClassificationOutput,
+    #[doc = " Holds classifier output. Valid when @a outputType is\n@ref NvDsInferNetworkType_Classifier."]
+    pub segmentationOutput: NvDsInferSegmentationOutput,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferFrameOutput__bindgen_ty_1"]
+        [::std::mem::size_of::<NvDsInferFrameOutput__bindgen_ty_1>() - 32usize];
+    ["Alignment of NvDsInferFrameOutput__bindgen_ty_1"]
+        [::std::mem::align_of::<NvDsInferFrameOutput__bindgen_ty_1>() - 8usize];
+    ["Offset of field: NvDsInferFrameOutput__bindgen_ty_1::detectionOutput"]
+        [::std::mem::offset_of!(NvDsInferFrameOutput__bindgen_ty_1, detectionOutput) - 0usize];
+    ["Offset of field: NvDsInferFrameOutput__bindgen_ty_1::classificationOutput"]
+        [::std::mem::offset_of!(NvDsInferFrameOutput__bindgen_ty_1, classificationOutput) - 0usize];
+    ["Offset of field: NvDsInferFrameOutput__bindgen_ty_1::segmentationOutput"]
+        [::std::mem::offset_of!(NvDsInferFrameOutput__bindgen_ty_1, segmentationOutput) - 0usize];
+};
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferFrameOutput"][::std::mem::size_of::<NvDsInferFrameOutput>() - 40usize];
+    ["Alignment of NvDsInferFrameOutput"][::std::mem::align_of::<NvDsInferFrameOutput>() - 8usize];
+    ["Offset of field: NvDsInferFrameOutput::outputType"]
+        [::std::mem::offset_of!(NvDsInferFrameOutput, outputType) - 0usize];
+};
+#[doc = " Holds the output for all of the frames in a batch (an array of frame),\n and related buffer information."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct NvDsInferContextBatchOutput {
+    #[doc = " Holds a pointer to an array of outputs for each frame in the batch."]
+    pub frames: *mut NvDsInferFrameOutput,
+    #[doc = " Holds the number of elements in @a frames."]
+    pub numFrames: ::std::os::raw::c_uint,
+    #[doc = " Holds a pointer to an array of pointers to output device buffers\nfor this batch. The array elements are set by"]
+    pub outputDeviceBuffers: *mut *mut ::std::os::raw::c_void,
+    #[doc = " Holds the number of elements in @a *outputDeviceBuffers."]
+    pub numOutputDeviceBuffers: ::std::os::raw::c_uint,
+    #[doc = " Holds a pointer to an array of pointers to host buffers for this batch.\nThe array elements are set by"]
+    pub hostBuffers: *mut *mut ::std::os::raw::c_void,
+    #[doc = " Holds the number of elements in hostBuffers."]
+    pub numHostBuffers: ::std::os::raw::c_uint,
+    #[doc = " Holds a private context pointer for the set of output buffers."]
+    pub priv_: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of NvDsInferContextBatchOutput"]
+        [::std::mem::size_of::<NvDsInferContextBatchOutput>() - 56usize];
+    ["Alignment of NvDsInferContextBatchOutput"]
+        [::std::mem::align_of::<NvDsInferContextBatchOutput>() - 8usize];
+    ["Offset of field: NvDsInferContextBatchOutput::frames"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, frames) - 0usize];
+    ["Offset of field: NvDsInferContextBatchOutput::numFrames"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, numFrames) - 8usize];
+    ["Offset of field: NvDsInferContextBatchOutput::outputDeviceBuffers"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, outputDeviceBuffers) - 16usize];
+    ["Offset of field: NvDsInferContextBatchOutput::numOutputDeviceBuffers"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, numOutputDeviceBuffers) - 24usize];
+    ["Offset of field: NvDsInferContextBatchOutput::hostBuffers"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, hostBuffers) - 32usize];
+    ["Offset of field: NvDsInferContextBatchOutput::numHostBuffers"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, numHostBuffers) - 40usize];
+    ["Offset of field: NvDsInferContextBatchOutput::priv_"]
+        [::std::mem::offset_of!(NvDsInferContextBatchOutput, priv_) - 48usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct INvDsInferContext {
+    _unused: [u8; 0],
+}
+#[doc = " An opaque pointer type to be used as a handle for a context instance."]
+pub type NvDsInferContextHandle = *mut INvDsInferContext;
+#[doc = " @brief  Type declaration for a logging callback.\n\n The callaback log NvDsInferContext messages.\n\n @param[in] handle        The handle of the NvDsInferContext instance that\n                          generated the log.\n @param[in] uniqueID      Unique ID of the NvDsInferContext instance that\n                          generated the log.\n @param[in] logLevel      Level of the log.\n @param[in] funcName      A pointer to the name of the function that\n                          generated the log.\n @param[in] logMessage    A pointer to the log message string.\n @param[in] userCtx       An opaque pointer to the user context, supplied\n                          when creating the NvDsInferContext instance."]
+pub type NvDsInferContextLoggingFunc = ::std::option::Option<
+    unsafe extern "C" fn(
+        handle: NvDsInferContextHandle,
+        uniqueID: ::std::os::raw::c_uint,
+        logLevel: NvDsInferLogLevel,
+        logMessage: *const ::std::os::raw::c_char,
+        userCtx: *mut ::std::os::raw::c_void,
+    ),
+>;
+unsafe extern "C" {
+    #[doc = " Resets a context parameter structure to default values.\n\n @param[in] initParams    A pointer to a context parameter structure."]
+    pub fn NvDsInferContext_ResetInitParams(initParams: *mut NvDsInferContextInitParams);
+}
+unsafe extern "C" {
+    #[doc = " Gets the string name of the status.\n\n @param[in] status    An inference status code.\n @return  A pointer to a string containing the status's name, or NULL if\n  the status is unrecognized. Memory is owned by the function; the caller\n  may not free it."]
+    pub fn NvDsInferContext_GetStatusName(status: NvDsInferStatus)
+    -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Creates a new NvDsInferContext object with specified\n initialization parameters.\n\n @param[out] handle       A pointer to an NvDsInferContext handle.\n @param[in]  initParams   A pointer to a parameter structure to be used to\n                          initialize the context.\n @param[in]  userCtx      A pointer to an opaque user context, with callbacks,\n                          generated by the NvDsInferContext instance.\n @param[in] logFunc       A log callback for the instance.\n @return  NVDSINFER_SUCCESS if creation was successful, or an error status\n  otherwise."]
+    pub fn NvDsInferContext_Create(
+        handle: *mut NvDsInferContextHandle,
+        initParams: *mut NvDsInferContextInitParams,
+        userCtx: *mut ::std::os::raw::c_void,
+        logFunc: NvDsInferContextLoggingFunc,
+    ) -> NvDsInferStatus;
+}
+unsafe extern "C" {
+    #[doc = " Destroys an NvDsInferContext instance and releases its resources.\n\n @param[in] handle    The handle to the NvDsInferContext instance to be\n                      destroyed."]
+    pub fn NvDsInferContext_Destroy(handle: NvDsInferContextHandle);
+}
+unsafe extern "C" {
+    #[doc = " \\brief  Queues a batch of input frames for preprocessing and inferencing.\n\n @see NvDsInferContext::queueInputBatch() for details.\n\n @param[in] handle        A handle to an NvDsInferContext instance.\n @param[in] batchInput    A reference to a batch input structure.\n @return  NVDSINFER_SUCCESS if preprocessing and queueing were successful, or\n  an error status otherwise."]
+    pub fn NvDsInferContext_QueueInputBatch(
+        handle: NvDsInferContextHandle,
+        batchInput: *mut NvDsInferContextBatchInput,
+    ) -> NvDsInferStatus;
+}
+unsafe extern "C" {
+    #[doc = " Dequeues output for a batch of frames.\n\n @see NvDsInferContext::dequeueOutputBatch() for details.\n\n @param[in] handle            A handle to an NvDsInferContext instance.\n @param[in,out] batchOutput   A reference to the batch output structure\n                              to which output is to be appended.\n @return  NVDSINFER_SUCCESS if dequeueing was successful, or an error status\n  otherwise."]
+    pub fn NvDsInferContext_DequeueOutputBatch(
+        handle: NvDsInferContextHandle,
+        batchOutput: *mut NvDsInferContextBatchOutput,
+    ) -> NvDsInferStatus;
+}
+unsafe extern "C" {
+    #[doc = " Frees the memory associated with the batch output and releases the set of\n host buffers back to the context for reuse.\n\n @param[in] handle        A handle to an NvDsInferContext instance.\n @param[in] batchOutput   A pointer to an NvDsInferContextBatchOutput\n                          structure filled by\n                          NvDsInferContext_DequeueOutputBatch()."]
+    pub fn NvDsInferContext_ReleaseBatchOutput(
+        handle: NvDsInferContextHandle,
+        batchOutput: *mut NvDsInferContextBatchOutput,
+    );
+}
+unsafe extern "C" {
+    #[doc = " Gets network input information.\n\n @param[in]     handle        A handle to an NvDsInferContext instance.\n @param[in,out] networkInfo   A pointer to an NvDsInferNetworkInfo structure."]
+    pub fn NvDsInferContext_GetNetworkInfo(
+        handle: NvDsInferContextHandle,
+        networkInfo: *mut NvDsInferNetworkInfo,
+    );
+}
+unsafe extern "C" {
+    #[doc = " Gets the number of the bound layers of the inference engine in an\n NvDsInferContext instance.\n\n @param[in] handle    A handle to an NvDsInferContext instance.\n @return  The number of bound layers of the inference engine."]
+    pub fn NvDsInferContext_GetNumLayersInfo(
+        handle: NvDsInferContextHandle,
+    ) -> ::std::os::raw::c_uint;
+}
+unsafe extern "C" {
+    #[doc = " Fills an input vector with information about all of the bound layers of the\n inference engine in an NvDsInferContext instance.\n The size of the array must be at least the value returned by\n NvDsInferContext_GetNumLayersInfo().\n\n @param[in]     handle        A handle to an NvDsInferContext instance.\n @param[in,out] layersInfo    A pointer to an array of NvDsInferLayerInfo\nstructures to be filled by the function."]
+    pub fn NvDsInferContext_FillLayersInfo(
+        handle: NvDsInferContextHandle,
+        layersInfo: *mut NvDsInferLayerInfo,
+    );
+}
+unsafe extern "C" {
+    #[doc = " Gets the string label associated with the class ID for detectors and the\n attribute ID and attribute value for classifiers. The string is owned\n by the context; the caller may not modify or free it.\n\n @param[in] handle    A handle to an NvDsInferContext instance.\n @param[in] id        Class ID for detectors, or attribute ID for classifiers.\n @param[in] value     Attribute value for classifiers; set to 0 for detectors.\n @return  A pointer to a string label. The memory is owned by the context."]
+    pub fn NvDsInferContext_GetLabel(
+        handle: NvDsInferContextHandle,
+        id: ::std::os::raw::c_uint,
+        value: ::std::os::raw::c_uint,
+    ) -> *const ::std::os::raw::c_char;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct __locale_data {

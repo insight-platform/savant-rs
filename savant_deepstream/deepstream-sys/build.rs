@@ -22,6 +22,7 @@ fn main() {
     println!("cargo:include={}", "/usr/include/gstreamer-1.0");
     println!("cargo:rustc-link-search=native=/opt/nvidia/deepstream/deepstream-7.0/lib/");
     println!("cargo:rustc-link-lib=nvdsgst_meta");
+    println!("cargo:rustc-link-lib=nvds_infer");
     //println!("cargo:rustc-link-lib=nvds_meta");
 
     // println!("cargo:rerun-if-changed=nvdsmeta_rs.h");
