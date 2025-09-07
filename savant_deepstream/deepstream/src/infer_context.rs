@@ -26,7 +26,7 @@ use deepstream_sys::{
     NvDsInferStatus_NVDSINFER_SUCCESS,
     // Tensor order constants
 };
-pub use init_params::{InferContextInitParams, InferFormat, InferTensorOrder};
+pub use init_params::{InferContextInitParams, InferFormat, InferNetworkMode, InferTensorOrder};
 pub use io::{BatchInput, BatchOutput};
 use std::{ffi::CStr, marker::PhantomData, os::raw::c_char, ptr};
 
@@ -118,20 +118,18 @@ impl InferContext {
     /// # Returns
     /// A new `InferContext` instance or an error if creation failed
     pub fn new(
-        init_params: &InferContextInitParams,
+        init_params: InferContextInitParams,
         user_ctx: Option<*mut std::ffi::c_void>,
         log_func: NvDsInferContextLoggingFunc,
     ) -> Result<Self> {
         let mut handle: NvDsInferContextHandle = ptr::null_mut();
         let user_ctx_ptr = user_ctx.unwrap_or(ptr::null_mut());
 
+        //let init_params = Box::new(init_params);
+        let init_params_ptr = init_params.as_raw() as *const _ as *mut _;
+        //std::mem::forget(init_params);
         let status = unsafe {
-            NvDsInferContext_Create(
-                &mut handle,
-                &init_params.as_raw() as *const _ as *mut _,
-                user_ctx_ptr,
-                log_func,
-            )
+            NvDsInferContext_Create(&mut handle, init_params_ptr, user_ctx_ptr, log_func)
         };
 
         if status != NvDsInferStatus_NVDSINFER_SUCCESS {
@@ -158,7 +156,7 @@ impl InferContext {
     ///
     /// # Returns
     /// A new `InferContext` instance or an error if creation failed
-    pub fn new_with_default_logging(init_params: &InferContextInitParams) -> Result<Self> {
+    pub fn new_with_default_logging(init_params: InferContextInitParams) -> Result<Self> {
         Self::new(init_params, None, Some(logging_callback_wrapper))
     }
 
@@ -414,14 +412,16 @@ unsafe extern "C" fn logging_callback_wrapper(
         Err(_) => return,
     };
 
+    // split message by \n
+    let messages = message.split('\n');
     let level = LogLevel::from(log_level);
-
-    // For now, just log to the standard Rust logging infrastructure
-    match level {
-        LogLevel::Error => log::error!("[InferContext {}] {}", unique_id, message),
-        LogLevel::Warning => log::warn!("[InferContext {}] {}", unique_id, message),
-        LogLevel::Info => log::info!("[InferContext {}] {}", unique_id, message),
-        LogLevel::Debug => log::debug!("[InferContext {}] {}", unique_id, message),
+    for message in messages {
+        match level {
+            LogLevel::Error => log::error!("[InferContext {}] {}", unique_id, message),
+            LogLevel::Warning => log::warn!("[InferContext {}] {}", unique_id, message),
+            LogLevel::Info => log::info!("[InferContext {}] {}", unique_id, message),
+            LogLevel::Debug => log::debug!("[InferContext {}] {}", unique_id, message),
+        }
     }
 }
 
@@ -450,25 +450,26 @@ mod tests {
     #[test]
     fn test_infer_context() -> Result<()> {
         // Initialize logging
-        _ = env_logger::try_init();
+        //_ = env_logger::try_init();
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Error)
+            .init();
 
         let mut init_params = InferContextInitParams::new();
         init_params
             .set_gpu_id(0)
             .set_max_batch_size(16)
             .set_unique_id(1)
-            .set_model_file_path("savant_deepstream/deepstream/assets/adaface_ir50_webface4m.onnx")?
-            .set_engine_file_path(
-                "savant_deepstream/deepstream/assets/adaface_ir50_webface4m.engine",
-            )?
+            .set_network_mode(InferNetworkMode::Fp16)
+            .set_onnx_file_path("assets/adaface_ir50_webface4m.onnx")?
+            .set_engine_file_path("assets/adaface_ir50_webface4m.onnx_b16_gpu0_fp16.engine")?
             .set_network_scale_factor(0.007843137254902f32)
+            .set_offsets(&[127.5, 127.5, 127.5])?
             .set_net_input_order(InferTensorOrder::Nchw)
             .set_net_input_format(InferFormat::Bgr)
             .set_infer_input_dims(3, 112, 112)
             .set_output_layer_names(&["feature"])?;
-
-        let _infer_context = InferContext::new_with_default_logging(&init_params)?;
-
+        let _infer_context = InferContext::new_with_default_logging(init_params)?;
         Ok(())
     }
 }

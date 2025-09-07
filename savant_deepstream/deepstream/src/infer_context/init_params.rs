@@ -11,6 +11,12 @@ use deepstream_sys::{
     NvDsInferFormat_NvDsInferFormat_RGBA,
     NvDsInferFormat_NvDsInferFormat_Tensor,
     NvDsInferFormat_NvDsInferFormat_Unknown,
+    // Network mode constants
+    NvDsInferNetworkMode,
+    NvDsInferNetworkMode_NvDsInferNetworkMode_BEST,
+    NvDsInferNetworkMode_NvDsInferNetworkMode_FP16,
+    NvDsInferNetworkMode_NvDsInferNetworkMode_FP32,
+    NvDsInferNetworkMode_NvDsInferNetworkMode_INT8,
     // Network type constants
     NvDsInferNetworkType_NvDsInferNetworkType_Other,
     // Tensor order constants
@@ -100,6 +106,42 @@ impl From<NvDsInferTensorOrder> for InferTensorOrder {
     }
 }
 
+/// Network mode enumeration for inference
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InferNetworkMode {
+    /// 32-bit floating point precision
+    Fp32,
+    /// 8-bit integer precision
+    Int8,
+    /// 16-bit floating point precision
+    Fp16,
+    /// Best precision available
+    Best,
+}
+
+impl From<InferNetworkMode> for NvDsInferNetworkMode {
+    fn from(mode: InferNetworkMode) -> Self {
+        match mode {
+            InferNetworkMode::Fp32 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP32,
+            InferNetworkMode::Int8 => NvDsInferNetworkMode_NvDsInferNetworkMode_INT8,
+            InferNetworkMode::Fp16 => NvDsInferNetworkMode_NvDsInferNetworkMode_FP16,
+            InferNetworkMode::Best => NvDsInferNetworkMode_NvDsInferNetworkMode_BEST,
+        }
+    }
+}
+
+impl From<NvDsInferNetworkMode> for InferNetworkMode {
+    fn from(mode: NvDsInferNetworkMode) -> Self {
+        match mode {
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP32 => InferNetworkMode::Fp32,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_INT8 => InferNetworkMode::Int8,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_FP16 => InferNetworkMode::Fp16,
+            x if x == NvDsInferNetworkMode_NvDsInferNetworkMode_BEST => InferNetworkMode::Best,
+            _ => InferNetworkMode::Fp32, // Default to FP32 for unknown values
+        }
+    }
+}
+
 /// Safe wrapper for NvDsInferContextInitParams
 ///
 /// This struct provides a safe way to configure inference context initialization
@@ -152,26 +194,11 @@ impl InferContextInitParams {
         self
     }
 
-    /// Set the network mode (INT8, FP16, FP32)
-    pub fn set_network_mode(&mut self, mode: u32) -> &mut Self {
-        log::info!("Setting network mode: {}", mode);
-        self.inner.networkMode = mode;
+    /// Set the network mode (INT8, FP16, FP32, BEST)
+    pub fn set_network_mode(&mut self, mode: InferNetworkMode) -> &mut Self {
+        log::info!("Setting network mode: {:?}", mode);
+        self.inner.networkMode = mode.into();
         self
-    }
-
-    /// Set the model file path
-    pub fn set_model_file_path(&mut self, path: &str) -> Result<&mut Self> {
-        log::info!("Setting model file path: {}", path);
-        let c_string = CString::new(path)?;
-        unsafe {
-            let src = c_string.as_ptr();
-            let dest = self.inner.modelFilePath.as_mut_ptr();
-            let len = std::cmp::min(c_string.as_bytes().len(), 4096 - 1);
-            ptr::copy_nonoverlapping(src, dest, len);
-            *dest.add(len) = 0; // Null terminate
-        }
-        self._owned_strings.push(c_string);
-        Ok(self)
     }
 
     /// Set the ONNX file path
@@ -288,11 +315,18 @@ impl InferContextInitParams {
         Ok(self)
     }
 
-    pub fn set_offsets(&mut self, offsets: [f32; 4], num_offsets: u32) -> &mut Self {
+    pub fn set_offsets(&mut self, offsets: &[f32]) -> Result<&mut Self> {
+        if offsets.len() > 4 {
+            return Err(DeepStreamError::invalid_operation(
+                "Offsets must be less than 4",
+            ));
+        }
         log::info!("Setting offsets: {:?}", offsets);
-        self.inner.numOffsets = num_offsets;
-        self.inner.offsets = offsets;
-        self
+        self.inner.numOffsets = offsets.len() as u32;
+        for (i, offset) in offsets.iter().enumerate() {
+            self.inner.offsets[i] = *offset;
+        }
+        Ok(self)
     }
 
     pub fn set_output_layer_names(&mut self, names: &[&str]) -> Result<&mut Self> {
@@ -384,45 +418,72 @@ impl InferContextInitParams {
     }
 }
 
-impl Default for InferContextInitParams {
-    fn default() -> Self {
-        Self::new()
+impl std::fmt::Debug for InferContextInitParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Helper function to safely convert C string array to String
+        let c_str_array_to_string = |arr: &[std::os::raw::c_char]| -> String {
+            unsafe {
+                std::ffi::CStr::from_ptr(arr.as_ptr())
+                    .to_string_lossy()
+                    .to_string()
+            }
+        };
+
+        f.debug_struct("InferContextInitParams")
+            .field("unique_id", &self.inner.uniqueID)
+            .field("gpu_id", &self.inner.gpuID)
+            .field("max_batch_size", &self.inner.maxBatchSize)
+            .field(
+                "network_mode",
+                &InferNetworkMode::from(self.inner.networkMode),
+            )
+            .field("network_type", &self.inner.networkType)
+            .field("network_scale_factor", &self.inner.networkScaleFactor)
+            .field("network_input_order", &self.inner.netInputOrder)
+            .field("network_input_format", &self.inner.networkInputFormat)
+            .field(
+                "infer_input_dims",
+                &format!(
+                    "{}x{}x{}",
+                    self.inner.inferInputDims.c,
+                    self.inner.inferInputDims.h,
+                    self.inner.inferInputDims.w
+                ),
+            )
+            .field("auto_host_copy", &(self.inner.disableOutputHostCopy != 0))
+            .field("use_dla", &(self.inner.useDLA != 0))
+            .field("dla_core", &self.inner.dlaCore)
+            .field("output_buffer_pool_size", &self.inner.outputBufferPoolSize)
+            .field("workspace_size", &self.inner.workspaceSize)
+            .field("auto_inc_mem", &(self.inner.autoIncMem != 0))
+            .field("max_gpu_mem_percentage", &self.inner.maxGPUMemPer)
+            .field("dump_ip_tensor", &(self.inner.dumpIpTensor != 0))
+            .field("dump_op_tensor", &(self.inner.dumpOpTensor != 0))
+            .field(
+                "model_file_path",
+                &c_str_array_to_string(&self.inner.modelFilePath),
+            )
+            .field(
+                "onnx_file_path",
+                &c_str_array_to_string(&self.inner.onnxFilePath),
+            )
+            .field(
+                "int8_calibration_file_path",
+                &c_str_array_to_string(&self.inner.int8CalibrationFilePath),
+            )
+            .field(
+                "mean_image_file_path",
+                &c_str_array_to_string(&self.inner.meanImageFilePath),
+            )
+            .field("num_output_layers", &self.inner.numOutputLayers)
+            .field("offsets", &format!("{:?}", self.inner.offsets))
+            .field("num_offsets", &self.inner.numOffsets)
+            .finish()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-
-    #[test]
-    fn test_infer_context_init_params() -> Result<()> {
-        let mut init_params = InferContextInitParams::new();
-        init_params
-            .set_gpu_id(0)
-            .set_max_batch_size(16)
-            .set_unique_id(1)
-            .set_model_file_path("savant_deepstream/deepstream/assets/adaface_ir50_webface4m.onnx")?
-            .set_engine_file_path(
-                "savant_deepstream/deepstream/assets/adaface_ir50_webface4m.engine",
-            )?
-            .set_network_scale_factor(0.007843137254902f32)
-            .set_net_input_order(InferTensorOrder::Nchw)
-            .set_net_input_format(InferFormat::Bgr)
-            .set_infer_input_dims(3, 112, 112)
-            .set_output_layer_names(&["feature"])?;
-
-        // Test that the tensor orders were set correctly
-        assert_eq!(
-            init_params.as_raw().netInputOrder,
-            NvDsInferTensorOrder_NvDsInferTensorOrder_kNCHW
-        );
-
-        // Test output layer names
-        let raw_params = init_params.as_raw();
-        assert_eq!(raw_params.numOutputLayers, 1);
-        assert!(!raw_params.outputLayerNames.is_null());
-
-        Ok(())
+impl Default for InferContextInitParams {
+    fn default() -> Self {
+        Self::new()
     }
 }

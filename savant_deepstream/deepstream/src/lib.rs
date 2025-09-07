@@ -40,7 +40,7 @@ pub use error::DeepStreamError;
 pub use frame_meta::FrameMeta;
 pub use infer_context::{
     BatchInput, BatchOutput, DataType, InferContext, InferContextInitParams, InferFormat,
-    LayerInfo, LogLevel, NetworkInfo,
+    InferNetworkMode, LayerInfo, LogLevel, NetworkInfo,
 };
 pub use infer_tensor_meta::InferTensorMeta;
 pub use object_meta::ObjectMeta;

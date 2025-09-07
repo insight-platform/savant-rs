@@ -11,6 +11,10 @@
         "target": "devcontainer",
         "context": "."
     },
+    "runArgs": [
+        "--gpus",
+        "all"
+    ],
     "remoteUser": "${localEnv:USER}",
     "customizations": {
         "vscode": {
