@@ -16,6 +16,7 @@ members = [
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
+    "savant_deepstream/deepstream_nvinfer",
 ]
 
 default-members = [
