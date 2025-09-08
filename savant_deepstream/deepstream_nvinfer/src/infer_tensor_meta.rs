@@ -1,4 +1,4 @@
-use crate::{BatchMeta, DeepStreamError, Result};
+use crate::{NvInferError, Result};
 use deepstream_sys::{NvDsInferDims, NvDsInferTensorMeta};
 
 const SUPPORTED_DATA_TYPES: [deepstream_sys::NvDsInferDataType; 4] = [
@@ -15,7 +15,6 @@ const SUPPORTED_DATA_TYPES: [deepstream_sys::NvDsInferDataType; 4] = [
 pub struct InferTensorMeta {
     /// Raw pointer to the C structure
     raw: *mut NvDsInferTensorMeta,
-    _batch_meta: BatchMeta,
 }
 
 #[derive(Debug)]
@@ -40,15 +39,14 @@ impl InferTensorMeta {
     /// The caller must ensure the pointer is valid and not null.
     /// This is typically used internally or when working with existing
     /// inference tensor metadata.
-    pub unsafe fn from_raw(raw: *mut NvDsInferTensorMeta, batch_meta: &BatchMeta) -> Result<Self> {
+    pub unsafe fn from_raw(raw: *mut NvDsInferTensorMeta) -> Result<Self> {
         if raw.is_null() {
-            return Err(DeepStreamError::null_pointer("InferTensorMeta::from_raw"));
+            return Err(NvInferError::NullPointer(
+                "InferTensorMeta::from_raw".to_string(),
+            ));
         }
 
-        Ok(Self {
-            raw,
-            _batch_meta: batch_meta.clone(),
-        })
+        Ok(Self { raw })
     }
 
     /// Get the raw pointer
@@ -182,10 +180,7 @@ impl InferTensorMeta {
 impl Clone for InferTensorMeta {
     fn clone(&self) -> Self {
         // Create a shallow copy - the underlying memory is not duplicated
-        Self {
-            raw: self.raw,
-            _batch_meta: self._batch_meta.clone(),
-        }
+        Self { raw: self.raw }
     }
 }
 

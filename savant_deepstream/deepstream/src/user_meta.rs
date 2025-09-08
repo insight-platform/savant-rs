@@ -135,16 +135,15 @@ impl UserMeta {
     /// and if so, returns the data as `InferTensorMeta`.
     ///
     /// # Returns
-    /// * `Option<InferTensorMeta>` - The inference tensor metadata if available, None otherwise
-    pub fn as_infer_tensor_meta(&self) -> Option<crate::InferTensorMeta> {
+    /// * `Option<deepstream_nvinfer::InferTensorMeta>` - The inference tensor metadata if available, None otherwise
+    pub fn as_infer_tensor_meta(&self) -> Option<deepstream_nvinfer::InferTensorMeta> {
         if self.meta_type() == deepstream_sys::NvDsMetaType_NVDSINFER_TENSOR_OUTPUT_META {
             let data_ptr = self.user_meta_data();
             if !data_ptr.is_null() {
                 // Safety: We've verified the type and data pointer is not null
                 unsafe {
-                    crate::InferTensorMeta::from_raw(
+                    deepstream_nvinfer::InferTensorMeta::from_raw(
                         data_ptr as *mut deepstream_sys::NvDsInferTensorMeta,
-                        &self._batch_meta,
                     )
                     .ok()
                 }

@@ -1,4 +1,5 @@
-use crate::{infer_context::DataType, infer_tensor_meta::InferDims};
+use super::DataType;
+use crate::infer_tensor_meta::InferDims;
 
 #[derive(Debug)]
 pub struct OutputLayer {

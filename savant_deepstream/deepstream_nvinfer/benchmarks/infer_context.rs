@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use cudarc::runtime::sys as cuda;
-use deepstream::infer_context::{
+use deepstream_nvinfer::{
     BatchInput, Context, InferContextInitParams, InferFormat, InferNetworkMode, InferTensorOrder,
 };
 use std::{ffi::c_void, ptr};

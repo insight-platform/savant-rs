@@ -1,4 +1,4 @@
-use crate::infer_context::{
+use super::{
     output::{FrameOutput, OutputLayer},
     LayerInfo,
 };

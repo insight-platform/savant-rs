@@ -1,7 +1,5 @@
-use crate::{
-    infer_context::{InferFormat, InferNetworkMode, InferTensorOrder},
-    DeepStreamError, Result,
-};
+use crate::infer_context::{InferFormat, InferNetworkMode, InferTensorOrder};
+use crate::{NvInferError, Result};
 use deepstream_sys::{
     NvDsInferContextInitParams, NvDsInferContext_ResetInitParams,
     NvDsInferNetworkType_NvDsInferNetworkType_Other,
@@ -188,8 +186,8 @@ impl InferContextInitParams {
 
     pub fn set_offsets(&mut self, offsets: &[f32]) -> Result<&mut Self> {
         if offsets.len() > 4 {
-            return Err(DeepStreamError::invalid_operation(
-                "Offsets must be less than 4",
+            return Err(NvInferError::InvalidOperation(
+                "Offsets must be less than 4".to_string(),
             ));
         }
         log::info!("Setting offsets: {:?}", offsets);

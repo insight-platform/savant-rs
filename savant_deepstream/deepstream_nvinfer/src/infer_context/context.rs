@@ -3,7 +3,7 @@ use super::{
     io::{BatchInput, BatchOutput},
     layer_info::LayerInfo,
 };
-use crate::{infer_context::NetworkInfo, DeepStreamError, Result};
+use crate::{infer_context::NetworkInfo, NvInferError, Result};
 use deepstream_sys::{
     NvDsInferContextHandle, NvDsInferContextLoggingFunc, NvDsInferContext_Create,
     NvDsInferContext_DequeueOutputBatch, NvDsInferContext_Destroy, NvDsInferContext_FillLayersInfo,
@@ -48,14 +48,14 @@ impl Context {
         };
 
         if status != NvDsInferStatus_NVDSINFER_SUCCESS {
-            return Err(DeepStreamError::invalid_operation(&format!(
+            return Err(NvInferError::InvalidOperation(format!(
                 "Failed to create inference context: status {}",
                 status
             )));
         }
 
         if handle.is_null() {
-            return Err(DeepStreamError::null_pointer("InferContext::new"));
+            return Err(NvInferError::NullPointer("InferContext::new".to_string()));
         }
 
         Ok(Self {
@@ -84,7 +84,7 @@ impl Context {
     /// `Ok(())` if successful, or an error if queueing failed
     pub fn queue_input_batch(&mut self, batch_input: &BatchInput) -> Result<()> {
         if batch_input.inner.numInputFrames > self.init_params.max_batch_size() {
-            return Err(DeepStreamError::invalid_operation(&format!(
+            return Err(NvInferError::InvalidOperation(format!(
                 "Enqueued batch size {} exceeds maximum network batch size {}",
                 batch_input.inner.numInputFrames,
                 self.init_params.max_batch_size()
@@ -96,7 +96,7 @@ impl Context {
         };
 
         if status != NvDsInferStatus_NVDSINFER_SUCCESS {
-            return Err(DeepStreamError::invalid_operation(&format!(
+            return Err(NvInferError::InvalidOperation(format!(
                 "Failed to queue input batch: status {}",
                 status
             )));
@@ -116,7 +116,7 @@ impl Context {
             unsafe { NvDsInferContext_DequeueOutputBatch(self.handle, batch_output.as_raw_mut()) };
 
         if status != NvDsInferStatus_NVDSINFER_SUCCESS {
-            return Err(DeepStreamError::invalid_operation(&format!(
+            return Err(NvInferError::InvalidOperation(format!(
                 "Failed to dequeue output batch: status {}",
                 status
             )));
@@ -237,7 +237,7 @@ pub fn status_to_result(status: NvDsInferStatus) -> Result<()> {
     if is_success(status) {
         Ok(())
     } else {
-        Err(DeepStreamError::invalid_operation(&format!(
+        Err(NvInferError::InvalidOperation(format!(
             "NvDsInfer operation failed with status: {}",
             status
         )))
