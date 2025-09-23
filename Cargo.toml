@@ -85,7 +85,7 @@ log = "0.4"
 
 md-5 = "0.10"
 mini-moka = "0.10"
-moka = { version = "0.12", features = ["future"] }
+moka = { version = "=0.12.10", features = ["future"] }
 
 nix = { version = "0.29", features = ["process", "signal"] }
 nom = "7"
