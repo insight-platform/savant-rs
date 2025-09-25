@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use uuid::Uuid;
 
 use crate::logging::{log_level_enabled, LogLevel};
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 
 pub mod bigint;
 pub mod byte_buffer;
@@ -36,11 +36,11 @@ pub fn round_2_digits(v: f32) -> f32 {
 #[pyfunction]
 pub fn estimate_gil_contention() {
     if log_level_enabled(LogLevel::Trace) {
-        with_gil!(|_| {});
+        attach!(|_| {});
     }
 }
 
-fn value_to_py(py: Python, v: Value) -> PyResult<PyObject> {
+fn value_to_py(py: Python, v: Value) -> PyResult<Py<PyAny>> {
     Ok(match v {
         Value::String(v) => v.into_pyobject(py)?.into_any().unbind(),
         Value::Float(v) => v.into_pyobject(py)?.into_any().unbind(),
@@ -63,10 +63,10 @@ fn value_to_py(py: Python, v: Value) -> PyResult<PyObject> {
 #[pyfunction]
 #[pyo3(name = "eval_expr")]
 #[pyo3(signature = (query, ttl = 100, no_gil = true))]
-pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<(PyObject, bool)> {
-    let (res, cached) = release_gil!(no_gil, || savant_core::eval_cache::eval_expr(query, ttl)
+pub fn eval_expr(query: &str, ttl: u64, no_gil: bool) -> PyResult<(Py<PyAny>, bool)> {
+    let (res, cached) = detach!(no_gil, || savant_core::eval_cache::eval_expr(query, ttl)
         .map_err(|e| PyValueError::new_err(e.to_string())))?;
-    let v = with_gil!(|py| value_to_py(py, res))?;
+    let v = attach!(|py| value_to_py(py, res))?;
     Ok((v, cached))
 }
 

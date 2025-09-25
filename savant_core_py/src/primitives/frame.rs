@@ -1,3 +1,4 @@
+use crate::attach;
 use crate::draw_spec::SetDrawLabelKind;
 use crate::match_query::MatchQuery;
 use crate::primitives::attribute::Attribute;
@@ -8,11 +9,10 @@ use crate::primitives::message::Message;
 use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
-use crate::with_gil;
-use crate::{err_to_pyo3, release_gil};
+use crate::{detach, err_to_pyo3};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::{rust, WithAttributes};
@@ -136,15 +136,15 @@ impl VideoFrameContent {
     /// TypeError
     ///   If the content is not internal.
     ///
-    pub fn get_data(&self) -> PyResult<PyObject> {
+    pub fn get_data(&self) -> PyResult<Py<PyAny>> {
         match &self.0 {
             rust::VideoFrameContent::Internal(data) => {
-                with_gil!(|py| {
+                attach!(|py| {
                     let bytes = PyBytes::new_with(py, data.len(), |b: &mut [u8]| {
                         b.copy_from_slice(data);
                         Ok(())
                     })?;
-                    Ok(PyObject::from(bytes))
+                    Ok(Py::from(bytes))
                 })
             }
             _ => Err(pyo3::exceptions::PyTypeError::new_err(
@@ -464,7 +464,7 @@ impl VideoFrame {
     #[pyo3(name = "transform_geometry")]
     #[pyo3(signature = (ops, no_gil=true))]
     fn transform_geometry_gil(&self, ops: Vec<VideoObjectBBoxTransformation>, no_gil: bool) {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let ops_ref = ops.iter().map(|op| op.0).collect();
             self.0.transform_geometry(&ops_ref);
         })
@@ -717,14 +717,14 @@ impl VideoFrame {
     #[getter]
     #[pyo3(name = "json")]
     pub fn json_gil(&self) -> String {
-        release_gil!(true, || serde_json::to_string(&self.to_serde_json_value())
+        detach!(true, || serde_json::to_string(&self.to_serde_json_value())
             .unwrap())
     }
 
     #[getter]
     #[pyo3(name = "json_pretty")]
     fn json_pretty_gil(&self) -> String {
-        release_gil!(true, || serde_json::to_string_pretty(
+        detach!(true, || serde_json::to_string_pretty(
             &self.to_serde_json_value()
         )
         .unwrap())
@@ -943,7 +943,7 @@ impl VideoFrame {
     #[pyo3(name = "set_draw_label")]
     #[pyo3(signature = (q, draw_label, no_gil = false))]
     pub fn set_draw_label_gil(&self, q: &MatchQuery, draw_label: SetDrawLabelKind, no_gil: bool) {
-        release_gil!(no_gil, || self.0.set_draw_label(&q.0, draw_label.0))
+        detach!(no_gil, || self.0.set_draw_label(&q.0, draw_label.0))
     }
 
     pub fn add_object(
@@ -1017,7 +1017,7 @@ impl VideoFrame {
     #[pyo3(name = "access_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn access_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || VideoObjectsView::from(
+        detach!(no_gil, || VideoObjectsView::from(
             self.0.access_objects(&q.0)
         ))
     }
@@ -1029,7 +1029,7 @@ impl VideoFrame {
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn delete_objects_gil(&self, q: &MatchQuery, no_gil: bool) -> Vec<VideoObject> {
-        release_gil!(no_gil, || self
+        detach!(no_gil, || self
             .0
             .delete_objects(&q.0)
             .into_iter()
@@ -1075,7 +1075,7 @@ impl VideoFrame {
         q: &MatchQuery,
         delete_exported: bool,
     ) -> PyResult<Vec<VideoObjectTree>> {
-        release_gil!(true, || {
+        detach!(true, || {
             Ok(err_to_pyo3!(
                 self.0.export_complete_object_trees(&q.0, delete_exported),
                 PyRuntimeError
@@ -1104,7 +1104,7 @@ impl VideoFrame {
     ///
     pub fn import_object_trees(&self, trees: Vec<VideoObjectTree>) -> PyResult<()> {
         let trees = trees.into_iter().map(|t| t.0).collect::<Vec<_>>();
-        release_gil!(true, || {
+        detach!(true, || {
             Ok(err_to_pyo3!(
                 self.0.import_object_trees(trees),
                 PyRuntimeError
@@ -1133,7 +1133,7 @@ impl VideoFrame {
                     ))
                 })
         };
-        release_gil!(no_gil, fun)
+        detach!(no_gil, fun)
     }
 
     pub fn set_parent_by_id(&self, object_id: i64, parent_id: i64) -> PyResult<()> {
@@ -1145,7 +1145,7 @@ impl VideoFrame {
     #[pyo3(name = "clear_parent")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn clear_parent_gil(&self, q: &MatchQuery, no_gil: bool) -> VideoObjectsView {
-        release_gil!(no_gil, || VideoObjectsView::from(self.0.clear_parent(&q.0)))
+        detach!(no_gil, || VideoObjectsView::from(self.0.clear_parent(&q.0)))
     }
 
     pub fn clear_objects(&self) {
@@ -1159,7 +1159,7 @@ impl VideoFrame {
     #[pyo3(name = "copy")]
     #[pyo3(signature = (no_gil = true))]
     pub fn copy_gil(&self, no_gil: bool) -> VideoFrame {
-        release_gil!(no_gil, || VideoFrame(self.0.smart_copy()))
+        detach!(no_gil, || VideoFrame(self.0.smart_copy()))
     }
 
     /// Updates the frame with the given update. The function is GIL-free.
@@ -1186,24 +1186,24 @@ impl VideoFrame {
     #[pyo3(name = "update")]
     #[pyo3(signature = (update, no_gil = true))]
     pub fn update_gil(&self, update: &VideoFrameUpdate, no_gil: bool) -> PyResult<()> {
-        release_gil!(no_gil, || self.0.update(&update.0))
+        detach!(no_gil, || self.0.update(&update.0))
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes = release_gil!(no_gil, || {
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<Py<PyAny>> {
+        let bytes = detach!(no_gil, || {
             self.0.to_pb().map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to serialize video frame to protobuf: {e}"))
             })
         })?;
-        with_gil!(|py| {
+        attach!(|py| {
             let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
                 b.copy_from_slice(&bytes);
                 Ok(())
             })?;
-            Ok(PyObject::from(bytes))
+            Ok(Py::from(bytes))
         })
     }
 
@@ -1212,7 +1212,7 @@ impl VideoFrame {
     #[pyo3(signature = (bytes, no_gil = true))]
     fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let obj = from_pb::<savant_core::protobuf::VideoFrame, rust::VideoFrameProxy>(bytes)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!(

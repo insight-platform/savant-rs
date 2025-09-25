@@ -1,14 +1,16 @@
-use crate::with_gil;
+use crate::attach;
 use parking_lot::RwLock;
-use pyo3::{Py, PyAny, PyObject};
+use pyo3::{Py, PyAny};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+type PyObjectsMap = Arc<RwLock<HashMap<(String, String), Py<PyAny>>>>;
+
 pub trait PyObjectMeta: Send {
-    fn get_py_objects_ref(&self) -> Arc<RwLock<HashMap<(String, String), PyObject>>>;
+    fn get_py_objects_ref(&self) -> PyObjectsMap;
 
     fn get_py_object_by_ref(&self, namespace: &str, name: &str) -> Option<Py<PyAny>> {
-        with_gil!(|py| {
+        attach!(|py| {
             self.get_py_objects_ref()
                 .read()
                 .get(&(namespace.to_owned(), name.to_owned()))
@@ -16,13 +18,13 @@ pub trait PyObjectMeta: Send {
         })
     }
 
-    fn del_py_object(&self, namespace: &str, name: &str) -> Option<PyObject> {
+    fn del_py_object(&self, namespace: &str, name: &str) -> Option<Py<PyAny>> {
         self.get_py_objects_ref()
             .write()
             .remove(&(namespace.to_owned(), name.to_owned()))
     }
 
-    fn set_py_object(&self, namespace: &str, name: &str, pyobject: PyObject) -> Option<PyObject> {
+    fn set_py_object(&self, namespace: &str, name: &str, pyobject: Py<PyAny>) -> Option<Py<PyAny>> {
         self.get_py_objects_ref()
             .write()
             .insert((namespace.to_owned(), name.to_owned()), pyobject)

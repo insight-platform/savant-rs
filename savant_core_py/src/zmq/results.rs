@@ -1,7 +1,7 @@
+use crate::attach;
 use crate::primitives::message::Message;
-use crate::with_gil;
 use pyo3::types::PyBytes;
-use pyo3::{pyclass, pymethods, IntoPyObject, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, IntoPyObject, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -176,9 +176,9 @@ impl ReaderResultMessage {
     /// MemoryError
     ///   if the data cannot be allocated in Python.
     ///
-    fn data(&self, index: usize) -> PyResult<Option<PyObject>> {
+    fn data(&self, index: usize) -> PyResult<Option<Py<PyAny>>> {
         if index < self.data.len() {
-            with_gil!(|py| {
+            attach!(|py| {
                 let pybytes = PyBytes::new_with(py, self.data[index].len(), |b: &mut [u8]| {
                     b.copy_from_slice(&self.data[index]);
                     Ok(())
@@ -298,8 +298,8 @@ impl ReaderResultMessageVersionMismatch {
     }
 }
 
-pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<PyObject> {
-    with_gil!(|py| {
+pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<Py<PyAny>> {
+    attach!(|py| {
         Ok(match res {
             zeromq::WriterResult::Success {
                 retries_spent,
@@ -335,8 +335,8 @@ pub(crate) fn process_writer_result(res: zeromq::WriterResult) -> PyResult<PyObj
     })
 }
 
-pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<PyObject> {
-    with_gil!(|py| {
+pub(crate) fn process_reader_result(res: zeromq::ReaderResult) -> PyResult<Py<PyAny>> {
+    attach!(|py| {
         Ok(match res {
             zeromq::ReaderResult::Blacklisted(topic) => ReaderResultBlacklisted { topic }
                 .into_pyobject(py)?

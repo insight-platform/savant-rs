@@ -1,5 +1,5 @@
 use crate::primitives::attribute::Attribute;
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 use pyo3::exceptions::{PySystemError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -48,7 +48,7 @@ pub fn set_attributes(attributes: Vec<Attribute>, ttl: Option<u64>) {
 #[pyfunction]
 #[pyo3(signature = (ns=None, name=None, no_gil=false))]
 pub fn search_attributes(ns: Option<String>, name: Option<String>, no_gil: bool) -> Vec<Attribute> {
-    release_gil!(no_gil, || {
+    detach!(no_gil, || {
         let attributes = sync_kvs::search_attributes(&ns, &name);
         unsafe { std::mem::transmute::<Vec<rust::Attribute>, Vec<Attribute>>(attributes) }
     })
@@ -76,7 +76,7 @@ pub fn search_keys(
     name: Option<String>,
     no_gil: bool,
 ) -> Vec<(String, String)> {
-    release_gil!(no_gil, || { sync_kvs::search_keys(&ns, &name) })
+    detach!(no_gil, || { sync_kvs::search_keys(&ns, &name) })
 }
 
 /// Delete attributes from the key-value store.
@@ -92,7 +92,7 @@ pub fn search_keys(
 #[pyfunction]
 #[pyo3(signature = (ns=None, name=None, no_gil=false))]
 pub fn del_attributes(ns: Option<String>, name: Option<String>, no_gil: bool) {
-    release_gil!(no_gil, || {
+    detach!(no_gil, || {
         sync_kvs::del_attributes(&ns, &name);
     });
 }
@@ -155,7 +155,7 @@ pub fn del_attribute(ns: &str, name: &str) -> Option<Attribute> {
 ///  If serialization fails.
 ///
 #[pyfunction]
-pub fn serialize_attributes(attributes: Vec<Attribute>) -> PyResult<PyObject> {
+pub fn serialize_attributes(attributes: Vec<Attribute>) -> PyResult<Py<PyAny>> {
     let attributes =
         unsafe { std::mem::transmute::<Vec<Attribute>, Vec<rust::Attribute>>(attributes) };
     let attr_set = AttributeSet::from(attributes);
@@ -163,12 +163,12 @@ pub fn serialize_attributes(attributes: Vec<Attribute>) -> PyResult<PyObject> {
         .to_pb()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    with_gil!(|py| {
+    attach!(|py| {
         let bytes = PyBytes::new_with(py, res.len(), |b: &mut [u8]| {
             b.copy_from_slice(res.as_slice());
             Ok(())
         })?;
-        Ok(PyObject::from(bytes))
+        Ok(Py::from(bytes))
     })
 }
 
@@ -201,8 +201,8 @@ pub fn deserialize_attributes(serialized: &Bound<'_, PyBytes>) -> PyResult<Vec<A
 pub struct KvsSubscription(RustKvsSubscription);
 
 impl KvsSubscription {
-    pub fn to_python(&self, op: KvsOperation) -> PyResult<PyObject> {
-        with_gil!(|py| {
+    pub fn to_python(&self, op: KvsOperation) -> PyResult<Py<PyAny>> {
+        attach!(|py| {
             Ok(match op.operation {
                 KvsOperationKind::Set(attrs, ttl) => KvsSetOperation {
                     timestamp: op
@@ -253,8 +253,8 @@ impl KvsSubscription {
     /// Exception
     ///  If the operation retrieval fails by some system reason.
     ///
-    pub fn recv(&mut self) -> PyResult<Option<PyObject>> {
-        let op = release_gil!(true, || self.0.blocking_recv());
+    pub fn recv(&mut self) -> PyResult<Option<Py<PyAny>>> {
+        let op = detach!(true, || self.0.blocking_recv());
         if let Some(op) = op {
             Ok(Some(self.to_python(op)?))
         } else {
@@ -275,7 +275,7 @@ impl KvsSubscription {
     /// SystemError
     ///  If the subscription is closed.
     ///
-    pub fn try_recv(&mut self) -> PyResult<Option<PyObject>> {
+    pub fn try_recv(&mut self) -> PyResult<Option<Py<PyAny>>> {
         let op = self.0.try_recv();
         match op {
             Ok(res) => Ok(Some(self.to_python(res)?)),

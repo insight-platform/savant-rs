@@ -17,7 +17,7 @@ use crate::primitives::frame_update::VideoFrameUpdate;
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::check_pybound_name;
 use crate::utils::otlp::TelemetrySpan;
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 
 #[pyclass]
 pub struct StageFunction(Mutex<Option<Box<dyn RustPipelineStageFunction>>>);
@@ -332,13 +332,13 @@ impl Pipeline {
     #[new]
     fn new(
         name: &str,
-        stages: Vec<(String, VideoPipelineStagePayloadType, PyObject, PyObject)>,
+        stages: Vec<(String, VideoPipelineStagePayloadType, Py<PyAny>, Py<PyAny>)>,
         configuration: PipelineConfiguration,
     ) -> PyResult<Self> {
         let stages = stages
             .into_iter()
             .map(|(n, t, ingress_func, egress_func)| {
-                with_gil!(|py| {
+                attach!(|py| {
                     let ingress = ingress_func.into_bound(py);
                     //let ingress_type = ingress.get_type().name()?.to_string();
                     check_pybound_name(&ingress, "StageFunction")?;
@@ -736,7 +736,7 @@ impl Pipeline {
     #[pyo3(name = "apply_updates")]
     #[pyo3(signature = (id, no_gil = true))]
     fn apply_updates_gil(&self, id: i64, no_gil: bool) -> PyResult<()> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .apply_updates(id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -789,7 +789,7 @@ impl Pipeline {
         object_ids: Vec<i64>,
         no_gil: bool,
     ) -> PyResult<()> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .move_as_is(dest_stage_name, object_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -826,7 +826,7 @@ impl Pipeline {
         frame_ids: Vec<i64>,
         no_gil: bool,
     ) -> PyResult<i64> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .move_and_pack_frames(dest_stage_name, frame_ids)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -863,7 +863,7 @@ impl Pipeline {
         batch_id: i64,
         no_gil: bool,
     ) -> PyResult<Vec<i64>> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .move_and_unpack_batch(dest_stage_name, batch_id)
                 .map_err(|e| PyValueError::new_err(e.to_string()))
@@ -878,7 +878,7 @@ impl Pipeline {
         query: &MatchQuery,
         no_gil: bool,
     ) -> PyResult<HashMap<i64, VideoObjectsView>> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .access_objects(frame_id, &query.0)
                 .map(|result| {

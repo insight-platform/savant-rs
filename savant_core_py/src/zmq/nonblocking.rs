@@ -1,11 +1,11 @@
+use crate::detach;
 use crate::primitives::message::Message;
-use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
 use parking_lot::{Mutex, MutexGuard};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
 
 /// A non-blocking reader. Does not release GIL when uses `receive` convenience method, which is blocking.
@@ -89,7 +89,7 @@ impl NonBlockingReader {
     ///   When the reader receives an error. Generally means that the reader is no longer
     ///   usable and should be shutdown.
     ///
-    pub fn receive(&self) -> PyResult<PyObject> {
+    pub fn receive(&self) -> PyResult<Py<PyAny>> {
         let res = self
             .0
             .receive()
@@ -97,7 +97,7 @@ impl NonBlockingReader {
         results::process_reader_result(res)
     }
 
-    pub fn try_receive(&self) -> PyResult<Option<PyObject>> {
+    pub fn try_receive(&self) -> PyResult<Option<Py<PyAny>>> {
         match self.0.try_receive() {
             None => Ok(None),
             Some(res) => match res {
@@ -142,13 +142,13 @@ pub struct WriteOperationResult(zeromq::WriteOperationResult);
 
 #[pymethods]
 impl WriteOperationResult {
-    pub fn get(&self) -> PyResult<PyObject> {
-        results::process_writer_result(release_gil!(true, || self.0.get()).map_err(|e| {
+    pub fn get(&self) -> PyResult<Py<PyAny>> {
+        results::process_writer_result(detach!(true, || self.0.get()).map_err(|e| {
             PyRuntimeError::new_err(format!("Failed to get write operation result: {e:?}"))
         })?)
     }
 
-    pub fn try_get(&self) -> PyResult<Option<PyObject>> {
+    pub fn try_get(&self) -> PyResult<Option<Py<PyAny>>> {
         match self.0.try_get() {
             Ok(Some(res)) => {
                 let res = res.map_err(|e| {
