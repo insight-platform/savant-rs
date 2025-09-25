@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use savant_core::primitives::RBBox;
+use criterion::{criterion_group, criterion_main, Criterion};
+use savant_core::{draw::PaddingDraw, primitives::RBBox};
+use std::hint::black_box;
 
 fn bbox_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("bbox_operations");
@@ -52,6 +53,35 @@ fn bbox_benchmarks(c: &mut Criterion) {
         })
     });
 
+    group.bench_function("visual_box_with_angle", |b| {
+        let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(10.0));
+        b.iter(|| {
+            black_box(
+                bb1.get_visual_box(
+                    black_box(&PaddingDraw::default_padding()),
+                    black_box(0),
+                    black_box(1920.0),
+                    black_box(1080.0),
+                )
+                .unwrap(),
+            );
+        })
+    });
+
+    group.bench_function("visual_box_without_angle", |b| {
+        let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, None);
+        b.iter(|| {
+            black_box(
+                bb1.get_visual_box(
+                    black_box(&PaddingDraw::default_padding()),
+                    black_box(0),
+                    black_box(1920.0),
+                    black_box(1080.0),
+                )
+                .unwrap(),
+            );
+        })
+    });
     group.finish();
 }
 

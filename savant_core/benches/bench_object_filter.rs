@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use savant_core::eval_resolvers::register_utility_resolver;
 use savant_core::match_query::MatchQuery::*;
 use savant_core::match_query::*;
@@ -8,6 +8,7 @@ use savant_core::primitives::object::{
 };
 use savant_core::primitives::{Attribute, RBBox, WithAttributes};
 use savant_core::test::gen_empty_frame;
+use std::hint::black_box;
 
 const COUNT: i64 = 100;
 
@@ -43,7 +44,7 @@ fn get_objects() -> Vec<VideoObject> {
 
 fn object_filter_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("object_filter");
-    
+
     group.bench_function("complex_filtering", |b| {
         let expr = and![
             or![
@@ -172,7 +173,7 @@ fn object_filter_benchmarks(c: &mut Criterion) {
             black_box(frame.get_all_objects());
         })
     });
-    
+
     group.finish();
 }
 

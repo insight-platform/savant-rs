@@ -1,7 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use savant_core::primitives::utils::solely_owned_areas;
 use savant_core::primitives::RBBox;
+use std::hint::black_box;
 
 fn bench_solely_owned_areas(bbox_count: usize, parallel: bool) {
     let pos_x_range = 0.0..1920.0;

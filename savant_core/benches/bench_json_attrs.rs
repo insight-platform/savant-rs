@@ -1,6 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use savant_core::primitives::rust::AttributeValue;
 use savant_core::primitives::Attribute;
+use std::hint::black_box;
 
 fn json_empty_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("json_empty");
