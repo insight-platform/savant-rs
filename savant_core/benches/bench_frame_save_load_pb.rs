@@ -1,7 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use savant_core::primitives::rust::VideoFrameProxy;
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use savant_core::test::gen_frame;
+use std::hint::black_box;
 
 fn frame_pb_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("frame_protobuf");

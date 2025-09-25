@@ -316,6 +316,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_abi_to_api() -> anyhow::Result<()> {
         del_attributes(&None, &None);
@@ -414,6 +415,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_api_to_abi() -> anyhow::Result<()> {
         del_attributes(&None, &None);

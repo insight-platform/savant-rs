@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 fn label_filter_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("label_filter");

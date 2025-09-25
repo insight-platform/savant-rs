@@ -611,9 +611,15 @@ impl RBBox {
         }
     }
 
-    pub fn get_visual_bbox(&self, padding: &PaddingDraw, border_width: i64) -> Result<RBBox> {
-        if border_width < 0 {
-            bail!("border_width must be greater than or equal to 0",)
+    pub fn get_visual_box(
+        &self,
+        padding: &PaddingDraw,
+        border_width: i64,
+        max_x: f32,
+        max_y: f32,
+    ) -> Result<RBBox> {
+        if border_width < 0 || max_x < 0.0 || max_y < 0.0 {
+            bail!("border_width, max_x and max_y must be greater than or equal to 0",)
         }
         let padding_with_border = PaddingDraw::new(
             padding.left + border_width,
@@ -622,7 +628,18 @@ impl RBBox {
             padding.bottom + border_width,
         )?;
 
-        Ok(self.new_padded(&padding_with_border))
+        let outer_box = self.new_padded(&padding_with_border).get_wrapping_bbox();
+        let (left, top, right, bottom) = outer_box.as_ltrb()?;
+
+        let left = 2.0f32.max(left).ceil();
+        let top = 2.0f32.max(top).ceil();
+        let right = (max_x - 2.0).min(right).floor();
+        let bottom = (max_y - 2.0).min(bottom).floor();
+
+        let width = 1.0f32.max(right - left);
+        let height = 1.0f32.max(bottom - top);
+
+        Ok(RBBox::ltwh(left, top, width, height))
     }
 
     pub fn json(&self) -> String {
