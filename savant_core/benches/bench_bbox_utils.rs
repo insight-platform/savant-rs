@@ -1,11 +1,8 @@
-#![feature(test)]
-
-extern crate test;
-
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use savant_core::primitives::utils::solely_owned_areas;
 use savant_core::primitives::RBBox;
-use test::Bencher;
+use std::hint::black_box;
 
 fn bench_solely_owned_areas(bbox_count: usize, parallel: bool) {
     let pos_x_range = 0.0..1920.0;
@@ -28,44 +25,21 @@ fn bench_solely_owned_areas(bbox_count: usize, parallel: bool) {
     solely_owned_areas(&bbox_refs, parallel);
 }
 
-#[bench]
-fn bench_seq_solely_owned_areas_010(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(10, false);
-    });
+fn bench_solely_owned_areas_criterion(c: &mut Criterion) {
+    let mut group = c.benchmark_group("solely_owned_areas");
+
+    for &bbox_count in &[10, 20, 50] {
+        group.bench_function(&format!("seq_{:03}", bbox_count), |b| {
+            b.iter(|| bench_solely_owned_areas(black_box(bbox_count), black_box(false)))
+        });
+
+        group.bench_function(&format!("par_{:03}", bbox_count), |b| {
+            b.iter(|| bench_solely_owned_areas(black_box(bbox_count), black_box(true)))
+        });
+    }
+
+    group.finish();
 }
 
-#[bench]
-fn bench_seq_solely_owned_areas_020(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(20, false);
-    });
-}
-
-#[bench]
-fn bench_seq_solely_owned_areas_050(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(50, false);
-    });
-}
-
-#[bench]
-fn bench_par_solely_owned_areas_010(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(10, true);
-    });
-}
-
-#[bench]
-fn bench_par_solely_owned_areas_020(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(20, true);
-    });
-}
-
-#[bench]
-fn bench_par_solely_owned_areas_050(b: &mut Bencher) {
-    b.iter(|| {
-        bench_solely_owned_areas(50, true);
-    });
-}
+criterion_group!(benches, bench_solely_owned_areas_criterion);
+criterion_main!(benches);

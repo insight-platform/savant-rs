@@ -7,12 +7,12 @@ members = [
     "savant_protobuf",
     "savant_gstreamer_elements",
     "savant_launcher",
-    "savant_gstreamer", 
-    "savant_info", 
+    "savant_gstreamer",
+    "savant_info",
     "services/replay/replaydb",
     "services/replay/replay",
-    "services/retina_rtsp", 
-    "services/router", 
+    "services/retina_rtsp",
+    "services/router",
     "services/common",
 ]
 
@@ -24,7 +24,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "1.8.1"
+version = "1.9.0"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -43,6 +43,7 @@ anyhow = "1.0"
 
 base64 = { version = "0.22" }
 bincode = { version = "2.0.0-rc.3" }
+bindgen = "0.72"
 bollard = "0.18"
 
 
@@ -50,6 +51,7 @@ cbindgen = "0.24"
 clap = { version = "4", features = ["derive"] }
 colored = "3"
 crc32fast = "1"
+criterion = "0.7"
 cros-codecs = "0.0.5"
 crossbeam = "0.8"
 ctrlc = "3"
@@ -68,7 +70,7 @@ geo = "=0.28"
 glib = "0.20"
 globset = "0.4"
 
-gstreamer = "0.23.5" 
+gstreamer = "0.23.5"
 gstreamer-base = "0.23.5"
 gstreamer-video = "0.23.5"
 gstreamer-audio = "0.23.5"
@@ -93,7 +95,12 @@ num-bigint = "0.4"
 num-traits = "0.2"
 
 opentelemetry = "=0.24"
-opentelemetry-otlp = { version = "=0.17", features = ["http-json", "http-proto", "tls", "reqwest-rustls"] }
+opentelemetry-otlp = { version = "=0.17", features = [
+    "http-json",
+    "http-proto",
+    "tls",
+    "reqwest-rustls",
+] }
 opentelemetry-jaeger-propagator = "0.3.0"
 opentelemetry_sdk = { version = "0.24.1", features = ["rt-tokio"] }
 opentelemetry-semantic-conventions = "0.16.0"
@@ -113,9 +120,15 @@ rayon = "1.10"
 regex = "1"
 replaydb = { path = "services/replay/replaydb" }
 replay = { path = "services/replay/replay" }
-reqwest = { version = "0.12.7", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+reqwest = { version = "0.12.7", default-features = false, features = [
+    "rustls-tls-native-roots",
+    "json",
+] }
 retina = "0.4.13"
-rocksdb = { version = "0.23", default-features = false, features = ["bindgen-runtime", "lz4"] }
+rocksdb = { version = "0.23", default-features = false, features = [
+    "bindgen-runtime",
+    "lz4",
+] }
 ring = "0.17"
 
 savant_core = { path = "savant_core" }
@@ -135,7 +148,11 @@ thiserror = "2"
 tokio = { version = "1.42", features = ["rt-multi-thread", "macros"] }
 tokio-timerfd = "0.2"
 tonic = { version = "0.12.2", features = ["tls-native-roots"] }
-twelf = { version = "0.15", features = ["json", "env", "shellexpand"], default-features = false }
+twelf = { version = "0.15", features = [
+    "json",
+    "env",
+    "shellexpand",
+], default-features = false }
 
 uuid = { version = "1", features = ["fast-rng", "v7"] }
 url = "2.5"
@@ -149,5 +166,3 @@ codegen-units = 1
 [profile.bench]
 opt-level = 3
 codegen-units = 1
-
-

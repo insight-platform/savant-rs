@@ -308,15 +308,27 @@ impl RBBox {
     ///   padding of the bbox
     /// border_width : int
     ///   border width of the bbox
+    /// max_x : float
+    ///   maximum x coordinate
+    /// max_y : float
+    ///   maximum y coordinate
     ///
     /// Returns
     /// -------
     /// :py:class:`RBBox`
     ///   wrapping bbox
     ///
-    pub fn get_visual_box(&self, padding: &PaddingDraw, border_width: i64) -> PyResult<RBBox> {
+    pub fn get_visual_box(
+        &self,
+        padding: &PaddingDraw,
+        border_width: i64,
+        max_x: f32,
+        max_y: f32,
+    ) -> PyResult<RBBox> {
         let rust_padding = &padding.0;
-        let rbbox_res = self.0.get_visual_bbox(rust_padding, border_width);
+        let rbbox_res = self
+            .0
+            .get_visual_box(rust_padding, border_width, max_x, max_y);
         rbbox_res
             .map(RBBox)
             .map_err(|e| {
@@ -760,42 +772,10 @@ impl BBox {
         max_x: f32,
         max_y: f32,
     ) -> PyResult<BBox> {
-        if !(border_width >= 0 && max_x >= 0.0 && max_y >= 0.0) {
-            return Err(PyValueError::new_err(
-                "border_width, max_x and max_y must be greater than or equal to 0",
-            ));
-        }
-
-        let padding_with_border = PaddingDraw::new(
-            padding.left() + border_width,
-            padding.top() + border_width,
-            padding.right() + border_width,
-            padding.bottom() + border_width,
-        )?;
-
-        let bbox = self.new_padded(&padding_with_border);
-
-        let left = 2.0f32.max(bbox.get_left()).ceil();
-        let top = 2.0f32.max(bbox.get_top()).ceil();
-        let right = (max_x - 2.0).min(bbox.get_right()).floor();
-        let bottom = (max_y - 2.0).min(bbox.get_bottom()).floor();
-
-        let mut width = 1.0f32.max(right - left);
-        if width as i64 % 2 != 0 {
-            width -= 1.0;
-        }
-
-        let mut height = 1.0f32.max(bottom - top);
-        if height as i64 % 2 != 0 {
-            height -= 1.0;
-        }
-
-        Ok(BBox::new(
-            left + width / 2.0,
-            top + height / 2.0,
-            width,
-            height,
-        ))
+        let bbox_res = self.0.get_visual_box(padding, border_width, max_x, max_y);
+        bbox_res
+            .map(BBox)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     /// Returns (left, top, right, bottom) coordinates.
