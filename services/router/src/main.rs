@@ -30,7 +30,7 @@ fn main() -> Result<()> {
     info!("│            (c) 2025 BwSoft Management, LLC            │");
     info!("└───────────────────────────────────────────────────────┘");
     // python version
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let version = py.version();
         info!("Python version: {}", version);
     });
@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         "null".to_string()
     };
 
-    let invocation: PyResult<bool> = Python::with_gil(|py| {
+    let invocation: PyResult<bool> = Python::attach(|py| {
         let json_module = PyModule::import(py, "json")?;
         let json_loads = json_module.getattr("loads")?;
         let py_data = json_loads.call1((&json_str,))?;
@@ -68,7 +68,7 @@ fn main() -> Result<()> {
         let sys_modules_bind = sys.getattr("modules")?;
         let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
         sys_modules.set_item("savant_rs", module)?;
-        let path_bind = sys.as_ref().getattr("path")?;
+        let path_bind = sys.getattr("path")?;
         let path = path_bind.downcast::<PyList>()?;
         path.insert(0, module_root)?;
         let m = Python::import(py, module_name)?;

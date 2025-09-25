@@ -82,7 +82,6 @@ fn bbox_benchmarks(c: &mut Criterion) {
             );
         })
     });
-
     group.finish();
 }
 

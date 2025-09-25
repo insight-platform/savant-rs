@@ -14,6 +14,9 @@ members = [
     "services/retina_rtsp",
     "services/router",
     "services/common",
+    "savant_deepstream/deepstream-sys",
+    "savant_deepstream/deepstream",
+    "savant_deepstream/deepstream_nvinfer",
 ]
 
 default-members = [
@@ -112,8 +115,8 @@ prometheus-client = "0.23"
 prost = "0.13"
 prost-types = "0.13"
 prost-build = "0.13"
-pyo3 = "0.23"
-pyo3-build-config = "0.23"
+pyo3 = "0.26"
+pyo3-build-config = "0.26"
 
 rand = "0.9"
 rayon = "1.10"

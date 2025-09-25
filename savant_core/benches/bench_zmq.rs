@@ -35,7 +35,6 @@ fn zmq_benchmarks(c: &mut Criterion) {
                 .expect("Failed to build writer config"),
         )
         .expect("Failed to create writer");
-
         let reader_thread = thread::spawn(move || loop {
             let res = reader.receive();
             if res.is_err() {

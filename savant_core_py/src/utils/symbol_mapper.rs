@@ -1,4 +1,4 @@
-use crate::release_gil;
+use crate::detach;
 use lazy_static::lazy_static;
 use parking_lot::const_mutex;
 use parking_lot::Mutex;
@@ -381,7 +381,7 @@ pub fn is_object_registered_py(model_name: &str, object_label: &str) -> bool {
 #[pyfunction]
 #[pyo3(name = "dump_registry")]
 pub fn dump_registry_gil() -> Vec<String> {
-    release_gil!(true, || {
+    detach!(true, || {
         let mapper = SYMBOL_MAPPER.lock();
         mapper.dump_registry()
     })

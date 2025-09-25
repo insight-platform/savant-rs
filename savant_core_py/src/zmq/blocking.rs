@@ -1,10 +1,10 @@
+use crate::detach;
 use crate::primitives::message::Message;
-use crate::release_gil;
 use crate::zmq::configs::{ReaderConfig, WriterConfig};
 use crate::zmq::results;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::transport::zeromq;
 
 /// Blocking Writer with GIL release on long-lasting `send_*` operations.
@@ -81,12 +81,12 @@ impl BlockingWriter {
     ///   When underlying ZeroMQ writer fails and no longer functional. Usually means that the
     ///   writer must be restarted.
     ///
-    pub fn send_eos(&mut self, topic: &str) -> PyResult<PyObject> {
+    pub fn send_eos(&mut self, topic: &str) -> PyResult<Py<PyAny>> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
         }
         let writer = self.0.as_ref().unwrap();
-        let res = release_gil!(true, || {
+        let res = detach!(true, || {
             writer
                 .send_eos(topic)
                 .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
@@ -124,13 +124,13 @@ impl BlockingWriter {
         topic: &str,
         message: &Message,
         extra: &Bound<'_, PyBytes>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
         }
         let writer = self.0.as_ref().unwrap();
         let bytes = extra.as_bytes();
-        let res = release_gil!(true, || {
+        let res = detach!(true, || {
             writer
                 .send_message(topic, &message.0, &[bytes])
                 .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
@@ -208,12 +208,12 @@ impl BlockingReader {
     ///   When the reader receives an error. Generally means that the reader is no longer
     ///   usable and should be shutdown.
     ///
-    pub fn receive(&self) -> PyResult<PyObject> {
+    pub fn receive(&self) -> PyResult<Py<PyAny>> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Reader is not started."));
         }
         let reader = self.0.as_ref().unwrap();
-        let res = release_gil!(true, || {
+        let res = detach!(true, || {
             reader
                 .receive()
                 .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))

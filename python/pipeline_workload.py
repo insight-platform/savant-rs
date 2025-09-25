@@ -1,4 +1,3 @@
-import savant_plugin_sample
 import savant_rs
 from savant_rs.logging import LogLevel, log, set_log_level
 from savant_rs.pipeline import (StageFunction, VideoPipeline,

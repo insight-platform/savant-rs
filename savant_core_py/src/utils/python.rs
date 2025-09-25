@@ -16,7 +16,7 @@ macro_rules! function {
 }
 
 #[macro_export]
-macro_rules! with_gil {
+macro_rules! attach {
     ($expression:expr) => {{
         let start = std::time::Instant::now();
         let thread_id = std::thread::current().id();
@@ -28,7 +28,7 @@ macro_rules! with_gil {
                 file!(),
                 line!()
         );
-        let res = pyo3::marker::Python::with_gil($expression);
+        let res = pyo3::marker::Python::attach($expression);
         log::trace!(
             target: "savant::trace::after::gil_acquire",
                 "[{:?}] Trace line ({}, {}, {})",
@@ -40,7 +40,7 @@ macro_rules! with_gil {
         let elapsed = start.elapsed();
         $crate::logging::log_message(
             $crate::logging::LogLevel::Trace,
-            "savant::gil_management::with_gil",
+            "savant::gil_management::attach",
             format!(
                 "Holding GIL ({}, {}, {})",
                 $crate::function!(),
@@ -89,7 +89,7 @@ macro_rules! with_trace {
 }
 
 #[macro_export]
-macro_rules! release_gil {
+macro_rules! detach {
     ($predicate:expr, $expression:expr) => {{
         if $predicate {
             let thread_id = std::thread::current().id();
@@ -101,7 +101,7 @@ macro_rules! release_gil {
                     file!(),
                     line!()
             );
-            let (res, elapsed_nogil, elapsed_gil_back) = pyo3::marker::Python::with_gil(|py| {
+            let (res, elapsed_nogil, elapsed_gil_back) = pyo3::marker::Python::attach(|py| {
                 log::trace!(
                     target: "savant::trace::after::gil_release",
                         "[{:?}] Trace line ({}, {}, {})",
@@ -110,7 +110,7 @@ macro_rules! release_gil {
                         file!(),
                         line!()
                 );
-                let (res, elapsed_nogil, start_gil_back) = py.allow_threads(|| {
+                let (res, elapsed_nogil, start_gil_back) = py.detach(|| {
                     let start_nogil = std::time::Instant::now();
                     #[allow(clippy::redundant_closure_call)]
                     let res = $expression();

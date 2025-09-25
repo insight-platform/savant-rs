@@ -11,7 +11,6 @@ use std::hint::black_box;
 
 fn message_save_load_benchmarks(c: &mut Criterion) {
     let mut group = c.benchmark_group("message_save_load");
-
     group.bench_function("video_frame", |b| {
         let message = Message::video_frame(&gen_frame());
         b.iter(|| {

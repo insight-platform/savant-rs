@@ -1,6 +1,6 @@
 use crate::primitives::object::VideoObject;
 use crate::primitives::Attribute;
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -243,7 +243,7 @@ impl VideoFrameUpdate {
 
     #[getter]
     pub fn json(&self) -> PyResult<String> {
-        release_gil!(true, || self
+        detach!(true, || self
             .0
             .to_json(false)
             .map_err(|e| PyValueError::new_err(e.to_string())))
@@ -251,7 +251,7 @@ impl VideoFrameUpdate {
 
     #[getter]
     pub fn json_pretty(&self) -> PyResult<String> {
-        release_gil!(true, || self
+        detach!(true, || self
             .0
             .to_json(true)
             .map_err(|e| PyValueError::new_err(e.to_string())))
@@ -259,20 +259,20 @@ impl VideoFrameUpdate {
 
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes = release_gil!(no_gil, || {
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<Py<PyAny>> {
+        let bytes = detach!(no_gil, || {
             self.0.to_pb().map_err(|e| {
                 PyRuntimeError::new_err(format!(
                     "Failed to serialize video frame update to protobuf: {e}"
                 ))
             })
         })?;
-        with_gil!(|py| {
+        attach!(|py| {
             let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
                 b.copy_from_slice(&bytes);
                 Ok(())
             })?;
-            Ok(PyObject::from(bytes))
+            Ok(Py::from(bytes))
         })
     }
 
@@ -281,7 +281,7 @@ impl VideoFrameUpdate {
     #[pyo3(signature = (bytes, no_gil = true))]
     fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let obj =
                 from_pb::<savant_core::protobuf::VideoFrameUpdate, rust::VideoFrameUpdate>(bytes)
                     .map_err(|e| {

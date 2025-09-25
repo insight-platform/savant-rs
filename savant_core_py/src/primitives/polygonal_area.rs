@@ -1,6 +1,6 @@
 use crate::primitives::point::Point;
 use crate::primitives::{Intersection, Segment};
-use crate::release_gil;
+use crate::detach;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use savant_core::primitives::rust;
@@ -59,7 +59,7 @@ impl PolygonalArea {
     fn points_positions_gil(polys: Vec<Self>, points: Vec<Point>, no_gil: bool) -> Vec<Vec<bool>> {
         let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
         let points = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(points) };
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             rust::PolygonalArea::points_positions(&mut polys, &points)
         })
     }
@@ -74,7 +74,7 @@ impl PolygonalArea {
     ) -> Vec<Vec<Intersection>> {
         let mut polys = unsafe { mem::transmute::<Vec<Self>, Vec<rust::PolygonalArea>>(polys) };
         let segments = unsafe { mem::transmute::<Vec<Segment>, Vec<rust::Segment>>(segments) };
-        let intersections = release_gil!(no_gil, || {
+        let intersections = detach!(no_gil, || {
             rust::PolygonalArea::segments_intersections(&mut polys, &segments)
         });
         unsafe {

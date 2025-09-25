@@ -159,7 +159,7 @@ impl EgressMapper {
             .get_or_update(source_id, switch_allowed, || {
                 let source_mapper = self.source_mappers.get(sink_name);
                 if let Some(source_mapper) = source_mapper {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         let handlers_bind = REGISTERED_HANDLERS.read();
                         let handler = handlers_bind
                             .get(source_mapper.as_str())
@@ -187,7 +187,7 @@ impl EgressMapper {
         self.topic_cache.get_or_update(topic, switch_allowed, || {
             let topic_mapper = self.topic_mappers.get(sink_name);
             if let Some(topic_mapper) = topic_mapper {
-                Python::with_gil(|py| {
+                Python::attach(|py| {
                     let handlers_bind = REGISTERED_HANDLERS.read();
                     let handler = handlers_bind
                         .get(topic_mapper.as_str())

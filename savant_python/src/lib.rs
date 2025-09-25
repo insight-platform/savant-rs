@@ -375,7 +375,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
 
     let sys = PyModule::import(py, "sys")?;
-    let sys_modules_bind = sys.as_ref().getattr("modules")?;
+    let sys_modules_bind = sys.getattr("modules")?;
     let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;

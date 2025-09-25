@@ -4,10 +4,10 @@ use crate::primitives::attribute_value::AttributeValue;
 use crate::primitives::bbox::VideoObjectBBoxTransformation;
 use crate::primitives::{Attribute, RBBox};
 use crate::utils::bigint::fit_i64;
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::object::{ObjectAccess, ObjectOperations};
 use savant_core::primitives::{rust, WithAttributes};
@@ -70,19 +70,16 @@ impl VideoObject {
 
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes =
-            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "Failed to serialize video object to protobuf: {e}"
-                ))
-            })?;
-        with_gil!(|py| {
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<Py<PyAny>> {
+        let bytes = detach!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to serialize video object to protobuf: {e}"))
+        })?;
+        attach!(|py| {
             let bytes = PyBytes::new_with(py, bytes.len(), |b: &mut [u8]| {
                 b.copy_from_slice(&bytes);
                 Ok(())
             })?;
-            Ok(PyObject::from(bytes))
+            Ok(Py::from(bytes))
         })
     }
 
@@ -91,7 +88,7 @@ impl VideoObject {
     #[pyo3(signature = (bytes, no_gil = true))]
     fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let obj = from_pb::<savant_core::protobuf::VideoObject, rust::VideoObject>(bytes)
                 .map_err(|e| {
                     PyRuntimeError::new_err(format!(
@@ -551,16 +548,13 @@ impl BorrowedVideoObject {
 
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes =
-            release_gil!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
-                PyRuntimeError::new_err(format!(
-                    "Failed to serialize video object to protobuf: {e}"
-                ))
-            })?;
-        with_gil!(|py| {
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<Py<PyAny>> {
+        let bytes = detach!(no_gil, || { self.0.with_object_ref(|o| o.to_pb()) }).map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to serialize video object to protobuf: {e}"))
+        })?;
+        attach!(|py| {
             let bytes = PyBytes::new(py, &bytes);
-            Ok(PyObject::from(bytes))
+            Ok(Py::from(bytes))
         })
     }
 

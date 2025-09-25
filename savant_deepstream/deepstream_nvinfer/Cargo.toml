@@ -1,0 +1,29 @@
+[package]
+name = "deepstream_nvinfer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Safe Rust API for NVIDIA DeepStream NvInfer engine"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+deepstream-sys = { path = "../deepstream-sys" }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+cudarc = { version = "0.17", features = ["cuda-12020"] }
+criterion = { workspace = true }
+env_logger = "0.10"
+
+[[bench]]
+name = "infer_context"
+path = "benchmarks/infer_context.rs"
+harness = false
