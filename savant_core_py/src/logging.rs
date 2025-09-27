@@ -1,4 +1,4 @@
-use crate::release_gil;
+use crate::detach;
 use colored::Colorize;
 use opentelemetry::trace::{TraceContextExt, TraceId};
 use opentelemetry::KeyValue;
@@ -149,7 +149,7 @@ pub fn log_message_gil(
             .collect::<Vec<_>>()
     });
 
-    release_gil!(no_gil, || {
+    detach!(no_gil, || {
         log_message(
             level,
             target.to_string().replace('.', "::").as_str(),

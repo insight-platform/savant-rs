@@ -1,6 +1,6 @@
+use crate::detach;
 use crate::match_query::MatchQuery;
 use crate::primitives::object::BorrowedVideoObject;
-use crate::release_gil;
 use pyo3::exceptions::PyIndexError;
 use pyo3::prelude::*;
 use savant_core::match_query::*;
@@ -141,7 +141,7 @@ impl QueryFunctions {
         q: &MatchQuery,
         no_gil: bool,
     ) -> VideoObjectsView {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let objs = v.0.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
             VideoObjectsView::from(filter(&objs, &q.0))
         })
@@ -175,7 +175,7 @@ impl QueryFunctions {
         q: &MatchQuery,
         no_gil: bool,
     ) -> (VideoObjectsView, VideoObjectsView) {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let objs = v.0.iter().map(|o| o.0.clone()).collect::<Vec<_>>();
             let (a, b) = partition(&objs, &q.0);
             (a.into(), b.into())

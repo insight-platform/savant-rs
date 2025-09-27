@@ -1,9 +1,9 @@
+use crate::attach;
 use crate::primitives::segment::Intersection;
 use crate::primitives::{BBox, Point, PolygonalArea, RBBox};
-use crate::with_gil;
 use pyo3::exceptions::{PyIndexError, PySystemError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::primitives::any_object::AnyObject;
 use savant_core::primitives::attribute_value::AttributeValueVariant;
 use savant_core::primitives::rust;
@@ -121,7 +121,7 @@ impl AttributeValue {
 
     #[staticmethod]
     #[pyo3(signature = (pyobj, confidence = None))]
-    pub fn temporary_python_object(pyobj: PyObject, confidence: Option<f32>) -> Self {
+    pub fn temporary_python_object(pyobj: Py<PyAny>, confidence: Option<f32>) -> Self {
         Self(rust::AttributeValue {
             confidence,
             value: AttributeValueVariant::TemporaryValue(AnyObject::new(Box::new(pyobj))),
@@ -563,11 +563,11 @@ impl AttributeValue {
     /// Optional[Tuple[List[int], bytes]]
     ///   The value of attribute as ``(dims, bytes)`` tuple or None if not a bytes type.
     ///
-    pub fn as_bytes(&self) -> Option<(Vec<i64>, PyObject)> {
+    pub fn as_bytes(&self) -> Option<(Vec<i64>, Py<PyAny>)> {
         match &self.0.value {
             AttributeValueVariant::Bytes(dims, bytes) => Some((
                 dims.clone(),
-                with_gil!(|py| PyObject::from(PyBytes::new(py, bytes))),
+                attach!(|py| Py::from(PyBytes::new(py, bytes))),
             )),
             _ => None,
         }
@@ -615,11 +615,11 @@ impl AttributeValue {
         }
     }
 
-    pub fn as_temporary_python_object(&self) -> Option<PyObject> {
+    pub fn as_temporary_python_object(&self) -> Option<Py<PyAny>> {
         match &self.0.value {
             AttributeValueVariant::TemporaryValue(obj) => {
                 let obj = obj.take()?;
-                let obj = obj.downcast::<PyObject>().ok()?;
+                let obj = obj.downcast::<Py<PyAny>>().ok()?;
                 Some(*obj)
             }
             _ => None,

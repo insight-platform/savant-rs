@@ -1,6 +1,6 @@
 use crate::logging::{log_message, LogLevel};
-use crate::release_gil;
-use crate::with_gil;
+use crate::detach;
+use crate::attach;
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{Array, Context, KeyValue, StringValue, Value};
 use pyo3::exceptions::PyException;
@@ -179,7 +179,7 @@ impl TelemetrySpan {
         exc_value: Option<&Bound<'_, PyAny>>,
         traceback: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
-        with_gil!(|py| {
+        attach!(|py| {
             if let Some(e) = exc_type {
                 let mut attrs = HashMap::new();
 
@@ -203,7 +203,7 @@ impl TelemetrySpan {
                 }
 
                 attrs.insert("python.version".into(), py.version().to_string());
-                release_gil!(true, || {
+                detach!(true, || {
                     log_message(
                         LogLevel::Error,
                         "python::exception",

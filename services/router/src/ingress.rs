@@ -73,7 +73,7 @@ impl Ingress {
                     let handler_name_opt = &stream.handler;
                     let message = if let Some(handler) = handler_name_opt {
                         let message = PyMessage::new(*message);
-                        Python::with_gil(|py| {
+                        Python::attach(|py| {
                             let handlers_bind = REGISTERED_HANDLERS.read();
                             let handler = handlers_bind
                                 .get(handler.as_str())

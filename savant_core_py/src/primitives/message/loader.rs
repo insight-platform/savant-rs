@@ -1,5 +1,5 @@
 use crate::primitives::message::Message;
-use crate::release_gil;
+use crate::detach;
 use crate::utils::byte_buffer::ByteBuffer;
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyfunction, Bound};
@@ -22,7 +22,7 @@ use pyo3::{pyfunction, Bound};
 #[pyo3(name = "load_message")]
 #[pyo3(signature = (bytes, no_gil = true))]
 pub fn load_message_gil(bytes: Vec<u8>, no_gil: bool) -> Message {
-    release_gil!(no_gil, || {
+    detach!(no_gil, || {
         let m = savant_core::message::load_message(&bytes);
         Message(m)
     })
@@ -44,7 +44,7 @@ pub fn load_message_gil(bytes: Vec<u8>, no_gil: bool) -> Message {
 #[pyo3(name = "load_message_from_bytebuffer")]
 #[pyo3(signature = (buffer, no_gil = true))]
 pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer, no_gil: bool) -> Message {
-    release_gil!(no_gil, || Message(savant_core::message::load_message(
+    detach!(no_gil, || Message(savant_core::message::load_message(
         buffer.bytes()
     )))
 }
@@ -68,7 +68,7 @@ pub fn load_message_from_bytebuffer_gil(buffer: &ByteBuffer, no_gil: bool) -> Me
 #[pyo3(signature = (buffer, no_gil = true))]
 pub fn load_message_from_bytes_gil(buffer: &Bound<'_, PyBytes>, no_gil: bool) -> Message {
     let bytes = buffer.as_bytes();
-    release_gil!(no_gil, || Message(savant_core::message::load_message(
+    detach!(no_gil, || Message(savant_core::message::load_message(
         bytes
     )))
 }

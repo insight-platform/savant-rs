@@ -2,10 +2,10 @@ use crate::match_query::MatchQuery;
 use crate::primitives::frame::VideoFrame;
 use crate::primitives::object::BorrowedVideoObject;
 use crate::primitives::objects_view::VideoObjectsView;
-use crate::{release_gil, with_gil};
+use crate::{attach, detach};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::types::{PyBytes, PyBytesMethods};
-use pyo3::{pyclass, pymethods, Bound, PyObject, PyResult};
+use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::primitives::rust;
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use std::collections::HashMap;
@@ -45,7 +45,7 @@ impl VideoFrameBatch {
         q: &MatchQuery,
         no_gil: bool,
     ) -> HashMap<i64, VideoObjectsView> {
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             self.0
                 .access_objects(&q.0)
                 .into_iter()
@@ -65,22 +65,22 @@ impl VideoFrameBatch {
     #[pyo3(name = "delete_objects")]
     #[pyo3(signature = (q, no_gil = true))]
     pub fn delete_objects_gil(&mut self, q: &MatchQuery, no_gil: bool) {
-        release_gil!(no_gil, || self.0.delete_objects(&q.0))
+        detach!(no_gil, || self.0.delete_objects(&q.0))
     }
 
     #[pyo3(name = "to_protobuf")]
     #[pyo3(signature = (no_gil = true))]
-    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<PyObject> {
-        let bytes = release_gil!(no_gil, || {
+    fn to_protobuf_gil(&self, no_gil: bool) -> PyResult<Py<PyAny>> {
+        let bytes = detach!(no_gil, || {
             self.0.to_pb().map_err(|e| {
                 PyRuntimeError::new_err(format!(
                     "Failed to serialize video frame batch to protobuf: {e}"
                 ))
             })
         })?;
-        with_gil!(|py| {
+        attach!(|py| {
             let bytes = PyBytes::new(py, &bytes);
-            Ok(PyObject::from(bytes))
+            Ok(Py::from(bytes))
         })
     }
 
@@ -89,7 +89,7 @@ impl VideoFrameBatch {
     #[pyo3(signature = (bytes, no_gil = true))]
     fn from_protobuf_gil(bytes: &Bound<'_, PyBytes>, no_gil: bool) -> PyResult<Self> {
         let bytes = bytes.as_bytes();
-        release_gil!(no_gil, || {
+        detach!(no_gil, || {
             let obj =
                 from_pb::<savant_core::protobuf::VideoFrameBatch, rust::VideoFrameBatch>(bytes)
                     .map_err(|e| {

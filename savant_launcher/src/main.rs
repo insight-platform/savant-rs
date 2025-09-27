@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
         savant_rs::init_all(py, &module)?;
         // add the current directory to the Python module load path
         let sys = PyModule::import(py, "sys")?;
-        let path_bind = sys.as_ref().getattr("path")?;
+        let path_bind = sys.getattr("path")?;
         let path = path_bind.downcast::<PyList>()?;
         path.insert(0, module_root.as_str())?;
         let m = Python::import(py, module_name)?;
