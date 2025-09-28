@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "savant_etcd",
     "savant_core",
     "savant_core_py",
     "savant_python",
@@ -27,7 +28,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "1.9.1"
+version = "1.10.0"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -43,6 +44,7 @@ rust-version = "1.83"
 actix-ws = "0.3.0"
 actix-web = "4"
 anyhow = "1.0"
+async-trait = "0.1"
 
 base64 = { version = "0.22" }
 bincode = { version = "2.0.0-rc.3" }
@@ -62,7 +64,6 @@ ctrlc = "3"
 derive_builder = "0.20"
 
 env_logger = "0.11"
-etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.13" }
 etcd-client = { version = "0.14", features = ["tls"] }
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 
@@ -71,6 +72,7 @@ futures-util = "0.3"
 
 geo = "=0.28"
 glib = "0.20"
+glob = "0.3"
 globset = "0.4"
 
 gstreamer = "0.23.5"
@@ -134,6 +136,7 @@ rocksdb = { version = "0.23", default-features = false, features = [
 ] }
 ring = "0.17"
 
+savant_etcd = { path = "savant_etcd" }
 savant_core = { path = "savant_core" }
 savant_core_py = { path = "savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }

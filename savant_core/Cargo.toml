@@ -21,7 +21,7 @@ anyhow = { workspace = true }
 crc32fast = { workspace = true }
 crossbeam = { workspace = true }
 derive_builder = { workspace = true }
-etcd_dynamic_state = { workspace = true }
+savant_etcd = { workspace = true }
 etcd-client = { workspace = true }
 evalexpr = { workspace = true }
 futures-util = { workspace = true }

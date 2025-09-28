@@ -49,11 +49,11 @@ pub(crate) mod resolvers {
     use crate::{get_or_init_async_runtime, trace};
     use anyhow::{bail, Result};
     use etcd_client::{Certificate, Identity, TlsOptions};
-    use etcd_dynamic_state::etcd_api::{EtcdClient, VarPathSpec};
-    use etcd_dynamic_state::parameter_storage::EtcdParameterStorage;
     use evalexpr::{EvalexprError, EvalexprResult, Value};
     use hashbrown::HashMap;
     use parking_lot::{Mutex, RwLock};
+    use savant_etcd::etcd_api::{EtcdClient, VarPathSpec};
+    use savant_etcd::parameter_storage::EtcdParameterStorage;
     use std::any::Any;
     use std::env;
     use std::path::{Path, PathBuf};
@@ -466,10 +466,10 @@ mod tests {
     use bollard::image::CreateImageOptions;
     use bollard::models::{HostConfig, PortBinding};
     use bollard::Docker;
-    use etcd_dynamic_state::etcd_api::{EtcdClient, Operation};
     use evalexpr::Value;
     use futures_util::TryStreamExt;
     use hashbrown::HashMap;
+    use savant_etcd::etcd_api::{EtcdClient, Operation};
     use std::env;
     use std::time::Duration;
 
