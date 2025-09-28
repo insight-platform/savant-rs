@@ -13,9 +13,9 @@ if not eval_expr('env("RUN_ETCD_TESTS", 0)') == 0:
     exit(0)
 
 # read ca from file to string
-ca = Path("../../etcd_dynamic_state/assets/certs/ca.crt").read_text()
-cert = Path("../../etcd_dynamic_state/assets/certs/client.crt").read_text()
-key = Path("../../etcd_dynamic_state/assets/certs/client.key").read_text()
+ca = Path("../savant_etcd/assets/certs/ca.crt").read_text()
+cert = Path("../savant_etcd/assets/certs/client.crt").read_text()
+key = Path("../savant_etcd/assets/certs/client.key").read_text()
 
 conf = TlsConfig(
     ca,
