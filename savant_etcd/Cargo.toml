@@ -1,0 +1,30 @@
+[package]
+name = "savant_etcd"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+log = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true } # "0.1"
+crc32fast = { workspace = true }
+env_logger = { workspace = true }
+etcd-client = { workspace = true, features = ["tls", "tls-roots"] }
+futures = { workspace = true }
+glob = { workspace = true }
+hashbrown = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+bollard = { workspace = true }
