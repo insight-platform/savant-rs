@@ -27,7 +27,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "1.9.0"
+version = "1.9.1"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
@@ -62,8 +62,8 @@ ctrlc = "3"
 derive_builder = "0.20"
 
 env_logger = "0.11"
-etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.12" }
-etcd-client = { version = "0.13", features = ["tls"] }
+etcd_dynamic_state = { git = "https://github.com/insight-platform/etcd_dynamic_state", tag = "0.2.13" }
+etcd-client = { version = "0.14", features = ["tls"] }
 evalexpr = { version = "11", features = ["rand", "regex_support"] }
 
 futures = "0.3.14"
