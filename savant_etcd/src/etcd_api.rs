@@ -325,7 +325,7 @@ mod tests {
     use bollard::models::{HostConfig, PortBinding};
     use bollard::Docker;
     use etcd_client::{Certificate, Identity, TlsOptions};
-    use log::{debug, info};
+    use log::debug;
     use std::process::Command;
     use std::sync::Arc;
     use std::time::Duration;
