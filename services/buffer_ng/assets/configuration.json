@@ -1,0 +1,77 @@
+{
+    "ingress": {
+        "socket": {
+            "url": "router+bind:tcp://127.0.0.1:6666",
+            "options": {
+                "receive_timeout": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+                "receive_hwm": 1000,
+                "topic_prefix_spec": "none",
+                "source_cache_size": 1000,
+                "fix_ipc_permissions": 511,
+                "inflight_ops": 100
+            }
+        }
+    },
+    "egress": {
+        "socket": {
+            "url": "dealer+bind:tcp://127.0.0.1:6667",
+            "options": {
+                "send_timeout": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+                "send_retries": 3,
+                "receive_timeout": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+                "receive_retries": 3,
+                "send_hwm": 1000,
+                "receive_hwm": 1000,
+                "inflight_ops": 100
+            }
+        }
+    },
+    "common": {
+        "idle_sleep": {
+            "secs": 0,
+            "nanos": 1000
+        },
+        "message_handler_init": {
+            "python_root": "${PYTHON_MODULE_ROOT:-services/buffer_ng/assets/python}",
+            "module_name": "module",
+            "function_name": "init",
+            "args": [
+                {
+                    "params": {
+                        "home_dir": "${HOME}",
+                        "user_name": "${USER}"
+                    }
+                }
+            ]
+        },
+        "telemetry": {
+            "port": 8080,
+            "stats_log_time_interval": {
+                "secs": 60,
+                "nanos": 0
+            },
+            "stats_log_message_interval": 1000,
+            "metrics_time_interval": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "metrics_history": 100,
+            "metrics_extra_labels": {}
+        },
+        "buffer": {
+            "path": "/tmp/buffer",
+            "max_length": 1000000,
+            "full_threshold_percentage": 90,
+            "reset_on_start": true   
+        }
+    }
+}
