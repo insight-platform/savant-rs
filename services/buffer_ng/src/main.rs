@@ -3,7 +3,7 @@ mod message_handler;
 mod metric_collector;
 mod rocksdb;
 use ::rocksdb::Options;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, info};
 use parking_lot::Mutex;
 use pyo3::{
@@ -178,8 +178,12 @@ fn main() -> Result<()> {
     );
     set_status_running()?;
     info!("Buffer NG status is set to running");
-    set_extra_labels(conf.common.telemetry.metrics_extra_labels.clone());
-
+    if let Some(extra_labels) = conf.common.telemetry.metrics_extra_labels {
+        let extra_labels = serde_json::from_value(extra_labels.clone())
+            .with_context(|| format!("Failed to parse metrics extra labels: {:?}", extra_labels))?;
+        info!("Metrics extra labels: {:?}", extra_labels);
+        set_extra_labels(extra_labels);
+    }
     loop {
         let message = reader.receive()?;
         match message {

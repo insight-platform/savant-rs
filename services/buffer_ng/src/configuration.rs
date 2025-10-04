@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use hashbrown::HashMap;
 use savant_services_common::job_writer::SinkConfiguration;
 use savant_services_common::source::SourceConfiguration;
 use serde::{Deserialize, Serialize};
@@ -42,40 +41,29 @@ fn default_telemetry_port() -> u16 {
     8080
 }
 
-fn default_stats_log_time_interval() -> Duration {
-    Duration::from_secs(60)
-}
-
-fn default_stats_log_message_interval() -> usize {
+fn default_metrics_message_interval() -> usize {
     1000
 }
 
 fn default_metrics_time_interval() -> Duration {
-    Duration::from_secs(1)
+    Duration::from_secs(60)
 }
 
 fn default_metrics_history() -> usize {
     100
 }
 
-fn default_metrics_extra_labels() -> HashMap<String, String> {
-    HashMap::new()
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TelemetryConfiguration {
     #[serde(default = "default_telemetry_port")]
     pub port: u16,
-    #[serde(default = "default_stats_log_time_interval")]
-    pub stats_log_time_interval: Duration,
-    #[serde(default = "default_stats_log_message_interval")]
-    pub stats_log_message_interval: usize,
+    #[serde(default = "default_metrics_message_interval")]
+    pub metrics_message_interval: usize,
     #[serde(default = "default_metrics_time_interval")]
     pub metrics_time_interval: Duration,
     #[serde(default = "default_metrics_history")]
     pub metrics_history: usize,
-    #[serde(default = "default_metrics_extra_labels")]
-    pub metrics_extra_labels: HashMap<String, String>,
+    pub metrics_extra_labels: Option<serde_json::Value>,
 }
 
 fn default_max_length() -> usize {
