@@ -1,5 +1,6 @@
 mod configuration;
 mod message_handler;
+mod metric_collector;
 mod rocksdb;
 use ::rocksdb::Options;
 use anyhow::Result;
@@ -9,7 +10,12 @@ use pyo3::{
     types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModule},
     Py, PyAny, PyResult, Python,
 };
-use savant_core::transport::zeromq::{NonBlockingReader, NonBlockingWriter, ReaderResult};
+use savant_core::{
+    metrics::set_extra_labels,
+    transport::zeromq::{NonBlockingReader, NonBlockingWriter, ReaderResult},
+    webserver::init_webserver,
+};
+use savant_core_py::webserver::set_status_running;
 use savant_rs::LogLevel;
 use savant_services_common::topic_to_string;
 use std::{env::args, sync::Arc};
@@ -53,6 +59,7 @@ fn main() -> Result<()> {
     let conf = ServiceConfiguration::new(&conf_arg)?;
     debug!("Configuration: {:?}", conf);
 
+    // python handler init
     let py_handler_init_opt = conf.common.message_handler_init.as_ref();
     let (ingress_ph_opt, egress_ph_opt) = if let Some(py_handler_init) = py_handler_init_opt {
         let module_root = py_handler_init.python_root.as_str();
@@ -163,6 +170,15 @@ fn main() -> Result<()> {
             );
         }
     });
+
+    init_webserver(conf.common.telemetry.port)?;
+    info!(
+        "Webserver initialized, port: {}",
+        conf.common.telemetry.port
+    );
+    set_status_running()?;
+    info!("Buffer NG status is set to running");
+    set_extra_labels(conf.common.telemetry.metrics_extra_labels.clone());
 
     loop {
         let message = reader.receive()?;

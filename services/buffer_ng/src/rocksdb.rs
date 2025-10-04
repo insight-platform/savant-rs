@@ -104,6 +104,7 @@ impl PersistentQueueWithCapacity {
         self.space_stat
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.empty
     }

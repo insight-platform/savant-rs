@@ -1,6 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use crate::rocksdb::PersistentQueueWithCapacity;
+use crate::{
+    metric_collector::{EgressMetrics, IngressMetrics},
+    rocksdb::PersistentQueueWithCapacity,
+};
 use anyhow::{Context, Result};
 use bitcode::{Decode, Encode};
 use parking_lot::Mutex;
@@ -21,6 +27,7 @@ struct StoredMessage {
 pub struct MessageWriter {
     pub python_handler: Option<Py<PyAny>>,
     pub queue: Arc<Mutex<PersistentQueueWithCapacity>>,
+    pub metrics: IngressMetrics,
 }
 
 type MangledMessage = Option<(String, Message)>;
@@ -60,13 +67,26 @@ impl MessageWriter {
         Self {
             python_handler,
             queue,
+            metrics: IngressMetrics::new(),
         }
     }
 
     pub fn push(&mut self, topic: String, message: Message, data: Vec<Vec<u8>>) -> Result<()> {
+        self.metrics.received_messages.lock().inc(1, &[])?;
+        self.metrics.last_received_message.lock().set(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            &[],
+        )?;
         let (topic, message) = if let Some(handler) = &self.python_handler {
             let res = handle_with_python(handler, topic, message)?;
             if res.is_none() {
+                self.metrics
+                    .ingress_python_none_messages
+                    .lock()
+                    .inc(1, &[])?;
                 return Ok(());
             }
             res.unwrap()
@@ -90,7 +110,28 @@ impl MessageWriter {
                 "Failed to push message to queue: {:?}",
                 e
             );
+            self.metrics.dropped_messages.lock().inc(1, &[])?;
+            self.metrics.last_dropped_message.lock().set(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64(),
+                &[],
+            )?;
         }
+        self.metrics.pushed_messages.lock().inc(1, &[])?;
+        self.metrics.last_pushed_message.lock().set(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            &[],
+        )?;
+        self.metrics.buffer_size.lock().set(q.len() as f64, &[])?;
+        self.metrics
+            .payload_size
+            .lock()
+            .set(q.payload_size() as f64, &[])?;
         if q.is_high_utilization() {
             log::warn!(
                 target: "buffer_ng::message_handler::writer",
@@ -111,6 +152,7 @@ pub struct MessageHandler {
     pub idle_sleep: Duration,
     pub last_writer_result: Option<WriterResult>,
     pub python_handler: Option<Py<PyAny>>,
+    pub metrics: EgressMetrics,
 }
 
 impl MessageHandler {
@@ -126,6 +168,7 @@ impl MessageHandler {
             idle_sleep,
             last_writer_result: None,
             python_handler,
+            metrics: EgressMetrics::new(),
         }
     }
 
@@ -137,19 +180,32 @@ impl MessageHandler {
             .with_context(|| "Failed to pop message from queue")?;
         if read.is_empty() {
             std::thread::sleep(self.idle_sleep);
-            self.log_last_writer_result();
+            self.log_last_writer_result()?;
             return Ok(());
         }
+
+        self.metrics.popped_messages.lock().inc(1, &[])?;
+        self.metrics.last_popped_message.lock().set(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64(),
+            &[],
+        )?;
 
         let stored_message: StoredMessage =
             bitcode::decode(&read[0]).with_context(|| "Failed to decode stored message")?;
 
-        self.log_last_writer_result();
+        self.log_last_writer_result()?;
 
         let message = load_message(&stored_message.message_bytes);
         let (topic, message) = if let Some(handler) = &self.python_handler {
             let res = handle_with_python(handler, stored_message.topic, message)?;
             if res.is_none() {
+                self.metrics
+                    .egress_python_none_messages
+                    .lock()
+                    .inc(1, &[])?;
                 return Ok(());
             }
             res.unwrap()
@@ -173,14 +229,36 @@ impl MessageHandler {
         Ok(())
     }
 
-    fn log_last_writer_result(&mut self) {
+    fn log_last_writer_result(&mut self) -> Result<()> {
         if let Some(res) = &self.last_writer_result {
             match res {
                 WriterResult::SendTimeout => {
                     log::warn!("Send timeout occurred!");
+                    self.metrics
+                        .undelivered_messages
+                        .lock()
+                        .inc(1, &["send_timeout"])?;
+                    self.metrics.last_undelivered_message.lock().set(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                        &["send_timeout"],
+                    )?;
                 }
                 WriterResult::AckTimeout(timeout) => {
                     log::warn!("Ack timeout occurred! Timeout: {timeout}");
+                    self.metrics
+                        .undelivered_messages
+                        .lock()
+                        .inc(1, &["ack_timeout"])?;
+                    self.metrics.last_undelivered_message.lock().set(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                        &["ack_timeout"],
+                    )?;
                 }
                 WriterResult::Ack {
                     send_retries_spent,
@@ -188,6 +266,14 @@ impl MessageHandler {
                     time_spent,
                 } => {
                     log::debug!("Ack occurred! Send retries spent: {send_retries_spent}, Receive retries spent: {receive_retries_spent}, Time spent: {time_spent}");
+                    self.metrics.sent_messages.lock().inc(1, &["ack_success"])?;
+                    self.metrics.last_sent_message.lock().set(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                        &["ack_success"],
+                    )?;
                 }
                 WriterResult::Success {
                     retries_spent,
@@ -196,9 +282,21 @@ impl MessageHandler {
                     log::debug!(
                         "Success occurred! Retries spent: {retries_spent}, Time spent: {time_spent}"
                     );
+                    self.metrics
+                        .sent_messages
+                        .lock()
+                        .inc(1, &["send_success"])?;
+                    self.metrics.last_sent_message.lock().set(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs_f64(),
+                        &["send_success"],
+                    )?;
                 }
             }
         }
         self.last_writer_result = None;
+        Ok(())
     }
 }
