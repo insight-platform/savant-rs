@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use crate::rocksdb::PersistentQueueWithCapacity;
 use anyhow::{Context, Result};
@@ -23,6 +23,35 @@ pub struct MessageWriter {
     pub queue: Arc<Mutex<PersistentQueueWithCapacity>>,
 }
 
+type MangledMessage = Option<(String, Message)>;
+
+fn handle_with_python(
+    handler: &Py<PyAny>,
+    topic: String,
+    message: Message,
+) -> Result<MangledMessage> {
+    let message = PyMessage::new(message);
+    let topic = topic.to_string();
+    let res = Python::attach(|py| {
+        let res = handler.call1(py, (&topic, message))?;
+        if res.is_none(py) {
+            Ok::<MangledMessage, anyhow::Error>(None)
+        } else {
+            let (topic, message) = res.extract::<(String, PyMessage)>(py)?;
+            Ok::<MangledMessage, anyhow::Error>(Some((topic, message.extract())))
+        }
+    })?;
+    if let Some((topic, message)) = res {
+        if topic.is_empty() {
+            log::warn!("Topic is empty! The message will be discarded");
+            return Ok(None);
+        }
+        Ok(Some((topic, message)))
+    } else {
+        Ok(None)
+    }
+}
+
 impl MessageWriter {
     pub fn new(
         queue: Arc<Mutex<PersistentQueueWithCapacity>>,
@@ -34,20 +63,15 @@ impl MessageWriter {
         }
     }
 
-    pub fn push(&mut self, topic: &String, message: Message, data: Vec<Vec<u8>>) -> Result<()> {
+    pub fn push(&mut self, topic: String, message: Message, data: Vec<Vec<u8>>) -> Result<()> {
         let (topic, message) = if let Some(handler) = &self.python_handler {
-            let message = PyMessage::new(message);
-            let topic = topic.to_string();
-            Python::attach(|py| {
-                let res = handler.call1(py, (&topic, message))?;
-                let (topic, message) = res.extract::<(String, PyMessage)>(py)?;
-                Ok::<(Cow<String>, Cow<Message>), anyhow::Error>((
-                    Cow::Owned(topic),
-                    Cow::Owned(message.extract()),
-                ))
-            })?
+            let res = handle_with_python(handler, topic, message)?;
+            if res.is_none() {
+                return Ok(());
+            }
+            res.unwrap()
         } else {
-            (Cow::Borrowed(topic), Cow::Borrowed(&message))
+            (topic, message)
         };
 
         let message_bytes = save_message(&message)?;
@@ -86,6 +110,7 @@ pub struct MessageHandler {
     pub writer: NonBlockingWriter,
     pub idle_sleep: Duration,
     pub last_writer_result: Option<WriterResult>,
+    pub python_handler: Option<Py<PyAny>>,
 }
 
 impl MessageHandler {
@@ -93,12 +118,14 @@ impl MessageHandler {
         queue: Arc<Mutex<PersistentQueueWithCapacity>>,
         writer: NonBlockingWriter,
         idle_sleep: Duration,
+        python_handler: Option<Py<PyAny>>,
     ) -> Self {
         Self {
             queue,
             writer,
             idle_sleep,
             last_writer_result: None,
+            python_handler,
         }
     }
 
@@ -117,21 +144,28 @@ impl MessageHandler {
         let stored_message: StoredMessage =
             bitcode::decode(&read[0]).with_context(|| "Failed to decode stored message")?;
 
+        self.log_last_writer_result();
+
+        let message = load_message(&stored_message.message_bytes);
+        let (topic, message) = if let Some(handler) = &self.python_handler {
+            let res = handle_with_python(handler, stored_message.topic, message)?;
+            if res.is_none() {
+                return Ok(());
+            }
+            res.unwrap()
+        } else {
+            (stored_message.topic, message)
+        };
+
         let data_refs = stored_message
             .data
             .iter()
             .map(|d| d.as_slice())
             .collect::<Vec<_>>();
 
-        self.log_last_writer_result();
-
         let res = self
             .writer
-            .send_message(
-                &stored_message.topic,
-                &load_message(&stored_message.message_bytes),
-                &data_refs,
-            )
+            .send_message(&topic, &message, &data_refs)
             .with_context(|| "Failed to send message")?;
 
         self.last_writer_result = Some(res.get()?);

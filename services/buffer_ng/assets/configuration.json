@@ -51,7 +51,8 @@
                         "user_name": "${USER}"
                     }
                 }
-            ]
+            ],
+            "invocation_context": "AfterReceive"
         },
         "telemetry": {
             "port": 8080,

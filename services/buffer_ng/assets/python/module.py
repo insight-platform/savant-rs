@@ -1,7 +1,7 @@
 from typing import Any, Callable
 from savant_rs.logging import log, LogLevel
 from savant_rs.utils.serialization import Message
-from time import time
+from time import sleep, time
 
 
 class MessageHandler:
@@ -12,7 +12,6 @@ class MessageHandler:
     def __init__(self):
         self.count = 0
         self.now = time()
-        pass
 
     def __call__(
         self, topic: str, message: Message
@@ -31,6 +30,7 @@ class MessageHandler:
             print(f"message_handler {self.count}, elapsed {time() - self.now}s")
             self.now = time()
         return topic, message
+        # return None
 
 
 def init(params: Any) -> Callable:

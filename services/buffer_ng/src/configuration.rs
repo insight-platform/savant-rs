@@ -17,12 +17,25 @@ pub struct EgressConfiguration {
     pub socket: SinkConfiguration,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub enum InvocationContext {
+    #[default]
+    AfterReceive,
+    BeforeSend,
+}
+
+fn default_invocation_context() -> InvocationContext {
+    InvocationContext::AfterReceive
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct HandlerInitConfiguration {
     pub python_root: String,
     pub module_name: String,
     pub function_name: String,
     pub args: Option<serde_json::Value>,
+    #[serde(default = "default_invocation_context")]
+    pub invocation_context: InvocationContext,
 }
 
 fn default_telemetry_port() -> u16 {
