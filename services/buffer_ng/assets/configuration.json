@@ -6,7 +6,7 @@
     },
     "egress": {
         "socket": {
-            "url": "$ZMQ_SINK_ENDPOINT}"
+            "url": "${ZMQ_SINK_ENDPOINT}"
         }
     },
     "common": {
