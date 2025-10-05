@@ -1,3 +1,4 @@
+pub mod fps_meter;
 pub mod job_writer;
 pub mod source;
 use savant_core::utils::bytes_to_hex_string;

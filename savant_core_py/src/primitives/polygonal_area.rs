@@ -1,6 +1,6 @@
+use crate::detach;
 use crate::primitives::point::Point;
 use crate::primitives::{Intersection, Segment};
-use crate::detach;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use savant_core::primitives::rust;

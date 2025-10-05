@@ -14,10 +14,11 @@ members = [
     "services/replay/replay",
     "services/retina_rtsp",
     "services/router",
+    "services/buffer_ng",
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
-    "savant_deepstream/deepstream_nvinfer",
+    "savant_deepstream/deepstream_nvinfer", 
 ]
 
 default-members = [
@@ -47,13 +48,15 @@ anyhow = "1.0"
 async-trait = "0.1"
 
 base64 = { version = "0.22" }
-bincode = { version = "2.0.0-rc.3" }
+bincode = { version = "2" }
+bitcode = "0.6.6"
 bindgen = "0.72"
 bollard = "0.18"
 
 
 cbindgen = "0.24"
 clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
 colored = "3"
 crc32fast = "1"
 criterion = "0.7"
@@ -129,7 +132,7 @@ reqwest = { version = "0.12.7", default-features = false, features = [
     "rustls-tls-native-roots",
     "json",
 ] }
-retina = "0.4.13"
+retina = "=0.4.13"
 rocksdb = { version = "0.23", default-features = false, features = [
     "bindgen-runtime",
     "lz4",

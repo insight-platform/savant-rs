@@ -66,8 +66,6 @@ impl From<glib::Error> for DeepStreamError {
     }
 }
 
-
-
 impl DeepStreamError {
     /// Create a null pointer error
     pub fn null_pointer(context: &str) -> Self {
