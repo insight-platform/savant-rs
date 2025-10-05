@@ -41,28 +41,16 @@ fn default_telemetry_port() -> u16 {
     8080
 }
 
-fn default_metrics_message_interval() -> usize {
-    1000
-}
-
-fn default_metrics_time_interval() -> Duration {
+fn default_stats_log_interval() -> Duration {
     Duration::from_secs(60)
-}
-
-fn default_metrics_history() -> usize {
-    100
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TelemetryConfiguration {
     #[serde(default = "default_telemetry_port")]
     pub port: u16,
-    #[serde(default = "default_metrics_message_interval")]
-    pub metrics_message_interval: usize,
-    #[serde(default = "default_metrics_time_interval")]
-    pub metrics_time_interval: Duration,
-    #[serde(default = "default_metrics_history")]
-    pub metrics_history: usize,
+    #[serde(default = "default_stats_log_interval")]
+    pub stats_log_interval: Duration,
     pub metrics_extra_labels: Option<serde_json::Value>,
 }
 

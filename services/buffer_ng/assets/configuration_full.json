@@ -56,12 +56,10 @@
         },
         "telemetry": {
             "port": 8080,
-            "metrics_message_interval": 1000,
-            "metrics_time_interval": {
-                "secs": 1,
+            "stats_log_interval": {
+                "secs": 60,
                 "nanos": 0
             },
-            "metrics_history": 100,
             "metrics_extra_labels": null
         },
         "buffer": {

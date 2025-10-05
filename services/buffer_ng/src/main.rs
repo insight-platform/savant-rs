@@ -17,12 +17,13 @@ use savant_core::{
 };
 use savant_core_py::webserver::set_status_running;
 use savant_rs::LogLevel;
-use savant_services_common::topic_to_string;
+use savant_services_common::{fps_meter::FpsMeter, topic_to_string};
 use std::{env::args, sync::Arc};
 
 use crate::{
     configuration::{InvocationContext, ServiceConfiguration},
     message_handler::{MessageHandler, MessageWriter},
+    metric_collector::{CommonMetrics, StatsLogger},
     rocksdb::PersistentQueueWithCapacity,
 };
 
@@ -156,10 +157,35 @@ fn main() -> Result<()> {
     );
 
     let queue = Arc::new(Mutex::new(queue));
-    let mut message_writer = MessageWriter::new(queue.clone(), ingress_ph_opt);
-    let mut message_handler =
-        MessageHandler::new(queue, writer, conf.common.idle_sleep, egress_ph_opt);
 
+    let ingress_fps_meter = Arc::new(Mutex::new(FpsMeter::new()));
+    let egress_fps_meter = Arc::new(Mutex::new(FpsMeter::new()));
+
+    let common_metrics = CommonMetrics::new();
+
+    let mut message_writer = MessageWriter::new(
+        queue.clone(),
+        ingress_ph_opt,
+        ingress_fps_meter.clone(),
+        &common_metrics,
+    );
+
+    let mut message_handler = MessageHandler::new(
+        queue,
+        writer,
+        conf.common.idle_sleep,
+        egress_ph_opt,
+        egress_fps_meter.clone(),
+        &common_metrics,
+    );
+
+    let mut stats_logger = StatsLogger::new(
+        ingress_fps_meter,
+        egress_fps_meter,
+        message_writer.get_metrics(),
+        message_handler.get_metrics(),
+        conf.common.telemetry.stats_log_interval,
+    );
     std::thread::spawn(move || loop {
         let res = message_handler.process_stored_message();
         if let Err(e) = res {
@@ -169,6 +195,18 @@ fn main() -> Result<()> {
                 e
             );
         }
+    });
+
+    std::thread::spawn(move || loop {
+        let res = stats_logger.log_stats();
+        if let Err(e) = res {
+            log::warn!(
+                target: "buffer_ng::stats_logger",
+                "Failed to log stats: {:?}",
+                e
+            );
+        }
+        std::thread::sleep(conf.common.telemetry.stats_log_interval);
     });
 
     init_webserver(conf.common.telemetry.port)?;
@@ -192,7 +230,9 @@ fn main() -> Result<()> {
                 topic,
                 routing_id: _,
                 data,
-            } => message_writer.push(topic_to_string(&topic), *message, data)?,
+            } => {
+                message_writer.push(topic_to_string(&topic), *message, data)?;
+            }
             ReaderResult::Timeout => {
                 debug!(
                     target: "buffer_ng::ingress",
