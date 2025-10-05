@@ -5,14 +5,16 @@ pub struct FpsMeter {
     last_time: SystemTime,
 }
 
-impl FpsMeter {
-    pub fn new() -> Self {
+impl Default for FpsMeter {
+    fn default() -> Self {
         Self {
             counter: 0,
             last_time: SystemTime::now(),
         }
     }
+}
 
+impl FpsMeter {
     pub fn increment(&mut self) {
         self.counter += 1;
     }

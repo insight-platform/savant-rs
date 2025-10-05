@@ -158,8 +158,8 @@ fn main() -> Result<()> {
 
     let queue = Arc::new(Mutex::new(queue));
 
-    let ingress_fps_meter = Arc::new(Mutex::new(FpsMeter::new()));
-    let egress_fps_meter = Arc::new(Mutex::new(FpsMeter::new()));
+    let ingress_fps_meter = Arc::new(Mutex::new(FpsMeter::default()));
+    let egress_fps_meter = Arc::new(Mutex::new(FpsMeter::default()));
 
     let common_metrics = CommonMetrics::new();
 
