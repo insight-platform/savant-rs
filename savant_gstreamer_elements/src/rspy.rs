@@ -55,7 +55,7 @@ impl RsPy {
             bind.buffer = Some(buffer.clone());
         }
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let element_name = self.obj().name().to_string();
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
@@ -102,7 +102,7 @@ impl RsPy {
     }
 
     fn invoke_for_event(&self, reason: InvocationReason) -> bool {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let element_name = self.obj().name().to_string();
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
@@ -412,7 +412,7 @@ impl ElementImpl for RsPy {
         &self,
         transition: StateChange,
     ) -> Result<gstreamer::StateChangeSuccess, gstreamer::StateChangeError> {
-        let res = Python::with_gil(|py| {
+        let res = Python::attach(|py| {
             let element_name = self.obj().name().to_string();
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
@@ -438,7 +438,7 @@ impl ElementImpl for RsPy {
             return Err(gstreamer::StateChangeError);
         }
 
-        let bool_res = Python::with_gil(|py| {
+        let bool_res = Python::attach(|py| {
             res.unwrap().extract::<bool>(py).unwrap_or_else(|e| {
                 log::error!("Error extracting bool result: {:?}", e);
                 false

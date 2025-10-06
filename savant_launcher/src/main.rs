@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
 
     gstreamer::init()?;
 
-    let invocation: PyResult<(Py<PyAny>, PyResult<isize>)> = Python::with_gil(|py| {
+    let invocation: PyResult<(Py<PyAny>, PyResult<isize>)> = Python::attach(|py| {
         let module = PyModule::new(py, "savant_rs")?;
         savant_rs::init_all(py, &module)?;
         // add the current directory to the Python module load path

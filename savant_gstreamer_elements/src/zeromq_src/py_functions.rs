@@ -19,7 +19,7 @@ impl ZeromqSrc {
         message: &'a Message,
     ) -> anyhow::Result<Cow<'a, Message>> {
         if self.settings.lock().invoke_on_message {
-            let res = Python::with_gil(|py| {
+            let res = Python::attach(|py| {
                 let element_name = self.obj().name().to_string();
                 let handlers_bind = REGISTERED_HANDLERS.read();
                 let handler = handlers_bind.get(&element_name);
