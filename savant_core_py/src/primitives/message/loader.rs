@@ -1,5 +1,5 @@
-use crate::primitives::message::Message;
 use crate::detach;
+use crate::primitives::message::Message;
 use crate::utils::byte_buffer::ByteBuffer;
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyfunction, Bound};

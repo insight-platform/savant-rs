@@ -1,0 +1,128 @@
+name: Buffer NG Service
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [ "main" ]
+    # Publish semver tags as releases.
+    tags: [ 'v*.*.*', '*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  linux:
+    runs-on:
+      # - ${{ matrix.hosting }}
+      # - ${{ matrix.runner }}
+      group: ${{ matrix.group }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      matrix:
+        include:
+          - docker_file: docker/services/Dockerfile.buffer_ng
+            name: savant-buffer-ng-arm64
+            arch: linux/arm64
+            tag: ghcr.io/insight-platform/savant-buffer-ng-arm64
+            # runner: ARM64
+            # hosting: self-hosted
+            group: native-builders-arm
+          - docker_file: docker/services/Dockerfile.buffer_ng
+            name: savant-buffer-ng-x86
+            arch: linux/amd64
+            tag: ghcr.io/insight-platform/savant-buffer-ng-x86
+            # runner: X64
+            # hosting: self-hosted
+            group: native-builders-x86
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v4.4.1
+
+      # Install the cosign tool except on PR
+      # https://github.com/sigstore/cosign-installer
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@6e04d228eb30da1757ee4e1dd75a0ec73a653e06 #v3.1.1
+        with:
+          cosign-release: 'v2.1.1'
+
+      # Set up BuildKit Docker container builder to be able to build
+      # multi-platform images and export cache
+      # https://github.com/docker/setup-buildx-action
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3.0.0
+
+      - name: Build docker image for ${{ env.GITHUB_REF_SLUG }}
+        uses: docker/build-push-action@v5 # v5.0.0
+        with:
+          file: ${{ matrix.docker_file }}
+          platforms: ${{ matrix.arch }}
+          tags: "${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}"
+          load: true
+          context: .
+          #cache-from: type=gha
+          #cache-to: type=gha,mode=max
+
+      # Login against a Docker registry except on PR
+      # https://github.com/docker/login-action
+      - name: Log into registry ${{ env.REGISTRY }}
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3 # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure docker image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
+        id: set-tag
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "TAG=latest" >> $GITHUB_ENV
+          else
+            echo "TAG=${{ env.GITHUB_REF_SLUG }}" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push docker image for latest/tag ${{ env.GITHUB_REF_SLUG }}
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          file: ${{ matrix.docker_file }}
+          platforms: ${{ matrix.arch }}
+          tags: "${{matrix.tag}}:${{ env.TAG }}"
+          push: true
+          context: .
+          #cache-from: type=gha
+          #cache-to: type=gha,mode=max
+  
+      - name: Configure Docker rolling release image tag ${{matrix.tag}}:${{ env.GITHUB_REF_SLUG }}
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
+        run: |
+          docker pull ${{matrix.tag}}:${{ env.TAG }}
+          eval $(docker run --rm --entrypoint /opt/bin/savant_info ${{matrix.tag}}:${{ env.TAG }} version)
+          echo "SAVANT_RS_VERSION=${SAVANT_RS_VERSION}" >> $GITHUB_ENV
+  
+      # for main branch push with RR_TAG tag
+      - name: Build and push docker image for rolling release ${{ env.SAVANT_RS_VERSION }}
+        # only for main and tags
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/tags/*'
+        uses: docker/build-push-action@v6
+        with:
+          file: ${{ matrix.docker_file }}
+          platforms: ${{ matrix.arch }}
+          tags: "${{matrix.tag}}:${{ env.SAVANT_RS_VERSION }}-rolling"
+          push: true
+          context: .
+          #cache-from: type=gha
+          #cache-to: type=gha,mode=max

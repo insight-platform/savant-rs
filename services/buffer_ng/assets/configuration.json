@@ -1,0 +1,32 @@
+{
+    "ingress": {
+        "socket": {
+            "url": "${ZMQ_SRC_ENDPOINT}"
+        }
+    },
+    "egress": {
+        "socket": {
+            "url": "${ZMQ_SINK_ENDPOINT}"
+        }
+    },
+    "common": {
+        "idle_sleep": {
+            "secs": 0,
+            "nanos": 1000
+        },
+        "telemetry": {
+            "port": 8080,
+            "stats_log_interval": {
+                "secs": ${STATS_LOG_INTERVAL:-60},
+                "nanos": 0
+            },
+            "metrics_extra_labels": ${METRICS_EXTRA_LABELS:-null}
+        },
+        "buffer": {
+            "path": "${BUFFER_PATH:-/tmp/buffer}",
+            "max_length": ${BUFFER_LEN:-1000000},
+            "full_threshold_percentage": ${BUFFER_THRESHOLD_PERCENTAGE:-90},
+            "reset_on_start": ${BUFFER_RESET_ON_RESTART:-true}   
+        }
+    }
+}

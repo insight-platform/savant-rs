@@ -1,6 +1,6 @@
-use crate::logging::{log_message, LogLevel};
-use crate::detach;
 use crate::attach;
+use crate::detach;
+use crate::logging::{log_message, LogLevel};
 use opentelemetry::trace::{SpanBuilder, Status, TraceContextExt, Tracer};
 use opentelemetry::{Array, Context, KeyValue, StringValue, Value};
 use pyo3::exceptions::PyException;
