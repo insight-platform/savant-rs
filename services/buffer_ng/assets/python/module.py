@@ -19,11 +19,9 @@ class MessageHandler:
         """
         This handler is called for each message received from the ingress.
 
-        :param message_id: unique message id across the service, allows to track the message between ingress and egress
-        :param ingress_name: name of the ingress that received the message
         :param topic: ZMQ topic of the message if any
         :param message: message object, can be modified in place to add/remove labels, attributes, etc.
-        :return: message object to be sent to egress
+        :return: message object to be sent to the next step or None if message must be dropped
         """
         self.count += 1
         if self.count % 1000 == 0:
