@@ -3,6 +3,9 @@ requires = ["maturin>=1.8"]
 build-backend = "maturin"
 
 [project]
+dependencies = [
+    "pretty-traceback==2024.1021"
+]
 dynamic = ['version']
 name = "savant_rs"
 requires-python = ">=3.8"
