@@ -1,6 +1,6 @@
 zmq
 numpy
-maturin[patchelf] ~= 1.8
+maturin[patchelf] ~= 1.9
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon
