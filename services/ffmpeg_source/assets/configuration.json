@@ -1,0 +1,46 @@
+{
+    "egress": {
+        "socket": {
+            "url": "dealer+bind:tcp://127.0.0.1:6667",
+            "options": {
+                "send_timeout": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+                "send_retries": 3,
+                "receive_timeout": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+                "receive_retries": 3,
+                "send_hwm": 1000,
+                "receive_hwm": 1000,
+                "inflight_ops": 100
+            }
+        }
+    },
+    "event_handlers": {
+        "python_root": "${PYTHON_MODULE_ROOT:-services/ffmpeg_source/assets/python}",
+        "module_name": "module",
+        "function_name": "init",
+        "args": [
+            {
+                "params": {
+                }
+            }
+        ],
+        "callbacks": {
+            "frame_event": true,
+            "probe_event": true,
+            "stream_termination_event": true,
+            "create_streams_request": {
+                "secs": 1,
+                "nanos": 0
+            },
+            "stop_streams_request": {
+                "secs": 1,
+                "nanos": 0
+            }
+        }
+    }
+}

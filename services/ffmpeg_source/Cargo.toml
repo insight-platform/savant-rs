@@ -1,0 +1,31 @@
+[package]
+name = "ffmpeg_source"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+env_logger = { workspace = true }
+ffmpeg-next = { workspace = true }
+log = { workspace = true }
+ctrlc = { workspace = true }
+derive_builder = { workspace = true }
+hashbrown = { workspace = true }
+parking_lot = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+savant_core = { workspace = true }
+savant_core_py = { workspace = true }
+savant_rs = { workspace = true }
+savant_services_common = { path = "../common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+twelf = { workspace = true }

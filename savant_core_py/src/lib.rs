@@ -18,6 +18,8 @@ pub mod utils;
 pub mod webserver;
 pub mod zmq;
 
+pub mod services;
+
 use pyo3::prelude::*;
 
 use hashbrown::HashMap;

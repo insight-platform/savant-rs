@@ -334,6 +334,14 @@ fn savant_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     init_all(py, m)
 }
 
+#[pymodule(gil_used = false)]
+pub fn services_ffmpeg_source(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<services::ffmpeg_source::StreamProperties>()?;
+    m.add_class::<services::ffmpeg_source::StreamInfoVideoFile>()?;
+    m.add_class::<services::ffmpeg_source::StreamInfoRTSP>()?;
+    Ok(())
+}
+
 pub use savant_core_py::logging::LogLevel;
 
 pub fn init_logs(log_level: LogLevel) -> PyResult<()> {
@@ -373,6 +381,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::metrics))?;
     m.add_wrapped(wrap_pymodule!(self::kvs))?;
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
+    m.add_wrapped(wrap_pymodule!(self::services_ffmpeg_source))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.getattr("modules")?;
@@ -382,6 +391,11 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;
+
+    sys_modules.set_item(
+        "savant_rs.services.ffmpeg_source",
+        m.getattr("services_ffmpeg_source")?,
+    )?;
 
     sys_modules.set_item("savant_rs.primitives.geometry", m.getattr("geometry")?)?;
     sys_modules.set_item("savant_rs.draw_spec", m.getattr("draw_spec")?)?;

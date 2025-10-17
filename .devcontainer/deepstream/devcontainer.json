@@ -1,0 +1,34 @@
+{
+    "name": "Savant Rust Container",
+    "features": {},
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "REMOTE_USER": "${localEnv:USER}",
+            "REMOTE_UID": "${localEnv:REMOTE_UID:1000}",
+            "REMOTE_GID": "${localEnv:REMOTE_GID:1000}"
+        },
+        "target": "devcontainer",
+        "context": "."
+    },
+    "runArgs": [
+        "--gpus",
+        "all"
+    ],
+    "remoteUser": "${localEnv:USER}",
+    "customizations": {
+        "vscode": {
+            "settings": {},
+            "extensions": [
+                "ms-python.python",
+                "ms-azuretools.vscode-docker",
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml"
+            ]
+        }
+    },
+    "forwardPorts": [
+        3000
+    ],
+    "postCreateCommand": "echo 'Dev container ready!'"
+}
