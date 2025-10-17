@@ -63,6 +63,8 @@ jobs:
           push: false
           load: true
           context: .
+          build-args: |
+            PYTHON_INTERPRETER=3.8 3.9 3.10 3.11 3.12 3.13 3.13t 3.14 3.14t pypy3.10 pypy3.11
 
       - name: Copy wheels
         run: docker run --rm -v $(pwd)/distfiles:/tmp savant-rs cp -R /opt/dist /tmp
