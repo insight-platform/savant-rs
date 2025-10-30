@@ -76,6 +76,7 @@ impl NonBlockingReader {
         }
         if let Some(thread) = self.thread.take() {
             _ = self.is_shutdown.set(());
+            _ = self.receiver.take();
             thread
                 .join()
                 .map_err(|_| anyhow::anyhow!("Failed to join thread."))?;
@@ -142,6 +143,35 @@ impl NonBlockingReader {
 mod tests {
     use crate::transport::zeromq::reader::ReaderResult;
     use crate::transport::zeromq::{ReaderConfig, TopicPrefixSpec};
+
+    // issue: https://github.com/insight-platform/savant-rs/issues/238
+    //
+    #[test]
+    fn test_shutdown_issue_238() -> anyhow::Result<()> {
+        let conf = ReaderConfig::new()
+            .url("router+connect:tcp://127.0.0.1:15000")?
+            .with_receive_timeout(100)?
+            .build()?;
+        let mut reader = super::NonBlockingReader::new(&conf, 3)?;
+        reader.start()?;
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(reader.enqueued_results(), 3);
+        reader.shutdown()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_shutdown() -> anyhow::Result<()> {
+        let conf = ReaderConfig::new()
+            .url("router+bind:ipc:///tmp/test/timeout")?
+            .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
+            .with_receive_timeout(1)?
+            .build()?;
+        let mut reader = super::NonBlockingReader::new(&conf, 1)?;
+        reader.start()?;
+        reader.shutdown()?;
+        Ok(())
+    }
 
     #[test]
     fn test_blocking_idling() -> anyhow::Result<()> {

@@ -6,4 +6,4 @@ docker run -it --rm \
   -e ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379 \
   -e ETCD_ADVERTISE_CLIENT_URLS=http://0.0.0.0:2379 \
   --name remote-etcd \
-  bitnami/etcd:latest
+  bitnamilegacy/etcd:3.6.4-debian-12-r4

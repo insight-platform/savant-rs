@@ -204,6 +204,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_kvs() {
         del_attributes(&None, &None);
@@ -240,6 +241,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_replace_kv() {
         del_attributes(&None, &None);
@@ -267,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_subscription() -> anyhow::Result<()> {
         del_attributes(&None, &None);

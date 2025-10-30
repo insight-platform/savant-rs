@@ -631,7 +631,7 @@ mod tests {
                 )
                 .await;
 
-            const IMAGE: &str = "bitnami/etcd:latest";
+            const IMAGE: &str = "bitnamilegacy/etcd:3.6.4-debian-12-r4";
 
             docker
                 .create_image(
