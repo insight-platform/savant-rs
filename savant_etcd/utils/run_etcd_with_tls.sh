@@ -13,7 +13,7 @@ if [ -z $ROOT_PASSWD ]; then
     -e ETCD_ADVERTISE_CLIENT_URLS=https://0.0.0.0:2379 \
     -v $(pwd)/../assets/certs:/etc/etcd-ssl \
     --name remote-etcd \
-    bitnami/etcd:latest
+    bitnamilegacy/etcd:3.6.4-debian-12-r4
 else
   docker run -it --rm \
     -p 2379:2379 \
@@ -26,6 +26,6 @@ else
     -e ETCD_ADVERTISE_CLIENT_URLS=https://0.0.0.0:2379 \
     -v $(pwd)/../assets/certs:/etc/etcd-ssl \
     --name remote-etcd \
-    bitnami/etcd:latest
+    bitnamilegacy/etcd:3.6.4-debian-12-r4
 fi
 

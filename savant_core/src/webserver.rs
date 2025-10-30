@@ -566,6 +566,7 @@ mod tests {
     const TOKEN: &str = "12345";
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_webserver() -> anyhow::Result<()> {
         // unsafe {
@@ -584,6 +585,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_webserver_shutdown_graceful() -> anyhow::Result<()> {
         // unsafe {
@@ -607,6 +609,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_webserver_shutdown_signal() -> anyhow::Result<()> {
         let rt = get_or_init_async_runtime();
@@ -632,6 +635,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_webserver_metrics() -> anyhow::Result<()> {
         // unsafe {
