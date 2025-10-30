@@ -40,11 +40,8 @@ impl NonBlockingReader {
         self.reader = Some(owned_reader);
         let is_shutdown = self.is_shutdown.clone();
         let thread = std::thread::spawn(move || loop {
-            if is_shutdown.get().is_some() {
-                break;
-            }
             let res = reader.receive();
-            if sender.send(res).is_err() {
+            if sender.send(res).is_err() || is_shutdown.get().is_some() {
                 _ = is_shutdown.set(());
                 break;
             }
