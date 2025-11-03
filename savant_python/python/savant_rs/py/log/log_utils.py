@@ -161,13 +161,18 @@ def add_logging_level(
             ),
         )
 
-    logging._acquireLock()
+    if '_acquireLock' in dir(logging):
+        logging._acquireLock()
+
     try:
-        registered_num = logging.getLevelName(level_name)
+        # Check if level name is already registered using _nameToLevel (Python 3.2+)
+        # This is the correct way to check registration, and avoids getLevelName deprecation
+        # _nameToLevel is available since Python 3.2, and this project requires >= 3.8
+        registered_num = logging._nameToLevel.get(level_name)
         logger_class = logging.getLoggerClass()
         logger_adapter = logging.LoggerAdapter
 
-        if registered_num != 'Level ' + level_name:
+        if registered_num is not None:
             check_conflict(
                 registered_num != level_num,
                 'Level {!r} already registered in logging module'.format(level_name),
@@ -229,4 +234,5 @@ def add_logging_level(
         setattr(logger_class, method_name, for_logger_class)
         setattr(logger_adapter, method_name, for_logger_adapter)
     finally:
-        logging._releaseLock()
+        if '_releaseLock' in dir(logging):
+            logging._releaseLock()
