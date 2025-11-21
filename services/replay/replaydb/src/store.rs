@@ -34,6 +34,18 @@ pub enum JobOffset {
     Seconds(f64),
 }
 
+#[derive(Debug, Clone)]
+pub struct FrameData {
+    pub uuid: Uuid,
+    pub timestamp_ns: u128,
+    pub codec: Option<String>,
+    pub width: i64,
+    pub height: i64,
+    pub keyframe: bool,
+    pub message_index: usize,
+    pub data: Vec<u8>,
+}
+
 pub type SyncRocksDbStore = Arc<Mutex<rocksdb::RocksDbStore>>;
 
 pub(crate) trait Store {
@@ -67,6 +79,12 @@ pub(crate) trait Store {
         to: Option<u64>,
         limit: usize,
     ) -> Result<Vec<Uuid>>;
+
+    async fn get_keyframe_by_uuid(
+        &mut self,
+        source_id: &str,
+        uuid: Uuid,
+    ) -> Result<Option<FrameData>>;
 }
 
 #[cfg(test)]
@@ -171,6 +189,14 @@ mod tests {
                 .filter(|(u, _)| from_uuid <= *u && *u <= to_uuid)
                 .map(|(u, _)| *u)
                 .collect())
+        }
+
+        async fn get_keyframe_by_uuid(
+            &mut self,
+            _source_id: &str,
+            _uuid: Uuid,
+        ) -> Result<Option<FrameData>> {
+            Ok(None)
         }
     }
 

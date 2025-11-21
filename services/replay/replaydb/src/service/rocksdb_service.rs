@@ -17,7 +17,7 @@ use crate::job::SyncJobStopCondition;
 use crate::service::configuration::ServiceConfiguration;
 use crate::service::JobManager;
 use crate::store::rocksdb::RocksDbStore;
-use crate::store::{Store, SyncRocksDbStore};
+use crate::store::{FrameData, Store, SyncRocksDbStore};
 use crate::stream_processor::RocksDbStreamProcessor;
 
 #[allow(clippy::type_complexity)]
@@ -103,6 +103,15 @@ impl RocksDbService {
     ) -> Result<Vec<Uuid>> {
         let mut store = self.store.lock().await;
         store.find_keyframes(source_id, from, to, limit).await
+    }
+
+    pub async fn get_keyframe_by_uuid(
+        &mut self,
+        source_id: &str,
+        uuid: Uuid,
+    ) -> Result<Option<FrameData>> {
+        let mut store = self.store.lock().await;
+        store.get_keyframe_by_uuid(source_id, uuid).await
     }
 }
 
