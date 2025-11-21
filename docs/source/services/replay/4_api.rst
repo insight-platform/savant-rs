@@ -112,6 +112,61 @@ Finds keyframes in a video stream. Returns found keyframes from oldest to newest
       - ``{"error" => "Reason"}``
       - problem description
 
+Get Keyframe by UUID
+--------------------
+
+Retrieves a specific keyframe by UUID and returns the raw frame bytes with metadata in headers.
+
+.. code-block:: bash
+
+    curl "http://127.0.0.1:8080/api/v1/keyframe/{uuid}?source_id=in-video" \
+      -o frame.h264
+
+.. list-table::
+    :header-rows: 1
+
+    * - Parameter
+      - Description
+      - Extra
+      - Description
+    * - Method
+      - GET
+      - /api/v1/keyframe/{uuid}
+      - returns binary frame data
+    * - ``uuid`` (path)
+      - string
+      - required
+      - Keyframe UUID (obtained from ``find_keyframes``)
+    * - ``source_id`` (query)
+      - string
+      - required
+      - video source identifier
+    * - Response OK
+      - 200 OK
+      - binary body
+      - keyframe payload
+    * - Not Found
+      - 404 Not Found
+      - JSON
+      - UUID not found for this source
+    * - Invalid Request
+      - 400 Bad Request
+      - JSON
+      - invalid UUID format or empty source id
+    * - Internal Error
+      - 500 Internal Server Error
+      - JSON
+      - database or decoding issue
+
+**Response headers (200 OK)**
+
+- ``Content-Type``: codec specific (`video/h264`, `video/hevc`, `image/jpeg`, `image/png`, or ``application/octet-stream`` for raw/unknown)
+- ``X-Frame-UUID``: keyframe UUID
+- ``X-Frame-Timestamp-NS``: frame timestamp in nanoseconds
+- ``X-Frame-Codec``: codec label when present
+- ``X-Frame-Width`` / ``X-Frame-Height``: frame dimensions
+- ``X-Frame-Keyframe``: ``true`` or ``false``
+
 Create New Job
 --------------
 
@@ -787,4 +842,3 @@ Updates the stop condition of the running job matching the given UUID.
       - 500 Internal Server Error
       - ``{"error" => "Reason"}``
       - problem description
-
