@@ -649,7 +649,7 @@ mod tests {
             &mut self,
             _source_id: &str,
             _uuid: Uuid,
-        ) -> Result<Option<crate::store::FrameData>> {
+        ) -> Result<Option<crate::store::KeyframeRecord>> {
             unreachable!("MockStore::get_keyframe_by_uuid")
         }
     }

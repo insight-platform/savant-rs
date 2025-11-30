@@ -35,15 +35,10 @@ pub enum JobOffset {
 }
 
 #[derive(Debug, Clone)]
-pub struct FrameData {
-    pub uuid: Uuid,
-    pub timestamp_ns: u128,
-    pub codec: Option<String>,
-    pub width: i64,
-    pub height: i64,
-    pub keyframe: bool,
+pub struct KeyframeRecord {
+    pub message: Message,
+    pub data: Vec<Vec<u8>>,
     pub message_index: usize,
-    pub data: Vec<u8>,
 }
 
 pub type SyncRocksDbStore = Arc<Mutex<rocksdb::RocksDbStore>>;
@@ -84,7 +79,7 @@ pub(crate) trait Store {
         &mut self,
         source_id: &str,
         uuid: Uuid,
-    ) -> Result<Option<FrameData>>;
+    ) -> Result<Option<KeyframeRecord>>;
 }
 
 #[cfg(test)]
@@ -194,8 +189,18 @@ mod tests {
         async fn get_keyframe_by_uuid(
             &mut self,
             _source_id: &str,
-            _uuid: Uuid,
-        ) -> Result<Option<FrameData>> {
+            uuid: Uuid,
+        ) -> Result<Option<KeyframeRecord>> {
+            for (kf_uuid, idx) in &self.keyframes {
+                if *kf_uuid == uuid {
+                    let message = &self.messages[*idx];
+                    return Ok(Some(KeyframeRecord {
+                        message: message.clone(),
+                        data: vec![],
+                        message_index: *idx,
+                    }));
+                }
+            }
             Ok(None)
         }
     }

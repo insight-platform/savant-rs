@@ -115,12 +115,12 @@ Finds keyframes in a video stream. Returns found keyframes from oldest to newest
 Get Keyframe by UUID
 --------------------
 
-Retrieves a specific keyframe by UUID and returns the raw frame bytes with metadata in headers.
+Retrieves a specific keyframe by UUID and returns a multipart response containing JSON metadata and binary data parts.
 
 .. code-block:: bash
 
     curl "http://127.0.0.1:8080/api/v1/keyframe/{uuid}?source_id=in-video" \
-      -o frame.h264
+      -o keyframe.multipart
 
 .. list-table::
     :header-rows: 1
@@ -132,7 +132,7 @@ Retrieves a specific keyframe by UUID and returns the raw frame bytes with metad
     * - Method
       - GET
       - /api/v1/keyframe/{uuid}
-      - returns binary frame data
+      - returns multipart/mixed response
     * - ``uuid`` (path)
       - string
       - required
@@ -143,8 +143,8 @@ Retrieves a specific keyframe by UUID and returns the raw frame bytes with metad
       - video source identifier
     * - Response OK
       - 200 OK
-      - binary body
-      - keyframe payload
+      - multipart/mixed
+      - metadata + data parts
     * - Not Found
       - 404 Not Found
       - JSON
@@ -158,14 +158,32 @@ Retrieves a specific keyframe by UUID and returns the raw frame bytes with metad
       - JSON
       - database or decoding issue
 
-**Response headers (200 OK)**
+**Response Format (200 OK)**
 
-- ``Content-Type``: codec specific (`video/h264`, `video/hevc`, `image/jpeg`, `image/png`, or ``application/octet-stream`` for raw/unknown)
-- ``X-Frame-UUID``: keyframe UUID
-- ``X-Frame-Timestamp-NS``: frame timestamp in nanoseconds
-- ``X-Frame-Codec``: codec label when present
-- ``X-Frame-Width`` / ``X-Frame-Height``: frame dimensions
-- ``X-Frame-Keyframe``: ``true`` or ``false``
+The response uses ``multipart/mixed`` format with the following parts in order:
+
+1. **Metadata part** (``Content-Type: application/json``): JSON-serialized video frame metadata
+2. **Data parts** (``Content-Type: application/octet-stream``): Zero or more binary data blobs (encoded frame content, external references, etc.)
+
+Each data part includes an ``index`` attribute in the Content-Disposition header indicating its position (0, 1, 2, ...). The semantic meaning of each index is application-specific and depends on the upstream producer.
+
+Example response structure:
+
+.. code-block:: text
+
+    --savant-frame-<uuid>
+    Content-Type: application/json
+    Content-Disposition: inline; name="metadata"
+    Content-Length: <length>
+
+    {"uuid": "...", "source_id": "...", "pts": ..., ...}
+    --savant-frame-<uuid>
+    Content-Type: application/octet-stream
+    Content-Disposition: inline; name="data"; index="0"
+    Content-Length: <length>
+
+    <binary data>
+    --savant-frame-<uuid>--
 
 Create New Job
 --------------

@@ -1,5 +1,7 @@
 use actix_web::{get, web, HttpResponse, Responder};
 use log::{debug, warn};
+use savant_core::json_api::ToSerdeJsonValue;
+use savant_core::message::Message;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -10,15 +12,54 @@ struct GetKeyframeQuery {
     source_id: String,
 }
 
-fn codec_to_content_type(codec: Option<&str>) -> &'static str {
-    match codec {
-        Some("h264") => "video/h264",
-        Some("hevc") | Some("h265") => "video/hevc",
-        Some("jpeg") => "image/jpeg",
-        Some("png") => "image/png",
-        Some(c) if c.starts_with("raw-") => "application/octet-stream",
-        _ => "application/octet-stream",
+fn write_boundary(body: &mut Vec<u8>, boundary: &str, is_final: bool) {
+    body.extend_from_slice(b"--");
+    body.extend_from_slice(boundary.as_bytes());
+    if is_final {
+        body.extend_from_slice(b"--");
     }
+    body.extend_from_slice(b"\r\n");
+}
+
+fn build_multipart_response(
+    message: &Message,
+    data: &[Vec<u8>],
+) -> Result<(String, Vec<u8>), String> {
+    let boundary = format!("savant-frame-{}", Uuid::new_v4().as_simple());
+    let mut body = Vec::new();
+
+    write_boundary(&mut body, &boundary, false);
+
+    let video_frame = message
+        .as_video_frame()
+        .ok_or_else(|| "Message is not a VideoFrame".to_string())?;
+    let json = video_frame.to_serde_json_value();
+    let json_bytes =
+        serde_json::to_vec(&json).map_err(|e| format!("JSON serialization failed: {}", e))?;
+    body.extend_from_slice(b"Content-Type: application/json\r\n");
+    body.extend_from_slice(b"Content-Disposition: inline; name=\"metadata\"\r\n");
+    body.extend_from_slice(format!("Content-Length: {}\r\n\r\n", json_bytes.len()).as_bytes());
+    body.extend_from_slice(&json_bytes);
+    body.extend_from_slice(b"\r\n");
+
+    for (idx, item) in data.iter().enumerate() {
+        write_boundary(&mut body, &boundary, false);
+        body.extend_from_slice(b"Content-Type: application/octet-stream\r\n");
+        body.extend_from_slice(
+            format!(
+                "Content-Disposition: inline; name=\"data\"; index=\"{}\"\r\n",
+                idx
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(format!("Content-Length: {}\r\n\r\n", item.len()).as_bytes());
+        body.extend_from_slice(item);
+        body.extend_from_slice(b"\r\n");
+    }
+
+    write_boundary(&mut body, &boundary, true);
+
+    Ok((boundary, body))
 }
 
 #[get("/keyframe/{uuid}")]
@@ -55,32 +96,25 @@ pub async fn get_keyframe_by_uuid(
     let result = js_bind.get_keyframe_by_uuid(&query.source_id, uuid).await;
 
     match result {
-        Ok(Some(frame)) => {
-            let content_type = codec_to_content_type(frame.codec.as_deref());
-
+        Ok(Some(frame_data)) => {
             debug!(
-                "Returning keyframe: uuid={}, timestamp_ns={}, codec={:?}, size={} bytes",
-                frame.uuid,
-                frame.timestamp_ns,
-                frame.codec,
-                frame.data.len()
+                "Returning keyframe: uuid={}, data={}",
+                uuid,
+                frame_data.data.len()
             );
 
-            let mut response = HttpResponse::Ok();
-            response
-                .content_type(content_type)
-                .insert_header(("X-Frame-UUID", frame.uuid.to_string()))
-                .insert_header(("X-Frame-Timestamp-NS", frame.timestamp_ns.to_string()))
-                .insert_header(("X-Frame-Width", frame.width.to_string()))
-                .insert_header(("X-Frame-Height", frame.height.to_string()))
-                .insert_header(("X-Frame-Keyframe", frame.keyframe.to_string()))
-                .insert_header(("Cache-Control", "public, max-age=3600"));
-
-            if let Some(codec) = frame.codec {
-                response.insert_header(("X-Frame-Codec", codec));
+            match build_multipart_response(&frame_data.message, &frame_data.data) {
+                Ok((boundary, body)) => HttpResponse::Ok()
+                    .content_type(format!("multipart/mixed; boundary={}", boundary))
+                    .body(body),
+                Err(e) => {
+                    warn!("Failed to build multipart response: {}", e);
+                    HttpResponse::InternalServerError().json(serde_json::json!({
+                        "error": "Failed to build response",
+                        "details": e
+                    }))
+                }
             }
-
-            response.body(frame.data)
         }
         Ok(None) => {
             debug!(

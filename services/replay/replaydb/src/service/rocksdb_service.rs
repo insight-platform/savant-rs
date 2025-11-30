@@ -17,7 +17,7 @@ use crate::job::SyncJobStopCondition;
 use crate::service::configuration::ServiceConfiguration;
 use crate::service::JobManager;
 use crate::store::rocksdb::RocksDbStore;
-use crate::store::{FrameData, Store, SyncRocksDbStore};
+use crate::store::{KeyframeRecord, Store, SyncRocksDbStore};
 use crate::stream_processor::RocksDbStreamProcessor;
 
 #[allow(clippy::type_complexity)]
@@ -109,7 +109,7 @@ impl RocksDbService {
         &mut self,
         source_id: &str,
         uuid: Uuid,
-    ) -> Result<Option<FrameData>> {
+    ) -> Result<Option<KeyframeRecord>> {
         let mut store = self.store.lock().await;
         store.get_keyframe_by_uuid(source_id, uuid).await
     }

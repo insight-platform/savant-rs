@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::get_keyframe_boundary;
 use crate::service::configuration::Storage;
-use crate::store::{FrameData, JobOffset};
+use crate::store::{JobOffset, KeyframeRecord};
 
 const CF_MESSAGE_DB: &str = "message_db";
 const CF_KEYFRAME_DB: &str = "keyframes_db";
@@ -437,7 +437,7 @@ impl super::Store for RocksDbStore {
         &mut self,
         source_id: &str,
         uuid: Uuid,
-    ) -> Result<Option<FrameData>> {
+    ) -> Result<Option<KeyframeRecord>> {
         let source_hash = self.get_source_hash(source_id)?;
         let key = KeyframeKey {
             source_md5: source_hash,
@@ -450,6 +450,7 @@ impl super::Store for RocksDbStore {
             .ok_or_else(|| anyhow!("CF_KEYFRAME_DB not found"))?;
 
         let key_bytes = bincode::encode_to_vec(key, self.configuration)?;
+
         let value_bytes = match self.db.get_cf(cf, key_bytes)? {
             Some(bytes) => bytes,
             None => return Ok(None),
@@ -458,30 +459,16 @@ impl super::Store for RocksDbStore {
         let keyframe_value: KeyframeValue =
             bincode::decode_from_slice(&value_bytes, self.configuration)?.0;
 
-        let (message, _, data) = self
+        let (message, _topic, data) = self
             .get_message(source_id, keyframe_value.index)
             .await?
             .ok_or_else(|| anyhow!("Message not found for index {}", keyframe_value.index))?;
 
-        let video_frame = message
-            .as_video_frame()
-            .ok_or_else(|| anyhow!("Message is not a VideoFrame"))?;
-
-        let frame_data = FrameData {
-            uuid,
-            timestamp_ns: keyframe_value.ts,
-            codec: video_frame.get_codec().clone(),
-            width: video_frame.get_width(),
-            height: video_frame.get_height(),
-            keyframe: video_frame.get_keyframe().unwrap_or(false),
+        Ok(Some(KeyframeRecord {
+            message,
+            data,
             message_index: keyframe_value.index,
-            data: data
-                .first()
-                .ok_or_else(|| anyhow!("No data in message"))?
-                .clone(),
-        };
-
-        Ok(Some(frame_data))
+        }))
     }
 }
 
@@ -680,6 +667,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_keyframe_by_uuid_not_found() -> Result<()> {
         let conf = create_test_db_config()?;
+        let path = {
+            let Storage::RocksDB { path, .. } = &conf;
+            path.clone()
+        };
         let mut db = RocksDbStore::new(&conf)?;
 
         let frame = gen_properly_filled_frame(true);
@@ -692,12 +683,17 @@ mod tests {
             .await?;
         assert!(result.is_none());
 
+        let _ = RocksDbStore::remove_db(&path);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_get_keyframe_by_uuid_wrong_source() -> Result<()> {
         let conf = create_test_db_config()?;
+        let path = {
+            let Storage::RocksDB { path, .. } = &conf;
+            path.clone()
+        };
         let mut db = RocksDbStore::new(&conf)?;
 
         let mut frame = gen_properly_filled_frame(true);
@@ -709,6 +705,40 @@ mod tests {
         let result = db.get_keyframe_by_uuid("source-two", uuid).await?;
         assert!(result.is_none());
 
+        let _ = RocksDbStore::remove_db(&path);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_keyframe_by_uuid_success() -> Result<()> {
+        let conf = create_test_db_config()?;
+        let path = {
+            let Storage::RocksDB { path, .. } = &conf;
+            path.clone()
+        };
+        let mut db = RocksDbStore::new(&conf)?;
+
+        let frame = gen_properly_filled_frame(true);
+        let uuid = frame.get_uuid();
+        let source_id = frame.get_source_id();
+        let data_items = vec![vec![1u8, 2, 3, 4], vec![5u8, 6, 7, 8]];
+        db.add_message(&frame.to_message(), b"topic", &data_items)
+            .await?;
+
+        let result = db.get_keyframe_by_uuid(&source_id, uuid).await?;
+        assert!(result.is_some());
+
+        let keyframe_data = result.unwrap();
+        assert!(keyframe_data.message.is_video_frame());
+        assert_eq!(keyframe_data.data.len(), 2);
+        assert_eq!(keyframe_data.data[0], vec![1u8, 2, 3, 4]);
+        assert_eq!(keyframe_data.data[1], vec![5u8, 6, 7, 8]);
+        assert_eq!(keyframe_data.message_index, 0);
+
+        let video_frame = keyframe_data.message.as_video_frame().unwrap();
+        assert_eq!(video_frame.get_uuid(), uuid);
+
+        let _ = RocksDbStore::remove_db(&path);
         Ok(())
     }
 
