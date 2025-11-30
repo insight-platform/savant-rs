@@ -644,6 +644,14 @@ mod tests {
         ) -> Result<Vec<Uuid>> {
             unreachable!("MockStore::find_keyframes")
         }
+
+        async fn get_keyframe_by_uuid(
+            &mut self,
+            _source_id: &str,
+            _uuid: Uuid,
+        ) -> Result<Option<crate::store::KeyframeRecord>> {
+            unreachable!("MockStore::get_keyframe_by_uuid")
+        }
     }
 
     #[test]

@@ -10,6 +10,7 @@ use replaydb::service::rocksdb_service::RocksDbService;
 
 pub mod del_job;
 pub mod find_keyframes;
+pub mod get_keyframe_by_uuid;
 pub mod list_jobs;
 pub mod new_job;
 pub mod shutdown;
