@@ -115,7 +115,7 @@ Finds keyframes in a video stream. Returns found keyframes from oldest to newest
 Get Keyframe by UUID
 --------------------
 
-Retrieves a specific keyframe by UUID and returns a multipart response containing JSON metadata and binary data parts.
+Retrieves a specific keyframe by UUID and returns a multipart response containing metadata and binary data parts.
 
 .. code-block:: bash
 
@@ -141,6 +141,10 @@ Retrieves a specific keyframe by UUID and returns a multipart response containin
       - string
       - required
       - video source identifier
+    * - ``metadata_format`` (query)
+      - string
+      - optional, default: ``native``
+      - Format for metadata: ``json`` (human-readable) or ``native`` (Savant Message protobuf)
     * - Response OK
       - 200 OK
       - multipart/mixed
@@ -162,12 +166,28 @@ Retrieves a specific keyframe by UUID and returns a multipart response containin
 
 The response uses ``multipart/mixed`` format with the following parts in order:
 
-1. **Metadata part** (``Content-Type: application/json``): JSON-serialized video frame metadata
+1. **Metadata part**: Video frame metadata serialized in the requested format:
+
+   - ``native`` (default): ``Content-Type: application/x-protobuf`` - Savant Message protobuf, compatible with ``load_message_from_bytes()``
+   - ``json``: ``Content-Type: application/json`` - JSON-serialized VideoFrame metadata
+
 2. **Data parts** (``Content-Type: application/octet-stream``): Zero or more binary data blobs (encoded frame content, external references, etc.)
 
 Each data part includes an ``index`` attribute in the Content-Disposition header indicating its position (0, 1, 2, ...). The semantic meaning of each index is application-specific and depends on the upstream producer.
 
-Example response structure:
+**Usage with native format (default):**
+
+For clients using savant-rs, the native format eliminates the need for JSON parsing:
+
+.. code-block:: python
+
+    from savant_rs.utils.serialization import load_message_from_bytes
+
+    # Parse metadata part from multipart response
+    message = load_message_from_bytes(metadata_bytes)
+    video_frame = message.as_video_frame()
+
+Example response structure (with ``metadata_format=json``):
 
 .. code-block:: text
 
@@ -177,6 +197,24 @@ Example response structure:
     Content-Length: <length>
 
     {"uuid": "...", "source_id": "...", "pts": ..., ...}
+    --savant-frame-<uuid>
+    Content-Type: application/octet-stream
+    Content-Disposition: inline; name="data"; index="0"
+    Content-Length: <length>
+
+    <binary data>
+    --savant-frame-<uuid>--
+
+Example response structure (with ``metadata_format=native``, default):
+
+.. code-block:: text
+
+    --savant-frame-<uuid>
+    Content-Type: application/x-protobuf
+    Content-Disposition: inline; name="metadata"
+    Content-Length: <length>
+
+    <binary protobuf data>
     --savant-frame-<uuid>
     Content-Type: application/octet-stream
     Content-Disposition: inline; name="data"; index="0"
