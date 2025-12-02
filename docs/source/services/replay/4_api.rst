@@ -112,6 +112,117 @@ Finds keyframes in a video stream. Returns found keyframes from oldest to newest
       - ``{"error" => "Reason"}``
       - problem description
 
+Get Keyframe by UUID
+--------------------
+
+Retrieves a specific keyframe by UUID and returns a multipart response containing metadata and binary data parts.
+
+.. code-block:: bash
+
+    curl "http://127.0.0.1:8080/api/v1/keyframe/{uuid}?source_id=in-video" \
+      -o keyframe.multipart
+
+.. list-table::
+    :header-rows: 1
+
+    * - Parameter
+      - Description
+      - Extra
+      - Description
+    * - Method
+      - GET
+      - /api/v1/keyframe/{uuid}
+      - returns multipart/mixed response
+    * - ``uuid`` (path)
+      - string
+      - required
+      - Keyframe UUID (obtained from ``find_keyframes``)
+    * - ``source_id`` (query)
+      - string
+      - required
+      - video source identifier
+    * - ``metadata_format`` (query)
+      - string
+      - optional, default: ``native``
+      - Format for metadata: ``json`` (human-readable) or ``native`` (Savant Message protobuf)
+    * - Response OK
+      - 200 OK
+      - multipart/mixed
+      - metadata + data parts
+    * - Not Found
+      - 404 Not Found
+      - JSON
+      - UUID not found for this source
+    * - Invalid Request
+      - 400 Bad Request
+      - JSON
+      - invalid UUID format or empty source id
+    * - Internal Error
+      - 500 Internal Server Error
+      - JSON
+      - database or decoding issue
+
+**Response Format (200 OK)**
+
+The response uses ``multipart/mixed`` format with the following parts in order:
+
+1. **Metadata part**: Video frame metadata serialized in the requested format:
+
+   - ``native`` (default): ``Content-Type: application/x-protobuf`` - Savant Message protobuf, compatible with ``load_message_from_bytes()``
+   - ``json``: ``Content-Type: application/json`` - JSON-serialized VideoFrame metadata
+
+2. **Data parts** (``Content-Type: application/octet-stream``): Zero or more binary data blobs (encoded frame content, external references, etc.)
+
+Each data part includes an ``index`` attribute in the Content-Disposition header indicating its position (0, 1, 2, ...). The semantic meaning of each index is application-specific and depends on the upstream producer.
+
+**Usage with native format (default):**
+
+For clients using savant-rs, the native format eliminates the need for JSON parsing:
+
+.. code-block:: python
+
+    from savant_rs.utils.serialization import load_message_from_bytes
+
+    # Parse metadata part from multipart response
+    message = load_message_from_bytes(metadata_bytes)
+    video_frame = message.as_video_frame()
+
+Example response structure (with ``metadata_format=json``):
+
+.. code-block:: text
+
+    --savant-frame-<uuid>
+    Content-Type: application/json
+    Content-Disposition: inline; name="metadata"
+    Content-Length: <length>
+
+    {"uuid": "...", "source_id": "...", "pts": ..., ...}
+    --savant-frame-<uuid>
+    Content-Type: application/octet-stream
+    Content-Disposition: inline; name="data"; index="0"
+    Content-Length: <length>
+
+    <binary data>
+    --savant-frame-<uuid>--
+
+Example response structure (with ``metadata_format=native``, default):
+
+.. code-block:: text
+
+    --savant-frame-<uuid>
+    Content-Type: application/x-protobuf
+    Content-Disposition: inline; name="metadata"
+    Content-Length: <length>
+
+    <binary protobuf data>
+    --savant-frame-<uuid>
+    Content-Type: application/octet-stream
+    Content-Disposition: inline; name="data"; index="0"
+    Content-Length: <length>
+
+    <binary data>
+    --savant-frame-<uuid>--
+
 Create New Job
 --------------
 
@@ -787,4 +898,3 @@ Updates the stop condition of the running job matching the given UUID.
       - 500 Internal Server Error
       - ``{"error" => "Reason"}``
       - problem description
-

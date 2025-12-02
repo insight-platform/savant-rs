@@ -18,6 +18,7 @@ anyhow = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 replaydb = { workspace = true }
+savant_core = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
