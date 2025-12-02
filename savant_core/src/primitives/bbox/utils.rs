@@ -16,7 +16,10 @@ fn sequential_solely_owned_areas(bboxes: &[&RBBox]) -> Vec<f64> {
             .map(|(_, b)| *b)
             .collect::<Vec<_>>();
         let union = calculate_union_area(&others);
-        let bbox_area = MultiPolygon::new(vec![bbox.get_as_polygonal_area().get_polygon()]);
+        let bbox_area = MultiPolygon::new(vec![bbox
+            .get_as_polygonal_area()
+            .expect("Always safe because bbox is valid")
+            .get_polygon()]);
         let area = bbox_area.difference(&union).unsigned_area();
         areas.push(area);
     }
@@ -36,7 +39,10 @@ fn rayon_solely_owned_areas(bboxes: &[&RBBox]) -> Vec<f64> {
                 .copied()
                 .collect::<Vec<_>>();
             let union = calculate_union_area(&others);
-            let bbox_area = MultiPolygon::new(vec![bbox.get_as_polygonal_area().get_polygon()]);
+            let bbox_area = MultiPolygon::new(vec![bbox
+                .get_as_polygonal_area()
+                .expect("Always safe because bbox is valid")
+                .get_polygon()]);
             bbox_area.difference(&union).unsigned_area()
         })
         .collect()
@@ -55,10 +61,16 @@ pub fn calculate_union_area(bboxes: &[&RBBox]) -> MultiPolygon<f64> {
         return MultiPolygon::new(Vec::new());
     }
 
-    let mut union = MultiPolygon::new(vec![bboxes[0].get_as_polygonal_area().get_polygon()]);
+    let mut union = MultiPolygon::new(vec![bboxes[0]
+        .get_as_polygonal_area()
+        .expect("Always safe because bbox is valid")
+        .get_polygon()]);
 
     for bbox in &bboxes[1..] {
-        let mp = MultiPolygon::new(vec![bbox.get_as_polygonal_area().get_polygon()]);
+        let mp = MultiPolygon::new(vec![bbox
+            .get_as_polygonal_area()
+            .expect("Always safe because bbox is valid")
+            .get_polygon()]);
         union = union.union(&mp);
     }
 

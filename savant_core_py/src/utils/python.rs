@@ -152,7 +152,7 @@ macro_rules! detach {
 }
 
 #[macro_export]
-macro_rules! err_to_pyo3 {
+macro_rules! err_to_pyerr {
     ($expr:expr, $py_err:ty) => {
         $expr.map_err(|e| <$py_err>::new_err(e.to_string()))
     };

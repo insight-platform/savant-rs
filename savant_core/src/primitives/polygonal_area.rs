@@ -129,18 +129,21 @@ impl PolygonalArea {
 
 // class methods
 impl PolygonalArea {
-    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
+    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> anyhow::Result<Self> {
         if let Some(t) = &tags {
-            assert_eq!(vertices.len(), t.len());
+            if vertices.len() != t.len() {
+                bail!("Vertices and tags must have the same length");
+            }
         }
 
         let polygon = Some(Self::gen_polygon(&vertices));
-        Self {
+        Ok(Self {
             polygon,
             tags,
             vertices,
-        }
+        })
     }
+
     fn gen_polygon(vertices: &[Point]) -> geo::Polygon {
         geo::Polygon::new(
             LineString::from(
@@ -218,13 +221,13 @@ mod tests {
     }
 
     #[test]
-    fn contains() {
+    fn contains() -> anyhow::Result<()> {
         let p1 = Point::new(0.0, 0.0);
         let p2 = Point::new(0.99, 0.0);
         let p3 = Point::new(1.0, 0.0);
 
-        let mut area1 = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None);
-        let area2 = PolygonalArea::new(get_square_area(-1.0, 0.0, 2.0), None);
+        let mut area1 = PolygonalArea::new(get_square_area(0.0, 0.0, 2.0), None)?;
+        let area2 = PolygonalArea::new(get_square_area(-1.0, 0.0, 2.0), None)?;
 
         assert!(area1.contains(&p1));
         assert!(area1.contains(&p2));
@@ -238,15 +241,17 @@ mod tests {
         assert_eq!(
             PolygonalArea::points_positions(&mut [area1, area2], &[p1, p2, p3]),
             vec![vec![true, true, false], vec![false, false, false]]
-        )
+        );
+
+        Ok(())
     }
 
     #[test]
-    fn segment_intersects() {
+    fn segment_intersects() -> anyhow::Result<()> {
         let mut area = PolygonalArea::new(
             get_square_area(0.0, 0.0, 2.0),
             Some(vec![Some(UPPER.into()), None, Some(LOWER.into()), None]),
-        );
+        )?;
 
         let seg1 = Segment::new(Point::new(0.0, 2.0), Point::new(0.0, 0.0));
         let res = area.crossed_by_segment(&seg1);
@@ -351,10 +356,12 @@ mod tests {
                 vec![(1, None), (0, Some(UPPER.into())), (3, None),]
             )
         );
+
+        Ok(())
     }
 
     #[test]
-    fn multi_seg_crossing() {
+    fn multi_seg_crossing() -> anyhow::Result<()> {
         let area1 = PolygonalArea::new(
             get_square_area(0.0, 0.0, 2.0),
             Some(vec![
@@ -363,7 +370,7 @@ mod tests {
                 Some(format!("{LOWER}_1")),
                 Some(format!("{LEFT}_1")),
             ]),
-        );
+        )?;
 
         let area2 = PolygonalArea::new(
             get_square_area(1.0, 1.0, 2.0),
@@ -373,7 +380,7 @@ mod tests {
                 Some(format!("{LOWER}_2")),
                 Some(format!("{LEFT}_2")),
             ]),
-        );
+        )?;
 
         let seg1 = Segment::new(Point::new(-2.0, 0.5), Point::new(3.0, 0.5));
         let seg2 = Segment::new(Point::new(-0.5, 2.0), Point::new(-0.5, -2.0));
@@ -410,10 +417,12 @@ mod tests {
                 ]
             ]
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_self_intersecting() {
+    fn test_self_intersecting() -> anyhow::Result<()> {
         let mut area = PolygonalArea::new(
             vec![
                 Point::new(0.0, 0.0),
@@ -422,7 +431,7 @@ mod tests {
                 Point::new(0.0, 1.0),
             ],
             None,
-        );
+        )?;
         assert!(!area.is_self_intersecting());
 
         let mut area = PolygonalArea::new(
@@ -433,7 +442,7 @@ mod tests {
                 Point::new(0.0, 1.0),
             ],
             None,
-        );
+        )?;
         assert!(area.is_self_intersecting());
 
         let mut area = PolygonalArea::new(
@@ -445,7 +454,9 @@ mod tests {
                 Point::new(0.0, 1.0),
             ],
             None,
-        );
+        )?;
         assert!(area.is_self_intersecting());
+
+        Ok(())
     }
 }

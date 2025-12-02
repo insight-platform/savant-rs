@@ -70,7 +70,7 @@ impl SymbolMapper {
                 Ok(model_id)
             }
             Some(&(model_id, None)) => Ok(model_id),
-            _ => panic!("Model name must return a model id, not model and object ids"),
+            _ => unreachable!("The method must return only a model id, not model and object ids"),
         }
     }
 
