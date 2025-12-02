@@ -885,10 +885,15 @@ impl VideoFrameProxy {
         inner.source_id = source_id.to_string();
     }
 
-    pub fn set_time_base(&mut self, time_base: (i32, i32)) {
+    pub fn set_time_base(&mut self, time_base: (i32, i32)) -> anyhow::Result<()> {
+        if time_base.0 <= 0 || time_base.1 <= 0 {
+            bail!("Time base must be greater than 0, got {:?}", time_base);
+        }
         let mut inner = trace!(self.inner.write());
         inner.time_base = time_base;
+        Ok(())
     }
+
     pub fn get_time_base(&self) -> (i32, i32) {
         trace!(self.inner.read_recursive()).time_base
     }
@@ -917,10 +922,14 @@ impl VideoFrameProxy {
     pub fn get_pts(&self) -> i64 {
         trace!(self.inner.read_recursive()).pts
     }
-    pub fn set_pts(&mut self, pts: i64) {
-        assert!(pts >= 0, "pts must be greater than or equal to 0");
+    pub fn set_pts(&mut self, pts: i64) -> anyhow::Result<()> {
+        if pts < 0 {
+            bail!("PTS value must be greater than or equal to 0, got {}", pts);
+        }
         let mut inner = trace!(self.inner.write());
         inner.pts = pts;
+
+        Ok(())
     }
 
     pub fn get_framerate(&self) -> String {
@@ -936,20 +945,28 @@ impl VideoFrameProxy {
         trace!(self.inner.read_recursive()).width
     }
 
-    pub fn set_width(&mut self, width: i64) {
-        assert!(width > 0, "width must be greater than 0");
+    pub fn set_width(&mut self, width: i64) -> anyhow::Result<()> {
+        if width <= 0 {
+            bail!("Width value must be greater than 0, got {}", width);
+        }
         let mut inner = trace!(self.inner.write());
         inner.width = width;
+
+        Ok(())
     }
 
     pub fn get_height(&self) -> i64 {
         trace!(self.inner.read_recursive()).height
     }
 
-    pub fn set_height(&mut self, height: i64) {
-        assert!(height > 0, "height must be greater than 0");
+    pub fn set_height(&mut self, height: i64) -> anyhow::Result<()> {
+        if height <= 0 {
+            bail!("Height value must be greater than 0, got {}", height);
+        }
         let mut inner = trace!(self.inner.write());
         inner.height = height;
+
+        Ok(())
     }
 
     pub fn get_dts(&self) -> Option<i64> {
@@ -957,13 +974,17 @@ impl VideoFrameProxy {
         inner.dts
     }
 
-    pub fn set_dts(&mut self, dts: Option<i64>) {
-        assert!(
-            dts.is_none() || dts.unwrap() >= 0,
-            "dts must be greater than or equal to 0"
-        );
+    pub fn set_dts(&mut self, dts: Option<i64>) -> anyhow::Result<()> {
+        if dts.is_some() && dts.unwrap() < 0 {
+            bail!(
+                "DTS value must be greater than or equal to 0, got {}",
+                dts.unwrap()
+            );
+        }
         let mut inner = trace!(self.inner.write());
         inner.dts = dts;
+
+        Ok(())
     }
 
     pub fn get_duration(&self) -> Option<i64> {
@@ -971,13 +992,17 @@ impl VideoFrameProxy {
         inner.duration
     }
 
-    pub fn set_duration(&mut self, duration: Option<i64>) {
-        assert!(
-            duration.is_none() || duration.unwrap() >= 0,
-            "duration must be greater than or equal to 0"
-        );
+    pub fn set_duration(&mut self, duration: Option<i64>) -> anyhow::Result<()> {
+        if duration.is_some() && duration.unwrap() < 0 {
+            bail!(
+                "Duration value must be greater than or equal to 0, got {}",
+                duration.unwrap()
+            );
+        }
         let mut inner = trace!(self.inner.write());
         inner.duration = duration;
+
+        Ok(())
     }
 
     pub fn get_transcoding_method(&self) -> VideoFrameTranscodingMethod {

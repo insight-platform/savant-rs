@@ -240,6 +240,26 @@ class Message:
         """
         ...
 
+    def as_end_of_stream(self) -> Optional[EndOfStream]:
+        """Returns the message as EndOfStream type.
+
+        Returns
+        -------
+        Optional[EndOfStream]
+            The message as EndOfStream type if it is of that type, None otherwise
+        """
+        ...
+
+    def as_shutdown(self) -> Optional[Shutdown]:
+        """Returns the message as Shutdown type.
+
+        Returns
+        -------
+        Optional[Shutdown]
+            The message as Shutdown type if it is of that type, None otherwise
+        """
+        ...
+
 def save_message(message: Message, no_gil: bool = True) -> bytes:
     """Save a message to a byte array.
 

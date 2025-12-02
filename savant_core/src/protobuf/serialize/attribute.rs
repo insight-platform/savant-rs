@@ -1,5 +1,6 @@
 use crate::primitives::any_object::AnyObject;
 use crate::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
+use crate::primitives::polygonal_area::PolygonalArea;
 use crate::primitives::{Attribute, IntersectionKind, RBBox};
 use crate::protobuf::serialize;
 use prost::UnknownEnumValue;
@@ -167,11 +168,23 @@ impl TryFrom<&generated::attribute_value::Value> for AttributeValueVariant {
                 )
             }
             generated::attribute_value::Value::Polygon(poly) => {
-                AttributeValueVariant::Polygon(poly.data.as_ref().unwrap().into())
+                let polygonal_area: PolygonalArea = poly
+                    .data
+                    .as_ref()
+                    .unwrap()
+                    .try_into()
+                    .map_err(|e: anyhow::Error| Self::Error::SerializationError(e.to_string()))?;
+                AttributeValueVariant::Polygon(polygonal_area)
             }
             generated::attribute_value::Value::PolygonVector(pv) => {
                 AttributeValueVariant::PolygonVector(
-                    pv.data.iter().map(|poly| poly.into()).collect(),
+                    pv.data
+                        .iter()
+                        .map(|poly| poly.try_into())
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e: anyhow::Error| {
+                            Self::Error::SerializationError(e.to_string())
+                        })?,
                 )
             }
             generated::attribute_value::Value::Intersection(i) => {
@@ -540,14 +553,14 @@ mod tests {
     }
 
     #[test]
-    fn test_attribute_value_variant_polygon() {
+    fn test_attribute_value_variant_polygon() -> anyhow::Result<()> {
         let poly = crate::primitives::PolygonalArea::new(
             vec![
                 crate::primitives::Point::new(1.0, 2.0),
                 crate::primitives::Point::new(3.0, 4.0),
             ],
             Some(vec![Some("tag".to_string()), None]),
-        );
+        )?;
         let av = AttributeValueVariant::Polygon(poly.clone());
         assert_eq!(
             av,
@@ -564,10 +577,12 @@ mod tests {
             }),
             generated::attribute_value::Value::from(&av)
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_attribute_value_variant_polygon_vector() {
+    fn test_attribute_value_variant_polygon_vector() -> anyhow::Result<()> {
         let pv = vec![
             crate::primitives::PolygonalArea::new(
                 vec![
@@ -575,14 +590,14 @@ mod tests {
                     crate::primitives::Point::new(3.0, 4.0),
                 ],
                 Some(vec![Some("tag".to_string()), None]),
-            ),
+            )?,
             crate::primitives::PolygonalArea::new(
                 vec![
                     crate::primitives::Point::new(5.0, 6.0),
                     crate::primitives::Point::new(7.0, 8.0),
                 ],
                 Some(vec![Some("tag".to_string()), None]),
-            ),
+            )?,
         ];
         let av = AttributeValueVariant::PolygonVector(pv.clone());
         assert_eq!(
@@ -602,6 +617,8 @@ mod tests {
             ),
             generated::attribute_value::Value::from(&av)
         );
+
+        Ok(())
     }
 
     #[test]

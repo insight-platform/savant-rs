@@ -20,8 +20,10 @@ impl From<&PolygonalArea> for generated::PolygonalArea {
     }
 }
 
-impl From<&generated::PolygonalArea> for PolygonalArea {
-    fn from(value: &generated::PolygonalArea) -> Self {
+impl TryFrom<&generated::PolygonalArea> for PolygonalArea {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &generated::PolygonalArea) -> Result<Self, Self::Error> {
         let points = value
             .points
             .iter()
@@ -42,7 +44,7 @@ mod tests {
     use savant_protobuf::generated;
 
     #[test]
-    fn test_polygonal_area() {
+    fn test_polygonal_area() -> anyhow::Result<()> {
         use crate::primitives::PolygonalArea;
 
         assert_eq!(
@@ -52,14 +54,14 @@ mod tests {
                     crate::primitives::Point::new(3.0, 4.0),
                 ],
                 None,
-            ),
-            PolygonalArea::from(&generated::PolygonalArea {
+            )?,
+            PolygonalArea::try_from(&generated::PolygonalArea {
                 points: vec![
                     generated::Point { x: 1.0, y: 2.0 },
                     generated::Point { x: 3.0, y: 4.0 },
                 ],
                 tags: None,
-            })
+            })?
         );
         assert_eq!(
             PolygonalArea::new(
@@ -68,8 +70,8 @@ mod tests {
                     crate::primitives::Point::new(3.0, 4.0),
                 ],
                 Some(vec![Some("tag1".to_string()), Some("tag2".to_string())]),
-            ),
-            PolygonalArea::from(&generated::PolygonalArea {
+            )?,
+            PolygonalArea::try_from(&generated::PolygonalArea {
                 points: vec![
                     generated::Point { x: 1.0, y: 2.0 },
                     generated::Point { x: 3.0, y: 4.0 },
@@ -84,7 +86,9 @@ mod tests {
                         },
                     ],
                 }),
-            })
+            })?
         );
+
+        Ok(())
     }
 }

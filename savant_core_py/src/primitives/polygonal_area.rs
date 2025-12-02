@@ -1,4 +1,5 @@
 use crate::detach;
+use crate::err_to_pyerr;
 use crate::primitives::point::Point;
 use crate::primitives::{Intersection, Segment};
 use pyo3::exceptions::PyValueError;
@@ -82,10 +83,32 @@ impl PolygonalArea {
         }
     }
 
+    /// Creates a new polygonal area from vertices and optional tags.
+    ///
+    /// Parameters
+    /// ----------
+    /// vertices : List[:py:class:`savant_rs.primitives.geometry.Point`]
+    ///   The vertices defining the polygon.
+    /// tags : List[str or None], optional
+    ///   Optional tags for each edge. Must have the same length as vertices if provided.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`PolygonalArea`
+    ///   The created polygonal area.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If vertices and tags have different lengths, or if the polygon creation fails.
+    ///
     #[new]
     #[pyo3(signature = (vertices, tags=None))]
-    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> Self {
+    pub fn new(vertices: Vec<Point>, tags: Option<Vec<Option<String>>>) -> PyResult<Self> {
         let vertices = unsafe { mem::transmute::<Vec<Point>, Vec<rust::Point>>(vertices) };
-        Self(rust::PolygonalArea::new(vertices, tags))
+        Ok(Self(err_to_pyerr!(
+            rust::PolygonalArea::new(vertices, tags),
+            PyValueError
+        )?))
     }
 }

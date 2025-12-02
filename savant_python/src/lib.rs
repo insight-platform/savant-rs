@@ -344,7 +344,7 @@ pub fn init_logs(log_level: LogLevel) -> PyResult<()> {
             std::env::set_var(log_env_var_name, log_env_var_level);
         }
     }
-    err_to_pyo3!(
+    err_to_pyerr!(
         pretty_env_logger::try_init_timed_custom_env(log_env_var_name),
         PyRuntimeError
     )?;
