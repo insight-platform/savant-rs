@@ -831,8 +831,34 @@ impl VideoFrameProxy {
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
-    ) -> Self {
-        VideoFrameProxy::from_inner(VideoFrame {
+    ) -> anyhow::Result<Self> {
+        if width <= 0 || height <= 0 {
+            bail!(
+                "Width and height must be greater than 0, got W={:?}, H={:?}",
+                width,
+                height
+            );
+        }
+        if time_base.0 <= 0 || time_base.1 <= 0 {
+            bail!("Time base must be greater than 0, got {:?}", time_base);
+        }
+        if pts < 0 {
+            bail!("PTS value must be greater than or equal to 0, got {}", pts);
+        }
+        if dts.is_some() && dts.unwrap() < 0 {
+            bail!(
+                "DTS value must be greater than or equal to 0, got {}",
+                dts.unwrap()
+            );
+        }
+        if duration.is_some() && duration.unwrap() < 0 {
+            bail!(
+                "Duration value must be greater than or equal to 0, got {}",
+                duration.unwrap()
+            );
+        }
+
+        Ok(VideoFrameProxy::from_inner(VideoFrame {
             source_id: source_id.to_string(),
             pts,
             framerate: framerate.to_string(),
@@ -846,7 +872,7 @@ impl VideoFrameProxy {
             keyframe,
             content: Arc::new(content),
             ..Default::default()
-        })
+        }))
     }
 
     pub fn to_message(&self) -> Message {

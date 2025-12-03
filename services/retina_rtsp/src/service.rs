@@ -473,7 +473,7 @@ impl RtspServiceGroup {
                     pts,
                     Some(pts),
                     None,
-                );
+                )?;
                 debug!(
                     target: "retina_rtsp::service::frame_creator",
                     "Created a new frame: {:?}", 

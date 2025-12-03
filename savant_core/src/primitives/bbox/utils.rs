@@ -148,11 +148,11 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_owned_areas() {
-        let red = RBBox::ltrb(0.0, 2.0, 2.0, 4.0);
-        let green = RBBox::ltrb(1.0, 3.0, 5.0, 5.0);
-        let yellow = RBBox::ltrb(1.0, 1.0, 3.0, 6.0);
-        let purple = RBBox::ltrb(4.0, 0.0, 7.0, 2.0);
+    fn test_complex_owned_areas() -> anyhow::Result<()> {
+        let red = RBBox::ltrb(0.0, 2.0, 2.0, 4.0)?;
+        let green = RBBox::ltrb(1.0, 3.0, 5.0, 5.0)?;
+        let yellow = RBBox::ltrb(1.0, 1.0, 3.0, 6.0)?;
+        let purple = RBBox::ltrb(4.0, 0.0, 7.0, 2.0)?;
 
         for flavor in [true, false] {
             let areas = super::solely_owned_areas(&[&red, &green, &yellow, &purple], flavor);
@@ -167,15 +167,17 @@ mod tests {
             assert_eq!(yellow_area, 5.0);
             assert_eq!(purple_area, 6.0);
         }
+
+        Ok(())
     }
 
     #[test]
-    fn test_associate_boxes() {
-        let lp1 = RBBox::ltrb(0.0, 1.0, 2.0, 2.0);
-        let lp2 = RBBox::ltrb(5.0, 2.0, 8.0, 3.0);
-        let lp3 = RBBox::ltrb(100.0, 0.0, 6.0, 3.0);
-        let owner1 = RBBox::ltrb(1.0, 0.0, 6.0, 3.0);
-        let owner2 = RBBox::ltrb(6.0, 1.0, 9.0, 4.0);
+    fn test_associate_boxes() -> anyhow::Result<()> {
+        let lp1 = RBBox::ltrb(0.0, 1.0, 2.0, 2.0)?;
+        let lp2 = RBBox::ltrb(5.0, 2.0, 8.0, 3.0)?;
+        let lp3 = RBBox::ltrb(100.0, 0.0, 106.0, 3.0)?;
+        let owner1 = RBBox::ltrb(1.0, 0.0, 6.0, 3.0)?;
+        let owner2 = RBBox::ltrb(6.0, 1.0, 9.0, 4.0)?;
         let associations_iou = super::associate_bboxes(
             &[&lp1, &lp2, &lp3],
             &[&owner1, &owner2],
@@ -188,5 +190,7 @@ mod tests {
         assert!(matches!(lp1_associations.as_slice(), [(0, _)]));
         assert!(matches!(lp2_associations.as_slice(), [(1, _), (0, _)]));
         assert!(lp3_associations.is_empty());
+
+        Ok(())
     }
 }

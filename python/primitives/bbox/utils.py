@@ -21,7 +21,7 @@ assert purple == 6.0
 
 lp1 = RBBox.ltrb(0.0, 1.0, 2.0, 2.0)
 lp2 = RBBox.ltrb(5.0, 2.0, 8.0, 3.0)
-lp3 = RBBox.ltrb(100.0, 0.0, 6.0, 3.0)
+lp3 = RBBox.ltrb(100.0, 0.0, 106.0, 3.0)
 owner1 = RBBox.ltrb(1.0, 0.0, 6.0, 3.0)
 owner2 = RBBox.ltrb(6.0, 1.0, 9.0, 4.0)
 

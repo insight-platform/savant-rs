@@ -452,15 +452,21 @@ impl RBBox {
     /// Creates a new object from (left, top, right, bottom) coordinates.
     ///
     #[staticmethod]
-    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self(rust::RBBox::ltrb(left, top, right, bottom))
+    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> PyResult<Self> {
+        Ok(Self(err_to_pyerr!(
+            rust::RBBox::ltrb(left, top, right, bottom),
+            PyValueError
+        )?))
     }
 
     /// Creates a new object from (left, top, width, height) coordinates.
     ///
     #[staticmethod]
-    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> Self {
-        Self(rust::RBBox::ltwh(left, top, width, height))
+    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> PyResult<Self> {
+        Ok(Self(err_to_pyerr!(
+            rust::RBBox::ltwh(left, top, width, height),
+            PyValueError
+        )?))
     }
 
     #[getter]
@@ -673,15 +679,15 @@ impl BBox {
     /// Creates a new object from (left, top, right, bottom) coordinates.
     ///
     #[staticmethod]
-    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
-        Self(RBBox::ltrb(left, top, right, bottom))
+    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> PyResult<Self> {
+        Ok(Self(RBBox::ltrb(left, top, right, bottom)?))
     }
 
     /// Creates a new object from (left, top, width, height) coordinates.
     ///
     #[staticmethod]
-    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> Self {
-        Self(RBBox::ltwh(left, top, width, height))
+    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> PyResult<Self> {
+        Ok(Self(RBBox::ltwh(left, top, width, height)?))
     }
 
     #[getter]
