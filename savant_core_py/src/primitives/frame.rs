@@ -10,7 +10,7 @@ use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
 use crate::{detach, err_to_pyerr};
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyRuntimeError, PySystemError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
 use savant_core::json_api::ToSerdeJsonValue;
@@ -534,6 +534,8 @@ impl VideoFrame {
         self.__repr__()
     }
 
+    /// Creates a new video frame.
+    ///
     #[allow(clippy::too_many_arguments)]
     #[new]
     #[pyo3(
@@ -552,21 +554,24 @@ impl VideoFrame {
         pts: i64,
         dts: Option<i64>,
         duration: Option<i64>,
-    ) -> Self {
-        VideoFrame(rust::VideoFrameProxy::new(
-            source_id,
-            framerate,
-            width,
-            height,
-            content.0,
-            transcoding_method.into(),
-            &codec.as_deref(),
-            keyframe,
-            time_base,
-            pts,
-            dts,
-            duration,
-        ))
+    ) -> PyResult<Self> {
+        Ok(VideoFrame(err_to_pyerr!(
+            rust::VideoFrameProxy::new(
+                source_id,
+                framerate,
+                width,
+                height,
+                content.0,
+                transcoding_method.into(),
+                &codec.as_deref(),
+                keyframe,
+                time_base,
+                pts,
+                dts,
+                duration,
+            ),
+            PySystemError
+        )?))
     }
 
     /// Creates protocol message (:py:class:`savant_rs.utils.serialization.Message`) from the frame.

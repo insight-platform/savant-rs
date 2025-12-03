@@ -234,21 +234,32 @@ impl RBBox {
         self.set_modifications(true);
     }
 
-    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Self {
+    pub fn ltrb(left: f32, top: f32, right: f32, bottom: f32) -> Result<Self> {
+        if left >= right || top >= bottom {
+            bail!("Left must be less than right and top must be less than bottom, got L={:?}, T={:?}, R={:?}, B={:?}", left, top, right, bottom);
+        }
         let width = right - left;
         let height = bottom - top;
 
         let xc = (left + right) / 2.0;
         let yc = (top + bottom) / 2.0;
 
-        Self::new(xc, yc, width, height, None)
+        Ok(Self::new(xc, yc, width, height, None))
     }
 
-    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> Self {
+    pub fn ltwh(left: f32, top: f32, width: f32, height: f32) -> Result<Self> {
+        if width <= 0.0 || height <= 0.0 {
+            bail!(
+                "Width and height must be greater than 0, got W={:?}, H={:?}",
+                width,
+                height
+            );
+        }
         let xc = left + width / 2.0;
         let yc = top + height / 2.0;
-        RBBox::new(xc, yc, width, height, None)
+        Ok(Self::new(xc, yc, width, height, None))
     }
+
     pub fn get_top(&self) -> Result<f32> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
             Ok(self.get_yc() - self.get_height() / 2.0)
@@ -256,6 +267,7 @@ impl RBBox {
             bail!("Cannot get top for rotated bounding box",);
         }
     }
+
     pub fn set_top(&self, top: f32) -> anyhow::Result<()> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
             self.set_modifications(true);
@@ -266,6 +278,7 @@ impl RBBox {
             bail!("Cannot set top for rotated bounding box",)
         }
     }
+
     pub fn get_left(&self) -> Result<f32> {
         if self.get_angle().unwrap_or(0.0) == 0.0 {
             Ok(self.get_xc() - self.get_width() / 2.0)
@@ -318,41 +331,29 @@ impl RBBox {
     /// Returns (left, top, right, bottom) coordinates rounded to integers.
     ///
     pub fn as_ltrb_int(&self) -> Result<(i64, i64, i64, i64)> {
-        if self.get_angle().unwrap_or(0.0) != 0.0 {
-            bail!("Cannot get left, top, width, height for rotated bounding box",)
-        }
-        let top = self.get_top()?.ceil();
-        let left = self.get_left()?.ceil();
-        let bottom = self.get_bottom()?.floor();
-        let right = self.get_right()?.floor();
-
-        Ok((left as i64, top as i64, right as i64, bottom as i64))
+        let (l, t, r, b) = self.as_ltrb()?;
+        Ok((
+            l.ceil() as i64,
+            t.ceil() as i64,
+            r.floor() as i64,
+            b.floor() as i64,
+        ))
     }
 
     /// Returns (left, top, width, height) coordinates.
     ///
     pub fn as_ltwh(&self) -> Result<(f32, f32, f32, f32)> {
-        if self.get_angle().unwrap_or(0.0) != 0.0 {
-            bail!("Cannot get left, top, width, height for rotated bounding box",)
-        }
-        let top = self.get_top()?;
-        let left = self.get_left()?;
-        let width = self.get_width();
-        let height = self.get_height();
-        Ok((left, top, width, height))
+        let (l, t, r, b) = self.as_ltrb()?;
+        Ok((l, t, r - l, b - t))
     }
 
     /// Returns (left, top, width, height) coordinates rounded to integers.
     ///
     pub fn as_ltwh_int(&self) -> Result<(i64, i64, i64, i64)> {
-        if self.get_angle().unwrap_or(0.0) != 0.0 {
-            bail!("Cannot get left, top, width, height for rotated bounding box",)
-        }
-        let top = self.get_top()?.floor();
-        let left = self.get_left()?.floor();
-        let width = self.get_width().ceil();
-        let height = self.get_height().ceil();
-        Ok((left as i64, top as i64, width as i64, height as i64))
+        let (l, t, r, b) = self.as_ltrb_int()?;
+        let width = r - l;
+        let height = b - t;
+        Ok((l, t, width, height))
     }
 
     /// Returns (xc, yc, width, height) coordinates.
@@ -639,7 +640,7 @@ impl RBBox {
         let width = 1.0f32.max(right - left);
         let height = 1.0f32.max(bottom - top);
 
-        Ok(RBBox::ltwh(left, top, width, height))
+        RBBox::ltwh(left, top, width, height)
     }
 
     pub fn json(&self) -> String {
