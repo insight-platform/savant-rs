@@ -176,5 +176,8 @@ class BBox:
 
 def solely_owned_areas(bboxes: List[RBBox], parallel: bool) -> List[float]: ...
 def associate_bboxes(
-    candidates: List[RBBox], owners: List[RBBox], metric: BBoxMetricType, threshold: float
+    candidates: List[RBBox],
+    owners: List[RBBox],
+    metric: BBoxMetricType,
+    threshold: float,
 ) -> dict[int, list[tuple[int, float]]]: ...
