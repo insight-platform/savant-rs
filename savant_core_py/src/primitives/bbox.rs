@@ -1,6 +1,7 @@
 pub mod utils;
 
 use crate::draw_spec::PaddingDraw;
+use crate::err_to_pyerr;
 use crate::primitives::polygonal_area::PolygonalArea;
 use pyo3::exceptions::{PyNotImplementedError, PyValueError};
 use pyo3::pyclass::CompareOp;
@@ -283,8 +284,16 @@ impl RBBox {
     /// :py:class:`PolygonalArea`
     ///   polygonal area of the bbox
     ///
-    pub fn as_polygonal_area(&self) -> PolygonalArea {
-        PolygonalArea(self.0.get_as_polygonal_area())
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the conversion fails.
+    ///
+    pub fn as_polygonal_area(&self) -> PyResult<PolygonalArea> {
+        Ok(PolygonalArea(err_to_pyerr!(
+            self.0.get_as_polygonal_area(),
+            PyValueError
+        )?))
     }
 
     /// Returns axis-aligned bounding box wrapping the bbox. The property is GIL-free.
@@ -828,7 +837,19 @@ impl BBox {
         self.0.shift(dx, dy);
     }
 
-    pub fn as_polygonal_area(&self) -> PolygonalArea {
+    /// Returns bbox as a polygonal area.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`PolygonalArea`
+    ///   polygonal area of the bbox
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the conversion fails.
+    ///
+    pub fn as_polygonal_area(&self) -> PyResult<PolygonalArea> {
         self.0.as_polygonal_area()
     }
 

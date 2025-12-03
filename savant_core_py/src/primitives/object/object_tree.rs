@@ -1,7 +1,7 @@
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 use savant_core::primitives::rust;
 
-use crate::err_to_pyo3;
+use crate::err_to_pyerr;
 
 use super::VideoObject;
 
@@ -52,6 +52,6 @@ impl VideoObjectTree {
             let result = result.unbind();
             Ok(result)
         };
-        err_to_pyo3!(self.0.walk_objects(callable), PyRuntimeError)
+        err_to_pyerr!(self.0.walk_objects(callable), PyRuntimeError)
     }
 }

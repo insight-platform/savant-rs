@@ -588,29 +588,4 @@ mod tests {
         assert_eq!(t.attributes.len(), 1);
         assert_eq!(t.attributes[0], attribute);
     }
-
-    //
-    //     #[test]
-    //     fn test_find_attributes() {
-    //         let t = gen_frame();
-    //         let mut attributes = t.find_attributes(&Some("system"), &[], &None);
-    //         attributes.sort();
-    //         assert_eq!(attributes.len(), 2);
-    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-    //         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
-    //
-    //         let attributes = t.find_attributes(&Some("system"), &["test"], &None);
-    //         assert_eq!(attributes.len(), 1);
-    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-    //
-    //         let attributes = t.find_attributes(&Some("system"), &["test"], &Some("test"));
-    //         assert_eq!(attributes.len(), 1);
-    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-    //
-    //         let mut attributes = t.find_attributes(&None, &[], &Some("test"));
-    //         attributes.sort();
-    //         assert_eq!(attributes.len(), 2);
-    //         assert_eq!(attributes[0], ("system".to_string(), "test".to_string()));
-    //         assert_eq!(attributes[1], ("system".to_string(), "test2".to_string()));
-    //     }
 }

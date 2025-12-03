@@ -9,7 +9,7 @@ use crate::primitives::message::Message;
 use crate::primitives::object::{BorrowedVideoObject, IdCollisionResolutionPolicy, VideoObject};
 use crate::primitives::objects_view::VideoObjectsView;
 use crate::utils::bigint::fit_i64;
-use crate::{detach, err_to_pyo3};
+use crate::{detach, err_to_pyerr};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::types::{PyBytes, PyBytesMethods};
 use pyo3::{pyclass, pymethods, Bound, Py, PyAny, PyResult};
@@ -262,13 +262,23 @@ impl VideoFrameTransformation {
     /// height : int
     ///   The height of the frame.
     ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the width or height is less than or equal to 0.
+    ///
     #[staticmethod]
-    pub fn initial_size(width: i64, height: i64) -> Self {
-        assert!(width > 0 && height > 0);
-        Self(rust::VideoFrameTransformation::InitialSize(
+    pub fn initial_size(width: i64, height: i64) -> PyResult<Self> {
+        if width <= 0 || height <= 0 {
+            return Err(PyValueError::new_err(format!(
+                "Width and height must be greater than 0, got {:?}x{:?}",
+                width, height,
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::InitialSize(
             u64::try_from(width).unwrap(),
             u64::try_from(height).unwrap(),
-        ))
+        )))
     }
 
     /// Defines the size of the frame when it leaves the pipeline.
@@ -280,13 +290,23 @@ impl VideoFrameTransformation {
     /// height : int
     ///   The height of the frame.
     ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the width or height is less than or equal to 0.
+    ///
     #[staticmethod]
-    pub fn resulting_size(width: i64, height: i64) -> Self {
-        assert!(width > 0 && height > 0);
-        Self(rust::VideoFrameTransformation::ResultingSize(
+    pub fn resulting_size(width: i64, height: i64) -> PyResult<Self> {
+        if width <= 0 || height <= 0 {
+            return Err(PyValueError::new_err(format!(
+                "Width and height must be greater than 0, got {:?}x{:?}",
+                width, height,
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::ResultingSize(
             u64::try_from(width).unwrap(),
             u64::try_from(height).unwrap(),
-        ))
+        )))
     }
 
     /// Defines the cloud operation on the frame.
@@ -298,13 +318,23 @@ impl VideoFrameTransformation {
     /// height : int
     ///   The height of the frame.
     ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the width or height is less than or equal to 0.
+    ///
     #[staticmethod]
-    pub fn scale(width: i64, height: i64) -> Self {
-        assert!(width > 0 && height > 0);
-        Self(rust::VideoFrameTransformation::Scale(
+    pub fn scale(width: i64, height: i64) -> PyResult<Self> {
+        if width <= 0 || height <= 0 {
+            return Err(PyValueError::new_err(format!(
+                "Width and height must be greater than 0, got {:?}x{:?}",
+                width, height,
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::Scale(
             u64::try_from(width).unwrap(),
             u64::try_from(height).unwrap(),
-        ))
+        )))
     }
 
     /// Defines the padding operation on the frame.
@@ -320,15 +350,25 @@ impl VideoFrameTransformation {
     /// bottom : int
     ///   The bottom padding.
     ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the padding is less than 0.
+    ///
     #[staticmethod]
-    pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> Self {
-        assert!(left >= 0 && top >= 0 && right >= 0 && bottom >= 0);
-        Self(rust::VideoFrameTransformation::Padding(
+    pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> PyResult<Self> {
+        if left < 0 || top < 0 || right < 0 || bottom < 0 {
+            return Err(PyValueError::new_err(format!(
+                "Padding must be greater than 0, got {:?}x{:?}x{:?}x{:?}",
+                left, top, right, bottom,
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::Padding(
             u64::try_from(left).unwrap(),
             u64::try_from(top).unwrap(),
             u64::try_from(right).unwrap(),
             u64::try_from(bottom).unwrap(),
-        ))
+        )))
     }
 
     /// Returns true if the transformation is initial size, otherwise false.
@@ -569,9 +609,24 @@ impl VideoFrame {
         self.0.get_time_base()
     }
 
+    /// Sets stream time base for the frame.
+    ///
+    /// Parameters
+    /// ----------
+    /// time_base : Tuple[int, int]
+    ///   The stream time base for the frame.
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the time base value is invalid.
+    ///
     #[setter]
-    pub fn set_time_base(&mut self, time_base: (i32, i32)) {
-        self.0.set_time_base(time_base)
+    pub fn set_time_base(&mut self, time_base: (i32, i32)) -> PyResult<()> {
+        Ok(err_to_pyerr!(
+            self.0.set_time_base(time_base),
+            PyValueError
+        )?)
     }
 
     /// Returns frame PTS
@@ -586,9 +641,21 @@ impl VideoFrame {
         self.0.get_pts()
     }
 
+    /// Sets frame PTS
+    ///
+    /// Parameters
+    /// ----------
+    /// pts : int
+    ///   The frame PTS to set
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the PTS value is invalid.
+    ///
     #[setter]
-    pub fn set_pts(&mut self, pts: i64) {
-        self.0.set_pts(pts)
+    pub fn set_pts(&mut self, pts: i64) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_pts(pts), PyValueError)?)
     }
 
     #[getter]
@@ -621,9 +688,21 @@ impl VideoFrame {
         self.0.get_width()
     }
 
+    /// Sets frame width
+    ///
+    /// Parameters
+    /// ----------
+    /// width : int
+    ///   The frame width to set
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the width value is invalid.
+    ///
     #[setter]
-    pub fn set_width(&mut self, width: i64) {
-        self.0.set_width(width)
+    pub fn set_width(&mut self, width: i64) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_width(width), PyValueError)?)
     }
 
     #[getter]
@@ -631,9 +710,21 @@ impl VideoFrame {
         self.0.get_height()
     }
 
+    /// Sets frame height
+    ///
+    /// Parameters
+    /// ----------
+    /// height : int
+    ///   The frame height to set
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the height value is invalid.
+    ///
     #[setter]
-    pub fn set_height(&mut self, height: i64) {
-        self.0.set_height(height)
+    pub fn set_height(&mut self, height: i64) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_height(height), PyValueError)?)
     }
 
     #[getter]
@@ -641,9 +732,21 @@ impl VideoFrame {
         self.0.get_dts()
     }
 
+    /// Sets frame DTS
+    ///
+    /// Parameters
+    /// ----------
+    /// dts : int or None
+    ///   The frame DTS to set
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the DTS value is invalid.
+    ///
     #[setter]
-    pub fn set_dts(&mut self, dts: Option<i64>) {
-        self.0.set_dts(dts)
+    pub fn set_dts(&mut self, dts: Option<i64>) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_dts(dts), PyValueError)?)
     }
 
     #[getter]
@@ -651,9 +754,21 @@ impl VideoFrame {
         self.0.get_duration()
     }
 
+    /// Sets frame duration
+    ///
+    /// Parameters
+    /// ----------
+    /// duration : int or None
+    ///   The frame duration to set
+    ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If the duration value is invalid.
+    ///
     #[setter]
-    pub fn set_duration(&mut self, duration: Option<i64>) {
-        self.0.set_duration(duration)
+    pub fn set_duration(&mut self, duration: Option<i64>) -> PyResult<()> {
+        Ok(err_to_pyerr!(self.0.set_duration(duration), PyValueError)?)
     }
 
     #[getter]
@@ -1076,7 +1191,7 @@ impl VideoFrame {
         delete_exported: bool,
     ) -> PyResult<Vec<VideoObjectTree>> {
         detach!(true, || {
-            Ok(err_to_pyo3!(
+            Ok(err_to_pyerr!(
                 self.0.export_complete_object_trees(&q.0, delete_exported),
                 PyRuntimeError
             )?
@@ -1105,7 +1220,7 @@ impl VideoFrame {
     pub fn import_object_trees(&self, trees: Vec<VideoObjectTree>) -> PyResult<()> {
         let trees = trees.into_iter().map(|t| t.0).collect::<Vec<_>>();
         detach!(true, || {
-            Ok(err_to_pyo3!(
+            Ok(err_to_pyerr!(
                 self.0.import_object_trees(trees),
                 PyRuntimeError
             )?)

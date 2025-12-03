@@ -406,8 +406,8 @@ impl RBBox {
 
     pub fn inside(&self, other: &Self) -> Result<bool> {
         if self.get_angle().unwrap_or(0.0) != other.get_angle().unwrap_or(0.0) {
-            let mut outer_poly = other.get_as_polygonal_area();
-            let inner_poly = self.get_as_polygonal_area();
+            let mut outer_poly = other.get_as_polygonal_area()?;
+            let inner_poly = self.get_as_polygonal_area()?;
             let res = outer_poly.contains_many_points(&inner_poly.vertices);
             Ok(res.len() == 4)
         } else {
@@ -466,9 +466,9 @@ impl RBBox {
         Ok(if let Some(int) = self.intersection_coaxial(other) {
             int
         } else {
-            let mut area1 = self.get_as_polygonal_area();
+            let mut area1 = self.get_as_polygonal_area()?;
             let poly1 = area1.get_polygon();
-            let mut area2 = other.get_as_polygonal_area();
+            let mut area2 = other.get_as_polygonal_area()?;
             let poly2 = area2.get_polygon();
             poly1.intersection(&poly2).unsigned_area() as f32
         })
@@ -562,7 +562,7 @@ impl RBBox {
             .collect::<Vec<_>>()
     }
 
-    pub fn get_as_polygonal_area(&self) -> PolygonalArea {
+    pub fn get_as_polygonal_area(&self) -> anyhow::Result<PolygonalArea> {
         PolygonalArea::new(
             self.get_vertices()
                 .into_iter()

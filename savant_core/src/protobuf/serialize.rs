@@ -35,6 +35,8 @@ pub enum Error {
     InvalidVideoFrameParentObject(i64),
     #[error("Failed to convert protobuf enum balue to Rust enum value: {0}")]
     EnumConversionError(i32),
+    #[error("Failed to convert protobuf message to Rust object: {0}")]
+    SerializationError(String),
 }
 
 impl From<uuid::Error> for Error {

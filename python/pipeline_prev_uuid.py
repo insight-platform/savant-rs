@@ -1,7 +1,6 @@
 import time
 from threading import Thread, current_thread
 
-import savant_plugin_sample
 import savant_rs
 from savant_rs.logging import LogLevel, log, log_level_enabled, set_log_level
 from savant_rs.pipeline import (StageFunction, VideoPipeline,
