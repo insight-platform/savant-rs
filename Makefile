@@ -7,7 +7,10 @@ dev: clean build_savant
 release: clean build_savant_release
 
 install:
-	pip install --force-reinstall $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl
+	@WHL_NAME=$$(ls $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl); \
+	echo "Installing $$WHL_NAME[clientsdk]"; \
+	pip install --force-reinstall "$$WHL_NAME[clientsdk]"; \
+	echo "Installed $$WHL_NAME[clientsdk]"
 
 docs:
 	@echo "Building docs..."
