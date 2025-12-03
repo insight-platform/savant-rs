@@ -7,13 +7,8 @@ from typing import Optional
 from savant_rs.logging import LogLevel
 
 from .const import LOGGING_PREFIX
-from .log_utils import (
-    add_logging_level,
-    get_default_log_spec,
-    get_log_conf,
-    parse_log_spec,
-    set_savant_rs_loglevel,
-)
+from .log_utils import (add_logging_level, get_default_log_spec, get_log_conf,
+                        parse_log_spec, set_savant_rs_loglevel)
 from .savant_rs_handler import LOG_LEVEL_PY_TO_RS
 
 

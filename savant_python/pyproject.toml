@@ -8,11 +8,19 @@ dependencies = [
 ]
 dynamic = ['version']
 name = "savant_rs"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+]
+
+[project.optional-dependencies]
+clientsdk = [
+    "python-magic~=0.4.27",
+    "requests~=2.32.5", 
+    "numpy>=1.26",
+    "opencv-python~=4.12.0"
 ]
 
 [tool.black]
