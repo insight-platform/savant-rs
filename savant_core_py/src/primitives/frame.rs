@@ -990,8 +990,33 @@ impl VideoFrame {
         self.0.delete_attributes_with_hints(&hint_refs)
     }
 
+    /// Sets new attribute for the frame. If the attribute is already set, it is replaced.
+    ///
+    /// Parameters
+    /// ----------
+    /// attribute : :py:class:`Attribute`
+    ///   The attribute to set.
+    ///
+    /// Returns
+    /// -------
+    /// :py:class:`Attribute`
+    ///   The set attribute.
+    ///
     pub fn set_attribute(&mut self, attribute: Attribute) -> Option<Attribute> {
         self.0.set_attribute(attribute.0).map(Attribute)
+    }
+
+    /// Sets multiple attributes for the frame.
+    ///
+    /// Parameters
+    /// ----------
+    /// attributes : List[:py:class:`Attribute`]
+    ///   The attributes to set.
+    ///
+    pub fn set_attributes(&mut self, attributes: Vec<Attribute>) {
+        for attribute in attributes {
+            self.set_attribute(attribute);
+        }
     }
 
     /// Sets new persistent attribute for the frame. If the attribute is already set, it is replaced.

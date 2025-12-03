@@ -29,7 +29,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "1.12.2"
+version = "1.13.0"
 edition = "2021"
 authors = ["Ivan Kudriavtsev <ivan.a.kudryavtsev@gmail.com>"]
 description = "Savant Rust core functions library"
