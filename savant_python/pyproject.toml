@@ -23,6 +23,8 @@ clientsdk = [
     "opencv-python~=4.12.0"
 ]
 
+
+
 [tool.black]
 skip-string-normalization = true
 
