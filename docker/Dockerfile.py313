@@ -32,6 +32,14 @@ RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/
 
 FROM python:3.13-slim AS runner
 
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && apt install -y \
+    imagemagick \
+    libmagic1
+
 COPY --from=builder /opt /opt
-COPY --from=builder /*.whl /tmp
-RUN pip3 install /tmp/*.whl && rm /tmp/*.whl
+COPY --from=builder /savant_rs-*.whl /tmp
+RUN SAVANT_RS_WHL=$(ls /tmp/savant_rs-*.whl | head -n 1) && \
+    echo "SAVANT_RS_WHL=$SAVANT_RS_WHL" && \
+    pip3 install $SAVANT_RS_WHL[clientsdk] && \
+    rm $SAVANT_RS_WHL
