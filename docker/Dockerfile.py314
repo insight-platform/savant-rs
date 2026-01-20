@@ -1,4 +1,4 @@
-FROM ghcr.io/insight-platform/py314_rust:v1.3.0 AS builder
+FROM ghcr.io/insight-platform/py314_rust:v1.5.0 AS builder
 
 ENV PYTHON_INTERPRETER=python3.14
 
