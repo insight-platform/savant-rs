@@ -16,7 +16,7 @@ fn zmq_benchmarks(c: &mut Criterion) {
         let path = "/tmp/test/dealer-router";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("router+bind:ipc://{}", path))
                 .expect("Failed to set URL")
@@ -58,12 +58,12 @@ fn zmq_benchmarks(c: &mut Criterion) {
             }
         });
 
-        let m = Message::video_frame(&gen_frame());
+        let mut m = Message::video_frame(&gen_frame());
         b.iter(|| {
             for _ in 0..100 {
                 let res = black_box(
                     writer
-                        .send_message("test", &m, &[&[0; 128 * 1024]])
+                        .send_message("test", &mut m, &[&[0; 128 * 1024]])
                         .expect("Failed to send message"),
                 );
                 assert!(matches!(res, WriterResult::Success { .. }));

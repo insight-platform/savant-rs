@@ -21,7 +21,7 @@ fn message_save_load_benchmarks(c: &mut Criterion) {
     });
 
     group.bench_function("eos", |b| {
-        let eos = EndOfStream::new("test".to_string());
+        let eos = EndOfStream::new("test");
         let message = Message::end_of_stream(eos);
         b.iter(|| {
             let res = black_box(save_message(&message).unwrap());

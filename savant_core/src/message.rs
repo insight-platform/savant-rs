@@ -19,6 +19,12 @@ pub struct SeqStore {
 pub const AUX_SEQ_ID_KEY: &str = "2c364c5fbe4de1c230e7df0b7d64ee1d";
 pub const MAX_SEQ_STORE_SIZE: usize = 512;
 
+impl Default for SeqStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SeqStore {
     pub fn new() -> Self {
         Self {
@@ -40,13 +46,14 @@ impl SeqStore {
             .get_or_insert_mut((system_id.to_string(), source.to_string()), || 0);
         if seq_id <= *v {
             log::trace!(target: "savant_rs::message::validate_seq_iq", 
-                "SeqId reset for {}, expected seq_id = {}, received seq_id = {}", 
-                source, *v + 1, seq_id);
+                "SeqId reset for system={} source=[{}] expected seq_id = {}, received seq_id = {}", 
+                system_id, source, *v + 1, seq_id);
             *v = seq_id;
             true
         } else if *v + 1 == seq_id {
             log::trace!(target: "savant_rs::message::validate_seq_iq", 
-                "Successfully validated seq_id={seq_id} for {source}");
+                "Successfully validated seq_id={seq_id} for system={} source=[{}]",
+                system_id, source);
             *v += 1;
             true
         } else {
@@ -56,8 +63,8 @@ impl SeqStore {
                 source
             };
             log::warn!(target: "savant_rs::message::validate_seq_iq", 
-                "Failed to validate seq_id={} for {}, expected={}. SeqId discrepancy is a symptom of message loss or stream termination without EOS", 
-                seq_id, log_source, *v + 1);
+                "Failed to validate message from system={} source=[{}] seq_id={}, expected seq_id={}. SeqId discrepancy is a symptom of message loss or stream termination without EOS", 
+                system_id, log_source, seq_id, *v + 1);
             *v = seq_id;
             false
         }
@@ -90,26 +97,10 @@ impl SeqStore {
             MessageEnvelope::UserData(ud) => {
                 self.validate_seq_i_raw(system_id, &ud.source_id, seq_id)
             }
-            _ => self.validate_seq_i_raw(system_id, &AUX_SEQ_ID_KEY, seq_id),
+            _ => self.validate_seq_i_raw(system_id, AUX_SEQ_ID_KEY, seq_id),
         }
     }
 }
-
-// pub fn validate_seq_id(m: &Message) -> bool {
-//     let mut seq_store = trace!(SEQ_STORE.lock());
-//     seq_store.validate_seq_id(m)
-// }
-
-// fn generate_message_seq_id(source: &str) -> u64 {
-//     let mut seq_store = trace!(SEQ_STORE.lock());
-//     seq_store.generate_message_seq_id(source)
-// }
-
-// pub fn clear_source_seq_id(source: &str) {
-//     let system_id = CURRENT_SYSTEM_ID.lock().clone();
-//     let mut seq_store = trace!(SEQ_STORE.lock());
-//     seq_store.reset_seq_id(source, system_id.as_ref());
-// }
 
 #[derive(Debug)]
 pub enum MessageEnvelope {

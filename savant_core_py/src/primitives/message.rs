@@ -6,7 +6,7 @@ use crate::primitives::user_data::UserData;
 use crate::primitives::VideoFrame;
 use crate::primitives::{EndOfStream, Shutdown, VideoFrameBatch};
 use crate::utils::otlp::PropagatedContext;
-use pyo3::{pyclass, pyfunction, pymethods, Py, PyAny};
+use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
 
 #[pyclass]
@@ -152,6 +152,26 @@ impl Message {
     #[staticmethod]
     pub fn video_frame_update(update: VideoFrameUpdate) -> Self {
         Self(rust_primitives::Message::video_frame_update(update.0))
+    }
+
+    #[getter]
+    fn get_system_id(&self) -> String {
+        self.0.meta().system_id.clone()
+    }
+
+    #[setter]
+    fn set_system_id(&mut self, system_id: String) {
+        self.0.meta_mut().system_id = system_id;
+    }
+
+    #[getter]
+    fn get_seq_id(&self) -> u64 {
+        self.0.meta().seq_id
+    }
+
+    #[setter]
+    fn set_seq_id(&mut self, seq_id: u64) {
+        self.0.meta_mut().seq_id = seq_id;
     }
 
     #[getter]
@@ -345,20 +365,4 @@ impl Message {
         let batch = self.0.as_video_frame_batch()?;
         Some(VideoFrameBatch(batch.clone()))
     }
-
-    /// Allows validating the sequence id of the message
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the sequence id is valid, False otherwise
-    ///
-    pub fn validate_seq_id(&self) -> bool {
-        savant_core::message::validate_seq_id(&self.0)
-    }
-}
-
-#[pyfunction]
-pub fn clear_source_seq_id(source: &str) {
-    savant_core::message::clear_source_seq_id(source);
 }

@@ -8,6 +8,7 @@ from savant_rs.zmq import (
     BlockingReader,
     BlockingWriter,
     ReaderConfigBuilder,
+    ReaderResultMessage,
     WriterConfigBuilder,
 )
 
@@ -15,22 +16,29 @@ set_log_level(LogLevel.Info)
 
 socket_name = "tcp://127.0.0.1:3333"
 
-NUMBER = 1000
+NUMBER = 100
 BLOCK_SIZE = 1024 * 1024
 
 
 def server():
-    reader_config = ReaderConfigBuilder("router+connect:" + socket_name).build()
+    reader_config = ReaderConfigBuilder(
+        "router+connect:" + socket_name).build()
     reader = BlockingReader(reader_config)
     reader.start()
     reader.blacklist_source(b"unused-topic")
     assert reader.is_blacklisted(b"unused-topic")
     wait_time = 0
+    first_from_system = dict()
     for _ in range(NUMBER):
         wait = time()
         m = reader.receive()
-        wait_time += time() - wait
         assert len(m.data(0)) == BLOCK_SIZE
+        if m.__class__ == ReaderResultMessage:
+            m = m.message
+            if m.system_id not in first_from_system:
+                first_from_system[m.system_id] = m.seq_id
+                print("First message from system", m.system_id, m.seq_id)
+        wait_time += time() - wait
     print("Reader time awaited", wait_time)
 
 

@@ -10,9 +10,9 @@ use anyhow::bail;
 use log::{debug, info, warn};
 use std::str::from_utf8;
 
+#[inline]
 fn gen_system_id() -> String {
-    let system_id = uuid::Uuid::new_v4().to_string();
-    system_id
+    uuid::Uuid::new_v4().to_string()
 }
 
 pub struct Writer<R: MockSocketResponder, P: SocketProvider<R>> {
@@ -101,9 +101,19 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             socket.connect(config.endpoint())?;
         }
 
+        let system_id = gen_system_id();
+        info!(
+            target: "savant_rs::zeromq::writer",
+            "ZMQ Writer bind={}/type={:?} system_id={} is started on endpoint {}",
+            config.bind(),
+            config.socket_type(),
+            system_id,
+            config.endpoint()
+        );
+
         Ok(Self {
             sender_seq_store: SeqStore::new(),
-            system_id: gen_system_id(),
+            system_id,
             context: Some(context),
             config: config.clone(),
             socket: Some(socket),

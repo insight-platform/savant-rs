@@ -60,13 +60,15 @@ impl BlockingWriter {
         Ok(())
     }
 
-    /// Sends EOS to the specified topic. If the writer is not started, returns an error.
+    /// Sends EOS to the specified source_id. If the writer is not started, returns an error.
     /// Releases GIL while waiting for the result.
     ///
     /// Parameters
     /// ----------
-    /// topic : str
+    /// source_id : str
     ///   Topic to send EOS to.
+    /// topic : str
+    ///   Topic to send EOS to. If not provided, the source_id will be used as the topic.
     ///
     /// Returns
     /// -------
@@ -81,14 +83,16 @@ impl BlockingWriter {
     ///   When underlying ZeroMQ writer fails and no longer functional. Usually means that the
     ///   writer must be restarted.
     ///
-    pub fn send_eos(&mut self, topic: &str) -> PyResult<Py<PyAny>> {
+    #[pyo3(signature = (source_id, topic=None))]
+    pub fn send_eos(&mut self, source_id: &str, topic: Option<&str>) -> PyResult<Py<PyAny>> {
         if self.0.is_none() {
             return Err(PyRuntimeError::new_err("Writer is not started."));
         }
         let writer = self.0.as_ref().unwrap();
+        let topic = topic.unwrap_or(source_id);
         let res = detach!(true, || {
             writer
-                .send_eos(topic)
+                .send_eos_with_topic(topic, source_id)
                 .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
         })?;
         results::process_writer_result(res)
@@ -122,7 +126,7 @@ impl BlockingWriter {
     pub fn send_message(
         &mut self,
         topic: &str,
-        message: &Message,
+        message: &mut Message,
         extra: &Bound<'_, PyBytes>,
     ) -> PyResult<Py<PyAny>> {
         if self.0.is_none() {
@@ -132,7 +136,7 @@ impl BlockingWriter {
         let bytes = extra.as_bytes();
         let res = detach!(true, || {
             writer
-                .send_message(topic, &message.0, &[bytes])
+                .send_message(topic, &mut message.0, &[bytes])
                 .map_err(|e| PyRuntimeError::new_err(format!("{e:?}")))
         })?;
         results::process_writer_result(res)

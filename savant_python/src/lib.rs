@@ -173,7 +173,6 @@ pub fn serialization(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_message_from_bytes_gil, m)?)?;
 
     m.add_class::<Message>()?;
-    m.add_function(wrap_pyfunction!(clear_source_seq_id, m)?)?;
     Ok(())
 }
 

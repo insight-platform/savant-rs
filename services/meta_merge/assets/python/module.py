@@ -9,16 +9,16 @@ from savant_rs.utils.serialization import Message
 
 class MergeHandler:
     def __call__(
-        self, 
-        ingress_name: str, 
-        topic: str, 
-        current: VideoFrame, 
-        current_tags: list[str], 
-        incoming: Optional[VideoFrame], 
-        incoming_tags: Optional[list[str]]
+        self,
+        ingress_name: str,
+        topic: str,
+        current: VideoFrame,
+        current_tags: list[str],
+        incoming: Optional[VideoFrame],
+        incoming_tags: Optional[list[str]],
     ) -> bool:
         """
-        This handler is called for each message received from the ingress. 
+        This handler is called for each message received from the ingress.
         The current frame should be updated until the merging is considered as complete. When it is complete, the handler should return True.
 
         :param ingress_name: name of the ingress that received the message
@@ -33,9 +33,7 @@ class MergeHandler:
 
 
 class HeadExpiredHandler:
-    def __call__(
-        self, frame: VideoFrame, tags: list[str]
-    ) -> Optional[Message]:
+    def __call__(self, frame: VideoFrame, tags: list[str]) -> Optional[Message]:
         """
         This handler is called when the head of the queue is expired.
 
@@ -45,10 +43,9 @@ class HeadExpiredHandler:
         """
         return frame.to_message()
 
+
 class HeadReadyHandler:
-    def __call__(
-        self, frame: VideoFrame, tags: list[str]
-    ) -> Optional[Message]:
+    def __call__(self, frame: VideoFrame, tags: list[str]) -> Optional[Message]:
         """
         This handler is called when the head of the queue is ready.
 
@@ -60,9 +57,7 @@ class HeadReadyHandler:
 
 
 class LateArrivalHandler:
-    def __call__(
-        self, frame: VideoFrame, tags: list[str]
-    ):
+    def __call__(self, frame: VideoFrame, tags: list[str]):
         """
         This handler is called when a new frame is late.
 
@@ -81,6 +76,8 @@ def init(params: Any):
     register_handler("head_expired_handler", HeadExpiredHandler())
     register_handler("head_ready_handler", HeadReadyHandler())
     register_handler("late_arrival_handler", LateArrivalHandler())
-    log(LogLevel.Info, "meta_merge::init", "Meta merge service initialized successfully")
+    log(
+        LogLevel.Info, "meta_merge::init", "Meta merge service initialized successfully"
+    )
     # True means that the service is initialized successfully and can start processing messages
     return True

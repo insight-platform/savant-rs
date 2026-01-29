@@ -134,6 +134,12 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             socket.connect(config.endpoint())?;
         }
 
+        info!(
+            target: "savant_rs::zeromq::reader",
+            "ZMQ Reader bind={}/type={:?} is started on endpoint {}",
+            config.bind(),config.socket_type(), config.endpoint()
+        );
+
         Ok(Self {
             seq_store: SeqStore::new(),
             context: Mutex::new(Some(context)),

@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-pub fn gen_properly_filled_frame(kf: bool) -> VideoFrameProxy {
+pub fn gen_properly_filled_frame(kf: bool) -> Result<VideoFrameProxy> {
     let mut f = gen_frame();
     let (tbn, tbd) = (1, 1_000_000);
     let now_nanos = SystemTime::now()
@@ -19,11 +19,11 @@ pub fn gen_properly_filled_frame(kf: bool) -> VideoFrameProxy {
         .as_nanos();
     let now = now_nanos as f64 / 1e9f64;
     let pts = (now * tbd as f64 / tbn as f64) as i64;
-    f.set_pts(pts);
+    f.set_pts(pts)?;
     f.set_creation_timestamp_ns(now_nanos);
-    f.set_time_base((tbn, tbd));
+    f.set_time_base((tbn, tbd))?;
     f.set_keyframe(Some(kf));
-    f
+    Ok(f)
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -214,57 +214,49 @@ mod tests {
 
         let mut f = gen_frame();
         f.set_keyframe(Some(true));
-        f.set_time_base((1, 1));
-        f.set_pts(0);
+        f.set_time_base((1, 1))?;
+        f.set_pts(0)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
         store
-            .add_message(
-                &Message::end_of_stream(EndOfStream::new(String::from(""))),
-                &[],
-                &[],
-            )
+            .add_message(&Message::end_of_stream(EndOfStream::new("")), &[], &[])
             .await?;
         let mut f = gen_frame();
         f.set_keyframe(Some(false));
-        f.set_time_base((1, 1));
-        f.set_pts(1);
+        f.set_time_base((1, 1))?;
+        f.set_pts(1)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
 
         let mut f = gen_frame();
         f.set_keyframe(Some(false));
-        f.set_time_base((1, 1));
-        f.set_pts(2);
+        f.set_time_base((1, 1))?;
+        f.set_pts(2)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
 
         let mut f = gen_frame();
         f.set_keyframe(Some(true));
-        f.set_time_base((1, 1));
-        f.set_pts(3);
+        f.set_time_base((1, 1))?;
+        f.set_pts(3)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
         store
-            .add_message(
-                &Message::end_of_stream(EndOfStream::new(String::from(""))),
-                &[],
-                &[],
-            )
+            .add_message(&Message::end_of_stream(EndOfStream::new("")), &[], &[])
             .await?;
         let mut f = gen_frame();
         f.set_keyframe(Some(false));
-        f.set_time_base((1, 1));
-        f.set_pts(4);
+        f.set_time_base((1, 1))?;
+        f.set_pts(4)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
 
         let mut f = gen_frame();
         let u = f.get_uuid();
         f.set_keyframe(Some(true));
-        f.set_time_base((1, 1));
-        f.set_pts(5);
+        f.set_time_base((1, 1))?;
+        f.set_pts(5)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
 
         let mut f = gen_frame();
         f.set_keyframe(Some(false));
-        f.set_time_base((1, 1));
-        f.set_pts(6);
+        f.set_time_base((1, 1))?;
+        f.set_pts(6)?;
         store.add_message(&f.to_message(), &[], &[]).await?;
 
         let first = store.get_first("", u, &JobOffset::Blocks(1)).await?;

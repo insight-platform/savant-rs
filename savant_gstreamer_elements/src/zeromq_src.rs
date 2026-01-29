@@ -7,7 +7,7 @@ use gstreamer_base::prelude::BaseSrcExt;
 use gstreamer_base::subclass::base_src::{BaseSrcImpl, CreateSuccess};
 use gstreamer_base::subclass::prelude::PushSrcImpl;
 use parking_lot::Mutex;
-use savant_core::message::{validate_seq_id, Message, MessageEnvelope};
+use savant_core::message::{Message, MessageEnvelope};
 use savant_core::rust::Pipeline;
 use savant_core::transport::zeromq::{ReaderConfig, ReaderResult, SyncReader, TopicPrefixSpec};
 use savant_core::utils::bytes_to_hex_string;
@@ -316,7 +316,6 @@ impl ZeromqSrc {
         if is_shutdown_set() {
             return self.handle_ws_shutdown();
         }
-        validate_seq_id(message); // checks if the sequence id is valid and reports a warning if it is not
         match message.payload() {
             MessageEnvelope::UserData(_) => self.handle_user_data(message),
             MessageEnvelope::EndOfStream(eos) => self.handle_savant_stream_eos(eos),
