@@ -2,5 +2,5 @@ from enum import Enum
 
 
 class ExternalFrameType(Enum):
-    ZEROMQ = 'zeromq'
-    REDIS = 'redis'
+    ZEROMQ = "zeromq"
+    REDIS = "redis"

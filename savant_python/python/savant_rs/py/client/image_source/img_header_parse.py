@@ -7,7 +7,7 @@ from typing import BinaryIO, Tuple, Union
 import magic
 
 # positive lookbehind is included to avoid matching density in the JPEG header
-PATTERN = re.compile(r'(?<=, )(?P<width>\d+)( x |x)(?P<height>\d+)')
+PATTERN = re.compile(r"(?<=, )(?P<width>\d+)( x |x)(?P<height>\d+)")
 
 
 def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int, str]:
@@ -17,7 +17,7 @@ def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int
         to an image file opened as binary.
     :return: Image width, height and codec.
     """
-    if hasattr(file, 'read') and hasattr(file, 'seek'):
+    if hasattr(file, "read") and hasattr(file, "seek"):
         # read only the first 512 KB of the file
         # hoping that the SOF header segment is there
         magic_out = magic.from_buffer(file.read(512 * 1024))
@@ -25,19 +25,19 @@ def get_image_size_codec(file: Union[str, PathLike, BinaryIO]) -> Tuple[int, int
     elif isinstance(file, (str, PathLike)):
         magic_out = magic.from_file(file)
     else:
-        raise ValueError('File path or file handle is expected.')
+        raise ValueError("File path or file handle is expected.")
 
     # codec str should correspond to savant.gstreamer.codecs.Codec enum values
     # can't import directly because of extra dependencies (gstreamer)
     # that aren't going to be present in all the adapter images
-    if magic_out.startswith('JPEG image data'):
-        codec = 'jpeg'
-    elif magic_out.startswith('PNG image data'):
-        codec = 'png'
+    if magic_out.startswith("JPEG image data"):
+        codec = "jpeg"
+    elif magic_out.startswith("PNG image data"):
+        codec = "png"
     else:
-        raise ValueError('Not a JPEG or PNG file.')
+        raise ValueError("Not a JPEG or PNG file.")
 
     match = PATTERN.search(magic_out)
     if match:
-        return int(match['width']), int(match['height']), codec
-    raise ValueError('Failed to get image size from image header.')
+        return int(match["width"]), int(match["height"]), codec
+    raise ValueError("Failed to get image size from image header.")

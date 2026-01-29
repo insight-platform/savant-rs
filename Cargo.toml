@@ -15,6 +15,7 @@ members = [
     "services/retina_rtsp",
     "services/router",
     "services/buffer_ng",
+    "services/meta_merge",
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",

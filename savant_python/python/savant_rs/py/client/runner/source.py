@@ -2,15 +2,21 @@ import asyncio
 from dataclasses import dataclass
 from typing import AsyncIterable, Iterable, Optional, Set, Tuple, Union
 
-from savant_rs.pipeline import (StageFunction, VideoPipeline,
-                                VideoPipelineConfiguration,
-                                VideoPipelineStagePayloadType)
-from savant_rs.primitives import (EndOfStream, Shutdown, VideoFrame,
-                                  VideoFrameBatch)
+from savant_rs.pipeline import (
+    StageFunction,
+    VideoPipeline,
+    VideoPipelineConfiguration,
+    VideoPipelineStagePayloadType,
+)
+from savant_rs.primitives import EndOfStream, Shutdown, VideoFrame, VideoFrameBatch
 from savant_rs.utils import TelemetrySpan
 from savant_rs.utils.serialization import Message, clear_source_seq_id
-from savant_rs.zmq import (BlockingWriter, NonBlockingWriter, WriterConfig,
-                           WriterConfigBuilder)
+from savant_rs.zmq import (
+    BlockingWriter,
+    NonBlockingWriter,
+    WriterConfig,
+    WriterConfigBuilder,
+)
 
 from ...log import get_logger
 from ...utils.zeromq import Defaults
@@ -80,9 +86,9 @@ class SourceRunner:
         self._last_send_time = 0
         self._writer = self._build_zeromq_writer(config)
 
-        self._pipeline_stage_name = 'savant-client'
+        self._pipeline_stage_name = "savant-client"
         self._pipeline = VideoPipeline(
-            'savant-client',
+            "savant-client",
             [
                 (
                     self._pipeline_stage_name,
@@ -98,7 +104,7 @@ class SourceRunner:
         self._writer.start()
 
     def __del__(self):
-        logger.info('Terminating ZeroMQ connection')
+        logger.info("Terminating ZeroMQ connection")
         self._writer.shutdown()
 
     def __call__(self, source: Source, send_eos: bool = True) -> SourceResult:
@@ -132,7 +138,7 @@ class SourceRunner:
         if send_eos:
             for source_id in result.source_ids:
                 self.send_eos(source_id)
-        result.status = 'ok'
+        result.status = "ok"
 
         return result
 
@@ -174,8 +180,8 @@ class SourceRunner:
 
         message, result = self._prepare_eos(source_id)
         self._send_zmq_message(source_id, message)
-        logger.debug('Sent EOS for source %s.', source_id)
-        result.status = 'ok'
+        logger.debug("Sent EOS for source %s.", source_id)
+        result.status = "ok"
         clear_source_seq_id(source_id)
         return result
 
@@ -192,8 +198,8 @@ class SourceRunner:
 
         message, result = self._prepare_shutdown(zmq_topic, auth)
         self._send_zmq_message(zmq_topic, message)
-        logger.debug('Sent Shutdown message for source %s.', zmq_topic)
-        result.status = 'ok'
+        logger.debug("Sent Shutdown message for source %s.", zmq_topic)
+        result.status = "ok"
 
         return result
 
@@ -207,7 +213,7 @@ class SourceRunner:
 
         zmq_topic, message, content, result = self._prepare_video_frame(source)
         self._send_zmq_message(zmq_topic, message, content)
-        logger.debug('Sent video frame %s/%s.', zmq_topic, result.pts)
+        logger.debug("Sent video frame %s/%s.", zmq_topic, result.pts)
 
         return result
 
@@ -221,11 +227,11 @@ class SourceRunner:
 
         message, result = self._prepare_batch(zmq_topic, source)
         self._send_zmq_message(zmq_topic, message)
-        logger.debug('Sent video frame batch to source %s.', zmq_topic)
+        logger.debug("Sent video frame batch to source %s.", zmq_topic)
 
         return result
 
-    def _send_zmq_message(self, topic: str, message: Message, content: bytes = b''):
+    def _send_zmq_message(self, topic: str, message: Message, content: bytes = b""):
         self._writer.send_message(topic, message, content)
 
     def _build_zeromq_writer(self, config: WriterConfig):
@@ -233,11 +239,11 @@ class SourceRunner:
 
     def _prepare_video_frame(self, source: Frame):
         if isinstance(source, FrameSource):
-            logger.debug('Sending video frame from source %s.', source)
+            logger.debug("Sending video frame from source %s.", source)
             video_frame, content = source.build_frame()
         else:
             video_frame, content = source
-            logger.debug('Sending video frame from source %s.', video_frame.source_id)
+            logger.debug("Sending video frame from source %s.", video_frame.source_id)
         frame_id = self._pipeline.add_frame(self._pipeline_stage_name, video_frame)
         message = video_frame.to_message()
         if self._telemetry_enabled:
@@ -255,7 +261,7 @@ class SourceRunner:
             SourceResult(
                 source_ids={video_frame.source_id},
                 pts=video_frame.pts,
-                status='',
+                status="",
                 trace_id=trace_id,
                 log_provider=self._log_provider,
             ),
@@ -264,7 +270,7 @@ class SourceRunner:
     def _prepare_batch(
         self, source_id: str, batch: Batch
     ) -> Tuple[Message, SourceResult]:
-        logger.debug('Sending video frame batch to source %s.', source_id)
+        logger.debug("Sending video frame batch to source %s.", source_id)
         message = Message.video_frame_batch(batch)
 
         source_ids = set()
@@ -276,14 +282,14 @@ class SourceRunner:
             SourceResult(
                 source_ids=source_ids,
                 pts=None,
-                status='',
+                status="",
                 trace_id=None,
                 log_provider=self._log_provider,
             ),
         )
 
     def _prepare_eos(self, source_id: str) -> Tuple[Message, SourceResult]:
-        logger.debug('Sending EOS for source %s.', source_id)
+        logger.debug("Sending EOS for source %s.", source_id)
         message = EndOfStream(source_id).to_message()
 
         return (
@@ -291,7 +297,7 @@ class SourceRunner:
             SourceResult(
                 source_ids={source_id},
                 pts=None,
-                status='',
+                status="",
                 trace_id=None,
                 log_provider=self._log_provider,
             ),
@@ -300,7 +306,7 @@ class SourceRunner:
     def _prepare_shutdown(
         self, source_id: str, auth: str
     ) -> Tuple[Message, SourceResult]:
-        logger.debug('Sending Shutdown message for source %s.', source_id)
+        logger.debug("Sending Shutdown message for source %s.", source_id)
         message = Shutdown(auth).to_message()
 
         return (
@@ -308,7 +314,7 @@ class SourceRunner:
             SourceResult(
                 source_ids={source_id},
                 pts=None,
-                status='',
+                status="",
                 trace_id=None,
                 log_provider=self._log_provider,
             ),
@@ -321,7 +327,7 @@ class AsyncSourceRunner(SourceRunner):
     _writer: NonBlockingWriter
 
     def __del__(self):
-        logger.info('Terminating ZeroMQ connection')
+        logger.info("Terminating ZeroMQ connection")
         self._writer.shutdown()
 
     async def __call__(self, source: Source, send_eos: bool = True) -> SourceResult:
@@ -340,7 +346,7 @@ class AsyncSourceRunner(SourceRunner):
         if send_eos:
             for source_id in result.source_ids:
                 await self.send_eos(source_id)
-        result.status = 'ok'
+        result.status = "ok"
 
         return result
 
@@ -370,8 +376,8 @@ class AsyncSourceRunner(SourceRunner):
 
         message, result = self._prepare_eos(source_id)
         await self._send_zmq_message(source_id, message)
-        logger.debug('Sent EOS for source %s.', source_id)
-        result.status = 'ok'
+        logger.debug("Sent EOS for source %s.", source_id)
+        result.status = "ok"
         clear_source_seq_id(source_id)
         return result
 
@@ -381,27 +387,27 @@ class AsyncSourceRunner(SourceRunner):
 
         message, result = self._prepare_shutdown(zmq_topic, auth)
         await self._send_zmq_message(zmq_topic, message)
-        logger.debug('Sent Shutdown message for source %s.', zmq_topic)
-        result.status = 'ok'
+        logger.debug("Sent Shutdown message for source %s.", zmq_topic)
+        result.status = "ok"
 
         return result
 
     async def _send_frame(self, source: Frame) -> SourceResult:
         zmq_topic, message, content, result = self._prepare_video_frame(source)
         await self._send_zmq_message(zmq_topic, message, content)
-        logger.debug('Sent video frame %s/%s.', zmq_topic, result.pts)
+        logger.debug("Sent video frame %s/%s.", zmq_topic, result.pts)
 
         return result
 
     async def _send_batch(self, zmq_topic: str, source: Batch) -> SourceResult:
         message, result = self._prepare_batch(zmq_topic, source)
         await self._send_zmq_message(zmq_topic, message)
-        logger.debug('Sent video frame batch to source %s.', zmq_topic)
+        logger.debug("Sent video frame batch to source %s.", zmq_topic)
 
         return result
 
     async def _send_zmq_message(
-        self, topic: str, message: Message, content: bytes = b''
+        self, topic: str, message: Message, content: bytes = b""
     ):
         while not self._writer.has_capacity():
             await asyncio.sleep(0.01)  # TODO: make configurable

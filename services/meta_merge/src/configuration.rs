@@ -7,22 +7,23 @@ use serde::{Deserialize, Serialize};
 use twelf::{config, Layer};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum EosPolicy {
+    Allow,
+    Deny,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IngressConfiguration {
     pub name: String,
     pub socket: SourceConfiguration,
     pub handler: Option<String>,
+    pub eos_policy: Option<EosPolicy>,
 }
-
-const DEFAULT_HIGH_WATERMARK: f64 = 0.9;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EgressConfiguration {
-    pub name: String,
     pub socket: SinkConfiguration,
-    pub high_watermark: Option<f64>,
-    pub matcher: Option<String>,
-    pub source_mapper: Option<String>,
-    pub topic_mapper: Option<String>,
 }
 
 pub const DEFAULT_NAME_CACHE_TTL: Duration = Duration::from_secs(1);
@@ -45,10 +46,25 @@ pub struct HandlerInitConfiguration {
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CallbacksConfiguration {
+    pub on_merge: String,
+    pub on_head_expire: String,
+    pub on_head_ready: String,
+    pub on_late_arrival: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QueueConfiguration {
+    pub max_duration: Duration,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
     pub name_cache: Option<NameCacheConfiguration>,
     pub init: Option<HandlerInitConfiguration>,
+    pub callbacks: Option<CallbacksConfiguration>,
     pub idle_sleep: Option<Duration>,
+    pub queue: Option<QueueConfiguration>,
 }
 
 impl Default for NameCacheConfiguration {
@@ -64,7 +80,7 @@ impl Default for NameCacheConfiguration {
 #[derive(Debug, Serialize, Clone)]
 pub struct ServiceConfiguration {
     pub ingress: Vec<IngressConfiguration>,
-    pub egress: Vec<EgressConfiguration>,
+    pub egress: EgressConfiguration,
     pub common: CommonConfiguration,
 }
 
@@ -84,11 +100,15 @@ impl ServiceConfiguration {
             return Err(anyhow::anyhow!("{} is not a directory", python_root));
         }
 
-        self.egress.iter_mut().for_each(|egress| {
-            if egress.high_watermark.is_none() {
-                egress.high_watermark = Some(DEFAULT_HIGH_WATERMARK);
-            }
-        });
+        // check that allow policy is set no more than once
+        let allow_policy_count = self
+            .ingress
+            .iter()
+            .filter(|ingress| matches!(ingress.eos_policy, Some(EosPolicy::Allow)))
+            .count();
+        if allow_policy_count > 1 {
+            log::warn!("The eos_policy == 'allow' is set more than once which can lead to multiple EOS delivery to downstream services.");
+        }
 
         Ok(())
     }

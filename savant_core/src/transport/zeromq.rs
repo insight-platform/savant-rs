@@ -601,7 +601,7 @@ mod integration_tests {
         let path = "/tmp/test/req_rep";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("rep+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
@@ -622,8 +622,8 @@ mod integration_tests {
             tx.send(res).unwrap();
         });
 
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &mut m, &[])?;
         assert!(
             matches!(res, WriterResult::Ack {receive_retries_spent, send_retries_spent, time_spent: _} if receive_retries_spent == 0 && send_retries_spent == 0)
         );
@@ -650,7 +650,7 @@ mod integration_tests {
         let path = "/tmp/test/dealer-router";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("router+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
@@ -671,8 +671,8 @@ mod integration_tests {
             tx.send(res).unwrap();
         });
 
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &mut m, &[])?;
         assert!(matches!(
             res,
             WriterResult::Success {
@@ -702,7 +702,7 @@ mod integration_tests {
         let path = "/tmp/test/dealer-router-wrong-topic";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("router+bind:ipc://{path}"))?
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("fo".to_string()))?
@@ -724,8 +724,8 @@ mod integration_tests {
             tx.send(res).unwrap();
         });
 
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &mut m, &[])?;
         assert!(matches!(
             res,
             WriterResult::Success {
@@ -736,8 +736,8 @@ mod integration_tests {
         let res = rx.recv().unwrap()?;
         assert!(matches!(res, ReaderResult::PrefixMismatch { .. }));
 
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test2", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test2", &mut m, &[])?;
         assert!(matches!(
             res,
             WriterResult::Success {
@@ -757,7 +757,7 @@ mod integration_tests {
         let path = "/tmp/test/pub-sub";
         std::fs::remove_dir_all(path).unwrap_or_default();
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("sub+bind:ipc://{path}"))?
                 .with_fix_ipc_permissions(Some(0o777))?
@@ -785,7 +785,7 @@ mod integration_tests {
                 .build()?,
         )?;
 
-        let reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
+        let mut reader = Reader::<NoopResponder, ZmqSocketProvider>::new(
             &ReaderConfig::new()
                 .url(&format!("sub+connect:ipc://{path}"))?
                 .with_receive_timeout(500)?
@@ -802,8 +802,8 @@ mod integration_tests {
             let res = reader.receive();
             tx.send(res).unwrap();
         });
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &mut m, &[])?;
         assert!(matches!(res, WriterResult::Success { .. }));
         let res = rx.recv().unwrap()?;
         assert!(
@@ -833,8 +833,8 @@ mod integration_tests {
                 .build()?,
         )?;
 
-        let m = Message::video_frame(&gen_frame());
-        let res = writer.send_message("test", &m, &[])?;
+        let mut m = Message::video_frame(&gen_frame());
+        let res = writer.send_message("test", &mut m, &[])?;
         assert!(matches!(res, WriterResult::SendTimeout));
         Ok(())
     }

@@ -9,11 +9,11 @@ from savant_rs.logging import LogLevel, set_log_level
 from .const import DEFAULT_LOGLEVEL, LOGGING_PREFIX
 
 LOG_LEVEL_STR_TO_RS = {
-    'error': LogLevel.Error,
-    'warn': LogLevel.Warning,
-    'info': LogLevel.Info,
-    'debug': LogLevel.Debug,
-    'trace': LogLevel.Trace,
+    "error": LogLevel.Error,
+    "warn": LogLevel.Warning,
+    "info": LogLevel.Info,
+    "debug": LogLevel.Debug,
+    "trace": LogLevel.Trace,
 }
 
 
@@ -24,18 +24,17 @@ def parse_log_spec(log_spec_str: str) -> dict:
         of the form target=level.
     :return:  A dictionary of the form log_target:log_level.
     """
-    log_spec_str = log_spec_str.strip(string.whitespace + ',')
-    log_spec_str = log_spec_str.replace('::', '.')
+    log_spec_str = log_spec_str.strip(string.whitespace + ",")
+    log_spec_str = log_spec_str.replace("::", ".")
     log_spec_dict = {}
-    for log_directive in log_spec_str.split(','):
+    for log_directive in log_spec_str.split(","):
         # consecutive commas will result in empty strings
         # skip them
         if log_directive:
-
-            eq_num = log_directive.count('=')
+            eq_num = log_directive.count("=")
 
             if eq_num == 1:
-                target, level = log_directive.split('=')
+                target, level = log_directive.split("=")
             elif eq_num == 0:
                 # no = sign, i.e. only target or only level
                 if log_directive.lower() in LOG_LEVEL_STR_TO_RS:
@@ -57,7 +56,7 @@ def parse_log_spec(log_spec_str: str) -> dict:
 
 def get_default_log_spec() -> dict:
     """Get default logging specification."""
-    log_spec_str = os.environ.get('LOGLEVEL', DEFAULT_LOGLEVEL)
+    log_spec_str = os.environ.get("LOGLEVEL", DEFAULT_LOGLEVEL)
     return parse_log_spec(log_spec_str)
 
 
@@ -68,7 +67,7 @@ def set_savant_rs_loglevel(log_spec_dict: dict):
     :param log_spec_dict: A dictionary of the form log_target:log_level.
     """
 
-    log_level_order = ['trace', 'debug', 'info', 'warn', 'error']
+    log_level_order = ["trace", "debug", "info", "warn", "error"]
 
     def get_lowest_level():
         for log_level in log_level_order:
@@ -87,27 +86,27 @@ def get_log_conf(log_spec_dict: dict) -> dict:
     :return: Logging configuration dictionary.
     """
     main_level = log_spec_dict.pop(LOGGING_PREFIX, DEFAULT_LOGLEVEL)
-    loggers = {LOGGING_PREFIX: {'level': main_level.upper(), 'handlers': ['savantrs']}}
+    loggers = {LOGGING_PREFIX: {"level": main_level.upper(), "handlers": ["savantrs"]}}
 
     for target, level in log_spec_dict.items():
         if target.startswith(LOGGING_PREFIX):
             handlers = []
         else:
-            handlers = ['savantrs']
+            handlers = ["savantrs"]
         loggers[target] = {
-            'level': level.upper(),
-            'handlers': handlers,
+            "level": level.upper(),
+            "handlers": handlers,
         }
 
     return {
-        'version': 1,
-        'formatters': {},
-        'handlers': {
-            'savantrs': {
-                'class': 'savant_rs.py.log.savant_rs_handler.SavantRsLoggingHandler',
+        "version": 1,
+        "formatters": {},
+        "handlers": {
+            "savantrs": {
+                "class": "savant_rs.py.log.savant_rs_handler.SavantRsLoggingHandler",
             },
         },
-        'loggers': loggers,
+        "loggers": loggers,
     }
 
 
@@ -122,25 +121,25 @@ def add_logging_level(
     """
 
     def for_logger_adapter(self, msg, *args, **kwargs):
-        kwargs.setdefault('exc_info', exc_info)
-        kwargs.setdefault('stack_info', stack_info)
+        kwargs.setdefault("exc_info", exc_info)
+        kwargs.setdefault("stack_info", stack_info)
         self.log(level_num, msg, *args, **kwargs)
 
     def for_logger_class(self, msg, *args, **kwargs):
         if self.isEnabledFor(level_num):
-            kwargs.setdefault('exc_info', exc_info)
-            kwargs.setdefault('stack_info', stack_info)
+            kwargs.setdefault("exc_info", exc_info)
+            kwargs.setdefault("stack_info", stack_info)
             self._log(level_num, msg, args, **kwargs)
 
     def for_logging_module(*args, **kwargs):
-        kwargs.setdefault('exc_info', exc_info)
-        kwargs.setdefault('stack_info', stack_info)
+        kwargs.setdefault("exc_info", exc_info)
+        kwargs.setdefault("stack_info", stack_info)
         logging.log(level_num, *args, **kwargs)
 
     if not method_name:
         method_name = level_name.lower()
     if method_name == level_name:
-        raise ValueError('Method name must differ from level name')
+        raise ValueError("Method name must differ from level name")
 
     def check_conflict(conflict, message):
         if conflict:
@@ -150,18 +149,18 @@ def add_logging_level(
     def check_func_conflict(func, name, original_name, is_func, target):
         conflict = not (
             callable(func)
-            and getattr(func, '_original_name', None) == original_name
-            and getattr(func, '_exc_info', None) == exc_info
-            and getattr(func, '_stack_info', None) == stack_info
+            and getattr(func, "_original_name", None) == original_name
+            and getattr(func, "_exc_info", None) == exc_info
+            and getattr(func, "_stack_info", None) == stack_info
         )
         return check_conflict(
             conflict,
-            '{} {!r} already defined in {}'.format(
-                'Function' if is_func else 'Method', name, target
+            "{} {!r} already defined in {}".format(
+                "Function" if is_func else "Method", name, target
             ),
         )
 
-    if '_acquireLock' in dir(logging):
+    if "_acquireLock" in dir(logging):
         logging._acquireLock()
 
     try:
@@ -175,14 +174,14 @@ def add_logging_level(
         if registered_num is not None:
             check_conflict(
                 registered_num != level_num,
-                'Level {!r} already registered in logging module'.format(level_name),
+                "Level {!r} already registered in logging module".format(level_name),
             )
 
         current_level = getattr(logging, level_name, None)
         if current_level is not None:
             check_conflict(
                 current_level != level_num,
-                'Level {!r} already defined in logging module'.format(level_name),
+                "Level {!r} already defined in logging module".format(level_name),
             )
 
         logging_func = getattr(logging, method_name, None)
@@ -192,7 +191,7 @@ def add_logging_level(
                 method_name,
                 for_logging_module.__name__,
                 True,
-                'logging module',
+                "logging module",
             )
 
         logger_method = getattr(logger_class, method_name, None)
@@ -202,7 +201,7 @@ def add_logging_level(
                 method_name,
                 for_logger_class.__name__,
                 False,
-                'logger class',
+                "logger class",
             )
 
         adapter_method = getattr(logger_adapter, method_name, None)
@@ -212,7 +211,7 @@ def add_logging_level(
                 method_name,
                 for_logger_adapter.__name__,
                 False,
-                'logger adapter',
+                "logger adapter",
             )
 
         # Make sure the method names are set to sensible values, but
@@ -234,5 +233,5 @@ def add_logging_level(
         setattr(logger_class, method_name, for_logger_class)
         setattr(logger_adapter, method_name, for_logger_adapter)
     finally:
-        if '_releaseLock' in dir(logging):
+        if "_releaseLock" in dir(logging):
             logging._releaseLock()

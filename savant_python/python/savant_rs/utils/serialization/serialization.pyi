@@ -1,7 +1,13 @@
 from typing import Optional, Union
 
-from savant_rs.primitives import (EndOfStream, Shutdown, UserData, VideoFrame,
-                                  VideoFrameBatch, VideoFrameUpdate)
+from savant_rs.primitives import (
+    EndOfStream,
+    Shutdown,
+    UserData,
+    VideoFrame,
+    VideoFrameBatch,
+    VideoFrameUpdate,
+)
 from savant_rs.utils import ByteBuffer
 
 __all__ = [

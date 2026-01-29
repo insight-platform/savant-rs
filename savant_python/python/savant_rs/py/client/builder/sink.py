@@ -63,51 +63,51 @@ class SinkBuilder:
         self._source_id = source_id
         self._source_id_prefix = source_id_prefix
 
-    def with_socket(self, socket: str) -> 'SinkBuilder':
+    def with_socket(self, socket: str) -> "SinkBuilder":
         """Set ZeroMQ socket for Sink."""
-        return self._with_field('socket', socket)
+        return self._with_field("socket", socket)
 
-    def with_log_provider(self, log_provider: LogProvider) -> 'SinkBuilder':
+    def with_log_provider(self, log_provider: LogProvider) -> "SinkBuilder":
         """Set log provider for Sink."""
-        return self._with_field('log_provider', log_provider)
+        return self._with_field("log_provider", log_provider)
 
-    def with_idle_timeout(self, idle_timeout: Optional[int]) -> 'SinkBuilder':
+    def with_idle_timeout(self, idle_timeout: Optional[int]) -> "SinkBuilder":
         """Set idle timeout for Sink.
 
         Sink will stop trying to receive a message from ZeroMQ socket when it
         did not receive a message for idle_timeout seconds.
         """
-        return self._with_field('idle_timeout', idle_timeout)
+        return self._with_field("idle_timeout", idle_timeout)
 
-    def with_module_health_check_url(self, url: str) -> 'SinkBuilder':
+    def with_module_health_check_url(self, url: str) -> "SinkBuilder":
         """Set module health check url for Sink.
 
         Sink will check the module health before receiving any messages.
         """
-        return self._with_field('module_health_check_url', url)
+        return self._with_field("module_health_check_url", url)
 
-    def with_module_health_check_timeout(self, timeout: float) -> 'SinkBuilder':
+    def with_module_health_check_timeout(self, timeout: float) -> "SinkBuilder":
         """Set module health check timeout for Sink.
 
         Sink will wait for the module to be ready for the specified timeout.
         """
-        return self._with_field('module_health_check_timeout', timeout)
+        return self._with_field("module_health_check_timeout", timeout)
 
-    def with_module_health_check_interval(self, interval: float) -> 'SinkBuilder':
+    def with_module_health_check_interval(self, interval: float) -> "SinkBuilder":
         """Set module health check interval for Sink.
 
         Sink will check the module health every specified interval.
         """
-        return self._with_field('module_health_check_interval', interval)
+        return self._with_field("module_health_check_interval", interval)
 
-    def with_source_id(self, source_id: Optional[str]) -> 'SinkBuilder':
+    def with_source_id(self, source_id: Optional[str]) -> "SinkBuilder":
         """Set source id for Sink.
 
         Sink will filter messages by source id.
         """
-        return self._with_field('source_id', source_id)
+        return self._with_field("source_id", source_id)
 
-    def with_source_id_prefix(self, source_id_prefix: Optional[str]) -> 'SinkBuilder':
+    def with_source_id_prefix(self, source_id_prefix: Optional[str]) -> "SinkBuilder":
         """Set source id prefix for Sink.
 
         Sink will filter messages by source id prefix.
@@ -115,14 +115,14 @@ class SinkBuilder:
         Note: source_id and source_id_prefix are mutually exclusive.
         If both are set, source_id will be used.
         """
-        return self._with_field('source_id_prefix', source_id_prefix)
+        return self._with_field("source_id_prefix", source_id_prefix)
 
     def build(self) -> SinkRunner:
         """Build Sink."""
 
-        assert self._socket is not None, 'socket is required'
+        assert self._socket is not None, "socket is required"
         logger.debug(
-            'Building sink with socket %s and log provider %s.',
+            "Building sink with socket %s and log provider %s.",
             self._socket,
             self._log_provider,
         )
@@ -140,9 +140,9 @@ class SinkBuilder:
     def build_async(self) -> AsyncSinkRunner:
         """Build async Sink."""
 
-        assert self._socket is not None, 'socket is required'
+        assert self._socket is not None, "socket is required"
         logger.debug(
-            'Building async sink with socket %s and log provider %s.',
+            "Building async sink with socket %s and log provider %s.",
             self._socket,
             self._log_provider,
         )
@@ -159,28 +159,28 @@ class SinkBuilder:
 
     def __repr__(self):
         return (
-            f'SinkBuilder('
-            f'socket={self._socket}, '
-            f'log_provider={self._log_provider}, '
-            f'idle_timeout={self._idle_timeout}, '
-            f'module_health_check_url={self._module_health_check_url}, '
-            f'module_health_check_timeout={self._module_health_check_timeout}, '
-            f'module_health_check_interval={self._module_health_check_interval}, '
-            f'source_id={self._source_id}, '
-            f'source_id_prefix={self._source_id_prefix})'
+            f"SinkBuilder("
+            f"socket={self._socket}, "
+            f"log_provider={self._log_provider}, "
+            f"idle_timeout={self._idle_timeout}, "
+            f"module_health_check_url={self._module_health_check_url}, "
+            f"module_health_check_timeout={self._module_health_check_timeout}, "
+            f"module_health_check_interval={self._module_health_check_interval}, "
+            f"source_id={self._source_id}, "
+            f"source_id_prefix={self._source_id_prefix})"
         )
 
-    def _with_field(self, field: str, value) -> 'SinkBuilder':
+    def _with_field(self, field: str, value) -> "SinkBuilder":
         return SinkBuilder(
             **{
-                'socket': self._socket,
-                'log_provider': self._log_provider,
-                'idle_timeout': self._idle_timeout,
-                'module_health_check_url': self._module_health_check_url,
-                'module_health_check_timeout': self._module_health_check_timeout,
-                'module_health_check_interval': self._module_health_check_interval,
-                'source_id': self._source_id,
-                'source_id_prefix': self._source_id_prefix,
+                "socket": self._socket,
+                "log_provider": self._log_provider,
+                "idle_timeout": self._idle_timeout,
+                "module_health_check_url": self._module_health_check_url,
+                "module_health_check_timeout": self._module_health_check_timeout,
+                "module_health_check_interval": self._module_health_check_interval,
+                "source_id": self._source_id,
+                "source_id_prefix": self._source_id_prefix,
                 field: value,
             }
         )

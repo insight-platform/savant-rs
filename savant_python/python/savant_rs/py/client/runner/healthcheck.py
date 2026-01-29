@@ -33,17 +33,17 @@ class HealthCheck:
     def check(self) -> Optional[str]:
         """Check the health of the module."""
 
-        logger.debug('Checking module status.')
+        logger.debug("Checking module status.")
         try:
             response = requests.get(self._url)
         except RequestException as e:
-            logger.warning('Health check failed. Error: %s.', e)
+            logger.warning("Health check failed. Error: %s.", e)
             return None
 
         if response.status_code != HTTPStatus.OK:
             logger.warning(
-                'Health check failed (Expected HTTP 200 OK): '
-                'unexpected HTTP status code: %s.',
+                "Health check failed (Expected HTTP 200 OK): "
+                "unexpected HTTP status code: %s.",
                 response.status_code,
             )
             return None
@@ -52,16 +52,16 @@ class HealthCheck:
             status = response.json()
         except JSONDecodeError:
             logger.warning(
-                'Failed to decode JSON status. Raw health check status: %s',
+                "Failed to decode JSON status. Raw health check status: %s",
                 response.text,
             )
             status = None
 
         if not status:
-            logger.debug('Module has no status yet.')
+            logger.debug("Module has no status yet.")
             return None
 
-        logger.debug('Module status: %s.', status)
+        logger.debug("Module status: %s.", status)
         return status
 
     def wait_module_is_ready(self):
@@ -72,10 +72,10 @@ class HealthCheck:
             self._last_check_ts = time.time()
 
         time_limit = time.time() + self._wait_timeout
-        while self._last_status != 'running':
+        while self._last_status != "running":
             if time.time() > time_limit:
                 raise TimeoutError(
-                    f'Module is not ready after {self._wait_timeout} seconds.'
+                    f"Module is not ready after {self._wait_timeout} seconds."
                 )
             time.sleep(self._check_interval)
             self._last_status = self.check()
@@ -95,10 +95,10 @@ class HealthCheck:
             self._last_check_ts = time.time()
 
         time_limit = time.time() + self._wait_timeout
-        while self._last_status != 'running':
+        while self._last_status != "running":
             if time.time() > time_limit:
                 raise TimeoutError(
-                    f'Module is not ready after {self._wait_timeout} seconds.'
+                    f"Module is not ready after {self._wait_timeout} seconds."
                 )
             await asyncio.sleep(self._check_interval)
             self._last_status = await self.async_check()

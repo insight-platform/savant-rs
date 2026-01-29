@@ -7,11 +7,19 @@ from typing import List, NamedTuple, Optional, Union
 
 from ..log import get_logger
 from savant_rs.utils.serialization import Message
-from savant_rs.zmq import (BlockingReader, NonBlockingReader, ReaderConfig,
-                           ReaderConfigBuilder, ReaderResultBlacklisted,
-                           ReaderResultMessage, ReaderResultPrefixMismatch,
-                           ReaderResultTimeout, ReaderSocketType,
-                           TopicPrefixSpec, WriterSocketType)
+from savant_rs.zmq import (
+    BlockingReader,
+    NonBlockingReader,
+    ReaderConfig,
+    ReaderConfigBuilder,
+    ReaderResultBlacklisted,
+    ReaderResultMessage,
+    ReaderResultPrefixMismatch,
+    ReaderResultTimeout,
+    ReaderSocketType,
+    TopicPrefixSpec,
+    WriterSocketType,
+)
 
 from .re_patterns import socket_uri_pattern
 
@@ -74,7 +82,7 @@ class BaseZeroMQSource(ABC):
         blacklist_ttl: int = Defaults.BLACKLIST_TTL,
     ):
         logger.debug(
-            'Initializing ZMQ source: socket %s',
+            "Initializing ZMQ source: socket %s",
             socket,
         )
 
@@ -100,10 +108,10 @@ class BaseZeroMQSource(ABC):
         """Start ZeroMQ source."""
 
         if self.is_started:
-            logger.warning('ZeroMQ source is already started.')
+            logger.warning("ZeroMQ source is already started.")
             return
 
-        logger.info('Starting ZMQ source.')
+        logger.info("Starting ZMQ source.")
         self.reader.start()
 
     @property
@@ -120,25 +128,25 @@ class BaseZeroMQSource(ABC):
             return ZeroMQMessage(
                 result.topic,
                 result.message,
-                b''.join(result.data(i) for i in range(result.data_len())),
+                b"".join(result.data(i) for i in range(result.data_len())),
             )
         elif isinstance(result, ReaderResultTimeout):
-            logger.debug('Timeout exceeded when receiving the next frame')
+            logger.debug("Timeout exceeded when receiving the next frame")
         elif isinstance(result, ReaderResultPrefixMismatch):
-            logger.debug('Skipping message from topic %s', result.topic)
+            logger.debug("Skipping message from topic %s", result.topic)
         elif isinstance(result, ReaderResultBlacklisted):
-            logger.debug('Skipping blacklisted message from topic %s', result.topic)
+            logger.debug("Skipping blacklisted message from topic %s", result.topic)
 
         return None
 
     def terminate(self):
         """Finish and free zmq socket."""
         if not self.is_started:
-            logger.warning('ZeroMQ source is not started.')
+            logger.warning("ZeroMQ source is not started.")
             return
-        logger.info('Terminating ZeroMQ context.')
+        logger.info("Terminating ZeroMQ context.")
         self.reader.shutdown()
-        logger.info('ZeroMQ context terminated')
+        logger.info("ZeroMQ context terminated")
 
     @abstractmethod
     def _create_zmq_reader(self, config: ReaderConfig):
@@ -154,7 +162,7 @@ class ZeroMQSource(BaseZeroMQSource):
         """Try to receive next message."""
 
         if not self.reader.is_started():
-            raise RuntimeError('ZeroMQ source is not started.')
+            raise RuntimeError("ZeroMQ source is not started.")
 
         result = self.reader.receive()
         return self._build_result(result)
@@ -189,7 +197,7 @@ class AsyncZeroMQSource(ZeroMQSource):
         """Try to receive next message."""
 
         if not self.reader.is_started():
-            raise RuntimeError('ZeroMQ source is not started.')
+            raise RuntimeError("ZeroMQ source is not started.")
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, self.reader.try_receive)

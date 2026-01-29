@@ -3,12 +3,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
 
-from savant_rs.primitives import (EndOfStream, VideoFrame, VideoFrameBatch,
-                                  VideoFrameContent)
+from savant_rs.primitives import (
+    EndOfStream,
+    VideoFrame,
+    VideoFrameBatch,
+    VideoFrameContent,
+)
 
 from ...log import get_logger
-from ...utils.zeromq import (AsyncZeroMQSource, Defaults, ZeroMQMessage,
-                             ZeroMQSource)
+from ...utils.zeromq import AsyncZeroMQSource, Defaults, ZeroMQMessage, ZeroMQSource
 from ..log_provider import LogProvider
 from .healthcheck import HealthCheck
 from .log_result import LogResult
@@ -66,7 +69,7 @@ class BaseSinkRunner(ABC):
         self._source.start()
 
     def __del__(self):
-        logger.info('Terminating ZeroMQ connection')
+        logger.info("Terminating ZeroMQ connection")
         self._source.terminate()
 
     @abstractmethod
@@ -87,13 +90,13 @@ class BaseSinkRunner(ABC):
     def _handle_message(self, zmq_message: ZeroMQMessage):
         message = zmq_message.message
         message.validate_seq_id()
-        trace_id: Optional[str] = message.span_context.as_dict().get('uber-trace-id')
+        trace_id: Optional[str] = message.span_context.as_dict().get("uber-trace-id")
         if trace_id is not None:
-            trace_id = trace_id.split(':', 1)[0]
+            trace_id = trace_id.split(":", 1)[0]
         if message.is_video_frame():
             video_frame: VideoFrame = message.as_video_frame()
             logger.debug(
-                'Received video frame %s/%s.',
+                "Received video frame %s/%s.",
                 video_frame.source_id,
                 video_frame.pts,
             )
@@ -115,7 +118,7 @@ class BaseSinkRunner(ABC):
         if message.is_video_frame_batch():
             video_frame_batch = message.as_video_frame_batch()
             logger.debug(
-                'Received video frame batch with %s frames.',
+                "Received video frame batch with %s frames.",
                 len(video_frame_batch.frames),
             )
             return SinkResult(
@@ -129,7 +132,7 @@ class BaseSinkRunner(ABC):
 
         if message.is_end_of_stream():
             eos: EndOfStream = message.as_end_of_stream()
-            logger.debug('Received EOS from source %s.', eos.source_id)
+            logger.debug("Received EOS from source %s.", eos.source_id)
             return SinkResult(
                 frame_meta=None,
                 frame_content=None,
@@ -139,7 +142,7 @@ class BaseSinkRunner(ABC):
                 log_provider=self._log_provider,
             )
 
-        raise Exception('Unknown message type')
+        raise Exception("Unknown message type")
 
 
 class SinkRunner(BaseSinkRunner):

@@ -3,16 +3,22 @@ from threading import Thread, current_thread
 
 import savant_rs
 from savant_rs.logging import LogLevel, log, log_level_enabled, set_log_level
-from savant_rs.pipeline import (StageFunction, VideoPipeline,
-                                VideoPipelineConfiguration,
-                                VideoPipelineStagePayloadType)
+from savant_rs.pipeline import (
+    StageFunction,
+    VideoPipeline,
+    VideoPipelineConfiguration,
+    VideoPipelineStagePayloadType,
+)
 
 set_log_level(LogLevel.Trace)
 
 
 from savant_rs.match_query import MatchQuery as Q
-from savant_rs.primitives import (AttributeUpdatePolicy, ObjectUpdatePolicy,
-                                  VideoFrameUpdate)
+from savant_rs.primitives import (
+    AttributeUpdatePolicy,
+    ObjectUpdatePolicy,
+    VideoFrameUpdate,
+)
 from savant_rs.utils import TelemetrySpan, enable_dl_detection, gen_frame
 
 # LOGLEVEL=info,a=error,a.b=debug python python/pipeline.py

@@ -1,0 +1,77 @@
+{
+    "ingress": [
+        {
+            "name": "ingress1",
+            "socket": {
+                "url": "router+bind:tcp://127.0.0.1:6667",
+                "options": {
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_hwm": 1000,
+                    "topic_prefix_spec": "none",
+                    "source_cache_size": 1000,
+                    "fix_ipc_permissions": 511,
+                    "inflight_ops": 100
+                }
+            },
+            "eos_policy": "allow"
+        },
+        {
+            "name": "ingress2",
+            "socket": {
+                "url": "router+bind:tcp://127.0.0.1:6668",
+                "options": {
+                    "receive_timeout": {
+                        "secs": 1,
+                        "nanos": 0
+                    },
+                    "receive_hwm": 1000,
+                    "topic_prefix_spec": "none",
+                    "source_cache_size": 1000,
+                    "fix_ipc_permissions": 511,
+                    "inflight_ops": 100
+                }
+            },
+            "eos_policy": "deny"
+        }
+
+    ],
+    "egress": {
+        "socket": {
+            "url": "dealer+bind:tcp://127.0.0.1:3333"
+        }
+    },
+    "common": {
+        "init": {
+            "python_root": "${PYTHON_MODULE_ROOT:-services/meta_merge/assets/python}",
+            "module_name": "module",
+            "function_name": "init",
+            "args": [
+                {
+                    "params": {
+                        "home_dir": "${HOME}",
+                        "user_name": "${USER}"
+                    }
+                }
+            ]
+        },
+        "callbacks": {
+            "on_merge": "merge_handler",
+            "on_head_expire": "head_expire_handler",
+            "on_head_ready": "head_ready_handler",
+            "on_late_arrival": "late_arrival_handler"
+        },
+        "idle_sleep": {
+            "secs": 0,
+            "nanos": 1000
+        },
+        "queue": {
+            "max_duration": {
+                "secs": 5,
+                "nanos": 0
+            }
+        }
+    }
+}

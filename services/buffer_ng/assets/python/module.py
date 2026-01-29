@@ -13,9 +13,7 @@ class MessageHandler:
         self.count = 0
         self.now = time()
 
-    def __call__(
-        self, topic: str, message: Message
-    ) -> (str, Message):
+    def __call__(self, topic: str, message: Message) -> (str, Message):
         """
         This handler is called for each message received from the ingress.
 
@@ -38,4 +36,4 @@ def init(params: Any) -> Callable:
     log(LogLevel.Info, "buffer_ng::init", "Buffer NG service initialized successfully")
     # True means that the service is initialized successfully and can start processing messages
     return MessageHandler()
-    #return None
+    # return None

@@ -16,6 +16,7 @@ impl From<&Message> for generated::Message {
             routing_labels: m.meta().routing_labels.clone(),
             propagated_context: m.meta().span_context.0.clone(),
             seq_id: m.meta().seq_id,
+            system_id: m.meta().system_id.clone(),
             content: Some(m.payload().into()),
         }
     }
@@ -37,6 +38,7 @@ impl TryFrom<&generated::Message> for Message {
             routing_labels,
             span_context: propagated_context,
             seq_id,
+            system_id: m.system_id.clone(),
         };
 
         let message_content = m
@@ -71,8 +73,8 @@ mod tests {
 
     #[test]
     fn test_eos_message() {
-        let source = "source_id".to_string();
-        let eos = crate::message::Message::end_of_stream(EndOfStream::new(source.clone()));
+        let source = "source_id";
+        let eos = crate::message::Message::end_of_stream(EndOfStream::new(source));
         let serialized = serialize(&eos).unwrap();
         let restored = deserialize(&serialized).unwrap();
         assert_eq!(eos.meta.seq_id, restored.meta.seq_id);
@@ -80,7 +82,7 @@ mod tests {
         assert_eq!(eos.meta.span_context.0, restored.meta.span_context.0);
         assert_eq!(eos.meta.protocol_version, restored.meta.protocol_version);
         assert!(
-            matches!(eos.payload(), crate::message::MessageEnvelope::EndOfStream(EndOfStream {source_id: v}) if v == &source),
+            matches!(eos.payload(), crate::message::MessageEnvelope::EndOfStream(EndOfStream {source_id}) if source_id == source),
         );
     }
 }

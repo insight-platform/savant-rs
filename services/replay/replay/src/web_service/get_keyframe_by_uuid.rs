@@ -128,7 +128,11 @@ pub async fn get_keyframe_by_uuid(
                 query.metadata_format
             );
 
-            match build_multipart_response(&frame_data.message, &frame_data.data, query.metadata_format) {
+            match build_multipart_response(
+                &frame_data.message,
+                &frame_data.data,
+                query.metadata_format,
+            ) {
                 Ok((boundary, body)) => HttpResponse::Ok()
                     .content_type(format!("multipart/mixed; boundary={}", boundary))
                     .body(body),

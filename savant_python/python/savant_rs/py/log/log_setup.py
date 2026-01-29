@@ -7,8 +7,13 @@ from typing import Optional
 from savant_rs.logging import LogLevel
 
 from .const import LOGGING_PREFIX
-from .log_utils import (add_logging_level, get_default_log_spec, get_log_conf,
-                        parse_log_spec, set_savant_rs_loglevel)
+from .log_utils import (
+    add_logging_level,
+    get_default_log_spec,
+    get_log_conf,
+    parse_log_spec,
+    set_savant_rs_loglevel,
+)
 from .savant_rs_handler import LOG_LEVEL_PY_TO_RS
 
 
@@ -29,7 +34,7 @@ def init_logging(log_spec_str: Optional[str] = None):
         pass
 
     # add custom TRACE logging level
-    add_logging_level('TRACE', logging.DEBUG - 5)
+    add_logging_level("TRACE", logging.DEBUG - 5)
     LOG_LEVEL_PY_TO_RS[logging.TRACE] = LogLevel.Trace
 
     if log_spec_str is None:
@@ -52,7 +57,7 @@ def get_logger(name: str) -> logging.Logger:
     :return: Logger instance.
     """
     # prevent modules from the main savant package having savant.savant prefix
-    logger_name = '.'.join((LOGGING_PREFIX, name)).replace('savant.savant.', 'savant.')
+    logger_name = ".".join((LOGGING_PREFIX, name)).replace("savant.savant.", "savant.")
     return logging.getLogger(logger_name)
 
 

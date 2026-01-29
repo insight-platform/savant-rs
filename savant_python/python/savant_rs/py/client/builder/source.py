@@ -57,56 +57,56 @@ class SourceBuilder:
         self._module_health_check_interval = module_health_check_interval
         self._telemetry_enabled = telemetry_enabled
 
-    def with_socket(self, socket: str) -> 'SourceBuilder':
+    def with_socket(self, socket: str) -> "SourceBuilder":
         """Set ZeroMQ socket for Source."""
-        return self._with_field('socket', socket)
+        return self._with_field("socket", socket)
 
-    def with_log_provider(self, log_provider) -> 'SourceBuilder':
+    def with_log_provider(self, log_provider) -> "SourceBuilder":
         """Set log provider for Source."""
-        return self._with_field('log_provider', log_provider)
+        return self._with_field("log_provider", log_provider)
 
-    def with_retries(self, retries: int) -> 'SourceBuilder':
+    def with_retries(self, retries: int) -> "SourceBuilder":
         """Set number of retries for Source.
 
         Source retries to send message to ZeroMQ socket if it fails.
         """
-        return self._with_field('retries', retries)
+        return self._with_field("retries", retries)
 
-    def with_module_health_check_url(self, url: str) -> 'SourceBuilder':
+    def with_module_health_check_url(self, url: str) -> "SourceBuilder":
         """Set module health check url for Source.
 
         Source will check the module health before receiving any messages.
         """
-        return self._with_field('module_health_check_url', url)
+        return self._with_field("module_health_check_url", url)
 
-    def with_module_health_check_timeout(self, timeout: float) -> 'SourceBuilder':
+    def with_module_health_check_timeout(self, timeout: float) -> "SourceBuilder":
         """Set module health check timeout for Source.
 
         Source will wait for the module to be ready for the specified timeout.
         """
-        return self._with_field('module_health_check_timeout', timeout)
+        return self._with_field("module_health_check_timeout", timeout)
 
-    def with_module_health_check_interval(self, interval: float) -> 'SourceBuilder':
+    def with_module_health_check_interval(self, interval: float) -> "SourceBuilder":
         """Set module health check interval for Source.
 
         Source will check the module health every specified interval.
         """
-        return self._with_field('module_health_check_interval', interval)
+        return self._with_field("module_health_check_interval", interval)
 
-    def with_telemetry_enabled(self) -> 'SourceBuilder':
+    def with_telemetry_enabled(self) -> "SourceBuilder":
         """Enable telemetry for Source."""
-        return self._with_field('telemetry_enabled', True)
+        return self._with_field("telemetry_enabled", True)
 
-    def with_telemetry_disabled(self) -> 'SourceBuilder':
+    def with_telemetry_disabled(self) -> "SourceBuilder":
         """Disable telemetry for Source."""
-        return self._with_field('telemetry_enabled', False)
+        return self._with_field("telemetry_enabled", False)
 
     def build(self) -> SourceRunner:
         """Build Source."""
 
-        assert self._socket is not None, 'socket is required'
+        assert self._socket is not None, "socket is required"
         logger.debug(
-            'Building source with socket %s and log provider %s.',
+            "Building source with socket %s and log provider %s.",
             self._socket,
             self._log_provider,
         )
@@ -123,9 +123,9 @@ class SourceBuilder:
     def build_async(self) -> AsyncSourceRunner:
         """Build async Source."""
 
-        assert self._socket is not None, 'socket is required'
+        assert self._socket is not None, "socket is required"
         logger.debug(
-            'Building async source with socket %s and log provider %s.',
+            "Building async source with socket %s and log provider %s.",
             self._socket,
             self._log_provider,
         )
@@ -141,26 +141,26 @@ class SourceBuilder:
 
     def __repr__(self):
         return (
-            f'SourceBuilder('
-            f'socket={self._socket}, '
-            f'log_provider={self._log_provider},'
-            f'retries={self._retries},'
-            f'module_health_check_url={self._module_health_check_url}, '
-            f'module_health_check_timeout={self._module_health_check_timeout}, '
-            f'module_health_check_interval={self._module_health_check_interval}, '
-            f'telemetry_enabled={self._telemetry_enabled})'
+            f"SourceBuilder("
+            f"socket={self._socket}, "
+            f"log_provider={self._log_provider},"
+            f"retries={self._retries},"
+            f"module_health_check_url={self._module_health_check_url}, "
+            f"module_health_check_timeout={self._module_health_check_timeout}, "
+            f"module_health_check_interval={self._module_health_check_interval}, "
+            f"telemetry_enabled={self._telemetry_enabled})"
         )
 
-    def _with_field(self, field: str, value) -> 'SourceBuilder':
+    def _with_field(self, field: str, value) -> "SourceBuilder":
         return SourceBuilder(
             **{
-                'socket': self._socket,
-                'log_provider': self._log_provider,
-                'retries': self._retries,
-                'module_health_check_url': self._module_health_check_url,
-                'module_health_check_timeout': self._module_health_check_timeout,
-                'module_health_check_interval': self._module_health_check_interval,
-                'telemetry_enabled': self._telemetry_enabled,
+                "socket": self._socket,
+                "log_provider": self._log_provider,
+                "retries": self._retries,
+                "module_health_check_url": self._module_health_check_url,
+                "module_health_check_timeout": self._module_health_check_timeout,
+                "module_health_check_interval": self._module_health_check_interval,
+                "telemetry_enabled": self._telemetry_enabled,
                 field: value,
             }
         )

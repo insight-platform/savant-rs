@@ -5,8 +5,7 @@ from savant_rs.draw_spec import SetDrawLabelKind
 from savant_rs.match_query import MatchQuery
 from savant_rs.primitives import *
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.primitives.video_object import (BorrowedVideoObject,
-                                               VideoObjectTree)
+from savant_rs.primitives.video_object import BorrowedVideoObject, VideoObjectTree
 from savant_rs.utils import VideoObjectBBoxTransformation
 from savant_rs.utils.serialization import Message
 
