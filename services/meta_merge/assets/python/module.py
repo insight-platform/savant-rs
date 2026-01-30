@@ -10,12 +10,12 @@ from savant_rs.utils.serialization import Message
 class MergeHandler:
     def __call__(
         self,
-        ingress_name: str,
+        ingress: str,
         topic: str,
-        current: VideoFrame,
-        current_labels: list[str],
-        current_data: list[bytes],
-        incoming: Optional[VideoFrame],
+        video_frame: VideoFrame,
+        labels: list[str],
+        data: list[bytes],
+        incoming_video_frame: Optional[VideoFrame],
         incoming_labels: Optional[list[str]],
         incoming_data: Optional[list[bytes]],
     ) -> bool:
@@ -23,15 +23,15 @@ class MergeHandler:
         This handler is called for each message received from the ingress.
         The current frame should be updated until the merging is considered as complete. When it is complete, the handler should return True.
 
-        :param ingress_name: name of the ingress that received the message
-        :param topic: ZMQ topic of the message if any
-        :param current: current video frame
-        :param current_labels: labels currently assigned to the current frame
-        :param current_data: data currently assigned to the current frame
-        :param incoming: incoming video frame or None if the frame is the first one (automatically becomes the current frame and can be updated)
+        :param ingress: name of the ingress that received the message
+        :param topic: ZMQ topic of the current frame if any
+        :param video_frame: current video frame. This parameter must be updated with the incoming video frame.
+        :param labels: labels currently assigned to the current frame. This parameter must be updated with the incoming labels.
+        :param data: data currently assigned to the current frame. This parameter must be updated with the incoming data.
+        :param incoming_video_frame: incoming video frame or None if the frame is the first one (automatically becomes the current frame and can be updated)
         :param incoming_labels: labels of the incoming frame or None if the frame is the first one
         :param incoming_data: data elements of the incoming frame or None if the frame is the first one
-        :return: True if the merging is complete and can be sent to the egress
+        :return: True if the merging is considered as complete and can be sent to the egress
         """
         return False
 
