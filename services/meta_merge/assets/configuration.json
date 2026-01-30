@@ -21,22 +21,10 @@
         {
             "name": "ingress2",
             "socket": {
-                "url": "router+bind:tcp://127.0.0.1:6668",
-                "options": {
-                    "receive_timeout": {
-                        "secs": 1,
-                        "nanos": 0
-                    },
-                    "receive_hwm": 1000,
-                    "topic_prefix_spec": "none",
-                    "source_cache_size": 1000,
-                    "fix_ipc_permissions": 511,
-                    "inflight_ops": 100
-                }
+                "url": "router+bind:tcp://127.0.0.1:6668"
             },
             "eos_policy": "deny"
         }
-
     ],
     "egress": {
         "socket": {
@@ -61,7 +49,8 @@
             "on_merge": "merge_handler",
             "on_head_expire": "head_expire_handler",
             "on_head_ready": "head_ready_handler",
-            "on_late_arrival": "late_arrival_handler"
+            "on_late_arrival": "late_arrival_handler",
+            "on_unsupported_message": "unsupported_message_handler"
         },
         "idle_sleep": {
             "secs": 0,

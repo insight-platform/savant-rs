@@ -51,6 +51,7 @@ pub struct CallbacksConfiguration {
     pub on_head_expire: String,
     pub on_head_ready: String,
     pub on_late_arrival: String,
+    pub on_unsupported_message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,7 +63,7 @@ pub struct QueueConfiguration {
 pub struct CommonConfiguration {
     pub name_cache: Option<NameCacheConfiguration>,
     pub init: Option<HandlerInitConfiguration>,
-    pub callbacks: Option<CallbacksConfiguration>,
+    pub callbacks: CallbacksConfiguration,
     pub idle_sleep: Option<Duration>,
     pub queue: Option<QueueConfiguration>,
 }
@@ -107,7 +108,7 @@ impl ServiceConfiguration {
             .filter(|ingress| matches!(ingress.eos_policy, Some(EosPolicy::Allow)))
             .count();
         if allow_policy_count > 1 {
-            log::warn!("The eos_policy == 'allow' is set more than once which can lead to multiple EOS delivery to downstream services.");
+            anyhow::bail!("The eos_policy == 'allow' is set more than once which can lead to multiple EOS delivery to downstream services.")
         }
 
         Ok(())

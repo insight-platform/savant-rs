@@ -1,8 +1,10 @@
 mod configuration;
-//mod ingress;
+mod egress;
+mod ingress;
 
 use anyhow::{anyhow, Result};
 use configuration::ServiceConfiguration;
+use ingress::Ingress;
 use log::{debug, info};
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
@@ -82,26 +84,25 @@ fn main() -> Result<()> {
             module_name
         ));
     }
-    Ok(())
 
-    // let mut ingress = Ingress::new(&conf)?;
+    let mut ingress = Ingress::new(&conf)?;
 
-    // loop {
-    //     let messages = ingress.get()?;
-    //     if messages.is_empty() {
-    //         std::thread::sleep(conf.common.idle_sleep.unwrap());
-    //         debug!(
-    //             "No messages received, sleeping for {:?}",
-    //             conf.common.idle_sleep.unwrap()
-    //         );
-    //         continue;
-    //     }
-    //     for ingress_message in messages {
-    //         let topic = &ingress_message.topic;
-    //         let message = &ingress_message.message;
-    //         let data_bind = &ingress_message.data;
-    //         let data = data_bind.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
-    //         egress.process(ingress_message.message_id, topic, message, &data)?;
-    //     }
-    // }
+    loop {
+        let messages = ingress.get()?;
+        if messages.is_empty() {
+            std::thread::sleep(conf.common.idle_sleep.unwrap());
+            debug!(
+                "No messages received, sleeping for {:?}",
+                conf.common.idle_sleep.unwrap()
+            );
+            continue;
+        }
+        for ingress_message in messages {
+            let topic = &ingress_message.topic;
+            let message = &ingress_message.message;
+            let data_bind = &ingress_message.data;
+            let data = data_bind.iter().map(|p| p.as_slice()).collect::<Vec<_>>();
+            //egress.process(ingress_message.message_id, topic, message, &data)?;
+        }
+    }
 }

@@ -1,6 +1,9 @@
-use crate::configuration::ServiceConfiguration;
+use crate::configuration::{EosPolicy, ServiceConfiguration};
 use log::debug;
-use pyo3::Python;
+use pyo3::{
+    types::{PyBytes, PyList, PyTuple},
+    Python,
+};
 use savant_core::{
     message::Message,
     transport::zeromq::{NonBlockingReader, ReaderResult},
@@ -12,29 +15,28 @@ use savant_services_common::topic_to_string;
 struct IngressStream {
     name: String,
     socket: NonBlockingReader,
-    handler: Option<String>,
+    eos_policy: Option<EosPolicy>,
 }
 
 pub struct IngressMessage {
-    pub message_id: usize,
     pub topic: String,
     pub message: Box<Message>,
     pub data: Vec<Vec<u8>>,
 }
 
 impl IngressStream {
-    pub fn new(name: String, socket: NonBlockingReader, handler: Option<String>) -> Self {
+    pub fn new(name: String, socket: NonBlockingReader, eos_policy: Option<EosPolicy>) -> Self {
         Self {
             name,
             socket,
-            handler,
+            eos_policy,
         }
     }
 }
 
 pub struct Ingress {
     streams: Vec<IngressStream>,
-    counter: usize,
+    on_unsupported_message: Option<String>,
 }
 
 impl Ingress {
@@ -42,12 +44,13 @@ impl Ingress {
         let mut streams = Vec::new();
         for ingress in &config.ingress {
             let socket = NonBlockingReader::try_from(&ingress.socket)?;
-            let stream = IngressStream::new(ingress.name.clone(), socket, ingress.handler.clone());
+            let stream =
+                IngressStream::new(ingress.name.clone(), socket, ingress.eos_policy.clone());
             streams.push(stream);
         }
         Ok(Self {
             streams,
-            counter: 0,
+            on_unsupported_message: config.common.callbacks.on_unsupported_message.clone(),
         })
     }
 
@@ -66,41 +69,45 @@ impl Ingress {
                     routing_id: _,
                     data,
                 } => {
-                    let message_id = self.counter;
-                    self.counter += 1;
                     let topic = topic_to_string(&topic);
                     let ingress_stream_name = &stream.name;
-                    let handler_name_opt = &stream.handler;
-                    let message = if let Some(handler) = handler_name_opt {
-                        let message = PyMessage::new(*message);
-                        Python::attach(|py| {
-                            let handlers_bind = REGISTERED_HANDLERS.read();
-                            let handler = handlers_bind
-                                .get(handler.as_str())
-                                .unwrap_or_else(|| panic!("Handler {} not found", handler));
-                            let res = handler
-                                .call1(py, (message_id, ingress_stream_name, &topic, message))?;
-                            // is none, drop message
-                            if res.is_none(py) {
-                                Ok::<Option<Box<Message>>, anyhow::Error>(None)
-                            } else {
-                                let new_message = res.extract::<PyMessage>(py)?.extract();
-                                Ok::<Option<Box<Message>>, anyhow::Error>(Some(Box::new(
-                                    new_message,
-                                )))
-                            }
-                        })?
-                    } else {
-                        Some(Box::new(*message))
-                    };
-                    if let Some(message) = message {
+                    let eos_policy_opt = &stream.eos_policy;
+                    if message.is_video_frame()
+                        || (message.is_end_of_stream()
+                            && matches!(eos_policy_opt, Some(EosPolicy::Allow)))
+                    {
                         let message = IngressMessage {
-                            message_id,
                             topic,
                             message,
                             data,
                         };
                         messages.push(message);
+                    } else {
+                        if let Some(on_unsupported_message) = &self.on_unsupported_message {
+                            let message = PyMessage::new(*message);
+                            Python::attach(|py| {
+                                let handlers_bind = REGISTERED_HANDLERS.read();
+                                let handler = handlers_bind
+                                    .get(on_unsupported_message.as_str())
+                                    .unwrap_or_else(|| {
+                                        panic!(
+                                            "Python handler '{}' not found",
+                                            on_unsupported_message
+                                        )
+                                    });
+                                let mut pydata = Vec::new();
+                                for d in data {
+                                    pydata.push(
+                                        PyBytes::new_with(py, d.len(), |b: &mut [u8]| {
+                                            b.copy_from_slice(&d);
+                                            Ok(())
+                                        })
+                                        .expect("Failed to create PyBytes"),
+                                    );
+                                }
+                                handler.call1(py, (ingress_stream_name, &topic, message, &pydata))
+                            })?;
+                        }
                     }
                 }
                 ReaderResult::Timeout => {
