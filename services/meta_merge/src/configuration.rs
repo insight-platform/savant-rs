@@ -6,6 +6,9 @@ use savant_services_common::source::SourceConfiguration;
 use serde::{Deserialize, Serialize};
 use twelf::{config, Layer};
 
+const DEFAULT_MAX_DURATION: Duration = Duration::from_secs(5);
+pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(1);
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum EosPolicy {
@@ -26,9 +29,6 @@ pub struct EgressConfiguration {
     pub socket: SinkConfiguration,
 }
 
-pub const DEFAULT_NAME_CACHE_TTL: Duration = Duration::from_secs(1);
-pub const DEFAULT_NAME_CACHE_SIZE: usize = 1000;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NameCacheConfiguration {
     pub ttl: Duration,
@@ -43,8 +43,6 @@ pub struct HandlerInitConfiguration {
     pub args: Option<serde_json::Value>,
 }
 
-pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_millis(1);
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CallbacksConfiguration {
     pub on_merge: String,
@@ -54,27 +52,34 @@ pub struct CallbacksConfiguration {
     pub on_unsupported_message: Option<String>,
 }
 
+fn default_max_duration() -> Duration {
+    DEFAULT_MAX_DURATION
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QueueConfiguration {
+    #[serde(default = "default_max_duration")]
     pub max_duration: Duration,
+}
+
+fn default_queue_configuration() -> QueueConfiguration {
+    QueueConfiguration {
+        max_duration: DEFAULT_MAX_DURATION,
+    }
+}
+
+fn default_idle_sleep() -> Duration {
+    DEFAULT_IDLE_TIMEOUT
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommonConfiguration {
-    pub name_cache: Option<NameCacheConfiguration>,
     pub init: Option<HandlerInitConfiguration>,
     pub callbacks: CallbacksConfiguration,
-    pub idle_sleep: Option<Duration>,
-    pub queue: Option<QueueConfiguration>,
-}
-
-impl Default for NameCacheConfiguration {
-    fn default() -> Self {
-        Self {
-            ttl: DEFAULT_NAME_CACHE_TTL,
-            size: DEFAULT_NAME_CACHE_SIZE,
-        }
-    }
+    #[serde(default = "default_idle_sleep")]
+    pub idle_sleep: Duration,
+    #[serde(default = "default_queue_configuration")]
+    pub queue: QueueConfiguration,
 }
 
 #[config]
@@ -87,14 +92,6 @@ pub struct ServiceConfiguration {
 
 impl ServiceConfiguration {
     pub(crate) fn validate(&mut self) -> Result<()> {
-        if self.common.name_cache.is_none() {
-            self.common.name_cache = Some(NameCacheConfiguration::default());
-        }
-
-        if self.common.idle_sleep.is_none() {
-            self.common.idle_sleep = Some(DEFAULT_IDLE_TIMEOUT);
-        }
-
         let python_root = self.common.init.as_ref().unwrap().python_root.clone();
         let metadata = std::fs::metadata(&python_root)?;
         if !metadata.is_dir() {

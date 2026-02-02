@@ -90,10 +90,10 @@ fn main() -> Result<()> {
     loop {
         let messages = ingress.get()?;
         if messages.is_empty() {
-            std::thread::sleep(conf.common.idle_sleep.unwrap());
+            std::thread::sleep(conf.common.idle_sleep);
             debug!(
                 "No messages received, sleeping for {:?}",
-                conf.common.idle_sleep.unwrap()
+                conf.common.idle_sleep
             );
             continue;
         }
