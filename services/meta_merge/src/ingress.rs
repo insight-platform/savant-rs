@@ -1,9 +1,6 @@
 use crate::configuration::{EosPolicy, ServiceConfiguration};
 use log::debug;
-use pyo3::{
-    types::{PyBytes, PyList, PyTuple},
-    Python,
-};
+use pyo3::{types::PyBytes, Python};
 use savant_core::{
     message::Message,
     transport::zeromq::{NonBlockingReader, ReaderResult},

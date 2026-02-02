@@ -6,7 +6,11 @@ use std::{
 };
 
 use hashbrown::HashMap;
-use pyo3::types::{PyBytes, PyList, PyString};
+use pyo3::{types::PyList, Py};
+#[cfg(not(test))]
+use savant_core::utils::clock::clock::now as system_now;
+#[cfg(test)]
+use savant_core::utils::clock::mock_clock::now as system_now;
 use savant_core_py::primitives::{eos::EndOfStream, frame::VideoFrame};
 use uuid::Uuid;
 
@@ -18,11 +22,11 @@ enum EgressMessage {
     EndOfStream(EndOfStream),
 }
 struct EgressItem {
-    message: EgressMessage,
-    data: PyList,
-    labels: PyList,
-    arrival_time: SystemTime,
-    is_ready: bool,
+    pub message: EgressMessage,
+    pub data: Py<PyList>,
+    pub labels: Py<PyList>,
+    pub arrival_time: SystemTime,
+    pub is_ready: bool,
 }
 
 type EgressItemRef = Rc<RefCell<Option<EgressItem>>>;
@@ -42,13 +46,22 @@ impl EgressQueue {
         }
     }
 
-    pub fn push_frame(&mut self, video_frame: VideoFrame, data: PyList, labels: PyList) -> Uuid {
+    pub fn size(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn push_frame(
+        &mut self,
+        video_frame: VideoFrame,
+        data: Py<PyList>,
+        labels: Py<PyList>,
+    ) -> Uuid {
         let uuid = video_frame.0.get_uuid();
         let item = EgressItem {
             message: EgressMessage::VideoFrame(video_frame),
             data,
             labels,
-            arrival_time: SystemTime::now(),
+            arrival_time: system_now(),
             is_ready: false,
         };
         let index_obj = Rc::new(RefCell::new(Some(item)));
@@ -58,12 +71,12 @@ impl EgressQueue {
         uuid
     }
 
-    pub fn push_eos(&mut self, eos: EndOfStream, data: PyList, labels: PyList) {
+    pub fn push_eos(&mut self, eos: EndOfStream, data: Py<PyList>, labels: Py<PyList>) {
         let item = EgressItem {
             message: EgressMessage::EndOfStream(eos),
             data,
             labels,
-            arrival_time: SystemTime::now(),
+            arrival_time: system_now(),
             is_ready: true,
         };
         self.items.push_back(Rc::new(RefCell::new(Some(item))));
@@ -96,10 +109,22 @@ impl EgressQueue {
         Ok(())
     }
 
+    pub fn set_frame_ready(&mut self, uuid: Uuid) -> Result<()> {
+        let item = self
+            .index
+            .get(&uuid)
+            .ok_or_else(|| anyhow!("Item with UUID {} not found", uuid))?;
+        item.borrow_mut()
+            .as_mut()
+            .ok_or_else(|| anyhow!("Item with UUID {} is already taken", uuid))?
+            .is_ready = true;
+        Ok(())
+    }
+
     pub fn is_head_ready(&mut self) -> bool {
         if let Some(item) = self.items.front() {
             if let Some(item) = item.borrow().as_ref() {
-                item.arrival_time + self.max_duration < SystemTime::now() || item.is_ready
+                item.arrival_time + self.max_duration < system_now() || item.is_ready
             } else {
                 false
             }
@@ -115,5 +140,83 @@ impl EgressQueue {
         }
         let mut bind = front.borrow_mut();
         bind.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use pyo3::Python;
+    use savant_core::utils::clock::mock_clock::{advance_time_ms, reset_time};
+    use savant_core_py::primitives::eos::EndOfStream;
+    use savant_core_py::test::utils::gen_frame;
+
+    #[test]
+    fn test_egress_queue() -> Result<()> {
+        reset_time();
+        let mut queue = EgressQueue::new(Duration::from_secs(1));
+        let ready_frame = gen_frame();
+        let expired_frame = gen_frame();
+        let eos = EndOfStream::new("test".to_string());
+        Python::attach(|py| {
+            let uuid_ready = ready_frame.0.get_uuid();
+            let uuid_ready_pushed = queue.push_frame(
+                ready_frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            );
+            assert_eq!(uuid_ready_pushed, uuid_ready);
+
+            let uuid_expired = expired_frame.0.get_uuid();
+            let uuid_expired_pushed = queue.push_frame(
+                expired_frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            );
+            assert_eq!(uuid_expired_pushed, uuid_expired);
+
+            queue.push_eos(eos, PyList::empty(py).unbind(), PyList::empty(py).unbind());
+            assert_eq!(queue.size(), 3);
+
+            /// take and return frame
+            let egress_item = queue.take_frame(uuid_ready)?;
+            assert!(matches!(egress_item.message, EgressMessage::VideoFrame(_)));
+            // try to take one more time
+            let egress_item_err = queue.take_frame(uuid_ready);
+            assert!(egress_item_err.is_err());
+            queue.put_frame(egress_item)?;
+
+            queue.set_frame_ready(uuid_ready)?;
+            let head = queue.fetch_head();
+            assert!(head.is_some());
+            assert!(matches!(
+                head.unwrap().message,
+                EgressMessage::VideoFrame(_)
+            ));
+
+            assert!(queue.size() == 2);
+            assert!(!queue.is_head_ready());
+            advance_time_ms(1001);
+            assert!(queue.is_head_ready());
+            let head = queue.fetch_head();
+            assert!(head.is_some());
+            assert!(matches!(
+                head.unwrap().message,
+                EgressMessage::VideoFrame(_)
+            ));
+
+            assert!(queue.size() == 1);
+            assert!(queue.is_head_ready()); // EOS is ready immediately
+            let head = queue.fetch_head();
+            assert!(head.is_some());
+            assert!(matches!(
+                head.unwrap().message,
+                EgressMessage::EndOfStream(_)
+            ));
+            assert!(queue.size() == 0);
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(())
     }
 }
