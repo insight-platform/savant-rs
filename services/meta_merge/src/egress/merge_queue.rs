@@ -89,7 +89,6 @@ impl MergeQueue {
 
     pub fn push_frame(
         &mut self,
-        topic: String,
         video_frame: VideoFrame,
         data: Py<PyList>,
         labels: Py<PyList>,
@@ -107,7 +106,6 @@ impl MergeQueue {
 
         let item = EgressItem {
             uuid: Some(uuid),
-            topic,
             message: EgressMessage::VideoFrame(video_frame),
             data,
             labels,
@@ -120,7 +118,6 @@ impl MergeQueue {
 
     pub fn push_eos(
         &mut self,
-        topic: String,
         data: Py<PyList>,
         labels: Py<PyList>,
     ) -> Result<Uuid, MergeQueueError> {
@@ -134,7 +131,6 @@ impl MergeQueue {
 
         let item = EgressItem {
             uuid: Some(k),
-            topic,
             message: EgressMessage::EndOfStream,
             data,
             labels,
@@ -232,7 +228,6 @@ mod tests {
     #[test]
     fn test_merge_queue() -> Result<()> {
         reset_time();
-        let topic = "test".to_string();
         let mut queue = MergeQueue::new(Duration::from_secs(1));
         let late_frame = gen_frame();
         let ready_frame = gen_frame();
@@ -241,7 +236,6 @@ mod tests {
         Python::attach(|py| {
             let uuid_ready = ready_frame.0.get_uuid();
             let uuid_ready_pushed = queue.push_frame(
-                topic.clone(),
                 ready_frame,
                 PyList::empty(py).unbind(),
                 PyList::empty(py).unbind(),
@@ -251,7 +245,6 @@ mod tests {
             assert!(matches!(res, Ok(false)));
 
             let err = queue.push_frame(
-                topic.clone(),
                 ready_dup,
                 PyList::empty(py).unbind(),
                 PyList::empty(py).unbind(),
@@ -264,7 +257,6 @@ mod tests {
 
             let uuid_expired = expired_frame.0.get_uuid();
             let uuid_expired_pushed = queue.push_frame(
-                topic.clone(),
                 expired_frame,
                 PyList::empty(py).unbind(),
                 PyList::empty(py).unbind(),
@@ -272,18 +264,13 @@ mod tests {
             assert_eq!(uuid_expired_pushed, uuid_expired);
 
             let late_err = queue.push_frame(
-                topic.clone(),
                 late_frame,
                 PyList::empty(py).unbind(),
                 PyList::empty(py).unbind(),
             );
             assert!(late_err.is_err());
 
-            queue.push_eos(
-                topic.clone(),
-                PyList::empty(py).unbind(),
-                PyList::empty(py).unbind(),
-            )?;
+            queue.push_eos(PyList::empty(py).unbind(), PyList::empty(py).unbind())?;
             assert_eq!(queue.size(), 2);
 
             // take and return frame

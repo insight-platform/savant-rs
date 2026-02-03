@@ -33,7 +33,6 @@ pub(super) enum EgressMessage {
 
 pub(super) struct EgressItem {
     pub uuid: Option<Uuid>,
-    pub topic: String,
     pub message: EgressMessage,
     pub data: Py<PyList>,
     pub labels: Py<PyList>,
@@ -42,15 +41,9 @@ pub(super) struct EgressItem {
 }
 
 impl EgressItem {
-    pub fn new_frame(
-        topic: String,
-        frame: VideoFrame,
-        data: Py<PyList>,
-        labels: Py<PyList>,
-    ) -> Self {
+    pub fn new_frame(frame: VideoFrame, data: Py<PyList>, labels: Py<PyList>) -> Self {
         Self {
             uuid: None,
-            topic,
             message: EgressMessage::VideoFrame(frame),
             data,
             labels,
@@ -67,10 +60,9 @@ impl EgressItem {
         }
     }
 
-    pub fn new_eos(topic: String, data: Py<PyList>, labels: Py<PyList>) -> Self {
+    pub fn new_eos(data: Py<PyList>, labels: Py<PyList>) -> Self {
         Self {
             uuid: None,
-            topic,
             message: EgressMessage::EndOfStream,
             data,
             labels,
@@ -175,12 +167,11 @@ mod tests {
         Python::attach(|py| {
             let frame_data = PyList::empty(py).unbind();
             let frame_labels = PyList::empty(py).unbind();
-            let frame =
-                EgressItem::new_frame("test".to_string(), gen_frame(), frame_data, frame_labels);
+            let frame = EgressItem::new_frame(gen_frame(), frame_data, frame_labels);
 
             let eos_data = PyList::empty(py).unbind();
             let eos_labels = PyList::empty(py).unbind();
-            let eos = EgressItem::new_eos("test".to_string(), eos_data, eos_labels);
+            let eos = EgressItem::new_eos(eos_data, eos_labels);
             let payload = Payload::new(frame, Some(eos));
 
             let (frame, eos) = payload.deconstruct()?;
@@ -205,18 +196,13 @@ mod tests {
             let mut payload = Payload::new(frame, eos_opt);
             let new_frame_data = PyList::empty(py).unbind();
             let new_frame_labels = PyList::empty(py).unbind();
-            let new_frame = EgressItem::new_frame(
-                "test".to_string(),
-                gen_frame(),
-                new_frame_data,
-                new_frame_labels,
-            );
+            let new_frame = EgressItem::new_frame(gen_frame(), new_frame_data, new_frame_labels);
             let res = payload.set_frame(new_frame);
             assert!(matches!(res, Err(PayloadError::FrameAlreadyFilled(_))));
 
             let new_eos_data = PyList::empty(py).unbind();
             let new_eos_labels = PyList::empty(py).unbind();
-            let new_eos = EgressItem::new_eos("test".to_string(), new_eos_data, new_eos_labels);
+            let new_eos = EgressItem::new_eos(new_eos_data, new_eos_labels);
             let res = payload.set_eos(new_eos);
             assert!(matches!(res, Err(PayloadError::EosAlreadyFilled)));
 
