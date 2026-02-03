@@ -1,15 +1,18 @@
 use crate::configuration::ServiceConfiguration;
 
 mod merge_queue;
+mod payload;
 
-pub struct Egress {
-    queue: merge_queue::MergeQueue,
-}
+// mod merge_queue;
 
-impl Egress {
-    pub fn new(config: &ServiceConfiguration) -> Self {
-        Self {
-            queue: merge_queue::MergeQueue::new(config.common.queue.max_duration),
-        }
-    }
-}
+// pub struct Egress {
+//     queue: merge_queue::MergeQueue,
+// }
+
+// impl Egress {
+//     pub fn new(config: &ServiceConfiguration) -> Self {
+//         Self {
+//             queue: merge_queue::MergeQueue::new(config.common.queue.max_duration),
+//         }
+//     }
+// }

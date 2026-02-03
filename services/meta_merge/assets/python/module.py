@@ -44,9 +44,9 @@ class HeadExpiredHandler:
         :param frame: video frame that is expired
         :param labels: labels of the frame
         :param data: data elements of the frame
-        :return: message to be sent to the egress or None if the frame should be dropped
+        :return: True if send, False if drop
         """
-        return frame.to_message()
+        return True
 
 
 class HeadReadyHandler:
@@ -57,9 +57,9 @@ class HeadReadyHandler:
         :param frame: video frame that is ready
         :param labels: labels of the frame
         :param data: data elements of the frame
-        :return: message to be sent to the egress or None if the frame should be dropped
+        :return: True if send, False if drop
         """
-        return frame.to_message()
+        return True
 
 
 class LateArrivalHandler:
@@ -88,6 +88,19 @@ class UnsupportedMessageHandler:
         log(LogLevel.Info, "meta_merge::unsupported_message_handler",
             f"Unsupported message received from {ingress_name} on topic {topic}, message: {message}, data: {data}")
 
+class SendHandler:
+    def __call__(self, topic: str, message: Message, data: list[bytes], labels: list[str]):
+        """
+        This handler is called when a message is ready to be sent to the egress.
+
+        :param topic: topic of the message
+        :param message: message object, can be modified in place to add/remove labels, attributes, etc.
+        :param data: data elements of the message
+        :param labels: labels of the message
+        :return: True if send, False if drop
+        """
+        return True
+
 
 def init(params: Any):
     """
@@ -100,6 +113,7 @@ def init(params: Any):
     register_handler("late_arrival_handler", LateArrivalHandler())
     register_handler("unsupported_message_handler",
                      UnsupportedMessageHandler())
+    register_handler("send_handler", SendHandler())
     log(
         LogLevel.Info, "meta_merge::init", "Meta merge service initialized successfully"
     )

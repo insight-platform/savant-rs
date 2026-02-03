@@ -50,6 +50,7 @@ pub struct CallbacksConfiguration {
     pub on_head_ready: String,
     pub on_late_arrival: String,
     pub on_unsupported_message: Option<String>,
+    pub on_send: Option<String>,
 }
 
 fn default_max_duration() -> Duration {
