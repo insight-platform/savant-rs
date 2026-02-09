@@ -1,0 +1,57 @@
+[package]
+name = "deepstream_nvbufsurface"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Safe Rust API for NVIDIA DeepStream NvBufSurface buffer generation"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+pyo3 = { workspace = true, optional = true }
+savant_gstreamer = { workspace = true }
+
+# Skia rendering (optional)
+skia-safe = { version = "0.91", features = [
+    "gl",
+    "egl",
+    "textlayout",
+], optional = true }
+gl = { version = "0.14", optional = true }
+
+[build-dependencies]
+bindgen = { workspace = true }
+pyo3-build-config = { workspace = true }
+
+[features]
+default = []
+python = ["pyo3"]
+skia = ["dep:skia-safe", "dep:gl"]
+
+[dev-dependencies]
+env_logger = "0.11"
+clap = { workspace = true }
+ctrlc = { workspace = true }
+
+[[example]]
+name = "nvmm_pipeline"
+
+[[example]]
+name = "nvmm_python_pipeline"
+
+[[example]]
+name = "skia_pipeline"
+required-features = ["skia"]

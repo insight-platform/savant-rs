@@ -9,7 +9,7 @@
             "REMOTE_GID": "${localEnv:REMOTE_GID:1000}"
         },
         "target": "devcontainer",
-        "context": "."
+        "context": ".."
     },
     "runArgs": [
         "--gpus",

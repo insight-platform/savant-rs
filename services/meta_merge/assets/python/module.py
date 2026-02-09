@@ -7,37 +7,57 @@ from typing import Optional
 from savant_rs.utils.serialization import Message
 
 
+# this is just an interface for type hints, it must not be used in the code
+class EgressItem:
+    @property
+    def video_frame(self) -> VideoFrame:
+        ...
+    @video_frame.setter
+    def video_frame(self, video_frame: VideoFrame):
+        ...
+    @property
+    def state(self) -> dict[str, Any]:
+        ...
+    @state.setter
+    def state(self, state: dict[str, Any]):
+        ...
+    @property
+    def data(self) -> list[bytes]:
+        ...
+    @data.setter
+    def data(self, data: list[bytes]):
+        ...
+    @property
+    def labels(self) -> list[str]:
+        ...
+    @labels.setter
+    def labels(self, labels: list[str]):
+        ...
+
+
 class MergeHandler:
     def __call__(
         self,
-        ingress: str,
+        ingress_name: str,
         topic: str,
-        video_frame: VideoFrame,
-        labels: list[str],
-        data: list[bytes],
-        incoming_video_frame: Optional[VideoFrame],
-        incoming_labels: Optional[list[str]],
-        incoming_data: Optional[list[bytes]],
+        current_state: EgressItem,
+        incoming_state: Optional[EgressItem],
     ) -> bool:
         """
         This handler is called for each message received from the ingress.
         The current frame should be updated until the merging is considered as complete. When it is complete, the handler should return True.
 
-        :param ingress: name of the ingress that received the message
+        :param ingress_name: name of the ingress that received the message
         :param topic: ZMQ topic of the current frame if any
-        :param video_frame: current video frame. This parameter must be updated with the incoming video frame.
-        :param labels: labels currently assigned to the current frame. This parameter must be updated with the incoming labels.
-        :param data: data currently assigned to the current frame. This parameter must be updated with the incoming data.
-        :param incoming_video_frame: incoming video frame or None if the frame is the first one (automatically becomes the current frame and can be updated)
-        :param incoming_labels: labels of the incoming frame or None if the frame is the first one
-        :param incoming_data: data elements of the incoming frame or None if the frame is the first one
+        :param current_state: current state of the egress item
+        :param incoming_state: incoming state of the egress item, can be None if the frame is the first one (automatically becomes the current frame and can be updated)
         :return: True if the merging is considered as complete and can be sent to the egress
         """
         return False
 
 
 class HeadExpiredHandler:
-    def __call__(self, frame: VideoFrame, labels: list[str], data: list[bytes]) -> Optional[Message]:
+    def __call__(self, state: EgressItem) -> Optional[Message]:
         """
         This handler is called when the head of the queue is expired.
 
@@ -50,7 +70,7 @@ class HeadExpiredHandler:
 
 
 class HeadReadyHandler:
-    def __call__(self, frame: VideoFrame, labels: list[str], data: list[bytes]) -> Optional[Message]:
+    def __call__(self, state: EgressItem) -> Optional[Message]:
         """
         This handler is called when the head of the queue is ready.
 
@@ -63,7 +83,7 @@ class HeadReadyHandler:
 
 
 class LateArrivalHandler:
-    def __call__(self, frame: VideoFrame, labels: list[str], data: list[bytes]):
+    def __call__(self, state: EgressItem):
         """
         This handler is called when a new frame is late.
 
@@ -89,17 +109,18 @@ class UnsupportedMessageHandler:
             f"Unsupported message received from {ingress_name} on topic {topic}, message: {message}, data: {data}")
 
 class SendHandler:
-    def __call__(self, topic: str, message: Message, data: list[bytes], labels: list[str]):
+    def __call__(self, message: Message, message_state: Optional[dict[Any, Any]], data: list[bytes], labels: list[str]) -> Optional[str]:
         """
         This handler is called when a message is ready to be sent to the egress.
 
         :param topic: topic of the message
-        :param message: message object, can be modified in place to add/remove labels, attributes, etc.
+        :param message: message object (VideoFrame or EndOfStream), can be modified in place to add/remove labels, attributes, etc.
         :param data: data elements of the message
         :param labels: labels of the message
-        :return: True if send, False if drop
+        :return: Optional[str] topic of the message to be sent to the egress if any, 
+                 None if the default topic should be used equal to the source id
         """
-        return True
+        return None
 
 
 def init(params: Any):

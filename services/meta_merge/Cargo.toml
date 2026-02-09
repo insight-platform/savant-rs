@@ -12,6 +12,14 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "meta_merge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "meta_merge"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 ctrlc = { workspace = true }
@@ -29,3 +37,10 @@ serde_json = { workspace = true }
 twelf = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "bench_merge_queue"
+harness = false

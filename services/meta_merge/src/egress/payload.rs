@@ -1,11 +1,11 @@
-use std::{
-    cell::RefCell,
-    collections::BTreeMap,
-    rc::Rc,
-    time::{Duration, SystemTime},
-};
+use std::time::SystemTime;
 
-use pyo3::{types::PyList, Py};
+use pyo3::{
+    exceptions::PyValueError,
+    pyclass,
+    types::{PyDict, PyList},
+    Py, PyResult, Python,
+};
 #[cfg(not(test))]
 use savant_core::utils::clock::clock::now as system_now;
 #[cfg(test)]
@@ -31,24 +31,55 @@ pub(super) enum EgressMessage {
     EndOfStream,
 }
 
-pub(super) struct EgressItem {
+#[pyclass]
+#[pyo3(name = "EgressItem")]
+pub struct EgressItemPy {
+    pub video_frame: VideoFrame,
+    pub state: Py<PyDict>,
+    pub data: Py<PyList>,
+    pub labels: Py<PyList>,
+}
+
+pub struct EgressItem {
     pub uuid: Option<Uuid>,
     pub message: EgressMessage,
+    pub state: Py<PyDict>,
     pub data: Py<PyList>,
     pub labels: Py<PyList>,
     pub arrival_time: SystemTime,
     pub is_ready: bool,
 }
 
-impl EgressItem {
-    pub fn new_frame(frame: VideoFrame, data: Py<PyList>, labels: Py<PyList>) -> Self {
+impl Default for EgressItem {
+    fn default() -> Self {
+        let (state, data, labels) = Python::attach(|py| {
+            (
+                PyDict::new(py).unbind(),
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            )
+        });
+
         Self {
             uuid: None,
-            message: EgressMessage::VideoFrame(frame),
+            state,
+            message: EgressMessage::EndOfStream,
             data,
             labels,
             arrival_time: system_now(),
             is_ready: false,
+        }
+    }
+}
+
+impl EgressItem {
+    pub fn new_frame(frame: VideoFrame, data: Py<PyList>, labels: Py<PyList>) -> Self {
+        Self {
+            uuid: Some(frame.0.get_uuid()),
+            message: EgressMessage::VideoFrame(frame),
+            data,
+            labels,
+            ..Default::default()
         }
     }
 
@@ -62,13 +93,38 @@ impl EgressItem {
 
     pub fn new_eos(data: Py<PyList>, labels: Py<PyList>) -> Self {
         Self {
-            uuid: None,
+            data,
+            labels,
+            is_ready: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_eos_with_uuid(uuid: Uuid, data: Py<PyList>, labels: Py<PyList>) -> Self {
+        Self {
+            uuid: Some(uuid),
             message: EgressMessage::EndOfStream,
             data,
             labels,
-            arrival_time: system_now(),
-            is_ready: true,
+            ..Default::default()
         }
+    }
+
+    pub fn to_py(&self) -> PyResult<Py<EgressItemPy>> {
+        Python::attach(|py| match &self.message {
+            EgressMessage::VideoFrame(frame) => Py::new(
+                py,
+                EgressItemPy {
+                    video_frame: frame.clone(),
+                    state: self.state.clone_ref(py),
+                    data: self.data.clone_ref(py),
+                    labels: self.labels.clone_ref(py),
+                },
+            ),
+            _ => Err(PyValueError::new_err(
+                "Invalid message type, the operation is supported only for video frames",
+            )),
+        })
     }
 }
 
@@ -210,99 +266,3 @@ mod tests {
         })
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use anyhow::Result;
-//     use pyo3::Python;
-//     use savant_core::utils::clock::mock_clock::{advance_time_ms, reset_time};
-//     use savant_core_py::primitives::eos::EndOfStream;
-//     use savant_core_py::test::utils::gen_frame;
-
-//     #[test]
-//     fn test_merge_queue() -> Result<()> {
-//         reset_time();
-//         let mut queue = MergeQueue::new(Duration::from_secs(1));
-//         let late_frame = gen_frame();
-//         let ready_frame = gen_frame();
-//         let expired_frame = gen_frame();
-//         Python::attach(|py| {
-//             let uuid_ready = ready_frame.0.get_uuid();
-//             let uuid_ready_pushed = queue.push_frame(
-//                 ready_frame,
-//                 PyList::empty(py).unbind(),
-//                 PyList::empty(py).unbind(),
-//             )?;
-//             assert_eq!(uuid_ready_pushed, uuid_ready);
-//             let res = queue.is_late(uuid_ready);
-//             assert!(matches!(res, Ok(false)));
-
-//             let uuid_expired = expired_frame.0.get_uuid();
-//             let uuid_expired_pushed = queue.push_frame(
-//                 expired_frame,
-//                 PyList::empty(py).unbind(),
-//                 PyList::empty(py).unbind(),
-//             )?;
-//             assert_eq!(uuid_expired_pushed, uuid_expired);
-
-//             let late_err = queue.push_frame(
-//                 late_frame,
-//                 PyList::empty(py).unbind(),
-//                 PyList::empty(py).unbind(),
-//             );
-//             assert!(late_err.is_err());
-
-//             queue.push_eos(PyList::empty(py).unbind(), PyList::empty(py).unbind());
-//             assert_eq!(queue.size(), 3);
-
-//             // take and return frame
-//             let egress_item = queue.take_frame(uuid_ready)?;
-//             assert!(matches!(egress_item.message, EgressMessage::VideoFrame(_)));
-//             // try to take one more time (must fail)
-//             let egress_item_err = queue.take_frame(uuid_ready);
-//             assert!(egress_item_err.is_err());
-//             let head_uuid = queue.front_uuid();
-//             assert!(head_uuid.is_err());
-
-//             queue.put_frame(egress_item)?;
-//             let head_uuid = queue.front_uuid();
-//             assert!(head_uuid.is_ok());
-//             assert!(matches!(head_uuid, Ok(Some(uuid)) if uuid == uuid_ready));
-
-//             queue.set_frame_ready(uuid_ready)?;
-//             let head = queue.fetch_head();
-//             assert!(head.is_some());
-//             assert!(matches!(
-//                 head.unwrap().message,
-//                 EgressMessage::VideoFrame(_)
-//             ));
-
-//             let is_late = queue.is_late(uuid_ready)?;
-//             assert!(is_late);
-
-//             assert!(queue.size() == 2);
-//             assert!(!queue.is_head_ready());
-//             advance_time_ms(1001);
-//             assert!(queue.is_head_ready());
-//             let head = queue.fetch_head();
-//             assert!(head.is_some());
-//             assert!(matches!(
-//                 head.unwrap().message,
-//                 EgressMessage::VideoFrame(_)
-//             ));
-
-//             assert!(queue.size() == 1);
-//             assert!(queue.is_head_ready()); // EOS is ready immediately
-//             let head = queue.fetch_head();
-//             assert!(head.is_some());
-//             assert!(matches!(
-//                 head.unwrap().message,
-//                 EgressMessage::EndOfStream(_)
-//             ));
-//             assert!(queue.size() == 0);
-//             Ok::<(), anyhow::Error>(())
-//         })?;
-//         Ok(())
-//     }
-// }

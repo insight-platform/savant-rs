@@ -1,7 +1,10 @@
 export PROJECT_DIR=$(CURDIR)
 export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
-.PHONY: docs build_savant build_savant_release clean tests bench reformat
+DS_NVBUF_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_nvbufsurface
+
+.PHONY: docs build_savant build_savant_release clean tests bench reformat \
+        ds-nvbuf-dev ds-nvbuf-release ds-nvbuf-install
 
 dev: clean build_savant
 release: clean build_savant_release
@@ -11,6 +14,22 @@ install:
 	echo "Installing $$WHL_NAME[clientsdk]"; \
 	pip install --force-reinstall "$$WHL_NAME[clientsdk]"; \
 	echo "Installed $$WHL_NAME[clientsdk]"
+
+# -- deepstream_nvbufsurface Python bindings ----------------------------------
+
+ds-nvbuf-dev:
+	@echo "Building deepstream_nvbufsurface (dev)..."
+	cd $(DS_NVBUF_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
+
+ds-nvbuf-release:
+	@echo "Building deepstream_nvbufsurface (release)..."
+	cd $(DS_NVBUF_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
+
+ds-nvbuf-install:
+	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/deepstream_nvbufsurface*$(PYTHON_VERSION)*.whl | head -1); \
+	echo "Installing $$WHL_NAME"; \
+	pip install --force-reinstall "$$WHL_NAME"; \
+	echo "Installed $$WHL_NAME"
 
 docs:
 	@echo "Building docs..."

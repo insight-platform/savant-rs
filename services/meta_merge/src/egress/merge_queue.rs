@@ -16,9 +16,7 @@ use uuid::Uuid;
 use super::payload::*;
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum MergeQueueError {
-    #[error("Head is invalid, it is already taken")]
-    HeadTaken,
+pub enum MergeQueueError {
     #[error("Queue is empty")]
     QueueIsEmpty,
     #[error("Frame is late and cannot be pushed to the merge queue.")]
@@ -104,14 +102,7 @@ impl MergeQueue {
             return Err(MergeQueueError::FrameAlreadyExists(uuid));
         }
 
-        let item = EgressItem {
-            uuid: Some(uuid),
-            message: EgressMessage::VideoFrame(video_frame),
-            data,
-            labels,
-            arrival_time: system_now(),
-            is_ready: false,
-        };
+        let item = EgressItem::new_frame(video_frame, data, labels);
         self.index.insert(uuid, Payload::new(item, None));
         Ok(uuid)
     }
@@ -121,7 +112,7 @@ impl MergeQueue {
         data: Py<PyList>,
         labels: Py<PyList>,
     ) -> Result<Uuid, MergeQueueError> {
-        let k = {
+        let uuid = {
             self.index
                 .last_key_value()
                 .ok_or_else(|| MergeQueueError::QueueIsEmpty)?
@@ -129,23 +120,16 @@ impl MergeQueue {
                 .clone()
         };
 
-        let item = EgressItem {
-            uuid: Some(k),
-            message: EgressMessage::EndOfStream,
-            data,
-            labels,
-            arrival_time: system_now(),
-            is_ready: true,
-        };
+        let item = EgressItem::new_eos_with_uuid(uuid, data, labels);
 
         let slot = self
             .index
-            .get_mut(&k)
+            .get_mut(&uuid)
             .ok_or_else(|| MergeQueueError::QueueIsEmpty)?;
         if let Err(e) = slot.set_eos(item) {
             return Err(MergeQueueError::SetEosError(e));
         }
-        Ok(k)
+        Ok(uuid)
     }
 
     pub fn take_frame(&mut self, uuid: Uuid) -> Result<EgressItem, MergeQueueError> {

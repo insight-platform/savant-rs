@@ -19,7 +19,8 @@ members = [
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
-    "savant_deepstream/deepstream_nvinfer", 
+    "savant_deepstream/deepstream_nvinfer",
+    "savant_deepstream/deepstream_nvbufsurface",
 ]
 
 default-members = [
@@ -80,6 +81,7 @@ glob = "0.3"
 globset = "0.4"
 
 gstreamer = "0.23.5"
+gstreamer-app = "0.23"
 gstreamer-base = "0.23.5"
 gstreamer-video = "0.23.5"
 gstreamer-audio = "0.23.5"

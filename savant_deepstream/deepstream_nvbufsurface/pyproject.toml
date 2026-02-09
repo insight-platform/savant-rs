@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.8"]
+build-backend = "maturin"
+
+[project]
+dynamic = ['version']
+name = "deepstream_nvbufsurface"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module", "python"]
+# Skip auditwheel repair to avoid bundling CUDA, GStreamer, and DeepStream
+# shared libraries into the wheel.  These are system-provided at runtime in
+# the DeepStream container and bundling them causes dual-library conflicts
+# (e.g. two separate libcudart.so instances with disjoint CUDA contexts).
+auditwheel = "skip"
