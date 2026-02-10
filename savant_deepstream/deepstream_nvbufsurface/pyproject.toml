@@ -12,9 +12,14 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module", "python"]
+features = ["pyo3/extension-module", "python", "skia"]
+python-source = "python"
+module-name = "deepstream_nvbufsurface._native"
 # Skip auditwheel repair to avoid bundling CUDA, GStreamer, and DeepStream
 # shared libraries into the wheel.  These are system-provided at runtime in
 # the DeepStream container and bundling them causes dual-library conflicts
 # (e.g. two separate libcudart.so instances with disjoint CUDA contexts).
 auditwheel = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["pytests"]

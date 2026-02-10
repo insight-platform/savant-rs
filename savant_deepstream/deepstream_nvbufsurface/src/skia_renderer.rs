@@ -6,23 +6,36 @@
 //! - A Skia GPU `DirectContext` + `Surface` for hardware-accelerated 2D drawing
 //! - CUDA-GL interop to copy rendered pixels into NvBufSurface GPU memory
 //!
-//! # Data flow (per frame)
+//! # Data flow
+//!
+//! ## Render to NvBufSurface (Mode 2a / 2b)
 //!
 //! ```text
 //! Skia Canvas ──draw──▸ GL Texture (FBO)
 //!                          │
 //!                    flush_and_submit
 //!                          │
-//!               CUDA-GL interop map ──▸ cudaArray (implicit GL sync)
+//!               CUDA-GL interop map ──▸ cudaArray
 //!                          │
-//!             cudaMemcpy2DFromArray ──▸ NvBufSurface.dataPtr (GPU linear)
-//!                          │
-//!                    push to appsrc
+//!            cudaMemcpy2DFromArray ──▸ NvBufSurface.dataPtr (fast path)
+//!                                      OR
+//!            cudaMemcpy2DFromArray ──▸ temp NvBufSurface ──▸ NvBufSurfTransform ──▸ dst (scaled path)
+//! ```
+//!
+//! ## Load from NvBufSurface (Mode 2b overlay)
+//!
+//! ```text
+//! NvBufSurface.dataPtr ──▸ cudaMemcpy2DToArray ──▸ cudaArray ──▸ GL Texture
+//!                                                                    │
+//!                                                             Skia draws on top
 //! ```
 //!
 //! The entire path is GPU-side; no CPU pixel copies occur.
 
 use crate::egl_context::{EglError, EglHeadlessContext};
+use crate::transform::{self, TransformConfig};
+use crate::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+use gstreamer as gst;
 use thiserror::Error;
 
 // ─── CUDA-GL Interop FFI ────────────────────────────────────────────────────
@@ -73,6 +86,17 @@ extern "C" {
         height: usize,
         kind: i32, // cudaMemcpyDeviceToDevice = 3
     ) -> i32;
+
+    fn cudaMemcpy2DToArray(
+        dst: cudaArray_t,
+        w_offset: usize,
+        h_offset: usize,
+        src: *const std::ffi::c_void,
+        spitch: usize,
+        width: usize,
+        height: usize,
+        kind: i32, // cudaMemcpyDeviceToDevice = 3
+    ) -> i32;
 }
 
 const GL_TEXTURE_2D: u32 = 0x0DE1;
@@ -87,7 +111,8 @@ const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 
 const CUDA_MEMCPY_DEVICE_TO_DEVICE: i32 = 3;
-const CUDA_GRAPHICS_REGISTER_FLAGS_READ_ONLY: u32 = 1;
+// Register for read+write since we may load into the texture as well
+const CUDA_GRAPHICS_REGISTER_FLAGS_NONE: u32 = 0;
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
@@ -124,18 +149,15 @@ pub enum SkiaRendererError {
 /// use skia_safe::Color;
 ///
 /// cuda_init(0).unwrap();
-/// let generator = NvBufSurfaceGenerator::new(
+/// let gen = NvBufSurfaceGenerator::new(
 ///     "RGBA", 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
 /// let mut renderer = SkiaRenderer::new(1920, 1080, 0).unwrap();
-///
-/// // Draw something
 /// renderer.canvas().clear(Color::from_argb(255, 30, 40, 60));
 ///
-/// // Acquire buffer and copy rendered pixels into it
-/// let (buffer, data_ptr, pitch) = generator.acquire_surface_with_ptr().unwrap();
-/// renderer.render_to_nvbuf(data_ptr, pitch).unwrap();
+/// let mut buf = gen.acquire_surface(None).unwrap();
+/// renderer.render_to_nvbuf(buf.make_mut(), None).unwrap();
 /// ```
 pub struct SkiaRenderer {
     _egl: EglHeadlessContext,
@@ -146,10 +168,15 @@ pub struct SkiaRenderer {
     cuda_resource: cudaGraphicsResource_t,
     width: u32,
     height: u32,
+    gpu_id: u32,
+    /// Lazily-created temporary generator for the scaled path
+    /// (when canvas dimensions != destination dimensions).
+    temp_gen: Option<NvBufSurfaceGenerator>,
 }
 
 impl SkiaRenderer {
-    /// Create a new GPU-accelerated Skia renderer.
+    /// Create a new GPU-accelerated Skia renderer with an empty (transparent)
+    /// canvas.
     ///
     /// Sets up a headless EGL context, creates an RGBA8 GL texture and FBO,
     /// registers the texture with CUDA for interop, and creates a Skia
@@ -160,7 +187,7 @@ impl SkiaRenderer {
     /// * `width`  — render target width in pixels
     /// * `height` — render target height in pixels
     /// * `gpu_id` — CUDA GPU device ID (usually 0)
-    pub fn new(width: u32, height: u32, _gpu_id: u32) -> Result<Self, SkiaRendererError> {
+    pub fn new(width: u32, height: u32, gpu_id: u32) -> Result<Self, SkiaRendererError> {
         // 1. Create headless EGL context
         let egl = EglHeadlessContext::new()?;
 
@@ -210,14 +237,14 @@ impl SkiaRenderer {
         }
         check_gl_error("FBO creation")?;
 
-        // 5. Register GL texture with CUDA (read-only: we copy FROM the texture)
+        // 5. Register GL texture with CUDA (read+write: we may load INTO the texture)
         let mut cuda_resource: cudaGraphicsResource_t = std::ptr::null_mut();
         let rc = unsafe {
             cudaGraphicsGLRegisterImage(
                 &mut cuda_resource,
                 texture,
                 GL_TEXTURE_2D,
-                CUDA_GRAPHICS_REGISTER_FLAGS_READ_ONLY,
+                CUDA_GRAPHICS_REGISTER_FLAGS_NONE,
             )
         };
         if rc != 0 {
@@ -276,7 +303,123 @@ impl SkiaRenderer {
             cuda_resource,
             width,
             height,
+            gpu_id,
+            temp_gen: None,
         })
+    }
+
+    /// Construct a SkiaRenderer pre-loaded with content from an NvBufSurface.
+    ///
+    /// Creates the EGL/GL/CUDA setup at `width x height` (the source buffer's
+    /// dimensions) and copies the existing pixels into the GL texture so Skia
+    /// can draw on top.
+    ///
+    /// # Arguments
+    ///
+    /// * `width`    — source buffer width (canvas will be this size)
+    /// * `height`   — source buffer height (canvas will be this size)
+    /// * `gpu_id`   — CUDA GPU device ID
+    /// * `data_ptr` — GPU pointer to the NvBufSurface's RGBA pixel data
+    /// * `pitch`    — Row stride in bytes
+    pub fn from_nvbuf(
+        width: u32,
+        height: u32,
+        gpu_id: u32,
+        data_ptr: *mut std::ffi::c_void,
+        pitch: u32,
+    ) -> Result<Self, SkiaRendererError> {
+        let mut renderer = Self::new(width, height, gpu_id)?;
+        renderer.load_from_nvbuf(data_ptr, pitch)?;
+        Ok(renderer)
+    }
+
+    /// Copy NvBufSurface GPU pixels INTO the GL texture (reverse direction).
+    ///
+    /// Uses `cudaMemcpy2DToArray`. After this call Skia can draw on top of
+    /// the loaded content.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_ptr` — GPU pointer to the NvBufSurface's RGBA pixel data
+    /// * `pitch`    — Row stride in bytes
+    pub fn load_from_nvbuf(
+        &mut self,
+        data_ptr: *mut std::ffi::c_void,
+        pitch: u32,
+    ) -> Result<(), SkiaRendererError> {
+        if data_ptr.is_null() {
+            return Err(SkiaRendererError::NvBuf(
+                "NvBufSurface dataPtr is null".into(),
+            ));
+        }
+
+        // 1. Map CUDA resource → get cudaArray
+        let rc = unsafe {
+            cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
+        };
+        if rc != 0 {
+            return Err(SkiaRendererError::Cuda(
+                rc,
+                "cudaGraphicsMapResources failed (load)".into(),
+            ));
+        }
+
+        let mut cuda_array: cudaArray_t = std::ptr::null_mut();
+        let rc = unsafe {
+            cudaGraphicsSubResourceGetMappedArray(
+                &mut cuda_array,
+                self.cuda_resource,
+                0,
+                0,
+            )
+        };
+        if rc != 0 {
+            unsafe {
+                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
+            }
+            return Err(SkiaRendererError::Cuda(
+                rc,
+                "cudaGraphicsSubResourceGetMappedArray failed (load)".into(),
+            ));
+        }
+
+        // 2. GPU-to-GPU copy: NvBufSurface linear CUDA memory → cudaArray (GL texture)
+        let width_bytes = (self.width as usize) * 4; // RGBA = 4 bytes per pixel
+        let rc = unsafe {
+            cudaMemcpy2DToArray(
+                cuda_array,
+                0,
+                0,
+                data_ptr as *const std::ffi::c_void,
+                pitch as usize,
+                width_bytes,
+                self.height as usize,
+                CUDA_MEMCPY_DEVICE_TO_DEVICE,
+            )
+        };
+
+        // 3. Unmap CUDA resource (always)
+        let unmap_rc = unsafe {
+            cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
+        };
+
+        if rc != 0 {
+            return Err(SkiaRendererError::Cuda(
+                rc,
+                "cudaMemcpy2DToArray failed".into(),
+            ));
+        }
+        if unmap_rc != 0 {
+            return Err(SkiaRendererError::Cuda(
+                unmap_rc,
+                "cudaGraphicsUnmapResources failed (load)".into(),
+            ));
+        }
+
+        // 4. Invalidate Skia's cached GL state so it re-reads the texture
+        self.gr_context.reset(None);
+
+        Ok(())
     }
 
     /// Get the Skia canvas for drawing.
@@ -298,35 +441,99 @@ impl SkiaRenderer {
         self.height
     }
 
-    /// Flush Skia rendering and copy the result into an NvBufSurface buffer.
+    /// OpenGL FBO ID (needed by Python skia-python to create its own Surface).
+    pub fn fbo_id(&self) -> u32 {
+        self.gl_fbo
+    }
+
+    /// Flush Skia rendering and copy the result into a destination NvBufSurface.
     ///
-    /// The caller is responsible for acquiring the buffer from a
-    /// [`NvBufSurfaceGenerator`](crate::NvBufSurfaceGenerator) (e.g. via
-    /// [`acquire_surface_with_ptr`](crate::NvBufSurfaceGenerator::acquire_surface_with_ptr))
-    /// and passing the GPU `data_ptr` and row `pitch` obtained from it.
+    /// ## Fast path (no scaling)
     ///
-    /// This method:
-    /// 1. Flushes all pending Skia draw commands to the GL texture
-    /// 2. Maps the GL texture via CUDA-GL interop (implicit GL sync)
-    /// 3. Copies pixels from the GL texture (cudaArray) to the provided
-    ///    NvBufSurface GPU memory via `cudaMemcpy2DFromArray` (GPU-to-GPU)
-    /// 4. Unmaps the CUDA resource
+    /// When `transform_config` is `None` **and** the canvas dimensions equal
+    /// the destination buffer dimensions, a direct CUDA-GL copy is performed
+    /// (GPU-to-GPU, no intermediate buffer).
     ///
-    /// No `glFinish()` is used — `cudaGraphicsMapResources` implicitly waits
-    /// for all pending GL operations on the registered texture to complete.
+    /// ## Scaled path (letterboxing)
+    ///
+    /// When `transform_config` is `Some` **or** dimensions differ:
+    /// 1. Copies the GL texture into an internal temporary RGBA NvBufSurface
+    ///    at canvas resolution
+    /// 2. Uses `NvBufSurfTransform` to scale/letterbox from the temp buffer
+    ///    into the destination
     ///
     /// # Arguments
     ///
-    /// * `data_ptr` — GPU pointer to the NvBufSurface's pixel memory
-    ///   (`NvBufSurfaceParams::dataPtr`).
-    /// * `pitch` — Row stride in bytes (`NvBufSurfaceParams::pitch`).
-    ///
-    /// # Safety
-    ///
-    /// `data_ptr` must point to a valid CUDA device allocation with at least
-    /// `pitch * height` bytes. The caller must ensure the buffer is not
-    /// freed while this method is running.
+    /// * `dst_buf` — Mutable reference to the destination GstBuffer
+    ///   (from [`NvBufSurfaceGenerator::acquire_surface`]).
+    /// * `transform_config` — Optional scaling/padding configuration.
+    ///   When `None` and dimensions match, fast path is used.
     pub fn render_to_nvbuf(
+        &mut self,
+        dst_buf: &mut gst::BufferRef,
+        transform_config: Option<&TransformConfig>,
+    ) -> Result<(), SkiaRendererError> {
+        // Extract destination NvBufSurface
+        let dst_surf = unsafe {
+            transform::extract_nvbufsurface(dst_buf)
+                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
+        };
+        let dst_surface = unsafe { &*(*dst_surf).surfaceList };
+        let dst_w = dst_surface.width;
+        let dst_h = dst_surface.height;
+        let dst_data_ptr = dst_surface.dataPtr;
+        let dst_pitch = dst_surface.pitch;
+
+        // Decide: fast path or scaled path
+        let needs_scaling = transform_config.is_some()
+            || self.width != dst_w
+            || self.height != dst_h;
+
+        if !needs_scaling {
+            // Fast path: direct CUDA-GL copy
+            return self.copy_gl_to_nvbuf(dst_data_ptr, dst_pitch);
+        }
+
+        // Scaled path: copy GL → temp NvBufSurface → NvBufSurfTransform → dst
+        // Lazily create temp generator at canvas resolution
+        if self.temp_gen.is_none() {
+            let gen = NvBufSurfaceGenerator::builder("RGBA", self.width, self.height)
+                .gpu_id(self.gpu_id)
+                .mem_type(NvBufSurfaceMemType::Default)
+                .min_buffers(1)
+                .max_buffers(1)
+                .build()
+                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+            self.temp_gen = Some(gen);
+        }
+        let temp_gen = self.temp_gen.as_ref().unwrap();
+
+        // Acquire temp buffer and copy GL texture into it
+        let (temp_buf, temp_data_ptr, temp_pitch) = temp_gen
+            .acquire_surface_with_ptr(None)
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+        self.copy_gl_to_nvbuf(temp_data_ptr, temp_pitch)?;
+
+        // Extract temp NvBufSurface
+        let temp_surf = unsafe {
+            transform::extract_nvbufsurface(temp_buf.as_ref())
+                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
+        };
+
+        // Perform transform: temp → dst
+        let config = transform_config.cloned().unwrap_or_default();
+        unsafe {
+            transform::do_transform(temp_surf, dst_surf, &config)
+                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    /// Low-level: flush Skia and copy GL texture to raw NvBufSurface memory.
+    ///
+    /// This is the original "direct copy" path, factored out for reuse.
+    fn copy_gl_to_nvbuf(
         &mut self,
         data_ptr: *mut std::ffi::c_void,
         pitch: u32,
@@ -337,11 +544,10 @@ impl SkiaRenderer {
             ));
         }
 
-        // 1. Flush Skia to GL (no glFinish — CUDA map provides implicit sync)
+        // 1. Flush Skia to GL
         self.gr_context.flush_and_submit();
 
         // 2. Map CUDA resource → get cudaArray
-        //    This implicitly synchronizes with pending GL commands on the texture.
         let rc = unsafe {
             cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
         };
@@ -372,7 +578,7 @@ impl SkiaRenderer {
         }
 
         // 3. GPU-to-GPU copy: cudaArray → NvBufSurface linear CUDA memory
-        let width_bytes = (self.width as usize) * 4; // RGBA = 4 bytes per pixel
+        let width_bytes = (self.width as usize) * 4;
         let rc = unsafe {
             cudaMemcpy2DFromArray(
                 data_ptr,
@@ -405,6 +611,18 @@ impl SkiaRenderer {
         }
 
         Ok(())
+    }
+
+    /// Legacy render_to_nvbuf variant that accepts raw (data_ptr, pitch).
+    ///
+    /// This always does a direct 1:1 copy (no scaling). Prefer the new
+    /// `render_to_nvbuf(&mut BufferRef, Option<&TransformConfig>)` API.
+    pub fn render_to_nvbuf_raw(
+        &mut self,
+        data_ptr: *mut std::ffi::c_void,
+        pitch: u32,
+    ) -> Result<(), SkiaRendererError> {
+        self.copy_gl_to_nvbuf(data_ptr, pitch)
     }
 }
 

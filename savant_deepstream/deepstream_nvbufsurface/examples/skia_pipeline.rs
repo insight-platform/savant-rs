@@ -607,16 +607,16 @@ fn main() {
         draw_frame(&mut renderer, &mut draw_ctx, i, w, h);
 
         // 2. Acquire NvBufSurface buffer from the pool
-        let (mut buffer, data_ptr, pitch) = match generator.acquire_surface_with_ptr(Some(i as i64)) {
+        let mut buffer = match generator.acquire_surface(Some(i as i64)) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("acquire_surface_with_ptr failed at frame {}: {}", i, e);
+                eprintln!("acquire_surface failed at frame {}: {}", i, e);
                 break;
             }
         };
 
         // 3. Copy rendered pixels to NvBufSurface (GPU-to-GPU)
-        if let Err(e) = renderer.render_to_nvbuf(data_ptr, pitch) {
+        if let Err(e) = renderer.render_to_nvbuf(buffer.make_mut(), None) {
             eprintln!("render_to_nvbuf failed at frame {}: {}", i, e);
             break;
         }

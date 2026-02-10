@@ -8,21 +8,13 @@ encoded with NVENC.
 
 The entire pixel data path is GPU-side -- no CPU copies occur.
 
-Data flow (per frame)::
-
-    Skia Canvas --draw--> GL Texture (FBO)
-                              |
-                        flush + submit
-                              |
-                   CUDA-GL interop map --> cudaArray (implicit GL sync)
-                              |
-                 cudaMemcpy2DFromArray --> NvBufSurface.dataPtr (GPU linear)
-                              |
-                        push to appsrc
+All EGL/GL/CUDA-GL interop boilerplate is handled by the SkiaContext
+PyO3 class from ``deepstream_nvbufsurface``, exposed through the
+``SkiaCanvas`` helper.
 
 Pipeline::
 
-    Skia GPU -> CUDA-GL copy -> NvBufSurface (RGBA NVMM)
+    Skia GPU -> SkiaContext.render_to_nvbuf -> NvBufSurface (RGBA NVMM)
         -> appsrc -> nvvideoconvert -> nvv4l2h26Xenc -> h26Xparse -> sink
 
 Usage::
@@ -44,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import ctypes.util
 import math
 import os
 import signal
@@ -61,440 +52,7 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GstApp", "1.0")
 from gi.repository import Gst
 
-from deepstream_nvbufsurface import NvBufSurfaceGenerator, init_cuda, bridge_savant_id_meta_py
-
-# ===========================================================================
-# EGL headless context via ctypes
-# ===========================================================================
-
-_libEGL = ctypes.CDLL("libEGL.so.1")
-_libGL = ctypes.CDLL("libGL.so.1")
-
-# EGL types
-EGLDisplay = ctypes.c_void_p
-EGLConfig = ctypes.c_void_p
-EGLContext = ctypes.c_void_p
-EGLSurface = ctypes.c_void_p
-EGLDeviceEXT = ctypes.c_void_p
-EGLint = ctypes.c_int32
-EGLBoolean = ctypes.c_uint32
-
-EGL_NO_DISPLAY = ctypes.c_void_p(None)
-EGL_NO_CONTEXT = ctypes.c_void_p(None)
-EGL_NO_SURFACE = ctypes.c_void_p(None)
-
-EGL_TRUE = 1
-EGL_NONE = 0x3038
-EGL_OPENGL_API = 0x30A2
-EGL_SURFACE_TYPE = 0x3033
-EGL_PBUFFER_BIT = 0x0001
-EGL_RENDERABLE_TYPE = 0x3040
-EGL_OPENGL_BIT = 0x0008
-EGL_RED_SIZE = 0x3024
-EGL_GREEN_SIZE = 0x3023
-EGL_BLUE_SIZE = 0x3022
-EGL_ALPHA_SIZE = 0x3021
-EGL_SUCCESS = 0x3000
-EGL_PLATFORM_DEVICE_EXT = 0x313F
-
-# EGL functions
-_eglGetError = _libEGL.eglGetError
-_eglGetError.restype = EGLint
-
-_eglGetProcAddress = _libEGL.eglGetProcAddress
-_eglGetProcAddress.restype = ctypes.c_void_p
-_eglGetProcAddress.argtypes = [ctypes.c_char_p]
-
-_eglInitialize = _libEGL.eglInitialize
-_eglInitialize.restype = EGLBoolean
-_eglInitialize.argtypes = [EGLDisplay, ctypes.POINTER(EGLint), ctypes.POINTER(EGLint)]
-
-_eglTerminate = _libEGL.eglTerminate
-_eglTerminate.restype = EGLBoolean
-_eglTerminate.argtypes = [EGLDisplay]
-
-_eglBindAPI = _libEGL.eglBindAPI
-_eglBindAPI.restype = EGLBoolean
-_eglBindAPI.argtypes = [ctypes.c_uint32]
-
-_eglChooseConfig = _libEGL.eglChooseConfig
-_eglChooseConfig.restype = EGLBoolean
-_eglChooseConfig.argtypes = [
-    EGLDisplay, ctypes.POINTER(EGLint), ctypes.POINTER(EGLConfig),
-    EGLint, ctypes.POINTER(EGLint),
-]
-
-_eglCreateContext = _libEGL.eglCreateContext
-_eglCreateContext.restype = EGLContext
-_eglCreateContext.argtypes = [EGLDisplay, EGLConfig, EGLContext, ctypes.POINTER(EGLint)]
-
-_eglDestroyContext = _libEGL.eglDestroyContext
-_eglDestroyContext.restype = EGLBoolean
-_eglDestroyContext.argtypes = [EGLDisplay, EGLContext]
-
-_eglMakeCurrent = _libEGL.eglMakeCurrent
-_eglMakeCurrent.restype = EGLBoolean
-_eglMakeCurrent.argtypes = [EGLDisplay, EGLSurface, EGLSurface, EGLContext]
-
-# EGL extension function pointer types
-PFNEGLQUERYDEVICESEXTPROC = ctypes.CFUNCTYPE(
-    EGLBoolean, EGLint, ctypes.POINTER(EGLDeviceEXT), ctypes.POINTER(EGLint),
-)
-PFNEGLGETPLATFORMDISPLAYEXTPROC = ctypes.CFUNCTYPE(
-    EGLDisplay, ctypes.c_uint32, EGLDeviceEXT, ctypes.POINTER(EGLint),
-)
-
-
-class EglHeadlessContext:
-    """Headless EGL OpenGL context for GPU rendering without a display."""
-
-    def __init__(self):
-        # Load extension function pointers
-        query_devices_ptr = _eglGetProcAddress(b"eglQueryDevicesEXT")
-        if not query_devices_ptr:
-            raise RuntimeError("eglQueryDevicesEXT not available")
-        egl_query_devices = PFNEGLQUERYDEVICESEXTPROC(query_devices_ptr)
-
-        get_platform_display_ptr = _eglGetProcAddress(b"eglGetPlatformDisplayEXT")
-        if not get_platform_display_ptr:
-            raise RuntimeError("eglGetPlatformDisplayEXT not available")
-        egl_get_platform_display = PFNEGLGETPLATFORMDISPLAYEXTPROC(get_platform_display_ptr)
-
-        # Query EGL devices
-        devices = (EGLDeviceEXT * 4)()
-        num_devices = EGLint(0)
-        egl_query_devices(4, devices, ctypes.byref(num_devices))
-        if num_devices.value == 0:
-            raise RuntimeError("No EGL devices found")
-
-        # Get device-backed display (headless)
-        self.display = egl_get_platform_display(
-            EGL_PLATFORM_DEVICE_EXT, devices[0], None,
-        )
-        if not self.display:
-            raise RuntimeError("eglGetPlatformDisplayEXT failed")
-
-        # Initialize
-        major, minor = EGLint(0), EGLint(0)
-        if _eglInitialize(self.display, ctypes.byref(major), ctypes.byref(minor)) != EGL_TRUE:
-            raise RuntimeError(f"eglInitialize failed: 0x{_eglGetError():X}")
-
-        # Bind OpenGL API
-        if _eglBindAPI(EGL_OPENGL_API) != EGL_TRUE:
-            raise RuntimeError(f"eglBindAPI failed: 0x{_eglGetError():X}")
-
-        # Choose config
-        config_attribs = (EGLint * 13)(
-            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
-            EGL_NONE,
-        )
-        config = EGLConfig()
-        num_configs = EGLint(0)
-        if _eglChooseConfig(self.display, config_attribs, ctypes.byref(config), 1,
-                            ctypes.byref(num_configs)) != EGL_TRUE or num_configs.value == 0:
-            raise RuntimeError("No suitable EGL config found")
-
-        # Create context
-        ctx_attribs = (EGLint * 1)(EGL_NONE)
-        self.context = _eglCreateContext(self.display, config, EGL_NO_CONTEXT, ctx_attribs)
-        if not self.context:
-            raise RuntimeError(f"eglCreateContext failed: 0x{_eglGetError():X}")
-
-        # Make current (surfaceless)
-        if _eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, self.context) != EGL_TRUE:
-            raise RuntimeError(f"eglMakeCurrent failed: 0x{_eglGetError():X}")
-
-    def destroy(self):
-        _eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)
-        _eglDestroyContext(self.display, self.context)
-        _eglTerminate(self.display)
-
-
-# ===========================================================================
-# OpenGL helpers via ctypes
-# ===========================================================================
-
-GL_TEXTURE_2D = 0x0DE1
-GL_RGBA = 0x1908
-GL_RGBA8 = 0x8058
-GL_UNSIGNED_BYTE = 0x1401
-GL_FRAMEBUFFER = 0x8D40
-GL_COLOR_ATTACHMENT0 = 0x8CE0
-GL_FRAMEBUFFER_COMPLETE = 0x8CD5
-GL_LINEAR = 0x2601
-GL_TEXTURE_MIN_FILTER = 0x2801
-GL_TEXTURE_MAG_FILTER = 0x2800
-GL_NO_ERROR = 0
-
-_glGenTextures = _libGL.glGenTextures
-_glGenTextures.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
-_glBindTexture = _libGL.glBindTexture
-_glBindTexture.argtypes = [ctypes.c_uint, ctypes.c_uint]
-_glTexImage2D = _libGL.glTexImage2D
-_glTexImage2D.argtypes = [
-    ctypes.c_uint, ctypes.c_int, ctypes.c_int,
-    ctypes.c_int, ctypes.c_int, ctypes.c_int,
-    ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p,
-]
-_glTexParameteri = _libGL.glTexParameteri
-_glTexParameteri.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_int]
-_glGenFramebuffers = _libGL.glGenFramebuffers
-_glGenFramebuffers.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
-_glBindFramebuffer = _libGL.glBindFramebuffer
-_glBindFramebuffer.argtypes = [ctypes.c_uint, ctypes.c_uint]
-_glFramebufferTexture2D = _libGL.glFramebufferTexture2D
-_glFramebufferTexture2D.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_int]
-_glCheckFramebufferStatus = _libGL.glCheckFramebufferStatus
-_glCheckFramebufferStatus.restype = ctypes.c_uint
-_glCheckFramebufferStatus.argtypes = [ctypes.c_uint]
-_glGetError = _libGL.glGetError
-_glGetError.restype = ctypes.c_uint
-_glDeleteFramebuffers = _libGL.glDeleteFramebuffers
-_glDeleteFramebuffers.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
-_glDeleteTextures = _libGL.glDeleteTextures
-_glDeleteTextures.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint)]
-
-
-def _check_gl(context: str):
-    err = _glGetError()
-    if err != GL_NO_ERROR:
-        raise RuntimeError(f"GL error 0x{err:X} during {context}")
-
-
-# ===========================================================================
-# CUDA-GL interop via ctypes
-# ===========================================================================
-
-_cudart = ctypes.CDLL("libcudart.so")
-
-# cudaGraphicsGLRegisterImage
-_cudaGraphicsGLRegisterImage = _cudart.cudaGraphicsGLRegisterImage
-_cudaGraphicsGLRegisterImage.restype = ctypes.c_int
-_cudaGraphicsGLRegisterImage.argtypes = [
-    ctypes.POINTER(ctypes.c_void_p),  # resource
-    ctypes.c_uint,   # image (GL texture)
-    ctypes.c_uint,   # target (GL_TEXTURE_2D)
-    ctypes.c_uint,   # flags
-]
-
-# cudaGraphicsMapResources
-_cudaGraphicsMapResources = _cudart.cudaGraphicsMapResources
-_cudaGraphicsMapResources.restype = ctypes.c_int
-_cudaGraphicsMapResources.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
-
-# cudaGraphicsUnmapResources
-_cudaGraphicsUnmapResources = _cudart.cudaGraphicsUnmapResources
-_cudaGraphicsUnmapResources.restype = ctypes.c_int
-_cudaGraphicsUnmapResources.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
-
-# cudaGraphicsSubResourceGetMappedArray
-_cudaGraphicsSubResourceGetMappedArray = _cudart.cudaGraphicsSubResourceGetMappedArray
-_cudaGraphicsSubResourceGetMappedArray.restype = ctypes.c_int
-_cudaGraphicsSubResourceGetMappedArray.argtypes = [
-    ctypes.POINTER(ctypes.c_void_p),  # array
-    ctypes.c_void_p,  # resource
-    ctypes.c_uint,    # arrayIndex
-    ctypes.c_uint,    # mipLevel
-]
-
-# cudaGraphicsUnregisterResource
-_cudaGraphicsUnregisterResource = _cudart.cudaGraphicsUnregisterResource
-_cudaGraphicsUnregisterResource.restype = ctypes.c_int
-_cudaGraphicsUnregisterResource.argtypes = [ctypes.c_void_p]
-
-# cudaMemcpy2DFromArray
-_cudaMemcpy2DFromArray = _cudart.cudaMemcpy2DFromArray
-_cudaMemcpy2DFromArray.restype = ctypes.c_int
-_cudaMemcpy2DFromArray.argtypes = [
-    ctypes.c_void_p,  # dst
-    ctypes.c_size_t,  # dpitch
-    ctypes.c_void_p,  # src (cudaArray)
-    ctypes.c_size_t,  # wOffset
-    ctypes.c_size_t,  # hOffset
-    ctypes.c_size_t,  # width (bytes)
-    ctypes.c_size_t,  # height (rows)
-    ctypes.c_int,     # kind
-]
-
-CUDA_MEMCPY_DEVICE_TO_DEVICE = 3
-CUDA_GRAPHICS_REGISTER_FLAGS_READ_ONLY = 1
-
-
-# ===========================================================================
-# GPU-accelerated Skia renderer with CUDA-GL interop
-# ===========================================================================
-
-class SkiaGpuRenderer:
-    """GPU-accelerated Skia renderer that copies rendered frames into
-    NvBufSurface buffers via CUDA-GL interop.
-
-    The entire pixel path is GPU-side: Skia draws to a GL texture,
-    CUDA-GL interop maps it, and cudaMemcpy2DFromArray copies to the
-    NvBufSurface linear CUDA memory.
-    """
-
-    def __init__(self, width: int, height: int):
-        self.width = width
-        self.height = height
-
-        # 1. EGL headless context
-        self._egl = EglHeadlessContext()
-
-        # 2. Create GL texture
-        self._gl_texture = ctypes.c_uint(0)
-        _glGenTextures(1, ctypes.byref(self._gl_texture))
-        _glBindTexture(GL_TEXTURE_2D, self._gl_texture.value)
-        _glTexImage2D(
-            GL_TEXTURE_2D, 0, GL_RGBA8,
-            width, height, 0,
-            GL_RGBA, GL_UNSIGNED_BYTE, None,
-        )
-        _glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        _glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        _check_gl("texture creation")
-
-        # 3. Create FBO and attach texture
-        self._gl_fbo = ctypes.c_uint(0)
-        _glGenFramebuffers(1, ctypes.byref(self._gl_fbo))
-        _glBindFramebuffer(GL_FRAMEBUFFER, self._gl_fbo.value)
-        _glFramebufferTexture2D(
-            GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-            GL_TEXTURE_2D, self._gl_texture.value, 0,
-        )
-        status = _glCheckFramebufferStatus(GL_FRAMEBUFFER)
-        if status != GL_FRAMEBUFFER_COMPLETE:
-            raise RuntimeError(f"Framebuffer incomplete: 0x{status:X}")
-        _check_gl("FBO creation")
-
-        # 4. Register GL texture with CUDA (read-only)
-        self._cuda_resource = ctypes.c_void_p(0)
-        rc = _cudaGraphicsGLRegisterImage(
-            ctypes.byref(self._cuda_resource),
-            self._gl_texture.value,
-            GL_TEXTURE_2D,
-            CUDA_GRAPHICS_REGISTER_FLAGS_READ_ONLY,
-        )
-        if rc != 0:
-            raise RuntimeError(f"cudaGraphicsGLRegisterImage failed: {rc}")
-
-        # 5. Create Skia GL interface and DirectContext
-        gl_interface = skia.GrGLInterface.MakeEGL()
-        if gl_interface is None:
-            raise RuntimeError("Failed to create Skia GrGLInterface")
-
-        self._gr_context = skia.GrDirectContext.MakeGL(gl_interface)
-        if self._gr_context is None:
-            raise RuntimeError("Failed to create Skia GrDirectContext")
-
-        # 6. Wrap the FBO as a Skia surface
-        fb_info = skia.GrGLFramebufferInfo(self._gl_fbo.value, GL_RGBA8)
-        backend_rt = skia.GrBackendRenderTarget(
-            width, height,
-            0,  # samples
-            8,  # stencil bits
-            fb_info,
-        )
-        self._surface = skia.Surface.MakeFromBackendRenderTarget(
-            self._gr_context,
-            backend_rt,
-            skia.kTopLeft_GrSurfaceOrigin,
-            skia.kRGBA_8888_ColorType,
-            None,  # colorSpace
-        )
-        if self._surface is None:
-            raise RuntimeError("Failed to create GPU-backed Skia Surface")
-
-        # Cache fonts
-        bold_tf = skia.Typeface("monospace", skia.FontStyle.Bold())
-        normal_tf = skia.Typeface("monospace", skia.FontStyle.Normal())
-        self.label_font = skia.Font(bold_tf, 16)
-        self.title_font = skia.Font(bold_tf, 18)
-        self.legend_font = skia.Font(normal_tf, 13)
-        self.footer_font = skia.Font(bold_tf, 14)
-
-        # Cache paints
-        self.white_paint = skia.Paint(Color=skia.ColorWHITE, AntiAlias=True)
-        self.black_paint = skia.Paint(Color=skia.ColorBLACK, AntiAlias=True)
-        self.sidebar_bg_paint = skia.Paint(Color=skia.Color(15, 18, 25, 210))
-        self.separator_paint = skia.Paint(
-            Color=skia.Color(255, 255, 255, 100),
-            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
-        )
-        self.divider_paint = skia.Paint(
-            Color=skia.Color(255, 255, 255, 60),
-            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
-        )
-        self.footer_bg_paint = skia.Paint(Color=skia.Color(0, 0, 0, 180))
-        self.footer_text_paint = skia.Paint(Color=skia.Color(200, 200, 200, 200), AntiAlias=True)
-        self.fill_paint = skia.Paint(AntiAlias=True)
-        self.stroke_paint = skia.Paint(AntiAlias=True, Style=skia.Paint.kStroke_Style, StrokeWidth=2.0)
-        self.label_bg_paint = skia.Paint()
-        self.dot_paint = skia.Paint(AntiAlias=True)
-        self.legend_text_paint = skia.Paint(AntiAlias=True, Color=skia.Color(255, 255, 255, 220))
-        self.bg_paint = skia.Paint()
-
-        self.boxes: list[BBox] = []
-
-    def canvas(self) -> skia.Canvas:
-        return self._surface.getCanvas()
-
-    def render_to_nvbuf(self, data_ptr: int, pitch: int) -> None:
-        """Flush Skia and GPU-to-GPU copy to NvBufSurface."""
-        # 1. Flush Skia to GL
-        self._gr_context.flushAndSubmit()
-
-        # 2. Map CUDA resource (implicit GL sync)
-        rc = _cudaGraphicsMapResources(
-            1, ctypes.byref(self._cuda_resource), None,
-        )
-        if rc != 0:
-            raise RuntimeError(f"cudaGraphicsMapResources failed: {rc}")
-
-        try:
-            # Get cudaArray
-            cuda_array = ctypes.c_void_p(0)
-            rc = _cudaGraphicsSubResourceGetMappedArray(
-                ctypes.byref(cuda_array), self._cuda_resource, 0, 0,
-            )
-            if rc != 0:
-                raise RuntimeError(f"cudaGraphicsSubResourceGetMappedArray failed: {rc}")
-
-            # GPU-to-GPU copy: cudaArray -> NvBufSurface linear memory
-            width_bytes = self.width * 4
-            rc = _cudaMemcpy2DFromArray(
-                ctypes.c_void_p(data_ptr),
-                pitch,
-                cuda_array,
-                0, 0,
-                width_bytes,
-                self.height,
-                CUDA_MEMCPY_DEVICE_TO_DEVICE,
-            )
-            if rc != 0:
-                raise RuntimeError(f"cudaMemcpy2DFromArray failed: {rc}")
-        finally:
-            # 3. Always unmap
-            _cudaGraphicsUnmapResources(
-                1, ctypes.byref(self._cuda_resource), None,
-            )
-
-    def destroy(self):
-        """Clean up GPU resources."""
-        if self._cuda_resource:
-            _cudaGraphicsUnregisterResource(self._cuda_resource)
-            self._cuda_resource = ctypes.c_void_p(0)
-        # Skia surface/context are cleaned by Python GC
-        self._surface = None
-        self._gr_context = None
-        # GL cleanup
-        _glDeleteFramebuffers(1, ctypes.byref(self._gl_fbo))
-        _glDeleteTextures(1, ctypes.byref(self._gl_texture))
-        self._egl.destroy()
+from deepstream_nvbufsurface import NvBufSurfaceGenerator, SkiaCanvas, init_cuda, bridge_savant_id_meta_py
 
 
 # ===========================================================================
@@ -566,11 +124,49 @@ def hsv_to_color(h_deg: float, s: float, v: float) -> int:
 
 
 # ===========================================================================
-# draw_frame (uses the GPU-backed canvas from SkiaGpuRenderer)
+# Drawing context -- caches fonts/paints across frames
 # ===========================================================================
 
-def draw_frame(renderer: SkiaGpuRenderer, frame_idx: int, width: float, height: float) -> None:
-    canvas = renderer.canvas()
+class DrawCtx:
+    """Cached fonts and paints for efficient per-frame rendering."""
+
+    def __init__(self):
+        bold_tf = skia.Typeface("monospace", skia.FontStyle.Bold())
+        normal_tf = skia.Typeface("monospace", skia.FontStyle.Normal())
+        self.label_font = skia.Font(bold_tf, 16)
+        self.title_font = skia.Font(bold_tf, 18)
+        self.legend_font = skia.Font(normal_tf, 13)
+        self.footer_font = skia.Font(bold_tf, 14)
+
+        self.white_paint = skia.Paint(Color=skia.ColorWHITE, AntiAlias=True)
+        self.black_paint = skia.Paint(Color=skia.ColorBLACK, AntiAlias=True)
+        self.sidebar_bg_paint = skia.Paint(Color=skia.Color(15, 18, 25, 210))
+        self.separator_paint = skia.Paint(
+            Color=skia.Color(255, 255, 255, 100),
+            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
+        )
+        self.divider_paint = skia.Paint(
+            Color=skia.Color(255, 255, 255, 60),
+            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
+        )
+        self.footer_bg_paint = skia.Paint(Color=skia.Color(0, 0, 0, 180))
+        self.footer_text_paint = skia.Paint(Color=skia.Color(200, 200, 200, 200), AntiAlias=True)
+        self.fill_paint = skia.Paint(AntiAlias=True)
+        self.stroke_paint = skia.Paint(AntiAlias=True, Style=skia.Paint.kStroke_Style, StrokeWidth=2.0)
+        self.label_bg_paint = skia.Paint()
+        self.dot_paint = skia.Paint(AntiAlias=True)
+        self.legend_text_paint = skia.Paint(AntiAlias=True, Color=skia.Color(255, 255, 255, 220))
+        self.bg_paint = skia.Paint()
+        self.boxes: list[BBox] = []
+
+
+# ===========================================================================
+# draw_frame
+# ===========================================================================
+
+def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
+               width: float, height: float) -> None:
+    canvas = skia_canvas.canvas()
 
     # -- Background gradient -----------------------------------------------
     hue_shift = (frame_idx * 0.3) % 360.0
@@ -581,7 +177,7 @@ def draw_frame(renderer: SkiaGpuRenderer, frame_idx: int, width: float, height: 
         colors=[bg1, bg2],
     )
     if shader:
-        bg_with_shader = skia.Paint(renderer.bg_paint)
+        bg_with_shader = skia.Paint(ctx.bg_paint)
         bg_with_shader.setShader(shader)
         canvas.drawRect(skia.Rect.MakeWH(width, height), bg_with_shader)
     else:
@@ -593,7 +189,7 @@ def draw_frame(renderer: SkiaGpuRenderer, frame_idx: int, width: float, height: 
     t = frame_idx / 60.0
 
     # -- Generate bounding boxes -------------------------------------------
-    renderer.boxes.clear()
+    ctx.boxes.clear()
     for i in range(NUM_BOXES):
         seed = i
         cx_base = pseudo_rand(seed, 100) * scene_w * 0.7 + scene_w * 0.15
@@ -611,7 +207,7 @@ def draw_frame(renderer: SkiaGpuRenderer, frame_idx: int, width: float, height: 
         class_idx = int(pseudo_rand(seed, 900) * len(CLASSES)) % len(CLASSES)
         confidence = 0.55 + pseudo_rand(seed, 1000) * 0.44
 
-        renderer.boxes.append(BBox(
+        ctx.boxes.append(BBox(
             x=max(0.0, min(cx - bw / 2.0, scene_w - bw)),
             y=max(0.0, min(cy - bh / 2.0, height - bh)),
             w=bw, h=bh,
@@ -620,62 +216,80 @@ def draw_frame(renderer: SkiaGpuRenderer, frame_idx: int, width: float, height: 
             id=i,
         ))
 
-    # -- Draw bounding boxes -----------------------------------------------
-    for b in renderer.boxes:
+    # -- Draw bounding boxes with semitransparent circles --------------------
+    for b in ctx.boxes:
         cls = CLASSES[b.class_idx]
         rect = skia.Rect.MakeXYWH(b.x, b.y, b.w, b.h)
 
-        renderer.fill_paint.setColor(_with_alpha(cls.color, 50))
-        canvas.drawRect(rect, renderer.fill_paint)
+        # Semitransparent circle centered on the bbox, pulsing radius
+        cx = b.x + b.w / 2.0
+        cy = b.y + b.h / 2.0
+        base_r = max(b.w, b.h) * 0.4
+        pulse = 0.85 + 0.15 * math.sin(t * 2.0 + b.id * 0.7)
+        radius = base_r * pulse
 
-        renderer.stroke_paint.setColor(cls.color)
-        canvas.drawRect(rect, renderer.stroke_paint)
+        ctx.fill_paint.setColor(_with_alpha(cls.color, 35))
+        canvas.drawCircle(cx, cy, radius, ctx.fill_paint)
 
+        ctx.stroke_paint.setColor(_with_alpha(cls.color, 80))
+        ctx.stroke_paint.setStrokeWidth(1.5)
+        canvas.drawCircle(cx, cy, radius, ctx.stroke_paint)
+        ctx.stroke_paint.setStrokeWidth(2.0)
+
+        # Filled bbox
+        ctx.fill_paint.setColor(_with_alpha(cls.color, 50))
+        canvas.drawRect(rect, ctx.fill_paint)
+
+        # Bbox outline
+        ctx.stroke_paint.setColor(cls.color)
+        canvas.drawRect(rect, ctx.stroke_paint)
+
+        # Label
         label_text = f"{cls.name} #{b.id} {b.confidence * 100:.0f}%"
-        tw = renderer.label_font.measureText(label_text)
+        tw = ctx.label_font.measureText(label_text)
         lh = 22.0
         lx = b.x
         ly = b.y - lh - 2.0 if b.y >= lh + 2.0 else b.y
 
-        renderer.label_bg_paint.setColor(_with_alpha(cls.color, 200))
-        canvas.drawRect(skia.Rect.MakeXYWH(lx, ly, tw + 10, lh), renderer.label_bg_paint)
+        ctx.label_bg_paint.setColor(_with_alpha(cls.color, 200))
+        canvas.drawRect(skia.Rect.MakeXYWH(lx, ly, tw + 10, lh), ctx.label_bg_paint)
 
-        canvas.drawString(label_text, lx + 5, ly + lh - 5, renderer.label_font, renderer.black_paint)
+        canvas.drawString(label_text, lx + 5, ly + lh - 5, ctx.label_font, ctx.black_paint)
 
     # -- Sidebar -----------------------------------------------------------
     sx = scene_w
-    canvas.drawRect(skia.Rect.MakeXYWH(sx, 0, sidebar_w, height), renderer.sidebar_bg_paint)
-    canvas.drawLine(sx, 0, sx, height, renderer.separator_paint)
+    canvas.drawRect(skia.Rect.MakeXYWH(sx, 0, sidebar_w, height), ctx.sidebar_bg_paint)
+    canvas.drawLine(sx, 0, sx, height, ctx.separator_paint)
 
-    canvas.drawString("DETECTIONS", sx + 12, 28, renderer.title_font, renderer.white_paint)
-    canvas.drawLine(sx + 8, 36, sx + sidebar_w - 8, 36, renderer.divider_paint)
+    canvas.drawString("DETECTIONS", sx + 12, 28, ctx.title_font, ctx.white_paint)
+    canvas.drawLine(sx + 8, 36, sx + sidebar_w - 8, 36, ctx.divider_paint)
 
     y_off = 52.0
     row_h = 18.0
 
-    for i, b in enumerate(renderer.boxes):
+    for i, b in enumerate(ctx.boxes):
         if y_off + row_h > height - 40.0:
-            renderer.legend_text_paint.setColor(skia.Color(255, 255, 255, 180))
+            ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 180))
             canvas.drawString(
                 f"... +{NUM_BOXES - i} more",
-                sx + 12, y_off + 14, renderer.legend_font, renderer.legend_text_paint,
+                sx + 12, y_off + 14, ctx.legend_font, ctx.legend_text_paint,
             )
             break
 
         cls = CLASSES[b.class_idx]
-        renderer.dot_paint.setColor(cls.color)
-        canvas.drawCircle(sx + 16, y_off + 6, 4.0, renderer.dot_paint)
+        ctx.dot_paint.setColor(cls.color)
+        canvas.drawCircle(sx + 16, y_off + 6, 4.0, ctx.dot_paint)
 
         entry = f"{cls.name:<8} #{b.id:<2} ({int(b.x):>4},{int(b.y):>4}) {b.confidence * 100:>3.0f}%"
-        renderer.legend_text_paint.setColor(skia.Color(255, 255, 255, 220))
-        canvas.drawString(entry, sx + 26, y_off + 10, renderer.legend_font, renderer.legend_text_paint)
+        ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 220))
+        canvas.drawString(entry, sx + 26, y_off + 10, ctx.legend_font, ctx.legend_text_paint)
 
         y_off += row_h
 
     # -- Footer ------------------------------------------------------------
-    canvas.drawRect(skia.Rect.MakeXYWH(sx, height - 32, sidebar_w, 32), renderer.footer_bg_paint)
+    canvas.drawRect(skia.Rect.MakeXYWH(sx, height - 32, sidebar_w, 32), ctx.footer_bg_paint)
     footer = f"F:{frame_idx:>6} {int(width)}x{int(height)} {NUM_BOXES}obj"
-    canvas.drawString(footer, sx + 10, height - 11, renderer.footer_font, renderer.footer_text_paint)
+    canvas.drawString(footer, sx + 10, height - 11, ctx.footer_font, ctx.footer_text_paint)
 
 
 # ===========================================================================
@@ -696,37 +310,30 @@ def rss_kb() -> int:
 def container_mux_for_ext(ext: str) -> str | None:
     return {
         "mp4": "qtmux", "m4v": "qtmux",
-        "mkv": "matroskamux", "webm": "matroskamux",
+        "mkv": "matroskamux",
         "ts": "mpegtsmux",
     }.get(ext)
 
 
 # ===========================================================================
-# Low-level GStreamer helpers
+# Low-level GstBuffer push (minimal remaining FFI)
 # ===========================================================================
 
-_libgst: ctypes.CDLL | None = None
 _libgstapp: ctypes.CDLL | None = None
-
-
-def _ensure_gst_libs():
-    global _libgst, _libgstapp
-    if _libgst is None:
-        _libgst = ctypes.CDLL("libgstreamer-1.0.so.0")
-        _libgstapp = ctypes.CDLL("libgstapp-1.0.so.0")
 
 
 def _push_buffer_with_ts(appsrc_ptr: int, buf_ptr: int, pts_ns: int, duration_ns: int):
     """Set PTS/duration on a raw GstBuffer and push to AppSrc."""
-    _ensure_gst_libs()
-    pts_field = ctypes.c_uint64.from_address(buf_ptr + 72)
-    pts_field.value = pts_ns
-    dur_field = ctypes.c_uint64.from_address(buf_ptr + 88)
-    dur_field.value = duration_ns
-
+    global _libgstapp
+    if _libgstapp is None:
+        _libgstapp = ctypes.CDLL("libgstapp-1.0.so.0")
+    # GstBuffer layout: PTS at offset 72, duration at offset 88
+    ctypes.c_uint64.from_address(buf_ptr + 72).value = pts_ns
+    ctypes.c_uint64.from_address(buf_ptr + 88).value = duration_ns
     _libgstapp.gst_app_src_push_buffer.restype = ctypes.c_int
     _libgstapp.gst_app_src_push_buffer.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    ret = _libgstapp.gst_app_src_push_buffer(ctypes.c_void_p(appsrc_ptr), ctypes.c_void_p(buf_ptr))
+    ret = _libgstapp.gst_app_src_push_buffer(
+        ctypes.c_void_p(appsrc_ptr), ctypes.c_void_p(buf_ptr))
     if ret != 0:
         raise RuntimeError(f"gst_app_src_push_buffer returned {ret}")
 
@@ -758,9 +365,10 @@ def main() -> None:
     frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333
     w, h = args.width, args.height
 
-    # -- GPU Skia renderer -------------------------------------------------
-    renderer = SkiaGpuRenderer(w, h)
-    print(f"SkiaGpuRenderer created: {w}x{h} (gpu {args.gpu_id})")
+    # -- GPU Skia canvas (all EGL/GL/CUDA managed by SkiaContext) ----------
+    skia_canvas = SkiaCanvas.create(w, h, gpu_id=args.gpu_id)
+    draw_ctx = DrawCtx()
+    print(f"SkiaCanvas created: {w}x{h} (gpu {args.gpu_id})")
 
     # -- Generator (RGBA - Skia's native format) ---------------------------
     gen = NvBufSurfaceGenerator(
@@ -876,23 +484,24 @@ def main() -> None:
 
     while i < limit and running:
         # 1. Draw with Skia (GPU)
-        draw_frame(renderer, i, float(w), float(h))
+        draw_frame(skia_canvas, draw_ctx, i, float(w), float(h))
 
-        # 2. Acquire NvBufSurface buffer
+        # 2. Acquire NvBufSurface buffer and render Skia into it
         try:
-            buf_ptr, data_ptr, pitch = gen.acquire_surface_with_ptr(id=i)
+            buf_ptr = gen.acquire_surface(id=i)
         except Exception as e:
-            print(f"acquire_surface_with_ptr failed at frame {i}: {e}", file=sys.stderr)
+            print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        # 3. GPU-to-GPU copy (CUDA-GL interop)
         try:
-            renderer.render_to_nvbuf(data_ptr, pitch)
+            skia_canvas.render_to_nvbuf(buf_ptr)
         except Exception as e:
             print(f"render_to_nvbuf failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        # 4. Set timestamps and push
+        # 3. Set timestamps on the raw GstBuffer and push to appsrc.
+        #    We manipulate the buffer directly since we already have it
+        #    from acquire_surface (push_to_appsrc would acquire a new one).
         pts_ns = i * frame_duration_ns
         try:
             _push_buffer_with_ts(appsrc_ptr, buf_ptr, pts_ns, frame_duration_ns)
@@ -917,8 +526,6 @@ def main() -> None:
     bus.timed_pop_filtered(5 * Gst.SECOND, Gst.MessageType.EOS | Gst.MessageType.ERROR)
     pipeline.set_state(Gst.State.NULL)
     stats_thread.join(timeout=2)
-
-    renderer.destroy()
 
     with count_lock:
         total = frame_count

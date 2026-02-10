@@ -26,6 +26,7 @@
 //! ```
 
 pub mod ffi;
+pub mod transform;
 
 #[cfg(feature = "skia")]
 pub mod egl_context;
@@ -33,6 +34,10 @@ pub mod egl_context;
 pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
+
+pub use transform::{
+    ComputeMode, Interpolation, Padding, Rect, TransformConfig, TransformError,
+};
 
 use glib::translate::from_glib_full;
 use gstreamer as gst;
@@ -777,6 +782,106 @@ impl NvBufSurfaceGenerator {
         Ok(())
     }
 
+    /// Transform (scale + letterbox) a source NvBufSurface buffer into a
+    /// new destination buffer from this generator's pool.
+    ///
+    /// Handles aspect-ratio-preserving scaling with configurable padding
+    /// (symmetric or right-bottom), using the same NvBufSurfTransform API
+    /// that nvinfer uses internally for ROI preparation.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source GStreamer buffer containing an NvBufSurface.
+    /// * `config` - Transform configuration (padding, interpolation, etc.).
+    /// * `id` - Optional frame identifier for SavantIdMeta attachment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the source buffer is invalid, the pool cannot
+    /// provide a buffer, or the transform call fails.
+    pub fn transform(
+        &self,
+        src: &gst::Buffer,
+        config: &TransformConfig,
+        id: Option<i64>,
+    ) -> Result<gst::Buffer, NvBufSurfaceError> {
+        // Acquire destination buffer from our pool
+        let dst_buf = self.acquire_surface(id)?;
+
+        // Extract NvBufSurface pointers from both src and dst
+        let src_surf = unsafe {
+            transform::extract_nvbufsurface(src.as_ref())
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+        let dst_surf = unsafe {
+            transform::extract_nvbufsurface(dst_buf.as_ref())
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+
+        // Perform the transform
+        unsafe {
+            transform::do_transform(src_surf, dst_surf, config)
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?;
+        }
+
+        Ok(dst_buf)
+    }
+
+    /// Like [`transform()`](Self::transform) but also returns `(data_ptr, pitch)`
+    /// for direct GPU memory access (e.g. for Skia overlay).
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source GStreamer buffer containing an NvBufSurface.
+    /// * `config` - Transform configuration.
+    /// * `id` - Optional frame identifier for SavantIdMeta attachment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transform fails or the buffer is invalid.
+    pub fn transform_with_ptr(
+        &self,
+        src: &gst::Buffer,
+        config: &TransformConfig,
+        id: Option<i64>,
+    ) -> Result<(gst::Buffer, *mut std::ffi::c_void, u32), NvBufSurfaceError> {
+        // Acquire destination with ptr info
+        let (dst_buf, data_ptr, pitch) = self.acquire_surface_with_ptr(id)?;
+
+        // Extract NvBufSurface pointers
+        let src_surf = unsafe {
+            transform::extract_nvbufsurface(src.as_ref())
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+        let dst_surf = unsafe {
+            transform::extract_nvbufsurface(dst_buf.as_ref())
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+
+        // Perform the transform
+        unsafe {
+            transform::do_transform(src_surf, dst_surf, config)
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?;
+        }
+
+        Ok((dst_buf, data_ptr, pitch))
+    }
+
+    /// Get the width of buffers produced by this generator.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Get the height of buffers produced by this generator.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Get the format string of buffers produced by this generator.
+    pub fn format(&self) -> &str {
+        &self.format
+    }
+
     /// Send an end-of-stream signal to an AppSrc element.
     ///
     /// # Arguments
@@ -1051,6 +1156,192 @@ pub mod python {
     use super::*;
     use pyo3::prelude::*;
 
+    // ─── Transform enum + config types exposed to Python ─────────────────
+
+    /// Padding mode for letterboxing.
+    ///
+    /// - ``NONE`` -- scale to fill, may distort aspect ratio.
+    /// - ``RIGHT_BOTTOM`` -- image at top-left, padding on right/bottom.
+    /// - ``SYMMETRIC`` -- image centered, equal padding on all sides (default).
+    #[pyclass(name = "Padding", eq, eq_int)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PyPadding {
+        /// No padding -- stretches to fill destination.
+        #[pyo3(name = "NONE")]
+        None = 0,
+        /// Padding on right and bottom edges.
+        #[pyo3(name = "RIGHT_BOTTOM")]
+        RightBottom = 1,
+        /// Symmetric padding (centered). This is the default.
+        #[pyo3(name = "SYMMETRIC")]
+        Symmetric = 2,
+    }
+
+    impl From<PyPadding> for Padding {
+        fn from(p: PyPadding) -> Self {
+            match p {
+                PyPadding::None => Padding::None,
+                PyPadding::RightBottom => Padding::RightBottom,
+                PyPadding::Symmetric => Padding::Symmetric,
+            }
+        }
+    }
+
+    /// Interpolation method for scaling.
+    ///
+    /// - ``NEAREST``  -- nearest-neighbor.
+    /// - ``BILINEAR`` -- bilinear (default).
+    /// - ``ALGO1``    -- GPU: cubic, VIC: 5-tap.
+    /// - ``ALGO2``    -- GPU: super, VIC: 10-tap.
+    /// - ``ALGO3``    -- GPU: Lanczos, VIC: smart.
+    /// - ``ALGO4``    -- GPU: (ignored), VIC: nicest.
+    /// - ``DEFAULT``  -- GPU: nearest, VIC: nearest.
+    #[pyclass(name = "Interpolation", eq, eq_int)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PyInterpolation {
+        #[pyo3(name = "NEAREST")]
+        Nearest = 0,
+        #[pyo3(name = "BILINEAR")]
+        Bilinear = 1,
+        /// GPU: Cubic, VIC: 5-tap.
+        #[pyo3(name = "ALGO1")]
+        Algo1 = 2,
+        /// GPU: Super, VIC: 10-tap.
+        #[pyo3(name = "ALGO2")]
+        Algo2 = 3,
+        /// GPU: Lanczos, VIC: Smart.
+        #[pyo3(name = "ALGO3")]
+        Algo3 = 4,
+        /// GPU: Ignored, VIC: Nicest.
+        #[pyo3(name = "ALGO4")]
+        Algo4 = 5,
+        /// GPU: Nearest, VIC: Nearest.
+        #[pyo3(name = "DEFAULT")]
+        Default = 6,
+    }
+
+    impl From<PyInterpolation> for Interpolation {
+        fn from(i: PyInterpolation) -> Self {
+            match i {
+                PyInterpolation::Nearest => Interpolation::Nearest,
+                PyInterpolation::Bilinear => Interpolation::Bilinear,
+                PyInterpolation::Algo1 => Interpolation::Algo1,
+                PyInterpolation::Algo2 => Interpolation::Algo2,
+                PyInterpolation::Algo3 => Interpolation::Algo3,
+                PyInterpolation::Algo4 => Interpolation::Algo4,
+                PyInterpolation::Default => Interpolation::Default,
+            }
+        }
+    }
+
+    /// Compute backend for transform operations.
+    ///
+    /// - ``DEFAULT`` -- VIC on Jetson, dGPU on x86_64 (default).
+    /// - ``GPU``     -- always use GPU compute.
+    /// - ``VIC``     -- VIC hardware (Jetson only, raises error on dGPU).
+    #[pyclass(name = "ComputeMode", eq, eq_int)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PyComputeMode {
+        /// VIC on Jetson, dGPU on x86_64.
+        #[pyo3(name = "DEFAULT")]
+        Default = 0,
+        /// GPU compute.
+        #[pyo3(name = "GPU")]
+        Gpu = 1,
+        /// VIC hardware (Jetson only).
+        #[pyo3(name = "VIC")]
+        Vic = 2,
+    }
+
+    impl From<PyComputeMode> for ComputeMode {
+        fn from(c: PyComputeMode) -> Self {
+            match c {
+                PyComputeMode::Default => ComputeMode::Default,
+                PyComputeMode::Gpu => ComputeMode::Gpu,
+                PyComputeMode::Vic => ComputeMode::Vic,
+            }
+        }
+    }
+
+    /// Configuration for a transform (scale / letterbox) operation.
+    ///
+    /// All fields have sensible defaults (``Padding.SYMMETRIC``,
+    /// ``Interpolation.BILINEAR``, ``ComputeMode.DEFAULT``, no crop).
+    ///
+    /// Example::
+    ///
+    ///     from deepstream_nvbufsurface import TransformConfig, Padding, Interpolation
+    ///
+    ///     cfg = TransformConfig()                              # all defaults
+    ///     cfg = TransformConfig(padding=Padding.RIGHT_BOTTOM)  # override one
+    ///     cfg = TransformConfig(
+    ///         padding=Padding.SYMMETRIC,
+    ///         interpolation=Interpolation.BILINEAR,
+    ///         src_rect=(100, 200, 800, 600),   # optional crop
+    ///     )
+    #[pyclass(name = "TransformConfig")]
+    #[derive(Debug, Clone)]
+    pub struct PyTransformConfig {
+        #[pyo3(get, set)]
+        pub padding: PyPadding,
+        #[pyo3(get, set)]
+        pub interpolation: PyInterpolation,
+        /// Optional source crop as ``(top, left, width, height)``.
+        /// ``None`` means full source.
+        #[pyo3(get, set)]
+        pub src_rect: Option<(u32, u32, u32, u32)>,
+        #[pyo3(get, set)]
+        pub compute_mode: PyComputeMode,
+    }
+
+    #[pymethods]
+    impl PyTransformConfig {
+        #[new]
+        #[pyo3(signature = (
+            padding = PyPadding::Symmetric,
+            interpolation = PyInterpolation::Bilinear,
+            src_rect = None,
+            compute_mode = PyComputeMode::Default,
+        ))]
+        fn new(
+            padding: PyPadding,
+            interpolation: PyInterpolation,
+            src_rect: Option<(u32, u32, u32, u32)>,
+            compute_mode: PyComputeMode,
+        ) -> Self {
+            Self {
+                padding,
+                interpolation,
+                src_rect,
+                compute_mode,
+            }
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "TransformConfig(padding={:?}, interpolation={:?}, src_rect={:?}, compute_mode={:?})",
+                self.padding, self.interpolation, self.src_rect, self.compute_mode,
+            )
+        }
+    }
+
+    impl PyTransformConfig {
+        /// Convert to the internal Rust [`TransformConfig`].
+        fn to_rust(&self) -> TransformConfig {
+            TransformConfig {
+                padding: self.padding.into(),
+                interpolation: self.interpolation.into(),
+                src_rect: self.src_rect.map(|(top, left, w, h)| Rect {
+                    top,
+                    left,
+                    width: w,
+                    height: h,
+                }),
+                compute_mode: self.compute_mode.into(),
+            }
+        }
+    }
+
     /// Python wrapper for NvBufSurfaceGenerator.
     ///
     /// Generates GStreamer buffers with NvBufSurface memory for use in
@@ -1195,6 +1486,107 @@ pub mod python {
                 let raw_buf = unsafe {
                     use glib::translate::IntoGlibPtr;
                     buffer.into_glib_ptr() as usize
+                };
+                Ok((raw_buf, data_ptr as usize, pitch))
+            })
+        }
+
+        /// Transform (scale + letterbox) a source NvBufSurface buffer into a
+        /// new destination buffer from this generator's pool.
+        ///
+        /// This is the high-level API for aspect-ratio-preserving scaling with
+        /// letterboxing, using the same NvBufSurfTransform API that nvinfer
+        /// uses internally for ROI preparation.
+        ///
+        /// Args:
+        ///     src_buf_ptr (int): Raw pointer of the source ``GstBuffer``
+        ///         containing an NvBufSurface.
+        ///     config (TransformConfig): Transform configuration.
+        ///     id (int | None): Optional frame identifier for SavantIdMeta.
+        ///
+        /// Returns:
+        ///     int: Raw pointer of the destination ``GstBuffer``.
+        ///
+        /// Example::
+        ///
+        ///     from deepstream_nvbufsurface import (
+        ///         NvBufSurfaceGenerator, TransformConfig, Padding, Interpolation,
+        ///     )
+        ///     cfg = TransformConfig(padding=Padding.SYMMETRIC,
+        ///                           interpolation=Interpolation.BILINEAR)
+        ///     dst = gen.transform(src_ptr, cfg, id=42)
+        #[pyo3(signature = (src_buf_ptr, config, id=None))]
+        fn transform(
+            &self,
+            py: Python<'_>,
+            src_buf_ptr: usize,
+            config: &PyTransformConfig,
+            id: Option<i64>,
+        ) -> PyResult<usize> {
+            let config = config.to_rust();
+
+            py.detach(|| {
+                if src_buf_ptr == 0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "src_buf_ptr is null",
+                    ));
+                }
+                let src_buf = unsafe {
+                    gst::Buffer::from_glib_none(
+                        src_buf_ptr as *const gst::ffi::GstBuffer,
+                    )
+                };
+                let dst_buf = self.inner.transform(&src_buf, &config, id).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                })?;
+                let raw = unsafe {
+                    use glib::translate::IntoGlibPtr;
+                    dst_buf.into_glib_ptr() as usize
+                };
+                Ok(raw)
+            })
+        }
+
+        /// Transform like :meth:`transform` but also returns the destination
+        /// CUDA ``dataPtr`` and ``pitch``.
+        ///
+        /// Args:
+        ///     src_buf_ptr (int): Raw pointer of the source ``GstBuffer``.
+        ///     config (TransformConfig): Transform configuration.
+        ///     id (int | None): Optional frame identifier.
+        ///
+        /// Returns:
+        ///     tuple[int, int, int]: ``(gst_buffer_ptr, data_ptr, pitch)``
+        #[pyo3(signature = (src_buf_ptr, config, id=None))]
+        fn transform_with_ptr(
+            &self,
+            py: Python<'_>,
+            src_buf_ptr: usize,
+            config: &PyTransformConfig,
+            id: Option<i64>,
+        ) -> PyResult<(usize, usize, u32)> {
+            let config = config.to_rust();
+
+            py.detach(|| {
+                if src_buf_ptr == 0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "src_buf_ptr is null",
+                    ));
+                }
+                let src_buf = unsafe {
+                    gst::Buffer::from_glib_none(
+                        src_buf_ptr as *const gst::ffi::GstBuffer,
+                    )
+                };
+                let (dst_buf, data_ptr, pitch) = self
+                    .inner
+                    .transform_with_ptr(&src_buf, &config, id)
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                    })?;
+                let raw_buf = unsafe {
+                    use glib::translate::IntoGlibPtr;
+                    dst_buf.into_glib_ptr() as usize
                 };
                 Ok((raw_buf, data_ptr as usize, pitch))
             })
@@ -1365,13 +1757,174 @@ pub mod python {
         }
     }
 
+    // ─── PySkiaContext (gated on skia + python features) ───────────────────
+
+    /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
+    ///
+    /// Manages an EGL headless context, GL texture/FBO, and Skia DirectContext.
+    /// Use with ``skia-python`` to draw on the canvas and then copy the result
+    /// into an NvBufSurface buffer.
+    ///
+    /// Two ways to create:
+    ///
+    /// - ``SkiaContext(width, height)`` — empty transparent canvas.
+    /// - ``SkiaContext.from_nvbuf(buf_ptr)`` — pre-loaded with content from
+    ///   an existing NvBufSurface. Canvas dimensions match the source buffer.
+    ///
+    /// After drawing, call :meth:`render_to_nvbuf` to copy the result into a
+    /// destination NvBufSurface buffer with optional scaling + letterboxing.
+    #[cfg(feature = "skia")]
+    #[pyclass(name = "SkiaContext", unsendable)]
+    pub struct PySkiaContext {
+        inner: crate::SkiaRenderer,
+    }
+
+    #[cfg(feature = "skia")]
+    #[pymethods]
+    impl PySkiaContext {
+        /// Create a new SkiaContext with an empty (transparent) canvas.
+        ///
+        /// Args:
+        ///     width (int): Canvas width in pixels.
+        ///     height (int): Canvas height in pixels.
+        ///     gpu_id (int): GPU device ID (default 0).
+        #[new]
+        #[pyo3(signature = (width, height, gpu_id=0))]
+        fn new(width: u32, height: u32, gpu_id: u32) -> PyResult<Self> {
+            let inner = crate::SkiaRenderer::new(width, height, gpu_id).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+            })?;
+            Ok(Self { inner })
+        }
+
+        /// Create a SkiaContext pre-loaded with content from an NvBufSurface.
+        ///
+        /// The canvas dimensions are set to the source buffer's width and height.
+        /// After creation, you can draw overlays on the canvas at the source
+        /// resolution.
+        ///
+        /// Args:
+        ///     buf_ptr (int): Raw pointer of the source ``GstBuffer``
+        ///         containing an RGBA NvBufSurface.
+        ///     gpu_id (int): GPU device ID (default 0).
+        ///
+        /// Returns:
+        ///     SkiaContext: A new context with the source content loaded.
+        #[staticmethod]
+        #[pyo3(signature = (buf_ptr, gpu_id=0))]
+        fn from_nvbuf(buf_ptr: usize, gpu_id: u32) -> PyResult<Self> {
+            if buf_ptr == 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "buf_ptr is null",
+                ));
+            }
+            let _ = gst::init();
+            unsafe {
+                let buf_ref =
+                    gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
+                let surf_ptr = transform::extract_nvbufsurface(buf_ref).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                })?;
+                let surf = &*surf_ptr;
+                let params = &*surf.surfaceList;
+                let width = params.width;
+                let height = params.height;
+                let data_ptr = params.dataPtr;
+                let pitch = params.pitch;
+
+                let inner = crate::SkiaRenderer::from_nvbuf(
+                    width, height, gpu_id, data_ptr, pitch,
+                )
+                .map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                })?;
+                Ok(Self { inner })
+            }
+        }
+
+        /// The OpenGL FBO ID backing the canvas.
+        ///
+        /// Use this with ``skia.GrGLFramebufferInfo`` in ``skia-python`` to
+        /// create a ``skia.Surface`` for drawing.
+        #[getter]
+        fn fbo_id(&self) -> u32 {
+            self.inner.fbo_id()
+        }
+
+        /// Canvas width in pixels.
+        #[getter]
+        fn width(&self) -> u32 {
+            self.inner.width()
+        }
+
+        /// Canvas height in pixels.
+        #[getter]
+        fn height(&self) -> u32 {
+            self.inner.height()
+        }
+
+        /// Flush Skia and copy the canvas to a destination NvBufSurface.
+        ///
+        /// When ``config`` is supplied and the canvas dimensions differ from
+        /// the destination, uses NvBufSurfTransform for scaling + letterboxing.
+        ///
+        /// Args:
+        ///     buf_ptr (int): Raw pointer of the destination ``GstBuffer``.
+        ///     config (TransformConfig | None): Optional transform config for
+        ///         scaling / letterboxing. ``None`` means direct copy (canvas
+        ///         must match destination dimensions).
+        ///
+        /// Example::
+        ///
+        ///     from deepstream_nvbufsurface import TransformConfig, Padding
+        ///     ctx.render_to_nvbuf(buf_ptr, TransformConfig(padding=Padding.SYMMETRIC))
+        #[pyo3(signature = (buf_ptr, config=None))]
+        fn render_to_nvbuf(
+            &mut self,
+            buf_ptr: usize,
+            config: Option<&PyTransformConfig>,
+        ) -> PyResult<()> {
+            if buf_ptr == 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "buf_ptr is null",
+                ));
+            }
+            let _ = gst::init();
+
+            let rust_config = config.map(|c| c.to_rust());
+
+            unsafe {
+                let buf_ref = gst::BufferRef::from_mut_ptr(
+                    buf_ptr as *mut gst::ffi::GstBuffer,
+                );
+                self.inner
+                    .render_to_nvbuf(buf_ref, rust_config.as_ref())
+                    .map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                    })
+            }
+        }
+    }
+
     /// Register the Python module.
     #[pymodule]
+    #[pyo3(name = "_native")]
     pub fn deepstream_nvbufsurface(m: &Bound<'_, PyModule>) -> PyResult<()> {
+        // Enum types
+        m.add_class::<PyPadding>()?;
+        m.add_class::<PyInterpolation>()?;
+        m.add_class::<PyComputeMode>()?;
+        // Config
+        m.add_class::<PyTransformConfig>()?;
+        // Generator
         m.add_class::<PyNvBufSurfaceGenerator>()?;
+        // Functions
         m.add_function(wrap_pyfunction!(init_cuda, m)?)?;
         m.add_function(wrap_pyfunction!(bridge_savant_id_meta_py, m)?)?;
         m.add_function(wrap_pyfunction!(get_savant_id_meta, m)?)?;
+        // Skia (optional feature)
+        #[cfg(feature = "skia")]
+        m.add_class::<PySkiaContext>()?;
         Ok(())
     }
 }

@@ -4,7 +4,8 @@ export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_inf
 DS_NVBUF_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_nvbufsurface
 
 .PHONY: docs build_savant build_savant_release clean tests bench reformat \
-        ds-nvbuf-dev ds-nvbuf-release ds-nvbuf-install
+        ds-nvbuf-dev ds-nvbuf-release ds-nvbuf-install \
+        ds-nvbuf-test ds-nvbuf-pytest
 
 dev: clean build_savant
 release: clean build_savant_release
@@ -30,6 +31,14 @@ ds-nvbuf-install:
 	echo "Installing $$WHL_NAME"; \
 	pip install --force-reinstall "$$WHL_NAME"; \
 	echo "Installed $$WHL_NAME"
+
+ds-nvbuf-test:
+	@echo "Running deepstream_nvbufsurface Rust tests..."
+	cd $(DS_NVBUF_DIR) && cargo test -- --test-threads=1
+
+ds-nvbuf-pytest: ds-nvbuf-dev ds-nvbuf-install
+	@echo "Running deepstream_nvbufsurface Python tests..."
+	cd $(DS_NVBUF_DIR) && python3 -m pytest pytests/ -v --tb=short
 
 docs:
 	@echo "Building docs..."
