@@ -50,7 +50,7 @@ type cudaStream_t = *mut std::ffi::c_void;
 extern "C" {
     fn cudaGraphicsGLRegisterImage(
         resource: *mut cudaGraphicsResource_t,
-        image: u32, // GL texture name
+        image: u32,  // GL texture name
         target: u32, // GL_TEXTURE_2D
         flags: u32,
     ) -> i32;
@@ -263,10 +263,8 @@ impl SkiaRenderer {
         })
         .ok_or_else(|| SkiaRendererError::Skia("Failed to create GL interface".into()))?;
 
-        let mut gr_context =
-            skia_safe::gpu::direct_contexts::make_gl(interface, None).ok_or_else(|| {
-                SkiaRendererError::Skia("Failed to create Skia DirectContext".into())
-            })?;
+        let mut gr_context = skia_safe::gpu::direct_contexts::make_gl(interface, None)
+            .ok_or_else(|| SkiaRendererError::Skia("Failed to create Skia DirectContext".into()))?;
 
         // 7. Wrap the FBO as a Skia surface
         let fb_info = skia_safe::gpu::gl::FramebufferInfo {
@@ -290,9 +288,7 @@ impl SkiaRenderer {
             None,
             None,
         )
-        .ok_or_else(|| {
-            SkiaRendererError::Skia("Failed to create Skia surface from FBO".into())
-        })?;
+        .ok_or_else(|| SkiaRendererError::Skia("Failed to create Skia surface from FBO".into()))?;
 
         Ok(Self {
             _egl: egl,
@@ -354,9 +350,8 @@ impl SkiaRenderer {
         }
 
         // 1. Map CUDA resource → get cudaArray
-        let rc = unsafe {
-            cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
-        };
+        let rc =
+            unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -366,12 +361,7 @@ impl SkiaRenderer {
 
         let mut cuda_array: cudaArray_t = std::ptr::null_mut();
         let rc = unsafe {
-            cudaGraphicsSubResourceGetMappedArray(
-                &mut cuda_array,
-                self.cuda_resource,
-                0,
-                0,
-            )
+            cudaGraphicsSubResourceGetMappedArray(&mut cuda_array, self.cuda_resource, 0, 0)
         };
         if rc != 0 {
             unsafe {
@@ -399,9 +389,8 @@ impl SkiaRenderer {
         };
 
         // 3. Unmap CUDA resource (always)
-        let unmap_rc = unsafe {
-            cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
-        };
+        let unmap_rc =
+            unsafe { cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
 
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(
@@ -485,9 +474,8 @@ impl SkiaRenderer {
         let dst_pitch = dst_surface.pitch;
 
         // Decide: fast path or scaled path
-        let needs_scaling = transform_config.is_some()
-            || self.width != dst_w
-            || self.height != dst_h;
+        let needs_scaling =
+            transform_config.is_some() || self.width != dst_w || self.height != dst_h;
 
         if !needs_scaling {
             // Fast path: direct CUDA-GL copy
@@ -497,14 +485,14 @@ impl SkiaRenderer {
         // Scaled path: copy GL → temp NvBufSurface → NvBufSurfTransform → dst
         // Lazily create temp generator at canvas resolution
         if self.temp_gen.is_none() {
-            let gen = NvBufSurfaceGenerator::builder("RGBA", self.width, self.height)
+            let surface_generator = NvBufSurfaceGenerator::builder("RGBA", self.width, self.height)
                 .gpu_id(self.gpu_id)
                 .mem_type(NvBufSurfaceMemType::Default)
                 .min_buffers(1)
                 .max_buffers(1)
                 .build()
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
-            self.temp_gen = Some(gen);
+            self.temp_gen = Some(surface_generator);
         }
         let temp_gen = self.temp_gen.as_ref().unwrap();
 
@@ -548,9 +536,8 @@ impl SkiaRenderer {
         self.gr_context.flush_and_submit();
 
         // 2. Map CUDA resource → get cudaArray
-        let rc = unsafe {
-            cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
-        };
+        let rc =
+            unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -560,12 +547,7 @@ impl SkiaRenderer {
 
         let mut cuda_array: cudaArray_t = std::ptr::null_mut();
         let rc = unsafe {
-            cudaGraphicsSubResourceGetMappedArray(
-                &mut cuda_array,
-                self.cuda_resource,
-                0,
-                0,
-            )
+            cudaGraphicsSubResourceGetMappedArray(&mut cuda_array, self.cuda_resource, 0, 0)
         };
         if rc != 0 {
             unsafe {
@@ -593,9 +575,8 @@ impl SkiaRenderer {
         };
 
         // 4. Unmap CUDA resource (always, even on copy error)
-        let unmap_rc = unsafe {
-            cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut())
-        };
+        let unmap_rc =
+            unsafe { cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
 
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(

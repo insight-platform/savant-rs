@@ -1422,6 +1422,24 @@ pub mod python {
             self.inner.nvmm_caps().to_string()
         }
 
+        /// Frame width in pixels.
+        #[getter]
+        fn width(&self) -> u32 {
+            self.inner.width()
+        }
+
+        /// Frame height in pixels.
+        #[getter]
+        fn height(&self) -> u32 {
+            self.inner.height()
+        }
+
+        /// Video format string (e.g. ``"RGBA"``, ``"NV12"``).
+        #[getter]
+        fn format(&self) -> String {
+            self.inner.format().to_owned()
+        }
+
         /// Acquire a new NvBufSurface buffer from the pool.
         ///
         /// Returns the raw pointer address (as ``int``) of the GstBuffer.
@@ -1757,6 +1775,50 @@ pub mod python {
         }
     }
 
+    /// Extract NvBufSurface descriptor fields from an existing GstBuffer.
+    ///
+    /// Given the raw pointer of a ``GstBuffer`` that was allocated by the
+    /// DeepStream NvDS buffer pool, this reads the first
+    /// ``NvBufSurfaceParams`` entry and returns its key fields.
+    ///
+    /// Args:
+    ///     buffer_ptr (int): Raw ``GstBuffer*`` pointer address.
+    ///
+    /// Returns:
+    ///     tuple[int, int, int, int]: ``(data_ptr, pitch, width, height)``
+    ///         where ``data_ptr`` is the CUDA device pointer, ``pitch`` is
+    ///         the row stride in bytes, and ``width``/``height`` are in
+    ///         pixels.
+    ///
+    /// Raises:
+    ///     ValueError: If ``buffer_ptr`` is null.
+    ///     RuntimeError: If the buffer cannot be mapped or is too small.
+    #[pyfunction]
+    fn get_nvbufsurface_info(buffer_ptr: usize) -> PyResult<(usize, u32, u32, u32)> {
+        if buffer_ptr == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "buffer_ptr is null",
+            ));
+        }
+        let _ = gst::init();
+        unsafe {
+            let buf_ref =
+                gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
+            let surf_ptr =
+                crate::transform::extract_nvbufsurface(buf_ref).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                })?;
+            let surf = &*surf_ptr;
+            let params = &*surf.surfaceList;
+            Ok((
+                params.dataPtr as usize,
+                params.pitch as u32,
+                params.width,
+                params.height,
+            ))
+        }
+    }
+
     // ─── PySkiaContext (gated on skia + python features) ───────────────────
 
     /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
@@ -1922,6 +1984,7 @@ pub mod python {
         m.add_function(wrap_pyfunction!(init_cuda, m)?)?;
         m.add_function(wrap_pyfunction!(bridge_savant_id_meta_py, m)?)?;
         m.add_function(wrap_pyfunction!(get_savant_id_meta, m)?)?;
+        m.add_function(wrap_pyfunction!(get_nvbufsurface_info, m)?)?;
         // Skia (optional feature)
         #[cfg(feature = "skia")]
         m.add_class::<PySkiaContext>()?;

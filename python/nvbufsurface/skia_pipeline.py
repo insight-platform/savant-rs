@@ -42,6 +42,7 @@ import signal
 import sys
 import threading
 import time
+import urllib.request
 from dataclasses import dataclass
 
 import skia
@@ -53,6 +54,35 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst
 
 from deepstream_nvbufsurface import NvBufSurfaceGenerator, SkiaCanvas, init_cuda, bridge_savant_id_meta_py
+
+
+# ===========================================================================
+# SVG asset
+# ===========================================================================
+
+TIGER_SVG_URL = (
+    "https://upload.wikimedia.org/wikipedia/commons/d/d2/"
+    "Ghostscript_tiger_%28original_background%29.svg"
+)
+
+
+def _load_svg_dom(url: str) -> skia.SVGDOM | None:
+    """Download an SVG and return a parsed SVGDOM, or None on failure."""
+    try:
+        print(f"Downloading SVG from {url} ...")
+        req = urllib.request.Request(url, headers={"User-Agent": "skia_pipeline/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        stream = skia.MemoryStream.MakeDirect(data)
+        dom = skia.SVGDOM.MakeFromStream(stream)
+        if dom is None:
+            print("Warning: skia.SVGDOM.MakeFromStream returned None", file=sys.stderr)
+        else:
+            print(f"SVG loaded ({len(data)} bytes)")
+        return dom
+    except Exception as exc:
+        print(f"Warning: could not load SVG: {exc}", file=sys.stderr)
+        return None
 
 
 # ===========================================================================
@@ -157,7 +187,9 @@ class DrawCtx:
         self.dot_paint = skia.Paint(AntiAlias=True)
         self.legend_text_paint = skia.Paint(AntiAlias=True, Color=skia.Color(255, 255, 255, 220))
         self.bg_paint = skia.Paint()
+        self.svg_paint = skia.Paint(AntiAlias=True)
         self.boxes: list[BBox] = []
+        self.svg_dom: skia.SVGDOM | None = None
 
 
 # ===========================================================================
@@ -187,6 +219,33 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
     sidebar_w = min(340.0, width * 0.22)
     scene_w = width - sidebar_w
     t = frame_idx / 60.0
+
+    # -- SVG tiger (centered in the scene area, gently floating) -----------
+    if ctx.svg_dom is not None:
+        svg_size = ctx.svg_dom.containerSize()
+        svg_w, svg_h = svg_size.width(), svg_size.height()
+        if svg_w > 0 and svg_h > 0:
+            # Scale to fit ~60% of the scene area, preserving aspect ratio
+            target_w = scene_w * 0.55
+            target_h = height * 0.55
+            scale = min(target_w / svg_w, target_h / svg_h)
+            scaled_w = svg_w * scale
+            scaled_h = svg_h * scale
+
+            # Center + gentle floating motion
+            cx = (scene_w - scaled_w) / 2.0 + math.sin(t * 0.4) * 15.0
+            cy = (height - scaled_h) / 2.0 + math.cos(t * 0.3) * 10.0
+
+            canvas.save()
+            canvas.translate(cx, cy)
+            canvas.scale(scale, scale)
+
+            # Render with slight transparency so detections are visible on top
+            canvas.saveLayerAlpha(None, 160)
+            ctx.svg_dom.render(canvas)
+            canvas.restore()  # layer
+
+            canvas.restore()  # translate+scale
 
     # -- Generate bounding boxes -------------------------------------------
     ctx.boxes.clear()
@@ -356,6 +415,8 @@ def main() -> None:
                         help="Output file path (.mp4, .mkv, ...)")
     parser.add_argument("--num-frames", "-n", type=int, default=None,
                         help="Number of frames (omit for infinite)")
+    parser.add_argument("--svg", type=str, default=TIGER_SVG_URL,
+                        help="URL or local path to SVG file (use 'none' to disable)")
     args = parser.parse_args()
 
     # -- Init --------------------------------------------------------------
@@ -369,6 +430,25 @@ def main() -> None:
     skia_canvas = SkiaCanvas.create(w, h, gpu_id=args.gpu_id)
     draw_ctx = DrawCtx()
     print(f"SkiaCanvas created: {w}x{h} (gpu {args.gpu_id})")
+
+    # -- Load SVG asset ----------------------------------------------------
+    if args.svg and args.svg.lower() != "none":
+        svg_source = args.svg
+        if svg_source.startswith(("http://", "https://")):
+            draw_ctx.svg_dom = _load_svg_dom(svg_source)
+        else:
+            # Local file
+            try:
+                with open(svg_source, "rb") as f:
+                    data = f.read()
+                stream = skia.MemoryStream.MakeDirect(data)
+                draw_ctx.svg_dom = skia.SVGDOM.MakeFromStream(stream)
+                if draw_ctx.svg_dom:
+                    print(f"SVG loaded from {svg_source} ({len(data)} bytes)")
+                else:
+                    print(f"Warning: failed to parse SVG from {svg_source}", file=sys.stderr)
+            except Exception as exc:
+                print(f"Warning: could not load SVG: {exc}", file=sys.stderr)
 
     # -- Generator (RGBA - Skia's native format) ---------------------------
     gen = NvBufSurfaceGenerator(
