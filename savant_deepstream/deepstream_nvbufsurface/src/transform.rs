@@ -157,7 +157,20 @@ pub struct TransformConfig {
     pub src_rect: Option<Rect>,
     /// Compute backend.
     pub compute_mode: ComputeMode,
+    /// Optional CUDA stream for the transform operation.
+    ///
+    /// When `null` (the default), the legacy default stream (stream 0) is used,
+    /// which has implicit synchronization semantics with all other blocking
+    /// streams. Set to a non-blocking stream created via
+    /// [`create_cuda_stream()`](crate::create_cuda_stream) to avoid global GPU
+    /// serialization.
+    pub cuda_stream: *mut std::ffi::c_void,
 }
+
+// Safety: the cuda_stream pointer is only used within the same GPU context
+// that created it, and is never dereferenced on the Rust side.
+unsafe impl Send for TransformConfig {}
+unsafe impl Sync for TransformConfig {}
 
 impl Default for TransformConfig {
     fn default() -> Self {
@@ -166,6 +179,7 @@ impl Default for TransformConfig {
             interpolation: Interpolation::default(),
             src_rect: None,
             compute_mode: ComputeMode::default(),
+            cuda_stream: std::ptr::null_mut(),
         }
     }
 }
@@ -281,12 +295,12 @@ pub(crate) unsafe fn do_transform(
     let dst_w = dst.surfaceList.as_ref().unwrap().width;
     let dst_h = dst.surfaceList.as_ref().unwrap().height;
 
-    // Set session params (compute mode + GPU ID)
+    // Set session params (compute mode + GPU ID + optional CUDA stream)
     let gpu_id = src.gpuId as i32;
     let mut session_params = transform_ffi::NvBufSurfTransformConfigParams {
         compute_mode: config.compute_mode.to_ffi(),
         gpu_id,
-        cuda_stream: std::ptr::null_mut(),
+        cuda_stream: config.cuda_stream as *mut transform_ffi::CUstream_st,
     };
     let ret = transform_ffi::NvBufSurfTransformSetSessionParams(&mut session_params);
     if ret != 0 {
@@ -334,12 +348,12 @@ pub(crate) unsafe fn do_transform(
             0, // black
             bpp.min(pitch),
             dst_h as usize,
-            std::ptr::null_mut(), // default stream
+            config.cuda_stream, // use the configured CUDA stream
         );
         if ret != 0 {
             return Err(TransformError::CudaError(ret));
         }
-        let ret = ffi::cudaStreamSynchronize(std::ptr::null_mut());
+        let ret = ffi::cudaStreamSynchronize(config.cuda_stream);
         if ret != 0 {
             return Err(TransformError::CudaError(ret));
         }
@@ -378,6 +392,21 @@ pub(crate) unsafe fn do_transform(
     );
     if ret != 0 {
         return Err(TransformError::TransformFailed(ret));
+    }
+
+    // Synchronize the CUDA stream to ensure the transform is fully complete
+    // before the caller releases the source or destination buffers.
+    //
+    // This is essential when using a non-blocking CUDA stream: without it,
+    // the source buffer could be returned to the pool and reused by the next
+    // frame while the GPU is still reading from it, causing stale-data
+    // artifacts (e.g. "trembling" bounding boxes).
+    //
+    // For the legacy default stream (null), this is effectively a no-op
+    // because the default stream already has implicit sync semantics.
+    let ret = ffi::cudaStreamSynchronize(config.cuda_stream);
+    if ret != 0 {
+        return Err(TransformError::CudaError(ret));
     }
 
     Ok(())

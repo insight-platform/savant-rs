@@ -122,6 +122,14 @@ impl std::fmt::Display for Codec {
 /// Encapsulates all parameters needed to set up the encoding pipeline:
 /// codec selection, resolution, framerate, GPU configuration, and
 /// encoder-specific properties.
+///
+/// **Note on buffer pool size**: The internal buffer pools are always
+/// configured with exactly 1 buffer. This is required because the NVENC
+/// hardware encoder may continue DMA-reading from a buffer's GPU memory
+/// after the GStreamer element has released its reference. A pool size of
+/// 1 forces full serialization: each frame must be completely consumed
+/// by the hardware encoder before the next frame can be submitted,
+/// preventing stale-data artifacts.
 #[derive(Debug, Clone)]
 pub struct EncoderConfig {
     /// Video codec to use.
@@ -140,8 +148,6 @@ pub struct EncoderConfig {
     pub gpu_id: u32,
     /// NvBufSurface memory type (as u32, see [`NvBufSurfaceMemType`]).
     pub mem_type: u32,
-    /// Buffer pool size (min and max buffers).
-    pub pool_size: u32,
     /// Encoder-specific GStreamer properties as `(key, value)` string pairs.
     ///
     /// These are passed directly to the encoder element via
@@ -157,7 +163,6 @@ impl EncoderConfig {
     /// - FPS: 30/1.
     /// - GPU ID: 0.
     /// - Memory type: 0 (Default).
-    /// - Pool size: 4.
     /// - No extra encoder properties.
     pub fn new(codec: Codec, width: u32, height: u32) -> Self {
         Self {
@@ -169,7 +174,6 @@ impl EncoderConfig {
             fps_den: 1,
             gpu_id: 0,
             mem_type: 0,
-            pool_size: 4,
             encoder_properties: Vec::new(),
         }
     }
@@ -196,12 +200,6 @@ impl EncoderConfig {
     /// Set the memory type.
     pub fn mem_type(mut self, mem_type: u32) -> Self {
         self.mem_type = mem_type;
-        self
-    }
-
-    /// Set the buffer pool size.
-    pub fn pool_size(mut self, pool_size: u32) -> Self {
-        self.pool_size = pool_size;
         self
     }
 

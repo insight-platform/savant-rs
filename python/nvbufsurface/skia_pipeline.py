@@ -520,7 +520,6 @@ def main() -> None:
     parser.add_argument("--height", type=int, default=1080, help="Frame height")
     parser.add_argument("--fps", type=int, default=30, help="Framerate numerator")
     parser.add_argument("--gpu-id", type=int, default=0, help="GPU device ID")
-    parser.add_argument("--pool-size", type=int, default=4, help="Buffer pool size")
     parser.add_argument("--codec", type=str, default="h265",
                         choices=["h264", "h265", "hevc", "jpeg"],
                         help="Video codec")
@@ -561,12 +560,11 @@ def main() -> None:
         fps_num=args.fps,
         fps_den=1,
         gpu_id=args.gpu_id,
-        pool_size=args.pool_size,
     )
     encoder = NvEncoder(config)
     print(
         f"Encoder created: {w}x{h} RGBA @ {args.fps} fps, "
-        f"codec={codec.name()} (gpu {args.gpu_id}, pool {args.pool_size})"
+        f"codec={codec.name()} (gpu {args.gpu_id})"
     )
 
     # -- Optional MP4 muxer ------------------------------------------------

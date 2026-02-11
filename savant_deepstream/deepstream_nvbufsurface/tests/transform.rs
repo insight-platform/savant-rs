@@ -169,6 +169,7 @@ fn transform_with_src_crop() {
             height: 600,
         }),
         compute_mode: ComputeMode::Default,
+        cuda_stream: std::ptr::null_mut(),
     };
     let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
     assert!(dst_buf.size() > 0);

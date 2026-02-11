@@ -35,10 +35,6 @@ class TestEncoderConfigCustom:
         config = EncoderConfig(Codec.HEVC, 640, 480, fps_num=60, fps_den=1)
         assert config is not None
 
-    def test_custom_pool_size(self):
-        config = EncoderConfig(Codec.HEVC, 640, 480, pool_size=8)
-        assert config is not None
-
     def test_encoder_properties(self):
         config = EncoderConfig(
             Codec.HEVC, 640, 480,

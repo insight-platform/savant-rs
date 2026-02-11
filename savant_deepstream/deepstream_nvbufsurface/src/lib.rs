@@ -157,6 +157,53 @@ pub fn cuda_init(gpu_id: u32) -> Result<(), NvBufSurfaceError> {
     Ok(())
 }
 
+/// Create a non-blocking CUDA stream.
+///
+/// Returns an opaque `*mut c_void` stream handle suitable for passing to
+/// [`TransformConfig::cuda_stream`]. The returned stream has the
+/// `cudaStreamNonBlocking` flag, meaning it will **not** implicitly
+/// synchronize with the CUDA legacy default stream (stream 0). This
+/// eliminates the global GPU serialization barrier that occurs when
+/// `nvvideoconvert` uses the default stream for `NvBufSurfTransform`.
+///
+/// The caller must eventually call [`destroy_cuda_stream()`] to free
+/// the stream.
+///
+/// # Errors
+///
+/// Returns [`NvBufSurfaceError::CudaInitFailed`] if stream creation fails.
+pub fn create_cuda_stream() -> Result<*mut std::ffi::c_void, NvBufSurfaceError> {
+    let mut stream: *mut std::ffi::c_void = std::ptr::null_mut();
+    // 0x01 = cudaStreamNonBlocking
+    let ret = unsafe { ffi::cudaStreamCreateWithFlags(&mut stream, 0x01) };
+    if ret != 0 {
+        return Err(NvBufSurfaceError::CudaInitFailed(ret));
+    }
+    debug!("Created non-blocking CUDA stream {:?}", stream);
+    Ok(stream)
+}
+
+/// Destroy a CUDA stream previously created by [`create_cuda_stream()`].
+///
+/// Passing a null pointer is a no-op.
+///
+/// # Errors
+///
+/// Returns [`NvBufSurfaceError::CudaInitFailed`] if destruction fails.
+pub fn destroy_cuda_stream(
+    stream: *mut std::ffi::c_void,
+) -> Result<(), NvBufSurfaceError> {
+    if stream.is_null() {
+        return Ok(());
+    }
+    let ret = unsafe { ffi::cudaStreamDestroy(stream) };
+    if ret != 0 {
+        return Err(NvBufSurfaceError::CudaInitFailed(ret));
+    }
+    debug!("Destroyed CUDA stream {:?}", stream);
+    Ok(())
+}
+
 /// Generates GStreamer buffers with NvBufSurface memory allocated.
 ///
 /// Creates a DeepStream buffer pool and provides methods to allocate
@@ -1338,6 +1385,7 @@ pub mod python {
                     height: h,
                 }),
                 compute_mode: self.compute_mode.into(),
+                cuda_stream: std::ptr::null_mut(), // Python API always uses default stream
             }
         }
     }

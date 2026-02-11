@@ -535,6 +535,21 @@ impl SkiaRenderer {
         // 1. Flush Skia to GL
         self.gr_context.flush_and_submit();
 
+        // 1b. Wait for ALL pending GL commands to complete on the GPU.
+        //
+        // flushAndSubmit() only calls glFlush(), which submits commands to
+        // the driver but does NOT wait for the GPU to finish executing them.
+        // cudaGraphicsMapResources is documented to "may synchronize" with
+        // GL, but this is not reliable on all driver versions — when it
+        // doesn't fully sync, the subsequent cudaMemcpy2DFromArray reads
+        // stale texture data from the previous frame.
+        //
+        // glFinish() is the only way to guarantee that the GL texture
+        // contains the current frame's pixels before CUDA reads from it.
+        unsafe {
+            gl::Finish();
+        }
+
         // 2. Map CUDA resource → get cudaArray
         let rc =
             unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };

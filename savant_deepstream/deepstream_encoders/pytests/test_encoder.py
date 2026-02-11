@@ -37,14 +37,14 @@ class TestEncoderCreation:
 
 class TestBufferAcquisition:
     def test_acquire_surface(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         buf_ptr = encoder.acquire_surface(id=0)
         assert isinstance(buf_ptr, int)
         assert buf_ptr != 0
 
     def test_acquire_surface_no_id(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         buf_ptr = encoder.acquire_surface()
         assert buf_ptr != 0
@@ -62,13 +62,13 @@ class TestBufferAcquisition:
 
 class TestFrameSubmission:
     def test_submit_single_frame(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         buf = encoder.acquire_surface(id=0)
         encoder.submit_frame(buf, frame_id=0, pts_ns=0, duration_ns=33_333_333)
 
     def test_submit_multiple_frames(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         for i in range(5):
             buf = encoder.acquire_surface(id=i)
@@ -91,7 +91,7 @@ class TestFrameSubmission:
 
 class TestPtsValidation:
     def test_reordered_pts_raises(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         buf1 = encoder.acquire_surface(id=0)
@@ -102,7 +102,7 @@ class TestPtsValidation:
             encoder.submit_frame(buf2, frame_id=1, pts_ns=50)
 
     def test_equal_pts_raises(self):
-        config = EncoderConfig(Codec.H264, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.H264, 320, 240)
         encoder = NvEncoder(config)
 
         buf1 = encoder.acquire_surface(id=0)
@@ -118,7 +118,7 @@ class TestPtsValidation:
 
 class TestEncoding:
     def test_finish_returns_encoded_frames(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         for i in range(5):
@@ -142,7 +142,7 @@ class TestEncoding:
             assert isinstance(frame.pts_ns, int)
 
     def test_finish_h264(self):
-        config = EncoderConfig(Codec.H264, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.H264, 320, 240)
         encoder = NvEncoder(config)
 
         for i in range(5):
@@ -163,7 +163,6 @@ class TestEncoding:
         config = EncoderConfig(
             Codec.HEVC, 320, 240,
             format="RGBA",
-            pool_size=4,
         )
         encoder = NvEncoder(config)
 
@@ -180,7 +179,7 @@ class TestEncoding:
         assert len(remaining) > 0
 
     def test_pull_encoded_nonblocking(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         # Pull without submitting anything — should return None.
@@ -188,7 +187,7 @@ class TestEncoding:
         assert frame is None
 
     def test_pull_encoded_timeout(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         frame = encoder.pull_encoded_timeout(timeout_ms=50)
@@ -200,7 +199,7 @@ class TestEncoding:
 
 class TestFinalization:
     def test_double_finish_returns_empty(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         buf = encoder.acquire_surface(id=0)
@@ -211,7 +210,7 @@ class TestFinalization:
         assert second == []
 
     def test_submit_after_finish_raises(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         encoder.finish()
 
@@ -225,7 +224,7 @@ class TestFinalization:
 
 class TestFrameIdTracking:
     def test_frame_ids_preserved(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
 
         expected_ids = [100, 200, 300, 400, 500]
@@ -250,7 +249,7 @@ class TestFrameIdTracking:
 
 class TestEncodedFrame:
     def _get_one_frame(self):
-        config = EncoderConfig(Codec.HEVC, 320, 240, pool_size=4)
+        config = EncoderConfig(Codec.HEVC, 320, 240)
         encoder = NvEncoder(config)
         for i in range(3):
             buf = encoder.acquire_surface(id=i)

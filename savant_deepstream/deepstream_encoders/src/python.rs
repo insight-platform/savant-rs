@@ -120,6 +120,12 @@ impl From<Codec> for PyCodec {
 
 /// Configuration for creating an :class:`NvEncoder`.
 ///
+/// The internal buffer pools are always configured with exactly 1 buffer.
+/// This is required because the NVENC hardware encoder may continue
+/// DMA-reading from GPU memory after releasing the GStreamer buffer
+/// reference. A pool of 1 forces serialization that prevents stale-data
+/// artifacts.
+///
 /// Args:
 ///     codec (Codec): Video codec.
 ///     width (int): Frame width in pixels.
@@ -129,7 +135,6 @@ impl From<Codec> for PyCodec {
 ///     fps_den (int): Framerate denominator (default 1).
 ///     gpu_id (int): GPU device ID (default 0).
 ///     mem_type (int): NvBufSurface memory type (default 0).
-///     pool_size (int): Buffer pool size (default 4).
 ///     encoder_properties (dict | None): Encoder-specific GStreamer
 ///         properties as string key/value pairs. B-frame properties are
 ///         rejected.
@@ -158,7 +163,6 @@ impl PyEncoderConfig {
         fps_den = 1,
         gpu_id = 0,
         mem_type = 0,
-        pool_size = 4,
         encoder_properties = None,
     ))]
     fn new(
@@ -170,15 +174,13 @@ impl PyEncoderConfig {
         fps_den: i32,
         gpu_id: u32,
         mem_type: u32,
-        pool_size: u32,
         encoder_properties: Option<std::collections::HashMap<String, String>>,
     ) -> PyResult<Self> {
         let mut config = EncoderConfig::new(codec.into(), width, height)
             .format(format)
             .fps(fps_num, fps_den)
             .gpu_id(gpu_id)
-            .mem_type(mem_type)
-            .pool_size(pool_size);
+            .mem_type(mem_type);
 
         if let Some(props) = encoder_properties {
             for (k, v) in props {

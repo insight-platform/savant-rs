@@ -67,7 +67,6 @@ fn test_config_defaults() {
     assert_eq!(config.fps_num, 30);
     assert_eq!(config.fps_den, 1);
     assert_eq!(config.gpu_id, 0);
-    assert_eq!(config.pool_size, 4);
     assert!(config.encoder_properties.is_empty());
 }
 
@@ -77,13 +76,11 @@ fn test_config_builder_chain() {
         .format("RGBA")
         .fps(60, 1)
         .gpu_id(1)
-        .mem_type(2)
-        .pool_size(8);
+        .mem_type(2);
     assert_eq!(config.format, "RGBA");
     assert_eq!(config.fps_num, 60);
     assert_eq!(config.gpu_id, 1);
     assert_eq!(config.mem_type, 2);
-    assert_eq!(config.pool_size, 8);
 }
 
 #[test]
@@ -154,7 +151,7 @@ fn test_encoder_codec_getter() {
 #[test]
 fn test_submit_and_pull_frames() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240).pool_size(4);
+    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let frame_duration_ns = 33_333_333u64; // ~30fps
@@ -188,8 +185,7 @@ fn test_submit_and_pull_frames() {
 fn test_submit_rgba_with_conversion() {
     init();
     let config = EncoderConfig::new(Codec::H264, 320, 240)
-        .format("RGBA")
-        .pool_size(4);
+        .format("RGBA");
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3i64 {
@@ -322,7 +318,7 @@ fn test_generator_accessor() {
 #[test]
 fn test_frame_id_preserved() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240).pool_size(4);
+    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let frame_ids: Vec<i64> = vec![100, 200, 300, 400, 500];
