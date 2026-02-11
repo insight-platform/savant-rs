@@ -1,26 +1,20 @@
 #!/usr/bin/env python3
-"""NVMM encoding pipeline example (Python port).
+"""NVMM encoding pipeline example using deepstream_encoders SDK.
 
-Pushes NVMM frames via NvBufSurfaceGenerator through a DeepStream
-encoding pipeline as fast as possible, printing throughput statistics
-every second.
+Pushes NVMM frames through the NvEncoder SDK as fast as possible, printing
+throughput statistics every second.  Optionally muxes the encoded bitstream
+into an MP4 container via a minimal GStreamer pipeline.
 
-The generator allocates buffers in the requested format (RGBA, NV12, etc.)
-directly in GPU memory.  When the format is not encoder-native (i.e. not
-NV12 or I420), ``nvvideoconvert`` is inserted to do GPU-to-GPU conversion
-before encoding -- no CPU involvement at any stage.
+The SDK handles all encoding internals (encoder creation, format conversion,
+B-frame prevention, PTS validation).  The sample only needs to:
 
-Pipeline (NV12/I420, no output file)::
+1. Configure and create an ``NvEncoder``.
+2. Acquire GPU buffers, submit them to the encoder.
+3. Pull encoded frames and (optionally) push them into a muxer.
 
-    appsrc (memory:NVMM) -> nvv4l2h26Xenc -> h26Xparse -> fakesink
+Output pipeline (when ``--output`` is given)::
 
-Pipeline (RGBA, with .mp4 output)::
-
-    appsrc (memory:NVMM) -> nvvideoconvert -> nvv4l2h26Xenc -> h26Xparse -> qtmux -> filesink
-
-Pipeline (JPEG)::
-
-    appsrc (memory:NVMM) -> [nvvideoconvert ->] nvjpegenc -> jpegparse -> sink
+    appsrc (bitstream) -> h26Xparse -> qtmux -> filesink
 
 Usage::
 
@@ -30,20 +24,16 @@ Usage::
     # 300 frames of RGBA -> H.264 to an MP4 file
     python nvmm_pipeline.py --format RGBA --codec h264 --num-frames 300 --output /tmp/test.mp4
 
-    # 600 frames of NV12 -> H.265 raw elementary stream
-    python nvmm_pipeline.py --num-frames 600 --output /tmp/test.h265
+    # 600 frames of NV12 -> H.265, no container
+    python nvmm_pipeline.py --num-frames 600
 
-    # Infinite run to a Matroska container (Ctrl-C to stop)
-    python nvmm_pipeline.py --codec h265 --output /tmp/test.mkv
-
-    # 100 frames of JPEG (I420 native, no conversion)
+    # 100 frames of JPEG, discarded
     python nvmm_pipeline.py --format I420 --codec jpeg --num-frames 100
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import signal
 import sys
 import threading
@@ -53,9 +43,10 @@ import gi
 
 gi.require_version("Gst", "1.0")
 gi.require_version("GstApp", "1.0")
-from gi.repository import Gst
+from gi.repository import Gst, GLib
 
-from deepstream_nvbufsurface import NvBufSurfaceGenerator, init_cuda, bridge_savant_id_meta_py
+from deepstream_nvbufsurface import init_cuda
+from deepstream_encoders import NvEncoder, EncoderConfig, Codec
 
 
 # ---------------------------------------------------------------------------
@@ -74,15 +65,89 @@ def rss_kb() -> int:
     return 0
 
 
-def container_mux_for_ext(ext: str) -> str | None:
-    """Return a GStreamer muxer element name for a container extension, or None."""
-    return {
-        "mp4": "qtmux",
-        "m4v": "qtmux",
-        "mkv": "matroskamux",
-        "webm": "matroskamux",
-        "ts": "mpegtsmux",
-    }.get(ext)
+def resolve_codec(name: str) -> Codec:
+    """Map CLI codec name to Codec enum."""
+    return Codec.from_name("hevc" if name == "h265" else name)
+
+
+# ---------------------------------------------------------------------------
+# MP4 muxer pipeline (optional, for file output)
+# ---------------------------------------------------------------------------
+
+class Mp4Muxer:
+    """Minimal GStreamer pipeline: appsrc -> parser -> qtmux -> filesink."""
+
+    def __init__(self, codec: Codec, output_path: str, fps_num: int = 30, fps_den: int = 1):
+        self.pipeline = Gst.Pipeline.new("mux-pipeline")
+
+        # Determine parser and caps for the encoded bitstream
+        if codec == Codec.H264:
+            caps_str = "video/x-h264, stream-format=byte-stream"
+            parse_name = "h264parse"
+        elif codec == Codec.HEVC:
+            caps_str = "video/x-h265, stream-format=byte-stream"
+            parse_name = "h265parse"
+        elif codec == Codec.Jpeg:
+            caps_str = "image/jpeg"
+            parse_name = "jpegparse"
+        elif codec == Codec.AV1:
+            caps_str = "video/x-av1"
+            parse_name = "av1parse"
+        else:
+            raise ValueError(f"Unsupported codec for muxing: {codec}")
+
+        # Create elements
+        self.appsrc = Gst.ElementFactory.make("appsrc", "mux-src")
+        parse = Gst.ElementFactory.make(parse_name, "mux-parse")
+        mux = Gst.ElementFactory.make("qtmux", "mux")
+        sink = Gst.ElementFactory.make("filesink", "mux-sink")
+
+        assert self.appsrc and parse and mux and sink, \
+            f"Failed to create muxer pipeline elements ({parse_name})"
+
+        # Configure appsrc
+        caps = Gst.Caps.from_string(
+            f"{caps_str}, framerate={fps_num}/{fps_den}"
+        )
+        self.appsrc.set_property("caps", caps)
+        self.appsrc.set_property("format", Gst.Format.TIME)
+        self.appsrc.set_property("stream-type", 0)  # STREAM
+
+        sink.set_property("location", output_path)
+
+        # Assemble
+        for elem in [self.appsrc, parse, mux, sink]:
+            self.pipeline.add(elem)
+        assert self.appsrc.link(parse), "Failed to link appsrc -> parse"
+        assert parse.link(mux), "Failed to link parse -> mux"
+        assert mux.link(sink), "Failed to link mux -> sink"
+
+        # Start
+        ret = self.pipeline.set_state(Gst.State.PLAYING)
+        assert ret != Gst.StateChangeReturn.FAILURE, "Failed to start muxer pipeline"
+
+        print(f"Muxer: appsrc -> {parse_name} -> qtmux -> filesink({output_path})")
+
+    def push(self, data: bytes, pts_ns: int, duration_ns: int | None = None) -> None:
+        """Push an encoded frame into the muxer pipeline."""
+        buf = Gst.Buffer.new_allocate(None, len(data), None)
+        buf.fill(0, data)
+        buf.pts = pts_ns
+        if duration_ns is not None:
+            buf.duration = duration_ns
+        ret = self.appsrc.emit("push-buffer", buf)
+        if ret != Gst.FlowReturn.OK:
+            raise RuntimeError(f"Muxer appsrc push failed: {ret}")
+
+    def finish(self) -> None:
+        """Send EOS and shut down the muxer pipeline."""
+        self.appsrc.emit("end-of-stream")
+        bus = self.pipeline.get_bus()
+        bus.timed_pop_filtered(
+            5 * Gst.SECOND,
+            Gst.MessageType.EOS | Gst.MessageType.ERROR,
+        )
+        self.pipeline.set_state(Gst.State.NULL)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +155,7 @@ def container_mux_for_ext(ext: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="NVMM encoding pipeline")
+    parser = argparse.ArgumentParser(description="NVMM encoding pipeline (deepstream_encoders SDK)")
     parser.add_argument("--width", type=int, default=1920, help="Frame width")
     parser.add_argument("--height", type=int, default=1080, help="Frame height")
     parser.add_argument("--format", type=str, default="NV12", help="Video format (NV12, RGBA, ...)")
@@ -102,7 +167,7 @@ def main() -> None:
                         choices=["h264", "h265", "hevc", "jpeg"],
                         help="Video codec")
     parser.add_argument("--output", "-o", type=str, default=None,
-                        help="Output file path (.mp4, .mkv, .h264, .h265, ...)")
+                        help="Output MP4 file path")
     parser.add_argument("--num-frames", "-n", type=int, default=None,
                         help="Number of frames (omit for infinite)")
     args = parser.parse_args()
@@ -112,109 +177,40 @@ def main() -> None:
     init_cuda(args.gpu_id)
 
     frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333
+    codec = resolve_codec(args.codec)
 
-    # -- Generator ---------------------------------------------------------
-    gen = NvBufSurfaceGenerator(
-        args.format,
+    # -- Encoder -----------------------------------------------------------
+    config = EncoderConfig(
+        codec,
         args.width,
         args.height,
+        format=args.format,
         fps_num=args.fps,
         fps_den=1,
         gpu_id=args.gpu_id,
         mem_type=args.mem_type,
         pool_size=args.pool_size,
     )
+    encoder = NvEncoder(config)
     print(
-        f"Generator created: {args.width}x{args.height} {args.format} "
-        f"@ {args.fps} fps (gpu {args.gpu_id}, pool {args.pool_size})"
+        f"Encoder created: {args.width}x{args.height} {args.format} "
+        f"@ {args.fps} fps, codec={codec.name()} (gpu {args.gpu_id}, pool {args.pool_size})"
     )
 
-    # -- Pipeline elements -------------------------------------------------
-    codec = "h265" if args.codec == "hevc" else args.codec
-
-    if codec == "jpeg":
-        enc_name = "nvjpegenc"
-        parse_name = "jpegparse"
-        # nvjpegenc requires I420; insert nvvideoconvert when needed
-        needs_convert = args.format != "I420"
-    else:
-        enc_name = f"nvv4l2{codec}enc"
-        parse_name = f"{codec}parse"
-        needs_convert = args.format not in ("NV12", "I420")
-
-    pipeline = Gst.Pipeline.new("pipeline")
-
-    appsrc = Gst.ElementFactory.make("appsrc", "src")
-    enc = Gst.ElementFactory.make(enc_name, "enc")
-    parse = Gst.ElementFactory.make(parse_name, "parse")
-
-    assert appsrc and enc and parse, f"Failed to create pipeline elements ({enc_name})"
-
-    # Bridge SavantIdMeta across the encoder (PTS-keyed pad probes)
-    bridge_savant_id_meta_py(hash(enc))
-
-    # -- Sink: fakesink or filesink (with optional container muxer) --------
-    container_mux = None
+    # -- Optional MP4 muxer ------------------------------------------------
+    muxer: Mp4Muxer | None = None
     if args.output:
-        sink = Gst.ElementFactory.make("filesink", "sink")
-        assert sink, "Failed to create filesink"
-        sink.set_property("location", args.output)
-        ext = os.path.splitext(args.output)[1].lstrip(".").lower()
-        mux_factory = container_mux_for_ext(ext)
-        if mux_factory:
-            container_mux = Gst.ElementFactory.make(mux_factory, "cmux")
-            assert container_mux, f"Failed to create {mux_factory}"
+        muxer = Mp4Muxer(codec, args.output, fps_num=args.fps)
     else:
-        sink = Gst.ElementFactory.make("fakesink", "sink")
-        assert sink, "Failed to create fakesink"
-        sink.set_property("sync", False)
-
-    # -- Configure appsrc --------------------------------------------------
-    caps = Gst.Caps.from_string(gen.nvmm_caps_str())
-    appsrc.set_property("caps", caps)
-    appsrc.set_property("format", Gst.Format.TIME)
-    appsrc.set_property("stream-type", 0)  # GST_APP_STREAM_TYPE_STREAM
-
-    # -- Assemble pipeline -------------------------------------------------
-    chain: list[Gst.Element] = [appsrc]
-    if needs_convert:
-        convert = Gst.ElementFactory.make("nvvideoconvert", "convert")
-        assert convert, "Failed to create nvvideoconvert"
-        chain.append(convert)
-    chain.extend([enc, parse])
-    if container_mux:
-        chain.append(container_mux)
-    chain.append(sink)
-
-    for elem in chain:
-        pipeline.add(elem)
-    for i in range(len(chain) - 1):
-        assert chain[i].link(chain[i + 1]), f"Failed to link {chain[i].get_name()} -> {chain[i+1].get_name()}"
-
-    # -- Print pipeline description ----------------------------------------
-    sink_label: str
-    if args.output:
-        cmux_label = f"{container_mux.get_factory().get_name()} -> " if container_mux else ""
-        sink_label = f"{cmux_label}filesink({args.output})"
-    else:
-        sink_label = "fakesink"
-
-    if needs_convert:
-        print(f"Pipeline: appsrc({args.format}) -> nvvideoconvert -> {enc_name} -> {parse_name} -> {sink_label}")
-    else:
-        print(f"Pipeline: appsrc({args.format}) -> {enc_name} -> {parse_name} -> {sink_label}")
-
-    # -- Start -------------------------------------------------------------
-    ret = pipeline.set_state(Gst.State.PLAYING)
-    assert ret != Gst.StateChangeReturn.FAILURE, "Failed to start pipeline"
-
-    limit = args.num_frames if args.num_frames is not None else sys.maxsize
-    if args.num_frames is not None:
-        print(f"Pipeline running ({args.num_frames} frames)...\n")
-    else:
-        print("Pipeline running (Ctrl-C to stop)...\n")
+        print("No output file — encoded frames will be discarded (benchmark mode)")
 
     # -- Ctrl-C handling ---------------------------------------------------
+    limit = args.num_frames if args.num_frames is not None else sys.maxsize
+    if args.num_frames is not None:
+        print(f"Running ({args.num_frames} frames)...\n")
+    else:
+        print("Running (Ctrl-C to stop)...\n")
+
     running = True
 
     def _sigint(signum, frame):
@@ -225,10 +221,12 @@ def main() -> None:
 
     # -- Stats reporter thread ---------------------------------------------
     frame_count = 0
+    encoded_count = 0
+    encoded_bytes = 0
     count_lock = threading.Lock()
 
     def stats_reporter():
-        nonlocal frame_count
+        nonlocal frame_count, encoded_count, encoded_bytes
         last_count = 0
         last_time = time.monotonic()
         while running:
@@ -236,11 +234,17 @@ def main() -> None:
             now = time.monotonic()
             with count_lock:
                 count = frame_count
+                enc = encoded_count
+                ebytes = encoded_bytes
             elapsed = now - last_time
             delta = count - last_count
             fps = delta / elapsed if elapsed > 0 else 0.0
             rss = rss_kb()
-            print(f"frames: {count:>8}  |  fps: {fps:>8.1f}  |  RSS: {rss // 1024} MB")
+            print(
+                f"submitted: {count:>8}  |  encoded: {enc:>8}  |  "
+                f"fps: {fps:>8.1f}  |  bitstream: {ebytes // 1024} KB  |  "
+                f"RSS: {rss // 1024} MB"
+            )
             last_count = count
             last_time = now
 
@@ -248,46 +252,71 @@ def main() -> None:
     stats_thread.start()
 
     # -- Push loop ---------------------------------------------------------
-    appsrc_ptr = hash(appsrc)
     i = 0
-    bus = pipeline.get_bus()
 
     while i < limit and running:
         pts_ns = i * frame_duration_ns
         try:
-            gen.push_to_appsrc(appsrc_ptr, pts_ns=pts_ns, duration_ns=frame_duration_ns, id=i)
+            # 1. Acquire NVMM buffer from the encoder's internal pool
+            buf_ptr = encoder.acquire_surface(id=i)
+
+            # 2. Submit to encoder
+            encoder.submit_frame(buf_ptr, frame_id=i, pts_ns=pts_ns, duration_ns=frame_duration_ns)
+
             with count_lock:
                 frame_count += 1
             i += 1
         except Exception as e:
-            print(f"Push failed at frame {i}: {e}", file=sys.stderr)
+            print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        # Check pipeline bus for errors (non-blocking)
-        msg = bus.pop_filtered(Gst.MessageType.ERROR)
-        if msg:
-            err, debug = msg.parse_error()
-            print(f"Pipeline error: {err}", file=sys.stderr)
+        # 3. Pull any ready encoded frames (non-blocking)
+        while True:
+            frame = encoder.pull_encoded()
+            if frame is None:
+                break
+            with count_lock:
+                encoded_count += 1
+                encoded_bytes += frame.size
+            if muxer is not None:
+                muxer.push(frame.data, frame.pts_ns, frame.duration_ns)
+
+        # Check encoder for pipeline errors
+        try:
+            encoder.check_error()
+        except Exception as e:
+            print(f"Encoder error: {e}", file=sys.stderr)
             break
 
     # -- Shutdown ----------------------------------------------------------
     print("\nStopping...")
     running = False
 
-    NvBufSurfaceGenerator.send_eos(appsrc_ptr)
+    # Drain remaining encoded frames from the encoder
+    remaining = encoder.finish()
+    for frame in remaining:
+        with count_lock:
+            encoded_count += 1
+            encoded_bytes += frame.size
+        if muxer is not None:
+            muxer.push(frame.data, frame.pts_ns, frame.duration_ns)
 
-    # Wait for EOS to propagate
-    bus.timed_pop_filtered(
-        5 * Gst.SECOND,
-        Gst.MessageType.EOS | Gst.MessageType.ERROR,
-    )
+    # Finalize muxer
+    if muxer is not None:
+        muxer.finish()
+        print(f"Output written to: {args.output}")
 
-    pipeline.set_state(Gst.State.NULL)
     stats_thread.join(timeout=2)
 
     with count_lock:
-        total = frame_count
-    print(f"Total frames pushed: {total}")
+        total_submitted = frame_count
+        total_encoded = encoded_count
+        total_bytes = encoded_bytes
+    print(
+        f"Total submitted: {total_submitted}  |  "
+        f"Total encoded: {total_encoded}  |  "
+        f"Bitstream: {total_bytes // 1024} KB"
+    )
 
 
 if __name__ == "__main__":

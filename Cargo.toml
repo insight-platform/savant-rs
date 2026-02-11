@@ -21,6 +21,7 @@ members = [
     "savant_deepstream/deepstream",
     "savant_deepstream/deepstream_nvinfer",
     "savant_deepstream/deepstream_nvbufsurface",
+    "savant_deepstream/deepstream_encoders",
 ]
 
 default-members = [

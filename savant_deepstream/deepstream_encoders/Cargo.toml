@@ -1,0 +1,35 @@
+[package]
+name = "deepstream_encoders"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "GPU-accelerated video encoders (H264, HEVC, JPEG, AV1) using DeepStream NvBufSurface"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface" }
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+pyo3 = { workspace = true, optional = true }
+
+[build-dependencies]
+pyo3-build-config = { workspace = true }
+
+[features]
+default = []
+python = ["pyo3"]
+
+[dev-dependencies]
+env_logger = "0.11"
