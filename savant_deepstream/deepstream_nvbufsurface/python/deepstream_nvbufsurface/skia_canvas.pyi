@@ -42,6 +42,14 @@ class SkiaCanvas:
         """
         ...
     @property
+    def gr_context(self) -> skia.GrDirectContext:
+        """The Skia GPU ``GrDirectContext`` backing this canvas.
+
+        Use to create GPU-resident images via
+        ``image.makeTextureImage(canvas.gr_context)``.
+        """
+        ...
+    @property
     def width(self) -> int:
         """Canvas width in pixels."""
         ...

@@ -57,7 +57,7 @@ from deepstream_nvbufsurface import NvBufSurfaceGenerator, SkiaCanvas, init_cuda
 
 
 # ===========================================================================
-# SVG asset
+# SVG asset — pre-rendered to a GPU texture for zero per-frame transfer
 # ===========================================================================
 
 TIGER_SVG_URL = (
@@ -66,23 +66,80 @@ TIGER_SVG_URL = (
 )
 
 
-def _load_svg_dom(url: str) -> skia.SVGDOM | None:
-    """Download an SVG and return a parsed SVGDOM, or None on failure."""
+def _load_svg_as_gpu_texture(
+    source: str,
+    gr_context: skia.GrDirectContext,
+    *,
+    render_width: int = 0,
+    render_height: int = 0,
+) -> skia.Image | None:
+    """Download/read an SVG, render it to a raster, and upload to GPU texture.
+
+    The SVG is rasterised once at full resolution (or *render_width* x
+    *render_height* if given), then uploaded to a GPU texture via
+    ``makeTextureImage``.  Subsequent ``drawImage`` calls on a GPU
+    canvas are pure GPU work with zero CPU->GPU transfers.
+
+    Returns:
+        A GPU-backed ``skia.Image``, or ``None`` on failure.
+    """
+    # -- Fetch bytes -------------------------------------------------------
     try:
-        print(f"Downloading SVG from {url} ...")
-        req = urllib.request.Request(url, headers={"User-Agent": "skia_pipeline/1.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = resp.read()
-        stream = skia.MemoryStream.MakeDirect(data)
-        dom = skia.SVGDOM.MakeFromStream(stream)
-        if dom is None:
-            print("Warning: skia.SVGDOM.MakeFromStream returned None", file=sys.stderr)
+        if source.startswith(("http://", "https://")):
+            print(f"Downloading SVG from {source} ...")
+            req = urllib.request.Request(source, headers={"User-Agent": "skia_pipeline/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = resp.read()
         else:
-            print(f"SVG loaded ({len(data)} bytes)")
-        return dom
+            with open(source, "rb") as f:
+                data = f.read()
+        print(f"SVG fetched ({len(data)} bytes)")
     except Exception as exc:
         print(f"Warning: could not load SVG: {exc}", file=sys.stderr)
         return None
+
+    # -- Parse SVG DOM -----------------------------------------------------
+    stream = skia.MemoryStream.MakeDirect(data)
+    dom = skia.SVGDOM.MakeFromStream(stream)
+    if dom is None:
+        print("Warning: skia.SVGDOM.MakeFromStream returned None", file=sys.stderr)
+        return None
+
+    svg_size = dom.containerSize()
+    svg_w, svg_h = svg_size.width(), svg_size.height()
+    if svg_w <= 0 or svg_h <= 0:
+        print("Warning: SVG has zero dimensions", file=sys.stderr)
+        return None
+
+    # -- Determine render size ---------------------------------------------
+    rw = render_width if render_width > 0 else int(svg_w)
+    rh = render_height if render_height > 0 else int(svg_h)
+
+    # -- Render SVG to a CPU raster (one-time) -----------------------------
+    info = skia.ImageInfo.MakeN32Premul(rw, rh)
+    surface = skia.Surface.MakeRaster(info)
+    if surface is None:
+        print("Warning: failed to create raster surface for SVG", file=sys.stderr)
+        return None
+
+    svg_canvas = surface.getCanvas()
+    svg_canvas.clear(skia.ColorTRANSPARENT)
+    # Scale to fill the render area
+    svg_canvas.scale(rw / svg_w, rh / svg_h)
+    dom.render(svg_canvas)
+    raster_snapshot = surface.makeImageSnapshot()
+
+    raw_mb = rw * rh * 4 / (1024 * 1024)
+    print(f"SVG pre-rendered: {rw}x{rh} (~{raw_mb:.1f} MB raw RGBA)")
+
+    # -- Upload to GPU texture (one-time) ----------------------------------
+    gpu_image = raster_snapshot.makeTextureImage(gr_context)
+    if gpu_image is not None:
+        print("  -> uploaded to GPU texture (zero CPU transfer per frame)")
+        return gpu_image
+
+    print("Warning: makeTextureImage failed for SVG raster", file=sys.stderr)
+    return None
 
 
 # ===========================================================================
@@ -189,7 +246,7 @@ class DrawCtx:
         self.bg_paint = skia.Paint()
         self.svg_paint = skia.Paint(AntiAlias=True)
         self.boxes: list[BBox] = []
-        self.svg_dom: skia.SVGDOM | None = None
+        self.svg_gpu_image: skia.Image | None = None
 
 
 # ===========================================================================
@@ -220,17 +277,17 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
     scene_w = width - sidebar_w
     t = frame_idx / 60.0
 
-    # -- SVG tiger (centered in the scene area, gently floating) -----------
-    if ctx.svg_dom is not None:
-        svg_size = ctx.svg_dom.containerSize()
-        svg_w, svg_h = svg_size.width(), svg_size.height()
-        if svg_w > 0 and svg_h > 0:
-            # Scale to fit ~60% of the scene area, preserving aspect ratio
+    # -- SVG tiger (GPU texture, centered, gently floating) -----------------
+    if ctx.svg_gpu_image is not None:
+        iw = ctx.svg_gpu_image.width()
+        ih = ctx.svg_gpu_image.height()
+        if iw > 0 and ih > 0:
+            # Scale to fit ~55% of the scene area, preserving aspect ratio
             target_w = scene_w * 0.55
             target_h = height * 0.55
-            scale = min(target_w / svg_w, target_h / svg_h)
-            scaled_w = svg_w * scale
-            scaled_h = svg_h * scale
+            img_scale = min(target_w / iw, target_h / ih)
+            scaled_w = iw * img_scale
+            scaled_h = ih * img_scale
 
             # Center + gentle floating motion
             cx = (scene_w - scaled_w) / 2.0 + math.sin(t * 0.4) * 15.0
@@ -238,11 +295,11 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
 
             canvas.save()
             canvas.translate(cx, cy)
-            canvas.scale(scale, scale)
+            canvas.scale(img_scale, img_scale)
 
             # Render with slight transparency so detections are visible on top
             canvas.saveLayerAlpha(None, 160)
-            ctx.svg_dom.render(canvas)
+            canvas.drawImage(ctx.svg_gpu_image, 0, 0, paint=ctx.svg_paint)
             canvas.restore()  # layer
 
             canvas.restore()  # translate+scale
@@ -431,24 +488,14 @@ def main() -> None:
     draw_ctx = DrawCtx()
     print(f"SkiaCanvas created: {w}x{h} (gpu {args.gpu_id})")
 
-    # -- Load SVG asset ----------------------------------------------------
+    # -- Load SVG as GPU texture -------------------------------------------
     if args.svg and args.svg.lower() != "none":
-        svg_source = args.svg
-        if svg_source.startswith(("http://", "https://")):
-            draw_ctx.svg_dom = _load_svg_dom(svg_source)
-        else:
-            # Local file
-            try:
-                with open(svg_source, "rb") as f:
-                    data = f.read()
-                stream = skia.MemoryStream.MakeDirect(data)
-                draw_ctx.svg_dom = skia.SVGDOM.MakeFromStream(stream)
-                if draw_ctx.svg_dom:
-                    print(f"SVG loaded from {svg_source} ({len(data)} bytes)")
-                else:
-                    print(f"Warning: failed to parse SVG from {svg_source}", file=sys.stderr)
-            except Exception as exc:
-                print(f"Warning: could not load SVG: {exc}", file=sys.stderr)
+        draw_ctx.svg_gpu_image = _load_svg_as_gpu_texture(
+            args.svg,
+            skia_canvas.gr_context,
+            render_width=w,
+            render_height=h,
+        )
 
     # -- Generator (RGBA - Skia's native format) ---------------------------
     gen = NvBufSurfaceGenerator(

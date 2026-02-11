@@ -97,6 +97,20 @@ class SkiaCanvas:
         return cls(ctx)
 
     @property
+    def gr_context(self) -> skia.GrDirectContext:
+        """The Skia GPU ``GrDirectContext`` backing this canvas.
+
+        Use this to create GPU-resident images via
+        :meth:`skia.Image.makeTextureImage` for efficient repeated
+        drawing without per-frame CPU -> GPU transfers::
+
+            raster = skia.Image.MakeFromEncoded(data)
+            gpu_img = raster.makeTextureImage(canvas.gr_context)
+            # gpu_img now lives in VRAM; drawImage is pure GPU work
+        """
+        return self._gr_context
+
+    @property
     def width(self) -> int:
         """Canvas width in pixels."""
         return self._ctx.width
