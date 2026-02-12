@@ -3,9 +3,7 @@ requires = ["maturin>=1.8"]
 build-backend = "maturin"
 
 [project]
-dependencies = [
-    "pretty-traceback==2024.1021"
-]
+dependencies = ["pretty-traceback==2024.1021"]
 dynamic = ['version']
 name = "savant_rs"
 requires-python = ">=3.10"
@@ -18,11 +16,10 @@ classifiers = [
 [project.optional-dependencies]
 clientsdk = [
     "python-magic~=0.4.27",
-    "requests~=2.32.5", 
+    "requests~=2.32.5",
     "numpy>=1.26",
-    "opencv-python~=4.12.0"
+    "opencv-python~=4.12.0",
 ]
-
 
 
 [tool.black]

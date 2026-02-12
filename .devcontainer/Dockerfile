@@ -20,7 +20,8 @@ ARG REMOTE_GID
 
 RUN userdel -r ubuntu && \
     groupadd -g ${REMOTE_GID} ${REMOTE_USER} && \
-    useradd -m -u ${REMOTE_UID} -g ${REMOTE_GID} -s /bin/bash ${REMOTE_USER}
+    useradd -m -u ${REMOTE_UID} -g ${REMOTE_GID} -s /bin/bash ${REMOTE_USER} && \
+    pip uninstall -y savant_rs
 
 ENV HOME=/home/${REMOTE_USER}
 # set directory to homedir
@@ -29,4 +30,5 @@ WORKDIR ${HOME}
 USER ${REMOTE_USER}
 
 RUN --mount=type=bind,source=.devcontainer,target=/opt/scripts bash /opt/scripts/install-dev-env.sh
+
 

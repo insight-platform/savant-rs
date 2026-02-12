@@ -1,4 +1,11 @@
+pub mod codec;
 pub mod id_meta;
+pub mod mp4_muxer;
+
+#[cfg(feature = "python")]
+pub mod python;
+
+pub use codec::Codec;
 
 use gstreamer::BufferFlags;
 use parking_lot::RwLock;

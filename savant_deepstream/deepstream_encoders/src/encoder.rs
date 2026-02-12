@@ -448,6 +448,7 @@ impl NvEncoder {
                     .map(|t| t.nseconds())
                     .unwrap_or(0);
 
+                let dts_ns = buffer.dts().map(|t| t.nseconds());
                 let duration_ns = buffer.duration().map(|t| t.nseconds());
 
                 // Look up frame_id from our PTS map.
@@ -470,6 +471,7 @@ impl NvEncoder {
                 Ok(Some(EncodedFrame {
                     frame_id,
                     pts_ns,
+                    dts_ns,
                     duration_ns: final_duration,
                     data,
                     codec: self.codec,
@@ -502,6 +504,7 @@ impl NvEncoder {
                 })?;
 
                 let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
+                let dts_ns = buffer.dts().map(|t| t.nseconds());
                 let duration_ns = buffer.duration().map(|t| t.nseconds());
 
                 let (frame_id, orig_duration) = self
@@ -521,6 +524,7 @@ impl NvEncoder {
                 Ok(Some(EncodedFrame {
                     frame_id,
                     pts_ns,
+                    dts_ns,
                     duration_ns: final_duration,
                     data,
                     codec: self.codec,

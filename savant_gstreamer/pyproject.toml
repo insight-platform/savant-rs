@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 dynamic = ['version']
-name = "deepstream_encoders"
+name = "savant_gstreamer"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Rust",
@@ -12,11 +12,9 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module", "python"]
+features = ["pyo3/extension-module", "pymodule_init"]
 python-source = "python"
-module-name = "deepstream_encoders._native"
-# Skip auditwheel repair to avoid bundling CUDA, GStreamer, and DeepStream
-# shared libraries into the wheel.
+module-name = "savant_gstreamer._native"
 auditwheel = "skip"
 
 [tool.pytest.ini_options]

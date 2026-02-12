@@ -46,6 +46,7 @@ from gi.repository import Gst
 
 from deepstream_nvbufsurface import as_gpu_mat, init_cuda
 from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+from savant_gstreamer import Mp4Muxer
 
 
 # ===========================================================================
@@ -151,86 +152,6 @@ def rss_kb() -> int:
 def resolve_codec(name: str) -> Codec:
     """Map CLI codec name to Codec enum."""
     return Codec.from_name("hevc" if name == "h265" else name)
-
-
-# ===========================================================================
-# MP4 muxer pipeline (optional, for file output)
-# ===========================================================================
-
-class Mp4Muxer:
-    """Minimal GStreamer pipeline: appsrc -> parser -> qtmux -> filesink."""
-
-    def __init__(self, codec: Codec, output_path: str, fps_num: int = 30, fps_den: int = 1):
-        self.pipeline = Gst.Pipeline.new("mux-pipeline")
-
-        # Determine parser and caps for the encoded bitstream
-        if codec == Codec.H264:
-            caps_str = "video/x-h264, stream-format=byte-stream"
-            parse_name = "h264parse"
-        elif codec == Codec.HEVC:
-            caps_str = "video/x-h265, stream-format=byte-stream"
-            parse_name = "h265parse"
-        elif codec == Codec.JPEG:
-            caps_str = "image/jpeg"
-            parse_name = "jpegparse"
-        elif codec == Codec.AV1:
-            caps_str = "video/x-av1"
-            parse_name = "av1parse"
-        else:
-            raise ValueError(f"Unsupported codec for muxing: {codec}")
-
-        # Create elements
-        self.appsrc = Gst.ElementFactory.make("appsrc", "mux-src")
-        parse = Gst.ElementFactory.make(parse_name, "mux-parse")
-        mux = Gst.ElementFactory.make("qtmux", "mux")
-        sink = Gst.ElementFactory.make("filesink", "mux-sink")
-
-        assert self.appsrc and parse and mux and sink, \
-            f"Failed to create muxer pipeline elements ({parse_name})"
-
-        # Configure appsrc
-        caps = Gst.Caps.from_string(
-            f"{caps_str}, framerate={fps_num}/{fps_den}"
-        )
-        self.appsrc.set_property("caps", caps)
-        self.appsrc.set_property("format", Gst.Format.TIME)
-        self.appsrc.set_property("stream-type", 0)  # STREAM
-
-        sink.set_property("location", output_path)
-
-        # Assemble
-        for elem in [self.appsrc, parse, mux, sink]:
-            self.pipeline.add(elem)
-        assert self.appsrc.link(parse), "Failed to link appsrc -> parse"
-        assert parse.link(mux), "Failed to link parse -> mux"
-        assert mux.link(sink), "Failed to link mux -> sink"
-
-        # Start
-        ret = self.pipeline.set_state(Gst.State.PLAYING)
-        assert ret != Gst.StateChangeReturn.FAILURE, "Failed to start muxer pipeline"
-
-        print(f"Muxer: appsrc -> {parse_name} -> qtmux -> filesink({output_path})")
-
-    def push(self, data: bytes, pts_ns: int, duration_ns: int | None = None) -> None:
-        """Push an encoded frame into the muxer pipeline."""
-        buf = Gst.Buffer.new_allocate(None, len(data), None)
-        buf.fill(0, data)
-        buf.pts = pts_ns
-        if duration_ns is not None:
-            buf.duration = duration_ns
-        ret = self.appsrc.emit("push-buffer", buf)
-        if ret != Gst.FlowReturn.OK:
-            raise RuntimeError(f"Muxer appsrc push failed: {ret}")
-
-    def finish(self) -> None:
-        """Send EOS and shut down the muxer pipeline."""
-        self.appsrc.emit("end-of-stream")
-        bus = self.pipeline.get_bus()
-        bus.timed_pop_filtered(
-            5 * Gst.SECOND,
-            Gst.MessageType.EOS | Gst.MessageType.ERROR,
-        )
-        self.pipeline.set_state(Gst.State.NULL)
 
 
 # ===========================================================================
@@ -372,7 +293,7 @@ def main() -> None:
                 encoded_count += 1
                 encoded_bytes += frame.size
             if muxer is not None:
-                muxer.push(frame.data, frame.pts_ns, frame.duration_ns)
+                muxer.push(frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns)
 
         # Check encoder for pipeline errors
         try:
@@ -392,7 +313,7 @@ def main() -> None:
             encoded_count += 1
             encoded_bytes += frame.size
         if muxer is not None:
-            muxer.push(frame.data, frame.pts_ns, frame.duration_ns)
+            muxer.push(frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns)
 
     # Finalize muxer
     if muxer is not None:

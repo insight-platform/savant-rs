@@ -30,10 +30,15 @@
 //! remaining = encoder.finish()
 //! ```
 
-use crate::{Codec, EncodedFrame, EncoderConfig, EncoderError, NvEncoder};
+use crate::{EncodedFrame, EncoderConfig, EncoderError, NvEncoder};
 use gstreamer as gst;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use savant_gstreamer::Codec;
+
+// ---------------------------------------------------------------------------
+// PyCodec — local Python enum, convertible to/from the shared Rust Codec
+// ---------------------------------------------------------------------------
 
 /// Python enum for video codecs.
 ///
@@ -60,15 +65,6 @@ impl PyCodec {
     ///
     /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
     /// ``jpeg``, ``av1``.
-    ///
-    /// Args:
-    ///     name (str): Codec name.
-    ///
-    /// Returns:
-    ///     Codec: The parsed codec.
-    ///
-    /// Raises:
-    ///     ValueError: If the name is not recognized.
     #[staticmethod]
     fn from_name(name: &str) -> PyResult<Self> {
         match Codec::from_name(name) {
@@ -87,12 +83,15 @@ impl PyCodec {
     }
 
     fn __repr__(&self) -> String {
-        format!("Codec.{}", match self {
-            PyCodec::H264 => "H264",
-            PyCodec::Hevc => "HEVC",
-            PyCodec::Jpeg => "JPEG",
-            PyCodec::Av1 => "AV1",
-        })
+        format!(
+            "Codec.{}",
+            match self {
+                PyCodec::H264 => "H264",
+                PyCodec::Hevc => "HEVC",
+                PyCodec::Jpeg => "JPEG",
+                PyCodec::Av1 => "AV1",
+            }
+        )
     }
 }
 
@@ -118,6 +117,42 @@ impl From<Codec> for PyCodec {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Codec extraction helper
+// ---------------------------------------------------------------------------
+
+/// Extract a [`Codec`] from a Python object.
+///
+/// Accepts:
+/// 1. This module's `PyCodec` enum value.
+/// 2. A `str` codec name (e.g. `"hevc"`).
+/// 3. Any object with a `.name()` method returning a codec name string
+///    (e.g. a `Codec` from another extension module).
+fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
+    if let Ok(py_codec) = ob.extract::<PyCodec>() {
+        return Ok(py_codec.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return Codec::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1"
+            ))
+        });
+    }
+    if let Ok(name_val) = ob.call_method0("name") {
+        if let Ok(s) = name_val.extract::<String>() {
+            return Codec::from_name(&s).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1"
+                ))
+            });
+        }
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, av1)",
+    ))
+}
+
 /// Configuration for creating an :class:`NvEncoder`.
 ///
 /// The internal buffer pools are always configured with exactly 1 buffer.
@@ -127,7 +162,9 @@ impl From<Codec> for PyCodec {
 /// artifacts.
 ///
 /// Args:
-///     codec (Codec): Video codec.
+///     codec (Codec | str): Video codec — a :class:`Codec` enum value or
+///         a string name (``"h264"``, ``"hevc"`` / ``"h265"``,
+///         ``"jpeg"``, ``"av1"``).
 ///     width (int): Frame width in pixels.
 ///     height (int): Frame height in pixels.
 ///     format (str): Video format (default ``"NV12"``).
@@ -166,7 +203,7 @@ impl PyEncoderConfig {
         encoder_properties = None,
     ))]
     fn new(
-        codec: PyCodec,
+        codec: &Bound<'_, PyAny>,
         width: u32,
         height: u32,
         format: &str,
@@ -176,7 +213,8 @@ impl PyEncoderConfig {
         mem_type: u32,
         encoder_properties: Option<std::collections::HashMap<String, String>>,
     ) -> PyResult<Self> {
-        let mut config = EncoderConfig::new(codec.into(), width, height)
+        let codec = extract_codec(codec)?;
+        let mut config = EncoderConfig::new(codec, width, height)
             .format(format)
             .fps(fps_num, fps_den)
             .gpu_id(gpu_id)
@@ -233,6 +271,7 @@ impl PyEncoderConfig {
 /// Attributes:
 ///     frame_id (int): User-defined frame identifier.
 ///     pts_ns (int): Presentation timestamp in nanoseconds.
+///     dts_ns (int | None): Decode timestamp in nanoseconds.
 ///     duration_ns (int | None): Duration in nanoseconds.
 ///     data (bytes): Encoded bitstream data.
 ///     codec (Codec): Codec used to produce this frame.
@@ -253,6 +292,15 @@ impl PyEncodedFrame {
     #[getter]
     fn pts_ns(&self) -> u64 {
         self.inner.pts_ns
+    }
+
+    /// Decode timestamp in nanoseconds (if set by the encoder).
+    ///
+    /// For streams without B-frames this is typically equal to PTS
+    /// or ``None``.
+    #[getter]
+    fn dts_ns(&self) -> Option<u64> {
+        self.inner.dts_ns
     }
 
     /// Duration in nanoseconds (if known).

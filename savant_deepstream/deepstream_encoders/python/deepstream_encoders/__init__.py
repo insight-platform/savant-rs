@@ -28,6 +28,11 @@ Quick start::
 from __future__ import annotations
 
 # ── Native (Rust/PyO3) symbols ───────────────────────────────────────────
+# Codec is registered in deepstream_encoders._native (same underlying Rust
+# type as savant_gstreamer.Codec). Importing from _native ensures that
+# config.codec == Codec.HEVC works within this package. Cross-package
+# Codec instances are handled by the extract_codec() helper in the Rust
+# layer (fallback via .name()).
 from deepstream_encoders._native import (  # noqa: F401
     Codec,
     EncodedFrame,

@@ -53,69 +53,8 @@ pub use deepstream_nvbufsurface::{
     cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType,
 };
 
-/// Supported video codecs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Codec {
-    /// H.264 / AVC.
-    H264,
-    /// H.265 / HEVC.
-    Hevc,
-    /// JPEG (Motion JPEG).
-    Jpeg,
-    /// AV1.
-    Av1,
-}
-
-impl Codec {
-    /// Return the GStreamer encoder element name for this codec.
-    pub fn encoder_element(&self) -> &'static str {
-        match self {
-            Codec::H264 => "nvv4l2h264enc",
-            Codec::Hevc => "nvv4l2h265enc",
-            Codec::Jpeg => "nvjpegenc",
-            Codec::Av1 => "nvv4l2av1enc",
-        }
-    }
-
-    /// Return the GStreamer parser element name for this codec.
-    pub fn parser_element(&self) -> &'static str {
-        match self {
-            Codec::H264 => "h264parse",
-            Codec::Hevc => "h265parse",
-            Codec::Jpeg => "jpegparse",
-            Codec::Av1 => "av1parse",
-        }
-    }
-
-    /// Parse a codec from a string name.
-    ///
-    /// Accepted names (case-insensitive): `h264`, `hevc`, `h265`, `jpeg`, `av1`.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name.to_lowercase().as_str() {
-            "h264" => Some(Codec::H264),
-            "hevc" | "h265" => Some(Codec::Hevc),
-            "jpeg" => Some(Codec::Jpeg),
-            "av1" => Some(Codec::Av1),
-            _ => None,
-        }
-    }
-
-    /// Return the canonical name of this codec.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Codec::H264 => "h264",
-            Codec::Hevc => "hevc",
-            Codec::Jpeg => "jpeg",
-            Codec::Av1 => "av1",
-        }
-    }
-}
-
-impl std::fmt::Display for Codec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.name())
-    }
-}
+// Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.
+pub use savant_gstreamer::Codec;
 
 /// Configuration for creating an [`NvEncoder`].
 ///
@@ -238,6 +177,12 @@ pub struct EncodedFrame {
     pub frame_id: i64,
     /// Presentation timestamp in nanoseconds.
     pub pts_ns: u64,
+    /// Decode timestamp in nanoseconds (if set by the encoder).
+    ///
+    /// For encoders without B-frames (the default in this crate) DTS is
+    /// typically equal to PTS or absent.  The field is exposed for sanity
+    /// checking and for downstream consumers that need it.
+    pub dts_ns: Option<u64>,
     /// Duration in nanoseconds (if known).
     pub duration_ns: Option<u64>,
     /// Encoded bitstream data.
