@@ -1,5 +1,13 @@
 use std::{env, path::PathBuf};
 
+fn cuda_lib_dir() -> &'static str {
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    match arch.as_str() {
+        "aarch64" => "/usr/local/cuda/targets/aarch64-linux/lib",
+        _ => "/usr/local/cuda/lib64",
+    }
+}
+
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let ds_dir = "/opt/nvidia/deepstream/deepstream";
@@ -9,7 +17,12 @@ fn main() {
     println!("cargo:rustc-link-lib=nvdsbufferpool");
     println!("cargo:rustc-link-lib=nvbufsurftransform");
 
-    // Link against CUDA runtime (needed for cuda_init and transitively by nvdsbufferpool)
+    // Link against CUDA runtime (needed for cuda_init and transitively by nvdsbufferpool).
+    // On aarch64 (Jetson), CUDA libs live under targets/aarch64-linux/lib;
+    // on x86_64 the conventional path is lib64.
+    let cuda_lib = cuda_lib_dir();
+    println!("cargo:rustc-link-search=native={}", cuda_lib);
+    // Also add the generic lib64 fallback (symlink on many images)
     println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
     println!("cargo:rustc-link-lib=cudart");
 

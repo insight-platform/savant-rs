@@ -9,6 +9,23 @@ RUN apt-get update && apt-get install -y clang build-essential \
     libfontconfig-dev \
     fonts-dejavu-core
 
+# On arm64 (Jetson) images the DeepStream .so files under
+# /opt/nvidia/deepstream/deepstream/lib/ are symlinks into
+# /usr/lib/aarch64-linux-gnu/nvidia/ which does not ship the actual
+# libs (they come from the host BSP at runtime).  Create minimal stub
+# shared libraries so that the linker can succeed during the build.
+RUN set -e; \
+    for lib in /opt/nvidia/deepstream/deepstream/lib/*.so; do \
+        [ -L "$lib" ] && [ ! -e "$lib" ] && { \
+            target="$(readlink "$lib")"; \
+            mkdir -p "$(dirname "$target")"; \
+            echo "void __stub(void){}" | cc -shared -o "$target" -x c -; \
+            echo "created stub for $lib -> $target"; \
+        }; \
+    done; \
+    ldconfig; \
+    true
+
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
     pip install -r /opt/savant-rs/requirements.txt
 
