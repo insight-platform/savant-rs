@@ -143,7 +143,7 @@ gst-pytest: gst-dev gst-install
 
 docs:
 	@echo "Building docs..."
-	make dev install
+	make all-dev
 	cd $(PROJECT_DIR)/docs && make clean html
 	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .
 
