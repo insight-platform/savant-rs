@@ -42,7 +42,7 @@ import sys
 import cv2
 
 from deepstream_nvbufsurface import as_gpu_mat  # noqa: E402
-from deepstream_encoders import VideoFormat  # noqa: E402
+from deepstream_nvbufsurface import VideoFormat  # noqa: E402
 
 from common import EncodingSession, add_common_args
 

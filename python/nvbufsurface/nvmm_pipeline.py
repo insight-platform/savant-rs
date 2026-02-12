@@ -39,7 +39,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from deepstream_encoders import VideoFormat  # noqa: E402
+from deepstream_nvbufsurface import VideoFormat  # noqa: E402
 
 from common import EncodingSession, add_common_args
 

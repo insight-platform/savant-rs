@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from deepstream_encoders import Codec
+from savant_gstreamer import Codec
 
 
 class TestCodecValues:

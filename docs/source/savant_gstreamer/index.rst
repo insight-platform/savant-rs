@@ -1,5 +1,5 @@
-savant_gstreamer
-=================
+Python API for Savant GStreamer
+===============================
 
 .. automodule:: savant_gstreamer
    :members:

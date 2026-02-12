@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 
-from deepstream_encoders import Codec, EncoderConfig, VideoFormat
+from deepstream_nvbufsurface import VideoFormat
+from savant_gstreamer import Codec
+
+from deepstream_encoders import EncoderConfig
 
 
 class TestEncoderConfigDefaults:

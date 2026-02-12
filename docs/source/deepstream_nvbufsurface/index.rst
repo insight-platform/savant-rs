@@ -1,5 +1,5 @@
-deepstream_nvbufsurface
-========================
+Python API for DeepStream NVBufSurface
+======================================
 
 .. automodule:: deepstream_nvbufsurface
    :members:

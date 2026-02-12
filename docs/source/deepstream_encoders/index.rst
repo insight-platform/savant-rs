@@ -1,5 +1,5 @@
-deepstream_encoders
-====================
+Python API for DeepStream Encoders
+==================================
 
 .. automodule:: deepstream_encoders
    :members:

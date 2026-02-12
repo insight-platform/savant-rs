@@ -6,8 +6,9 @@ buffer pool and NVENC/NVJPEG encoders.
 
 Quick start::
 
-    from deepstream_nvbufsurface import init_cuda
-    from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+    from deepstream_nvbufsurface import init_cuda, VideoFormat
+    from savant_gstreamer import Codec
+    from deepstream_encoders import NvEncoder, EncoderConfig
     from deepstream_encoders import HevcDgpuProps, HevcProfile
 
     init_cuda()
@@ -31,12 +32,9 @@ from __future__ import annotations
 
 from deepstream_encoders._native import (  # noqa: F401
     # Core types
-    Codec,
     EncodedFrame,
     EncoderConfig,
-    MemType,
     NvEncoder,
-    VideoFormat,
     # Property enums
     Platform,
     RateControl,
@@ -56,12 +54,9 @@ from deepstream_encoders._native import (  # noqa: F401
 
 __all__ = [
     # Core types
-    "Codec",
     "EncoderConfig",
     "EncodedFrame",
-    "MemType",
     "NvEncoder",
-    "VideoFormat",
     # Property enums
     "Platform",
     "RateControl",

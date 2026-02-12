@@ -141,10 +141,9 @@ gst-pytest: gst-dev gst-install
 	@echo "Running savant_gstreamer Python tests..."
 	cd $(GST_DIR) && python3 -m pytest pytests/ -v --tb=short
 
-docs:
+docs: dev install gst-dev gst-install ds-nvbuf-dev ds-nvbuf-install ds-enc-dev ds-enc-install
 	@echo "Building docs..."
-	make all-dev
-	cd $(PROJECT_DIR)/docs && make clean html
+	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(PROJECT_DIR)/venv/bin:$$PATH" make clean html
 	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .
 
 build_savant:

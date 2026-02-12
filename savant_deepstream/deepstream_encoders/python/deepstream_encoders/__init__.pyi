@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from deepstream_encoders._native import (
     # Core types
-    Codec as Codec,
     EncodedFrame as EncodedFrame,
     EncoderConfig as EncoderConfig,
-    MemType as MemType,
     NvEncoder as NvEncoder,
-    VideoFormat as VideoFormat,
     # Property enums
     Platform as Platform,
     RateControl as RateControl,

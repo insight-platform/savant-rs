@@ -22,7 +22,7 @@ fn to_py_err(e: Mp4MuxerError) -> PyErr {
 /// - ``HEVC`` — H.265 / HEVC.
 /// - ``JPEG`` — Motion JPEG.
 /// - ``AV1``  — AV1.
-#[pyclass(name = "Codec", eq, eq_int)]
+#[pyclass(name = "Codec", module = "savant_gstreamer._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyCodec {
     #[pyo3(name = "H264")]
@@ -166,7 +166,7 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///     muxer.push(b"\\x00\\x00\\x00\\x01...", pts_ns=0,
 ///                dts_ns=0, duration_ns=33_333_333)
 ///     muxer.finish()
-#[pyclass(name = "Mp4Muxer", unsendable)]
+#[pyclass(name = "Mp4Muxer", module = "savant_gstreamer._native", unsendable)]
 pub struct PyMp4Muxer {
     inner: Mp4Muxer,
 }

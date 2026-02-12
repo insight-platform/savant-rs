@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from savant_gstreamer import Codec
+
 from deepstream_encoders import (
-    Codec,
     EncoderConfig,
     NvEncoder,
     H264DgpuProps,

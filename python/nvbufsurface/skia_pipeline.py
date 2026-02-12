@@ -49,7 +49,7 @@ from dataclasses import dataclass
 import skia
 
 from deepstream_nvbufsurface import SkiaCanvas  # noqa: E402
-from deepstream_encoders import VideoFormat  # noqa: E402
+from deepstream_nvbufsurface import VideoFormat  # noqa: E402
 
 from common import EncodingSession, add_common_args, init_gst_and_cuda
 

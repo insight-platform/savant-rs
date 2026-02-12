@@ -20,11 +20,11 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from deepstream_nvbufsurface import init_cuda  # noqa: E402
+from deepstream_nvbufsurface import VideoFormat  # noqa: E402
+from savant_gstreamer import Codec  # noqa: E402
 from deepstream_encoders import (  # noqa: E402
     NvEncoder,
     EncoderConfig,
-    Codec,
-    VideoFormat,
     H264DgpuProps,
     HevcDgpuProps,
     Av1DgpuProps,

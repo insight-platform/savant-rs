@@ -55,7 +55,7 @@ use savant_gstreamer::Codec;
 /// - ``HEVC`` — H.265 / HEVC.
 /// - ``JPEG`` — Motion JPEG.
 /// - ``AV1``  — AV1.
-#[pyclass(name = "Codec", eq, eq_int)]
+#[pyclass(name = "Codec", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyCodec {
     #[pyo3(name = "H264")]
@@ -151,7 +151,7 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 // ---------------------------------------------------------------------------
 
 /// Video pixel format.
-#[pyclass(name = "VideoFormat", eq, eq_int)]
+#[pyclass(name = "VideoFormat", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyVideoFormat {
     #[pyo3(name = "RGBA")]
@@ -257,7 +257,7 @@ fn extract_video_format(ob: &Bound<'_, PyAny>) -> PyResult<VideoFormat> {
 // ---------------------------------------------------------------------------
 
 /// NvBufSurface memory type.
-#[pyclass(name = "MemType", eq, eq_int)]
+#[pyclass(name = "MemType", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyMemType {
     #[pyo3(name = "DEFAULT")]
@@ -377,7 +377,7 @@ fn extract_mem_type(ob: &Bound<'_, PyAny>) -> PyResult<NvBufSurfaceMemType> {
 ///
 /// - ``DGPU``   — Discrete GPU (desktop/server).
 /// - ``JETSON`` — NVIDIA Jetson embedded platform.
-#[pyclass(name = "Platform", eq, eq_int)]
+#[pyclass(name = "Platform", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyPlatform {
     #[pyo3(name = "DGPU")]
@@ -441,7 +441,7 @@ impl From<properties::Platform> for PyPlatform {
 /// - ``VBR``  — Variable bitrate.
 /// - ``CBR``  — Constant bitrate.
 /// - ``CQP``  — Constant QP.
-#[pyclass(name = "RateControl", eq, eq_int)]
+#[pyclass(name = "RateControl", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyRateControl {
     #[pyo3(name = "VBR")]
@@ -523,7 +523,7 @@ fn extract_rate_control(ob: &Bound<'_, PyAny>) -> PyResult<properties::RateContr
 /// - ``MAIN``     — Main profile.
 /// - ``HIGH``     — High profile.
 /// - ``HIGH444``  — High 4:4:4 Predictive (dGPU only).
-#[pyclass(name = "H264Profile", eq, eq_int)]
+#[pyclass(name = "H264Profile", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyH264Profile {
     #[pyo3(name = "BASELINE")]
@@ -609,7 +609,7 @@ fn extract_h264_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::H264Profi
 /// - ``MAIN``   — Main profile.
 /// - ``MAIN10`` — Main 10-bit profile.
 /// - ``FREXT``  — Format Range Extensions.
-#[pyclass(name = "HevcProfile", eq, eq_int)]
+#[pyclass(name = "HevcProfile", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyHevcProfile {
     #[pyo3(name = "MAIN")]
@@ -688,7 +688,7 @@ fn extract_hevc_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::HevcProfi
 /// dGPU NVENC preset (P1–P7).
 ///
 /// Lower values are faster; higher values yield better quality.
-#[pyclass(name = "DgpuPreset", eq, eq_int)]
+#[pyclass(name = "DgpuPreset", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyDgpuPreset {
     P1 = 1,
@@ -772,7 +772,7 @@ fn extract_dgpu_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::DgpuPreset
 /// - ``LOW_LATENCY``       — Low latency (default).
 /// - ``ULTRA_LOW_LATENCY`` — Ultra-low latency.
 /// - ``LOSSLESS``          — Lossless encoding.
-#[pyclass(name = "TuningPreset", eq, eq_int)]
+#[pyclass(name = "TuningPreset", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyTuningPreset {
     #[pyo3(name = "HIGH_QUALITY")]
@@ -860,7 +860,7 @@ fn extract_tuning_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::TuningPr
 /// - ``FAST``       — Fast.
 /// - ``MEDIUM``     — Medium.
 /// - ``SLOW``       — Slow (highest quality).
-#[pyclass(name = "JetsonPresetLevel", eq, eq_int)]
+#[pyclass(name = "JetsonPresetLevel", module = "deepstream_encoders._native", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyJetsonPresetLevel {
     #[pyo3(name = "DISABLED")]
@@ -965,7 +965,7 @@ macro_rules! opt_getter {
 /// H.264 encoder properties for dGPU (``nvv4l2h264enc``).
 ///
 /// All parameters are optional.  ``None`` means "use encoder default."
-#[pyclass(name = "H264DgpuProps")]
+#[pyclass(name = "H264DgpuProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyH264DgpuProps {
     inner: properties::H264DgpuProps,
@@ -1125,7 +1125,7 @@ impl PyH264DgpuProps {
 // ---------------------------------------------------------------------------
 
 /// HEVC encoder properties for dGPU (``nvv4l2h265enc``).
-#[pyclass(name = "HevcDgpuProps")]
+#[pyclass(name = "HevcDgpuProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyHevcDgpuProps {
     inner: properties::HevcDgpuProps,
@@ -1285,7 +1285,7 @@ impl PyHevcDgpuProps {
 // ---------------------------------------------------------------------------
 
 /// H.264 encoder properties for Jetson (``nvv4l2h264enc``).
-#[pyclass(name = "H264JetsonProps")]
+#[pyclass(name = "H264JetsonProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyH264JetsonProps {
     inner: properties::H264JetsonProps,
@@ -1459,7 +1459,7 @@ impl PyH264JetsonProps {
 // ---------------------------------------------------------------------------
 
 /// HEVC encoder properties for Jetson (``nvv4l2h265enc``).
-#[pyclass(name = "HevcJetsonProps")]
+#[pyclass(name = "HevcJetsonProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyHevcJetsonProps {
     inner: properties::HevcJetsonProps,
@@ -1612,7 +1612,7 @@ impl PyHevcJetsonProps {
 // ---------------------------------------------------------------------------
 
 /// JPEG encoder properties (``nvjpegenc``).
-#[pyclass(name = "JpegProps")]
+#[pyclass(name = "JpegProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyJpegProps {
     inner: properties::JpegProps,
@@ -1649,7 +1649,7 @@ impl PyJpegProps {
 // ---------------------------------------------------------------------------
 
 /// AV1 encoder properties for dGPU (``nvv4l2av1enc``).
-#[pyclass(name = "Av1DgpuProps")]
+#[pyclass(name = "Av1DgpuProps", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyAv1DgpuProps {
     inner: properties::Av1DgpuProps,
@@ -1824,7 +1824,7 @@ fn extract_encoder_properties(ob: &Bound<'_, PyAny>) -> PyResult<EncoderProperti
 ///
 ///     props = HevcDgpuProps(bitrate=8_000_000, profile=HevcProfile.MAIN)
 ///     config = EncoderConfig(Codec.HEVC, 1920, 1080, properties=props)
-#[pyclass(name = "EncoderConfig")]
+#[pyclass(name = "EncoderConfig", module = "deepstream_encoders._native")]
 #[derive(Debug, Clone)]
 pub struct PyEncoderConfig {
     inner: EncoderConfig,
@@ -1919,7 +1919,7 @@ impl PyEncoderConfig {
 // ═══════════════════════════════════════════════════════════════════════
 
 /// A single encoded frame returned by :meth:`NvEncoder.pull_encoded`.
-#[pyclass(name = "EncodedFrame")]
+#[pyclass(name = "EncodedFrame", module = "deepstream_encoders._native")]
 pub struct PyEncodedFrame {
     inner: EncodedFrame,
 }
@@ -1967,7 +1967,7 @@ impl PyEncodedFrame {
 }
 
 /// GPU-accelerated video encoder.
-#[pyclass(name = "NvEncoder", unsendable)]
+#[pyclass(name = "NvEncoder", module = "deepstream_encoders._native", unsendable)]
 pub struct PyNvEncoder {
     inner: NvEncoder,
 }
