@@ -99,7 +99,7 @@ fn bench_push_and_fetch(c: &mut Criterion) {
                         ) {
                             uuids.push(uuid);
                         }
-                        if let Ok((_, _eos)) = black_box(queue.fetch_head()) {
+                        if let Ok((_, _eos, _reason)) = black_box(queue.fetch_head()) {
                             count += 1;
                         }
                         if count >= PACKETS_PER_ITERATION {

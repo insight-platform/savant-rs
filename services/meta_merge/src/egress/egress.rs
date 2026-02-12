@@ -10,6 +10,9 @@ use crate::egress::{
     payload::EgressItem,
 };
 
+/// A ready head: (source_id, frame, optional EOS, reason).
+pub type ReadyHead = (String, EgressItem, Option<EgressItem>, HeadReadyReason);
+
 #[derive(Debug, thiserror::Error)]
 pub enum EgressError {
     #[error("Failed in Python context: {0}")]
@@ -109,17 +112,14 @@ impl Egress {
         Ok(())
     }
 
-    pub fn fetch_ready(
-        &mut self,
-    ) -> Result<Vec<(String, EgressItem, Option<EgressItem>, HeadReadyReason)>, EgressError> {
+    pub fn fetch_ready(&mut self) -> Result<Vec<ReadyHead>, EgressError> {
         let mut heads = Vec::new();
         for (source_id, queue) in self.queues.iter_mut() {
             if queue.is_head_ready().is_none() {
                 continue;
             }
 
-            let (item, eos, reason) =
-                queue.fetch_head().map_err(EgressError::FetchHeadError)?;
+            let (item, eos, reason) = queue.fetch_head().map_err(EgressError::FetchHeadError)?;
             heads.push((source_id.clone(), item, eos, reason));
         }
         Ok(heads)

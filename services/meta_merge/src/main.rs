@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
+use log::{debug, info};
 use meta_merge::configuration::ServiceConfiguration;
 use meta_merge::egress::{egress::Egress, processor::EgressProcessor};
 use meta_merge::ingress::Ingress;
-use log::{debug, info};
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
     PyResult, Python,
@@ -110,8 +110,7 @@ fn main() -> Result<()> {
 
             if message.is_video_frame() {
                 let frame_proxy = message.as_video_frame().unwrap();
-                let frame =
-                    savant_core_py::primitives::frame::VideoFrame(frame_proxy);
+                let frame = savant_core_py::primitives::frame::VideoFrame(frame_proxy);
                 let labels = message.get_labels();
                 processor.process_frame(ingress_name, topic, frame, data, labels)?;
             } else if message.is_end_of_stream() {

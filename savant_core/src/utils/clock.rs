@@ -4,13 +4,14 @@ pub mod mock_clock {
         time::{Duration, SystemTime},
     };
 
+    #[derive(Default)]
     pub struct MockClock {
         current_time: u64,
     }
 
     impl MockClock {
         pub fn new() -> Self {
-            Self { current_time: 0 }
+            Self::default()
         }
 
         pub fn now(&self) -> SystemTime {
@@ -43,7 +44,7 @@ pub mod mock_clock {
     }
 }
 
-pub mod clock {
+pub mod real_clock {
     use std::time::SystemTime;
 
     pub fn now() -> SystemTime {

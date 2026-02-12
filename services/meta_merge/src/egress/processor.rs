@@ -12,10 +12,7 @@ use pyo3::{
     types::{PyAnyMethods, PyBool, PyListMethods, PyNone},
     Py, Python,
 };
-use savant_core::{
-    message::Message,
-    transport::zeromq::NonBlockingWriter,
-};
+use savant_core::{message::Message, transport::zeromq::NonBlockingWriter};
 use savant_core_py::primitives::frame::VideoFrame;
 use savant_core_py::primitives::message::Message as PyMessage;
 use savant_core_py::REGISTERED_HANDLERS;
@@ -79,14 +76,19 @@ impl EgressProcessor {
             }
             Err(EgressError::TakeFrameError(MergeQueueError::ItemNotFound(_))) => {
                 // Frame does not exist yet -- push it
-                match self.buffer.push_frame(frame.clone(), data.clone(), labels.clone()) {
+                match self
+                    .buffer
+                    .push_frame(frame.clone(), data.clone(), labels.clone())
+                {
                     Ok(()) => {
                         // First arrival: call merge with None as incoming to let
                         // the handler initialise the frame state.
-                        let mut first_item =
-                            self.buffer.take_frame(source_id.clone(), uuid).map_err(
-                                |e| anyhow::anyhow!("Failed to take just-pushed frame: {}", e),
-                            )?;
+                        let mut first_item = self
+                            .buffer
+                            .take_frame(source_id.clone(), uuid)
+                            .map_err(|e| {
+                                anyhow::anyhow!("Failed to take just-pushed frame: {}", e)
+                            })?;
 
                         let ready = self.call_merge_handler(
                             ingress_name,
@@ -419,11 +421,7 @@ impl EgressProcessor {
 
     /// Call the optional `on_send` Python handler.
     /// Returns an optional topic override.
-    fn call_send_handler(
-        &self,
-        message: &Message,
-        item: &EgressItem,
-    ) -> Result<Option<String>> {
+    fn call_send_handler(&self, message: &Message, item: &EgressItem) -> Result<Option<String>> {
         let handler_name = match &self.handlers.on_send {
             Some(name) => name.clone(),
             None => return Ok(None),

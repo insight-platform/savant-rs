@@ -1,13 +1,10 @@
-use std::{
-    collections::BTreeMap,
-    time::Duration,
-};
+use std::{collections::BTreeMap, time::Duration};
 
 use pyo3::{types::PyList, Py};
-#[cfg(not(test))]
-use savant_core::utils::clock::clock::now as system_now;
 #[cfg(test)]
 use savant_core::utils::clock::mock_clock::now as system_now;
+#[cfg(not(test))]
+use savant_core::utils::clock::real_clock::now as system_now;
 use savant_core_py::primitives::frame::VideoFrame;
 use uuid::Uuid;
 
@@ -116,13 +113,11 @@ impl MergeQueue {
         data: Py<PyList>,
         labels: Py<PyList>,
     ) -> Result<Uuid, MergeQueueError> {
-        let uuid = {
-            self.index
-                .last_key_value()
-                .ok_or_else(|| MergeQueueError::QueueIsEmpty)?
-                .0
-                .clone()
-        };
+        let uuid = *self
+            .index
+            .last_key_value()
+            .ok_or_else(|| MergeQueueError::QueueIsEmpty)?
+            .0;
 
         let item = EgressItem::new_eos_with_uuid(uuid, data, labels);
 
@@ -142,7 +137,7 @@ impl MergeQueue {
             .get_mut(&uuid)
             .ok_or_else(|| MergeQueueError::ItemNotFound(uuid))?
             .take_frame()
-            .map_err(|e| MergeQueueError::TakeFrameError(e))?;
+            .map_err(MergeQueueError::TakeFrameError)?;
         Ok(item)
     }
 
@@ -151,24 +146,23 @@ impl MergeQueue {
             EgressMessage::VideoFrame(video_frame) => video_frame.0.get_uuid(),
             _ => return Err(MergeQueueError::InvalidMessageType(item.message)),
         };
-        if item.uuid.is_none() || !matches!(item.uuid, Some(uuid) if uuid == uuid) {
+        if item.uuid != Some(uuid) {
             return Err(MergeQueueError::InvalidItemUuid(uuid, item.uuid));
         }
         self.index
             .get_mut(&uuid)
             .ok_or_else(|| MergeQueueError::ItemNotFound(uuid))?
             .set_frame(item)
-            .map_err(|e| MergeQueueError::SetFrameError(e))?;
+            .map_err(MergeQueueError::SetFrameError)?;
         Ok(())
     }
 
     pub fn set_frame_ready(&mut self, uuid: Uuid) -> Result<(), MergeQueueError> {
-        let _ = self
-            .index
+        self.index
             .get_mut(&uuid)
             .ok_or_else(|| MergeQueueError::ItemNotFound(uuid))?
             .set_frame_ready()
-            .map_err(|e| MergeQueueError::SetFrameReadyError(e))?;
+            .map_err(MergeQueueError::SetFrameReadyError)?;
         Ok(())
     }
 
@@ -203,7 +197,7 @@ impl MergeQueue {
             .ok_or_else(|| MergeQueueError::ItemNotFound(uuid))?;
         let (frame, eos) = payload
             .deconstruct()
-            .map_err(|e| MergeQueueError::PayloadDeconstructError(e))?;
+            .map_err(MergeQueueError::PayloadDeconstructError)?;
 
         Ok((frame.unwrap(), eos, reason))
     }

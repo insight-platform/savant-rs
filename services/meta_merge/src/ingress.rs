@@ -81,32 +81,27 @@ impl Ingress {
                             data,
                         };
                         messages.push(message);
-                    } else {
-                        if let Some(on_unsupported_message) = &self.on_unsupported_message {
-                            let message = PyMessage::new(*message);
-                            Python::attach(|py| {
-                                let handlers_bind = REGISTERED_HANDLERS.read();
-                                let handler = handlers_bind
-                                    .get(on_unsupported_message.as_str())
-                                    .unwrap_or_else(|| {
-                                        panic!(
-                                            "Python handler '{}' not found",
-                                            on_unsupported_message
-                                        )
-                                    });
-                                let mut pydata = Vec::new();
-                                for d in data {
-                                    pydata.push(
-                                        PyBytes::new_with(py, d.len(), |b: &mut [u8]| {
-                                            b.copy_from_slice(&d);
-                                            Ok(())
-                                        })
-                                        .expect("Failed to create PyBytes"),
-                                    );
-                                }
-                                handler.call1(py, (ingress_stream_name, &topic, message, &pydata))
-                            })?;
-                        }
+                    } else if let Some(on_unsupported_message) = &self.on_unsupported_message {
+                        let message = PyMessage::new(*message);
+                        Python::attach(|py| {
+                            let handlers_bind = REGISTERED_HANDLERS.read();
+                            let handler = handlers_bind
+                                .get(on_unsupported_message.as_str())
+                                .unwrap_or_else(|| {
+                                    panic!("Python handler '{}' not found", on_unsupported_message)
+                                });
+                            let mut pydata = Vec::new();
+                            for d in data {
+                                pydata.push(
+                                    PyBytes::new_with(py, d.len(), |b: &mut [u8]| {
+                                        b.copy_from_slice(&d);
+                                        Ok(())
+                                    })
+                                    .expect("Failed to create PyBytes"),
+                                );
+                            }
+                            handler.call1(py, (ingress_stream_name, &topic, message, &pydata))
+                        })?;
                     }
                 }
                 ReaderResult::Timeout => {

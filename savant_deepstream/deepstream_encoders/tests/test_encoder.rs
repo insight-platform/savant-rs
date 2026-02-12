@@ -3,7 +3,9 @@
 //! These tests require a GPU with NVENC support and DeepStream installed.
 //! Run with: `cargo test -p deepstream_encoders`
 
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, EncoderError, NvEncoder};
+use deepstream_encoders::{
+    cuda_init, Codec, EncoderConfig, EncoderError, NvBufSurfaceMemType, NvEncoder, VideoFormat,
+};
 
 /// Initialize CUDA and GStreamer once.
 fn init() {
@@ -63,7 +65,7 @@ fn test_config_defaults() {
     assert_eq!(config.codec, Codec::Hevc);
     assert_eq!(config.width, 1920);
     assert_eq!(config.height, 1080);
-    assert_eq!(config.format, "NV12");
+    assert_eq!(config.format, VideoFormat::NV12);
     assert_eq!(config.fps_num, 30);
     assert_eq!(config.fps_den, 1);
     assert_eq!(config.gpu_id, 0);
@@ -73,14 +75,14 @@ fn test_config_defaults() {
 #[test]
 fn test_config_builder_chain() {
     let config = EncoderConfig::new(Codec::H264, 1280, 720)
-        .format("RGBA")
+        .format(VideoFormat::RGBA)
         .fps(60, 1)
         .gpu_id(1)
-        .mem_type(2);
-    assert_eq!(config.format, "RGBA");
+        .mem_type(NvBufSurfaceMemType::CudaDevice);
+    assert_eq!(config.format, VideoFormat::RGBA);
     assert_eq!(config.fps_num, 60);
     assert_eq!(config.gpu_id, 1);
-    assert_eq!(config.mem_type, 2);
+    assert_eq!(config.mem_type, NvBufSurfaceMemType::CudaDevice);
 }
 
 #[test]
@@ -142,7 +144,7 @@ fn test_encoder_creation_h264() {
 #[test]
 fn test_encoder_creation_jpeg() {
     init();
-    let config = EncoderConfig::new(Codec::Jpeg, 640, 480).format("I420");
+    let config = EncoderConfig::new(Codec::Jpeg, 640, 480).format(VideoFormat::I420);
     let encoder = NvEncoder::new(&config);
     assert!(
         encoder.is_ok(),
@@ -200,7 +202,7 @@ fn test_submit_and_pull_frames() {
 #[test]
 fn test_submit_rgba_with_conversion() {
     init();
-    let config = EncoderConfig::new(Codec::H264, 320, 240).format("RGBA");
+    let config = EncoderConfig::new(Codec::H264, 320, 240).format(VideoFormat::RGBA);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3i64 {
@@ -325,7 +327,7 @@ fn test_generator_accessor() {
     let gen = encoder.generator();
     assert_eq!(gen.width(), 640);
     assert_eq!(gen.height(), 480);
-    assert_eq!(gen.format(), "NV12");
+    assert_eq!(gen.format(), VideoFormat::NV12);
 }
 
 // ─── Frame ID tracking test ─────────────────────────────────────────────

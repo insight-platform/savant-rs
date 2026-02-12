@@ -6,10 +6,10 @@ use pyo3::{
     types::{PyDict, PyList},
     Py, PyResult, Python,
 };
-#[cfg(not(test))]
-use savant_core::utils::clock::clock::now as system_now;
 #[cfg(test)]
 use savant_core::utils::clock::mock_clock::now as system_now;
+#[cfg(not(test))]
+use savant_core::utils::clock::real_clock::now as system_now;
 use savant_core_py::primitives::frame::VideoFrame;
 use uuid::Uuid;
 
@@ -128,7 +128,7 @@ impl EgressItem {
 
     pub fn as_frame(&self) -> Option<&VideoFrame> {
         if let EgressMessage::VideoFrame(frame) = &self.message {
-            Some(&frame)
+            Some(frame)
         } else {
             None
         }

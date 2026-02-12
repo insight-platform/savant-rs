@@ -506,7 +506,7 @@ mod tests {
                 &[
                     b"routing-id",
                     b"topic",
-                    &serialize(&Message::end_of_stream(EndOfStream::new("topic".into())))?,
+                    &serialize(&Message::end_of_stream(EndOfStream::new("topic")))?,
                 ],
                 0,
             )?;
@@ -530,7 +530,7 @@ mod tests {
                 .build()?;
 
             let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            let mut message = Message::end_of_stream(EndOfStream::new("topic".into()));
+            let mut message = Message::end_of_stream(EndOfStream::new("topic"));
             message.set_protocol_version("0.0.0".to_string());
             reader
                 .socket

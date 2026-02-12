@@ -845,17 +845,21 @@ impl VideoFrameProxy {
         if pts < 0 {
             bail!("PTS value must be greater than or equal to 0, got {}", pts);
         }
-        if dts.is_some() && dts.unwrap() < 0 {
-            bail!(
-                "DTS value must be greater than or equal to 0, got {}",
-                dts.unwrap()
-            );
+        if let Some(dts_val) = dts {
+            if dts_val < 0 {
+                bail!(
+                    "DTS value must be greater than or equal to 0, got {}",
+                    dts_val
+                );
+            }
         }
-        if duration.is_some() && duration.unwrap() < 0 {
-            bail!(
-                "Duration value must be greater than or equal to 0, got {}",
-                duration.unwrap()
-            );
+        if let Some(dur_val) = duration {
+            if dur_val < 0 {
+                bail!(
+                    "Duration value must be greater than or equal to 0, got {}",
+                    dur_val
+                );
+            }
         }
 
         Ok(VideoFrameProxy::from_inner(VideoFrame {
@@ -1001,11 +1005,13 @@ impl VideoFrameProxy {
     }
 
     pub fn set_dts(&mut self, dts: Option<i64>) -> anyhow::Result<()> {
-        if dts.is_some() && dts.unwrap() < 0 {
-            bail!(
-                "DTS value must be greater than or equal to 0, got {}",
-                dts.unwrap()
-            );
+        if let Some(dts_val) = dts {
+            if dts_val < 0 {
+                bail!(
+                    "DTS value must be greater than or equal to 0, got {}",
+                    dts_val
+                );
+            }
         }
         let mut inner = trace!(self.inner.write());
         inner.dts = dts;
@@ -1019,11 +1025,13 @@ impl VideoFrameProxy {
     }
 
     pub fn set_duration(&mut self, duration: Option<i64>) -> anyhow::Result<()> {
-        if duration.is_some() && duration.unwrap() < 0 {
-            bail!(
-                "Duration value must be greater than or equal to 0, got {}",
-                duration.unwrap()
-            );
+        if let Some(dur_val) = duration {
+            if dur_val < 0 {
+                bail!(
+                    "Duration value must be greater than or equal to 0, got {}",
+                    dur_val
+                );
+            }
         }
         let mut inner = trace!(self.inner.write());
         inner.duration = duration;
