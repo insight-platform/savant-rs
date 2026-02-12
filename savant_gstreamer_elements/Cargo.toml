@@ -12,9 +12,6 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[lib]
-crate-type = ["dylib"]
-
 [dependencies]
 anyhow = { workspace = true }
 base64 = { workspace = true }

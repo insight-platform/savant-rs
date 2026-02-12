@@ -86,13 +86,13 @@ if [ "${BUILD_ENVIRONMENT:-}" != "manylinux" ]; then
     fi
     
     # Build with explicit targets
-    cargo build $CARGO_BUILD_FLAG -p savant_rs # -p savant_gstreamer_elements -p savant_launcher
+    cargo build $CARGO_BUILD_FLAG -p savant_rs -p savant_gstreamer_elements -p savant_launcher
 
     # Clean previous artifacts
     rm -rf "$ARTIFACT_LOCATION"
 
     # Copy artifacts with error checking
-    for file in "$BUILD_ARTIFACT_LOCATION"/*.so; do # "$BUILD_ARTIFACT_LOCATION/savant_launcher"; do
+    for file in "$BUILD_ARTIFACT_LOCATION"/*.so "$BUILD_ARTIFACT_LOCATION/savant_launcher"; do
         if [ -f "$file" ]; then
             install -D "$file" "$ARTIFACT_LOCATION/$(basename "$file")"
         fi
