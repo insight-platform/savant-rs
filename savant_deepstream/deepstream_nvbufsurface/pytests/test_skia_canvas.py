@@ -15,6 +15,7 @@ from deepstream_nvbufsurface import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def skia_canvas() -> SkiaCanvas:
     """Module-scoped 640x480 SkiaCanvas."""
@@ -30,6 +31,7 @@ def rgba_gen_module() -> NvBufSurfaceGenerator:
 # ---------------------------------------------------------------------------
 # gr_context property
 # ---------------------------------------------------------------------------
+
 
 class TestGrContextProperty:
     """Tests for the newly exposed gr_context property."""
@@ -57,6 +59,7 @@ class TestGrContextProperty:
 # GPU texture image workflow
 # ---------------------------------------------------------------------------
 
+
 def _make_test_raster(width: int = 256, height: int = 256) -> skia.Image:
     """Create a solid red RGBA raster image for testing."""
     info = skia.ImageInfo.MakeN32Premul(width, height)
@@ -77,9 +80,7 @@ class TestMakeTextureImage:
         assert gpu_image is not None
         assert gpu_image.isTextureBacked()
 
-    def test_gpu_image_preserves_dimensions(
-        self, skia_canvas: SkiaCanvas
-    ) -> None:
+    def test_gpu_image_preserves_dimensions(self, skia_canvas: SkiaCanvas) -> None:
         raster = _make_test_raster(512, 300)
         gpu_image = raster.makeTextureImage(skia_canvas.gr_context)
         assert gpu_image.width() == 512

@@ -74,9 +74,7 @@ class TestGetNvBufSurfaceInfo:
 class TestAsGpuMat:
     """Tests for the as_gpu_mat context manager."""
 
-    def test_yields_gpumat_and_stream(
-        self, rgba_gen: NvBufSurfaceGenerator
-    ) -> None:
+    def test_yields_gpumat_and_stream(self, rgba_gen: NvBufSurfaceGenerator) -> None:
         buf_ptr = rgba_gen.acquire_surface()
         with as_gpu_mat(buf_ptr) as (mat, stream):
             assert isinstance(mat, cv2.cuda.GpuMat)
@@ -89,9 +87,7 @@ class TestAsGpuMat:
             assert mat.channels() == 4
             assert mat.type() == cv2.CV_8UC4
 
-    def test_writable_and_readable(
-        self, rgba_gen: NvBufSurfaceGenerator
-    ) -> None:
+    def test_writable_and_readable(self, rgba_gen: NvBufSurfaceGenerator) -> None:
         """Fill the buffer with green via GpuMat, verify on CPU."""
         buf_ptr = rgba_gen.acquire_surface()
         with as_gpu_mat(buf_ptr) as (mat, stream):
@@ -105,9 +101,7 @@ class TestAsGpuMat:
             np.testing.assert_array_equal(cpu[0, 0], [0, 255, 0, 255])
             np.testing.assert_array_equal(cpu[239, 319], [0, 255, 0, 255])
 
-    def test_stream_synced_on_exit(
-        self, rgba_gen: NvBufSurfaceGenerator
-    ) -> None:
+    def test_stream_synced_on_exit(self, rgba_gen: NvBufSurfaceGenerator) -> None:
         """Ensure the stream is synchronised when the with block exits."""
         buf_ptr = rgba_gen.acquire_surface()
         with as_gpu_mat(buf_ptr) as (mat, stream):

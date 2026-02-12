@@ -1927,7 +1927,7 @@ pub struct PyEncodedFrame {
 #[pymethods]
 impl PyEncodedFrame {
     #[getter]
-    fn frame_id(&self) -> i64 {
+    fn frame_id(&self) -> u128 {
         self.inner.frame_id
     }
     #[getter]
@@ -2011,7 +2011,7 @@ impl PyNvEncoder {
         &mut self,
         py: Python<'_>,
         buffer_ptr: usize,
-        frame_id: i64,
+        frame_id: u128,
         pts_ns: u64,
         duration_ns: Option<u64>,
     ) -> PyResult<()> {

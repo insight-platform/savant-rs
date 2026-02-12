@@ -165,8 +165,26 @@ class TestPushAndFinish:
             path = f.name
         try:
             muxer = Mp4Muxer(Codec.H264, path)
-            data = bytes([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x0a,
-                          0xe9, 0x40, 0x40, 0x04, 0x00, 0x00, 0x00, 0x02])
+            data = bytes(
+                [
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x01,
+                    0x67,
+                    0x42,
+                    0x00,
+                    0x0A,
+                    0xE9,
+                    0x40,
+                    0x40,
+                    0x04,
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x02,
+                ]
+            )
             muxer.push(data, pts_ns=0, duration_ns=33_333_333)
             muxer.finish()
         finally:
@@ -193,7 +211,9 @@ class TestPushAndFinish:
             # Simulate B-frame reordering: PTS and DTS differ
             muxer.push(data, pts_ns=66_666_666, dts_ns=0, duration_ns=33_333_333)
             muxer.push(data, pts_ns=0, dts_ns=33_333_333, duration_ns=33_333_333)
-            muxer.push(data, pts_ns=33_333_333, dts_ns=66_666_666, duration_ns=33_333_333)
+            muxer.push(
+                data, pts_ns=33_333_333, dts_ns=66_666_666, duration_ns=33_333_333
+            )
             muxer.finish()
         finally:
             os.unlink(path)

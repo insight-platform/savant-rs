@@ -8,6 +8,7 @@ from deepstream_nvbufsurface import ComputeMode, Interpolation, Padding
 
 # ── Padding ──────────────────────────────────────────────────────────────
 
+
 class TestPadding:
     def test_variants_exist(self):
         assert Padding.NONE is not None
@@ -29,6 +30,7 @@ class TestPadding:
 
 
 # ── Interpolation ────────────────────────────────────────────────────────
+
 
 class TestInterpolation:
     ALL = [
@@ -54,6 +56,7 @@ class TestInterpolation:
 
 
 # ── ComputeMode ──────────────────────────────────────────────────────────
+
 
 class TestComputeMode:
     def test_variants_exist(self):

@@ -12,19 +12,45 @@ GST_DIR=$(PROJECT_DIR)/savant_gstreamer
         ds-enc-test ds-enc-pytest \
         gst-dev gst-release gst-install \
         gst-test gst-pytest \
-        all-dev all-release
+        all-dev all-release \
+        fmt clippy lint
 
 dev: clean build_savant
 release: clean build_savant_release
 
+# -- formatting & linting ------------------------------------------------------
+
+fmt:
+	@echo "Running cargo fmt..."
+	cargo fmt --all
+	@echo "Running ruff format..."
+	ruff format $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
+	            python/nvbufsurface 2>/dev/null || true
+
+clippy:
+	@echo "Running clippy on savant_gstreamer..."
+	cd $(GST_DIR) && cargo clippy --all-targets -- -D warnings
+	@echo "Running clippy on deepstream_nvbufsurface..."
+	cd $(DS_NVBUF_DIR) && cargo clippy --all-targets -- -D warnings
+	@echo "Running clippy on deepstream_encoders..."
+	cd $(DS_ENC_DIR) && cargo clippy --all-targets -- -D warnings
+
+lint: fmt clippy
+	@echo "Running ruff check..."
+	ruff check $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
+	           python/nvbufsurface --fix
+	@echo "Lint complete."
+
 # -- aggregate targets: build + test + install everything ---------------------
 
-all-dev: dev install \
+all-dev: fmt clippy lint \
+         dev install \
          gst-dev gst-test gst-install gst-pytest \
          ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
          ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest
 
-all-release: release install \
+all-release: fmt clippy lint \
+             release install \
              gst-release gst-test gst-install gst-pytest \
              ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
              ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest

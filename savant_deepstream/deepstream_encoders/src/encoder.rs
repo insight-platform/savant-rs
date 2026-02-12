@@ -40,6 +40,9 @@ const B_FRAME_PROPERTY_NAMES: &[&str] = &[
     "num_B_Frames",
 ];
 
+/// Map from output PTS → (frame_id, original duration).
+type PtsMap = HashMap<u64, (u128, Option<u64>)>;
+
 /// GPU-accelerated video encoder.
 ///
 /// Encapsulates a DeepStream encoding pipeline with an
@@ -76,7 +79,7 @@ pub struct NvEncoder {
     /// Whether EOS has been sent.
     finalized: bool,
     /// PTS -> (frame_id, duration_ns) map for reconstructing output metadata.
-    pts_map: Arc<Mutex<HashMap<u64, (i64, Option<u64>)>>>,
+    pts_map: Arc<Mutex<PtsMap>>,
     /// When format conversion is needed (e.g. RGBA → NV12), this holds a
     /// second generator for the encoder-native format and a dedicated
     /// non-blocking CUDA stream for the `NvBufSurfTransform` call.
@@ -248,13 +251,13 @@ impl NvEncoder {
         // Configure appsrc with NVMM caps in the encoder-native format.
         // When conversion is needed, appsrc receives already-converted
         // native-format buffers (not the user's RGBA).
-        let appsrc_caps = if convert_ctx.is_some() {
-            convert_ctx.as_ref().unwrap().native_generator.nvmm_caps()
+        let appsrc_caps = if let Some(ctx) = &convert_ctx {
+            ctx.native_generator.nvmm_caps()
         } else {
             generator.nvmm_caps()
         };
         let appsrc_elem: &gst::Element = appsrc.upcast_ref();
-        appsrc_elem.set_property("caps", &appsrc_caps);
+        appsrc_elem.set_property("caps", appsrc_caps);
         appsrc_elem.set_property_from_str("format", "time");
         appsrc_elem.set_property_from_str("stream-type", "stream");
 
@@ -348,7 +351,7 @@ impl NvEncoder {
     pub fn submit_frame(
         &mut self,
         mut buffer: gst::Buffer,
-        frame_id: i64,
+        frame_id: u128,
         pts_ns: u64,
         duration_ns: Option<u64>,
     ) -> Result<(), EncoderError> {
@@ -483,36 +486,43 @@ impl NvEncoder {
         let dts_ns = buffer.dts().map(|t| t.nseconds());
         let duration_ns = buffer.duration().map(|t| t.nseconds());
 
-        // Look up frame_id from our PTS map.
-        let (frame_id, orig_duration) = self
-            .pts_map
-            .lock()
-            .unwrap()
-            .remove(&pts_ns)
-            .unwrap_or((-1, duration_ns));
+        // Look up frame_id from our PTS map.  A `Some` hit means this
+        // buffer corresponds to a user-submitted frame; `None` means it is
+        // a codec header (e.g. AV1 sequence header) injected by the encoder.
+        let pts_lookup = self.pts_map.lock().unwrap().remove(&pts_ns);
+        let is_user_frame = pts_lookup.is_some();
+        let (frame_id, orig_duration) = pts_lookup.unwrap_or((u128::MAX, duration_ns));
 
         // --- Output ordering validation ---
+        //
+        // Checks only apply to user-submitted frames.  Codec header
+        // buffers emitted by some encoders (AV1 in particular) may carry
+        // stale or meaningless PTS/DTS values.
 
-        // 1. Output PTS must be strictly monotonically increasing.
-        if let Some(prev) = self.last_output_pts_ns {
-            if pts_ns <= prev {
-                return Err(EncoderError::OutputPtsReordered {
-                    frame_id,
-                    pts_ns,
-                    prev_pts_ns: prev,
-                });
+        if is_user_frame {
+            // 1. Output PTS must never go backwards.  Equal PTS is
+            //    tolerated (duplicate PTS on codec headers is common).
+            //    B-frame reordering causes PTS to *decrease*.
+            if let Some(prev) = self.last_output_pts_ns {
+                if pts_ns < prev {
+                    return Err(EncoderError::OutputPtsReordered {
+                        frame_id,
+                        pts_ns,
+                        prev_pts_ns: prev,
+                    });
+                }
             }
-        }
-        self.last_output_pts_ns = Some(pts_ns);
+            self.last_output_pts_ns = Some(pts_ns);
 
-        // 2. DTS must not exceed PTS (would indicate B-frame reordering).
-        if let Some(dts) = dts_ns {
-            if dts > pts_ns {
-                return Err(EncoderError::OutputDtsExceedsPts {
-                    frame_id,
-                    dts_ns: dts,
-                    pts_ns,
-                });
+            // 2. DTS must not exceed PTS (would indicate B-frame reordering).
+            if let Some(dts) = dts_ns {
+                if dts > pts_ns {
+                    return Err(EncoderError::OutputDtsExceedsPts {
+                        frame_id,
+                        dts_ns: dts,
+                        pts_ns,
+                    });
+                }
             }
         }
 
@@ -561,11 +571,8 @@ impl NvEncoder {
         let mut frames = Vec::new();
 
         // Drain remaining frames from the appsink.
-        loop {
-            match self.pull_encoded_timeout(timeout_ms)? {
-                Some(frame) => frames.push(frame),
-                None => break,
-            }
+        while let Some(frame) = self.pull_encoded_timeout(timeout_ms)? {
+            frames.push(frame);
         }
 
         // Wait for EOS to propagate.
@@ -670,7 +677,7 @@ impl Drop for NvEncoder {
 
         // Destroy the dedicated CUDA stream if we created one.
         if let Some(ctx) = self.convert_ctx.take() {
-            if let Err(e) = destroy_cuda_stream(ctx.cuda_stream) {
+            if let Err(e) = unsafe { destroy_cuda_stream(ctx.cuda_stream) } {
                 log::warn!("Failed to destroy CUDA stream on drop: {}", e);
             } else {
                 debug!("ConvertContext CUDA stream destroyed");

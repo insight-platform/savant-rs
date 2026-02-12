@@ -28,35 +28,30 @@ Usage::
     # Infinite run (Ctrl-C to stop)
     python skia_pipeline.py
 
-    # Custom resolution and codec
-    python skia_pipeline.py --width 1280 --height 720 --codec h264
+    # Custom resolution and codec with 8 Mbps bitrate
+    python skia_pipeline.py --width 1280 --height 720 --codec h264 --bitrate 8000000
 
-    # JPEG output (no MP4 container)
-    python skia_pipeline.py --codec jpeg --num-frames 100
+    # JPEG output with quality 95 (no MP4 container)
+    python skia_pipeline.py --codec jpeg --quality 95 --num-frames 100
+
+    # AV1 encoding
+    python skia_pipeline.py --codec av1 --num-frames 300 --output /tmp/av1_demo.mp4
 """
 
 from __future__ import annotations
 
 import argparse
 import math
-import signal
 import sys
-import threading
-import time
 import urllib.request
 from dataclasses import dataclass
 
 import skia
 
-import gi
+from deepstream_nvbufsurface import SkiaCanvas  # noqa: E402
+from deepstream_encoders import VideoFormat  # noqa: E402
 
-gi.require_version("Gst", "1.0")
-gi.require_version("GstApp", "1.0")
-from gi.repository import Gst
-
-from deepstream_nvbufsurface import SkiaCanvas, init_cuda
-from deepstream_encoders import NvEncoder, EncoderConfig, Codec, VideoFormat
-from savant_gstreamer import Mp4Muxer
+from common import EncodingSession, add_common_args, init_gst_and_cuda
 
 
 # ===========================================================================
@@ -90,7 +85,9 @@ def _load_svg_as_gpu_texture(
     try:
         if source.startswith(("http://", "https://")):
             print(f"Downloading SVG from {source} ...")
-            req = urllib.request.Request(source, headers={"User-Agent": "skia_pipeline/1.0"})
+            req = urllib.request.Request(
+                source, headers={"User-Agent": "skia_pipeline/1.0"}
+            )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = resp.read()
         else:
@@ -159,14 +156,14 @@ class DetectionClass:
 
 
 CLASSES = [
-    DetectionClass("person",  0xFFFF5050),
-    DetectionClass("car",     0xFF50C8FF),
-    DetectionClass("truck",   0xFFFFB428),
+    DetectionClass("person", 0xFFFF5050),
+    DetectionClass("car", 0xFF50C8FF),
+    DetectionClass("truck", 0xFFFFB428),
     DetectionClass("bicycle", 0xFF50FF78),
-    DetectionClass("dog",     0xFFDC64FF),
-    DetectionClass("bus",     0xFFFFFF50),
-    DetectionClass("bike",    0xFF50FFFF),
-    DetectionClass("sign",    0xFFFF8C8C),
+    DetectionClass("dog", 0xFFDC64FF),
+    DetectionClass("bus", 0xFFFFFF50),
+    DetectionClass("bike", 0xFF50FFFF),
+    DetectionClass("sign", 0xFFFF8C8C),
 ]
 
 
@@ -178,12 +175,13 @@ def _with_alpha(c: int, a: int) -> int:
 # Pseudo-random
 # ===========================================================================
 
+
 def pseudo_rand(seed1: int, seed2: int) -> float:
     MASK64 = 0xFFFF_FFFF_FFFF_FFFF
     h = ((seed1 * 6364136223846793005) + seed2) & MASK64
-    h ^= (h >> 33)
+    h ^= h >> 33
     h = (h * 0xFF51AFD7ED558CCD) & MASK64
-    h ^= (h >> 33)
+    h ^= h >> 33
     return (h & 0x00FF_FFFF) / 0x0100_0000
 
 
@@ -204,18 +202,30 @@ def hsv_to_color(h_deg: float, s: float, v: float) -> int:
     x = c * (1.0 - abs((h / 60.0) % 2.0 - 1.0))
     m = v - c
     sector = int(h / 60.0) % 6
-    if sector == 0:   r, g, b = c, x, 0.0
-    elif sector == 1: r, g, b = x, c, 0.0
-    elif sector == 2: r, g, b = 0.0, c, x
-    elif sector == 3: r, g, b = 0.0, x, c
-    elif sector == 4: r, g, b = x, 0.0, c
-    else:             r, g, b = c, 0.0, x
-    return (0xFF << 24) | (int((r+m)*255) << 16) | (int((g+m)*255) << 8) | int((b+m)*255)
+    if sector == 0:
+        r, g, b = c, x, 0.0
+    elif sector == 1:
+        r, g, b = x, c, 0.0
+    elif sector == 2:
+        r, g, b = 0.0, c, x
+    elif sector == 3:
+        r, g, b = 0.0, x, c
+    elif sector == 4:
+        r, g, b = x, 0.0, c
+    else:
+        r, g, b = c, 0.0, x
+    return (
+        (0xFF << 24)
+        | (int((r + m) * 255) << 16)
+        | (int((g + m) * 255) << 8)
+        | int((b + m) * 255)
+    )
 
 
 # ===========================================================================
 # Drawing context -- caches fonts/paints across frames
 # ===========================================================================
+
 
 class DrawCtx:
     """Cached fonts and paints for efficient per-frame rendering."""
@@ -233,19 +243,27 @@ class DrawCtx:
         self.sidebar_bg_paint = skia.Paint(Color=skia.Color(15, 18, 25, 210))
         self.separator_paint = skia.Paint(
             Color=skia.Color(255, 255, 255, 100),
-            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
+            StrokeWidth=1.0,
+            Style=skia.Paint.kStroke_Style,
         )
         self.divider_paint = skia.Paint(
             Color=skia.Color(255, 255, 255, 60),
-            StrokeWidth=1.0, Style=skia.Paint.kStroke_Style,
+            StrokeWidth=1.0,
+            Style=skia.Paint.kStroke_Style,
         )
         self.footer_bg_paint = skia.Paint(Color=skia.Color(0, 0, 0, 180))
-        self.footer_text_paint = skia.Paint(Color=skia.Color(200, 200, 200, 200), AntiAlias=True)
+        self.footer_text_paint = skia.Paint(
+            Color=skia.Color(200, 200, 200, 200), AntiAlias=True
+        )
         self.fill_paint = skia.Paint(AntiAlias=True)
-        self.stroke_paint = skia.Paint(AntiAlias=True, Style=skia.Paint.kStroke_Style, StrokeWidth=2.0)
+        self.stroke_paint = skia.Paint(
+            AntiAlias=True, Style=skia.Paint.kStroke_Style, StrokeWidth=2.0
+        )
         self.label_bg_paint = skia.Paint()
         self.dot_paint = skia.Paint(AntiAlias=True)
-        self.legend_text_paint = skia.Paint(AntiAlias=True, Color=skia.Color(255, 255, 255, 220))
+        self.legend_text_paint = skia.Paint(
+            AntiAlias=True, Color=skia.Color(255, 255, 255, 220)
+        )
         self.bg_paint = skia.Paint()
         self.svg_paint = skia.Paint(AntiAlias=True)
         self.boxes: list[BBox] = []
@@ -256,8 +274,10 @@ class DrawCtx:
 # draw_frame
 # ===========================================================================
 
-def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
-               width: float, height: float) -> None:
+
+def draw_frame(
+    skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int, width: float, height: float
+) -> None:
     canvas = skia_canvas.canvas()
 
     # -- Background gradient -----------------------------------------------
@@ -326,14 +346,17 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
         class_idx = int(pseudo_rand(seed, 900) * len(CLASSES)) % len(CLASSES)
         confidence = 0.55 + pseudo_rand(seed, 1000) * 0.44
 
-        ctx.boxes.append(BBox(
-            x=max(0.0, min(cx - bw / 2.0, scene_w - bw)),
-            y=max(0.0, min(cy - bh / 2.0, height - bh)),
-            w=bw, h=bh,
-            class_idx=class_idx,
-            confidence=confidence,
-            id=i,
-        ))
+        ctx.boxes.append(
+            BBox(
+                x=max(0.0, min(cx - bw / 2.0, scene_w - bw)),
+                y=max(0.0, min(cy - bh / 2.0, height - bh)),
+                w=bw,
+                h=bh,
+                class_idx=class_idx,
+                confidence=confidence,
+                id=i,
+            )
+        )
 
     # -- Draw bounding boxes with semitransparent circles --------------------
     for b in ctx.boxes:
@@ -373,7 +396,9 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
         ctx.label_bg_paint.setColor(_with_alpha(cls.color, 200))
         canvas.drawRect(skia.Rect.MakeXYWH(lx, ly, tw + 10, lh), ctx.label_bg_paint)
 
-        canvas.drawString(label_text, lx + 5, ly + lh - 5, ctx.label_font, ctx.black_paint)
+        canvas.drawString(
+            label_text, lx + 5, ly + lh - 5, ctx.label_font, ctx.black_paint
+        )
 
     # -- Sidebar -----------------------------------------------------------
     sx = scene_w
@@ -391,7 +416,10 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
             ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 180))
             canvas.drawString(
                 f"... +{NUM_BOXES - i} more",
-                sx + 12, y_off + 14, ctx.legend_font, ctx.legend_text_paint,
+                sx + 12,
+                y_off + 14,
+                ctx.legend_font,
+                ctx.legend_text_paint,
             )
             break
 
@@ -401,66 +429,45 @@ def draw_frame(skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int,
 
         entry = f"{cls.name:<8} #{b.id:<2} ({int(b.x):>4},{int(b.y):>4}) {b.confidence * 100:>3.0f}%"
         ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 220))
-        canvas.drawString(entry, sx + 26, y_off + 10, ctx.legend_font, ctx.legend_text_paint)
+        canvas.drawString(
+            entry, sx + 26, y_off + 10, ctx.legend_font, ctx.legend_text_paint
+        )
 
         y_off += row_h
 
     # -- Footer ------------------------------------------------------------
-    canvas.drawRect(skia.Rect.MakeXYWH(sx, height - 32, sidebar_w, 32), ctx.footer_bg_paint)
+    canvas.drawRect(
+        skia.Rect.MakeXYWH(sx, height - 32, sidebar_w, 32), ctx.footer_bg_paint
+    )
     footer = f"F:{frame_idx:>6} {int(width)}x{int(height)} {NUM_BOXES}obj"
-    canvas.drawString(footer, sx + 10, height - 11, ctx.footer_font, ctx.footer_text_paint)
-
-
-# ===========================================================================
-# Helpers
-# ===========================================================================
-
-def rss_kb() -> int:
-    try:
-        with open("/proc/self/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    return int(line.split()[1])
-    except Exception:
-        pass
-    return 0
-
-
-def resolve_codec(name: str) -> Codec:
-    """Map CLI codec name to Codec enum."""
-    return Codec.from_name("hevc" if name == "h265" else name)
+    canvas.drawString(
+        footer, sx + 10, height - 11, ctx.footer_font, ctx.footer_text_paint
+    )
 
 
 # ===========================================================================
 # Main
 # ===========================================================================
 
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Skia GPU-rendered encoding pipeline (deepstream_encoders SDK)")
-    parser.add_argument("--width", type=int, default=1920, help="Frame width")
-    parser.add_argument("--height", type=int, default=1080, help="Frame height")
-    parser.add_argument("--fps", type=int, default=30, help="Framerate numerator")
-    parser.add_argument("--gpu-id", type=int, default=0, help="GPU device ID")
-    parser.add_argument("--codec", type=str, default="h265",
-                        choices=["h264", "h265", "hevc", "jpeg"],
-                        help="Video codec")
-    parser.add_argument("--output", "-o", type=str, default=None,
-                        help="Output MP4 file path")
-    parser.add_argument("--num-frames", "-n", type=int, default=None,
-                        help="Number of frames (omit for infinite)")
-    parser.add_argument("--svg", type=str, default=TIGER_SVG_URL,
-                        help="URL or local path to SVG file (use 'none' to disable)")
+    parser = argparse.ArgumentParser(
+        description="Skia GPU-rendered encoding pipeline (deepstream_encoders SDK)"
+    )
+    add_common_args(parser)
+    parser.add_argument(
+        "--svg",
+        type=str,
+        default=TIGER_SVG_URL,
+        help="URL or local path to SVG file (use 'none' to disable)",
+    )
     args = parser.parse_args()
 
-    # -- Init --------------------------------------------------------------
-    Gst.init(None)
-    init_cuda(args.gpu_id)
-
-    frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333_333
     w, h = args.width, args.height
-    codec = resolve_codec(args.codec)
 
     # -- GPU Skia canvas (all EGL/GL/CUDA managed by SkiaContext) ----------
+    #  init_gst_and_cuda is idempotent; EncodingSession will call it again.
+    init_gst_and_cuda(args.gpu_id)
     skia_canvas = SkiaCanvas.create(w, h, gpu_id=args.gpu_id)
     draw_ctx = DrawCtx()
     print(f"SkiaCanvas created: {w}x{h} (gpu {args.gpu_id})")
@@ -474,84 +481,18 @@ def main() -> None:
             render_height=h,
         )
 
-    # -- Encoder (RGBA - Skia's native format) -----------------------------
-    config = EncoderConfig(
-        codec, w, h,
-        format=VideoFormat.RGBA,
-        fps_num=args.fps,
-        fps_den=1,
-        gpu_id=args.gpu_id,
-    )
-    encoder = NvEncoder(config)
-    print(
-        f"Encoder created: {w}x{h} RGBA @ {args.fps} fps, "
-        f"codec={codec.name()} (gpu {args.gpu_id})"
-    )
-
-    # -- Optional MP4 muxer ------------------------------------------------
-    muxer: Mp4Muxer | None = None
-    if args.output:
-        muxer = Mp4Muxer(codec, args.output, fps_num=args.fps)
-    else:
-        print("No output file — encoded frames will be discarded (benchmark mode)")
-
-    # -- Run ---------------------------------------------------------------
-    limit = args.num_frames if args.num_frames is not None else sys.maxsize
-    if args.num_frames is not None:
-        print(f"Running ({args.num_frames} frames)...\n")
-    else:
-        print("Running (Ctrl-C to stop)...\n")
-
-    running = True
-
-    def _sigint(signum, frame):
-        nonlocal running
-        running = False
-
-    signal.signal(signal.SIGINT, _sigint)
-
-    # -- Stats reporter ----------------------------------------------------
-    frame_count = 0
-    encoded_count = 0
-    encoded_bytes = 0
-    count_lock = threading.Lock()
-
-    def stats_reporter():
-        nonlocal frame_count, encoded_count, encoded_bytes
-        last_count = 0
-        last_time = time.monotonic()
-        while running:
-            time.sleep(1.0)
-            now = time.monotonic()
-            with count_lock:
-                count = frame_count
-                enc = encoded_count
-                ebytes = encoded_bytes
-            elapsed = now - last_time
-            delta = count - last_count
-            fps = delta / elapsed if elapsed > 0 else 0.0
-            rss = rss_kb()
-            print(
-                f"submitted: {count:>8}  |  encoded: {enc:>8}  |  "
-                f"fps: {fps:>8.1f}  |  bitstream: {ebytes // 1024} KB  |  "
-                f"RSS: {rss // 1024} MB"
-            )
-            last_count = count
-            last_time = now
-
-    stats_thread = threading.Thread(target=stats_reporter, daemon=True)
-    stats_thread.start()
+    session = EncodingSession(args, video_format=VideoFormat.RGBA)
 
     # -- Push loop ---------------------------------------------------------
     i = 0
 
-    while i < limit and running:
+    while i < session.limit and session.is_running:
         # 1. Draw with Skia (GPU)
         draw_frame(skia_canvas, draw_ctx, i, float(w), float(h))
 
         # 2. Acquire NvBufSurface buffer and render Skia into it
         try:
-            buf_ptr = encoder.acquire_surface(id=i)
+            buf_ptr = session.encoder.acquire_surface(id=i)
         except Exception as e:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
@@ -563,63 +504,26 @@ def main() -> None:
             break
 
         # 3. Submit the rendered buffer to the encoder
-        pts_ns = i * frame_duration_ns
+        pts_ns = i * session.frame_duration_ns
         try:
-            encoder.submit_frame(buf_ptr, frame_id=i, pts_ns=pts_ns, duration_ns=frame_duration_ns)
-            with count_lock:
-                frame_count += 1
+            session.submit(
+                buf_ptr,
+                frame_id=i,
+                pts_ns=pts_ns,
+                duration_ns=session.frame_duration_ns,
+            )
             i += 1
         except Exception as e:
             print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
             break
 
         # 4. Pull any ready encoded frames (non-blocking)
-        while True:
-            frame = encoder.pull_encoded()
-            if frame is None:
-                break
-            with count_lock:
-                encoded_count += 1
-                encoded_bytes += frame.size
-            if muxer is not None:
-                muxer.push(frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns)
-
-        # Check encoder for pipeline errors
-        try:
-            encoder.check_error()
-        except Exception as e:
-            print(f"Encoder error: {e}", file=sys.stderr)
+        session.pull_encoded()
+        session.check_error()
+        if not session.is_running:
             break
 
-    # -- Shutdown ----------------------------------------------------------
-    print("\nStopping...")
-    running = False
-
-    # Drain remaining encoded frames from the encoder
-    remaining = encoder.finish()
-    for frame in remaining:
-        with count_lock:
-            encoded_count += 1
-            encoded_bytes += frame.size
-        if muxer is not None:
-            muxer.push(frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns)
-
-    # Finalize muxer
-    if muxer is not None:
-        muxer.finish()
-        print(f"Output written to: {args.output}")
-
-    stats_thread.join(timeout=2)
-
-    with count_lock:
-        total_submitted = frame_count
-        total_encoded = encoded_count
-        total_bytes = encoded_bytes
-    print(
-        f"Total submitted: {total_submitted}  |  "
-        f"Total encoded: {total_encoded}  |  "
-        f"Bitstream: {total_bytes // 1024} KB"
-    )
+    session.shutdown()
 
 
 if __name__ == "__main__":

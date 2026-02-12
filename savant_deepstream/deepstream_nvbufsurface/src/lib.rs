@@ -189,7 +189,11 @@ pub fn create_cuda_stream() -> Result<*mut std::ffi::c_void, NvBufSurfaceError> 
 /// # Errors
 ///
 /// Returns [`NvBufSurfaceError::CudaInitFailed`] if destruction fails.
-pub fn destroy_cuda_stream(stream: *mut std::ffi::c_void) -> Result<(), NvBufSurfaceError> {
+/// # Safety
+///
+/// `stream` must be a valid CUDA stream handle previously returned by
+/// [`create_cuda_stream()`], or null (in which case this is a no-op).
+pub unsafe fn destroy_cuda_stream(stream: *mut std::ffi::c_void) -> Result<(), NvBufSurfaceError> {
     if stream.is_null() {
         return Ok(());
     }
@@ -458,6 +462,7 @@ impl NvBufSurfaceGenerator {
 
     /// Internal constructor used by both [`new()`](Self::new),
     /// [`from_caps()`](Self::from_caps), and the builder.
+    #[allow(clippy::too_many_arguments)]
     fn create_from_parts(
         caps: &gst::Caps,
         format: VideoFormat,

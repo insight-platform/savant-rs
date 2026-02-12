@@ -9,7 +9,7 @@ use crate::ffi::transform_ffi;
 
 /// Padding mode for letterboxing when source and destination have different
 /// aspect ratios.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Padding {
     /// No padding -- scale to fill the entire destination, possibly
     /// distorting the aspect ratio.
@@ -19,19 +19,15 @@ pub enum Padding {
     RightBottom,
     /// Symmetric padding on all sides. The image is centered in the
     /// destination.
+    #[default]
     Symmetric,
 }
 
-impl Default for Padding {
-    fn default() -> Self {
-        Self::Symmetric
-    }
-}
-
 /// Interpolation method used during scaling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Interpolation {
     Nearest,
+    #[default]
     Bilinear,
     /// GPU: Cubic, VIC: 5-tap
     Algo1,
@@ -43,12 +39,6 @@ pub enum Interpolation {
     Algo4,
     /// Default (GPU: Nearest, VIC: Nearest)
     Default,
-}
-
-impl Default for Interpolation {
-    fn default() -> Self {
-        Self::Bilinear
-    }
 }
 
 impl Interpolation {
@@ -94,20 +84,15 @@ impl Interpolation {
 }
 
 /// Compute backend for transform operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ComputeMode {
     /// VIC on Jetson, dGPU on x86_64.
+    #[default]
     Default,
     /// GPU compute.
     Gpu,
     /// VIC (Jetson only).
     Vic,
-}
-
-impl Default for ComputeMode {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 impl ComputeMode {
@@ -136,7 +121,7 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub(crate) fn to_ffi(&self) -> transform_ffi::NvBufSurfTransformRect {
+    pub(crate) fn to_ffi(self) -> transform_ffi::NvBufSurfTransformRect {
         transform_ffi::NvBufSurfTransformRect {
             top: self.top,
             left: self.left,

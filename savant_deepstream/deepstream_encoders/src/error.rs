@@ -14,7 +14,7 @@ pub enum EncoderError {
     /// Input PTS reordering was detected (non-monotonic PTS on submit).
     #[error("Input PTS reordering detected: frame {frame_id} has PTS {pts_ns} which is <= previous PTS {prev_pts_ns}")]
     PtsReordered {
-        frame_id: i64,
+        frame_id: u128,
         pts_ns: u64,
         prev_pts_ns: u64,
     },
@@ -23,10 +23,10 @@ pub enum EncoderError {
     /// emitted despite being disabled.
     #[error(
         "Output PTS reordering detected (B-frames?): frame {frame_id} has \
-         PTS {pts_ns} <= previous output PTS {prev_pts_ns}"
+         PTS {pts_ns} < previous output PTS {prev_pts_ns}"
     )]
     OutputPtsReordered {
-        frame_id: i64,
+        frame_id: u128,
         pts_ns: u64,
         prev_pts_ns: u64,
     },
@@ -37,7 +37,7 @@ pub enum EncoderError {
          DTS {dts_ns} > PTS {pts_ns}"
     )]
     OutputDtsExceedsPts {
-        frame_id: i64,
+        frame_id: u128,
         dts_ns: u64,
         pts_ns: u64,
     },

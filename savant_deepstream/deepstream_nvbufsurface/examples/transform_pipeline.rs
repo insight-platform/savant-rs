@@ -128,7 +128,7 @@ fn main() {
         .property("do-timestamp", false)
         .build()
         .unwrap();
-    appsrc.set_property("caps", &dst_gen.nvmm_caps());
+    appsrc.set_property("caps", dst_gen.nvmm_caps());
 
     let convert = gst::ElementFactory::make("nvvideoconvert").build().unwrap();
     let encoder = gst::ElementFactory::make(enc_name).build().unwrap();

@@ -597,7 +597,7 @@ fn main() {
     };
 
     // Configure appsrc
-    appsrc_elem.set_property("caps", &generator.nvmm_caps());
+    appsrc_elem.set_property("caps", generator.nvmm_caps());
     appsrc_elem.set_property_from_str("format", "time");
     appsrc_elem.set_property_from_str("stream-type", "stream");
 

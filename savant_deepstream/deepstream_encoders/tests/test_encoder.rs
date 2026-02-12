@@ -135,6 +135,18 @@ fn test_encoder_creation_jpeg() {
 }
 
 #[test]
+fn test_encoder_creation_av1() {
+    init();
+    let config = EncoderConfig::new(Codec::Av1, 640, 480);
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create AV1 encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
 fn test_encoder_codec_getter() {
     init();
     let config = EncoderConfig::new(Codec::H264, 320, 240);
@@ -153,8 +165,8 @@ fn test_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64; // ~30fps
 
     // Submit a few frames.
-    for i in 0..5i64 {
-        let buffer = encoder.generator().acquire_surface(Some(i)).unwrap();
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -186,8 +198,8 @@ fn test_submit_rgba_with_conversion() {
     let config = EncoderConfig::new(Codec::H264, 320, 240).format(VideoFormat::RGBA);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    for i in 0..3i64 {
-        let buffer = encoder.generator().acquire_surface(Some(i)).unwrap();
+    for i in 0..3u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
         let pts_ns = i as u64 * 33_333_333;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(33_333_333))
@@ -198,6 +210,75 @@ fn test_submit_rgba_with_conversion() {
     assert!(
         !remaining.is_empty(),
         "Expected encoded frames from RGBA->H264 pipeline"
+    );
+}
+
+// ─── AV1 encoding tests ─────────────────────────────────────────────────
+//
+// AV1 encoders emit a sequence header buffer before the first data frame,
+// often with the same PTS.  These tests verify that the output PTS/DTS
+// validation does not reject these codec-injected headers.
+
+#[test]
+fn test_av1_single_frame() {
+    init();
+    let config = EncoderConfig::new(Codec::Av1, 320, 240);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    encoder.submit_frame(buf, 0, 0, Some(33_333_333)).unwrap();
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected at least one encoded AV1 frame"
+    );
+    for f in &frames {
+        assert!(!f.data.is_empty(), "AV1 frame data should not be empty");
+        assert_eq!(f.codec, Codec::Av1);
+    }
+}
+
+#[test]
+fn test_av1_multi_frame() {
+    init();
+    let config = EncoderConfig::new(Codec::Av1, 320, 240);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_dur = 33_333_333u64;
+    for i in 0..10u128 {
+        let buf = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        encoder
+            .submit_frame(buf, i, i as u64 * frame_dur, Some(frame_dur))
+            .unwrap();
+    }
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    // At least some frames should have been encoded.
+    assert!(
+        frames.len() >= 5,
+        "Expected at least 5 encoded AV1 frames, got {}",
+        frames.len()
+    );
+}
+
+#[test]
+fn test_av1_with_rgba_conversion() {
+    init();
+    let config = EncoderConfig::new(Codec::Av1, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    for i in 0..3u128 {
+        let buf = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        encoder
+            .submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
+            .unwrap();
+    }
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected encoded frames from RGBA->AV1 pipeline"
     );
 }
 
@@ -261,7 +342,8 @@ fn test_double_finish_returns_empty() {
     let first = encoder.finish(Some(3000)).unwrap();
     let second = encoder.finish(Some(1000)).unwrap();
 
-    assert!(!first.is_empty() || true); // first finish may have frames
+    // first finish may or may not have frames — no assertion needed.
+    let _ = first;
     assert!(second.is_empty(), "Second finish() should return empty vec");
 }
 
@@ -319,11 +401,14 @@ fn test_frame_id_preserved() {
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let frame_ids: Vec<i64> = vec![100, 200, 300, 400, 500];
+    let frame_ids: Vec<u128> = vec![100, 200, 300, 400, 500];
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let buffer = encoder.generator().acquire_surface(Some(fid)).unwrap();
+        let buffer = encoder
+            .generator()
+            .acquire_surface(Some(fid as i64))
+            .unwrap();
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))

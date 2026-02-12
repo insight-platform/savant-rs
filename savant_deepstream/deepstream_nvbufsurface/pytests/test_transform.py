@@ -19,6 +19,7 @@ def _make_gen(fmt: str, w: int, h: int) -> NvBufSurfaceGenerator:
 
 # ── Basic transforms ─────────────────────────────────────────────────────
 
+
 class TestTransform:
     def test_same_size(self):
         src_gen = _make_gen("RGBA", 640, 480)
@@ -63,6 +64,7 @@ class TestTransform:
 
 # ── With ID ──────────────────────────────────────────────────────────────
 
+
 class TestTransformWithId:
     def test_id_propagated(self):
         from deepstream_nvbufsurface import get_savant_id_meta
@@ -78,6 +80,7 @@ class TestTransformWithId:
 
 
 # ── Interpolation methods ────────────────────────────────────────────────
+
 
 class TestTransformInterpolation:
     @pytest.mark.parametrize(
@@ -103,6 +106,7 @@ class TestTransformInterpolation:
 
 # ── Compute modes ────────────────────────────────────────────────────────
 
+
 class TestTransformComputeMode:
     def test_gpu_compute(self):
         src_gen = _make_gen("RGBA", 1920, 1080)
@@ -122,6 +126,7 @@ class TestTransformComputeMode:
 
 
 # ── transform_with_ptr ───────────────────────────────────────────────────
+
 
 class TestTransformWithPtr:
     def test_returns_triple(self):
@@ -146,6 +151,7 @@ class TestTransformWithPtr:
 
 # ── Source crop ──────────────────────────────────────────────────────────
 
+
 class TestTransformCrop:
     def test_with_src_rect(self):
         src_gen = _make_gen("RGBA", 1920, 1080)
@@ -157,6 +163,7 @@ class TestTransformCrop:
 
 
 # ── Color format conversion ─────────────────────────────────────────────
+
 
 class TestTransformColorConvert:
     def test_rgba_to_nv12(self):
@@ -177,6 +184,7 @@ class TestTransformColorConvert:
 
 
 # ── Error handling ───────────────────────────────────────────────────────
+
 
 class TestTransformErrors:
     def test_null_src_raises(self):

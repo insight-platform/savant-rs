@@ -41,8 +41,8 @@
 //! let mut encoder = NvEncoder::new(&config).unwrap();
 //!
 //! // Acquire NVMM buffer, render into it, then submit
-//! for i in 0..10 {
-//!     let buffer = encoder.generator().acquire_surface(Some(i)).unwrap();
+//! for i in 0..10u128 {
+//!     let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
 //!     let pts_ns = i as u64 * 33_333_333;
 //!     encoder.submit_frame(buffer, i, pts_ns, Some(33_333_333)).unwrap();
 //! }
@@ -172,7 +172,7 @@ impl EncoderConfig {
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
     /// User-defined frame identifier (passed via [`NvEncoder::submit_frame`]).
-    pub frame_id: i64,
+    pub frame_id: u128,
     /// Presentation timestamp in nanoseconds.
     pub pts_ns: u64,
     /// Decode timestamp in nanoseconds (if set by the encoder).

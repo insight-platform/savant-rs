@@ -70,7 +70,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .expect("appsink");
 
     // Configure appsrc
-    appsrc_elem.set_property("caps", &generator.nvmm_caps());
+    appsrc_elem.set_property("caps", generator.nvmm_caps());
     appsrc_elem.set_property_from_str("format", "time");
     appsrc_elem.set_property_from_str("stream-type", "stream");
 

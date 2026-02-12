@@ -176,7 +176,9 @@ class TestEncoding:
 
     def test_finish_with_rgba_format(self):
         config = EncoderConfig(
-            Codec.HEVC, 320, 240,
+            Codec.HEVC,
+            320,
+            240,
             format="RGBA",
         )
         encoder = NvEncoder(config)
@@ -380,11 +382,13 @@ class TestPropertyStructs:
         assert props.quality == 95
 
     def test_from_pairs(self):
-        props = H264DgpuProps.from_pairs({
-            "bitrate": "6000000",
-            "profile": "high",
-            "control-rate": "vbr",
-        })
+        props = H264DgpuProps.from_pairs(
+            {
+                "bitrate": "6000000",
+                "profile": "high",
+                "control-rate": "vbr",
+            }
+        )
         assert props.bitrate == 6_000_000
         assert props.profile == H264Profile.HIGH
         assert props.control_rate == RateControl.VBR

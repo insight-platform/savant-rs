@@ -134,7 +134,7 @@ impl Mp4Muxer {
     /// * `data`        – raw encoded bitstream for a single frame.
     /// * `pts_ns`      – presentation timestamp in nanoseconds.
     /// * `dts_ns`      – optional decode timestamp in nanoseconds.
-    ///                    Required for streams with B-frames where DTS != PTS.
+    ///   Required for streams with B-frames where DTS != PTS.
     /// * `duration_ns` – optional frame duration in nanoseconds.
     pub fn push(
         &mut self,

@@ -184,7 +184,7 @@ fn decode_and_reencode(
 
         let pts = idx as u64 * frame_dur_ns;
         encoder
-            .submit_frame(enc_buf, idx as i64, pts, Some(frame_dur_ns))
+            .submit_frame(enc_buf, idx as u128, pts, Some(frame_dur_ns))
             .unwrap_or_else(|e| panic!("submit_frame failed at frame {idx}: {e}"));
 
         // Drain ready frames — the encoder validates ordering internally.
