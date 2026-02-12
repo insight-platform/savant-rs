@@ -216,7 +216,7 @@ pub fn destroy_cuda_stream(stream: *mut std::ffi::c_void) -> Result<(), NvBufSur
 /// # Example
 ///
 /// ```rust,no_run
-/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
 ///
 /// gstreamer::init().unwrap();
 ///
@@ -549,7 +549,7 @@ impl NvBufSurfaceGenerator {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+    /// # use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
     /// # use gstreamer::prelude::*;
     /// # gstreamer::init().unwrap();
     /// let gen = NvBufSurfaceGenerator::new(

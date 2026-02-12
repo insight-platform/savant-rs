@@ -8,10 +8,12 @@ Quick start::
 
     from deepstream_nvbufsurface import init_cuda
     from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+    from deepstream_encoders import HevcDgpuProps, HevcProfile
 
     init_cuda()
 
-    config = EncoderConfig(Codec.HEVC, 1920, 1080)
+    props = HevcDgpuProps(bitrate=8_000_000, profile=HevcProfile.MAIN)
+    config = EncoderConfig(Codec.HEVC, 1920, 1080, properties=props)
     encoder = NvEncoder(config)
 
     for i in range(100):
@@ -27,26 +29,52 @@ Quick start::
 
 from __future__ import annotations
 
-# ── Native (Rust/PyO3) symbols ───────────────────────────────────────────
-# Codec is registered in deepstream_encoders._native (same underlying Rust
-# type as savant_gstreamer.Codec). Importing from _native ensures that
-# config.codec == Codec.HEVC works within this package. Cross-package
-# Codec instances are handled by the extract_codec() helper in the Rust
-# layer (fallback via .name()).
 from deepstream_encoders._native import (  # noqa: F401
+    # Core types
     Codec,
     EncodedFrame,
     EncoderConfig,
     MemType,
     NvEncoder,
     VideoFormat,
+    # Property enums
+    Platform,
+    RateControl,
+    H264Profile,
+    HevcProfile,
+    DgpuPreset,
+    TuningPreset,
+    JetsonPresetLevel,
+    # Property structs
+    H264DgpuProps,
+    HevcDgpuProps,
+    H264JetsonProps,
+    HevcJetsonProps,
+    JpegProps,
+    Av1DgpuProps,
 )
 
 __all__ = [
+    # Core types
     "Codec",
     "EncoderConfig",
     "EncodedFrame",
     "MemType",
     "NvEncoder",
     "VideoFormat",
+    # Property enums
+    "Platform",
+    "RateControl",
+    "H264Profile",
+    "HevcProfile",
+    "DgpuPreset",
+    "TuningPreset",
+    "JetsonPresetLevel",
+    # Property structs
+    "H264DgpuProps",
+    "HevcDgpuProps",
+    "H264JetsonProps",
+    "HevcJetsonProps",
+    "JpegProps",
+    "Av1DgpuProps",
 ]

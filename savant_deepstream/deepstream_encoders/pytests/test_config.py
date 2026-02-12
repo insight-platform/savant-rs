@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 
-from deepstream_encoders import Codec, EncoderConfig
+from deepstream_encoders import Codec, EncoderConfig, VideoFormat
 
 
 class TestEncoderConfigDefaults:
@@ -23,47 +22,24 @@ class TestEncoderConfigDefaults:
 
     def test_default_format(self):
         config = EncoderConfig(Codec.HEVC, 640, 480)
-        assert config.format == "NV12"
+        assert config.format == VideoFormat.NV12
 
 
 class TestEncoderConfigCustom:
     def test_custom_format(self):
         config = EncoderConfig(Codec.H264, 640, 480, format="RGBA")
-        assert config.format == "RGBA"
+        assert config.format == VideoFormat.RGBA
 
     def test_custom_fps(self):
         config = EncoderConfig(Codec.HEVC, 640, 480, fps_num=60, fps_den=1)
         assert config is not None
 
-    def test_encoder_properties(self):
-        config = EncoderConfig(
-            Codec.HEVC, 640, 480,
-            encoder_properties={"bitrate": "4000000"},
-        )
+    def test_with_properties(self):
+        from deepstream_encoders import HevcDgpuProps
+
+        props = HevcDgpuProps(bitrate=4_000_000)
+        config = EncoderConfig(Codec.HEVC, 640, 480, properties=props)
         assert config is not None
-
-
-class TestEncoderConfigBFrameRejection:
-    def test_rejects_b_frames_property(self):
-        with pytest.raises(ValueError, match="B-frames"):
-            EncoderConfig(
-                Codec.HEVC, 640, 480,
-                encoder_properties={"num-B-Frames": "2"},
-            )
-
-    def test_rejects_b_frames_lowercase(self):
-        with pytest.raises(ValueError, match="B-frames"):
-            EncoderConfig(
-                Codec.H264, 640, 480,
-                encoder_properties={"b-frames": "1"},
-            )
-
-    def test_rejects_bframes_variant(self):
-        with pytest.raises(ValueError, match="B-frames"):
-            EncoderConfig(
-                Codec.HEVC, 640, 480,
-                encoder_properties={"bframes": "3"},
-            )
 
 
 class TestEncoderConfigRepr:

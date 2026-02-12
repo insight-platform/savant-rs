@@ -8,7 +8,6 @@ import skia
 from deepstream_nvbufsurface import (
     NvBufSurfaceGenerator,
     SkiaCanvas,
-    init_cuda,
 )
 
 

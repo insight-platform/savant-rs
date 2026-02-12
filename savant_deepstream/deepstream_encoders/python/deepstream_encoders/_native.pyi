@@ -10,15 +10,6 @@ from typing import Optional, Union, final
 class Codec:
     """Video codec identifier.
 
-    This is the same ``Codec`` enum as :class:`savant_gstreamer.Codec`,
-    but registered under ``deepstream_encoders._native`` so that values
-    returned by getters (e.g. ``config.codec``) are the same Python type
-    as ``Codec.HEVC`` imported from this package.
-
-    Cross-package interoperability is handled automatically: both
-    :class:`~savant_gstreamer.Mp4Muxer` and :class:`EncoderConfig` accept
-    a ``Codec`` from either package or a plain ``str``.
-
     - ``H264`` — H.264 / AVC.
     - ``HEVC`` — H.265 / HEVC.
     - ``JPEG`` — Motion JPEG.
@@ -32,31 +23,21 @@ class Codec:
 
     @staticmethod
     def from_name(name: str) -> Codec:
-        """Parse a codec from a string name.
-
-        Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-        ``jpeg``, ``av1``.
-
-        Args:
-            name: Codec name.
-
-        Returns:
-            The parsed codec.
-
-        Raises:
-            ValueError: If the name is not recognized.
-        """
+        """Parse a codec from a string name."""
         ...
 
     def name(self) -> str:
         """Return the canonical name of this codec (e.g. ``"hevc"``)."""
         ...
 
+    def __repr__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
-    def __repr__(self) -> str: ...
+
+
+# ── VideoFormat enum ──────────────────────────────────────────────────────
 
 @final
 class VideoFormat:
@@ -81,25 +62,21 @@ class VideoFormat:
 
     @staticmethod
     def from_name(name: str) -> VideoFormat:
-        """Parse a format from a string name.
-
-        Accepted names (case-sensitive): ``RGBA``, ``BGRx``, ``NV12``,
-        ``NV21``, ``I420``, ``UYVY``, ``GRAY8``.
-
-        Raises:
-            ValueError: If the name is not recognized.
-        """
+        """Parse a format from a string name."""
         ...
 
     def name(self) -> str:
         """Return the canonical name (e.g. ``"NV12"``)."""
         ...
 
+    def __repr__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
-    def __repr__(self) -> str: ...
+
+
+# ── MemType enum ──────────────────────────────────────────────────────────
 
 @final
 class MemType:
@@ -126,46 +103,417 @@ class MemType:
         """Return the canonical name."""
         ...
 
+    def __repr__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+
+
+# ── Platform enum ─────────────────────────────────────────────────────────
+
+@final
+class Platform:
+    """Hardware platform.
+
+    - ``DGPU``  — Discrete GPU.
+    - ``JETSON`` — NVIDIA Jetson.
+    """
+
+    DGPU: Platform
+    JETSON: Platform
+
+    @staticmethod
+    def from_name(name: str) -> Platform:
+        """Parse a platform from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
     def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
 
 
-# ── EncoderConfig ────────────────────────────────────────────────────────
+# ── RateControl enum ──────────────────────────────────────────────────────
+
+@final
+class RateControl:
+    """Rate control mode.
+
+    - ``VBR`` — Variable bitrate.
+    - ``CBR`` — Constant bitrate.
+    - ``CQP`` — Constant quantization parameter.
+    """
+
+    VBR: RateControl
+    CBR: RateControl
+    CQP: RateControl
+
+    @staticmethod
+    def from_name(name: str) -> RateControl:
+        """Parse a rate control mode from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── H264Profile enum ──────────────────────────────────────────────────────
+
+@final
+class H264Profile:
+    """H.264 profile.
+
+    - ``BASELINE`` — Baseline profile.
+    - ``MAIN``     — Main profile.
+    - ``HIGH``     — High profile.
+    - ``HIGH444``  — High 4:4:4 profile.
+    """
+
+    BASELINE: H264Profile
+    MAIN: H264Profile
+    HIGH: H264Profile
+    HIGH444: H264Profile
+
+    @staticmethod
+    def from_name(name: str) -> H264Profile:
+        """Parse an H.264 profile from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── HevcProfile enum ───────────────────────────────────────────────────────
+
+@final
+class HevcProfile:
+    """HEVC profile.
+
+    - ``MAIN``   — Main profile.
+    - ``MAIN10`` — Main 10 profile.
+    - ``FREXT``  — Frext profile.
+    """
+
+    MAIN: HevcProfile
+    MAIN10: HevcProfile
+    FREXT: HevcProfile
+
+    @staticmethod
+    def from_name(name: str) -> HevcProfile:
+        """Parse an HEVC profile from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── DgpuPreset enum ────────────────────────────────────────────────────────
+
+@final
+class DgpuPreset:
+    """dGPU encoding preset (P1–P7, fastest to slowest).
+
+    - ``P1`` — Fastest.
+    - ``P2``
+    - ``P3``
+    - ``P4``
+    - ``P5``
+    - ``P6``
+    - ``P7`` — Slowest (highest quality).
+    """
+
+    P1: DgpuPreset
+    P2: DgpuPreset
+    P3: DgpuPreset
+    P4: DgpuPreset
+    P5: DgpuPreset
+    P6: DgpuPreset
+    P7: DgpuPreset
+
+    @staticmethod
+    def from_name(name: str) -> DgpuPreset:
+        """Parse a dGPU preset from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── TuningPreset enum ──────────────────────────────────────────────────────
+
+@final
+class TuningPreset:
+    """Tuning preset for dGPU encoders.
+
+    - ``HIGH_QUALITY``       — Optimize for quality.
+    - ``LOW_LATENCY``        — Optimize for low latency.
+    - ``ULTRA_LOW_LATENCY``  — Optimize for ultra-low latency.
+    - ``LOSSLESS``           — Lossless encoding.
+    """
+
+    HIGH_QUALITY: TuningPreset
+    LOW_LATENCY: TuningPreset
+    ULTRA_LOW_LATENCY: TuningPreset
+    LOSSLESS: TuningPreset
+
+    @staticmethod
+    def from_name(name: str) -> TuningPreset:
+        """Parse a tuning preset from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── JetsonPresetLevel enum ─────────────────────────────────────────────────
+
+@final
+class JetsonPresetLevel:
+    """Jetson encoding preset level.
+
+    - ``DISABLED``      — Preset disabled.
+    - ``ULTRA_FAST``    — Ultra-fast encoding.
+    - ``FAST``          — Fast encoding.
+    - ``MEDIUM``        — Medium encoding.
+    - ``SLOW``          — Slow encoding (highest quality).
+    """
+
+    DISABLED: JetsonPresetLevel
+    ULTRA_FAST: JetsonPresetLevel
+    FAST: JetsonPresetLevel
+    MEDIUM: JetsonPresetLevel
+    SLOW: JetsonPresetLevel
+
+    @staticmethod
+    def from_name(name: str) -> JetsonPresetLevel:
+        """Parse a Jetson preset level from a string name."""
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+
+# ── Property structs ───────────────────────────────────────────────────────
+
+class H264DgpuProps:
+    """H.264 encoder properties for dGPU."""
+
+    def __init__(
+        self,
+        *,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[Union[RateControl, str]] = None,
+        profile: Optional[Union[H264Profile, str]] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[Union[DgpuPreset, str]] = None,
+        tuning_info: Optional[Union[TuningPreset, str]] = None,
+        qp_range: Optional[str] = None,
+        const_qp: Optional[str] = None,
+        init_qp: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+        extended_colorformat: Optional[bool] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> H264DgpuProps:
+        """Create from key-value pairs."""
+        ...
+
+
+class HevcDgpuProps:
+    """HEVC encoder properties for dGPU."""
+
+    def __init__(
+        self,
+        *,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[Union[RateControl, str]] = None,
+        profile: Optional[Union[HevcProfile, str]] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[Union[DgpuPreset, str]] = None,
+        tuning_info: Optional[Union[TuningPreset, str]] = None,
+        qp_range: Optional[str] = None,
+        const_qp: Optional[str] = None,
+        init_qp: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+        extended_colorformat: Optional[bool] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> HevcDgpuProps:
+        """Create from key-value pairs."""
+        ...
+
+
+class H264JetsonProps:
+    """H.264 encoder properties for Jetson."""
+
+    def __init__(
+        self,
+        *,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[Union[RateControl, str]] = None,
+        profile: Optional[Union[H264Profile, str]] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset_level: Optional[Union[JetsonPresetLevel, str]] = None,
+        peak_bitrate: Optional[int] = None,
+        vbv_size: Optional[int] = None,
+        qp_range: Optional[str] = None,
+        quant_i_frames: Optional[int] = None,
+        quant_p_frames: Optional[int] = None,
+        ratecontrol_enable: Optional[bool] = None,
+        maxperf_enable: Optional[bool] = None,
+        two_pass_cbr: Optional[bool] = None,
+        num_ref_frames: Optional[int] = None,
+        insert_sps_pps: Optional[bool] = None,
+        insert_aud: Optional[bool] = None,
+        insert_vui: Optional[bool] = None,
+        disable_cabac: Optional[bool] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> H264JetsonProps:
+        """Create from key-value pairs."""
+        ...
+
+
+class HevcJetsonProps:
+    """HEVC encoder properties for Jetson."""
+
+    def __init__(
+        self,
+        *,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[Union[RateControl, str]] = None,
+        profile: Optional[Union[HevcProfile, str]] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset_level: Optional[Union[JetsonPresetLevel, str]] = None,
+        peak_bitrate: Optional[int] = None,
+        vbv_size: Optional[int] = None,
+        qp_range: Optional[str] = None,
+        quant_i_frames: Optional[int] = None,
+        quant_p_frames: Optional[int] = None,
+        ratecontrol_enable: Optional[bool] = None,
+        maxperf_enable: Optional[bool] = None,
+        two_pass_cbr: Optional[bool] = None,
+        num_ref_frames: Optional[int] = None,
+        enable_lossless: Optional[bool] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> HevcJetsonProps:
+        """Create from key-value pairs."""
+        ...
+
+
+class JpegProps:
+    """JPEG encoder properties."""
+
+    def __init__(
+        self,
+        *,
+        quality: Optional[int] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> JpegProps:
+        """Create from key-value pairs."""
+        ...
+
+
+class Av1DgpuProps:
+    """AV1 encoder properties for dGPU."""
+
+    def __init__(
+        self,
+        *,
+        bitrate: Optional[int] = None,
+        control_rate: Optional[Union[RateControl, str]] = None,
+        iframeinterval: Optional[int] = None,
+        idrinterval: Optional[int] = None,
+        preset: Optional[Union[DgpuPreset, str]] = None,
+        tuning_info: Optional[Union[TuningPreset, str]] = None,
+        qp_range: Optional[str] = None,
+        max_bitrate: Optional[int] = None,
+        vbv_buf_size: Optional[int] = None,
+        vbv_init: Optional[int] = None,
+        cq: Optional[int] = None,
+        aq: Optional[int] = None,
+        temporal_aq: Optional[bool] = None,
+    ) -> None: ...
+
+    @staticmethod
+    def from_pairs(pairs: dict[str, str]) -> Av1DgpuProps:
+        """Create from key-value pairs."""
+        ...
+
+
+# ── EncoderConfig ─────────────────────────────────────────────────────────
 
 class EncoderConfig:
-    """Configuration for creating an :class:`NvEncoder`.
-
-    The internal buffer pools are always configured with exactly 1 buffer.
-    This is required because the NVENC hardware encoder may continue
-    DMA-reading from GPU memory after releasing the GStreamer buffer
-    reference.  A pool of 1 forces serialization that prevents stale-data
-    artifacts.
-
-    Args:
-        codec: Video codec — a :class:`Codec` enum value or a string name.
-        width: Frame width in pixels.
-        height: Frame height in pixels.
-        format: Video format (default ``"NV12"``).
-        fps_num: Framerate numerator (default 30).
-        fps_den: Framerate denominator (default 1).
-        gpu_id: GPU device ID (default 0).
-        mem_type: NvBufSurface memory type (default 0).
-        encoder_properties: Encoder-specific GStreamer properties as
-            string key/value pairs.  B-frame properties are rejected.
-
-    Raises:
-        ValueError: If an encoder property name refers to B-frames.
-
-    Example::
-
-        config = EncoderConfig(
-            Codec.HEVC, 1920, 1080,
-            encoder_properties={"bitrate": "4000000"},
-        )
-    """
+    """Configuration for creating an :class:`NvEncoder`."""
 
     def __init__(
         self,
@@ -177,7 +525,15 @@ class EncoderConfig:
         fps_den: int = 1,
         gpu_id: int = 0,
         mem_type: Union[MemType, int] | None = None,
-        encoder_properties: dict[str, str] | None = None,
+        properties: Union[
+            H264DgpuProps,
+            HevcDgpuProps,
+            H264JetsonProps,
+            HevcJetsonProps,
+            JpegProps,
+            Av1DgpuProps,
+            None,
+        ] = None,
     ) -> None: ...
 
     @property
@@ -202,13 +558,11 @@ class EncoderConfig:
 
     def __repr__(self) -> str: ...
 
-# ── EncodedFrame ─────────────────────────────────────────────────────────
+
+# ── EncodedFrame ───────────────────────────────────────────────────────────
 
 class EncodedFrame:
-    """A single encoded frame returned by :meth:`NvEncoder.pull_encoded`.
-
-    This object is read-only; it is produced by the encoder pipeline.
-    """
+    """A single encoded frame returned by :meth:`NvEncoder.pull_encoded`."""
 
     @property
     def frame_id(self) -> int:
@@ -222,11 +576,7 @@ class EncodedFrame:
 
     @property
     def dts_ns(self) -> int | None:
-        """Decode timestamp in nanoseconds (if set by the encoder).
-
-        For streams without B-frames this is typically equal to PTS
-        or ``None``.
-        """
+        """Decode timestamp in nanoseconds (if set by the encoder)."""
         ...
 
     @property
@@ -251,42 +601,11 @@ class EncodedFrame:
 
     def __repr__(self) -> str: ...
 
-# ── NvEncoder ────────────────────────────────────────────────────────────
+
+# ── NvEncoder ──────────────────────────────────────────────────────────────
 
 class NvEncoder:
-    """GPU-accelerated video encoder.
-
-    Creates an internal GStreamer pipeline that encodes NVMM buffers
-    using hardware-accelerated NVENC / NVJPEG encoders.
-
-    The encoder:
-
-    - Rejects any property that would enable B-frames.
-    - Validates that PTS values are strictly monotonically increasing.
-    - Provides access to the internal
-      :class:`~deepstream_nvbufsurface.NvBufSurfaceGenerator` for
-      acquiring GPU buffers.
-
-    Args:
-        config: Encoder configuration.
-
-    Example::
-
-        from deepstream_encoders import NvEncoder, EncoderConfig, Codec
-        from deepstream_nvbufsurface import init_cuda
-
-        init_cuda()
-        config = EncoderConfig(Codec.HEVC, 1920, 1080)
-        encoder = NvEncoder(config)
-
-        for i in range(100):
-            buf = encoder.acquire_surface(id=i)
-            encoder.submit_frame(buf, frame_id=i,
-                                 pts_ns=i * 33_333_333,
-                                 duration_ns=33_333_333)
-
-        remaining = encoder.finish()
-    """
+    """GPU-accelerated video encoder."""
 
     def __init__(self, config: EncoderConfig) -> None: ...
 
@@ -296,25 +615,11 @@ class NvEncoder:
         ...
 
     def nvmm_caps_str(self) -> str:
-        """Return the NVMM caps string for the internal generator.
-
-        Returns:
-            Caps string with ``memory:NVMM`` feature.
-        """
+        """Return the NVMM caps string for the internal generator."""
         ...
 
     def acquire_surface(self, id: Optional[int] = None) -> int:
-        """Acquire a new NvBufSurface buffer from the internal pool.
-
-        This is a convenience shortcut for
-        ``encoder.generator.acquire_surface(id=...)``.
-
-        Args:
-            id: Optional frame identifier for SavantIdMeta.
-
-        Returns:
-            Raw GstBuffer pointer address.
-        """
+        """Acquire a new NvBufSurface buffer from the internal pool."""
         ...
 
     def submit_frame(
@@ -324,65 +629,25 @@ class NvEncoder:
         pts_ns: int,
         duration_ns: Optional[int] = None,
     ) -> None:
-        """Submit a filled NVMM buffer to the encoder.
-
-        The buffer must have been acquired from :meth:`acquire_surface` or
-        from the generator directly.  PTS values must be strictly
-        monotonically increasing.
-
-        Args:
-            buffer_ptr: Raw GstBuffer pointer (from :meth:`acquire_surface`).
-            frame_id: User-defined frame identifier.
-            pts_ns: Presentation timestamp in nanoseconds.
-            duration_ns: Optional duration in nanoseconds.
-
-        Raises:
-            ValueError: On PTS reordering or null buffer pointer.
-            RuntimeError: On pipeline error or if the encoder has been
-                finalized.
-        """
+        """Submit a filled NVMM buffer to the encoder."""
         ...
 
     def pull_encoded(self) -> EncodedFrame | None:
-        """Pull one encoded frame (non-blocking).
-
-        Returns:
-            The encoded frame, or ``None`` if no frame is ready yet.
-        """
+        """Pull one encoded frame (non-blocking)."""
         ...
 
     def pull_encoded_timeout(
         self, timeout_ms: int = 100
     ) -> EncodedFrame | None:
-        """Pull one encoded frame with a timeout.
-
-        Args:
-            timeout_ms: Maximum time to wait in milliseconds (default 100).
-
-        Returns:
-            The encoded frame, or ``None`` on timeout.
-        """
+        """Pull one encoded frame with a timeout."""
         ...
 
     def finish(
         self, drain_timeout_ms: Optional[int] = None
     ) -> list[EncodedFrame]:
-        """Send EOS and drain all remaining encoded frames.
-
-        After this call, no more frames can be submitted.
-
-        Args:
-            drain_timeout_ms: Per-frame drain timeout in ms (default 2000).
-
-        Returns:
-            Remaining encoded frames from the pipeline.
-        """
+        """Send EOS and drain all remaining encoded frames."""
         ...
 
     def check_error(self) -> None:
-        """Check the pipeline bus for errors (non-blocking).
-
-        Raises:
-            RuntimeError: If a pipeline error is pending.
-        """
+        """Check the pipeline bus for errors (non-blocking)."""
         ...

@@ -6,25 +6,37 @@
 //!
 //! # Design
 //!
-//! - **No B-frames**: The encoder rejects any property that would enable
-//!   B-frames and forcibly disables them on the encoder element.
+//! - **No B-frames**: The encoder forcibly disables B-frames on the
+//!   underlying GStreamer element (regardless of its defaults) and the
+//!   typed property API offers no B-frame knob.
 //! - **Monotonic PTS**: Each submitted frame's PTS must be strictly greater
 //!   than the previous frame's PTS. The encoder raises an error on
 //!   reordering.
 //! - **Integrated buffer management**: The encoder owns an
 //!   [`NvBufSurfaceGenerator`](deepstream_nvbufsurface::NvBufSurfaceGenerator)
 //!   that provides NVMM GPU buffers for zero-copy rendering.
+//! - **Typed encoder properties**: Codec and platform-specific property
+//!   structs replace untyped string key-value pairs.  See the
+//!   [`properties`] module for all available types.
 //!
 //! # Example (Rust)
 //!
 //! ```rust,no_run
 //! use deepstream_encoders::{NvEncoder, EncoderConfig, Codec};
+//! use deepstream_encoders::properties::*;
 //! use deepstream_nvbufsurface::cuda_init;
 //!
 //! gstreamer::init().unwrap();
 //! cuda_init(0).unwrap();
 //!
-//! let config = EncoderConfig::new(Codec::Hevc, 1920, 1080);
+//! let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
+//!     bitrate: Some(8_000_000),
+//!     profile: Some(HevcProfile::Main),
+//!     ..Default::default()
+//! });
+//!
+//! let config = EncoderConfig::new(Codec::Hevc, 1920, 1080)
+//!     .properties(props);
 //!
 //! let mut encoder = NvEncoder::new(&config).unwrap();
 //!
@@ -41,6 +53,7 @@
 
 pub mod encoder;
 pub mod error;
+pub mod properties;
 
 #[cfg(feature = "python")]
 pub mod python;
@@ -55,6 +68,9 @@ pub use deepstream_nvbufsurface::{
 
 // Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.
 pub use savant_gstreamer::Codec;
+
+// Re-export frequently-used property types at the crate root for convenience.
+pub use properties::EncoderProperties;
 
 /// Configuration for creating an [`NvEncoder`].
 ///
@@ -87,11 +103,11 @@ pub struct EncoderConfig {
     pub gpu_id: u32,
     /// NvBufSurface memory type.
     pub mem_type: NvBufSurfaceMemType,
-    /// Encoder-specific GStreamer properties as `(key, value)` string pairs.
+    /// Typed, codec/platform-specific encoder properties.
     ///
-    /// These are passed directly to the encoder element via
-    /// `set_property_from_str`. B-frame properties are rejected.
-    pub encoder_properties: Vec<(String, String)>,
+    /// `None` means use the encoder's built-in defaults.  When set, the
+    /// variant's codec must match [`codec`](Self::codec).
+    pub encoder_params: Option<EncoderProperties>,
 }
 
 impl EncoderConfig {
@@ -113,7 +129,7 @@ impl EncoderConfig {
             fps_den: 1,
             gpu_id: 0,
             mem_type: NvBufSurfaceMemType::Default,
-            encoder_properties: Vec::new(),
+            encoder_params: None,
         }
     }
 
@@ -142,32 +158,13 @@ impl EncoderConfig {
         self
     }
 
-    /// Add an encoder property.
+    /// Set typed encoder properties.
     ///
-    /// # Errors
-    ///
-    /// This method validates that the property name does not refer to a
-    /// B-frame setting. The validation happens at encoder creation time,
-    /// but is also done eagerly here for early error detection.
-    pub fn encoder_property(mut self, key: &str, value: &str) -> Result<Self, EncoderError> {
-        // Eagerly reject B-frame properties.
-        let b_frame_props: &[&str] = &[
-            "B-frames",
-            "b-frames",
-            "bframes",
-            "Bframes",
-            "num-B-Frames",
-            "num-b-frames",
-            "num-bframes",
-        ];
-        for bprop in b_frame_props {
-            if key.eq_ignore_ascii_case(bprop) {
-                return Err(EncoderError::BFramesNotAllowed(key.to_string()));
-            }
-        }
-        self.encoder_properties
-            .push((key.to_string(), value.to_string()));
-        Ok(self)
+    /// The variant's codec **must** match the [`codec`](Self::codec) of this
+    /// config.  A mismatch is detected at [`NvEncoder::new`] time.
+    pub fn properties(mut self, props: EncoderProperties) -> Self {
+        self.encoder_params = Some(props);
+        self
     }
 }
 

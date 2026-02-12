@@ -8,11 +8,13 @@
 //!
 //! ```python
 //! from deepstream_encoders import NvEncoder, Codec, EncoderConfig
+//! from deepstream_encoders import HevcDgpuProps, HevcProfile
 //! from deepstream_nvbufsurface import init_cuda
 //!
 //! init_cuda()
 //!
-//! config = EncoderConfig(Codec.HEVC, 1920, 1080)
+//! props = HevcDgpuProps(bitrate=8_000_000, profile=HevcProfile.Main)
+//! config = EncoderConfig(Codec.HEVC, 1920, 1080, properties=props)
 //! encoder = NvEncoder(config)
 //!
 //! gen = encoder.generator
@@ -30,6 +32,7 @@
 //! remaining = encoder.finish()
 //! ```
 
+use crate::properties::{self, EncoderProperties};
 use crate::{
     EncodedFrame, EncoderConfig, EncoderError, NvBufSurfaceMemType, NvEncoder, VideoFormat,
 };
@@ -38,8 +41,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use savant_gstreamer::Codec;
 
+// ═══════════════════════════════════════════════════════════════════════
+// Codec / VideoFormat / MemType — same as before
+// ═══════════════════════════════════════════════════════════════════════
+
 // ---------------------------------------------------------------------------
-// PyCodec — local Python enum, convertible to/from the shared Rust Codec
+// PyCodec
 // ---------------------------------------------------------------------------
 
 /// Python enum for video codecs.
@@ -63,10 +70,6 @@ pub enum PyCodec {
 
 #[pymethods]
 impl PyCodec {
-    /// Parse a codec from a string name.
-    ///
-    /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-    /// ``jpeg``, ``av1``.
     #[staticmethod]
     fn from_name(name: &str) -> PyResult<Self> {
         match Codec::from_name(name) {
@@ -78,7 +81,6 @@ impl PyCodec {
         }
     }
 
-    /// Return the canonical name of this codec.
     fn name(&self) -> &'static str {
         let c: Codec = (*self).into();
         c.name()
@@ -119,17 +121,6 @@ impl From<Codec> for PyCodec {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Codec extraction helper
-// ---------------------------------------------------------------------------
-
-/// Extract a [`Codec`] from a Python object.
-///
-/// Accepts:
-/// 1. This module's `PyCodec` enum value.
-/// 2. A `str` codec name (e.g. `"hevc"`).
-/// 3. Any object with a `.name()` method returning a codec name string
-///    (e.g. a `Codec` from another extension module).
 fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
     if let Ok(py_codec) = ob.extract::<PyCodec>() {
         return Ok(py_codec.into());
@@ -156,18 +147,10 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 }
 
 // ---------------------------------------------------------------------------
-// PyVideoFormat — local Python enum for video pixel formats
+// PyVideoFormat
 // ---------------------------------------------------------------------------
 
 /// Video pixel format.
-///
-/// - ``RGBA``  — 8-bit RGBA (4 bytes/pixel).
-/// - ``BGRx``  — 8-bit BGRx (4 bytes/pixel, alpha ignored).
-/// - ``NV12``  — YUV 4:2:0 semi-planar (default encoder format).
-/// - ``NV21``  — YUV 4:2:0 semi-planar (UV swapped).
-/// - ``I420``  — YUV 4:2:0 planar (JPEG encoder format).
-/// - ``UYVY``  — YUV 4:2:2 packed.
-/// - ``GRAY8`` — single-channel grayscale.
 #[pyclass(name = "VideoFormat", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyVideoFormat {
@@ -194,8 +177,7 @@ impl PyVideoFormat {
         match VideoFormat::from_name(name) {
             Some(f) => Ok(f.into()),
             None => Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown video format: '{}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8",
-                name
+                "Unknown video format: '{name}'"
             ))),
         }
     }
@@ -255,38 +237,26 @@ fn extract_video_format(ob: &Bound<'_, PyAny>) -> PyResult<VideoFormat> {
     }
     if let Ok(s) = ob.extract::<String>() {
         return VideoFormat::from_name(&s).ok_or_else(|| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
-            ))
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown video format: '{s}'"))
         });
     }
     if let Ok(name_val) = ob.call_method0("name") {
         if let Ok(s) = name_val.extract::<String>() {
             return VideoFormat::from_name(&s).ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
-                ))
+                pyo3::exceptions::PyValueError::new_err(format!("Unknown video format: '{s}'"))
             });
         }
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "Expected a VideoFormat enum value or a format name string (RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8)",
+        "Expected a VideoFormat enum value or a format name string",
     ))
 }
 
 // ---------------------------------------------------------------------------
-// PyMemType — local Python enum for NvBufSurface memory types
+// PyMemType
 // ---------------------------------------------------------------------------
 
 /// NvBufSurface memory type.
-///
-/// - ``DEFAULT``       — CUDA Device for dGPU, Surface Array for Jetson.
-/// - ``CUDA_PINNED``   — CUDA Host (pinned) memory.
-/// - ``CUDA_DEVICE``   — CUDA Device memory.
-/// - ``CUDA_UNIFIED``  — CUDA Unified memory.
-/// - ``SURFACE_ARRAY`` — NVRM Surface Array (Jetson only).
-/// - ``HANDLE``        — NVRM Handle (Jetson only).
-/// - ``SYSTEM``        — System memory (malloc).
 #[pyclass(name = "MemType", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyMemType {
@@ -395,42 +365,1465 @@ fn extract_mem_type(ob: &Bound<'_, PyAny>) -> PyResult<NvBufSurfaceMemType> {
     ))
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Encoder property enums
+// ═══════════════════════════════════════════════════════════════════════
+
 // ---------------------------------------------------------------------------
+// PyPlatform
+// ---------------------------------------------------------------------------
+
+/// Target hardware platform.
+///
+/// - ``DGPU``   — Discrete GPU (desktop/server).
+/// - ``JETSON`` — NVIDIA Jetson embedded platform.
+#[pyclass(name = "Platform", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyPlatform {
+    #[pyo3(name = "DGPU")]
+    Dgpu = 0,
+    #[pyo3(name = "JETSON")]
+    Jetson = 1,
+}
+
+#[pymethods]
+impl PyPlatform {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::Platform::from_name(name) {
+            Some(p) => Ok(p.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown platform: '{name}'. Expected 'dgpu' or 'jetson'"
+            ))),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        let p: properties::Platform = (*self).into();
+        p.name()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Platform.{}",
+            match self {
+                PyPlatform::Dgpu => "DGPU",
+                PyPlatform::Jetson => "JETSON",
+            }
+        )
+    }
+}
+
+impl From<PyPlatform> for properties::Platform {
+    fn from(p: PyPlatform) -> Self {
+        match p {
+            PyPlatform::Dgpu => properties::Platform::Dgpu,
+            PyPlatform::Jetson => properties::Platform::Jetson,
+        }
+    }
+}
+
+impl From<properties::Platform> for PyPlatform {
+    fn from(p: properties::Platform) -> Self {
+        match p {
+            properties::Platform::Dgpu => PyPlatform::Dgpu,
+            properties::Platform::Jetson => PyPlatform::Jetson,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyRateControl
+// ---------------------------------------------------------------------------
+
+/// Rate-control mode.
+///
+/// - ``VBR``  — Variable bitrate.
+/// - ``CBR``  — Constant bitrate.
+/// - ``CQP``  — Constant QP.
+#[pyclass(name = "RateControl", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyRateControl {
+    #[pyo3(name = "VBR")]
+    Vbr = 0,
+    #[pyo3(name = "CBR")]
+    Cbr = 1,
+    #[pyo3(name = "CQP")]
+    Cqp = 2,
+}
+
+#[pymethods]
+impl PyRateControl {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::RateControl::from_name(name) {
+            Some(r) => Ok(r.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown rate control: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let r: properties::RateControl = (*self).into();
+        r.name()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "RateControl.{}",
+            match self {
+                PyRateControl::Vbr => "VBR",
+                PyRateControl::Cbr => "CBR",
+                PyRateControl::Cqp => "CQP",
+            }
+        )
+    }
+}
+
+impl From<PyRateControl> for properties::RateControl {
+    fn from(r: PyRateControl) -> Self {
+        match r {
+            PyRateControl::Vbr => properties::RateControl::VariableBitrate,
+            PyRateControl::Cbr => properties::RateControl::ConstantBitrate,
+            PyRateControl::Cqp => properties::RateControl::ConstantQP,
+        }
+    }
+}
+
+impl From<properties::RateControl> for PyRateControl {
+    fn from(r: properties::RateControl) -> Self {
+        match r {
+            properties::RateControl::VariableBitrate => PyRateControl::Vbr,
+            properties::RateControl::ConstantBitrate => PyRateControl::Cbr,
+            properties::RateControl::ConstantQP => PyRateControl::Cqp,
+        }
+    }
+}
+
+fn extract_rate_control(ob: &Bound<'_, PyAny>) -> PyResult<properties::RateControl> {
+    if let Ok(v) = ob.extract::<PyRateControl>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::RateControl::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown rate control: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a RateControl enum or string",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyH264Profile
+// ---------------------------------------------------------------------------
+
+/// H.264 encoding profile.
+///
+/// - ``BASELINE`` — Baseline profile.
+/// - ``MAIN``     — Main profile.
+/// - ``HIGH``     — High profile.
+/// - ``HIGH444``  — High 4:4:4 Predictive (dGPU only).
+#[pyclass(name = "H264Profile", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyH264Profile {
+    #[pyo3(name = "BASELINE")]
+    Baseline = 0,
+    #[pyo3(name = "MAIN")]
+    Main = 2,
+    #[pyo3(name = "HIGH")]
+    High = 4,
+    #[pyo3(name = "HIGH444")]
+    High444 = 7,
+}
+
+#[pymethods]
+impl PyH264Profile {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::H264Profile::from_name(name) {
+            Some(p) => Ok(p.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown H.264 profile: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let p: properties::H264Profile = (*self).into();
+        p.name()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "H264Profile.{}",
+            match self {
+                PyH264Profile::Baseline => "BASELINE",
+                PyH264Profile::Main => "MAIN",
+                PyH264Profile::High => "HIGH",
+                PyH264Profile::High444 => "HIGH444",
+            }
+        )
+    }
+}
+
+impl From<PyH264Profile> for properties::H264Profile {
+    fn from(p: PyH264Profile) -> Self {
+        match p {
+            PyH264Profile::Baseline => properties::H264Profile::Baseline,
+            PyH264Profile::Main => properties::H264Profile::Main,
+            PyH264Profile::High => properties::H264Profile::High,
+            PyH264Profile::High444 => properties::H264Profile::High444,
+        }
+    }
+}
+
+impl From<properties::H264Profile> for PyH264Profile {
+    fn from(p: properties::H264Profile) -> Self {
+        match p {
+            properties::H264Profile::Baseline => PyH264Profile::Baseline,
+            properties::H264Profile::Main => PyH264Profile::Main,
+            properties::H264Profile::High => PyH264Profile::High,
+            properties::H264Profile::High444 => PyH264Profile::High444,
+        }
+    }
+}
+
+fn extract_h264_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::H264Profile> {
+    if let Ok(v) = ob.extract::<PyH264Profile>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::H264Profile::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown H.264 profile: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected an H264Profile enum or string",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyHevcProfile
+// ---------------------------------------------------------------------------
+
+/// HEVC (H.265) encoding profile.
+///
+/// - ``MAIN``   — Main profile.
+/// - ``MAIN10`` — Main 10-bit profile.
+/// - ``FREXT``  — Format Range Extensions.
+#[pyclass(name = "HevcProfile", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyHevcProfile {
+    #[pyo3(name = "MAIN")]
+    Main = 0,
+    #[pyo3(name = "MAIN10")]
+    Main10 = 1,
+    #[pyo3(name = "FREXT")]
+    Frext = 3,
+}
+
+#[pymethods]
+impl PyHevcProfile {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::HevcProfile::from_name(name) {
+            Some(p) => Ok(p.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown HEVC profile: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let p: properties::HevcProfile = (*self).into();
+        p.name()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "HevcProfile.{}",
+            match self {
+                PyHevcProfile::Main => "MAIN",
+                PyHevcProfile::Main10 => "MAIN10",
+                PyHevcProfile::Frext => "FREXT",
+            }
+        )
+    }
+}
+
+impl From<PyHevcProfile> for properties::HevcProfile {
+    fn from(p: PyHevcProfile) -> Self {
+        match p {
+            PyHevcProfile::Main => properties::HevcProfile::Main,
+            PyHevcProfile::Main10 => properties::HevcProfile::Main10,
+            PyHevcProfile::Frext => properties::HevcProfile::Frext,
+        }
+    }
+}
+
+impl From<properties::HevcProfile> for PyHevcProfile {
+    fn from(p: properties::HevcProfile) -> Self {
+        match p {
+            properties::HevcProfile::Main => PyHevcProfile::Main,
+            properties::HevcProfile::Main10 => PyHevcProfile::Main10,
+            properties::HevcProfile::Frext => PyHevcProfile::Frext,
+        }
+    }
+}
+
+fn extract_hevc_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::HevcProfile> {
+    if let Ok(v) = ob.extract::<PyHevcProfile>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::HevcProfile::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown HEVC profile: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a HevcProfile enum or string",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyDgpuPreset
+// ---------------------------------------------------------------------------
+
+/// dGPU NVENC preset (P1–P7).
+///
+/// Lower values are faster; higher values yield better quality.
+#[pyclass(name = "DgpuPreset", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyDgpuPreset {
+    P1 = 1,
+    P2 = 2,
+    P3 = 3,
+    P4 = 4,
+    P5 = 5,
+    P6 = 6,
+    P7 = 7,
+}
+
+#[pymethods]
+impl PyDgpuPreset {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::DgpuPreset::from_name(name) {
+            Some(p) => Ok(p.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown dGPU preset: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let p: properties::DgpuPreset = (*self).into();
+        p.name()
+    }
+    fn __repr__(&self) -> String {
+        format!("DgpuPreset.{}", self.name())
+    }
+}
+
+impl From<PyDgpuPreset> for properties::DgpuPreset {
+    fn from(p: PyDgpuPreset) -> Self {
+        match p {
+            PyDgpuPreset::P1 => properties::DgpuPreset::P1,
+            PyDgpuPreset::P2 => properties::DgpuPreset::P2,
+            PyDgpuPreset::P3 => properties::DgpuPreset::P3,
+            PyDgpuPreset::P4 => properties::DgpuPreset::P4,
+            PyDgpuPreset::P5 => properties::DgpuPreset::P5,
+            PyDgpuPreset::P6 => properties::DgpuPreset::P6,
+            PyDgpuPreset::P7 => properties::DgpuPreset::P7,
+        }
+    }
+}
+
+impl From<properties::DgpuPreset> for PyDgpuPreset {
+    fn from(p: properties::DgpuPreset) -> Self {
+        match p {
+            properties::DgpuPreset::P1 => PyDgpuPreset::P1,
+            properties::DgpuPreset::P2 => PyDgpuPreset::P2,
+            properties::DgpuPreset::P3 => PyDgpuPreset::P3,
+            properties::DgpuPreset::P4 => PyDgpuPreset::P4,
+            properties::DgpuPreset::P5 => PyDgpuPreset::P5,
+            properties::DgpuPreset::P6 => PyDgpuPreset::P6,
+            properties::DgpuPreset::P7 => PyDgpuPreset::P7,
+        }
+    }
+}
+
+fn extract_dgpu_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::DgpuPreset> {
+    if let Ok(v) = ob.extract::<PyDgpuPreset>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::DgpuPreset::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown dGPU preset: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a DgpuPreset enum or string",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyTuningPreset
+// ---------------------------------------------------------------------------
+
+/// dGPU tuning-info preset.
+///
+/// - ``HIGH_QUALITY``      — Optimize for quality.
+/// - ``LOW_LATENCY``       — Low latency (default).
+/// - ``ULTRA_LOW_LATENCY`` — Ultra-low latency.
+/// - ``LOSSLESS``          — Lossless encoding.
+#[pyclass(name = "TuningPreset", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyTuningPreset {
+    #[pyo3(name = "HIGH_QUALITY")]
+    HighQuality = 1,
+    #[pyo3(name = "LOW_LATENCY")]
+    LowLatency = 2,
+    #[pyo3(name = "ULTRA_LOW_LATENCY")]
+    UltraLowLatency = 3,
+    #[pyo3(name = "LOSSLESS")]
+    Lossless = 4,
+}
+
+#[pymethods]
+impl PyTuningPreset {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::TuningPreset::from_name(name) {
+            Some(t) => Ok(t.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown tuning preset: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let t: properties::TuningPreset = (*self).into();
+        t.name()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "TuningPreset.{}",
+            match self {
+                PyTuningPreset::HighQuality => "HIGH_QUALITY",
+                PyTuningPreset::LowLatency => "LOW_LATENCY",
+                PyTuningPreset::UltraLowLatency => "ULTRA_LOW_LATENCY",
+                PyTuningPreset::Lossless => "LOSSLESS",
+            }
+        )
+    }
+}
+
+impl From<PyTuningPreset> for properties::TuningPreset {
+    fn from(t: PyTuningPreset) -> Self {
+        match t {
+            PyTuningPreset::HighQuality => properties::TuningPreset::HighQuality,
+            PyTuningPreset::LowLatency => properties::TuningPreset::LowLatency,
+            PyTuningPreset::UltraLowLatency => properties::TuningPreset::UltraLowLatency,
+            PyTuningPreset::Lossless => properties::TuningPreset::Lossless,
+        }
+    }
+}
+
+impl From<properties::TuningPreset> for PyTuningPreset {
+    fn from(t: properties::TuningPreset) -> Self {
+        match t {
+            properties::TuningPreset::HighQuality => PyTuningPreset::HighQuality,
+            properties::TuningPreset::LowLatency => PyTuningPreset::LowLatency,
+            properties::TuningPreset::UltraLowLatency => PyTuningPreset::UltraLowLatency,
+            properties::TuningPreset::Lossless => PyTuningPreset::Lossless,
+        }
+    }
+}
+
+fn extract_tuning_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::TuningPreset> {
+    if let Ok(v) = ob.extract::<PyTuningPreset>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::TuningPreset::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown tuning preset: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a TuningPreset enum or string",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyJetsonPresetLevel
+// ---------------------------------------------------------------------------
+
+/// Jetson HW encoder preset level.
+///
+/// - ``DISABLED``   — Disable HW preset.
+/// - ``ULTRA_FAST`` — Ultra-fast (default).
+/// - ``FAST``       — Fast.
+/// - ``MEDIUM``     — Medium.
+/// - ``SLOW``       — Slow (highest quality).
+#[pyclass(name = "JetsonPresetLevel", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyJetsonPresetLevel {
+    #[pyo3(name = "DISABLED")]
+    Disabled = 0,
+    #[pyo3(name = "ULTRA_FAST")]
+    UltraFast = 1,
+    #[pyo3(name = "FAST")]
+    Fast = 2,
+    #[pyo3(name = "MEDIUM")]
+    Medium = 3,
+    #[pyo3(name = "SLOW")]
+    Slow = 4,
+}
+
+#[pymethods]
+impl PyJetsonPresetLevel {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match properties::JetsonPresetLevel::from_name(name) {
+            Some(p) => Ok(p.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown Jetson preset level: '{name}'"
+            ))),
+        }
+    }
+    fn name(&self) -> &'static str {
+        let p: properties::JetsonPresetLevel = (*self).into();
+        p.name()
+    }
+    fn __repr__(&self) -> String {
+        format!(
+            "JetsonPresetLevel.{}",
+            match self {
+                PyJetsonPresetLevel::Disabled => "DISABLED",
+                PyJetsonPresetLevel::UltraFast => "ULTRA_FAST",
+                PyJetsonPresetLevel::Fast => "FAST",
+                PyJetsonPresetLevel::Medium => "MEDIUM",
+                PyJetsonPresetLevel::Slow => "SLOW",
+            }
+        )
+    }
+}
+
+impl From<PyJetsonPresetLevel> for properties::JetsonPresetLevel {
+    fn from(p: PyJetsonPresetLevel) -> Self {
+        match p {
+            PyJetsonPresetLevel::Disabled => properties::JetsonPresetLevel::Disabled,
+            PyJetsonPresetLevel::UltraFast => properties::JetsonPresetLevel::UltraFast,
+            PyJetsonPresetLevel::Fast => properties::JetsonPresetLevel::Fast,
+            PyJetsonPresetLevel::Medium => properties::JetsonPresetLevel::Medium,
+            PyJetsonPresetLevel::Slow => properties::JetsonPresetLevel::Slow,
+        }
+    }
+}
+
+impl From<properties::JetsonPresetLevel> for PyJetsonPresetLevel {
+    fn from(p: properties::JetsonPresetLevel) -> Self {
+        match p {
+            properties::JetsonPresetLevel::Disabled => PyJetsonPresetLevel::Disabled,
+            properties::JetsonPresetLevel::UltraFast => PyJetsonPresetLevel::UltraFast,
+            properties::JetsonPresetLevel::Fast => PyJetsonPresetLevel::Fast,
+            properties::JetsonPresetLevel::Medium => PyJetsonPresetLevel::Medium,
+            properties::JetsonPresetLevel::Slow => PyJetsonPresetLevel::Slow,
+        }
+    }
+}
+
+fn extract_jetson_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::JetsonPresetLevel> {
+    if let Ok(v) = ob.extract::<PyJetsonPresetLevel>() {
+        return Ok(v.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return properties::JetsonPresetLevel::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!("Unknown Jetson preset level: '{s}'"))
+        });
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a JetsonPresetLevel enum or string",
+    ))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Python wrappers for per-codec/platform property structs
+// ═══════════════════════════════════════════════════════════════════════
+
+macro_rules! opt_getter {
+    ($self:ident . $field:ident -> u32) => {
+        $self.inner.$field
+    };
+    ($self:ident . $field:ident -> bool) => {
+        $self.inner.$field
+    };
+    ($self:ident . $field:ident -> String) => {
+        $self.inner.$field.clone()
+    };
+}
+
+// ---------------------------------------------------------------------------
+// PyH264DgpuProps
+// ---------------------------------------------------------------------------
+
+/// H.264 encoder properties for dGPU (``nvv4l2h264enc``).
+///
+/// All parameters are optional.  ``None`` means "use encoder default."
+#[pyclass(name = "H264DgpuProps")]
+#[derive(Debug, Clone)]
+pub struct PyH264DgpuProps {
+    inner: properties::H264DgpuProps,
+}
+
+#[pymethods]
+impl PyH264DgpuProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None,
+        control_rate = None,
+        profile = None,
+        iframeinterval = None,
+        idrinterval = None,
+        preset = None,
+        tuning_info = None,
+        qp_range = None,
+        const_qp = None,
+        init_qp = None,
+        max_bitrate = None,
+        vbv_buf_size = None,
+        vbv_init = None,
+        cq = None,
+        aq = None,
+        temporal_aq = None,
+        extended_colorformat = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<&Bound<'_, PyAny>>,
+        profile: Option<&Bound<'_, PyAny>>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset: Option<&Bound<'_, PyAny>>,
+        tuning_info: Option<&Bound<'_, PyAny>>,
+        qp_range: Option<String>,
+        const_qp: Option<String>,
+        init_qp: Option<String>,
+        max_bitrate: Option<u32>,
+        vbv_buf_size: Option<u32>,
+        vbv_init: Option<u32>,
+        cq: Option<u32>,
+        aq: Option<u32>,
+        temporal_aq: Option<bool>,
+        extended_colorformat: Option<bool>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: properties::H264DgpuProps {
+                bitrate,
+                control_rate: control_rate.map(extract_rate_control).transpose()?,
+                profile: profile.map(extract_h264_profile).transpose()?,
+                iframeinterval,
+                idrinterval,
+                preset: preset.map(extract_dgpu_preset).transpose()?,
+                tuning_info: tuning_info.map(extract_tuning_preset).transpose()?,
+                qp_range,
+                const_qp,
+                init_qp,
+                max_bitrate,
+                vbv_buf_size,
+                vbv_init,
+                cq,
+                aq,
+                temporal_aq,
+                extended_colorformat,
+            },
+        })
+    }
+
+    #[getter]
+    fn bitrate(&self) -> Option<u32> {
+        opt_getter!(self.bitrate -> u32)
+    }
+    #[getter]
+    fn control_rate(&self) -> Option<PyRateControl> {
+        self.inner.control_rate.map(Into::into)
+    }
+    #[getter]
+    fn profile(&self) -> Option<PyH264Profile> {
+        self.inner.profile.map(Into::into)
+    }
+    #[getter]
+    fn iframeinterval(&self) -> Option<u32> {
+        opt_getter!(self.iframeinterval -> u32)
+    }
+    #[getter]
+    fn idrinterval(&self) -> Option<u32> {
+        opt_getter!(self.idrinterval -> u32)
+    }
+    #[getter]
+    fn preset(&self) -> Option<PyDgpuPreset> {
+        self.inner.preset.map(Into::into)
+    }
+    #[getter]
+    fn tuning_info(&self) -> Option<PyTuningPreset> {
+        self.inner.tuning_info.map(Into::into)
+    }
+    #[getter]
+    fn qp_range(&self) -> Option<String> {
+        opt_getter!(self.qp_range -> String)
+    }
+    #[getter]
+    fn const_qp(&self) -> Option<String> {
+        opt_getter!(self.const_qp -> String)
+    }
+    #[getter]
+    fn init_qp(&self) -> Option<String> {
+        opt_getter!(self.init_qp -> String)
+    }
+    #[getter]
+    fn max_bitrate(&self) -> Option<u32> {
+        opt_getter!(self.max_bitrate -> u32)
+    }
+    #[getter]
+    fn vbv_buf_size(&self) -> Option<u32> {
+        opt_getter!(self.vbv_buf_size -> u32)
+    }
+    #[getter]
+    fn vbv_init(&self) -> Option<u32> {
+        opt_getter!(self.vbv_init -> u32)
+    }
+    #[getter]
+    fn cq(&self) -> Option<u32> {
+        opt_getter!(self.cq -> u32)
+    }
+    #[getter]
+    fn aq(&self) -> Option<u32> {
+        opt_getter!(self.aq -> u32)
+    }
+    #[getter]
+    fn temporal_aq(&self) -> Option<bool> {
+        opt_getter!(self.temporal_aq -> bool)
+    }
+    #[getter]
+    fn extended_colorformat(&self) -> Option<bool> {
+        opt_getter!(self.extended_colorformat -> bool)
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::H264DgpuProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "H264DgpuProps(bitrate={:?}, profile={:?})",
+            self.inner.bitrate,
+            self.inner.profile.map(|p| p.name())
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyHevcDgpuProps
+// ---------------------------------------------------------------------------
+
+/// HEVC encoder properties for dGPU (``nvv4l2h265enc``).
+#[pyclass(name = "HevcDgpuProps")]
+#[derive(Debug, Clone)]
+pub struct PyHevcDgpuProps {
+    inner: properties::HevcDgpuProps,
+}
+
+#[pymethods]
+impl PyHevcDgpuProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None,
+        control_rate = None,
+        profile = None,
+        iframeinterval = None,
+        idrinterval = None,
+        preset = None,
+        tuning_info = None,
+        qp_range = None,
+        const_qp = None,
+        init_qp = None,
+        max_bitrate = None,
+        vbv_buf_size = None,
+        vbv_init = None,
+        cq = None,
+        aq = None,
+        temporal_aq = None,
+        extended_colorformat = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<&Bound<'_, PyAny>>,
+        profile: Option<&Bound<'_, PyAny>>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset: Option<&Bound<'_, PyAny>>,
+        tuning_info: Option<&Bound<'_, PyAny>>,
+        qp_range: Option<String>,
+        const_qp: Option<String>,
+        init_qp: Option<String>,
+        max_bitrate: Option<u32>,
+        vbv_buf_size: Option<u32>,
+        vbv_init: Option<u32>,
+        cq: Option<u32>,
+        aq: Option<u32>,
+        temporal_aq: Option<bool>,
+        extended_colorformat: Option<bool>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: properties::HevcDgpuProps {
+                bitrate,
+                control_rate: control_rate.map(extract_rate_control).transpose()?,
+                profile: profile.map(extract_hevc_profile).transpose()?,
+                iframeinterval,
+                idrinterval,
+                preset: preset.map(extract_dgpu_preset).transpose()?,
+                tuning_info: tuning_info.map(extract_tuning_preset).transpose()?,
+                qp_range,
+                const_qp,
+                init_qp,
+                max_bitrate,
+                vbv_buf_size,
+                vbv_init,
+                cq,
+                aq,
+                temporal_aq,
+                extended_colorformat,
+            },
+        })
+    }
+
+    #[getter]
+    fn bitrate(&self) -> Option<u32> {
+        opt_getter!(self.bitrate -> u32)
+    }
+    #[getter]
+    fn control_rate(&self) -> Option<PyRateControl> {
+        self.inner.control_rate.map(Into::into)
+    }
+    #[getter]
+    fn profile(&self) -> Option<PyHevcProfile> {
+        self.inner.profile.map(Into::into)
+    }
+    #[getter]
+    fn iframeinterval(&self) -> Option<u32> {
+        opt_getter!(self.iframeinterval -> u32)
+    }
+    #[getter]
+    fn idrinterval(&self) -> Option<u32> {
+        opt_getter!(self.idrinterval -> u32)
+    }
+    #[getter]
+    fn preset(&self) -> Option<PyDgpuPreset> {
+        self.inner.preset.map(Into::into)
+    }
+    #[getter]
+    fn tuning_info(&self) -> Option<PyTuningPreset> {
+        self.inner.tuning_info.map(Into::into)
+    }
+    #[getter]
+    fn qp_range(&self) -> Option<String> {
+        opt_getter!(self.qp_range -> String)
+    }
+    #[getter]
+    fn const_qp(&self) -> Option<String> {
+        opt_getter!(self.const_qp -> String)
+    }
+    #[getter]
+    fn init_qp(&self) -> Option<String> {
+        opt_getter!(self.init_qp -> String)
+    }
+    #[getter]
+    fn max_bitrate(&self) -> Option<u32> {
+        opt_getter!(self.max_bitrate -> u32)
+    }
+    #[getter]
+    fn vbv_buf_size(&self) -> Option<u32> {
+        opt_getter!(self.vbv_buf_size -> u32)
+    }
+    #[getter]
+    fn vbv_init(&self) -> Option<u32> {
+        opt_getter!(self.vbv_init -> u32)
+    }
+    #[getter]
+    fn cq(&self) -> Option<u32> {
+        opt_getter!(self.cq -> u32)
+    }
+    #[getter]
+    fn aq(&self) -> Option<u32> {
+        opt_getter!(self.aq -> u32)
+    }
+    #[getter]
+    fn temporal_aq(&self) -> Option<bool> {
+        opt_getter!(self.temporal_aq -> bool)
+    }
+    #[getter]
+    fn extended_colorformat(&self) -> Option<bool> {
+        opt_getter!(self.extended_colorformat -> bool)
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::HevcDgpuProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "HevcDgpuProps(bitrate={:?}, profile={:?})",
+            self.inner.bitrate,
+            self.inner.profile.map(|p| p.name())
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyH264JetsonProps
+// ---------------------------------------------------------------------------
+
+/// H.264 encoder properties for Jetson (``nvv4l2h264enc``).
+#[pyclass(name = "H264JetsonProps")]
+#[derive(Debug, Clone)]
+pub struct PyH264JetsonProps {
+    inner: properties::H264JetsonProps,
+}
+
+#[pymethods]
+impl PyH264JetsonProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None,
+        control_rate = None,
+        profile = None,
+        iframeinterval = None,
+        idrinterval = None,
+        preset_level = None,
+        peak_bitrate = None,
+        vbv_size = None,
+        qp_range = None,
+        quant_i_frames = None,
+        quant_p_frames = None,
+        ratecontrol_enable = None,
+        maxperf_enable = None,
+        two_pass_cbr = None,
+        num_ref_frames = None,
+        insert_sps_pps = None,
+        insert_aud = None,
+        insert_vui = None,
+        disable_cabac = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<&Bound<'_, PyAny>>,
+        profile: Option<&Bound<'_, PyAny>>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset_level: Option<&Bound<'_, PyAny>>,
+        peak_bitrate: Option<u32>,
+        vbv_size: Option<u32>,
+        qp_range: Option<String>,
+        quant_i_frames: Option<u32>,
+        quant_p_frames: Option<u32>,
+        ratecontrol_enable: Option<bool>,
+        maxperf_enable: Option<bool>,
+        two_pass_cbr: Option<bool>,
+        num_ref_frames: Option<u32>,
+        insert_sps_pps: Option<bool>,
+        insert_aud: Option<bool>,
+        insert_vui: Option<bool>,
+        disable_cabac: Option<bool>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: properties::H264JetsonProps {
+                bitrate,
+                control_rate: control_rate.map(extract_rate_control).transpose()?,
+                profile: profile.map(extract_h264_profile).transpose()?,
+                iframeinterval,
+                idrinterval,
+                preset_level: preset_level.map(extract_jetson_preset).transpose()?,
+                peak_bitrate,
+                vbv_size,
+                qp_range,
+                quant_i_frames,
+                quant_p_frames,
+                ratecontrol_enable,
+                maxperf_enable,
+                two_pass_cbr,
+                num_ref_frames,
+                insert_sps_pps,
+                insert_aud,
+                insert_vui,
+                disable_cabac,
+            },
+        })
+    }
+
+    #[getter]
+    fn bitrate(&self) -> Option<u32> {
+        opt_getter!(self.bitrate -> u32)
+    }
+    #[getter]
+    fn control_rate(&self) -> Option<PyRateControl> {
+        self.inner.control_rate.map(Into::into)
+    }
+    #[getter]
+    fn profile(&self) -> Option<PyH264Profile> {
+        self.inner.profile.map(Into::into)
+    }
+    #[getter]
+    fn iframeinterval(&self) -> Option<u32> {
+        opt_getter!(self.iframeinterval -> u32)
+    }
+    #[getter]
+    fn idrinterval(&self) -> Option<u32> {
+        opt_getter!(self.idrinterval -> u32)
+    }
+    #[getter]
+    fn preset_level(&self) -> Option<PyJetsonPresetLevel> {
+        self.inner.preset_level.map(Into::into)
+    }
+    #[getter]
+    fn peak_bitrate(&self) -> Option<u32> {
+        opt_getter!(self.peak_bitrate -> u32)
+    }
+    #[getter]
+    fn vbv_size(&self) -> Option<u32> {
+        opt_getter!(self.vbv_size -> u32)
+    }
+    #[getter]
+    fn qp_range(&self) -> Option<String> {
+        opt_getter!(self.qp_range -> String)
+    }
+    #[getter]
+    fn quant_i_frames(&self) -> Option<u32> {
+        opt_getter!(self.quant_i_frames -> u32)
+    }
+    #[getter]
+    fn quant_p_frames(&self) -> Option<u32> {
+        opt_getter!(self.quant_p_frames -> u32)
+    }
+    #[getter]
+    fn ratecontrol_enable(&self) -> Option<bool> {
+        opt_getter!(self.ratecontrol_enable -> bool)
+    }
+    #[getter]
+    fn maxperf_enable(&self) -> Option<bool> {
+        opt_getter!(self.maxperf_enable -> bool)
+    }
+    #[getter]
+    fn two_pass_cbr(&self) -> Option<bool> {
+        opt_getter!(self.two_pass_cbr -> bool)
+    }
+    #[getter]
+    fn num_ref_frames(&self) -> Option<u32> {
+        opt_getter!(self.num_ref_frames -> u32)
+    }
+    #[getter]
+    fn insert_sps_pps(&self) -> Option<bool> {
+        opt_getter!(self.insert_sps_pps -> bool)
+    }
+    #[getter]
+    fn insert_aud(&self) -> Option<bool> {
+        opt_getter!(self.insert_aud -> bool)
+    }
+    #[getter]
+    fn insert_vui(&self) -> Option<bool> {
+        opt_getter!(self.insert_vui -> bool)
+    }
+    #[getter]
+    fn disable_cabac(&self) -> Option<bool> {
+        opt_getter!(self.disable_cabac -> bool)
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::H264JetsonProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "H264JetsonProps(bitrate={:?}, profile={:?})",
+            self.inner.bitrate,
+            self.inner.profile.map(|p| p.name())
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyHevcJetsonProps
+// ---------------------------------------------------------------------------
+
+/// HEVC encoder properties for Jetson (``nvv4l2h265enc``).
+#[pyclass(name = "HevcJetsonProps")]
+#[derive(Debug, Clone)]
+pub struct PyHevcJetsonProps {
+    inner: properties::HevcJetsonProps,
+}
+
+#[pymethods]
+impl PyHevcJetsonProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None,
+        control_rate = None,
+        profile = None,
+        iframeinterval = None,
+        idrinterval = None,
+        preset_level = None,
+        peak_bitrate = None,
+        vbv_size = None,
+        qp_range = None,
+        quant_i_frames = None,
+        quant_p_frames = None,
+        ratecontrol_enable = None,
+        maxperf_enable = None,
+        two_pass_cbr = None,
+        num_ref_frames = None,
+        enable_lossless = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<&Bound<'_, PyAny>>,
+        profile: Option<&Bound<'_, PyAny>>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset_level: Option<&Bound<'_, PyAny>>,
+        peak_bitrate: Option<u32>,
+        vbv_size: Option<u32>,
+        qp_range: Option<String>,
+        quant_i_frames: Option<u32>,
+        quant_p_frames: Option<u32>,
+        ratecontrol_enable: Option<bool>,
+        maxperf_enable: Option<bool>,
+        two_pass_cbr: Option<bool>,
+        num_ref_frames: Option<u32>,
+        enable_lossless: Option<bool>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: properties::HevcJetsonProps {
+                bitrate,
+                control_rate: control_rate.map(extract_rate_control).transpose()?,
+                profile: profile.map(extract_hevc_profile).transpose()?,
+                iframeinterval,
+                idrinterval,
+                preset_level: preset_level.map(extract_jetson_preset).transpose()?,
+                peak_bitrate,
+                vbv_size,
+                qp_range,
+                quant_i_frames,
+                quant_p_frames,
+                ratecontrol_enable,
+                maxperf_enable,
+                two_pass_cbr,
+                num_ref_frames,
+                enable_lossless,
+            },
+        })
+    }
+
+    #[getter]
+    fn bitrate(&self) -> Option<u32> {
+        opt_getter!(self.bitrate -> u32)
+    }
+    #[getter]
+    fn control_rate(&self) -> Option<PyRateControl> {
+        self.inner.control_rate.map(Into::into)
+    }
+    #[getter]
+    fn profile(&self) -> Option<PyHevcProfile> {
+        self.inner.profile.map(Into::into)
+    }
+    #[getter]
+    fn iframeinterval(&self) -> Option<u32> {
+        opt_getter!(self.iframeinterval -> u32)
+    }
+    #[getter]
+    fn idrinterval(&self) -> Option<u32> {
+        opt_getter!(self.idrinterval -> u32)
+    }
+    #[getter]
+    fn preset_level(&self) -> Option<PyJetsonPresetLevel> {
+        self.inner.preset_level.map(Into::into)
+    }
+    #[getter]
+    fn peak_bitrate(&self) -> Option<u32> {
+        opt_getter!(self.peak_bitrate -> u32)
+    }
+    #[getter]
+    fn vbv_size(&self) -> Option<u32> {
+        opt_getter!(self.vbv_size -> u32)
+    }
+    #[getter]
+    fn qp_range(&self) -> Option<String> {
+        opt_getter!(self.qp_range -> String)
+    }
+    #[getter]
+    fn quant_i_frames(&self) -> Option<u32> {
+        opt_getter!(self.quant_i_frames -> u32)
+    }
+    #[getter]
+    fn quant_p_frames(&self) -> Option<u32> {
+        opt_getter!(self.quant_p_frames -> u32)
+    }
+    #[getter]
+    fn ratecontrol_enable(&self) -> Option<bool> {
+        opt_getter!(self.ratecontrol_enable -> bool)
+    }
+    #[getter]
+    fn maxperf_enable(&self) -> Option<bool> {
+        opt_getter!(self.maxperf_enable -> bool)
+    }
+    #[getter]
+    fn two_pass_cbr(&self) -> Option<bool> {
+        opt_getter!(self.two_pass_cbr -> bool)
+    }
+    #[getter]
+    fn num_ref_frames(&self) -> Option<u32> {
+        opt_getter!(self.num_ref_frames -> u32)
+    }
+    #[getter]
+    fn enable_lossless(&self) -> Option<bool> {
+        opt_getter!(self.enable_lossless -> bool)
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::HevcJetsonProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "HevcJetsonProps(bitrate={:?}, profile={:?})",
+            self.inner.bitrate,
+            self.inner.profile.map(|p| p.name())
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyJpegProps
+// ---------------------------------------------------------------------------
+
+/// JPEG encoder properties (``nvjpegenc``).
+#[pyclass(name = "JpegProps")]
+#[derive(Debug, Clone)]
+pub struct PyJpegProps {
+    inner: properties::JpegProps,
+}
+
+#[pymethods]
+impl PyJpegProps {
+    #[new]
+    #[pyo3(signature = (quality = None))]
+    fn new(quality: Option<u32>) -> Self {
+        Self {
+            inner: properties::JpegProps { quality },
+        }
+    }
+
+    #[getter]
+    fn quality(&self) -> Option<u32> {
+        self.inner.quality
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::JpegProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("JpegProps(quality={:?})", self.inner.quality)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PyAv1DgpuProps
+// ---------------------------------------------------------------------------
+
+/// AV1 encoder properties for dGPU (``nvv4l2av1enc``).
+#[pyclass(name = "Av1DgpuProps")]
+#[derive(Debug, Clone)]
+pub struct PyAv1DgpuProps {
+    inner: properties::Av1DgpuProps,
+}
+
+#[pymethods]
+impl PyAv1DgpuProps {
+    #[new]
+    #[pyo3(signature = (
+        bitrate = None,
+        control_rate = None,
+        iframeinterval = None,
+        idrinterval = None,
+        preset = None,
+        tuning_info = None,
+        qp_range = None,
+        max_bitrate = None,
+        vbv_buf_size = None,
+        vbv_init = None,
+        cq = None,
+        aq = None,
+        temporal_aq = None,
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        bitrate: Option<u32>,
+        control_rate: Option<&Bound<'_, PyAny>>,
+        iframeinterval: Option<u32>,
+        idrinterval: Option<u32>,
+        preset: Option<&Bound<'_, PyAny>>,
+        tuning_info: Option<&Bound<'_, PyAny>>,
+        qp_range: Option<String>,
+        max_bitrate: Option<u32>,
+        vbv_buf_size: Option<u32>,
+        vbv_init: Option<u32>,
+        cq: Option<u32>,
+        aq: Option<u32>,
+        temporal_aq: Option<bool>,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: properties::Av1DgpuProps {
+                bitrate,
+                control_rate: control_rate.map(extract_rate_control).transpose()?,
+                iframeinterval,
+                idrinterval,
+                preset: preset.map(extract_dgpu_preset).transpose()?,
+                tuning_info: tuning_info.map(extract_tuning_preset).transpose()?,
+                qp_range,
+                max_bitrate,
+                vbv_buf_size,
+                vbv_init,
+                cq,
+                aq,
+                temporal_aq,
+            },
+        })
+    }
+
+    #[getter]
+    fn bitrate(&self) -> Option<u32> {
+        opt_getter!(self.bitrate -> u32)
+    }
+    #[getter]
+    fn control_rate(&self) -> Option<PyRateControl> {
+        self.inner.control_rate.map(Into::into)
+    }
+    #[getter]
+    fn iframeinterval(&self) -> Option<u32> {
+        opt_getter!(self.iframeinterval -> u32)
+    }
+    #[getter]
+    fn idrinterval(&self) -> Option<u32> {
+        opt_getter!(self.idrinterval -> u32)
+    }
+    #[getter]
+    fn preset(&self) -> Option<PyDgpuPreset> {
+        self.inner.preset.map(Into::into)
+    }
+    #[getter]
+    fn tuning_info(&self) -> Option<PyTuningPreset> {
+        self.inner.tuning_info.map(Into::into)
+    }
+    #[getter]
+    fn qp_range(&self) -> Option<String> {
+        opt_getter!(self.qp_range -> String)
+    }
+    #[getter]
+    fn max_bitrate(&self) -> Option<u32> {
+        opt_getter!(self.max_bitrate -> u32)
+    }
+    #[getter]
+    fn vbv_buf_size(&self) -> Option<u32> {
+        opt_getter!(self.vbv_buf_size -> u32)
+    }
+    #[getter]
+    fn vbv_init(&self) -> Option<u32> {
+        opt_getter!(self.vbv_init -> u32)
+    }
+    #[getter]
+    fn cq(&self) -> Option<u32> {
+        opt_getter!(self.cq -> u32)
+    }
+    #[getter]
+    fn aq(&self) -> Option<u32> {
+        opt_getter!(self.aq -> u32)
+    }
+    #[getter]
+    fn temporal_aq(&self) -> Option<bool> {
+        opt_getter!(self.temporal_aq -> bool)
+    }
+
+    #[staticmethod]
+    fn from_pairs(pairs: std::collections::HashMap<String, String>) -> PyResult<Self> {
+        let inner = properties::Av1DgpuProps::from_pairs(&pairs).map_err(to_py_err)?;
+        Ok(Self { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Av1DgpuProps(bitrate={:?})", self.inner.bitrate)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helper: convert PyProps into Rust EncoderProperties
+// ═══════════════════════════════════════════════════════════════════════
+
+fn extract_encoder_properties(ob: &Bound<'_, PyAny>) -> PyResult<EncoderProperties> {
+    if let Ok(p) = ob.extract::<PyH264DgpuProps>() {
+        return Ok(EncoderProperties::H264Dgpu(p.inner));
+    }
+    if let Ok(p) = ob.extract::<PyHevcDgpuProps>() {
+        return Ok(EncoderProperties::HevcDgpu(p.inner));
+    }
+    if let Ok(p) = ob.extract::<PyH264JetsonProps>() {
+        return Ok(EncoderProperties::H264Jetson(p.inner));
+    }
+    if let Ok(p) = ob.extract::<PyHevcJetsonProps>() {
+        return Ok(EncoderProperties::HevcJetson(p.inner));
+    }
+    if let Ok(p) = ob.extract::<PyJpegProps>() {
+        return Ok(EncoderProperties::Jpeg(p.inner));
+    }
+    if let Ok(p) = ob.extract::<PyAv1DgpuProps>() {
+        return Ok(EncoderProperties::Av1Dgpu(p.inner));
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected one of: H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps, JpegProps, Av1DgpuProps",
+    ))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // PyEncoderConfig
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════
 
 /// Configuration for creating an :class:`NvEncoder`.
 ///
-/// The internal buffer pools are always configured with exactly 1 buffer.
-/// This is required because the NVENC hardware encoder may continue
-/// DMA-reading from GPU memory after releasing the GStreamer buffer
-/// reference. A pool of 1 forces serialization that prevents stale-data
-/// artifacts.
-///
 /// Args:
-///     codec (Codec | str): Video codec — a :class:`Codec` enum value or
-///         a string name (``"h264"``, ``"hevc"`` / ``"h265"``,
-///         ``"jpeg"``, ``"av1"``).
+///     codec (Codec | str): Video codec.
 ///     width (int): Frame width in pixels.
 ///     height (int): Frame height in pixels.
-///     format (VideoFormat | str): Video format (default
-///         ``VideoFormat.NV12``).
+///     format (VideoFormat | str | None): Video format (default ``NV12``).
 ///     fps_num (int): Framerate numerator (default 30).
 ///     fps_den (int): Framerate denominator (default 1).
 ///     gpu_id (int): GPU device ID (default 0).
-///     mem_type (MemType | int): NvBufSurface memory type (default
-///         ``MemType.DEFAULT``).
-///     encoder_properties (dict | None): Encoder-specific GStreamer
-///         properties as string key/value pairs. B-frame properties are
-///         rejected.
+///     mem_type (MemType | int | None): Memory type (default ``DEFAULT``).
+///     properties: Typed encoder properties — one of
+///         :class:`H264DgpuProps`, :class:`HevcDgpuProps`,
+///         :class:`H264JetsonProps`, :class:`HevcJetsonProps`,
+///         :class:`JpegProps`, :class:`Av1DgpuProps`.
 ///
 /// Example::
 ///
-///     config = EncoderConfig(
-///         Codec.HEVC, 1920, 1080,
-///         format=VideoFormat.RGBA,
-///         encoder_properties={"bitrate": "4000000"},
-///     )
+///     props = HevcDgpuProps(bitrate=8_000_000, profile=HevcProfile.MAIN)
+///     config = EncoderConfig(Codec.HEVC, 1920, 1080, properties=props)
 #[pyclass(name = "EncoderConfig")]
 #[derive(Debug, Clone)]
 pub struct PyEncoderConfig {
@@ -449,8 +1842,9 @@ impl PyEncoderConfig {
         fps_den = 1,
         gpu_id = 0,
         mem_type = None,
-        encoder_properties = None,
+        properties = None,
     ))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         codec: &Bound<'_, PyAny>,
         width: u32,
@@ -460,7 +1854,7 @@ impl PyEncoderConfig {
         fps_den: i32,
         gpu_id: u32,
         mem_type: Option<&Bound<'_, PyAny>>,
-        encoder_properties: Option<std::collections::HashMap<String, String>>,
+        properties: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let codec = extract_codec(codec)?;
         let format = match format {
@@ -471,41 +1865,37 @@ impl PyEncoderConfig {
             Some(m) => extract_mem_type(m)?,
             None => NvBufSurfaceMemType::Default,
         };
+        let encoder_params = match properties {
+            Some(p) => Some(extract_encoder_properties(p)?),
+            None => None,
+        };
 
-        let mut config = EncoderConfig::new(codec, width, height)
+        let config = EncoderConfig::new(codec, width, height)
             .format(format)
             .fps(fps_num, fps_den)
             .gpu_id(gpu_id)
             .mem_type(mem_type);
 
-        if let Some(props) = encoder_properties {
-            for (k, v) in props {
-                config = config.encoder_property(&k, &v).map_err(to_py_err)?;
-            }
-        }
+        let config = match encoder_params {
+            Some(ep) => config.properties(ep),
+            None => config,
+        };
 
         Ok(Self { inner: config })
     }
 
-    /// Video codec.
     #[getter]
     fn codec(&self) -> PyCodec {
         self.inner.codec.into()
     }
-
-    /// Frame width in pixels.
     #[getter]
     fn width(&self) -> u32 {
         self.inner.width
     }
-
-    /// Frame height in pixels.
     #[getter]
     fn height(&self) -> u32 {
         self.inner.height
     }
-
-    /// Video format.
     #[getter]
     fn format(&self) -> PyVideoFormat {
         self.inner.format.into()
@@ -524,15 +1914,11 @@ impl PyEncoderConfig {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// PyEncodedFrame / PyNvEncoder — unchanged from before
+// ═══════════════════════════════════════════════════════════════════════
+
 /// A single encoded frame returned by :meth:`NvEncoder.pull_encoded`.
-///
-/// Attributes:
-///     frame_id (int): User-defined frame identifier.
-///     pts_ns (int): Presentation timestamp in nanoseconds.
-///     dts_ns (int | None): Decode timestamp in nanoseconds.
-///     duration_ns (int | None): Duration in nanoseconds.
-///     data (bytes): Encoded bitstream data.
-///     codec (Codec): Codec used to produce this frame.
 #[pyclass(name = "EncodedFrame")]
 pub struct PyEncodedFrame {
     inner: EncodedFrame,
@@ -540,46 +1926,30 @@ pub struct PyEncodedFrame {
 
 #[pymethods]
 impl PyEncodedFrame {
-    /// User-defined frame identifier.
     #[getter]
     fn frame_id(&self) -> i64 {
         self.inner.frame_id
     }
-
-    /// Presentation timestamp in nanoseconds.
     #[getter]
     fn pts_ns(&self) -> u64 {
         self.inner.pts_ns
     }
-
-    /// Decode timestamp in nanoseconds (if set by the encoder).
-    ///
-    /// For streams without B-frames this is typically equal to PTS
-    /// or ``None``.
     #[getter]
     fn dts_ns(&self) -> Option<u64> {
         self.inner.dts_ns
     }
-
-    /// Duration in nanoseconds (if known).
     #[getter]
     fn duration_ns(&self) -> Option<u64> {
         self.inner.duration_ns
     }
-
-    /// Encoded bitstream data as bytes.
     #[getter]
     fn data<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
         PyBytes::new(py, &self.inner.data)
     }
-
-    /// Codec used to produce this frame.
     #[getter]
     fn codec(&self) -> PyCodec {
         self.inner.codec.into()
     }
-
-    /// Size of the encoded data in bytes.
     #[getter]
     fn size(&self) -> usize {
         self.inner.data.len()
@@ -597,37 +1967,6 @@ impl PyEncodedFrame {
 }
 
 /// GPU-accelerated video encoder.
-///
-/// Creates an internal GStreamer pipeline that encodes NVMM buffers
-/// using hardware-accelerated NVENC / NVJPEG encoders.
-///
-/// The encoder:
-///
-/// - Rejects any property that would enable B-frames.
-/// - Validates that PTS values are strictly monotonically increasing.
-/// - Provides access to the internal :class:`~deepstream_nvbufsurface.NvBufSurfaceGenerator`
-///   for acquiring GPU buffers.
-///
-/// Args:
-///     config (EncoderConfig): Encoder configuration.
-///
-/// Example::
-///
-///     from deepstream_encoders import NvEncoder, EncoderConfig, Codec
-///     from deepstream_nvbufsurface import init_cuda
-///
-///     init_cuda()
-///     config = EncoderConfig(Codec.HEVC, 1920, 1080)
-///     encoder = NvEncoder(config)
-///
-///     gen = encoder.generator
-///     for i in range(100):
-///         buf = gen.acquire_surface(id=i)
-///         encoder.submit_frame(buf, frame_id=i,
-///                              pts_ns=i * 33_333_333,
-///                              duration_ns=33_333_333)
-///
-///     remaining = encoder.finish()
 #[pyclass(name = "NvEncoder", unsendable)]
 pub struct PyNvEncoder {
     inner: NvEncoder,
@@ -637,36 +1976,20 @@ pub struct PyNvEncoder {
 impl PyNvEncoder {
     #[new]
     fn new(config: &PyEncoderConfig) -> PyResult<Self> {
-        // Ensure GStreamer is initialized from the Rust side.
         let _ = gst::init();
         let inner = NvEncoder::new(&config.inner).map_err(to_py_err)?;
         Ok(Self { inner })
     }
 
-    /// The codec used by this encoder.
     #[getter]
     fn codec(&self) -> PyCodec {
         self.inner.codec().into()
     }
 
-    /// Return the NVMM caps string for the internal generator.
-    ///
-    /// Returns:
-    ///     str: Caps string with ``memory:NVMM`` feature.
     fn nvmm_caps_str(&self) -> String {
         self.inner.generator().nvmm_caps().to_string()
     }
 
-    /// Acquire a new NvBufSurface buffer from the internal pool.
-    ///
-    /// This is a convenience shortcut for
-    /// ``encoder.generator.acquire_surface(id=...)``.
-    ///
-    /// Args:
-    ///     id (int | None): Optional frame identifier for SavantIdMeta.
-    ///
-    /// Returns:
-    ///     int: Raw GstBuffer pointer address.
     #[pyo3(signature = (id=None))]
     fn acquire_surface(&self, py: Python<'_>, id: Option<i64>) -> PyResult<usize> {
         py.detach(|| {
@@ -683,21 +2006,6 @@ impl PyNvEncoder {
         })
     }
 
-    /// Submit a filled NVMM buffer to the encoder.
-    ///
-    /// The buffer must have been acquired from :meth:`acquire_surface` or
-    /// from the generator directly. PTS values must be strictly monotonically
-    /// increasing.
-    ///
-    /// Args:
-    ///     buffer_ptr (int): Raw GstBuffer pointer (from :meth:`acquire_surface`).
-    ///     frame_id (int): User-defined frame identifier.
-    ///     pts_ns (int): Presentation timestamp in nanoseconds.
-    ///     duration_ns (int | None): Optional duration in nanoseconds.
-    ///
-    /// Raises:
-    ///     RuntimeError: On PTS reordering, pipeline error, or if the
-    ///         encoder has been finalized.
     #[pyo3(signature = (buffer_ptr, frame_id, pts_ns, duration_ns=None))]
     fn submit_frame(
         &mut self,
@@ -712,11 +2020,8 @@ impl PyNvEncoder {
                 "buffer_ptr is null",
             ));
         }
-
-        // Take ownership of the buffer from the raw pointer.
         let buffer =
             unsafe { glib::translate::from_glib_full(buffer_ptr as *mut gst::ffi::GstBuffer) };
-
         py.detach(|| {
             self.inner
                 .submit_frame(buffer, frame_id, pts_ns, duration_ns)
@@ -724,12 +2029,7 @@ impl PyNvEncoder {
         })
     }
 
-    /// Pull one encoded frame (non-blocking).
-    ///
-    /// Returns:
-    ///     EncodedFrame | None: The encoded frame, or ``None`` if no frame
-    ///         is ready yet.
-    fn pull_encoded(&self, py: Python<'_>) -> PyResult<Option<PyEncodedFrame>> {
+    fn pull_encoded(&mut self, py: Python<'_>) -> PyResult<Option<PyEncodedFrame>> {
         py.detach(|| {
             self.inner
                 .pull_encoded()
@@ -738,16 +2038,9 @@ impl PyNvEncoder {
         })
     }
 
-    /// Pull one encoded frame with a timeout.
-    ///
-    /// Args:
-    ///     timeout_ms (int): Maximum time to wait in milliseconds.
-    ///
-    /// Returns:
-    ///     EncodedFrame | None: The encoded frame, or ``None`` on timeout.
     #[pyo3(signature = (timeout_ms=100))]
     fn pull_encoded_timeout(
-        &self,
+        &mut self,
         py: Python<'_>,
         timeout_ms: u64,
     ) -> PyResult<Option<PyEncodedFrame>> {
@@ -759,16 +2052,6 @@ impl PyNvEncoder {
         })
     }
 
-    /// Send EOS and drain all remaining encoded frames.
-    ///
-    /// After this call, no more frames can be submitted.
-    ///
-    /// Args:
-    ///     drain_timeout_ms (int | None): Per-frame drain timeout in ms
-    ///         (default 2000).
-    ///
-    /// Returns:
-    ///     list[EncodedFrame]: Remaining encoded frames from the pipeline.
     #[pyo3(signature = (drain_timeout_ms=None))]
     fn finish(
         &mut self,
@@ -788,22 +2071,25 @@ impl PyNvEncoder {
         })
     }
 
-    /// Check the pipeline bus for errors (non-blocking).
-    ///
-    /// Raises:
-    ///     RuntimeError: If a pipeline error is pending.
     fn check_error(&self) -> PyResult<()> {
         self.inner.check_error().map_err(to_py_err)
     }
 }
 
-/// Convert an [`EncoderError`] into a Python exception.
+// ═══════════════════════════════════════════════════════════════════════
+// Error conversion + module init
+// ═══════════════════════════════════════════════════════════════════════
+
 fn to_py_err(e: EncoderError) -> PyErr {
     match &e {
-        EncoderError::BFramesNotAllowed(_) | EncoderError::InvalidProperty { .. } => {
+        EncoderError::InvalidProperty { .. } => {
             pyo3::exceptions::PyValueError::new_err(e.to_string())
         }
-        EncoderError::PtsReordered { .. } => pyo3::exceptions::PyValueError::new_err(e.to_string()),
+        EncoderError::PtsReordered { .. }
+        | EncoderError::OutputPtsReordered { .. }
+        | EncoderError::OutputDtsExceedsPts { .. } => {
+            pyo3::exceptions::PyValueError::new_err(e.to_string())
+        }
         EncoderError::AlreadyFinalized => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
         _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
     }
@@ -813,9 +2099,26 @@ fn to_py_err(e: EncoderError) -> PyErr {
 #[pymodule]
 #[pyo3(name = "_native")]
 pub fn deepstream_encoders(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Core enums
     m.add_class::<PyCodec>()?;
     m.add_class::<PyVideoFormat>()?;
     m.add_class::<PyMemType>()?;
+    // Property enums
+    m.add_class::<PyPlatform>()?;
+    m.add_class::<PyRateControl>()?;
+    m.add_class::<PyH264Profile>()?;
+    m.add_class::<PyHevcProfile>()?;
+    m.add_class::<PyDgpuPreset>()?;
+    m.add_class::<PyTuningPreset>()?;
+    m.add_class::<PyJetsonPresetLevel>()?;
+    // Property structs
+    m.add_class::<PyH264DgpuProps>()?;
+    m.add_class::<PyHevcDgpuProps>()?;
+    m.add_class::<PyH264JetsonProps>()?;
+    m.add_class::<PyHevcJetsonProps>()?;
+    m.add_class::<PyJpegProps>()?;
+    m.add_class::<PyAv1DgpuProps>()?;
+    // Main API
     m.add_class::<PyEncoderConfig>()?;
     m.add_class::<PyEncodedFrame>()?;
     m.add_class::<PyNvEncoder>()?;

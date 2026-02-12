@@ -11,10 +11,25 @@ GST_DIR=$(PROJECT_DIR)/savant_gstreamer
         ds-enc-dev ds-enc-release ds-enc-install \
         ds-enc-test ds-enc-pytest \
         gst-dev gst-release gst-install \
-        gst-test gst-pytest
+        gst-test gst-pytest \
+        all-dev all-release
 
 dev: clean build_savant
 release: clean build_savant_release
+
+# -- aggregate targets: build + test + install everything ---------------------
+
+all-dev: dev install \
+         gst-dev gst-test gst-install gst-pytest \
+         ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
+         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest
+
+all-release: release install \
+             gst-release gst-test gst-install gst-pytest \
+             ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
+             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest
+
+# -----------------------------------------------------------------------------
 
 install-with-optional-deps:
 	@WHL_NAME=$$(ls $(PROJECT_DIR)/dist/*$(PYTHON_VERSION)*.whl); \

@@ -69,7 +69,7 @@ fn test_config_defaults() {
     assert_eq!(config.fps_num, 30);
     assert_eq!(config.fps_den, 1);
     assert_eq!(config.gpu_id, 0);
-    assert!(config.encoder_properties.is_empty());
+    assert!(config.encoder_params.is_none());
 }
 
 #[test]
@@ -86,33 +86,14 @@ fn test_config_builder_chain() {
 }
 
 #[test]
-fn test_config_rejects_b_frame_properties() {
-    let result = EncoderConfig::new(Codec::Hevc, 640, 480).encoder_property("num-B-Frames", "2");
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        EncoderError::BFramesNotAllowed(name) => {
-            assert_eq!(name, "num-B-Frames");
-        }
-        other => panic!("Expected BFramesNotAllowed, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_config_rejects_b_frames_case_insensitive() {
-    let result = EncoderConfig::new(Codec::H264, 640, 480).encoder_property("b-frames", "1");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_config_accepts_valid_property() {
-    let config = EncoderConfig::new(Codec::Hevc, 640, 480)
-        .encoder_property("bitrate", "4000000")
-        .unwrap();
-    assert_eq!(config.encoder_properties.len(), 1);
-    assert_eq!(
-        config.encoder_properties[0],
-        ("bitrate".into(), "4000000".into())
-    );
+fn test_config_with_typed_properties() {
+    use deepstream_encoders::properties::*;
+    let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
+        bitrate: Some(4_000_000),
+        ..Default::default()
+    });
+    let config = EncoderConfig::new(Codec::Hevc, 640, 480).properties(props);
+    assert!(config.encoder_params.is_some());
 }
 
 // ─── NvEncoder creation tests ────────────────────────────────────────────

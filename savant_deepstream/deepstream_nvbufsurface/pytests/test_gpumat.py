@@ -8,7 +8,7 @@ import pytest
 
 from deepstream_nvbufsurface import (
     NvBufSurfaceGenerator,
-    TransformConfig,
+    VideoFormat,
     as_gpu_mat,
     from_gpumat,
     get_nvbufsurface_info,
@@ -30,13 +30,13 @@ class TestGeneratorProperties:
         assert rgba_gen.height == 480
 
     def test_format(self, rgba_gen: NvBufSurfaceGenerator) -> None:
-        assert rgba_gen.format == "RGBA"
+        assert rgba_gen.format == VideoFormat.RGBA
 
     def test_different_dimensions(self) -> None:
         gen = NvBufSurfaceGenerator("RGBA", 1920, 1080, pool_size=2)
         assert gen.width == 1920
         assert gen.height == 1080
-        assert gen.format == "RGBA"
+        assert gen.format == VideoFormat.RGBA
 
 
 # ---------------------------------------------------------------------------

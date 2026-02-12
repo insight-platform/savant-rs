@@ -29,15 +29,15 @@ use log::debug;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Properties that are known to enable B-frames and must be rejected.
-const B_FRAME_PROPERTIES: &[&str] = &[
+/// Known GStreamer property names that control B-frame count on NVIDIA
+/// encoders.  Used exclusively by [`force_disable_b_frames`] to ensure
+/// B-frames are always off regardless of the encoder element's defaults.
+const B_FRAME_PROPERTY_NAMES: &[&str] = &[
     "B-frames",
     "b-frames",
-    "bframes",
-    "Bframes",
     "num-B-Frames",
     "num-b-frames",
-    "num-bframes",
+    "num_B_Frames",
 ];
 
 /// GPU-accelerated video encoder.
@@ -67,8 +67,12 @@ pub struct NvEncoder {
     generator: NvBufSurfaceGenerator,
     /// Codec used by this encoder.
     codec: Codec,
-    /// Last PTS seen — used to detect reordering.
-    last_pts_ns: Option<u64>,
+    /// Last **input** PTS — used to reject non-monotonic submissions.
+    last_input_pts_ns: Option<u64>,
+    /// Last **output** PTS — used to detect B-frame reordering in the
+    /// encoded stream.  If the output PTS ever goes backwards, the
+    /// encoder produced B-frames despite `force_disable_b_frames`.
+    last_output_pts_ns: Option<u64>,
     /// Whether EOS has been sent.
     finalized: bool,
     /// PTS -> (frame_id, duration_ns) map for reconstructing output metadata.
@@ -113,12 +117,17 @@ impl NvEncoder {
         // Ensure GStreamer is initialized.
         let _ = gst::init();
 
-        // Validate: no B-frame properties allowed.
-        for (key, _) in &config.encoder_properties {
-            for bprop in B_FRAME_PROPERTIES {
-                if key.eq_ignore_ascii_case(bprop) {
-                    return Err(EncoderError::BFramesNotAllowed(key.clone()));
-                }
+        // Validate: encoder_params codec must match config.codec.
+        if let Some(ref params) = config.encoder_params {
+            let params_codec = params.codec();
+            if params_codec != config.codec {
+                return Err(EncoderError::InvalidProperty {
+                    name: "encoder_params".to_string(),
+                    reason: format!(
+                        "properties variant is for codec {:?} but config codec is {:?}",
+                        params_codec, config.codec
+                    ),
+                });
             }
         }
 
@@ -226,9 +235,11 @@ impl NvEncoder {
         // Bridge SavantIdMeta across the encoder element.
         bridge_savant_id_meta(&enc);
 
-        // Apply encoder properties.
-        for (key, value) in &config.encoder_properties {
-            Self::set_element_property(&enc, key, value)?;
+        // Apply typed encoder properties.
+        if let Some(ref params) = config.encoder_params {
+            for (key, value) in params.to_gst_pairs() {
+                Self::set_element_property(&enc, key, &value)?;
+            }
         }
 
         // Forcibly disable B-frames on the encoder if the property exists.
@@ -295,7 +306,8 @@ impl NvEncoder {
             appsink: appsink_typed,
             generator,
             codec: config.codec,
-            last_pts_ns: None,
+            last_input_pts_ns: None,
+            last_output_pts_ns: None,
             finalized: false,
             pts_map: Arc::new(Mutex::new(HashMap::new())),
             convert_ctx,
@@ -344,8 +356,8 @@ impl NvEncoder {
             return Err(EncoderError::AlreadyFinalized);
         }
 
-        // Validate monotonic PTS.
-        if let Some(prev) = self.last_pts_ns {
+        // Validate monotonic input PTS.
+        if let Some(prev) = self.last_input_pts_ns {
             if pts_ns <= prev {
                 return Err(EncoderError::PtsReordered {
                     frame_id,
@@ -354,7 +366,7 @@ impl NvEncoder {
                 });
             }
         }
-        self.last_pts_ns = Some(pts_ns);
+        self.last_input_pts_ns = Some(pts_ns);
 
         // Store PTS -> (frame_id, duration) mapping.
         self.pts_map
@@ -420,51 +432,13 @@ impl NvEncoder {
     /// Pull one encoded frame from the encoder (non-blocking).
     ///
     /// Returns `Ok(Some(frame))` when an encoded frame is available,
-    /// `Ok(None)` when no frame is ready yet, or `Err` on pipeline error.
-    pub fn pull_encoded(&self) -> Result<Option<EncodedFrame>, EncoderError> {
+    /// `Ok(None)` when no frame is ready yet, or `Err` on pipeline error
+    /// or if B-frame reordering is detected in the output.
+    pub fn pull_encoded(&mut self) -> Result<Option<EncodedFrame>, EncoderError> {
         let sample = self
             .appsink
             .try_pull_sample(gst::ClockTime::from_mseconds(0));
-
-        match sample {
-            Some(sample) => {
-                let buffer = sample
-                    .buffer()
-                    .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
-
-                let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-
-                let dts_ns = buffer.dts().map(|t| t.nseconds());
-                let duration_ns = buffer.duration().map(|t| t.nseconds());
-
-                // Look up frame_id from our PTS map.
-                let (frame_id, orig_duration) = self
-                    .pts_map
-                    .lock()
-                    .unwrap()
-                    .remove(&pts_ns)
-                    .unwrap_or((-1, duration_ns));
-
-                // Use original duration if the encoder didn't set one.
-                let final_duration = duration_ns.or(orig_duration);
-
-                // Extract encoded data.
-                let map = buffer.map_readable().map_err(|e| {
-                    EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e))
-                })?;
-                let data = map.as_slice().to_vec();
-
-                Ok(Some(EncodedFrame {
-                    frame_id,
-                    pts_ns,
-                    dts_ns,
-                    duration_ns: final_duration,
-                    data,
-                    codec: self.codec,
-                }))
-            }
-            None => Ok(None),
-        }
+        self.sample_to_frame(sample)
     }
 
     /// Pull one encoded frame from the encoder (blocking with timeout).
@@ -474,50 +448,91 @@ impl NvEncoder {
     /// * `timeout_ms` - Maximum time to wait in milliseconds.
     ///
     /// Returns `Ok(Some(frame))` when a frame arrives within the timeout,
-    /// `Ok(None)` on timeout, or `Err` on pipeline error.
+    /// `Ok(None)` on timeout, or `Err` on pipeline error or if B-frame
+    /// reordering is detected in the output.
     pub fn pull_encoded_timeout(
-        &self,
+        &mut self,
         timeout_ms: u64,
     ) -> Result<Option<EncodedFrame>, EncoderError> {
         let sample = self
             .appsink
             .try_pull_sample(gst::ClockTime::from_mseconds(timeout_ms));
+        self.sample_to_frame(sample)
+    }
 
-        match sample {
-            Some(sample) => {
-                let buffer = sample
-                    .buffer()
-                    .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
+    /// Convert an appsink sample into an [`EncodedFrame`], validating
+    /// that the output PTS is monotonically increasing and DTS ≤ PTS.
+    ///
+    /// These checks detect B-frame reordering: if B-frames were emitted
+    /// despite `force_disable_b_frames`, the output decode order would
+    /// differ from the presentation order and PTS would go backwards.
+    fn sample_to_frame(
+        &mut self,
+        sample: Option<gst::Sample>,
+    ) -> Result<Option<EncodedFrame>, EncoderError> {
+        let sample = match sample {
+            Some(s) => s,
+            None => return Ok(None),
+        };
 
-                let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-                let dts_ns = buffer.dts().map(|t| t.nseconds());
-                let duration_ns = buffer.duration().map(|t| t.nseconds());
+        let buffer = sample
+            .buffer()
+            .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
 
-                let (frame_id, orig_duration) = self
-                    .pts_map
-                    .lock()
-                    .unwrap()
-                    .remove(&pts_ns)
-                    .unwrap_or((-1, duration_ns));
+        let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
+        let dts_ns = buffer.dts().map(|t| t.nseconds());
+        let duration_ns = buffer.duration().map(|t| t.nseconds());
 
-                let final_duration = duration_ns.or(orig_duration);
+        // Look up frame_id from our PTS map.
+        let (frame_id, orig_duration) = self
+            .pts_map
+            .lock()
+            .unwrap()
+            .remove(&pts_ns)
+            .unwrap_or((-1, duration_ns));
 
-                let map = buffer.map_readable().map_err(|e| {
-                    EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e))
-                })?;
-                let data = map.as_slice().to_vec();
+        // --- Output ordering validation ---
 
-                Ok(Some(EncodedFrame {
+        // 1. Output PTS must be strictly monotonically increasing.
+        if let Some(prev) = self.last_output_pts_ns {
+            if pts_ns <= prev {
+                return Err(EncoderError::OutputPtsReordered {
                     frame_id,
                     pts_ns,
-                    dts_ns,
-                    duration_ns: final_duration,
-                    data,
-                    codec: self.codec,
-                }))
+                    prev_pts_ns: prev,
+                });
             }
-            None => Ok(None),
         }
+        self.last_output_pts_ns = Some(pts_ns);
+
+        // 2. DTS must not exceed PTS (would indicate B-frame reordering).
+        if let Some(dts) = dts_ns {
+            if dts > pts_ns {
+                return Err(EncoderError::OutputDtsExceedsPts {
+                    frame_id,
+                    dts_ns: dts,
+                    pts_ns,
+                });
+            }
+        }
+
+        // Use original duration if the encoder didn't set one.
+        let final_duration = duration_ns.or(orig_duration);
+
+        // Extract encoded data.
+        let map = buffer
+            .map_readable()
+            .map_err(|e| EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e)))?;
+        let data = map.as_slice().to_vec();
+
+        Ok(Some(EncodedFrame {
+            frame_id,
+            pts_ns,
+            dts_ns,
+            duration_ns: final_duration,
+            data,
+            codec: self.codec,
+        }))
     }
 
     /// Send EOS and drain all remaining encoded frames.
@@ -594,7 +609,7 @@ impl NvEncoder {
     fn force_disable_b_frames(enc: &gst::Element) {
         // nvv4l2h264enc / nvv4l2h265enc use "num-B-Frames" (sometimes
         // "B-frames" depending on driver). Try known names and set to 0.
-        for prop_name in B_FRAME_PROPERTIES {
+        for prop_name in B_FRAME_PROPERTY_NAMES {
             if enc.find_property(prop_name).is_some() {
                 // set_property_from_str may panic if the value is invalid;
                 // catch panics so we can log and continue.
@@ -617,13 +632,6 @@ impl NvEncoder {
         key: &str,
         value: &str,
     ) -> Result<(), EncoderError> {
-        // Reject B-frame properties.
-        for bprop in B_FRAME_PROPERTIES {
-            if key.eq_ignore_ascii_case(bprop) {
-                return Err(EncoderError::BFramesNotAllowed(key.to_string()));
-            }
-        }
-
         // Check that the property exists on this element.
         if element.find_property(key).is_none() {
             return Err(EncoderError::InvalidProperty {

@@ -11,16 +11,35 @@ pub enum EncoderError {
     #[error("Invalid encoder property '{name}': {reason}")]
     InvalidProperty { name: String, reason: String },
 
-    /// B-frames are not allowed.
-    #[error("B-frames are not allowed: property '{0}' must not enable B-frames")]
-    BFramesNotAllowed(String),
-
-    /// PTS reordering was detected (non-monotonic PTS).
-    #[error("PTS reordering detected: frame {frame_id} has PTS {pts_ns} which is <= previous PTS {prev_pts_ns}")]
+    /// Input PTS reordering was detected (non-monotonic PTS on submit).
+    #[error("Input PTS reordering detected: frame {frame_id} has PTS {pts_ns} which is <= previous PTS {prev_pts_ns}")]
     PtsReordered {
         frame_id: i64,
         pts_ns: u64,
         prev_pts_ns: u64,
+    },
+
+    /// Output PTS reordering was detected — indicates B-frames were
+    /// emitted despite being disabled.
+    #[error(
+        "Output PTS reordering detected (B-frames?): frame {frame_id} has \
+         PTS {pts_ns} <= previous output PTS {prev_pts_ns}"
+    )]
+    OutputPtsReordered {
+        frame_id: i64,
+        pts_ns: u64,
+        prev_pts_ns: u64,
+    },
+
+    /// Output DTS exceeds PTS — indicates B-frame reordering.
+    #[error(
+        "Output DTS > PTS detected (B-frames?): frame {frame_id} has \
+         DTS {dts_ns} > PTS {pts_ns}"
+    )]
+    OutputDtsExceedsPts {
+        frame_id: i64,
+        dts_ns: u64,
+        pts_ns: u64,
     },
 
     /// GStreamer pipeline error.
