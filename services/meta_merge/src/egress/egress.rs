@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use hashbrown::HashMap;
-use pyo3::{types::PyList, Py, PyErr, Python};
+use pyo3::{types::PyList, PyErr, Python};
 use savant_core_py::primitives::frame::VideoFrame;
 use uuid::Uuid;
 
 use crate::egress::{
-    merge_queue::{MergeQueue, MergeQueueError},
+    merge_queue::{HeadReadyReason, MergeQueue, MergeQueueError},
     payload::EgressItem,
 };
 
@@ -109,25 +109,18 @@ impl Egress {
         Ok(())
     }
 
-    fn is_head_ready(&mut self, source_id: String) -> bool {
-        let queue = self
-            .queues
-            .entry(source_id)
-            .or_insert(MergeQueue::new(self.max_duration));
-        queue.is_head_ready()
-    }
-
     pub fn fetch_ready(
         &mut self,
-    ) -> Result<Vec<(String, EgressItem, Option<EgressItem>)>, EgressError> {
+    ) -> Result<Vec<(String, EgressItem, Option<EgressItem>, HeadReadyReason)>, EgressError> {
         let mut heads = Vec::new();
         for (source_id, queue) in self.queues.iter_mut() {
-            if !queue.is_head_ready() {
+            if queue.is_head_ready().is_none() {
                 continue;
             }
 
-            let (item, eos) = queue.fetch_head().map_err(EgressError::FetchHeadError)?;
-            heads.push((source_id.clone(), item, eos));
+            let (item, eos, reason) =
+                queue.fetch_head().map_err(EgressError::FetchHeadError)?;
+            heads.push((source_id.clone(), item, eos, reason));
         }
         Ok(heads)
     }

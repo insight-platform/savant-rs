@@ -16,6 +16,7 @@ struct IngressStream {
 }
 
 pub struct IngressMessage {
+    pub ingress_name: String,
     pub topic: String,
     pub message: Box<Message>,
     pub data: Vec<Vec<u8>>,
@@ -74,6 +75,7 @@ impl Ingress {
                             && matches!(eos_policy_opt, Some(EosPolicy::Allow)))
                     {
                         let message = IngressMessage {
+                            ingress_name: ingress_stream_name.clone(),
                             topic,
                             message,
                             data,
@@ -109,13 +111,13 @@ impl Ingress {
                 }
                 ReaderResult::Timeout => {
                     debug!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Timeout receiving message, waiting for next message."
                     );
                 }
                 ReaderResult::PrefixMismatch { topic, routing_id } => {
                     log::warn!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Received message with mismatched prefix: topic: {:?}, routing_id: {:?}",
                         topic_to_string(&topic),
                         topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new()))
@@ -123,7 +125,7 @@ impl Ingress {
                 }
                 ReaderResult::RoutingIdMismatch { topic, routing_id } => {
                     log::warn!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Received message with mismatched routing_id: topic: {:?}, routing_id: {:?}",
                         topic_to_string(&topic),
                         topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new()))
@@ -131,7 +133,7 @@ impl Ingress {
                 }
                 ReaderResult::TooShort(m) => {
                     log::warn!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Received message that was too short: {:?}",
                         m
                     );
@@ -143,7 +145,7 @@ impl Ingress {
                     expected_version,
                 } => {
                     log::warn!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Received message with mismatched version: topic: {:?}, routing_id: {:?}, sender_version: {:?}, expected_version: {:?}",
                         topic_to_string(&topic),
                         topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new())),
@@ -153,7 +155,7 @@ impl Ingress {
                 }
                 ReaderResult::Blacklisted(items) => {
                     log::warn!(
-                        target: "router::ingress::get",
+                        target: "meta_merge::ingress::get",
                         "Received blacklisted message: {:?}",
                         items
                     );

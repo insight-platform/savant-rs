@@ -19,21 +19,27 @@ ENV PATH="/root/.cargo/bin:$PATH"
 ENV CARGO_TARGET_DIR=/tmp/build
 
 RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/tmp/build \
+    --mount=type=cache,id=build-py313,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
-    cd /opt/savant-rs && make release && cp dist/*.whl /
+    cd /opt/savant-rs && make release && make gst-release && \
+    PY_TAG=$(python3 -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')") && \
+    cp dist/*${PY_TAG}*.whl /
 
-RUN --mount=type=cache,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs \
+RUN --mount=type=cache,id=build-py313,target=/tmp/build --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && CARGO_TARGET_DIR=/tmp/build \
     cargo build --release -p savant_info
 
-RUN --mount=type=cache,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/python313/copy-deps.sh
+RUN --mount=type=cache,id=build-py313,target=/tmp/build --mount=type=bind,source=.,target=/opt/savant-rs bash /opt/savant-rs/utils/python313/copy-deps.sh
 
 FROM python:3.13-slim AS runner
 
 RUN apt-get update && apt install -y \
     imagemagick \
-    libmagic1
+    libmagic1 \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+    gstreamer1.0-libav
 
 COPY --from=builder /opt /opt
 COPY --from=builder /savant_rs-*.whl /tmp
@@ -41,4 +47,10 @@ RUN SAVANT_RS_WHL=$(ls /tmp/savant_rs-*.whl | head -n 1) && \
     echo "SAVANT_RS_WHL=$SAVANT_RS_WHL" && \
     pip3 install $SAVANT_RS_WHL[clientsdk] && \
     rm $SAVANT_RS_WHL
+
+COPY --from=builder /savant_gstreamer-*.whl /tmp
+RUN SAVANT_GST_WHL=$(ls /tmp/savant_gstreamer-*.whl | head -n 1) && \
+    echo "SAVANT_GST_WHL=$SAVANT_GST_WHL" && \
+    pip3 install $SAVANT_GST_WHL && \
+    rm $SAVANT_GST_WHL
 

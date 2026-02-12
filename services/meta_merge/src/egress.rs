@@ -1,4 +1,4 @@
-mod egress;
+pub mod egress;
 pub mod merge_queue;
-mod payload;
-//mod processor;
+pub mod payload;
+pub mod processor;

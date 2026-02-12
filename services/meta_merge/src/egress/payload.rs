@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use pyo3::{
     exceptions::PyValueError,
-    pyclass,
+    pyclass, pymethods,
     types::{PyDict, PyList},
     Py, PyResult, Python,
 };
@@ -14,7 +14,7 @@ use savant_core_py::primitives::frame::VideoFrame;
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum PayloadError {
+pub enum PayloadError {
     #[error("Item is already taken")]
     ItemTaken,
     #[error("Invalid message type, the operation is supported only for video frames")]
@@ -26,7 +26,7 @@ pub(super) enum PayloadError {
 }
 
 #[derive(Debug)]
-pub(super) enum EgressMessage {
+pub enum EgressMessage {
     VideoFrame(VideoFrame),
     EndOfStream,
 }
@@ -38,6 +38,49 @@ pub struct EgressItemPy {
     pub state: Py<PyDict>,
     pub data: Py<PyList>,
     pub labels: Py<PyList>,
+}
+
+#[pymethods]
+impl EgressItemPy {
+    #[getter]
+    fn get_video_frame(&self) -> VideoFrame {
+        self.video_frame.clone()
+    }
+
+    #[setter]
+    fn set_video_frame(&mut self, video_frame: VideoFrame) {
+        self.video_frame = video_frame;
+    }
+
+    #[getter]
+    fn get_state(&self, py: Python<'_>) -> Py<PyDict> {
+        self.state.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_state(&mut self, state: Py<PyDict>) {
+        self.state = state;
+    }
+
+    #[getter]
+    fn get_data(&self, py: Python<'_>) -> Py<PyList> {
+        self.data.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_data(&mut self, data: Py<PyList>) {
+        self.data = data;
+    }
+
+    #[getter]
+    fn get_labels(&self, py: Python<'_>) -> Py<PyList> {
+        self.labels.clone_ref(py)
+    }
+
+    #[setter]
+    fn set_labels(&mut self, labels: Py<PyList>) {
+        self.labels = labels;
+    }
 }
 
 pub struct EgressItem {
@@ -126,13 +169,23 @@ impl EgressItem {
             )),
         })
     }
+
+    /// Update this EgressItem in-place from a modified EgressItemPy (after Python callback).
+    pub fn update_from_py(&mut self, py_item: &EgressItemPy) {
+        Python::attach(|py| {
+            self.message = EgressMessage::VideoFrame(py_item.video_frame.clone());
+            self.state = py_item.state.clone_ref(py);
+            self.data = py_item.data.clone_ref(py);
+            self.labels = py_item.labels.clone_ref(py);
+        });
+    }
 }
 
-pub(super) type PayloadResult<T> = Result<T, PayloadError>;
+pub type PayloadResult<T> = Result<T, PayloadError>;
 
-pub(super) struct Payload {
-    pub(super) frame: Option<EgressItem>,
-    pub(super) eos: Option<EgressItem>,
+pub struct Payload {
+    pub frame: Option<EgressItem>,
+    pub eos: Option<EgressItem>,
 }
 
 impl Payload {
@@ -215,6 +268,7 @@ impl Payload {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use pyo3::types::{PyAnyMethods, PyDictMethods, PyListMethods};
     use pyo3::Python;
     use savant_core_py::test::utils::gen_frame;
 
@@ -261,6 +315,98 @@ mod tests {
             let new_eos = EgressItem::new_eos(new_eos_data, new_eos_labels);
             let res = payload.set_eos(new_eos);
             assert!(matches!(res, Err(PayloadError::EosAlreadyFilled)));
+
+            Ok::<(), anyhow::Error>(())
+        })
+    }
+
+    #[test]
+    fn test_egress_item_py_getters_setters() -> Result<()> {
+        Python::attach(|py| {
+            let frame = gen_frame();
+            let data = PyList::empty(py).unbind();
+            let labels = PyList::empty(py).unbind();
+            let state = PyDict::new(py).unbind();
+
+            let mut py_item = EgressItemPy {
+                video_frame: frame.clone(),
+                state,
+                data,
+                labels,
+            };
+
+            // Test getter returns the same frame
+            let got_frame = py_item.get_video_frame();
+            assert_eq!(got_frame.0.get_uuid(), frame.0.get_uuid());
+
+            // Test state getter/setter
+            let new_state = PyDict::new(py);
+            new_state.set_item("key", "value")?;
+            py_item.set_state(new_state.unbind());
+            let got_state = py_item.get_state(py);
+            let got_state_bound = got_state.bind(py);
+            let val: String = got_state_bound.get_item("key")?.unwrap().extract()?;
+            assert_eq!(val, "value");
+
+            // Test data getter/setter
+            let new_data = PyList::empty(py);
+            new_data.append(42)?;
+            py_item.set_data(new_data.unbind());
+            let got_data = py_item.get_data(py);
+            let got_data_bound = got_data.bind(py);
+            assert_eq!(got_data_bound.len(), 1);
+
+            // Test labels getter/setter
+            let new_labels = PyList::empty(py);
+            new_labels.append("label1")?;
+            new_labels.append("label2")?;
+            py_item.set_labels(new_labels.unbind());
+            let got_labels = py_item.get_labels(py);
+            let got_labels_bound = got_labels.bind(py);
+            assert_eq!(got_labels_bound.len(), 2);
+
+            // Test setter for video_frame
+            let new_frame = gen_frame();
+            let new_uuid = new_frame.0.get_uuid();
+            py_item.set_video_frame(new_frame);
+            assert_eq!(py_item.get_video_frame().0.get_uuid(), new_uuid);
+
+            Ok::<(), anyhow::Error>(())
+        })
+    }
+
+    #[test]
+    fn test_egress_item_to_py_roundtrip() -> Result<()> {
+        Python::attach(|py| {
+            let frame = gen_frame();
+            let data = PyList::empty(py).unbind();
+            let labels = PyList::empty(py).unbind();
+            let mut item = EgressItem::new_frame(frame.clone(), data, labels);
+
+            // Convert to py
+            let py_item = item.to_py()?;
+            let py_item_bound = py_item.bind(py);
+
+            // Modify through Python interface
+            let new_state = PyDict::new(py);
+            new_state.set_item("merged", true)?;
+            py_item_bound.borrow_mut().set_state(new_state.unbind());
+
+            // Update from py
+            let py_ref = py_item_bound.borrow();
+            item.update_from_py(&py_ref);
+
+            // Verify the state was updated
+            let state_bound = item.state.bind(py);
+            let merged: bool = state_bound.get_item("merged")?.unwrap().extract()?;
+            assert!(merged);
+
+            // Verify frame is preserved
+            assert!(matches!(item.message, EgressMessage::VideoFrame(_)));
+
+            // EOS should fail to_py
+            let eos = EgressItem::new_eos(PyList::empty(py).unbind(), PyList::empty(py).unbind());
+            assert!(eos.to_py().is_err());
 
             Ok::<(), anyhow::Error>(())
         })

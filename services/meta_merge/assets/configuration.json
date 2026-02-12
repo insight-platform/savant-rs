@@ -47,7 +47,7 @@
         },
         "callbacks": {
             "on_merge": "merge_handler",
-            "on_head_expire": "head_expire_handler",
+            "on_head_expire": "head_expired_handler",
             "on_head_ready": "head_ready_handler",
             "on_late_arrival": "late_arrival_handler",
             "on_unsupported_message": "unsupported_message_handler"

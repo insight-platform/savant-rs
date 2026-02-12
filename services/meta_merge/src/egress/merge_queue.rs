@@ -1,8 +1,6 @@
 use std::{
-    cell::RefCell,
     collections::BTreeMap,
-    rc::Rc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use pyo3::{types::PyList, Py};
@@ -41,6 +39,12 @@ pub enum MergeQueueError {
     PayloadDeconstructError(PayloadError),
     #[error("Invalid item UUID: expected {:?}, got {:?}", .0, .1)]
     InvalidItemUuid(Uuid, Option<Uuid>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadReadyReason {
+    MarkedReady,
+    Expired,
 }
 
 pub struct MergeQueue {
@@ -159,7 +163,7 @@ impl MergeQueue {
     }
 
     pub fn set_frame_ready(&mut self, uuid: Uuid) -> Result<(), MergeQueueError> {
-        let item_ref_opt = self
+        let _ = self
             .index
             .get_mut(&uuid)
             .ok_or_else(|| MergeQueueError::ItemNotFound(uuid))?
@@ -168,20 +172,24 @@ impl MergeQueue {
         Ok(())
     }
 
-    pub fn is_head_ready(&mut self) -> bool {
+    pub fn is_head_ready(&self) -> Option<HeadReadyReason> {
         if let Some(payload) = self.index.values().next() {
-            return payload.is_frame_ready()
-                || (payload.frame.is_some()
-                    && payload.frame.as_ref().unwrap().arrival_time + self.max_duration
-                        < system_now());
+            if payload.is_frame_ready() {
+                return Some(HeadReadyReason::MarkedReady);
+            }
+            if payload.frame.is_some()
+                && payload.frame.as_ref().unwrap().arrival_time + self.max_duration < system_now()
+            {
+                return Some(HeadReadyReason::Expired);
+            }
         }
-        false
+        None
     }
 
-    pub fn fetch_head(&mut self) -> Result<(EgressItem, Option<EgressItem>), MergeQueueError> {
-        if !self.is_head_ready() {
-            return Err(MergeQueueError::HeadNotReady);
-        }
+    pub fn fetch_head(
+        &mut self,
+    ) -> Result<(EgressItem, Option<EgressItem>, HeadReadyReason), MergeQueueError> {
+        let reason = self.is_head_ready().ok_or(MergeQueueError::HeadNotReady)?;
 
         let head = self
             .index
@@ -197,7 +205,7 @@ impl MergeQueue {
             .deconstruct()
             .map_err(|e| MergeQueueError::PayloadDeconstructError(e))?;
 
-        Ok((frame.unwrap(), eos))
+        Ok((frame.unwrap(), eos, reason))
     }
 }
 
@@ -280,26 +288,138 @@ mod tests {
             queue.set_frame_ready(uuid_ready)?;
             let head = queue.fetch_head();
             assert!(head.is_ok());
-            let (f, eos) = head.unwrap();
+            let (f, eos, reason) = head.unwrap();
             assert!(matches!(f.message, EgressMessage::VideoFrame(_)));
             assert!(eos.is_none());
+            assert_eq!(reason, HeadReadyReason::MarkedReady);
 
             let is_late = queue.is_late(uuid_ready)?;
             assert!(is_late);
 
             assert!(queue.size() == 1);
-            assert!(!queue.is_head_ready());
+            assert!(queue.is_head_ready().is_none());
             advance_time_ms(1001);
-            assert!(queue.is_head_ready());
+            assert!(matches!(
+                queue.is_head_ready(),
+                Some(HeadReadyReason::Expired)
+            ));
             let head = queue.fetch_head();
             assert!(head.is_ok());
-            let (f, eos) = head.unwrap();
+            let (f, eos, reason) = head.unwrap();
             assert!(matches!(f.message, EgressMessage::VideoFrame(_)));
             assert!(eos.is_some());
             let eos = eos.unwrap();
             assert!(matches!(eos.message, EgressMessage::EndOfStream));
+            assert_eq!(reason, HeadReadyReason::Expired);
 
             assert!(queue.size() == 0);
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_queue_is_head_ready() {
+        let queue = MergeQueue::new(Duration::from_secs(1));
+        assert!(queue.is_head_ready().is_none());
+    }
+
+    #[test]
+    fn test_head_ready_reason_marked_ready() -> Result<()> {
+        reset_time();
+        let mut queue = MergeQueue::new(Duration::from_secs(10));
+        let frame = gen_frame();
+        Python::attach(|py| {
+            let uuid = frame.0.get_uuid();
+            queue.push_frame(
+                frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            )?;
+
+            // Not ready yet
+            assert!(queue.is_head_ready().is_none());
+
+            // Mark as ready
+            queue.set_frame_ready(uuid)?;
+            assert_eq!(queue.is_head_ready(), Some(HeadReadyReason::MarkedReady));
+
+            let (_, _, reason) = queue.fetch_head()?;
+            assert_eq!(reason, HeadReadyReason::MarkedReady);
+
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_head_ready_reason_expired() -> Result<()> {
+        reset_time();
+        let mut queue = MergeQueue::new(Duration::from_millis(100));
+        let frame = gen_frame();
+        Python::attach(|py| {
+            queue.push_frame(
+                frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            )?;
+
+            // Not ready yet
+            assert!(queue.is_head_ready().is_none());
+
+            // Advance time past max_duration
+            advance_time_ms(101);
+            assert_eq!(queue.is_head_ready(), Some(HeadReadyReason::Expired));
+
+            let (_, _, reason) = queue.fetch_head()?;
+            assert_eq!(reason, HeadReadyReason::Expired);
+
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_marked_ready_takes_priority_over_expired() -> Result<()> {
+        reset_time();
+        let mut queue = MergeQueue::new(Duration::from_millis(100));
+        let frame = gen_frame();
+        Python::attach(|py| {
+            let uuid = frame.0.get_uuid();
+            queue.push_frame(
+                frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            )?;
+
+            // Mark as ready first
+            queue.set_frame_ready(uuid)?;
+            // Then expire
+            advance_time_ms(101);
+
+            // MarkedReady should take priority
+            assert_eq!(queue.is_head_ready(), Some(HeadReadyReason::MarkedReady));
+
+            Ok::<(), anyhow::Error>(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_fetch_head_not_ready() -> Result<()> {
+        reset_time();
+        let mut queue = MergeQueue::new(Duration::from_secs(10));
+        let frame = gen_frame();
+        Python::attach(|py| {
+            queue.push_frame(
+                frame,
+                PyList::empty(py).unbind(),
+                PyList::empty(py).unbind(),
+            )?;
+
+            let result = queue.fetch_head();
+            assert!(matches!(result, Err(MergeQueueError::HeadNotReady)));
+
             Ok::<(), anyhow::Error>(())
         })?;
         Ok(())
