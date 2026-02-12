@@ -47,7 +47,7 @@ jobs:
           context: .
 
       - name: Copy docs
-        run: docker run --rm -v $(pwd)/docs:/tmp savant-rs-docs cp -R /opt/docs-artifact.tar /tmp
+        run: docker run --rm --entrypoint cat -v $(pwd)/docs:/tmp savant-rs-docs /opt/docs-artifact.tar > /tmp/docs-artifact.tar
 
 
       - name: Upload artifact
