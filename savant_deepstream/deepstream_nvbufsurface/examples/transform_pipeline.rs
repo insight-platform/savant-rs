@@ -19,7 +19,7 @@
 use clap::Parser;
 use deepstream_nvbufsurface::{
     bridge_savant_id_meta, cuda_init, Interpolation, NvBufSurfaceGenerator, NvBufSurfaceMemType,
-    Padding, TransformConfig,
+    Padding, TransformConfig, VideoFormat,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -76,22 +76,24 @@ fn main() {
     cuda_init(0).expect("CUDA init failed");
 
     // ── Source generator (at source resolution) ──
-    let src_gen = NvBufSurfaceGenerator::builder("RGBA", args.src_width, args.src_height)
-        .gpu_id(0)
-        .mem_type(NvBufSurfaceMemType::Default)
-        .min_buffers(args.pool_size)
-        .max_buffers(args.pool_size)
-        .build()
-        .expect("failed to create source generator");
+    let src_gen =
+        NvBufSurfaceGenerator::builder(VideoFormat::RGBA, args.src_width, args.src_height)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(args.pool_size)
+            .max_buffers(args.pool_size)
+            .build()
+            .expect("failed to create source generator");
 
     // ── Destination generator (at destination resolution) ──
-    let dst_gen = NvBufSurfaceGenerator::builder("RGBA", args.dst_width, args.dst_height)
-        .gpu_id(0)
-        .mem_type(NvBufSurfaceMemType::Default)
-        .min_buffers(args.pool_size)
-        .max_buffers(args.pool_size)
-        .build()
-        .expect("failed to create destination generator");
+    let dst_gen =
+        NvBufSurfaceGenerator::builder(VideoFormat::RGBA, args.dst_width, args.dst_height)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(args.pool_size)
+            .max_buffers(args.pool_size)
+            .build()
+            .expect("failed to create destination generator");
 
     // ── Parse config ──
     let padding = Padding::from_str_name(&args.padding)
@@ -144,9 +146,7 @@ fn main() {
     // Bridge SavantIdMeta across the encoder
     bridge_savant_id_meta(&encoder);
 
-    let appsrc = appsrc
-        .dynamic_cast::<gstreamer_app::AppSrc>()
-        .unwrap();
+    let appsrc = appsrc.dynamic_cast::<gstreamer_app::AppSrc>().unwrap();
 
     // ── Stats ──
     let frame_count = Arc::new(AtomicU64::new(0));
@@ -175,7 +175,12 @@ fn main() {
             let fps = (count - last_count) as f64 / dt;
             eprintln!(
                 "[transform_pipeline] frames={}, fps={:.1} ({}×{} → {}×{})",
-                count, fps, 0, 0, 0, 0, // placeholder
+                count,
+                fps,
+                0,
+                0,
+                0,
+                0, // placeholder
             );
             last_count = count;
             last_time = now;

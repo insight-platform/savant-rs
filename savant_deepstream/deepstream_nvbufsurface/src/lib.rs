@@ -13,12 +13,12 @@
 //! # Example (Rust)
 //!
 //! ```rust,no_run
-//! use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+//! use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
 //!
 //! gstreamer::init().unwrap();
 //!
 //! let generator = NvBufSurfaceGenerator::new(
-//!     "RGBA", 640, 480, 30, 1,
+//!     VideoFormat::RGBA, 640, 480, 30, 1,
 //!     0, NvBufSurfaceMemType::Default,
 //! ).unwrap();
 //!
@@ -35,9 +35,7 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
-pub use transform::{
-    ComputeMode, Interpolation, Padding, Rect, TransformConfig, TransformError,
-};
+pub use transform::{ComputeMode, Interpolation, Padding, Rect, TransformConfig, TransformError};
 
 use glib::translate::from_glib_full;
 use gstreamer as gst;
@@ -47,6 +45,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 // Re-export so downstream crates (benches, examples) can use these directly.
 pub use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
+pub use savant_gstreamer::VideoFormat;
 
 /// Error type for NvBufSurface operations.
 #[derive(Debug, thiserror::Error)]
@@ -190,9 +189,7 @@ pub fn create_cuda_stream() -> Result<*mut std::ffi::c_void, NvBufSurfaceError> 
 /// # Errors
 ///
 /// Returns [`NvBufSurfaceError::CudaInitFailed`] if destruction fails.
-pub fn destroy_cuda_stream(
-    stream: *mut std::ffi::c_void,
-) -> Result<(), NvBufSurfaceError> {
+pub fn destroy_cuda_stream(stream: *mut std::ffi::c_void) -> Result<(), NvBufSurfaceError> {
     if stream.is_null() {
         return Ok(());
     }
@@ -224,7 +221,7 @@ pub fn destroy_cuda_stream(
 /// gstreamer::init().unwrap();
 ///
 /// let gen = NvBufSurfaceGenerator::new(
-///     "RGBA", 640, 480, 30, 1,
+///     VideoFormat::RGBA, 640, 480, 30, 1,
 ///     0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
@@ -232,7 +229,7 @@ pub fn destroy_cuda_stream(
 /// ```
 pub struct NvBufSurfaceGenerator {
     pool: gst::BufferPool,
-    format: String,
+    format: VideoFormat,
     width: u32,
     height: u32,
     fps_num: i32,
@@ -247,11 +244,11 @@ pub struct NvBufSurfaceGenerator {
 /// # Example
 ///
 /// ```rust,no_run
-/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = NvBufSurfaceGenerator::builder("NV12", 640, 480)
+/// let gen = NvBufSurfaceGenerator::builder(VideoFormat::NV12, 640, 480)
 ///     .fps(30, 1)
 ///     .gpu_id(0)
 ///     .mem_type(NvBufSurfaceMemType::CudaDevice)
@@ -261,7 +258,7 @@ pub struct NvBufSurfaceGenerator {
 ///     .unwrap();
 /// ```
 pub struct NvBufSurfaceGeneratorBuilder {
-    format: String,
+    format: VideoFormat,
     width: u32,
     height: u32,
     fps_num: i32,
@@ -311,8 +308,9 @@ impl NvBufSurfaceGeneratorBuilder {
     /// Returns an error if the buffer pool cannot be created, configured,
     /// or activated.
     pub fn build(self) -> Result<NvBufSurfaceGenerator, NvBufSurfaceError> {
+        let format_str = self.format.gst_name();
         let caps = gst::Caps::builder("video/x-raw")
-            .field("format", &self.format)
+            .field("format", format_str)
             .field("width", self.width as i32)
             .field("height", self.height as i32)
             .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
@@ -320,7 +318,7 @@ impl NvBufSurfaceGeneratorBuilder {
 
         NvBufSurfaceGenerator::create_from_parts(
             &caps,
-            &self.format,
+            self.format,
             self.width,
             self.height,
             self.fps_num,
@@ -342,7 +340,7 @@ impl NvBufSurfaceGenerator {
     ///
     /// # Arguments
     ///
-    /// * `format` - Video format string (e.g., `"RGBA"`, `"NV12"`).
+    /// * `format` - Video pixel format (e.g., [`VideoFormat::RGBA`]).
     /// * `width` - Frame width in pixels.
     /// * `height` - Frame height in pixels.
     /// * `fps_num` - Framerate numerator (e.g., 30).
@@ -355,7 +353,7 @@ impl NvBufSurfaceGenerator {
     /// Returns an error if the buffer pool cannot be created, configured,
     /// or activated.
     pub fn new(
-        format: &str,
+        format: VideoFormat,
         width: u32,
         height: u32,
         fps_num: i32,
@@ -363,8 +361,9 @@ impl NvBufSurfaceGenerator {
         gpu_id: u32,
         mem_type: NvBufSurfaceMemType,
     ) -> Result<Self, NvBufSurfaceError> {
+        let format_str = format.gst_name();
         let caps = gst::Caps::builder("video/x-raw")
-            .field("format", format)
+            .field("format", format_str)
             .field("width", width as i32)
             .field("height", height as i32)
             .field("framerate", gst::Fraction::new(fps_num, fps_den))
@@ -398,39 +397,36 @@ impl NvBufSurfaceGenerator {
         mem_type: NvBufSurfaceMemType,
     ) -> Result<Self, NvBufSurfaceError> {
         // Extract format/width/height/fps from caps
-        let structure = caps
-            .structure(0)
-            .ok_or_else(|| NvBufSurfaceError::PoolSetConfigFailed(
-                "Caps has no structure".to_string(),
-            ))?;
+        let structure = caps.structure(0).ok_or_else(|| {
+            NvBufSurfaceError::PoolSetConfigFailed("Caps has no structure".to_string())
+        })?;
 
-        let format = structure
-            .get::<String>("format")
-            .map_err(|e| NvBufSurfaceError::PoolSetConfigFailed(
-                format!("Caps missing 'format' field: {}", e),
-            ))?;
+        let format_str = structure.get::<String>("format").map_err(|e| {
+            NvBufSurfaceError::PoolSetConfigFailed(format!("Caps missing 'format' field: {}", e))
+        })?;
 
-        let width = structure
-            .get::<i32>("width")
-            .map_err(|e| NvBufSurfaceError::PoolSetConfigFailed(
-                format!("Caps missing 'width' field: {}", e),
-            ))? as u32;
+        let format = VideoFormat::from_name(&format_str).ok_or_else(|| {
+            NvBufSurfaceError::PoolSetConfigFailed(format!(
+                "Unsupported video format: '{}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8",
+                format_str,
+            ))
+        })?;
 
-        let height = structure
-            .get::<i32>("height")
-            .map_err(|e| NvBufSurfaceError::PoolSetConfigFailed(
-                format!("Caps missing 'height' field: {}", e),
-            ))? as u32;
+        let width = structure.get::<i32>("width").map_err(|e| {
+            NvBufSurfaceError::PoolSetConfigFailed(format!("Caps missing 'width' field: {}", e))
+        })? as u32;
 
-        let fps = structure
-            .get::<gst::Fraction>("framerate")
-            .map_err(|e| NvBufSurfaceError::PoolSetConfigFailed(
-                format!("Caps missing 'framerate' field: {}", e),
-            ))?;
+        let height = structure.get::<i32>("height").map_err(|e| {
+            NvBufSurfaceError::PoolSetConfigFailed(format!("Caps missing 'height' field: {}", e))
+        })? as u32;
+
+        let fps = structure.get::<gst::Fraction>("framerate").map_err(|e| {
+            NvBufSurfaceError::PoolSetConfigFailed(format!("Caps missing 'framerate' field: {}", e))
+        })?;
 
         Self::create_from_parts(
             caps,
-            &format,
+            format,
             width,
             height,
             fps.numer(),
@@ -446,9 +442,9 @@ impl NvBufSurfaceGenerator {
     ///
     /// The builder requires `format`, `width`, and `height`. All other
     /// parameters have sensible defaults.
-    pub fn builder(format: &str, width: u32, height: u32) -> NvBufSurfaceGeneratorBuilder {
+    pub fn builder(format: VideoFormat, width: u32, height: u32) -> NvBufSurfaceGeneratorBuilder {
         NvBufSurfaceGeneratorBuilder {
-            format: format.to_string(),
+            format,
             width,
             height,
             fps_num: 30,
@@ -464,7 +460,7 @@ impl NvBufSurfaceGenerator {
     /// [`from_caps()`](Self::from_caps), and the builder.
     fn create_from_parts(
         caps: &gst::Caps,
-        format: &str,
+        format: VideoFormat,
         width: u32,
         height: u32,
         fps_num: i32,
@@ -531,14 +527,13 @@ impl NvBufSurfaceGenerator {
         debug!("Buffer pool configured");
 
         // Activate the pool
-        pool.set_active(true).map_err(|e| {
-            NvBufSurfaceError::PoolActivationFailed(e.to_string())
-        })?;
+        pool.set_active(true)
+            .map_err(|e| NvBufSurfaceError::PoolActivationFailed(e.to_string()))?;
 
         debug!("NvBufSurfaceGenerator created successfully");
         Ok(Self {
             pool,
-            format: format.to_string(),
+            format,
             width,
             height,
             fps_num,
@@ -558,7 +553,7 @@ impl NvBufSurfaceGenerator {
     /// # use gstreamer::prelude::*;
     /// # gstreamer::init().unwrap();
     /// let gen = NvBufSurfaceGenerator::new(
-    ///     "NV12", 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
+    ///     VideoFormat::NV12, 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
     /// ).unwrap();
     ///
     /// let appsrc = gstreamer::ElementFactory::make("appsrc").build().unwrap();
@@ -567,7 +562,7 @@ impl NvBufSurfaceGenerator {
     pub fn nvmm_caps(&self) -> gst::Caps {
         gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
-            .field("format", &self.format)
+            .field("format", self.format.gst_name())
             .field("width", self.width as i32)
             .field("height", self.height as i32)
             .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
@@ -580,7 +575,7 @@ impl NvBufSurfaceGenerator {
     /// This is the format used internally for pool configuration.
     pub fn raw_caps(&self) -> gst::Caps {
         gst::Caps::builder("video/x-raw")
-            .field("format", &self.format)
+            .field("format", self.format.gst_name())
             .field("width", self.width as i32)
             .field("height", self.height as i32)
             .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
@@ -609,15 +604,13 @@ impl NvBufSurfaceGenerator {
     /// # Errors
     ///
     /// Returns an error if the pool cannot provide a buffer.
-    pub fn acquire_surface(
-        &self,
-        id: Option<i64>,
-    ) -> Result<gst::Buffer, NvBufSurfaceError> {
+    pub fn acquire_surface(&self, id: Option<i64>) -> Result<gst::Buffer, NvBufSurfaceError> {
         debug!("Acquiring NvBufSurface from pool");
 
-        let mut buffer = self.pool.acquire_buffer(None).map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e))
-        })?;
+        let mut buffer = self
+            .pool
+            .acquire_buffer(None)
+            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
 
         // Map the buffer and set numFilled = 1 on the NvBufSurface descriptor.
         // This is required by downstream DeepStream plugins (nvstreammux,
@@ -631,10 +624,7 @@ impl NvBufSurfaceGenerator {
         {
             let buf_ref = buffer.make_mut();
             let mut map = buf_ref.map_writable().map_err(|e| {
-                NvBufSurfaceError::BufferAcquisitionFailed(format!(
-                    "Failed to map buffer: {:?}",
-                    e
-                ))
+                NvBufSurfaceError::BufferAcquisitionFailed(format!("Failed to map buffer: {:?}", e))
             })?;
             let data = map.as_mut_slice();
             if data.len() >= 12 {
@@ -679,18 +669,16 @@ impl NvBufSurfaceGenerator {
     ) -> Result<(gst::Buffer, *mut std::ffi::c_void, u32), NvBufSurfaceError> {
         debug!("Acquiring NvBufSurface from pool (with ptr)");
 
-        let mut buffer = self.pool.acquire_buffer(None).map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e))
-        })?;
+        let mut buffer = self
+            .pool
+            .acquire_buffer(None)
+            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
 
         // Single writable map: set numFilled=1 and read dataPtr/pitch
         let (data_ptr, pitch) = {
             let buf_ref = buffer.make_mut();
             let mut map = buf_ref.map_writable().map_err(|e| {
-                NvBufSurfaceError::BufferAcquisitionFailed(format!(
-                    "Failed to map buffer: {:?}",
-                    e
-                ))
+                NvBufSurfaceError::BufferAcquisitionFailed(format!("Failed to map buffer: {:?}", e))
             })?;
             let data = map.as_mut_slice();
 
@@ -759,10 +747,7 @@ impl NvBufSurfaceGenerator {
         }
 
         appsrc.push_buffer(buffer).map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!(
-                "AppSrc push failed: {:?}",
-                e
-            ))
+            NvBufSurfaceError::BufferAcquisitionFailed(format!("AppSrc push failed: {:?}", e))
         })?;
 
         Ok(())
@@ -814,10 +799,7 @@ impl NvBufSurfaceGenerator {
             ) -> i32;
         }
 
-        let ret = gst_app_src_push_buffer(
-            appsrc_ptr as *mut gst::ffi::GstElement,
-            buf_ptr,
-        );
+        let ret = gst_app_src_push_buffer(appsrc_ptr as *mut gst::ffi::GstElement, buf_ptr);
 
         if ret != 0 {
             return Err(NvBufSurfaceError::BufferAcquisitionFailed(format!(
@@ -924,9 +906,9 @@ impl NvBufSurfaceGenerator {
         self.height
     }
 
-    /// Get the format string of buffers produced by this generator.
-    pub fn format(&self) -> &str {
-        &self.format
+    /// Get the video format of buffers produced by this generator.
+    pub fn format(&self) -> VideoFormat {
+        self.format
     }
 
     /// Send an end-of-stream signal to an AppSrc element.
@@ -938,14 +920,9 @@ impl NvBufSurfaceGenerator {
     /// # Errors
     ///
     /// Returns an error if the EOS signal fails.
-    pub fn send_eos(
-        appsrc: &gstreamer_app::AppSrc,
-    ) -> Result<(), NvBufSurfaceError> {
+    pub fn send_eos(appsrc: &gstreamer_app::AppSrc) -> Result<(), NvBufSurfaceError> {
         appsrc.end_of_stream().map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!(
-                "AppSrc EOS failed: {:?}",
-                e
-            ))
+            NvBufSurfaceError::BufferAcquisitionFailed(format!("AppSrc EOS failed: {:?}", e))
         })?;
         Ok(())
     }
@@ -964,9 +941,7 @@ impl NvBufSurfaceGenerator {
         }
 
         extern "C" {
-            fn gst_app_src_end_of_stream(
-                appsrc: *mut gst::ffi::GstElement,
-            ) -> i32;
+            fn gst_app_src_end_of_stream(appsrc: *mut gst::ffi::GstElement) -> i32;
         }
 
         let ret = gst_app_src_end_of_stream(appsrc_ptr as *mut gst::ffi::GstElement);
@@ -1011,9 +986,10 @@ impl NvBufSurfaceGenerator {
         debug!("Creating NvBufSurface");
 
         // Acquire a buffer from the pool
-        let acquired = self.pool.acquire_buffer(None).map_err(|e| {
-            NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e))
-        })?;
+        let acquired = self
+            .pool
+            .acquire_buffer(None)
+            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
         debug!("Buffer acquired from pool");
 
         // Copy the acquired buffer's content into the destination.
@@ -1085,11 +1061,7 @@ impl Drop for NvBufSurfaceGenerator {
 ///
 /// This avoids calling the variadic `gst_structure_set()` which cannot be
 /// called safely from Rust.
-unsafe fn set_structure_uint(
-    structure: *mut gst::ffi::GstStructure,
-    field_name: &str,
-    value: u32,
-) {
+unsafe fn set_structure_uint(structure: *mut gst::ffi::GstStructure, field_name: &str, value: u32) {
     use glib::prelude::ToValue;
     use glib::translate::ToGlibPtr;
     let c_name = std::ffi::CString::new(field_name).unwrap();
@@ -1136,8 +1108,7 @@ unsafe fn set_structure_uint(
 /// // sink pad will automatically appear on the encoder's src pad output.
 /// ```
 pub fn bridge_savant_id_meta(element: &gst::Element) {
-    let map: Arc<Mutex<HashMap<u64, Vec<SavantIdMetaKind>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let map: Arc<Mutex<HashMap<u64, Vec<SavantIdMetaKind>>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // ── Sink pad probe: extract meta, store by PTS ──────────────────────
     let sink_map = map.clone();
@@ -1310,6 +1281,261 @@ pub mod python {
         }
     }
 
+    // ─── VideoFormat enum ───────────────────────────────────────────────
+
+    /// Video pixel format.
+    ///
+    /// - ``RGBA``  — 8-bit RGBA (4 bytes/pixel).
+    /// - ``BGRx``  — 8-bit BGRx (4 bytes/pixel, alpha ignored).
+    /// - ``NV12``  — YUV 4:2:0 semi-planar (default encoder format).
+    /// - ``NV21``  — YUV 4:2:0 semi-planar (UV swapped).
+    /// - ``I420``  — YUV 4:2:0 planar (JPEG encoder format).
+    /// - ``UYVY``  — YUV 4:2:2 packed.
+    /// - ``GRAY8`` — single-channel grayscale.
+    #[pyclass(name = "VideoFormat", eq, eq_int)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PyVideoFormat {
+        #[pyo3(name = "RGBA")]
+        Rgba = 0,
+        #[pyo3(name = "BGRx")]
+        Bgrx = 1,
+        #[pyo3(name = "NV12")]
+        Nv12 = 2,
+        #[pyo3(name = "NV21")]
+        Nv21 = 3,
+        #[pyo3(name = "I420")]
+        I420 = 4,
+        #[pyo3(name = "UYVY")]
+        Uyvy = 5,
+        #[pyo3(name = "GRAY8")]
+        Gray8 = 6,
+    }
+
+    #[pymethods]
+    impl PyVideoFormat {
+        /// Parse a video format from a string name.
+        ///
+        /// Accepted names (case-sensitive, matching GStreamer conventions):
+        /// ``RGBA``, ``BGRx``, ``NV12``, ``NV21``, ``I420``, ``UYVY``,
+        /// ``GRAY8``.
+        #[staticmethod]
+        fn from_name(name: &str) -> PyResult<Self> {
+            match VideoFormat::from_name(name) {
+                Some(f) => Ok(f.into()),
+                None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Unknown video format: '{}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8",
+                    name
+                ))),
+            }
+        }
+
+        /// Return the canonical name of this format (e.g. ``"NV12"``).
+        fn name(&self) -> &'static str {
+            let f: VideoFormat = (*self).into();
+            f.name()
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "VideoFormat.{}",
+                match self {
+                    PyVideoFormat::Rgba => "RGBA",
+                    PyVideoFormat::Bgrx => "BGRx",
+                    PyVideoFormat::Nv12 => "NV12",
+                    PyVideoFormat::Nv21 => "NV21",
+                    PyVideoFormat::I420 => "I420",
+                    PyVideoFormat::Uyvy => "UYVY",
+                    PyVideoFormat::Gray8 => "GRAY8",
+                }
+            )
+        }
+    }
+
+    impl From<PyVideoFormat> for VideoFormat {
+        fn from(f: PyVideoFormat) -> Self {
+            match f {
+                PyVideoFormat::Rgba => VideoFormat::RGBA,
+                PyVideoFormat::Bgrx => VideoFormat::BGRx,
+                PyVideoFormat::Nv12 => VideoFormat::NV12,
+                PyVideoFormat::Nv21 => VideoFormat::NV21,
+                PyVideoFormat::I420 => VideoFormat::I420,
+                PyVideoFormat::Uyvy => VideoFormat::UYVY,
+                PyVideoFormat::Gray8 => VideoFormat::GRAY8,
+            }
+        }
+    }
+
+    impl From<VideoFormat> for PyVideoFormat {
+        fn from(f: VideoFormat) -> Self {
+            match f {
+                VideoFormat::RGBA => PyVideoFormat::Rgba,
+                VideoFormat::BGRx => PyVideoFormat::Bgrx,
+                VideoFormat::NV12 => PyVideoFormat::Nv12,
+                VideoFormat::NV21 => PyVideoFormat::Nv21,
+                VideoFormat::I420 => PyVideoFormat::I420,
+                VideoFormat::UYVY => PyVideoFormat::Uyvy,
+                VideoFormat::GRAY8 => PyVideoFormat::Gray8,
+            }
+        }
+    }
+
+    /// Extract a [`VideoFormat`] from a Python object.
+    ///
+    /// Accepts:
+    /// 1. A `PyVideoFormat` enum value.
+    /// 2. A `str` format name (e.g. `"RGBA"`).
+    /// 3. Any object with a `.name()` method returning a format name string.
+    fn extract_video_format(ob: &Bound<'_, PyAny>) -> PyResult<VideoFormat> {
+        if let Ok(py_fmt) = ob.extract::<PyVideoFormat>() {
+            return Ok(py_fmt.into());
+        }
+        if let Ok(s) = ob.extract::<String>() {
+            return VideoFormat::from_name(&s).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
+                ))
+            });
+        }
+        if let Ok(name_val) = ob.call_method0("name") {
+            if let Ok(s) = name_val.extract::<String>() {
+                return VideoFormat::from_name(&s).ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
+                    ))
+                });
+            }
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Expected a VideoFormat enum value or a format name string (RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8)",
+        ))
+    }
+
+    // ─── MemType enum ───────────────────────────────────────────────────
+
+    /// NvBufSurface memory type.
+    ///
+    /// - ``DEFAULT``       — CUDA Device for dGPU, Surface Array for Jetson.
+    /// - ``CUDA_PINNED``   — CUDA Host (pinned) memory.
+    /// - ``CUDA_DEVICE``   — CUDA Device memory.
+    /// - ``CUDA_UNIFIED``  — CUDA Unified memory.
+    /// - ``SURFACE_ARRAY`` — NVRM Surface Array (Jetson only).
+    /// - ``HANDLE``        — NVRM Handle (Jetson only).
+    /// - ``SYSTEM``        — System memory (malloc).
+    #[pyclass(name = "MemType", eq, eq_int)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum PyMemType {
+        #[pyo3(name = "DEFAULT")]
+        Default = 0,
+        #[pyo3(name = "CUDA_PINNED")]
+        CudaPinned = 1,
+        #[pyo3(name = "CUDA_DEVICE")]
+        CudaDevice = 2,
+        #[pyo3(name = "CUDA_UNIFIED")]
+        CudaUnified = 3,
+        #[pyo3(name = "SURFACE_ARRAY")]
+        SurfaceArray = 4,
+        #[pyo3(name = "HANDLE")]
+        Handle = 5,
+        #[pyo3(name = "SYSTEM")]
+        System = 6,
+    }
+
+    #[pymethods]
+    impl PyMemType {
+        /// Return the canonical name of this memory type.
+        fn name(&self) -> &'static str {
+            match self {
+                PyMemType::Default => "default",
+                PyMemType::CudaPinned => "cuda_pinned",
+                PyMemType::CudaDevice => "cuda_device",
+                PyMemType::CudaUnified => "cuda_unified",
+                PyMemType::SurfaceArray => "surface_array",
+                PyMemType::Handle => "handle",
+                PyMemType::System => "system",
+            }
+        }
+
+        fn __repr__(&self) -> String {
+            format!(
+                "MemType.{}",
+                match self {
+                    PyMemType::Default => "DEFAULT",
+                    PyMemType::CudaPinned => "CUDA_PINNED",
+                    PyMemType::CudaDevice => "CUDA_DEVICE",
+                    PyMemType::CudaUnified => "CUDA_UNIFIED",
+                    PyMemType::SurfaceArray => "SURFACE_ARRAY",
+                    PyMemType::Handle => "HANDLE",
+                    PyMemType::System => "SYSTEM",
+                }
+            )
+        }
+    }
+
+    impl From<PyMemType> for NvBufSurfaceMemType {
+        fn from(m: PyMemType) -> Self {
+            match m {
+                PyMemType::Default => NvBufSurfaceMemType::Default,
+                PyMemType::CudaPinned => NvBufSurfaceMemType::CudaPinned,
+                PyMemType::CudaDevice => NvBufSurfaceMemType::CudaDevice,
+                PyMemType::CudaUnified => NvBufSurfaceMemType::CudaUnified,
+                PyMemType::SurfaceArray => NvBufSurfaceMemType::SurfaceArray,
+                PyMemType::Handle => NvBufSurfaceMemType::Handle,
+                PyMemType::System => NvBufSurfaceMemType::System,
+            }
+        }
+    }
+
+    impl From<NvBufSurfaceMemType> for PyMemType {
+        fn from(m: NvBufSurfaceMemType) -> Self {
+            match m {
+                NvBufSurfaceMemType::Default => PyMemType::Default,
+                NvBufSurfaceMemType::CudaPinned => PyMemType::CudaPinned,
+                NvBufSurfaceMemType::CudaDevice => PyMemType::CudaDevice,
+                NvBufSurfaceMemType::CudaUnified => PyMemType::CudaUnified,
+                NvBufSurfaceMemType::SurfaceArray => PyMemType::SurfaceArray,
+                NvBufSurfaceMemType::Handle => PyMemType::Handle,
+                NvBufSurfaceMemType::System => PyMemType::System,
+            }
+        }
+    }
+
+    /// Extract a [`NvBufSurfaceMemType`] from a Python object.
+    ///
+    /// Accepts:
+    /// 1. A `PyMemType` enum value.
+    /// 2. An `int` (legacy, mapped via `NvBufSurfaceMemType::from(u32)`).
+    /// 3. Any object with a `.name()` method returning a mem-type name string.
+    fn extract_mem_type(ob: &Bound<'_, PyAny>) -> PyResult<NvBufSurfaceMemType> {
+        if let Ok(py_mt) = ob.extract::<PyMemType>() {
+            return Ok(py_mt.into());
+        }
+        if let Ok(v) = ob.extract::<u32>() {
+            return Ok(NvBufSurfaceMemType::from(v));
+        }
+        if let Ok(name_val) = ob.call_method0("name") {
+            if let Ok(s) = name_val.extract::<String>() {
+                let mt = match s.as_str() {
+                    "default" => NvBufSurfaceMemType::Default,
+                    "cuda_pinned" => NvBufSurfaceMemType::CudaPinned,
+                    "cuda_device" => NvBufSurfaceMemType::CudaDevice,
+                    "cuda_unified" => NvBufSurfaceMemType::CudaUnified,
+                    "surface_array" => NvBufSurfaceMemType::SurfaceArray,
+                    "handle" => NvBufSurfaceMemType::Handle,
+                    "system" => NvBufSurfaceMemType::System,
+                    _ => {
+                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            "Unknown memory type: '{s}'"
+                        )));
+                    }
+                };
+                return Ok(mt);
+            }
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "Expected a MemType enum value or an int memory type (0-6)",
+        ))
+    }
+
     /// Configuration for a transform (scale / letterbox) operation.
     ///
     /// All fields have sensible defaults (``Padding.SYMMETRIC``,
@@ -1397,13 +1623,16 @@ pub mod python {
     /// buffer pool interactions.
     ///
     /// Args:
-    ///     format (str): Video format (e.g., ``"RGBA"``, ``"NV12"``).
+    ///     format (VideoFormat | str): Video format — a :class:`VideoFormat`
+    ///         enum value or a string name (``"RGBA"``, ``"NV12"``, etc.).
     ///     width (int): Frame width in pixels.
     ///     height (int): Frame height in pixels.
     ///     fps_num (int): Framerate numerator (default 30).
     ///     fps_den (int): Framerate denominator (default 1).
     ///     gpu_id (int): GPU device ID (default 0).
-    ///     mem_type (int): NvBufSurface memory type (default 0 = Default).
+    ///     mem_type (MemType | int): NvBufSurface memory type
+    ///         (default ``MemType.DEFAULT``).
+    ///     pool_size (int): Buffer pool size (default 4).
     #[pyclass(name = "NvBufSurfaceGenerator")]
     pub struct PyNvBufSurfaceGenerator {
         inner: NvBufSurfaceGenerator,
@@ -1414,46 +1643,48 @@ pub mod python {
         /// Create a new NvBufSurfaceGenerator.
         ///
         /// Args:
-        ///     format (str): Video format string (e.g., ``"RGBA"``, ``"NV12"``).
+        ///     format (VideoFormat | str): Video format — a
+        ///         :class:`VideoFormat` enum value or a string name
+        ///         (``"RGBA"``, ``"NV12"``, ``"I420"``, etc.).
         ///     width (int): Frame width in pixels.
         ///     height (int): Frame height in pixels.
         ///     fps_num (int): Framerate numerator (default 30).
         ///     fps_den (int): Framerate denominator (default 1).
         ///     gpu_id (int): GPU device ID (default 0).
-        ///     mem_type (int): Memory type (default 0 = Default).
+        ///     mem_type (MemType | int): Memory type
+        ///         (default ``MemType.DEFAULT``).
         ///     pool_size (int): Buffer pool size (default 4). Controls both
         ///         ``min_buffers`` and ``max_buffers``. A bounded pool provides
         ///         backpressure when all buffers are in-flight, preventing GPU
         ///         memory exhaustion.
         #[new]
-        #[pyo3(signature = (format, width, height, fps_num=30, fps_den=1, gpu_id=0, mem_type=0, pool_size=4))]
+        #[pyo3(signature = (format, width, height, fps_num=30, fps_den=1, gpu_id=0, mem_type=None, pool_size=4))]
         fn new(
-            format: &str,
+            format: &Bound<'_, PyAny>,
             width: u32,
             height: u32,
             fps_num: i32,
             fps_den: i32,
             gpu_id: u32,
-            mem_type: u32,
+            mem_type: Option<&Bound<'_, PyAny>>,
             pool_size: u32,
         ) -> PyResult<Self> {
-            // Ensure gstreamer-rs knows GStreamer is initialized.
-            // When used from Python, GStreamer is typically already initialized
-            // by PyGObject's Gst.init(). Calling gst::init() again is safe
-            // (gst_init is idempotent at the C level) and sets the Rust-side
-            // IS_INITIALIZED flag that gstreamer-rs checks.
             let _ = gst::init();
+
+            let format = extract_video_format(format)?;
+            let mem_type = match mem_type {
+                Some(m) => extract_mem_type(m)?,
+                None => NvBufSurfaceMemType::Default,
+            };
 
             let inner = NvBufSurfaceGenerator::builder(format, width, height)
                 .fps(fps_num, fps_den)
                 .gpu_id(gpu_id)
-                .mem_type(NvBufSurfaceMemType::from(mem_type))
+                .mem_type(mem_type)
                 .min_buffers(pool_size)
                 .max_buffers(pool_size)
                 .build()
-                .map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
             Ok(Self { inner })
         }
@@ -1482,10 +1713,10 @@ pub mod python {
             self.inner.height()
         }
 
-        /// Video format string (e.g. ``"RGBA"``, ``"NV12"``).
+        /// Video format.
         #[getter]
-        fn format(&self) -> String {
-            self.inner.format().to_owned()
+        fn format(&self) -> PyVideoFormat {
+            self.inner.format().into()
         }
 
         /// Acquire a new NvBufSurface buffer from the pool.
@@ -1510,9 +1741,10 @@ pub mod python {
             // block waiting for a buffer to be returned by downstream elements
             // whose callbacks need the GIL (e.g. appsink new-sample).
             py.detach(|| {
-                let buffer = self.inner.acquire_surface(id).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+                let buffer = self
+                    .inner
+                    .acquire_surface(id)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
                 // Convert to raw pointer and leak it (caller takes ownership).
                 // The buffer must be unreffed by the pipeline or manually.
@@ -1542,12 +1774,16 @@ pub mod python {
         ///         first surface plane, and ``pitch`` is the row stride in
         ///         bytes.
         #[pyo3(signature = (id=None))]
-        fn acquire_surface_with_ptr(&self, py: Python<'_>, id: Option<i64>) -> PyResult<(usize, usize, u32)> {
+        fn acquire_surface_with_ptr(
+            &self,
+            py: Python<'_>,
+            id: Option<i64>,
+        ) -> PyResult<(usize, usize, u32)> {
             py.detach(|| {
-                let (buffer, data_ptr, pitch) =
-                    self.inner.acquire_surface_with_ptr(id).map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                    })?;
+                let (buffer, data_ptr, pitch) = self
+                    .inner
+                    .acquire_surface_with_ptr(id)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
                 let raw_buf = unsafe {
                     use glib::translate::IntoGlibPtr;
@@ -1598,13 +1834,12 @@ pub mod python {
                     ));
                 }
                 let src_buf = unsafe {
-                    gst::Buffer::from_glib_none(
-                        src_buf_ptr as *const gst::ffi::GstBuffer,
-                    )
+                    gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer)
                 };
-                let dst_buf = self.inner.transform(&src_buf, &config, id).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+                let dst_buf = self
+                    .inner
+                    .transform(&src_buf, &config, id)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 let raw = unsafe {
                     use glib::translate::IntoGlibPtr;
                     dst_buf.into_glib_ptr() as usize
@@ -1640,16 +1875,12 @@ pub mod python {
                     ));
                 }
                 let src_buf = unsafe {
-                    gst::Buffer::from_glib_none(
-                        src_buf_ptr as *const gst::ffi::GstBuffer,
-                    )
+                    gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer)
                 };
                 let (dst_buf, data_ptr, pitch) = self
                     .inner
                     .transform_with_ptr(&src_buf, &config, id)
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                    })?;
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 let raw_buf = unsafe {
                     use glib::translate::IntoGlibPtr;
                     dst_buf.into_glib_ptr() as usize
@@ -1686,9 +1917,7 @@ pub mod python {
             py.detach(|| unsafe {
                 self.inner
                     .push_to_appsrc_raw(appsrc_ptr, pts_ns, duration_ns, id)
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                    })
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
             })
         }
 
@@ -1700,9 +1929,8 @@ pub mod python {
         #[staticmethod]
         fn send_eos(appsrc_ptr: usize) -> PyResult<()> {
             unsafe {
-                NvBufSurfaceGenerator::send_eos_raw(appsrc_ptr).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })
+                NvBufSurfaceGenerator::send_eos_raw(appsrc_ptr)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
             }
         }
 
@@ -1717,20 +1945,16 @@ pub mod python {
         ///     id (int | None): Optional frame identifier. When provided,
         ///         a ``SavantIdMeta`` with ``Frame(id)`` is attached.
         #[pyo3(signature = (gst_buffer_dest, id=None))]
-        fn create_surface(&self, py: Python<'_>, gst_buffer_dest: usize, id: Option<i64>) -> PyResult<()> {
-            py.detach(|| {
-                unsafe {
-                    self.inner
-                        .create_surface_raw(
-                            gst_buffer_dest as *mut gst::ffi::GstBuffer,
-                            id,
-                        )
-                        .map_err(|e| {
-                            pyo3::exceptions::PyRuntimeError::new_err(
-                                e.to_string(),
-                            )
-                        })
-                }
+        fn create_surface(
+            &self,
+            py: Python<'_>,
+            gst_buffer_dest: usize,
+            id: Option<i64>,
+        ) -> PyResult<()> {
+            py.detach(|| unsafe {
+                self.inner
+                    .create_surface_raw(gst_buffer_dest as *mut gst::ffi::GstBuffer, id)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
             })
         }
     }
@@ -1745,9 +1969,7 @@ pub mod python {
     #[pyfunction]
     #[pyo3(signature = (gpu_id=0))]
     fn init_cuda(gpu_id: u32) -> PyResult<()> {
-        cuda_init(gpu_id).map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-        })
+        cuda_init(gpu_id).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Install pad probes on an element to propagate ``SavantIdMeta``
@@ -1804,8 +2026,7 @@ pub mod python {
         }
         let _ = gst::init();
         unsafe {
-            let buf_ref =
-                gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
+            let buf_ref = gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
             match buf_ref.meta::<SavantIdMeta>() {
                 Some(meta) => {
                     let ids = meta
@@ -1850,12 +2071,9 @@ pub mod python {
         }
         let _ = gst::init();
         unsafe {
-            let buf_ref =
-                gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
-            let surf_ptr =
-                crate::transform::extract_nvbufsurface(buf_ref).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+            let buf_ref = gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
+            let surf_ptr = crate::transform::extract_nvbufsurface(buf_ref)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let surf = &*surf_ptr;
             let params = &*surf.surfaceList;
             Ok((
@@ -1901,9 +2119,8 @@ pub mod python {
         #[new]
         #[pyo3(signature = (width, height, gpu_id=0))]
         fn new(width: u32, height: u32, gpu_id: u32) -> PyResult<Self> {
-            let inner = crate::SkiaRenderer::new(width, height, gpu_id).map_err(|e| {
-                pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-            })?;
+            let inner = crate::SkiaRenderer::new(width, height, gpu_id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(Self { inner })
         }
 
@@ -1924,17 +2141,13 @@ pub mod python {
         #[pyo3(signature = (buf_ptr, gpu_id=0))]
         fn from_nvbuf(buf_ptr: usize, gpu_id: u32) -> PyResult<Self> {
             if buf_ptr == 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "buf_ptr is null",
-                ));
+                return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
             }
             let _ = gst::init();
             unsafe {
-                let buf_ref =
-                    gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
-                let surf_ptr = transform::extract_nvbufsurface(buf_ref).map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+                let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
+                let surf_ptr = transform::extract_nvbufsurface(buf_ref)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 let surf = &*surf_ptr;
                 let params = &*surf.surfaceList;
                 let width = params.width;
@@ -1942,12 +2155,8 @@ pub mod python {
                 let data_ptr = params.dataPtr;
                 let pitch = params.pitch;
 
-                let inner = crate::SkiaRenderer::from_nvbuf(
-                    width, height, gpu_id, data_ptr, pitch,
-                )
-                .map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                })?;
+                let inner = crate::SkiaRenderer::from_nvbuf(width, height, gpu_id, data_ptr, pitch)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 Ok(Self { inner })
             }
         }
@@ -1995,23 +2204,17 @@ pub mod python {
             config: Option<&PyTransformConfig>,
         ) -> PyResult<()> {
             if buf_ptr == 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "buf_ptr is null",
-                ));
+                return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
             }
             let _ = gst::init();
 
             let rust_config = config.map(|c| c.to_rust());
 
             unsafe {
-                let buf_ref = gst::BufferRef::from_mut_ptr(
-                    buf_ptr as *mut gst::ffi::GstBuffer,
-                );
+                let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
                 self.inner
                     .render_to_nvbuf(buf_ref, rust_config.as_ref())
-                    .map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-                    })
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
             }
         }
     }
@@ -2024,6 +2227,8 @@ pub mod python {
         m.add_class::<PyPadding>()?;
         m.add_class::<PyInterpolation>()?;
         m.add_class::<PyComputeMode>()?;
+        m.add_class::<PyVideoFormat>()?;
+        m.add_class::<PyMemType>()?;
         // Config
         m.add_class::<PyTransformConfig>()?;
         // Generator
@@ -2039,4 +2244,3 @@ pub mod python {
         Ok(())
     }
 }
-

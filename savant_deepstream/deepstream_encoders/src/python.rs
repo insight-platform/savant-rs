@@ -30,7 +30,9 @@
 //! remaining = encoder.finish()
 //! ```
 
-use crate::{EncodedFrame, EncoderConfig, EncoderError, NvEncoder};
+use crate::{
+    EncodedFrame, EncoderConfig, EncoderError, NvBufSurfaceMemType, NvEncoder, VideoFormat,
+};
 use gstreamer as gst;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -153,6 +155,250 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
     ))
 }
 
+// ---------------------------------------------------------------------------
+// PyVideoFormat — local Python enum for video pixel formats
+// ---------------------------------------------------------------------------
+
+/// Video pixel format.
+///
+/// - ``RGBA``  — 8-bit RGBA (4 bytes/pixel).
+/// - ``BGRx``  — 8-bit BGRx (4 bytes/pixel, alpha ignored).
+/// - ``NV12``  — YUV 4:2:0 semi-planar (default encoder format).
+/// - ``NV21``  — YUV 4:2:0 semi-planar (UV swapped).
+/// - ``I420``  — YUV 4:2:0 planar (JPEG encoder format).
+/// - ``UYVY``  — YUV 4:2:2 packed.
+/// - ``GRAY8`` — single-channel grayscale.
+#[pyclass(name = "VideoFormat", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyVideoFormat {
+    #[pyo3(name = "RGBA")]
+    Rgba = 0,
+    #[pyo3(name = "BGRx")]
+    Bgrx = 1,
+    #[pyo3(name = "NV12")]
+    Nv12 = 2,
+    #[pyo3(name = "NV21")]
+    Nv21 = 3,
+    #[pyo3(name = "I420")]
+    I420 = 4,
+    #[pyo3(name = "UYVY")]
+    Uyvy = 5,
+    #[pyo3(name = "GRAY8")]
+    Gray8 = 6,
+}
+
+#[pymethods]
+impl PyVideoFormat {
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match VideoFormat::from_name(name) {
+            Some(f) => Ok(f.into()),
+            None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown video format: '{}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8",
+                name
+            ))),
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        let f: VideoFormat = (*self).into();
+        f.name()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "VideoFormat.{}",
+            match self {
+                PyVideoFormat::Rgba => "RGBA",
+                PyVideoFormat::Bgrx => "BGRx",
+                PyVideoFormat::Nv12 => "NV12",
+                PyVideoFormat::Nv21 => "NV21",
+                PyVideoFormat::I420 => "I420",
+                PyVideoFormat::Uyvy => "UYVY",
+                PyVideoFormat::Gray8 => "GRAY8",
+            }
+        )
+    }
+}
+
+impl From<PyVideoFormat> for VideoFormat {
+    fn from(f: PyVideoFormat) -> Self {
+        match f {
+            PyVideoFormat::Rgba => VideoFormat::RGBA,
+            PyVideoFormat::Bgrx => VideoFormat::BGRx,
+            PyVideoFormat::Nv12 => VideoFormat::NV12,
+            PyVideoFormat::Nv21 => VideoFormat::NV21,
+            PyVideoFormat::I420 => VideoFormat::I420,
+            PyVideoFormat::Uyvy => VideoFormat::UYVY,
+            PyVideoFormat::Gray8 => VideoFormat::GRAY8,
+        }
+    }
+}
+
+impl From<VideoFormat> for PyVideoFormat {
+    fn from(f: VideoFormat) -> Self {
+        match f {
+            VideoFormat::RGBA => PyVideoFormat::Rgba,
+            VideoFormat::BGRx => PyVideoFormat::Bgrx,
+            VideoFormat::NV12 => PyVideoFormat::Nv12,
+            VideoFormat::NV21 => PyVideoFormat::Nv21,
+            VideoFormat::I420 => PyVideoFormat::I420,
+            VideoFormat::UYVY => PyVideoFormat::Uyvy,
+            VideoFormat::GRAY8 => PyVideoFormat::Gray8,
+        }
+    }
+}
+
+fn extract_video_format(ob: &Bound<'_, PyAny>) -> PyResult<VideoFormat> {
+    if let Ok(py_fmt) = ob.extract::<PyVideoFormat>() {
+        return Ok(py_fmt.into());
+    }
+    if let Ok(s) = ob.extract::<String>() {
+        return VideoFormat::from_name(&s).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
+            ))
+        });
+    }
+    if let Ok(name_val) = ob.call_method0("name") {
+        if let Ok(s) = name_val.extract::<String>() {
+            return VideoFormat::from_name(&s).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "Unknown video format: '{s}'. Expected one of: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8"
+                ))
+            });
+        }
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a VideoFormat enum value or a format name string (RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8)",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyMemType — local Python enum for NvBufSurface memory types
+// ---------------------------------------------------------------------------
+
+/// NvBufSurface memory type.
+///
+/// - ``DEFAULT``       — CUDA Device for dGPU, Surface Array for Jetson.
+/// - ``CUDA_PINNED``   — CUDA Host (pinned) memory.
+/// - ``CUDA_DEVICE``   — CUDA Device memory.
+/// - ``CUDA_UNIFIED``  — CUDA Unified memory.
+/// - ``SURFACE_ARRAY`` — NVRM Surface Array (Jetson only).
+/// - ``HANDLE``        — NVRM Handle (Jetson only).
+/// - ``SYSTEM``        — System memory (malloc).
+#[pyclass(name = "MemType", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyMemType {
+    #[pyo3(name = "DEFAULT")]
+    Default = 0,
+    #[pyo3(name = "CUDA_PINNED")]
+    CudaPinned = 1,
+    #[pyo3(name = "CUDA_DEVICE")]
+    CudaDevice = 2,
+    #[pyo3(name = "CUDA_UNIFIED")]
+    CudaUnified = 3,
+    #[pyo3(name = "SURFACE_ARRAY")]
+    SurfaceArray = 4,
+    #[pyo3(name = "HANDLE")]
+    Handle = 5,
+    #[pyo3(name = "SYSTEM")]
+    System = 6,
+}
+
+#[pymethods]
+impl PyMemType {
+    fn name(&self) -> &'static str {
+        match self {
+            PyMemType::Default => "default",
+            PyMemType::CudaPinned => "cuda_pinned",
+            PyMemType::CudaDevice => "cuda_device",
+            PyMemType::CudaUnified => "cuda_unified",
+            PyMemType::SurfaceArray => "surface_array",
+            PyMemType::Handle => "handle",
+            PyMemType::System => "system",
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "MemType.{}",
+            match self {
+                PyMemType::Default => "DEFAULT",
+                PyMemType::CudaPinned => "CUDA_PINNED",
+                PyMemType::CudaDevice => "CUDA_DEVICE",
+                PyMemType::CudaUnified => "CUDA_UNIFIED",
+                PyMemType::SurfaceArray => "SURFACE_ARRAY",
+                PyMemType::Handle => "HANDLE",
+                PyMemType::System => "SYSTEM",
+            }
+        )
+    }
+}
+
+impl From<PyMemType> for NvBufSurfaceMemType {
+    fn from(m: PyMemType) -> Self {
+        match m {
+            PyMemType::Default => NvBufSurfaceMemType::Default,
+            PyMemType::CudaPinned => NvBufSurfaceMemType::CudaPinned,
+            PyMemType::CudaDevice => NvBufSurfaceMemType::CudaDevice,
+            PyMemType::CudaUnified => NvBufSurfaceMemType::CudaUnified,
+            PyMemType::SurfaceArray => NvBufSurfaceMemType::SurfaceArray,
+            PyMemType::Handle => NvBufSurfaceMemType::Handle,
+            PyMemType::System => NvBufSurfaceMemType::System,
+        }
+    }
+}
+
+impl From<NvBufSurfaceMemType> for PyMemType {
+    fn from(m: NvBufSurfaceMemType) -> Self {
+        match m {
+            NvBufSurfaceMemType::Default => PyMemType::Default,
+            NvBufSurfaceMemType::CudaPinned => PyMemType::CudaPinned,
+            NvBufSurfaceMemType::CudaDevice => PyMemType::CudaDevice,
+            NvBufSurfaceMemType::CudaUnified => PyMemType::CudaUnified,
+            NvBufSurfaceMemType::SurfaceArray => PyMemType::SurfaceArray,
+            NvBufSurfaceMemType::Handle => PyMemType::Handle,
+            NvBufSurfaceMemType::System => PyMemType::System,
+        }
+    }
+}
+
+fn extract_mem_type(ob: &Bound<'_, PyAny>) -> PyResult<NvBufSurfaceMemType> {
+    if let Ok(py_mt) = ob.extract::<PyMemType>() {
+        return Ok(py_mt.into());
+    }
+    if let Ok(v) = ob.extract::<u32>() {
+        return Ok(NvBufSurfaceMemType::from(v));
+    }
+    if let Ok(name_val) = ob.call_method0("name") {
+        if let Ok(s) = name_val.extract::<String>() {
+            let mt = match s.as_str() {
+                "default" => NvBufSurfaceMemType::Default,
+                "cuda_pinned" => NvBufSurfaceMemType::CudaPinned,
+                "cuda_device" => NvBufSurfaceMemType::CudaDevice,
+                "cuda_unified" => NvBufSurfaceMemType::CudaUnified,
+                "surface_array" => NvBufSurfaceMemType::SurfaceArray,
+                "handle" => NvBufSurfaceMemType::Handle,
+                "system" => NvBufSurfaceMemType::System,
+                _ => {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "Unknown memory type: '{s}'"
+                    )));
+                }
+            };
+            return Ok(mt);
+        }
+    }
+    Err(pyo3::exceptions::PyTypeError::new_err(
+        "Expected a MemType enum value or an int memory type (0-6)",
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// PyEncoderConfig
+// ---------------------------------------------------------------------------
+
 /// Configuration for creating an :class:`NvEncoder`.
 ///
 /// The internal buffer pools are always configured with exactly 1 buffer.
@@ -167,11 +413,13 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///         ``"jpeg"``, ``"av1"``).
 ///     width (int): Frame width in pixels.
 ///     height (int): Frame height in pixels.
-///     format (str): Video format (default ``"NV12"``).
+///     format (VideoFormat | str): Video format (default
+///         ``VideoFormat.NV12``).
 ///     fps_num (int): Framerate numerator (default 30).
 ///     fps_den (int): Framerate denominator (default 1).
 ///     gpu_id (int): GPU device ID (default 0).
-///     mem_type (int): NvBufSurface memory type (default 0).
+///     mem_type (MemType | int): NvBufSurface memory type (default
+///         ``MemType.DEFAULT``).
 ///     encoder_properties (dict | None): Encoder-specific GStreamer
 ///         properties as string key/value pairs. B-frame properties are
 ///         rejected.
@@ -180,6 +428,7 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///
 ///     config = EncoderConfig(
 ///         Codec.HEVC, 1920, 1080,
+///         format=VideoFormat.RGBA,
 ///         encoder_properties={"bitrate": "4000000"},
 ///     )
 #[pyclass(name = "EncoderConfig")]
@@ -195,25 +444,34 @@ impl PyEncoderConfig {
         codec,
         width,
         height,
-        format = "NV12",
+        format = None,
         fps_num = 30,
         fps_den = 1,
         gpu_id = 0,
-        mem_type = 0,
+        mem_type = None,
         encoder_properties = None,
     ))]
     fn new(
         codec: &Bound<'_, PyAny>,
         width: u32,
         height: u32,
-        format: &str,
+        format: Option<&Bound<'_, PyAny>>,
         fps_num: i32,
         fps_den: i32,
         gpu_id: u32,
-        mem_type: u32,
+        mem_type: Option<&Bound<'_, PyAny>>,
         encoder_properties: Option<std::collections::HashMap<String, String>>,
     ) -> PyResult<Self> {
         let codec = extract_codec(codec)?;
+        let format = match format {
+            Some(f) => extract_video_format(f)?,
+            None => VideoFormat::NV12,
+        };
+        let mem_type = match mem_type {
+            Some(m) => extract_mem_type(m)?,
+            None => NvBufSurfaceMemType::Default,
+        };
+
         let mut config = EncoderConfig::new(codec, width, height)
             .format(format)
             .fps(fps_num, fps_den)
@@ -247,10 +505,10 @@ impl PyEncoderConfig {
         self.inner.height
     }
 
-    /// Video format string.
+    /// Video format.
     #[getter]
-    fn format(&self) -> &str {
-        &self.inner.format
+    fn format(&self) -> PyVideoFormat {
+        self.inner.format.into()
     }
 
     fn __repr__(&self) -> String {
@@ -456,9 +714,8 @@ impl PyNvEncoder {
         }
 
         // Take ownership of the buffer from the raw pointer.
-        let buffer = unsafe {
-            glib::translate::from_glib_full(buffer_ptr as *mut gst::ffi::GstBuffer)
-        };
+        let buffer =
+            unsafe { glib::translate::from_glib_full(buffer_ptr as *mut gst::ffi::GstBuffer) };
 
         py.detach(|| {
             self.inner
@@ -546,12 +803,8 @@ fn to_py_err(e: EncoderError) -> PyErr {
         EncoderError::BFramesNotAllowed(_) | EncoderError::InvalidProperty { .. } => {
             pyo3::exceptions::PyValueError::new_err(e.to_string())
         }
-        EncoderError::PtsReordered { .. } => {
-            pyo3::exceptions::PyValueError::new_err(e.to_string())
-        }
-        EncoderError::AlreadyFinalized => {
-            pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
-        }
+        EncoderError::PtsReordered { .. } => pyo3::exceptions::PyValueError::new_err(e.to_string()),
+        EncoderError::AlreadyFinalized => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
         _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
     }
 }
@@ -561,6 +814,8 @@ fn to_py_err(e: EncoderError) -> PyErr {
 #[pyo3(name = "_native")]
 pub fn deepstream_encoders(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodec>()?;
+    m.add_class::<PyVideoFormat>()?;
+    m.add_class::<PyMemType>()?;
     m.add_class::<PyEncoderConfig>()?;
     m.add_class::<PyEncodedFrame>()?;
     m.add_class::<PyNvEncoder>()?;

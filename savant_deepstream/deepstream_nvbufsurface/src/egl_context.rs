@@ -80,9 +80,11 @@ extern "C" {
 
 // EGL extension function pointer types
 #[allow(non_camel_case_types)]
-type PFNEGLQUERYDEVICESEXTPROC =
-    unsafe extern "C" fn(max_devices: EGLint, devices: *mut EGLDeviceEXT, num_devices: *mut EGLint)
-        -> EGLBoolean;
+type PFNEGLQUERYDEVICESEXTPROC = unsafe extern "C" fn(
+    max_devices: EGLint,
+    devices: *mut EGLDeviceEXT,
+    num_devices: *mut EGLint,
+) -> EGLBoolean;
 #[allow(non_camel_case_types)]
 type PFNEGLGETPLATFORMDISPLAYEXTPROC = unsafe extern "C" fn(
     platform: u32,
@@ -142,17 +144,13 @@ impl EglHeadlessContext {
             let query_devices_name = CString::new("eglQueryDevicesEXT").unwrap();
             let query_devices_ptr = eglGetProcAddress(query_devices_name.as_ptr());
             if query_devices_ptr.is_null() {
-                return Err(EglError::MissingExtension(
-                    "eglQueryDevicesEXT".into(),
-                ));
+                return Err(EglError::MissingExtension("eglQueryDevicesEXT".into()));
             }
             let egl_query_devices: PFNEGLQUERYDEVICESEXTPROC =
                 std::mem::transmute(query_devices_ptr);
 
-            let get_platform_display_name =
-                CString::new("eglGetPlatformDisplayEXT").unwrap();
-            let get_platform_display_ptr =
-                eglGetProcAddress(get_platform_display_name.as_ptr());
+            let get_platform_display_name = CString::new("eglGetPlatformDisplayEXT").unwrap();
+            let get_platform_display_ptr = eglGetProcAddress(get_platform_display_name.as_ptr());
             if get_platform_display_ptr.is_null() {
                 return Err(EglError::MissingExtension(
                     "eglGetPlatformDisplayEXT".into(),
@@ -220,16 +218,13 @@ impl EglHeadlessContext {
 
             // ── Create context ───────────────────────────────────────────
             let ctx_attribs: [EGLint; 1] = [EGL_NONE];
-            let context =
-                eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
+            let context = eglCreateContext(display, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
             if context == EGL_NO_CONTEXT {
                 egl_check("eglCreateContext")?;
             }
 
             // ── Make current (surfaceless) ───────────────────────────────
-            if eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context)
-                != EGL_TRUE
-            {
+            if eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context) != EGL_TRUE {
                 egl_check("eglMakeCurrent (surfaceless)")?;
             }
 
@@ -249,12 +244,7 @@ impl EglHeadlessContext {
 impl Drop for EglHeadlessContext {
     fn drop(&mut self) {
         unsafe {
-            eglMakeCurrent(
-                self.display,
-                EGL_NO_SURFACE,
-                EGL_NO_SURFACE,
-                EGL_NO_CONTEXT,
-            );
+            eglMakeCurrent(self.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             eglDestroyContext(self.display, self.context);
             eglTerminate(self.display);
         }

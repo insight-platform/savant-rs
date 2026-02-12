@@ -192,9 +192,9 @@ impl Default for TransformConfig {
 pub(crate) unsafe fn extract_nvbufsurface(
     buf: &gstreamer::BufferRef,
 ) -> Result<*mut ffi::NvBufSurface, TransformError> {
-    let map = buf.map_readable().map_err(|_| {
-        TransformError::InvalidBuffer("failed to map buffer for reading")
-    })?;
+    let map = buf
+        .map_readable()
+        .map_err(|_| TransformError::InvalidBuffer("failed to map buffer for reading"))?;
     let data = map.as_slice();
     if data.len() < std::mem::size_of::<ffi::NvBufSurface>() {
         return Err(TransformError::InvalidBuffer(
@@ -368,8 +368,7 @@ pub(crate) unsafe fn do_transform(
 
     // If user specified a source crop, add the CROP_SRC flag (already included)
     if config.src_rect.is_some() {
-        flags |=
-            transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
+        flags |= transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
     }
 
     let mut transform_params = transform_ffi::_NvBufSurfaceTransformParams {

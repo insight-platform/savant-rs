@@ -46,7 +46,7 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst
 
 from deepstream_nvbufsurface import init_cuda
-from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+from deepstream_encoders import NvEncoder, EncoderConfig, Codec, VideoFormat
 from savant_gstreamer import Mp4Muxer
 
 
@@ -98,13 +98,14 @@ def main() -> None:
 
     frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333
     codec = resolve_codec(args.codec)
+    video_format = VideoFormat.from_name(args.format)
 
     # -- Encoder -----------------------------------------------------------
     config = EncoderConfig(
         codec,
         args.width,
         args.height,
-        format=args.format,
+        format=video_format,
         fps_num=args.fps,
         fps_den=1,
         gpu_id=args.gpu_id,
@@ -112,7 +113,7 @@ def main() -> None:
     )
     encoder = NvEncoder(config)
     print(
-        f"Encoder created: {args.width}x{args.height} {args.format} "
+        f"Encoder created: {args.width}x{args.height} {video_format.name()} "
         f"@ {args.fps} fps, codec={codec.name()} (gpu {args.gpu_id})"
     )
 

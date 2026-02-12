@@ -85,8 +85,7 @@ fn test_config_builder_chain() {
 
 #[test]
 fn test_config_rejects_b_frame_properties() {
-    let result = EncoderConfig::new(Codec::Hevc, 640, 480)
-        .encoder_property("num-B-Frames", "2");
+    let result = EncoderConfig::new(Codec::Hevc, 640, 480).encoder_property("num-B-Frames", "2");
     assert!(result.is_err());
     match result.unwrap_err() {
         EncoderError::BFramesNotAllowed(name) => {
@@ -98,8 +97,7 @@ fn test_config_rejects_b_frame_properties() {
 
 #[test]
 fn test_config_rejects_b_frames_case_insensitive() {
-    let result = EncoderConfig::new(Codec::H264, 640, 480)
-        .encoder_property("b-frames", "1");
+    let result = EncoderConfig::new(Codec::H264, 640, 480).encoder_property("b-frames", "1");
     assert!(result.is_err());
 }
 
@@ -109,7 +107,10 @@ fn test_config_accepts_valid_property() {
         .encoder_property("bitrate", "4000000")
         .unwrap();
     assert_eq!(config.encoder_properties.len(), 1);
-    assert_eq!(config.encoder_properties[0], ("bitrate".into(), "4000000".into()));
+    assert_eq!(
+        config.encoder_properties[0],
+        ("bitrate".into(), "4000000".into())
+    );
 }
 
 // ─── NvEncoder creation tests ────────────────────────────────────────────
@@ -119,7 +120,11 @@ fn test_encoder_creation_hevc() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 640, 480);
     let encoder = NvEncoder::new(&config);
-    assert!(encoder.is_ok(), "Failed to create HEVC encoder: {:?}", encoder.err());
+    assert!(
+        encoder.is_ok(),
+        "Failed to create HEVC encoder: {:?}",
+        encoder.err()
+    );
 }
 
 #[test]
@@ -127,7 +132,11 @@ fn test_encoder_creation_h264() {
     init();
     let config = EncoderConfig::new(Codec::H264, 640, 480);
     let encoder = NvEncoder::new(&config);
-    assert!(encoder.is_ok(), "Failed to create H264 encoder: {:?}", encoder.err());
+    assert!(
+        encoder.is_ok(),
+        "Failed to create H264 encoder: {:?}",
+        encoder.err()
+    );
 }
 
 #[test]
@@ -135,7 +144,11 @@ fn test_encoder_creation_jpeg() {
     init();
     let config = EncoderConfig::new(Codec::Jpeg, 640, 480).format("I420");
     let encoder = NvEncoder::new(&config);
-    assert!(encoder.is_ok(), "Failed to create JPEG encoder: {:?}", encoder.err());
+    assert!(
+        encoder.is_ok(),
+        "Failed to create JPEG encoder: {:?}",
+        encoder.err()
+    );
 }
 
 #[test]
@@ -176,7 +189,10 @@ fn test_submit_and_pull_frames() {
     );
 
     for frame in &remaining {
-        assert!(!frame.data.is_empty(), "Encoded frame data should not be empty");
+        assert!(
+            !frame.data.is_empty(),
+            "Encoded frame data should not be empty"
+        );
         assert_eq!(frame.codec, Codec::Hevc);
     }
 }
@@ -184,8 +200,7 @@ fn test_submit_and_pull_frames() {
 #[test]
 fn test_submit_rgba_with_conversion() {
     init();
-    let config = EncoderConfig::new(Codec::H264, 320, 240)
-        .format("RGBA");
+    let config = EncoderConfig::new(Codec::H264, 320, 240).format("RGBA");
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3i64 {

@@ -17,10 +17,10 @@
 //! them to the encoder. Encoded frames are collected from the appsink.
 
 use crate::error::EncoderError;
-use crate::{Codec, EncodedFrame, EncoderConfig};
+use crate::{Codec, EncodedFrame, EncoderConfig, VideoFormat};
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, create_cuda_stream, destroy_cuda_stream,
-    NvBufSurfaceGenerator, NvBufSurfaceMemType, TransformConfig,
+    bridge_savant_id_meta, create_cuda_stream, destroy_cuda_stream, NvBufSurfaceGenerator,
+    TransformConfig,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -127,29 +127,25 @@ impl NvEncoder {
             Codec::H264 => (
                 "nvv4l2h264enc",
                 "h264parse",
-                config.format != "NV12" && config.format != "I420",
+                config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
             Codec::Hevc => (
                 "nvv4l2h265enc",
                 "h265parse",
-                config.format != "NV12" && config.format != "I420",
+                config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
-            Codec::Jpeg => (
-                "nvjpegenc",
-                "jpegparse",
-                config.format != "I420",
-            ),
+            Codec::Jpeg => ("nvjpegenc", "jpegparse", config.format != VideoFormat::I420),
             Codec::Av1 => (
                 "nvv4l2av1enc",
                 "av1parse",
-                config.format != "NV12" && config.format != "I420",
+                config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
         };
 
         // Determine encoder-native format.
         let native_format = match config.codec {
-            Codec::Jpeg => "I420",
-            _ => "NV12",
+            Codec::Jpeg => VideoFormat::I420,
+            _ => VideoFormat::NV12,
         };
 
         // Create the user-facing buffer generator (e.g. RGBA).
@@ -161,34 +157,27 @@ impl NvEncoder {
         // while hardware is still reading from it.
         const POOL_SIZE: u32 = 1;
 
-        let generator = NvBufSurfaceGenerator::builder(
-            &config.format,
-            config.width,
-            config.height,
-        )
-        .fps(config.fps_num, config.fps_den)
-        .gpu_id(config.gpu_id)
-        .mem_type(NvBufSurfaceMemType::from(config.mem_type))
-        .min_buffers(POOL_SIZE)
-        .max_buffers(POOL_SIZE)
-        .build()?;
+        let generator = NvBufSurfaceGenerator::builder(config.format, config.width, config.height)
+            .fps(config.fps_num, config.fps_den)
+            .gpu_id(config.gpu_id)
+            .mem_type(config.mem_type)
+            .min_buffers(POOL_SIZE)
+            .max_buffers(POOL_SIZE)
+            .build()?;
 
         // When the user format differs from the encoder-native format, set up
         // a ConvertContext with a second generator + non-blocking CUDA stream.
         // This replaces the `nvvideoconvert` GStreamer element, avoiding the
         // CUDA default-stream serialization bottleneck.
         let convert_ctx = if needs_convert {
-            let native_generator = NvBufSurfaceGenerator::builder(
-                native_format,
-                config.width,
-                config.height,
-            )
-            .fps(config.fps_num, config.fps_den)
-            .gpu_id(config.gpu_id)
-            .mem_type(NvBufSurfaceMemType::from(config.mem_type))
-            .min_buffers(POOL_SIZE)
-            .max_buffers(POOL_SIZE)
-            .build()?;
+            let native_generator =
+                NvBufSurfaceGenerator::builder(native_format, config.width, config.height)
+                    .fps(config.fps_num, config.fps_den)
+                    .gpu_id(config.gpu_id)
+                    .mem_type(config.mem_type)
+                    .min_buffers(POOL_SIZE)
+                    .max_buffers(POOL_SIZE)
+                    .build()?;
 
             let cuda_stream = create_cuda_stream().map_err(|e| {
                 EncoderError::PipelineError(format!(
@@ -272,10 +261,12 @@ impl NvEncoder {
             })?;
         }
         for i in 0..chain.len() - 1 {
-            chain[i].link(chain[i + 1]).map_err(|_| EncoderError::LinkFailed {
-                from: chain[i].name().to_string(),
-                to: chain[i + 1].name().to_string(),
-            })?;
+            chain[i]
+                .link(chain[i + 1])
+                .map_err(|_| EncoderError::LinkFailed {
+                    from: chain[i].name().to_string(),
+                    to: chain[i + 1].name().to_string(),
+                })?;
         }
 
         debug!(
@@ -286,9 +277,9 @@ impl NvEncoder {
         );
 
         // Start the pipeline.
-        pipeline.set_state(gst::State::Playing).map_err(|e| {
-            EncoderError::PipelineError(format!("Failed to start pipeline: {}", e))
-        })?;
+        pipeline
+            .set_state(gst::State::Playing)
+            .map_err(|e| EncoderError::PipelineError(format!("Failed to start pipeline: {}", e)))?;
 
         let appsrc_typed: gst_app::AppSrc = appsrc
             .dynamic_cast::<gst_app::AppSrc>()
@@ -396,9 +387,7 @@ impl NvEncoder {
             // Set timestamps on the converted buffer.
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {
-                    EncoderError::BufferAcquisitionFailed(
-                        "Converted buffer is not writable".into(),
-                    )
+                    EncoderError::BufferAcquisitionFailed("Converted buffer is not writable".into())
                 })?;
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
                 if let Some(dur) = duration_ns {
@@ -421,9 +410,9 @@ impl NvEncoder {
         };
 
         // Push to appsrc.
-        self.appsrc.push_buffer(push_buffer).map_err(|e| {
-            EncoderError::PipelineError(format!("appsrc push failed: {:?}", e))
-        })?;
+        self.appsrc
+            .push_buffer(push_buffer)
+            .map_err(|e| EncoderError::PipelineError(format!("appsrc push failed: {:?}", e)))?;
 
         Ok(())
     }
@@ -439,14 +428,11 @@ impl NvEncoder {
 
         match sample {
             Some(sample) => {
-                let buffer = sample.buffer().ok_or_else(|| {
-                    EncoderError::PipelineError("Sample has no buffer".into())
-                })?;
+                let buffer = sample
+                    .buffer()
+                    .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
 
-                let pts_ns = buffer
-                    .pts()
-                    .map(|t| t.nseconds())
-                    .unwrap_or(0);
+                let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
 
                 let dts_ns = buffer.dts().map(|t| t.nseconds());
                 let duration_ns = buffer.duration().map(|t| t.nseconds());
@@ -499,9 +485,9 @@ impl NvEncoder {
 
         match sample {
             Some(sample) => {
-                let buffer = sample.buffer().ok_or_else(|| {
-                    EncoderError::PipelineError("Sample has no buffer".into())
-                })?;
+                let buffer = sample
+                    .buffer()
+                    .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
 
                 let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
                 let dts_ns = buffer.dts().map(|t| t.nseconds());
@@ -552,9 +538,9 @@ impl NvEncoder {
         self.finalized = true;
 
         // Send EOS.
-        self.appsrc.end_of_stream().map_err(|e| {
-            EncoderError::PipelineError(format!("EOS failed: {:?}", e))
-        })?;
+        self.appsrc
+            .end_of_stream()
+            .map_err(|e| EncoderError::PipelineError(format!("EOS failed: {:?}", e)))?;
 
         let timeout_ms = drain_timeout_ms.unwrap_or(2000);
         let mut frames = Vec::new();
@@ -568,9 +554,10 @@ impl NvEncoder {
         }
 
         // Wait for EOS to propagate.
-        let bus = self.pipeline.bus().ok_or_else(|| {
-            EncoderError::PipelineError("Pipeline has no bus".into())
-        })?;
+        let bus = self
+            .pipeline
+            .bus()
+            .ok_or_else(|| EncoderError::PipelineError("Pipeline has no bus".into()))?;
         let _ = bus.timed_pop_filtered(
             gst::ClockTime::from_seconds(5),
             &[gst::MessageType::Eos, gst::MessageType::Error],
@@ -656,7 +643,10 @@ impl NvEncoder {
 
         result.map_err(|_| EncoderError::InvalidProperty {
             name: key.to_string(),
-            reason: format!("failed to set value '{}' (set_property_from_str panicked)", value),
+            reason: format!(
+                "failed to set value '{}' (set_property_from_str panicked)",
+                value
+            ),
         })
     }
 }

@@ -39,7 +39,9 @@
 //! ```
 
 use clap::Parser;
-use deepstream_nvbufsurface::{bridge_savant_id_meta, cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType};
+use deepstream_nvbufsurface::{
+    bridge_savant_id_meta, cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -132,12 +134,20 @@ fn main() {
     gst::init().expect("Failed to initialize GStreamer");
     cuda_init(args.gpu_id).expect("Failed to initialize CUDA");
 
+    let format = VideoFormat::from_name(&args.format).unwrap_or_else(|| {
+        eprintln!(
+            "Unknown format '{}'. Supported: RGBA, BGRx, NV12, NV21, I420, UYVY, GRAY8",
+            args.format
+        );
+        std::process::exit(1);
+    });
+
     let frame_duration_ns: u64 = (1_000_000_000u64)
         .checked_div(args.fps as u64)
         .unwrap_or(33_333_333);
 
     // ── Generator ────────────────────────────────────────────────────────
-    let generator = NvBufSurfaceGenerator::builder(&args.format, args.width, args.height)
+    let generator = NvBufSurfaceGenerator::builder(format, args.width, args.height)
         .fps(args.fps, 1)
         .gpu_id(args.gpu_id)
         .mem_type(NvBufSurfaceMemType::from(args.mem_type))
@@ -148,7 +158,7 @@ fn main() {
 
     println!(
         "Generator created: {}x{} {} @ {} fps (gpu {}, pool {})",
-        args.width, args.height, args.format, args.fps, args.gpu_id, args.pool_size,
+        args.width, args.height, format, args.fps, args.gpu_id, args.pool_size,
     );
 
     // ── Pipeline ─────────────────────────────────────────────────────────
@@ -157,7 +167,7 @@ fn main() {
     // we insert nvvideoconvert to perform GPU-to-GPU colour-space conversion.
     // The initial buffer is still allocated in the requested format in GPU memory
     // by the generator -- there is no CPU involvement.
-    let needs_convert = !matches!(args.format.as_str(), "NV12" | "I420");
+    let needs_convert = !matches!(format, VideoFormat::NV12 | VideoFormat::I420);
 
     let (enc_name, parse_name) = match args.codec.as_str() {
         "h264" => ("nvv4l2h264enc", "h264parse"),
@@ -220,9 +230,12 @@ fn main() {
 
     // Determine the sink label for printing
     let sink_label = if let Some(ref path) = args.output {
-        let cmux_name = container_mux
-            .as_ref()
-            .map(|e| format!("{} -> ", e.factory().map_or("mux".into(), |f| f.name().to_string())));
+        let cmux_name = container_mux.as_ref().map(|e| {
+            format!(
+                "{} -> ",
+                e.factory().map_or("mux".into(), |f| f.name().to_string())
+            )
+        });
         format!("{}filesink({})", cmux_name.unwrap_or_default(), path)
     } else {
         "fakesink".to_string()
@@ -235,8 +248,7 @@ fn main() {
             .build()
             .expect("Failed to create nvvideoconvert");
 
-        let mut all_elems: Vec<&gst::Element> =
-            vec![&appsrc_elem, &convert, &enc, &parse];
+        let mut all_elems: Vec<&gst::Element> = vec![&appsrc_elem, &convert, &enc, &parse];
         all_elems.extend(&tail);
         pipeline
             .add_many(all_elems.iter().copied())
@@ -248,7 +260,7 @@ fn main() {
 
         println!(
             "Pipeline: appsrc({}) -> nvvideoconvert -> {} -> {} -> {}",
-            args.format, enc_name, parse_name, sink_label,
+            format, enc_name, parse_name, sink_label,
         );
     } else {
         let mut all_elems: Vec<&gst::Element> = vec![&appsrc_elem, &enc, &parse];
@@ -263,7 +275,7 @@ fn main() {
 
         println!(
             "Pipeline: appsrc({}) -> {} -> {} -> {}",
-            args.format, enc_name, parse_name, sink_label,
+            format, enc_name, parse_name, sink_label,
         );
     }
 

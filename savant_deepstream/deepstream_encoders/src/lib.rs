@@ -50,7 +50,7 @@ pub use error::EncoderError;
 
 // Re-export commonly used items from deepstream_nvbufsurface.
 pub use deepstream_nvbufsurface::{
-    cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType,
+    cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
 };
 
 // Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.
@@ -77,16 +77,16 @@ pub struct EncoderConfig {
     pub width: u32,
     /// Frame height in pixels.
     pub height: u32,
-    /// Video format string (e.g., `"NV12"`, `"RGBA"`).
-    pub format: String,
+    /// Video pixel format (e.g., [`VideoFormat::NV12`], [`VideoFormat::RGBA`]).
+    pub format: VideoFormat,
     /// Framerate numerator.
     pub fps_num: i32,
     /// Framerate denominator.
     pub fps_den: i32,
     /// GPU device ID.
     pub gpu_id: u32,
-    /// NvBufSurface memory type (as u32, see [`NvBufSurfaceMemType`]).
-    pub mem_type: u32,
+    /// NvBufSurface memory type.
+    pub mem_type: NvBufSurfaceMemType,
     /// Encoder-specific GStreamer properties as `(key, value)` string pairs.
     ///
     /// These are passed directly to the encoder element via
@@ -98,28 +98,28 @@ impl EncoderConfig {
     /// Create a new encoder configuration with sensible defaults.
     ///
     /// Defaults:
-    /// - Format: `"NV12"` (encoder-native, no conversion needed).
+    /// - Format: [`VideoFormat::NV12`] (encoder-native, no conversion needed).
     /// - FPS: 30/1.
     /// - GPU ID: 0.
-    /// - Memory type: 0 (Default).
+    /// - Memory type: [`NvBufSurfaceMemType::Default`].
     /// - No extra encoder properties.
     pub fn new(codec: Codec, width: u32, height: u32) -> Self {
         Self {
             codec,
             width,
             height,
-            format: "NV12".to_string(),
+            format: VideoFormat::NV12,
             fps_num: 30,
             fps_den: 1,
             gpu_id: 0,
-            mem_type: 0,
+            mem_type: NvBufSurfaceMemType::Default,
             encoder_properties: Vec::new(),
         }
     }
 
     /// Set the video format.
-    pub fn format(mut self, format: &str) -> Self {
-        self.format = format.to_string();
+    pub fn format(mut self, format: VideoFormat) -> Self {
+        self.format = format;
         self
     }
 
@@ -137,7 +137,7 @@ impl EncoderConfig {
     }
 
     /// Set the memory type.
-    pub fn mem_type(mut self, mem_type: u32) -> Self {
+    pub fn mem_type(mut self, mem_type: NvBufSurfaceMemType) -> Self {
         self.mem_type = mem_type;
         self
     }
@@ -149,15 +149,16 @@ impl EncoderConfig {
     /// This method validates that the property name does not refer to a
     /// B-frame setting. The validation happens at encoder creation time,
     /// but is also done eagerly here for early error detection.
-    pub fn encoder_property(
-        mut self,
-        key: &str,
-        value: &str,
-    ) -> Result<Self, EncoderError> {
+    pub fn encoder_property(mut self, key: &str, value: &str) -> Result<Self, EncoderError> {
         // Eagerly reject B-frame properties.
         let b_frame_props: &[&str] = &[
-            "B-frames", "b-frames", "bframes", "Bframes",
-            "num-B-Frames", "num-b-frames", "num-bframes",
+            "B-frames",
+            "b-frames",
+            "bframes",
+            "Bframes",
+            "num-B-Frames",
+            "num-b-frames",
+            "num-bframes",
         ];
         for bprop in b_frame_props {
             if key.eq_ignore_ascii_case(bprop) {

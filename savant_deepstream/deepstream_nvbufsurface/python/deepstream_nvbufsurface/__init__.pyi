@@ -6,10 +6,12 @@ from __future__ import annotations
 from deepstream_nvbufsurface._native import (
     ComputeMode as ComputeMode,
     Interpolation as Interpolation,
+    MemType as MemType,
     NvBufSurfaceGenerator as NvBufSurfaceGenerator,
     Padding as Padding,
     SkiaContext as SkiaContext,
     TransformConfig as TransformConfig,
+    VideoFormat as VideoFormat,
     bridge_savant_id_meta_py as bridge_savant_id_meta_py,
     get_nvbufsurface_info as get_nvbufsurface_info,
     get_savant_id_meta as get_savant_id_meta,

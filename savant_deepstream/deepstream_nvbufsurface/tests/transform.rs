@@ -5,11 +5,11 @@ mod common;
 
 use deepstream_nvbufsurface::{
     ComputeMode, Interpolation, NvBufSurfaceGenerator, NvBufSurfaceMemType, Padding, Rect,
-    SavantIdMeta, TransformConfig,
+    SavantIdMeta, TransformConfig, VideoFormat,
 };
 
 /// Helper: create a generator with the given format and dimensions.
-fn make_gen(format: &str, w: u32, h: u32) -> NvBufSurfaceGenerator {
+fn make_gen(format: VideoFormat, w: u32, h: u32) -> NvBufSurfaceGenerator {
     NvBufSurfaceGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
@@ -25,8 +25,8 @@ fn make_gen(format: &str, w: u32, h: u32) -> NvBufSurfaceGenerator {
 fn transform_rgba_to_rgba_same_size() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 640, 480);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 640, 480);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig::default();
@@ -38,8 +38,8 @@ fn transform_rgba_to_rgba_same_size() {
 fn transform_rgba_downscale_symmetric() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 640);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 640);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -55,8 +55,8 @@ fn transform_rgba_downscale_symmetric() {
 fn transform_rgba_downscale_right_bottom() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 640);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 640);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -72,8 +72,8 @@ fn transform_rgba_downscale_right_bottom() {
 fn transform_rgba_no_padding() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -89,8 +89,8 @@ fn transform_rgba_no_padding() {
 fn transform_nv12_to_rgba() {
     common::init();
 
-    let src_gen = make_gen("NV12", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::NV12, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -106,8 +106,8 @@ fn transform_nv12_to_rgba() {
 fn transform_rgba_to_nv12() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("NV12", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::NV12, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -125,8 +125,8 @@ fn transform_rgba_to_nv12() {
 fn transform_all_interpolation_methods() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let methods = [
         Interpolation::Nearest,
@@ -155,8 +155,8 @@ fn transform_all_interpolation_methods() {
 fn transform_with_src_crop() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -181,8 +181,8 @@ fn transform_with_src_crop() {
 fn transform_preserves_savant_id_meta() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 640);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 640);
 
     // Acquire source with ID
     let src_buf = src_gen.acquire_surface(Some(42)).unwrap();
@@ -212,8 +212,8 @@ fn transform_preserves_savant_id_meta() {
 fn transform_with_ptr_returns_valid_data() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 640);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 640);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -221,9 +221,7 @@ fn transform_with_ptr_returns_valid_data() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let (dst_buf, data_ptr, pitch) = dst_gen
-        .transform_with_ptr(&src_buf, &config, None)
-        .unwrap();
+    let (dst_buf, data_ptr, pitch) = dst_gen.transform_with_ptr(&src_buf, &config, None).unwrap();
     assert!(dst_buf.size() > 0);
     assert!(!data_ptr.is_null(), "data_ptr should not be null");
     assert!(pitch > 0, "pitch should be > 0");
@@ -235,8 +233,8 @@ fn transform_with_ptr_returns_valid_data() {
 fn transform_gpu_compute_mode() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 1920, 1080);
-    let dst_gen = make_gen("RGBA", 640, 480);
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 640, 480);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {
@@ -255,8 +253,8 @@ fn transform_gpu_compute_mode() {
 fn transform_upscale_symmetric() {
     common::init();
 
-    let src_gen = make_gen("RGBA", 320, 240);
-    let dst_gen = make_gen("RGBA", 1920, 1080);
+    let src_gen = make_gen(VideoFormat::RGBA, 320, 240);
+    let dst_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig {

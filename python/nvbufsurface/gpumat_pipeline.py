@@ -45,7 +45,7 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst
 
 from deepstream_nvbufsurface import as_gpu_mat, init_cuda
-from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+from deepstream_encoders import NvEncoder, EncoderConfig, Codec, VideoFormat
 from savant_gstreamer import Mp4Muxer
 
 
@@ -192,7 +192,7 @@ def main() -> None:
     # -- Encoder (RGBA - GpuMat draws in RGBA) -----------------------------
     config = EncoderConfig(
         codec, w, h,
-        format="RGBA",
+        format=VideoFormat.RGBA,
         fps_num=args.fps,
         fps_den=1,
         gpu_id=args.gpu_id,

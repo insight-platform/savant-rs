@@ -6,7 +6,9 @@ from deepstream_encoders._native import (
     Codec as Codec,
     EncodedFrame as EncodedFrame,
     EncoderConfig as EncoderConfig,
+    MemType as MemType,
     NvEncoder as NvEncoder,
+    VideoFormat as VideoFormat,
 )
 
 __all__: list[str]

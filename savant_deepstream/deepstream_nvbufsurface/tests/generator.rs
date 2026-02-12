@@ -4,7 +4,7 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    NvBufSurfaceGenerator, NvBufSurfaceMemType, SavantIdMeta, SavantIdMetaKind,
+    NvBufSurfaceGenerator, NvBufSurfaceMemType, SavantIdMeta, SavantIdMetaKind, VideoFormat,
 };
 use gstreamer as gst;
 
@@ -15,8 +15,13 @@ fn test_create_generator() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .expect("Failed to create NvBufSurfaceGenerator");
 
@@ -35,9 +40,8 @@ fn test_from_caps() {
         .field("framerate", gst::Fraction::new(30, 1))
         .build();
 
-    let generator =
-        NvBufSurfaceGenerator::from_caps(&caps, 0, NvBufSurfaceMemType::Default)
-            .expect("Failed to create via from_caps");
+    let generator = NvBufSurfaceGenerator::from_caps(&caps, 0, NvBufSurfaceMemType::Default)
+        .expect("Failed to create via from_caps");
 
     let buffer = generator.acquire_surface(None).unwrap();
     assert!(buffer.n_memory() > 0);
@@ -47,7 +51,7 @@ fn test_from_caps() {
 fn test_builder_defaults() {
     common::init();
 
-    let generator = NvBufSurfaceGenerator::builder("RGBA", 640, 480)
+    let generator = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 640, 480)
         .build()
         .expect("Failed to create via builder with defaults");
 
@@ -59,7 +63,7 @@ fn test_builder_defaults() {
 fn test_builder_full() {
     common::init();
 
-    let generator = NvBufSurfaceGenerator::builder("NV12", 1920, 1080)
+    let generator = NvBufSurfaceGenerator::builder(VideoFormat::NV12, 1920, 1080)
         .fps(60, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
@@ -79,8 +83,13 @@ fn test_acquire_surface() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -93,8 +102,13 @@ fn test_acquire_surface_with_id() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -113,8 +127,13 @@ fn test_acquire_surface_with_ptr_and_id() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -132,8 +151,13 @@ fn test_acquire_surface_without_id_has_no_meta() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -149,8 +173,13 @@ fn test_acquire_multiple_surfaces() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 320, 240, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        320,
+        240,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -174,8 +203,13 @@ fn test_create_surface() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -195,8 +229,13 @@ fn test_create_surface_with_id() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -218,8 +257,13 @@ fn test_create_surface_raw() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -242,8 +286,13 @@ fn test_null_pointer_error() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -258,8 +307,13 @@ fn test_nvmm_caps() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "NV12", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::NV12,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -293,8 +347,13 @@ fn test_raw_caps() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 1920, 1080, 60, 1,
-        0, NvBufSurfaceMemType::Default,
+        VideoFormat::RGBA,
+        1920,
+        1080,
+        60,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .unwrap();
 
@@ -331,8 +390,13 @@ fn test_different_resolutions() {
 
     for (w, h) in [(320, 240), (640, 480), (1280, 720), (1920, 1080)] {
         let generator = NvBufSurfaceGenerator::new(
-            "RGBA", w, h, 30, 1,
-            0, NvBufSurfaceMemType::Default,
+            VideoFormat::RGBA,
+            w,
+            h,
+            30,
+            1,
+            0,
+            NvBufSurfaceMemType::Default,
         )
         .unwrap_or_else(|_| panic!("Failed to create generator for {}x{}", w, h));
 
@@ -353,8 +417,13 @@ fn test_cuda_device_mem_type() {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        "RGBA", 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::CudaDevice,
+        VideoFormat::RGBA,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::CudaDevice,
     )
     .expect("Failed to create NvBufSurfaceGenerator with CudaDevice mem type");
 

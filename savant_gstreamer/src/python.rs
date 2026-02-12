@@ -206,7 +206,11 @@ impl PyMp4Muxer {
         dts_ns: Option<u64>,
         duration_ns: Option<u64>,
     ) -> PyResult<()> {
-        py.detach(|| self.inner.push(data, pts_ns, dts_ns, duration_ns).map_err(to_py_err))
+        py.detach(|| {
+            self.inner
+                .push(data, pts_ns, dts_ns, duration_ns)
+                .map_err(to_py_err)
+        })
     }
 
     /// Send EOS and shut down the muxer pipeline.

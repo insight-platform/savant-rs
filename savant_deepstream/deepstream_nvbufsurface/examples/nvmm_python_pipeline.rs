@@ -367,10 +367,7 @@ fn main() {
     }
 
     if let Some(expected) = args.num_frames {
-        assert_eq!(
-            result.pushed, expected as u64,
-            "Not all frames were pushed",
-        );
+        assert_eq!(result.pushed, expected as u64, "Not all frames were pushed",);
         assert!(
             result.received > 0,
             "appsink received 0 buffers (pushed {})",

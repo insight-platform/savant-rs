@@ -9,4 +9,5 @@ rustc -V
 pip install --no-cache-dir \
     skia-python \
     maturin \
-    virtualenv
+    virtualenv \
+    ruff

@@ -15,7 +15,7 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, NvBufSurfaceGenerator, NvBufSurfaceMemType, SavantIdMeta,
+    bridge_savant_id_meta, NvBufSurfaceGenerator, NvBufSurfaceMemType, SavantIdMeta, VideoFormat,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -26,8 +26,8 @@ use std::sync::Arc;
 
 /// Per-encoder test configuration.
 struct EncoderTestConfig {
-    /// NvBufSurface pixel format (e.g. `"NV12"`, `"I420"`).
-    format: &'static str,
+    /// NvBufSurface pixel format (e.g. `VideoFormat::NV12`, `VideoFormat::I420`).
+    format: VideoFormat,
     /// GStreamer encoder element factory name.
     enc_name: &'static str,
     /// Optional parser element placed between encoder and appsink.
@@ -40,8 +40,13 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     common::init();
 
     let generator = NvBufSurfaceGenerator::new(
-        config.format, 640, 480, 30, 1,
-        0, NvBufSurfaceMemType::Default,
+        config.format,
+        640,
+        480,
+        30,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
     )
     .expect("Failed to create generator");
 
@@ -96,9 +101,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     let received = Arc::new(AtomicU32::new(0));
     let meta_ok = Arc::new(AtomicU32::new(0));
 
-    let appsink = sink_elem
-        .dynamic_cast::<gstreamer_app::AppSink>()
-        .unwrap();
+    let appsink = sink_elem.dynamic_cast::<gstreamer_app::AppSink>().unwrap();
 
     let r = received.clone();
     let m = meta_ok.clone();
@@ -122,9 +125,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .set_state(gst::State::Playing)
         .expect("Failed to start pipeline");
 
-    let appsrc = appsrc_elem
-        .dynamic_cast::<gstreamer_app::AppSrc>()
-        .unwrap();
+    let appsrc = appsrc_elem.dynamic_cast::<gstreamer_app::AppSrc>().unwrap();
 
     let frame_duration_ns: u64 = 33_333_333;
     let mut pushed = 0u32;
@@ -170,11 +171,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         "[{}] not all frames pushed",
         config.enc_name
     );
-    assert!(
-        recv > 0,
-        "[{}] appsink received 0 buffers",
-        config.enc_name
-    );
+    assert!(recv > 0, "[{}] appsink received 0 buffers", config.enc_name);
     assert_eq!(
         meta, recv,
         "[{}] bridge_savant_id_meta: meta_ok ({}) != received ({})",
@@ -188,7 +185,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
 fn test_bridge_meta_nvv4l2h265enc() {
     run_pipeline_bridge_test(
         &EncoderTestConfig {
-            format: "NV12",
+            format: VideoFormat::NV12,
             enc_name: "nvv4l2h265enc",
             parser: Some("h265parse"),
         },
@@ -200,7 +197,7 @@ fn test_bridge_meta_nvv4l2h265enc() {
 fn test_bridge_meta_nvv4l2h264enc() {
     run_pipeline_bridge_test(
         &EncoderTestConfig {
-            format: "NV12",
+            format: VideoFormat::NV12,
             enc_name: "nvv4l2h264enc",
             parser: Some("h264parse"),
         },
@@ -212,7 +209,7 @@ fn test_bridge_meta_nvv4l2h264enc() {
 fn test_bridge_meta_nvjpegenc() {
     run_pipeline_bridge_test(
         &EncoderTestConfig {
-            format: "I420",
+            format: VideoFormat::I420,
             enc_name: "nvjpegenc",
             parser: Some("jpegparse"),
         },

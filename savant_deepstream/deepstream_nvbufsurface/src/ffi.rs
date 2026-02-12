@@ -53,10 +53,7 @@ extern "C" {
     /// `flags`:
     /// - `0x00` = `cudaStreamDefault` (legacy default behavior)
     /// - `0x01` = `cudaStreamNonBlocking` (does NOT synchronize with stream 0)
-    pub fn cudaStreamCreateWithFlags(
-        pStream: *mut *mut std::ffi::c_void,
-        flags: u32,
-    ) -> i32;
+    pub fn cudaStreamCreateWithFlags(pStream: *mut *mut std::ffi::c_void, flags: u32) -> i32;
 
     /// Destroy a CUDA stream.
     pub fn cudaStreamDestroy(stream: *mut std::ffi::c_void) -> i32;

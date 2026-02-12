@@ -55,7 +55,7 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst
 
 from deepstream_nvbufsurface import SkiaCanvas, init_cuda
-from deepstream_encoders import NvEncoder, EncoderConfig, Codec
+from deepstream_encoders import NvEncoder, EncoderConfig, Codec, VideoFormat
 from savant_gstreamer import Mp4Muxer
 
 
@@ -456,7 +456,7 @@ def main() -> None:
     Gst.init(None)
     init_cuda(args.gpu_id)
 
-    frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333
+    frame_duration_ns = 1_000_000_000 // args.fps if args.fps > 0 else 33_333_333_333
     w, h = args.width, args.height
     codec = resolve_codec(args.codec)
 
@@ -477,7 +477,7 @@ def main() -> None:
     # -- Encoder (RGBA - Skia's native format) -----------------------------
     config = EncoderConfig(
         codec, w, h,
-        format="RGBA",
+        format=VideoFormat.RGBA,
         fps_num=args.fps,
         fps_den=1,
         gpu_id=args.gpu_id,

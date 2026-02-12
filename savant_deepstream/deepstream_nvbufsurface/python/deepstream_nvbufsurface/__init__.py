@@ -22,9 +22,11 @@ from __future__ import annotations
 from deepstream_nvbufsurface._native import (  # noqa: F401
     ComputeMode,
     Interpolation,
+    MemType,
     NvBufSurfaceGenerator,
     Padding,
     TransformConfig,
+    VideoFormat,
     bridge_savant_id_meta_py,
     get_nvbufsurface_info,
     get_savant_id_meta,
@@ -59,6 +61,8 @@ __all__ = [
     "Padding",
     "Interpolation",
     "ComputeMode",
+    "MemType",
+    "VideoFormat",
     # Config
     "TransformConfig",
     # Generator

@@ -34,7 +34,7 @@
 
 use crate::egl_context::{EglError, EglHeadlessContext};
 use crate::transform::{self, TransformConfig};
-use crate::{NvBufSurfaceGenerator, NvBufSurfaceMemType};
+use crate::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
 use gstreamer as gst;
 use thiserror::Error;
 
@@ -150,7 +150,7 @@ pub enum SkiaRendererError {
 ///
 /// cuda_init(0).unwrap();
 /// let gen = NvBufSurfaceGenerator::new(
-///     "RGBA", 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
+///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
 /// let mut renderer = SkiaRenderer::new(1920, 1080, 0).unwrap();
@@ -485,13 +485,14 @@ impl SkiaRenderer {
         // Scaled path: copy GL → temp NvBufSurface → NvBufSurfTransform → dst
         // Lazily create temp generator at canvas resolution
         if self.temp_gen.is_none() {
-            let surface_generator = NvBufSurfaceGenerator::builder("RGBA", self.width, self.height)
-                .gpu_id(self.gpu_id)
-                .mem_type(NvBufSurfaceMemType::Default)
-                .min_buffers(1)
-                .max_buffers(1)
-                .build()
-                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+            let surface_generator =
+                NvBufSurfaceGenerator::builder(VideoFormat::RGBA, self.width, self.height)
+                    .gpu_id(self.gpu_id)
+                    .mem_type(NvBufSurfaceMemType::Default)
+                    .min_buffers(1)
+                    .max_buffers(1)
+                    .build()
+                    .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
             self.temp_gen = Some(surface_generator);
         }
         let temp_gen = self.temp_gen.as_ref().unwrap();

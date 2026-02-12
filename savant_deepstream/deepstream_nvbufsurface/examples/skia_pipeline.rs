@@ -30,6 +30,7 @@
 use clap::Parser;
 use deepstream_nvbufsurface::{
     bridge_savant_id_meta, cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, SkiaRenderer,
+    VideoFormat,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -108,14 +109,38 @@ struct DetectionClass {
 }
 
 const CLASSES: &[DetectionClass] = &[
-    DetectionClass { name: "person",  color: Color::from_argb(255, 255, 80, 80) },
-    DetectionClass { name: "car",     color: Color::from_argb(255, 80, 200, 255) },
-    DetectionClass { name: "truck",   color: Color::from_argb(255, 255, 180, 40) },
-    DetectionClass { name: "bicycle", color: Color::from_argb(255, 80, 255, 120) },
-    DetectionClass { name: "dog",     color: Color::from_argb(255, 220, 100, 255) },
-    DetectionClass { name: "bus",     color: Color::from_argb(255, 255, 255, 80) },
-    DetectionClass { name: "bike",    color: Color::from_argb(255, 80, 255, 255) },
-    DetectionClass { name: "sign",    color: Color::from_argb(255, 255, 140, 140) },
+    DetectionClass {
+        name: "person",
+        color: Color::from_argb(255, 255, 80, 80),
+    },
+    DetectionClass {
+        name: "car",
+        color: Color::from_argb(255, 80, 200, 255),
+    },
+    DetectionClass {
+        name: "truck",
+        color: Color::from_argb(255, 255, 180, 40),
+    },
+    DetectionClass {
+        name: "bicycle",
+        color: Color::from_argb(255, 80, 255, 120),
+    },
+    DetectionClass {
+        name: "dog",
+        color: Color::from_argb(255, 220, 100, 255),
+    },
+    DetectionClass {
+        name: "bus",
+        color: Color::from_argb(255, 255, 255, 80),
+    },
+    DetectionClass {
+        name: "bike",
+        color: Color::from_argb(255, 80, 255, 255),
+    },
+    DetectionClass {
+        name: "sign",
+        color: Color::from_argb(255, 255, 140, 140),
+    },
 ];
 
 /// Deterministic pseudo-random float in [0, 1) seeded by two u64 values.
@@ -335,7 +360,12 @@ fn draw_frame(
         let r = Rect::from_xywh(b.x, b.y, b.w, b.h);
 
         // Semi-transparent fill
-        ctx.fill_paint.set_color(Color::from_argb(50, cls.color.r(), cls.color.g(), cls.color.b()));
+        ctx.fill_paint.set_color(Color::from_argb(
+            50,
+            cls.color.r(),
+            cls.color.g(),
+            cls.color.b(),
+        ));
         canvas.draw_rect(r, &ctx.fill_paint);
 
         // Border
@@ -344,26 +374,54 @@ fn draw_frame(
 
         // Label background
         ctx.buf.clear();
-        let _ = write!(ctx.buf, "{} #{} {:.0}%", cls.name, b.id, b.confidence * 100.0);
+        let _ = write!(
+            ctx.buf,
+            "{} #{} {:.0}%",
+            cls.name,
+            b.id,
+            b.confidence * 100.0
+        );
         let (tw, _) = ctx.label_font.measure_str(&ctx.buf, Some(&ctx.white_paint));
         let lh = 22.0_f32;
         let lx = b.x;
         let ly = if b.y >= lh + 2.0 { b.y - lh - 2.0 } else { b.y };
 
-        ctx.label_bg_paint.set_color(Color::from_argb(200, cls.color.r(), cls.color.g(), cls.color.b()));
+        ctx.label_bg_paint.set_color(Color::from_argb(
+            200,
+            cls.color.r(),
+            cls.color.g(),
+            cls.color.b(),
+        ));
         canvas.draw_rect(Rect::from_xywh(lx, ly, tw + 10.0, lh), &ctx.label_bg_paint);
 
         // Label text
-        canvas.draw_str(&ctx.buf, Point::new(lx + 5.0, ly + lh - 5.0), &ctx.label_font, &ctx.black_paint);
+        canvas.draw_str(
+            &ctx.buf,
+            Point::new(lx + 5.0, ly + lh - 5.0),
+            &ctx.label_font,
+            &ctx.black_paint,
+        );
     }
 
     // ── Sidebar ──────────────────────────────────────────────────────────────
     let sx = scene_w;
-    canvas.draw_rect(Rect::from_xywh(sx, 0.0, sidebar_w, height), &ctx.sidebar_bg_paint);
-    canvas.draw_line(Point::new(sx, 0.0), Point::new(sx, height), &ctx.separator_paint);
+    canvas.draw_rect(
+        Rect::from_xywh(sx, 0.0, sidebar_w, height),
+        &ctx.sidebar_bg_paint,
+    );
+    canvas.draw_line(
+        Point::new(sx, 0.0),
+        Point::new(sx, height),
+        &ctx.separator_paint,
+    );
 
     // Title
-    canvas.draw_str("DETECTIONS", Point::new(sx + 12.0, 28.0), &ctx.title_font, &ctx.white_paint);
+    canvas.draw_str(
+        "DETECTIONS",
+        Point::new(sx + 12.0, 28.0),
+        &ctx.title_font,
+        &ctx.white_paint,
+    );
     canvas.draw_line(
         Point::new(sx + 8.0, 36.0),
         Point::new(sx + sidebar_w - 8.0, 36.0),
@@ -378,8 +436,14 @@ fn draw_frame(
         if y_off + row_h > height - 40.0 {
             ctx.buf.clear();
             let _ = write!(ctx.buf, "... +{} more", NUM_BOXES - i);
-            ctx.legend_text_paint.set_color(Color::from_argb(180, 255, 255, 255));
-            canvas.draw_str(&ctx.buf, Point::new(sx + 12.0, y_off + 14.0), &ctx.legend_font, &ctx.legend_text_paint);
+            ctx.legend_text_paint
+                .set_color(Color::from_argb(180, 255, 255, 255));
+            canvas.draw_str(
+                &ctx.buf,
+                Point::new(sx + 12.0, y_off + 14.0),
+                &ctx.legend_font,
+                &ctx.legend_text_paint,
+            );
             break;
         }
 
@@ -394,19 +458,41 @@ fn draw_frame(
         let _ = write!(
             ctx.buf,
             "{:<8} #{:<2} ({:>4},{:>4}) {:>3.0}%",
-            cls.name, b.id, b.x as i32, b.y as i32, b.confidence * 100.0,
+            cls.name,
+            b.id,
+            b.x as i32,
+            b.y as i32,
+            b.confidence * 100.0,
         );
-        ctx.legend_text_paint.set_color(Color::from_argb(220, 255, 255, 255));
-        canvas.draw_str(&ctx.buf, Point::new(sx + 26.0, y_off + 10.0), &ctx.legend_font, &ctx.legend_text_paint);
+        ctx.legend_text_paint
+            .set_color(Color::from_argb(220, 255, 255, 255));
+        canvas.draw_str(
+            &ctx.buf,
+            Point::new(sx + 26.0, y_off + 10.0),
+            &ctx.legend_font,
+            &ctx.legend_text_paint,
+        );
 
         y_off += row_h;
     }
 
     // ── Footer ───────────────────────────────────────────────────────────────
-    canvas.draw_rect(Rect::from_xywh(sx, height - 32.0, sidebar_w, 32.0), &ctx.footer_bg_paint);
+    canvas.draw_rect(
+        Rect::from_xywh(sx, height - 32.0, sidebar_w, 32.0),
+        &ctx.footer_bg_paint,
+    );
     ctx.buf.clear();
-    let _ = write!(ctx.buf, "F:{:>6} {}x{} {}obj", frame_idx, width as u32, height as u32, NUM_BOXES);
-    canvas.draw_str(&ctx.buf, Point::new(sx + 10.0, height - 11.0), &ctx.footer_font, &ctx.footer_text_paint);
+    let _ = write!(
+        ctx.buf,
+        "F:{:>6} {}x{} {}obj",
+        frame_idx, width as u32, height as u32, NUM_BOXES
+    );
+    canvas.draw_str(
+        &ctx.buf,
+        Point::new(sx + 10.0, height - 11.0),
+        &ctx.footer_font,
+        &ctx.footer_text_paint,
+    );
 }
 
 /// Simple HSV to sRGB Color conversion.
@@ -451,7 +537,7 @@ fn main() {
     );
 
     // -- Generator (RGBA -- Skia's native format) -----------------------------
-    let generator = NvBufSurfaceGenerator::builder("RGBA", args.width, args.height)
+    let generator = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, args.width, args.height)
         .fps(args.fps, 1)
         .gpu_id(args.gpu_id)
         .mem_type(NvBufSurfaceMemType::from(0u32))

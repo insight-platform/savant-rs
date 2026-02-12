@@ -224,8 +224,10 @@ mod tests {
 
         // Push some minimal H.264 data (SPS/PPS + IDR — just raw bytes for the test;
         // the parser will handle malformed data gracefully enough for a lifecycle test).
-        let fake_frame: Vec<u8> = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x0a,
-                                        0xe9, 0x40, 0x40, 0x04, 0x00, 0x00, 0x00, 0x02];
+        let fake_frame: Vec<u8> = vec![
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x0a, 0xe9, 0x40, 0x40, 0x04, 0x00, 0x00,
+            0x00, 0x02,
+        ];
         for i in 0..3u64 {
             let _ = muxer.push(&fake_frame, i * 33_333_333, None, Some(33_333_333));
         }

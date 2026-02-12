@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import final
+from typing import Union, final
 
 # ── Enums ────────────────────────────────────────────────────────────────
 
@@ -68,6 +68,80 @@ class ComputeMode:
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+@final
+class VideoFormat:
+    """Video pixel format.
+
+    - ``RGBA``  — 8-bit RGBA (4 bytes/pixel).
+    - ``BGRx``  — 8-bit BGRx (4 bytes/pixel, alpha ignored).
+    - ``NV12``  — YUV 4:2:0 semi-planar (default encoder format).
+    - ``NV21``  — YUV 4:2:0 semi-planar (UV swapped).
+    - ``I420``  — YUV 4:2:0 planar (JPEG encoder format).
+    - ``UYVY``  — YUV 4:2:2 packed.
+    - ``GRAY8`` — single-channel grayscale.
+    """
+
+    RGBA: VideoFormat
+    BGRx: VideoFormat
+    NV12: VideoFormat
+    NV21: VideoFormat
+    I420: VideoFormat
+    UYVY: VideoFormat
+    GRAY8: VideoFormat
+
+    @staticmethod
+    def from_name(name: str) -> VideoFormat:
+        """Parse a format from a string name.
+
+        Accepted names (case-sensitive): ``RGBA``, ``BGRx``, ``NV12``,
+        ``NV21``, ``I420``, ``UYVY``, ``GRAY8``.
+
+        Raises:
+            ValueError: If the name is not recognized.
+        """
+        ...
+
+    def name(self) -> str:
+        """Return the canonical name (e.g. ``"NV12"``)."""
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class MemType:
+    """NvBufSurface memory type.
+
+    - ``DEFAULT``       — CUDA Device for dGPU, Surface Array for Jetson.
+    - ``CUDA_PINNED``   — CUDA Host (pinned) memory.
+    - ``CUDA_DEVICE``   — CUDA Device memory.
+    - ``CUDA_UNIFIED``  — CUDA Unified memory.
+    - ``SURFACE_ARRAY`` — NVRM Surface Array (Jetson only).
+    - ``HANDLE``        — NVRM Handle (Jetson only).
+    - ``SYSTEM``        — System memory (malloc).
+    """
+
+    DEFAULT: MemType
+    CUDA_PINNED: MemType
+    CUDA_DEVICE: MemType
+    CUDA_UNIFIED: MemType
+    SURFACE_ARRAY: MemType
+    HANDLE: MemType
+    SYSTEM: MemType
+
+    def name(self) -> str:
+        """Return the canonical name."""
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
 
 # ── TransformConfig ──────────────────────────────────────────────────────
 
@@ -102,13 +176,13 @@ class NvBufSurfaceGenerator:
 
     def __init__(
         self,
-        format: str,
+        format: Union[VideoFormat, str],
         width: int,
         height: int,
         fps_num: int = 30,
         fps_den: int = 1,
         gpu_id: int = 0,
-        mem_type: int = 0,
+        mem_type: Union[MemType, int] | None = None,
         pool_size: int = 4,
     ) -> None: ...
     def nvmm_caps_str(self) -> str:
@@ -123,8 +197,8 @@ class NvBufSurfaceGenerator:
         """Frame height in pixels."""
         ...
     @property
-    def format(self) -> str:
-        """Video format string (e.g. ``"RGBA"``, ``"NV12"``)."""
+    def format(self) -> VideoFormat:
+        """Video format (e.g. ``VideoFormat.RGBA``, ``VideoFormat.NV12``)."""
         ...
     def acquire_surface(self, id: int | None = None) -> int:
         """Acquire a new NvBufSurface buffer from the pool.

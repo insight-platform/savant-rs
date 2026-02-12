@@ -37,12 +37,16 @@ from deepstream_encoders._native import (  # noqa: F401
     Codec,
     EncodedFrame,
     EncoderConfig,
+    MemType,
     NvEncoder,
+    VideoFormat,
 )
 
 __all__ = [
     "Codec",
     "EncoderConfig",
     "EncodedFrame",
+    "MemType",
     "NvEncoder",
+    "VideoFormat",
 ]
