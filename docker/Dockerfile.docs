@@ -1,5 +1,16 @@
 FROM ghcr.io/insight-platform/savant_rust:v1.6.0 AS builder
 
+RUN apt-get update && apt-get install -y clang build-essential \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    nvtop \
+    htop \
+    ninja-build \
+    libgl-dev \
+    libegl-dev \
+    libfontconfig-dev \
+    fonts-dejavu-core
+
 RUN --mount=type=bind,source=.,target=/opt/savant-rs \
     pip install -r /opt/savant-rs/requirements.txt
 
