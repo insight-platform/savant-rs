@@ -45,7 +45,7 @@ class TestEncoderCreation:
     def test_codec_getter(self):
         config = EncoderConfig(Codec.H264, 320, 240)
         encoder = NvEncoder(config)
-        assert encoder.codec == Codec.H264
+        assert encoder.codec.name() == Codec.H264.name()
 
 
 # ─── Buffer acquisition ───────────────────────────────────────────────────
@@ -152,7 +152,7 @@ class TestEncoding:
 
         for frame in remaining:
             assert frame.size > 0, "Encoded frame data should not be empty"
-            assert frame.codec == Codec.HEVC
+            assert frame.codec.name() == Codec.HEVC.name()
             assert isinstance(frame.data, bytes)
             assert isinstance(frame.frame_id, int)
             assert isinstance(frame.pts_ns, int)
@@ -173,7 +173,7 @@ class TestEncoding:
         remaining = encoder.finish()
         assert len(remaining) > 0
         for frame in remaining:
-            assert frame.codec == Codec.H264
+            assert frame.codec.name() == Codec.H264.name()
 
     def test_finish_with_rgba_format(self):
         config = EncoderConfig(
@@ -300,7 +300,7 @@ class TestEncodedFrame:
 
     def test_has_codec(self):
         frame = self._get_one_frame()
-        assert frame.codec == Codec.HEVC
+        assert frame.codec.name() == Codec.HEVC.name()
 
     def test_repr(self):
         frame = self._get_one_frame()
@@ -409,13 +409,13 @@ class TestEncoderWithProperties:
         props = HevcDgpuProps(bitrate=6_000_000)
         config = EncoderConfig(Codec.HEVC, 320, 240, properties=props)
         encoder = NvEncoder(config)
-        assert encoder.codec == Codec.HEVC
+        assert encoder.codec.name() == Codec.HEVC.name()
 
     def test_create_with_h264_dgpu_props(self):
         props = H264DgpuProps(bitrate=4_000_000)
         config = EncoderConfig(Codec.H264, 320, 240, properties=props)
         encoder = NvEncoder(config)
-        assert encoder.codec == Codec.H264
+        assert encoder.codec.name() == Codec.H264.name()
 
     def test_encode_with_properties(self):
         props = HevcDgpuProps(bitrate=6_000_000)

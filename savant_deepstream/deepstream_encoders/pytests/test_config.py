@@ -16,7 +16,7 @@ class TestEncoderConfigDefaults:
 
     def test_default_codec(self):
         config = EncoderConfig(Codec.HEVC, 1920, 1080)
-        assert config.codec == Codec.HEVC
+        assert config.codec.name() == Codec.HEVC.name()
 
     def test_default_dimensions(self):
         config = EncoderConfig(Codec.H264, 1280, 720)
@@ -25,13 +25,13 @@ class TestEncoderConfigDefaults:
 
     def test_default_format(self):
         config = EncoderConfig(Codec.HEVC, 640, 480)
-        assert config.format == VideoFormat.NV12
+        assert config.format.name() == VideoFormat.NV12.name()
 
 
 class TestEncoderConfigCustom:
     def test_custom_format(self):
         config = EncoderConfig(Codec.H264, 640, 480, format="RGBA")
-        assert config.format == VideoFormat.RGBA
+        assert config.format.name() == VideoFormat.RGBA.name()
 
     def test_custom_fps(self):
         config = EncoderConfig(Codec.HEVC, 640, 480, fps_num=60, fps_den=1)

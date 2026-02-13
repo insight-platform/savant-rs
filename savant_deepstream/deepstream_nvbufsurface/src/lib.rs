@@ -1186,7 +1186,12 @@ pub mod python {
     /// - ``NONE`` -- scale to fill, may distort aspect ratio.
     /// - ``RIGHT_BOTTOM`` -- image at top-left, padding on right/bottom.
     /// - ``SYMMETRIC`` -- image centered, equal padding on all sides (default).
-    #[pyclass(name = "Padding", module = "deepstream_nvbufsurface._native", eq, eq_int)]
+    #[pyclass(
+        name = "Padding",
+        module = "deepstream_nvbufsurface._native",
+        eq,
+        eq_int
+    )]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PyPadding {
         /// No padding -- stretches to fill destination.
@@ -1219,7 +1224,12 @@ pub mod python {
     /// - ``ALGO3``    -- GPU: Lanczos, VIC: smart.
     /// - ``ALGO4``    -- GPU: (ignored), VIC: nicest.
     /// - ``DEFAULT``  -- GPU: nearest, VIC: nearest.
-    #[pyclass(name = "Interpolation", module = "deepstream_nvbufsurface._native", eq, eq_int)]
+    #[pyclass(
+        name = "Interpolation",
+        module = "deepstream_nvbufsurface._native",
+        eq,
+        eq_int
+    )]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PyInterpolation {
         #[pyo3(name = "NEAREST")]
@@ -1262,7 +1272,12 @@ pub mod python {
     /// - ``DEFAULT`` -- VIC on Jetson, dGPU on x86_64 (default).
     /// - ``GPU``     -- always use GPU compute.
     /// - ``VIC``     -- VIC hardware (Jetson only, raises error on dGPU).
-    #[pyclass(name = "ComputeMode", module = "deepstream_nvbufsurface._native", eq, eq_int)]
+    #[pyclass(
+        name = "ComputeMode",
+        module = "deepstream_nvbufsurface._native",
+        eq,
+        eq_int
+    )]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PyComputeMode {
         /// VIC on Jetson, dGPU on x86_64.
@@ -1297,7 +1312,12 @@ pub mod python {
     /// - ``I420``  — YUV 4:2:0 planar (JPEG encoder format).
     /// - ``UYVY``  — YUV 4:2:2 packed.
     /// - ``GRAY8`` — single-channel grayscale.
-    #[pyclass(name = "VideoFormat", module = "deepstream_nvbufsurface._native", eq, eq_int)]
+    #[pyclass(
+        name = "VideoFormat",
+        module = "deepstream_nvbufsurface._native",
+        eq,
+        eq_int
+    )]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PyVideoFormat {
         #[pyo3(name = "RGBA")]
@@ -1426,7 +1446,12 @@ pub mod python {
     /// - ``SURFACE_ARRAY`` — NVRM Surface Array (Jetson only).
     /// - ``HANDLE``        — NVRM Handle (Jetson only).
     /// - ``SYSTEM``        — System memory (malloc).
-    #[pyclass(name = "MemType", module = "deepstream_nvbufsurface._native", eq, eq_int)]
+    #[pyclass(
+        name = "MemType",
+        module = "deepstream_nvbufsurface._native",
+        eq,
+        eq_int
+    )]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum PyMemType {
         #[pyo3(name = "DEFAULT")]
@@ -1638,7 +1663,10 @@ pub mod python {
     ///     mem_type (MemType | int): NvBufSurface memory type
     ///         (default ``MemType.DEFAULT``).
     ///     pool_size (int): Buffer pool size (default 4).
-    #[pyclass(name = "NvBufSurfaceGenerator", module = "deepstream_nvbufsurface._native")]
+    #[pyclass(
+        name = "NvBufSurfaceGenerator",
+        module = "deepstream_nvbufsurface._native"
+    )]
     pub struct PyNvBufSurfaceGenerator {
         inner: NvBufSurfaceGenerator,
     }
@@ -2107,7 +2135,11 @@ pub mod python {
     /// After drawing, call :meth:`render_to_nvbuf` to copy the result into a
     /// destination NvBufSurface buffer with optional scaling + letterboxing.
     #[cfg(feature = "skia")]
-    #[pyclass(name = "SkiaContext", module = "deepstream_nvbufsurface._native", unsendable)]
+    #[pyclass(
+        name = "SkiaContext",
+        module = "deepstream_nvbufsurface._native",
+        unsendable
+    )]
     pub struct PySkiaContext {
         inner: crate::SkiaRenderer,
     }

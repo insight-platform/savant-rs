@@ -151,7 +151,12 @@ fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 // ---------------------------------------------------------------------------
 
 /// Video pixel format.
-#[pyclass(name = "VideoFormat", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "VideoFormat",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyVideoFormat {
     #[pyo3(name = "RGBA")]
@@ -441,7 +446,12 @@ impl From<properties::Platform> for PyPlatform {
 /// - ``VBR``  — Variable bitrate.
 /// - ``CBR``  — Constant bitrate.
 /// - ``CQP``  — Constant QP.
-#[pyclass(name = "RateControl", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "RateControl",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyRateControl {
     #[pyo3(name = "VBR")]
@@ -523,7 +533,12 @@ fn extract_rate_control(ob: &Bound<'_, PyAny>) -> PyResult<properties::RateContr
 /// - ``MAIN``     — Main profile.
 /// - ``HIGH``     — High profile.
 /// - ``HIGH444``  — High 4:4:4 Predictive (dGPU only).
-#[pyclass(name = "H264Profile", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "H264Profile",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyH264Profile {
     #[pyo3(name = "BASELINE")]
@@ -609,7 +624,12 @@ fn extract_h264_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::H264Profi
 /// - ``MAIN``   — Main profile.
 /// - ``MAIN10`` — Main 10-bit profile.
 /// - ``FREXT``  — Format Range Extensions.
-#[pyclass(name = "HevcProfile", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "HevcProfile",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyHevcProfile {
     #[pyo3(name = "MAIN")]
@@ -688,7 +708,12 @@ fn extract_hevc_profile(ob: &Bound<'_, PyAny>) -> PyResult<properties::HevcProfi
 /// dGPU NVENC preset (P1–P7).
 ///
 /// Lower values are faster; higher values yield better quality.
-#[pyclass(name = "DgpuPreset", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "DgpuPreset",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyDgpuPreset {
     P1 = 1,
@@ -772,7 +797,12 @@ fn extract_dgpu_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::DgpuPreset
 /// - ``LOW_LATENCY``       — Low latency (default).
 /// - ``ULTRA_LOW_LATENCY`` — Ultra-low latency.
 /// - ``LOSSLESS``          — Lossless encoding.
-#[pyclass(name = "TuningPreset", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "TuningPreset",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyTuningPreset {
     #[pyo3(name = "HIGH_QUALITY")]
@@ -860,7 +890,12 @@ fn extract_tuning_preset(ob: &Bound<'_, PyAny>) -> PyResult<properties::TuningPr
 /// - ``FAST``       — Fast.
 /// - ``MEDIUM``     — Medium.
 /// - ``SLOW``       — Slow (highest quality).
-#[pyclass(name = "JetsonPresetLevel", module = "deepstream_encoders._native", eq, eq_int)]
+#[pyclass(
+    name = "JetsonPresetLevel",
+    module = "deepstream_encoders._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyJetsonPresetLevel {
     #[pyo3(name = "DISABLED")]
@@ -1975,10 +2010,16 @@ pub struct PyNvEncoder {
 #[pymethods]
 impl PyNvEncoder {
     #[new]
-    fn new(config: &PyEncoderConfig) -> PyResult<Self> {
+    fn new(py: Python<'_>, config: &PyEncoderConfig) -> PyResult<Self> {
         let _ = gst::init();
-        let inner = NvEncoder::new(&config.inner).map_err(to_py_err)?;
-        Ok(Self { inner })
+        // Release the GIL while building the pipeline — NvEncoder::new
+        // allocates GPU buffer pools, creates CUDA streams, and sets the
+        // GStreamer pipeline to Playing, all of which may block.
+        let config_inner = config.inner.clone();
+        py.detach(|| {
+            let inner = NvEncoder::new(&config_inner).map_err(to_py_err)?;
+            Ok(Self { inner })
+        })
     }
 
     #[getter]
