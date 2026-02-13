@@ -306,4 +306,5 @@ message Message {
     Unknown unknown = 10;
     Shutdown shutdown = 11;
   };
+  string system_id = 20;
 }

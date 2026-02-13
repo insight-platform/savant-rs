@@ -371,7 +371,7 @@ mod tests {
             false,
         );
 
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let uuid = f.get_uuid_u128();
         let m1 = f.to_message();
         in_writer.send_message("test", &m1, &[&[0x01]])?;

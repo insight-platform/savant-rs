@@ -1,8 +1,13 @@
 from enum import Enum
 from typing import List, Optional
 
-from savant_rs.primitives.geometry import (BBox, Intersection, Point,
-                                           PolygonalArea, RBBox)
+from savant_rs.primitives.geometry import (
+    BBox,
+    Intersection,
+    Point,
+    PolygonalArea,
+    RBBox,
+)
 
 __all__ = [
     "AttributeValueType",

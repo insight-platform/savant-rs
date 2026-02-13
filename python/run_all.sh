@@ -3,8 +3,10 @@
 pip install --upgrade pip
 pip install -r requirements.txt
 
+EXCLUDES=(nvbufsurface)
+
 CURRENT_DIR=$(pwd)
-find . -name '*.py' | while read -r file; do
+find . -name '*.py' | grep -v "${EXCLUDES[@]}" | while read -r file; do
   DIR=$(dirname "$file")
   FILE=$(basename "$file")
   cd "$DIR" || exit

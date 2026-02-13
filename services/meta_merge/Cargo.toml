@@ -1,0 +1,46 @@
+[package]
+name = "meta_merge"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "meta_merge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "meta_merge"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+ctrlc = { workspace = true }
+env_logger = { workspace = true }
+hashbrown = { workspace = true }
+log = { workspace = true }
+lru = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
+savant_core = { workspace = true }
+savant_core_py = { workspace = true }
+savant_rs = { workspace = true }
+savant_services_common = { path = "../common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+twelf = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "bench_merge_queue"
+harness = false

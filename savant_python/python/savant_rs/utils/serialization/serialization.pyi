@@ -1,8 +1,14 @@
 from typing import Optional, Union
 
-from savant_rs.primitives import (EndOfStream, Shutdown, UserData, VideoFrame,
-                                  VideoFrameBatch, VideoFrameUpdate)
-from savant_rs.utils import ByteBuffer
+from savant_rs.primitives import (
+    EndOfStream,
+    Shutdown,
+    UserData,
+    VideoFrame,
+    VideoFrameBatch,
+    VideoFrameUpdate,
+)
+from savant_rs.utils import ByteBuffer, PropagatedContext
 
 __all__ = [
     "Message",
@@ -15,8 +21,49 @@ __all__ = [
     "clear_source_seq_id",
 ]
 
+
 class Message:
     """A class representing different types of messages in the Savant system."""
+
+    @property
+    def system_id(self) -> str:
+        """The system ID of the message."""
+        ...
+
+    @system_id.setter
+    def system_id(self, system_id: str) -> None:
+        """Set the system ID of the message."""
+        ...
+
+    @property
+    def seq_id(self) -> int:
+        """The sequence ID of the message."""
+        ...
+
+    @seq_id.setter
+    def seq_id(self, seq_id: int) -> None:
+        """Set the sequence ID of the message."""
+        ...
+
+    @property
+    def labels(self) -> list[str]:
+        """The labels of the message."""
+        ...
+
+    @labels.setter
+    def labels(self, labels: list[str]) -> None:
+        """Set the labels of the message."""
+        ...
+
+    @property
+    def span_context(self) -> PropagatedContext:
+        """The span context of the message."""
+        ...
+
+    @span_context.setter
+    def span_context(self, span_context: PropagatedContext) -> None:
+        """Set the span context of the message."""
+        ...
 
     @staticmethod
     def unknown(s: str) -> "Message":
@@ -260,6 +307,7 @@ class Message:
         """
         ...
 
+
 def save_message(message: Message, no_gil: bool = True) -> bytes:
     """Save a message to a byte array.
 
@@ -276,6 +324,7 @@ def save_message(message: Message, no_gil: bool = True) -> bytes:
         The byte array containing the message
     """
     ...
+
 
 def save_message_to_bytebuffer(
     message: Message, with_hash: bool = True, no_gil: bool = True
@@ -298,6 +347,7 @@ def save_message_to_bytebuffer(
     """
     ...
 
+
 def save_message_to_bytes(message: Message, no_gil: bool = True) -> bytes:
     """Save a message to python bytes.
 
@@ -314,6 +364,7 @@ def save_message_to_bytes(message: Message, no_gil: bool = True) -> bytes:
         The byte buffer containing the message
     """
     ...
+
 
 def load_message(bytes: Union[bytes, bytearray], no_gil: bool = True) -> Message:
     """Loads a message from a byte array.
@@ -332,6 +383,7 @@ def load_message(bytes: Union[bytes, bytearray], no_gil: bool = True) -> Message
     """
     ...
 
+
 def load_message_from_bytebuffer(buffer: ByteBuffer, no_gil: bool = True) -> Message:
     """Loads a message from a ByteBuffer.
 
@@ -349,6 +401,7 @@ def load_message_from_bytebuffer(buffer: ByteBuffer, no_gil: bool = True) -> Mes
     """
     ...
 
+
 def load_message_from_bytes(buffer: bytes, no_gil: bool = True) -> Message:
     """Loads a message from python bytes.
 
@@ -363,12 +416,5 @@ def load_message_from_bytes(buffer: bytes, no_gil: bool = True) -> Message:
     -------
     Message
         The loaded message
-    """
-    ...
-
-def clear_source_seq_id() -> None:
-    """Clears the source sequence ID.
-
-    This function allows validating the sequence ID of messages.
     """
     ...

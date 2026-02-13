@@ -125,7 +125,8 @@ fn pipeline_benchmarks(c: &mut Criterion) {
             .expect("Failed to set sampling period");
 
         b.iter(|| {
-            black_box(run_pipeline_iteration(&mut pipeline, &stages));
+            run_pipeline_iteration(&mut pipeline, &stages);
+            black_box(());
         });
 
         pipeline.log_final_fps();
@@ -140,7 +141,8 @@ fn pipeline_benchmarks(c: &mut Criterion) {
             .expect("Failed to set sampling period");
 
         b.iter(|| {
-            black_box(run_pipeline_iteration(&mut pipeline, &stages));
+            run_pipeline_iteration(&mut pipeline, &stages);
+            black_box(());
         });
     });
 
@@ -152,7 +154,8 @@ fn pipeline_benchmarks(c: &mut Criterion) {
             .expect("Failed to set sampling period");
 
         b.iter(|| {
-            black_box(run_pipeline_iteration(&mut pipeline, &stages));
+            run_pipeline_iteration(&mut pipeline, &stages);
+            black_box(());
         });
     });
 
@@ -184,7 +187,8 @@ fn pipeline_jaeger_benchmarks(c: &mut Criterion) {
             .expect("Failed to set sampling period");
 
         b.iter(|| {
-            black_box(run_pipeline_iteration(&mut pipeline, &stages));
+            run_pipeline_iteration(&mut pipeline, &stages);
+            black_box(());
         });
 
         shutdown();

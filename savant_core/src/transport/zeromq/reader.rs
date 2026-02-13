@@ -6,7 +6,7 @@ use std::num::NonZeroUsize;
 use std::str::from_utf8;
 use zmq::Context;
 
-use crate::message::Message;
+use crate::message::{Message, SeqStore};
 use crate::transport::zeromq::{
     create_ipc_dirs, set_ipc_permissions, MockSocketResponder, ReaderConfig, ReaderSocketType,
     RoutingIdFilter, Socket, SocketProvider, CONFIRMATION_MESSAGE, ZMQ_LINGER,
@@ -14,6 +14,7 @@ use crate::transport::zeromq::{
 use crate::utils::bytes_to_hex_string;
 
 pub struct Reader<R: MockSocketResponder, P: SocketProvider<R>> {
+    seq_store: SeqStore,
     context: Mutex<Option<Context>>,
     config: ReaderConfig,
     socket: Mutex<Option<Socket<R>>>,
@@ -133,7 +134,14 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             socket.connect(config.endpoint())?;
         }
 
+        info!(
+            target: "savant_rs::zeromq::reader",
+            "ZMQ Reader bind={}/type={:?} is started on endpoint {}",
+            config.bind(),config.socket_type(), config.endpoint()
+        );
+
         Ok(Self {
+            seq_store: SeqStore::new(),
             context: Mutex::new(Some(context)),
             config: config.clone(),
             socket: Mutex::new(Some(socket)),
@@ -214,7 +222,7 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
         false
     }
 
-    pub fn receive(&self) -> anyhow::Result<ReaderResult> {
+    pub fn receive(&mut self) -> anyhow::Result<ReaderResult> {
         if self.socket.lock().is_none() {
             bail!(
                 "ZeroMQ socket for endpoint {} is no longer available, because it was destroyed.",
@@ -320,6 +328,8 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Reader<R, P> {
             });
         }
 
+        self.seq_store.validate_seq_id(&message);
+
         if message.is_end_of_stream() {
             if self.config.socket_type() != &ReaderSocketType::Sub {
                 debug!(
@@ -411,7 +421,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
@@ -445,7 +455,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
                 .lock()
@@ -468,7 +478,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
                 .lock()
@@ -491,12 +501,12 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader.socket.lock().as_mut().unwrap().send_multipart(
                 &[
                     b"routing-id",
                     b"topic",
-                    &serialize(&Message::end_of_stream(EndOfStream::new("topic".into())))?,
+                    &serialize(&Message::end_of_stream(EndOfStream::new("topic")))?,
                 ],
                 0,
             )?;
@@ -519,8 +529,8 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
-            let mut message = Message::end_of_stream(EndOfStream::new("topic".into()));
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut message = Message::end_of_stream(EndOfStream::new("topic"));
             message.set_protocol_version("0.0.0".to_string());
             reader
                 .socket
@@ -543,7 +553,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
                 .lock()
@@ -569,7 +579,7 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
                 .lock()
@@ -621,7 +631,7 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             reader
                 .socket
                 .lock()
@@ -670,7 +680,7 @@ mod tests {
             let message = Message::user_data(UserData::new("test"));
             let binary = crate::message::save_message(&message)?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf).unwrap();
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf).unwrap();
             reader
                 .socket
                 .lock()
@@ -710,7 +720,7 @@ mod tests {
                 .with_topic_prefix_spec(TopicPrefixSpec::SourceId("topic".into()))?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
@@ -757,7 +767,7 @@ mod tests {
                 .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 
@@ -790,7 +800,7 @@ mod tests {
                 .with_source_blacklist_ttl(NonZeroU64::new(1).unwrap())?
                 .build()?;
 
-            let reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
+            let mut reader = Reader::<NoopResponder, MockSocketProvider>::new(&conf)?;
             let message = Message::user_data(UserData::new("topic"));
             let binary = crate::message::save_message(&message)?;
 

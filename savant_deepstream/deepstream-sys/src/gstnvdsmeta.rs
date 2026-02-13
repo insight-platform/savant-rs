@@ -169,6 +169,7 @@ pub const __USE_ATFILE: u32 = 1;
 pub const __USE_FORTIFY_LEVEL: u32 = 0;
 pub const __GLIBC_USE_DEPRECATED_GETS: u32 = 0;
 pub const __GLIBC_USE_DEPRECATED_SCANF: u32 = 0;
+pub const __GLIBC_USE_C2X_STRTOL: u32 = 0;
 pub const _STDC_PREDEF_H: u32 = 1;
 pub const __STDC_IEC_559__: u32 = 1;
 pub const __STDC_IEC_60559_BFP__: u32 = 201404;
@@ -177,7 +178,7 @@ pub const __STDC_IEC_60559_COMPLEX__: u32 = 201404;
 pub const __STDC_ISO_10646__: u32 = 201706;
 pub const __GNU_LIBRARY__: u32 = 6;
 pub const __GLIBC__: u32 = 2;
-pub const __GLIBC_MINOR__: u32 = 35;
+pub const __GLIBC_MINOR__: u32 = 39;
 pub const _SYS_CDEFS_H: u32 = 1;
 pub const __glibc_c99_flexarr_available: u32 = 1;
 pub const __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI: u32 = 0;
@@ -291,8 +292,8 @@ pub const G_GINTPTR_MODIFIER: &[u8; 2] = b"l\0";
 pub const G_GINTPTR_FORMAT: &[u8; 3] = b"li\0";
 pub const G_GUINTPTR_FORMAT: &[u8; 3] = b"lu\0";
 pub const GLIB_MAJOR_VERSION: u32 = 2;
-pub const GLIB_MINOR_VERSION: u32 = 76;
-pub const GLIB_MICRO_VERSION: u32 = 6;
+pub const GLIB_MINOR_VERSION: u32 = 80;
+pub const GLIB_MICRO_VERSION: u32 = 0;
 pub const G_VA_COPY_AS_ARRAY: u32 = 1;
 pub const G_HAVE_ISO_VARARGS: u32 = 1;
 pub const G_HAVE_GROWING_STACK: u32 = 0;
@@ -364,7 +365,6 @@ pub const G_IEEE754_DOUBLE_BIAS: u32 = 1023;
 pub const G_LOG_2_BASE_10: f64 = 0.3010299956639812;
 pub const _STRING_H: u32 = 1;
 pub const _STRINGS_H: u32 = 1;
-pub const __GNUC_VA_LIST: u32 = 1;
 pub const _STDLIB_H: u32 = 1;
 pub const WNOHANG: u32 = 1;
 pub const WUNTRACED: u32 = 2;
@@ -719,6 +719,7 @@ pub const __jmp_buf_tag_defined: u32 = 1;
 pub const PTHREAD_ONCE_INIT: u32 = 0;
 pub const PTHREAD_BARRIER_SERIAL_THREAD: i32 = -1;
 pub const G_TYPE_FUNDAMENTAL_SHIFT: u32 = 2;
+pub const G_TYPE_FUNDAMENTAL_MAX: u32 = 1020;
 pub const G_TYPE_RESERVED_GLIB_FIRST: u32 = 22;
 pub const G_TYPE_RESERVED_GLIB_LAST: u32 = 31;
 pub const G_TYPE_RESERVED_BSE_FIRST: u32 = 32;
@@ -736,14 +737,15 @@ pub const GST_DISABLE_GLIB_ASSERTS: u32 = 0;
 pub const GST_DISABLE_GLIB_CHECKS: u32 = 0;
 pub const GST_HAVE_UNALIGNED_ACCESS: u32 = 1;
 pub const GST_VERSION_MAJOR: u32 = 1;
-pub const GST_VERSION_MINOR: u32 = 20;
-pub const GST_VERSION_MICRO: u32 = 3;
+pub const GST_VERSION_MINOR: u32 = 24;
+pub const GST_VERSION_MICRO: u32 = 2;
 pub const GST_VERSION_NANO: u32 = 0;
 pub const GST_TIME_FORMAT: &[u8; 17] = b"u:%02u:%02u.%09u\0";
 pub const GST_STIME_FORMAT: &[u8; 19] = b"c%u:%02u:%02u.%09u\0";
 pub const GST_ALLOCATOR_SYSMEM: &[u8; 13] = b"SystemMemory\0";
 pub const GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY: &[u8; 20] = b"memory:SystemMemory\0";
 pub const GST_META_TAG_MEMORY_STR: &[u8; 7] = b"memory\0";
+pub const GST_META_TAG_MEMORY_REFERENCE_STR: &[u8; 17] = b"memory-reference\0";
 pub const GST_EVENT_NUM_SHIFT: u32 = 8;
 pub const GST_TAG_TITLE: &[u8; 6] = b"title\0";
 pub const GST_TAG_TITLE_SORTNAME: &[u8; 15] = b"title-sortname\0";
@@ -830,6 +832,7 @@ pub const GST_TAG_PUBLISHER: &[u8; 10] = b"publisher\0";
 pub const GST_TAG_INTERPRETED_BY: &[u8; 15] = b"interpreted-by\0";
 pub const GST_TAG_MIDI_BASE_NOTE: &[u8; 15] = b"midi-base-note\0";
 pub const GST_TAG_PRIVATE_DATA: &[u8; 13] = b"private-data\0";
+pub const GST_TAG_CONTAINER_SPECIFIC_TRACK_ID: &[u8; 28] = b"container-specific-track-id\0";
 pub const GST_QUERY_NUM_SHIFT: u32 = 8;
 pub const GST_TOC_REPEAT_COUNT_INFINITE: i32 = -1;
 pub const GST_CAN_INLINE: u32 = 1;
@@ -899,7 +902,10 @@ pub const GST_VIDEO_COMP_INDEX: u32 = 0;
 pub const GST_VIDEO_COMP_PALETTE: u32 = 1;
 pub const GST_VIDEO_SIZE_RANGE: &[u8; 17] = b"(int) [ 1, max ]\0";
 pub const GST_VIDEO_FPS_RANGE: &[u8; 22] = b"(fraction) [ 0, max ]\0";
-pub const GST_VIDEO_FORMATS_ALL : & [u8 ; 934] = b"{ ABGR64_LE, BGRA64_LE, AYUV64, ARGB64_LE, ARGB64, RGBA64_LE, ABGR64_BE, BGRA64_BE, ARGB64_BE, RGBA64_BE, GBRA_12LE, GBRA_12BE, Y412_LE, Y412_BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, RGB10A2_LE, BGR10A2_LE, Y410, GBRA, ABGR, VUYA, BGRA, AYUV, ARGB, RGBA, A420, AV12, Y444_16LE, Y444_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, v210, UYVP, I420_10LE, I420_10BE, P010_10LE, NV12_10LE32, NV12_10LE40, P010_10BE, Y444, RGBP, GBR, BGRP, NV24, xBGR, BGRx, xRGB, RGBx, BGR, IYU2, v308, RGB, Y42B, NV61, NV16, VYUY, UYVY, YVYU, YUY2, I420, YV12, NV21, NV12, NV12_64Z32, NV12_4L4, NV12_32L32, Y41B, IYU1, YVU9, YUV9, RGB16, BGR16, RGB15, BGR15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8 }\0" ;
+pub const GST_VIDEO_FORMATS_ALL_STR : & [u8 ; 1177] = b"A444_16LE, A444_16BE, AYUV64, RGBA64_LE, ARGB64, ARGB64_LE, BGRA64_LE, ABGR64_LE, RGBA64_BE, ARGB64_BE, BGRA64_BE, ABGR64_BE, A422_16LE, A422_16BE, A420_16LE, A420_16BE, A444_12LE, GBRA_12LE, A444_12BE, GBRA_12BE, Y412_LE, Y412_BE, A422_12LE, A422_12BE, A420_12LE, A420_12BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, BGR10A2_LE, RGB10A2_LE, Y410, A444, GBRA, AYUV, VUYA, RGBA, RBGA, ARGB, BGRA, ABGR, A422, A420, AV12, Y444_16LE, GBR_16LE, Y444_16BE, GBR_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, UYVP, v210, I420_10LE, I420_10BE, P010_10LE, NV12_10LE40, NV12_10LE32, P010_10BE, MT2110R, MT2110T, NV12_10BE_8L128, NV12_10LE40_4L4, Y444, BGRP, GBR, RGBP, NV24, v308, IYU2, RGBx, xRGB, BGRx, xBGR, RGB, BGR, Y42B, NV16, NV61, YUY2, YVYU, UYVY, VYUY, I420, YV12, NV12, NV21, NV12_16L32S, NV12_32L32, NV12_4L4, NV12_64Z32, NV12_8L128, Y41B, IYU1, YUV9, YVU9, BGR16, RGB16, BGR15, RGB15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8\0" ;
+pub const GST_VIDEO_FORMATS_ANY_STR : & [u8 ; 1186] = b"DMA_DRM, A444_16LE, A444_16BE, AYUV64, RGBA64_LE, ARGB64, ARGB64_LE, BGRA64_LE, ABGR64_LE, RGBA64_BE, ARGB64_BE, BGRA64_BE, ABGR64_BE, A422_16LE, A422_16BE, A420_16LE, A420_16BE, A444_12LE, GBRA_12LE, A444_12BE, GBRA_12BE, Y412_LE, Y412_BE, A422_12LE, A422_12BE, A420_12LE, A420_12BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, BGR10A2_LE, RGB10A2_LE, Y410, A444, GBRA, AYUV, VUYA, RGBA, RBGA, ARGB, BGRA, ABGR, A422, A420, AV12, Y444_16LE, GBR_16LE, Y444_16BE, GBR_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, UYVP, v210, I420_10LE, I420_10BE, P010_10LE, NV12_10LE40, NV12_10LE32, P010_10BE, MT2110R, MT2110T, NV12_10BE_8L128, NV12_10LE40_4L4, Y444, BGRP, GBR, RGBP, NV24, v308, IYU2, RGBx, xRGB, BGRx, xBGR, RGB, BGR, Y42B, NV16, NV61, YUY2, YVYU, UYVY, VYUY, I420, YV12, NV12, NV21, NV12_16L32S, NV12_32L32, NV12_4L4, NV12_64Z32, NV12_8L128, Y41B, IYU1, YUV9, YVU9, BGR16, RGB16, BGR15, RGB15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8\0" ;
+pub const GST_VIDEO_FORMATS_ALL : & [u8 ; 1181] = b"{ A444_16LE, A444_16BE, AYUV64, RGBA64_LE, ARGB64, ARGB64_LE, BGRA64_LE, ABGR64_LE, RGBA64_BE, ARGB64_BE, BGRA64_BE, ABGR64_BE, A422_16LE, A422_16BE, A420_16LE, A420_16BE, A444_12LE, GBRA_12LE, A444_12BE, GBRA_12BE, Y412_LE, Y412_BE, A422_12LE, A422_12BE, A420_12LE, A420_12BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, BGR10A2_LE, RGB10A2_LE, Y410, A444, GBRA, AYUV, VUYA, RGBA, RBGA, ARGB, BGRA, ABGR, A422, A420, AV12, Y444_16LE, GBR_16LE, Y444_16BE, GBR_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, UYVP, v210, I420_10LE, I420_10BE, P010_10LE, NV12_10LE40, NV12_10LE32, P010_10BE, MT2110R, MT2110T, NV12_10BE_8L128, NV12_10LE40_4L4, Y444, BGRP, GBR, RGBP, NV24, v308, IYU2, RGBx, xRGB, BGRx, xBGR, RGB, BGR, Y42B, NV16, NV61, YUY2, YVYU, UYVY, VYUY, I420, YV12, NV12, NV21, NV12_16L32S, NV12_32L32, NV12_4L4, NV12_64Z32, NV12_8L128, Y41B, IYU1, YUV9, YVU9, BGR16, RGB16, BGR15, RGB15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8 }\0" ;
+pub const GST_VIDEO_FORMATS_ANY : & [u8 ; 1190] = b"{ DMA_DRM, A444_16LE, A444_16BE, AYUV64, RGBA64_LE, ARGB64, ARGB64_LE, BGRA64_LE, ABGR64_LE, RGBA64_BE, ARGB64_BE, BGRA64_BE, ABGR64_BE, A422_16LE, A422_16BE, A420_16LE, A420_16BE, A444_12LE, GBRA_12LE, A444_12BE, GBRA_12BE, Y412_LE, Y412_BE, A422_12LE, A422_12BE, A420_12LE, A420_12BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, BGR10A2_LE, RGB10A2_LE, Y410, A444, GBRA, AYUV, VUYA, RGBA, RBGA, ARGB, BGRA, ABGR, A422, A420, AV12, Y444_16LE, GBR_16LE, Y444_16BE, GBR_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, UYVP, v210, I420_10LE, I420_10BE, P010_10LE, NV12_10LE40, NV12_10LE32, P010_10BE, MT2110R, MT2110T, NV12_10BE_8L128, NV12_10LE40_4L4, Y444, BGRP, GBR, RGBP, NV24, v308, IYU2, RGBx, xRGB, BGRx, xBGR, RGB, BGR, Y42B, NV16, NV61, YUY2, YVYU, UYVY, VYUY, I420, YV12, NV12, NV21, NV12_16L32S, NV12_32L32, NV12_4L4, NV12_64Z32, NV12_8L128, Y41B, IYU1, YUV9, YVU9, BGR16, RGB16, BGR15, RGB15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8 }\0" ;
 pub const GST_VIDEO_COLORIMETRY_BT601: &[u8; 6] = b"bt601\0";
 pub const GST_VIDEO_COLORIMETRY_BT709: &[u8; 6] = b"bt709\0";
 pub const GST_VIDEO_COLORIMETRY_SMPTE240M: &[u8; 10] = b"smpte240m\0";
@@ -942,6 +948,7 @@ pub const GST_VIDEO_RESAMPLER_OPT_SHARPNESS: &[u8; 28] = b"GstVideoResampler.sha
 pub const GST_VIDEO_RESAMPLER_OPT_SHARPEN: &[u8; 26] = b"GstVideoResampler.sharpen\0";
 pub const GST_VIDEO_RESAMPLER_OPT_MAX_TAPS: &[u8; 27] = b"GstVideoResampler.max-taps\0";
 pub const GST_VIDEO_SCALER_OPT_DITHER_METHOD: &[u8; 29] = b"GstVideoScaler.dither-method\0";
+pub const GST_VIDEO_DMA_DRM_CAPS_MAKE : & [u8 ; 142] = b"video/x-raw(memory:DMABuf), format = (string) DMA_DRM, width = (int) [ 1, max ], height = (int) [ 1, max ], framerate = (fraction) [ 0, max ]\0" ;
 pub const GST_META_TAG_VIDEO_STR: &[u8; 6] = b"video\0";
 pub const GST_META_TAG_VIDEO_ORIENTATION_STR: &[u8; 12] = b"orientation\0";
 pub const GST_META_TAG_VIDEO_SIZE_STR: &[u8; 5] = b"size\0";
@@ -952,7 +959,7 @@ pub const GST_BUFFER_POOL_OPTION_VIDEO_AFFINE_TRANSFORMATION_META: &[u8; 45] =
     b"GstBufferPoolOptionVideoAffineTransformation\0";
 pub const GST_VIDEO_DECODER_SINK_NAME: &[u8; 5] = b"sink\0";
 pub const GST_VIDEO_DECODER_SRC_NAME: &[u8; 4] = b"src\0";
-pub const GST_VIDEO_DECODER_MAX_ERRORS: u32 = 10;
+pub const GST_VIDEO_DECODER_MAX_ERRORS: i32 = -1;
 pub const GST_VIDEO_ENCODER_SINK_NAME: &[u8; 5] = b"sink\0";
 pub const GST_VIDEO_ENCODER_SRC_NAME: &[u8; 4] = b"src\0";
 pub const GST_BASE_TRANSFORM_SINK_NAME: &[u8; 5] = b"sink\0";
@@ -967,10 +974,10 @@ pub const GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT: &[u8; 34] =
     b"GstBufferPoolOptionVideoAlignment\0";
 pub const GST_CAPS_FEATURE_META_GST_VIDEO_OVERLAY_COMPOSITION: &[u8; 32] =
     b"meta:GstVideoOverlayComposition\0";
-pub const GST_VIDEO_OVERLAY_COMPOSITION_BLEND_FORMATS : & [u8 ; 934] = b"{ ABGR64_LE, BGRA64_LE, AYUV64, ARGB64_LE, ARGB64, RGBA64_LE, ABGR64_BE, BGRA64_BE, ARGB64_BE, RGBA64_BE, GBRA_12LE, GBRA_12BE, Y412_LE, Y412_BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, RGB10A2_LE, BGR10A2_LE, Y410, GBRA, ABGR, VUYA, BGRA, AYUV, ARGB, RGBA, A420, AV12, Y444_16LE, Y444_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, v210, UYVP, I420_10LE, I420_10BE, P010_10LE, NV12_10LE32, NV12_10LE40, P010_10BE, Y444, RGBP, GBR, BGRP, NV24, xBGR, BGRx, xRGB, RGBx, BGR, IYU2, v308, RGB, Y42B, NV61, NV16, VYUY, UYVY, YVYU, YUY2, I420, YV12, NV21, NV12, NV12_64Z32, NV12_4L4, NV12_32L32, Y41B, IYU1, YVU9, YUV9, RGB16, BGR16, RGB15, BGR15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8 }\0" ;
+pub const GST_VIDEO_OVERLAY_COMPOSITION_BLEND_FORMATS : & [u8 ; 1181] = b"{ A444_16LE, A444_16BE, AYUV64, RGBA64_LE, ARGB64, ARGB64_LE, BGRA64_LE, ABGR64_LE, RGBA64_BE, ARGB64_BE, BGRA64_BE, ABGR64_BE, A422_16LE, A422_16BE, A420_16LE, A420_16BE, A444_12LE, GBRA_12LE, A444_12BE, GBRA_12BE, Y412_LE, Y412_BE, A422_12LE, A422_12BE, A420_12LE, A420_12BE, A444_10LE, GBRA_10LE, A444_10BE, GBRA_10BE, A422_10LE, A422_10BE, A420_10LE, A420_10BE, BGR10A2_LE, RGB10A2_LE, Y410, A444, GBRA, AYUV, VUYA, RGBA, RBGA, ARGB, BGRA, ABGR, A422, A420, AV12, Y444_16LE, GBR_16LE, Y444_16BE, GBR_16BE, v216, P016_LE, P016_BE, Y444_12LE, GBR_12LE, Y444_12BE, GBR_12BE, I422_12LE, I422_12BE, Y212_LE, Y212_BE, I420_12LE, I420_12BE, P012_LE, P012_BE, Y444_10LE, GBR_10LE, Y444_10BE, GBR_10BE, r210, I422_10LE, I422_10BE, NV16_10LE32, Y210, UYVP, v210, I420_10LE, I420_10BE, P010_10LE, NV12_10LE40, NV12_10LE32, P010_10BE, MT2110R, MT2110T, NV12_10BE_8L128, NV12_10LE40_4L4, Y444, BGRP, GBR, RGBP, NV24, v308, IYU2, RGBx, xRGB, BGRx, xBGR, RGB, BGR, Y42B, NV16, NV61, YUY2, YVYU, UYVY, VYUY, I420, YV12, NV12, NV21, NV12_16L32S, NV12_32L32, NV12_4L4, NV12_64Z32, NV12_8L128, Y41B, IYU1, YUV9, YVU9, BGR16, RGB16, BGR15, RGB15, RGB8P, GRAY16_LE, GRAY16_BE, GRAY10_LE32, GRAY8 }\0" ;
+pub const __bool_true_false_are_defined: u32 = 1;
 pub const true_: u32 = 1;
 pub const false_: u32 = 0;
-pub const __bool_true_false_are_defined: u32 = 1;
 pub const DS_MAX_POLYGON_POINTS: u32 = 8;
 pub const MAX_USER_FIELDS: u32 = 4;
 pub const MAX_RESERVED_FIELDS: u32 = 4;
@@ -980,6 +987,7 @@ pub const UNTRACKED_OBJECT_ID: i32 = -1;
 pub const _STDINT_H: u32 = 1;
 pub const _BITS_WCHAR_H: u32 = 1;
 pub const _BITS_STDINT_UINTN_H: u32 = 1;
+pub const _BITS_STDINT_LEAST_H: u32 = 1;
 pub const INT8_MIN: i32 = -128;
 pub const INT16_MIN: i32 = -32768;
 pub const INT32_MIN: i32 = -2147483648;
@@ -1399,7 +1407,7 @@ pub type GHFunc = ::std::option::Option<
 #[doc = " GCopyFunc:\n @src: (not nullable): A pointer to the data which should be copied\n @data: Additional data\n\n A function of this signature is used to copy the node data\n when doing a deep-copy of a tree.\n\n Returns: (not nullable): A pointer to the copy\n\n Since: 2.4"]
 pub type GCopyFunc =
     ::std::option::Option<unsafe extern "C" fn(src: gconstpointer, data: gpointer) -> gpointer>;
-#[doc = " GFreeFunc:\n @data: a data pointer\n\n Declares a type of function which takes an arbitrary\n data pointer argument and has no return value. It is\n not currently used in GLib or GTK+."]
+#[doc = " GFreeFunc:\n @data: a data pointer\n\n Declares a type of function which takes an arbitrary\n data pointer argument and has no return value. It is\n not currently used in GLib or GTK."]
 pub type GFreeFunc = ::std::option::Option<unsafe extern "C" fn(data: gpointer)>;
 #[doc = " GTranslateFunc:\n @str: the untranslated string\n @data: user data specified when installing the function, e.g.\n  in g_option_group_set_translate_func()\n\n The type of functions which are used to translate user-visible\n strings, for <option>--help</option> output.\n\n Returns: a translation of the string for the current locale.\n  The returned string is owned by GLib and must not be freed."]
 pub type GTranslateFunc =
@@ -1898,6 +1906,12 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
+    pub fn strchrnul(
+        __s: *const ::std::os::raw::c_char,
+        __c: ::std::os::raw::c_int,
+    ) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
     pub fn strcspn(
         __s: *const ::std::os::raw::c_char,
         __reject: *const ::std::os::raw::c_char,
@@ -1942,6 +1956,34 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
+    pub fn strcasestr(
+        __haystack: *const ::std::os::raw::c_char,
+        __needle: *const ::std::os::raw::c_char,
+    ) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn memmem(
+        __haystack: *const ::std::os::raw::c_void,
+        __haystacklen: usize,
+        __needle: *const ::std::os::raw::c_void,
+        __needlelen: usize,
+    ) -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn __mempcpy(
+        __dest: *mut ::std::os::raw::c_void,
+        __src: *const ::std::os::raw::c_void,
+        __n: usize,
+    ) -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
+    pub fn mempcpy(
+        __dest: *mut ::std::os::raw::c_void,
+        __src: *const ::std::os::raw::c_void,
+        __n: ::std::os::raw::c_ulong,
+    ) -> *mut ::std::os::raw::c_void;
+}
+unsafe extern "C" {
     pub fn strlen(__s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_ulong;
 }
 unsafe extern "C" {
@@ -1975,7 +2017,7 @@ unsafe extern "C" {
     pub fn bcopy(
         __src: *const ::std::os::raw::c_void,
         __dest: *mut ::std::os::raw::c_void,
-        __n: usize,
+        __n: ::std::os::raw::c_ulong,
     );
 }
 unsafe extern "C" {
@@ -2067,6 +2109,20 @@ unsafe extern "C" {
         __src: *const ::std::os::raw::c_char,
         __n: ::std::os::raw::c_ulong,
     ) -> *mut ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn strlcpy(
+        __dest: *mut ::std::os::raw::c_char,
+        __src: *const ::std::os::raw::c_char,
+        __n: usize,
+    ) -> usize;
+}
+unsafe extern "C" {
+    pub fn strlcat(
+        __dest: *mut ::std::os::raw::c_char,
+        __src: *const ::std::os::raw::c_char,
+        __n: usize,
+    ) -> usize;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -2507,22 +2563,22 @@ unsafe extern "C" {
     ) -> gpointer;
 }
 unsafe extern "C" {
-    pub fn g_atomic_pointer_add(atomic: *mut ::std::os::raw::c_void, val: gssize) -> gssize;
+    pub fn g_atomic_pointer_add(atomic: *mut ::std::os::raw::c_void, val: gssize) -> gintptr;
 }
 unsafe extern "C" {
-    pub fn g_atomic_pointer_and(atomic: *mut ::std::os::raw::c_void, val: gsize) -> gsize;
+    pub fn g_atomic_pointer_and(atomic: *mut ::std::os::raw::c_void, val: gsize) -> guintptr;
 }
 unsafe extern "C" {
-    pub fn g_atomic_pointer_or(atomic: *mut ::std::os::raw::c_void, val: gsize) -> gsize;
+    pub fn g_atomic_pointer_or(atomic: *mut ::std::os::raw::c_void, val: gsize) -> guintptr;
 }
 unsafe extern "C" {
-    pub fn g_atomic_pointer_xor(atomic: *mut ::std::os::raw::c_void, val: gsize) -> gsize;
+    pub fn g_atomic_pointer_xor(atomic: *mut ::std::os::raw::c_void, val: gsize) -> guintptr;
 }
 unsafe extern "C" {
     pub fn g_atomic_int_exchange_and_add(atomic: *mut gint, val: gint) -> gint;
 }
-pub type va_list = __builtin_va_list;
 pub type __gnuc_va_list = __builtin_va_list;
+pub type va_list = __builtin_va_list;
 pub type GQuark = guint32;
 unsafe extern "C" {
     pub fn g_quark_try_string(string: *const gchar) -> GQuark;
@@ -3508,6 +3564,15 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn arc4random() -> __uint32_t;
+}
+unsafe extern "C" {
+    pub fn arc4random_buf(__buf: *mut ::std::os::raw::c_void, __size: usize);
+}
+unsafe extern "C" {
+    pub fn arc4random_uniform(__upper_bound: __uint32_t) -> __uint32_t;
+}
+unsafe extern "C" {
     pub fn malloc(__size: ::std::os::raw::c_ulong) -> *mut ::std::os::raw::c_void;
 }
 unsafe extern "C" {
@@ -3906,7 +3971,7 @@ unsafe extern "C" {
     pub fn g_thread_self() -> *mut GThread;
 }
 unsafe extern "C" {
-    pub fn g_thread_exit(retval: gpointer);
+    pub fn g_thread_exit(retval: gpointer) -> !;
 }
 unsafe extern "C" {
     pub fn g_thread_join(thread: *mut GThread) -> gpointer;
@@ -4003,6 +4068,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_once_init_leave(location: *mut ::std::os::raw::c_void, result: gsize);
+}
+unsafe extern "C" {
+    pub fn g_once_init_enter_pointer(location: *mut ::std::os::raw::c_void) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn g_once_init_leave_pointer(location: *mut ::std::os::raw::c_void, result: gpointer);
 }
 unsafe extern "C" {
     pub fn g_get_num_processors() -> guint;
@@ -4422,6 +4493,7 @@ pub const SEGV_ADIDERR: _bindgen_ty_4 = 6;
 pub const SEGV_ADIPERR: _bindgen_ty_4 = 7;
 pub const SEGV_MTEAERR: _bindgen_ty_4 = 8;
 pub const SEGV_MTESERR: _bindgen_ty_4 = 9;
+pub const SEGV_CPERR: _bindgen_ty_4 = 10;
 pub type _bindgen_ty_4 = ::std::os::raw::c_uint;
 pub const BUS_ADRALN: _bindgen_ty_5 = 1;
 pub const BUS_ADRERR: _bindgen_ty_5 = 2;
@@ -5109,10 +5181,30 @@ unsafe extern "C" {
     pub fn g_pointer_bit_lock(address: *mut ::std::os::raw::c_void, lock_bit: gint);
 }
 unsafe extern "C" {
+    pub fn g_pointer_bit_lock_and_get(address: gpointer, lock_bit: guint, out_ptr: *mut guintptr);
+}
+unsafe extern "C" {
     pub fn g_pointer_bit_trylock(address: *mut ::std::os::raw::c_void, lock_bit: gint) -> gboolean;
 }
 unsafe extern "C" {
     pub fn g_pointer_bit_unlock(address: *mut ::std::os::raw::c_void, lock_bit: gint);
+}
+unsafe extern "C" {
+    pub fn g_pointer_bit_lock_mask_ptr(
+        ptr: gpointer,
+        lock_bit: guint,
+        set: gboolean,
+        preserve_mask: guintptr,
+        preserve_ptr: gpointer,
+    ) -> gpointer;
+}
+unsafe extern "C" {
+    pub fn g_pointer_bit_unlock_and_set(
+        address: *mut ::std::os::raw::c_void,
+        lock_bit: guint,
+        ptr: gpointer,
+        preserve_mask: guintptr,
+    );
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -5175,7 +5267,7 @@ pub type GTimeSpan = gint64;
 pub struct _GDateTime {
     _unused: [u8; 0],
 }
-#[doc = " GDateTime:\n\n An opaque structure that represents a date and time, including a time zone.\n\n Since: 2.26"]
+#[doc = " GDateTime:\n\n `GDateTime` is a structure that combines a Gregorian date and time\n into a single structure.\n\n `GDateTime` provides many conversion and methods to manipulate dates and times.\n Time precision is provided down to microseconds and the time can range\n (proleptically) from 0001-01-01 00:00:00 to 9999-12-31 23:59:59.999999.\n `GDateTime` follows POSIX time in the sense that it is oblivious to leap\n seconds.\n\n `GDateTime` is an immutable object; once it has been created it cannot\n be modified further. All modifiers will create a new `GDateTime`.\n Nearly all such functions can fail due to the date or time going out\n of range, in which case %NULL will be returned.\n\n `GDateTime` is reference counted: the reference count is increased by calling\n [method@GLib.DateTime.ref] and decreased by calling [method@GLib.DateTime.unref].\n When the reference count drops to 0, the resources allocated by the `GDateTime`\n structure are released.\n\n Many parts of the API may produce non-obvious results. As an\n example, adding two months to January 31st will yield March 31st\n whereas adding one month and then one month again will yield either\n March 28th or March 29th.  Also note that adding 24 hours is not\n always the same as adding one day (since days containing daylight\n savings time transitions are either 23 or 25 hours in length).\n\n Since: 2.26"]
 pub type GDateTime = _GDateTime;
 unsafe extern "C" {
     pub fn g_date_time_unref(datetime: *mut GDateTime);
@@ -5197,6 +5289,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_date_time_new_from_unix_utc(t: gint64) -> *mut GDateTime;
+}
+unsafe extern "C" {
+    pub fn g_date_time_new_from_unix_local_usec(usecs: gint64) -> *mut GDateTime;
+}
+unsafe extern "C" {
+    pub fn g_date_time_new_from_unix_utc_usec(usecs: gint64) -> *mut GDateTime;
 }
 unsafe extern "C" {
     pub fn g_date_time_new_from_timeval_local(tv: *const GTimeVal) -> *mut GDateTime;
@@ -5336,6 +5434,9 @@ unsafe extern "C" {
     pub fn g_date_time_to_unix(datetime: *mut GDateTime) -> gint64;
 }
 unsafe extern "C" {
+    pub fn g_date_time_to_unix_usec(datetime: *mut GDateTime) -> gint64;
+}
+unsafe extern "C" {
     pub fn g_date_time_to_timeval(datetime: *mut GDateTime, tv: *mut GTimeVal) -> gboolean;
 }
 unsafe extern "C" {
@@ -5383,7 +5484,7 @@ unsafe extern "C" {
 pub struct _GBookmarkFile {
     _unused: [u8; 0],
 }
-#[doc = " GBookmarkFile:\n\n An opaque data structure representing a set of bookmarks."]
+#[doc = " GBookmarkFile:\n\n `GBookmarkFile` lets you parse, edit or create files containing bookmarks.\n\n Bookmarks refer to a URI, along with some meta-data about the resource\n pointed by the URI like its MIME type, the application that is registering\n the bookmark and the icon that should be used to represent the bookmark.\n The data is stored using the\n [Desktop Bookmark Specification](http://www.gnome.org/~ebassi/bookmark-spec).\n\n The syntax of the bookmark files is described in detail inside the\n Desktop Bookmark Specification, here is a quick summary: bookmark\n files use a sub-class of the XML Bookmark Exchange Language\n specification, consisting of valid UTF-8 encoded XML, under the\n `<xbel>` root element; each bookmark is stored inside a\n `<bookmark>` element, using its URI: no relative paths can\n be used inside a bookmark file. The bookmark may have a user defined\n title and description, to be used instead of the URI. Under the\n `<metadata>` element, with its owner attribute set to\n `http://freedesktop.org`, is stored the meta-data about a resource\n pointed by its URI. The meta-data consists of the resource's MIME\n type; the applications that have registered a bookmark; the groups\n to which a bookmark belongs to; a visibility flag, used to set the\n bookmark as \"private\" to the applications and groups that has it\n registered; the URI and MIME type of an icon, to be used when\n displaying the bookmark inside a GUI.\n\n Here is an example of a bookmark file:\n [bookmarks.xbel](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/glib/tests/bookmarks.xbel)\n\n A bookmark file might contain more than one bookmark; each bookmark\n is accessed through its URI.\n\n The important caveat of bookmark files is that when you add a new\n bookmark you must also add the application that is registering it, using\n [method@GLib.BookmarkFile.add_application] or [method@GLib.BookmarkFile.set_application_info].\n If a bookmark has no applications then it won't be dumped when creating\n the on disk representation, using [method@GLib.BookmarkFile.to_data] or\n [method@GLib.BookmarkFile.to_file].\n\n Since: 2.12"]
 pub type GBookmarkFile = _GBookmarkFile;
 unsafe extern "C" {
     pub fn g_bookmark_file_new() -> *mut GBookmarkFile;
@@ -5815,7 +5916,6 @@ pub type GChecksumType = ::std::os::raw::c_uint;
 pub struct _GChecksum {
     _unused: [u8; 0],
 }
-#[doc = " GChecksum:\n\n An opaque structure representing a checksumming operation.\n\n To create a new GChecksum, use g_checksum_new(). To free\n a GChecksum, use g_checksum_free().\n\n Since: 2.16"]
 pub type GChecksum = _GChecksum;
 unsafe extern "C" {
     pub fn g_checksum_type_get_length(checksum_type: GChecksumType) -> gssize;
@@ -6563,13 +6663,13 @@ pub struct __dirstream {
 }
 pub type DIR = __dirstream;
 unsafe extern "C" {
+    pub fn closedir(__dirp: *mut DIR) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn opendir(__name: *const ::std::os::raw::c_char) -> *mut DIR;
 }
 unsafe extern "C" {
     pub fn fdopendir(__fd: ::std::os::raw::c_int) -> *mut DIR;
-}
-unsafe extern "C" {
-    pub fn closedir(__dirp: *mut DIR) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn readdir(__dirp: *mut DIR) -> *mut dirent;
@@ -6636,6 +6736,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_dir_close(dir: *mut GDir);
+}
+unsafe extern "C" {
+    pub fn g_dir_ref(dir: *mut GDir) -> *mut GDir;
+}
+unsafe extern "C" {
+    pub fn g_dir_unref(dir: *mut GDir);
 }
 unsafe extern "C" {
     pub fn g_getenv(variable: *const gchar) -> *const gchar;
@@ -7433,7 +7539,6 @@ unsafe extern "C" {
 pub struct _GHmac {
     _unused: [u8; 0],
 }
-#[doc = " GHmac:\n\n An opaque structure representing a HMAC operation.\n To create a new GHmac, use g_hmac_new(). To free\n a GHmac, use g_hmac_unref().\n\n Since: 2.30"]
 pub type GHmac = _GHmac;
 unsafe extern "C" {
     pub fn g_hmac_new(digest_type: GChecksumType, key: *const guchar, key_len: gsize)
@@ -7930,7 +8035,7 @@ pub type GMainContext = _GMainContext;
 pub struct _GMainLoop {
     _unused: [u8; 0],
 }
-#[doc = " GMainLoop:\n\n The `GMainLoop` struct is an opaque data type\n representing the main event loop of a GLib or GTK+ application."]
+#[doc = " GMainLoop:\n\n The `GMainLoop` struct is an opaque data type\n representing the main event loop of a GLib or GTK application."]
 pub type GMainLoop = _GMainLoop;
 #[doc = " GSource:\n\n The `GSource` struct is an opaque data type\n representing an event source."]
 pub type GSource = _GSource;
@@ -8360,6 +8465,13 @@ unsafe extern "C" {
     pub fn g_timeout_add_seconds(interval: guint, function: GSourceFunc, data: gpointer) -> guint;
 }
 unsafe extern "C" {
+    pub fn g_timeout_add_seconds_once(
+        interval: guint,
+        function: GSourceOnceFunc,
+        data: gpointer,
+    ) -> guint;
+}
+unsafe extern "C" {
     pub fn g_child_watch_add_full(
         priority: gint,
         pid: GPid,
@@ -8495,7 +8607,12 @@ pub const GUnicodeBreakType_G_UNICODE_BREAK_REGIONAL_INDICATOR: GUnicodeBreakTyp
 pub const GUnicodeBreakType_G_UNICODE_BREAK_EMOJI_BASE: GUnicodeBreakType = 40;
 pub const GUnicodeBreakType_G_UNICODE_BREAK_EMOJI_MODIFIER: GUnicodeBreakType = 41;
 pub const GUnicodeBreakType_G_UNICODE_BREAK_ZERO_WIDTH_JOINER: GUnicodeBreakType = 42;
-#[doc = " GUnicodeBreakType:\n @G_UNICODE_BREAK_MANDATORY: Mandatory Break (BK)\n @G_UNICODE_BREAK_CARRIAGE_RETURN: Carriage Return (CR)\n @G_UNICODE_BREAK_LINE_FEED: Line Feed (LF)\n @G_UNICODE_BREAK_COMBINING_MARK: Attached Characters and Combining Marks (CM)\n @G_UNICODE_BREAK_SURROGATE: Surrogates (SG)\n @G_UNICODE_BREAK_ZERO_WIDTH_SPACE: Zero Width Space (ZW)\n @G_UNICODE_BREAK_INSEPARABLE: Inseparable (IN)\n @G_UNICODE_BREAK_NON_BREAKING_GLUE: Non-breaking (\"Glue\") (GL)\n @G_UNICODE_BREAK_CONTINGENT: Contingent Break Opportunity (CB)\n @G_UNICODE_BREAK_SPACE: Space (SP)\n @G_UNICODE_BREAK_AFTER: Break Opportunity After (BA)\n @G_UNICODE_BREAK_BEFORE: Break Opportunity Before (BB)\n @G_UNICODE_BREAK_BEFORE_AND_AFTER: Break Opportunity Before and After (B2)\n @G_UNICODE_BREAK_HYPHEN: Hyphen (HY)\n @G_UNICODE_BREAK_NON_STARTER: Nonstarter (NS)\n @G_UNICODE_BREAK_OPEN_PUNCTUATION: Opening Punctuation (OP)\n @G_UNICODE_BREAK_CLOSE_PUNCTUATION: Closing Punctuation (CL)\n @G_UNICODE_BREAK_QUOTATION: Ambiguous Quotation (QU)\n @G_UNICODE_BREAK_EXCLAMATION: Exclamation/Interrogation (EX)\n @G_UNICODE_BREAK_IDEOGRAPHIC: Ideographic (ID)\n @G_UNICODE_BREAK_NUMERIC: Numeric (NU)\n @G_UNICODE_BREAK_INFIX_SEPARATOR: Infix Separator (Numeric) (IS)\n @G_UNICODE_BREAK_SYMBOL: Symbols Allowing Break After (SY)\n @G_UNICODE_BREAK_ALPHABETIC: Ordinary Alphabetic and Symbol Characters (AL)\n @G_UNICODE_BREAK_PREFIX: Prefix (Numeric) (PR)\n @G_UNICODE_BREAK_POSTFIX: Postfix (Numeric) (PO)\n @G_UNICODE_BREAK_COMPLEX_CONTEXT: Complex Content Dependent (South East Asian) (SA)\n @G_UNICODE_BREAK_AMBIGUOUS: Ambiguous (Alphabetic or Ideographic) (AI)\n @G_UNICODE_BREAK_UNKNOWN: Unknown (XX)\n @G_UNICODE_BREAK_NEXT_LINE: Next Line (NL)\n @G_UNICODE_BREAK_WORD_JOINER: Word Joiner (WJ)\n @G_UNICODE_BREAK_HANGUL_L_JAMO: Hangul L Jamo (JL)\n @G_UNICODE_BREAK_HANGUL_V_JAMO: Hangul V Jamo (JV)\n @G_UNICODE_BREAK_HANGUL_T_JAMO: Hangul T Jamo (JT)\n @G_UNICODE_BREAK_HANGUL_LV_SYLLABLE: Hangul LV Syllable (H2)\n @G_UNICODE_BREAK_HANGUL_LVT_SYLLABLE: Hangul LVT Syllable (H3)\n @G_UNICODE_BREAK_CLOSE_PARANTHESIS: Closing Parenthesis (CP). Since 2.28. Deprecated: 2.70: Use %G_UNICODE_BREAK_CLOSE_PARENTHESIS instead.\n @G_UNICODE_BREAK_CLOSE_PARENTHESIS: Closing Parenthesis (CP). Since 2.70\n @G_UNICODE_BREAK_CONDITIONAL_JAPANESE_STARTER: Conditional Japanese Starter (CJ). Since: 2.32\n @G_UNICODE_BREAK_HEBREW_LETTER: Hebrew Letter (HL). Since: 2.32\n @G_UNICODE_BREAK_REGIONAL_INDICATOR: Regional Indicator (RI). Since: 2.36\n @G_UNICODE_BREAK_EMOJI_BASE: Emoji Base (EB). Since: 2.50\n @G_UNICODE_BREAK_EMOJI_MODIFIER: Emoji Modifier (EM). Since: 2.50\n @G_UNICODE_BREAK_ZERO_WIDTH_JOINER: Zero Width Joiner (ZWJ). Since: 2.50\n\n These are the possible line break classifications.\n\n Since new unicode versions may add new types here, applications should be ready\n to handle unknown values. They may be regarded as %G_UNICODE_BREAK_UNKNOWN.\n\n See [Unicode Line Breaking Algorithm](https://www.unicode.org/reports/tr14/)."]
+pub const GUnicodeBreakType_G_UNICODE_BREAK_AKSARA: GUnicodeBreakType = 43;
+pub const GUnicodeBreakType_G_UNICODE_BREAK_AKSARA_PRE_BASE: GUnicodeBreakType = 44;
+pub const GUnicodeBreakType_G_UNICODE_BREAK_AKSARA_START: GUnicodeBreakType = 45;
+pub const GUnicodeBreakType_G_UNICODE_BREAK_VIRAMA_FINAL: GUnicodeBreakType = 46;
+pub const GUnicodeBreakType_G_UNICODE_BREAK_VIRAMA: GUnicodeBreakType = 47;
+#[doc = " GUnicodeBreakType:\n @G_UNICODE_BREAK_MANDATORY: Mandatory Break (BK)\n @G_UNICODE_BREAK_CARRIAGE_RETURN: Carriage Return (CR)\n @G_UNICODE_BREAK_LINE_FEED: Line Feed (LF)\n @G_UNICODE_BREAK_COMBINING_MARK: Attached Characters and Combining Marks (CM)\n @G_UNICODE_BREAK_SURROGATE: Surrogates (SG)\n @G_UNICODE_BREAK_ZERO_WIDTH_SPACE: Zero Width Space (ZW)\n @G_UNICODE_BREAK_INSEPARABLE: Inseparable (IN)\n @G_UNICODE_BREAK_NON_BREAKING_GLUE: Non-breaking (\"Glue\") (GL)\n @G_UNICODE_BREAK_CONTINGENT: Contingent Break Opportunity (CB)\n @G_UNICODE_BREAK_SPACE: Space (SP)\n @G_UNICODE_BREAK_AFTER: Break Opportunity After (BA)\n @G_UNICODE_BREAK_BEFORE: Break Opportunity Before (BB)\n @G_UNICODE_BREAK_BEFORE_AND_AFTER: Break Opportunity Before and After (B2)\n @G_UNICODE_BREAK_HYPHEN: Hyphen (HY)\n @G_UNICODE_BREAK_NON_STARTER: Nonstarter (NS)\n @G_UNICODE_BREAK_OPEN_PUNCTUATION: Opening Punctuation (OP)\n @G_UNICODE_BREAK_CLOSE_PUNCTUATION: Closing Punctuation (CL)\n @G_UNICODE_BREAK_QUOTATION: Ambiguous Quotation (QU)\n @G_UNICODE_BREAK_EXCLAMATION: Exclamation/Interrogation (EX)\n @G_UNICODE_BREAK_IDEOGRAPHIC: Ideographic (ID)\n @G_UNICODE_BREAK_NUMERIC: Numeric (NU)\n @G_UNICODE_BREAK_INFIX_SEPARATOR: Infix Separator (Numeric) (IS)\n @G_UNICODE_BREAK_SYMBOL: Symbols Allowing Break After (SY)\n @G_UNICODE_BREAK_ALPHABETIC: Ordinary Alphabetic and Symbol Characters (AL)\n @G_UNICODE_BREAK_PREFIX: Prefix (Numeric) (PR)\n @G_UNICODE_BREAK_POSTFIX: Postfix (Numeric) (PO)\n @G_UNICODE_BREAK_COMPLEX_CONTEXT: Complex Content Dependent (South East Asian) (SA)\n @G_UNICODE_BREAK_AMBIGUOUS: Ambiguous (Alphabetic or Ideographic) (AI)\n @G_UNICODE_BREAK_UNKNOWN: Unknown (XX)\n @G_UNICODE_BREAK_NEXT_LINE: Next Line (NL)\n @G_UNICODE_BREAK_WORD_JOINER: Word Joiner (WJ)\n @G_UNICODE_BREAK_HANGUL_L_JAMO: Hangul L Jamo (JL)\n @G_UNICODE_BREAK_HANGUL_V_JAMO: Hangul V Jamo (JV)\n @G_UNICODE_BREAK_HANGUL_T_JAMO: Hangul T Jamo (JT)\n @G_UNICODE_BREAK_HANGUL_LV_SYLLABLE: Hangul LV Syllable (H2)\n @G_UNICODE_BREAK_HANGUL_LVT_SYLLABLE: Hangul LVT Syllable (H3)\n @G_UNICODE_BREAK_CLOSE_PARANTHESIS: Closing Parenthesis (CP). Since 2.28. Deprecated: 2.70: Use %G_UNICODE_BREAK_CLOSE_PARENTHESIS instead.\n @G_UNICODE_BREAK_CLOSE_PARENTHESIS: Closing Parenthesis (CP). Since 2.70\n @G_UNICODE_BREAK_CONDITIONAL_JAPANESE_STARTER: Conditional Japanese Starter (CJ). Since: 2.32\n @G_UNICODE_BREAK_HEBREW_LETTER: Hebrew Letter (HL). Since: 2.32\n @G_UNICODE_BREAK_REGIONAL_INDICATOR: Regional Indicator (RI). Since: 2.36\n @G_UNICODE_BREAK_EMOJI_BASE: Emoji Base (EB). Since: 2.50\n @G_UNICODE_BREAK_EMOJI_MODIFIER: Emoji Modifier (EM). Since: 2.50\n @G_UNICODE_BREAK_ZERO_WIDTH_JOINER: Zero Width Joiner (ZWJ). Since: 2.50\n @G_UNICODE_BREAK_AKSARA: Aksara (AK). Since: 2.80\n @G_UNICODE_BREAK_AKSARA_PRE_BASE (AP). Since: 2.80\n @G_UNICODE_BREAK_AKSARA_START (AS). Since: 2.80\n @G_UNICODE_BREAK_VIRAMA_FINAL (VF). Since: 2.80\n @G_UNICODE_BREAK_VIRAMA (VI). Since: 2.80\n\n These are the possible line break classifications.\n\n Since new Unicode versions may add new types here, applications should be ready\n to handle unknown values. They may be regarded as %G_UNICODE_BREAK_UNKNOWN.\n\n See [Unicode Line Breaking Algorithm](https://www.unicode.org/reports/tr14/)."]
 pub type GUnicodeBreakType = ::std::os::raw::c_uint;
 pub const GUnicodeScript_G_UNICODE_SCRIPT_INVALID_CODE: GUnicodeScript = -1;
 pub const GUnicodeScript_G_UNICODE_SCRIPT_COMMON: GUnicodeScript = 0;
@@ -8808,6 +8925,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_utf8_strncpy(dest: *mut gchar, src: *const gchar, n: gsize) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn g_utf8_truncate_middle(string: *const gchar, truncate_length: gsize) -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn g_utf8_strchr(p: *const gchar, len: gssize, c: gunichar) -> *mut gchar;
@@ -9150,7 +9270,7 @@ unsafe extern "C" {
 }
 pub const GNumberParserError_G_NUMBER_PARSER_ERROR_INVALID: GNumberParserError = 0;
 pub const GNumberParserError_G_NUMBER_PARSER_ERROR_OUT_OF_BOUNDS: GNumberParserError = 1;
-#[doc = " GNumberParserError:\n @G_NUMBER_PARSER_ERROR_INVALID: String was not a valid number.\n @G_NUMBER_PARSER_ERROR_OUT_OF_BOUNDS: String was a number, but out of bounds.\n\n Error codes returned by functions converting a string to a number.\n\n Since: 2.54"]
+#[doc = " GNumberParserError:\n @G_NUMBER_PARSER_ERROR_INVALID: string was not a valid number\n @G_NUMBER_PARSER_ERROR_OUT_OF_BOUNDS: string was a number, but out of bounds\n\n Error codes returned by functions converting a string to a number.\n\n Since: 2.54"]
 pub type GNumberParserError = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn g_number_parser_error_quark() -> GQuark;
@@ -9194,6 +9314,9 @@ const _: () = {
 };
 unsafe extern "C" {
     pub fn g_string_new(init: *const gchar) -> *mut GString;
+}
+unsafe extern "C" {
+    pub fn g_string_new_take(init: *mut gchar) -> *mut GString;
 }
 unsafe extern "C" {
     pub fn g_string_new_len(init: *const gchar, len: gssize) -> *mut GString;
@@ -10544,7 +10667,6 @@ unsafe extern "C" {
 pub struct _GVariantType {
     _unused: [u8; 0],
 }
-#[doc = " GVariantType:\n\n A type in the GVariant type system.\n\n Two types may not be compared by value; use g_variant_type_equal() or\n g_variant_type_is_subtype_of().  May be copied using\n g_variant_type_copy() and freed using g_variant_type_free()."]
 pub type GVariantType = _GVariantType;
 unsafe extern "C" {
     pub fn g_variant_type_string_is_valid(type_string: *const gchar) -> gboolean;
@@ -10647,7 +10769,7 @@ unsafe extern "C" {
     ) -> *mut GVariantType;
 }
 unsafe extern "C" {
-    pub fn g_variant_type_checked_(arg1: *const gchar) -> *const GVariantType;
+    pub fn g_variant_type_checked_(type_string: *const gchar) -> *const GVariantType;
 }
 unsafe extern "C" {
     pub fn g_variant_type_string_get_depth_(type_string: *const gchar) -> gsize;
@@ -10969,7 +11091,7 @@ pub type GVariantIter = _GVariantIter;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GVariantIter {
-    pub x: [gsize; 16usize],
+    pub x: [guintptr; 16usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -11019,14 +11141,14 @@ pub struct _GVariantBuilder {
 #[derive(Copy, Clone)]
 pub union _GVariantBuilder__bindgen_ty_1 {
     pub s: _GVariantBuilder__bindgen_ty_1__bindgen_ty_1,
-    pub x: [gsize; 16usize],
+    pub x: [guintptr; 16usize],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GVariantBuilder__bindgen_ty_1__bindgen_ty_1 {
     pub partial_magic: gsize,
     pub type_: *const GVariantType,
-    pub y: [gsize; 14usize],
+    pub y: [guintptr; 14usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -11182,14 +11304,14 @@ pub struct _GVariantDict {
 #[derive(Copy, Clone)]
 pub union _GVariantDict__bindgen_ty_1 {
     pub s: _GVariantDict__bindgen_ty_1__bindgen_ty_1,
-    pub x: [gsize; 16usize],
+    pub x: [guintptr; 16usize],
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GVariantDict__bindgen_ty_1__bindgen_ty_1 {
     pub asv: *mut GVariant,
     pub partial_magic: gsize,
-    pub y: [gsize; 14usize],
+    pub y: [guintptr; 14usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -11416,6 +11538,14 @@ unsafe extern "C" {
     ) -> *mut gchar;
 }
 unsafe extern "C" {
+    pub fn g_log_writer_syslog(
+        log_level: GLogLevelFlags,
+        fields: *const GLogField,
+        n_fields: gsize,
+        user_data: gpointer,
+    ) -> GLogWriterOutput;
+}
+unsafe extern "C" {
     pub fn g_log_writer_journald(
         log_level: GLogLevelFlags,
         fields: *const GLogField,
@@ -11447,6 +11577,9 @@ unsafe extern "C" {
         log_level: GLogLevelFlags,
         log_domain: *const ::std::os::raw::c_char,
     ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn g_log_writer_default_set_debug_domains(domains: *const *const gchar);
 }
 unsafe extern "C" {
     pub fn g_log_get_debug_enabled() -> gboolean;
@@ -11526,7 +11659,7 @@ pub struct _GOptionGroup {
 }
 #[doc = " GOptionGroup:\n\n A `GOptionGroup` struct defines the options in a single\n group. The struct has only private fields and should not be directly accessed.\n\n All options in a group share the same translation function. Libraries which\n need to parse commandline options are expected to provide a function for\n getting a `GOptionGroup` holding their options, which\n the application can then add to its #GOptionContext."]
 pub type GOptionGroup = _GOptionGroup;
-#[doc = " GOptionEntry:\n @long_name: The long name of an option can be used to specify it\n     in a commandline as `--long_name`. Every option must have a\n     long name. To resolve conflicts if multiple option groups contain\n     the same long name, it is also possible to specify the option as\n     `--groupname-long_name`.\n @short_name: If an option has a short name, it can be specified\n     `-short_name` in a commandline. @short_name must be  a printable\n     ASCII character different from '-', or zero if the option has no\n     short name.\n @flags: Flags from #GOptionFlags\n @arg: The type of the option, as a #GOptionArg\n @arg_data: If the @arg type is %G_OPTION_ARG_CALLBACK, then @arg_data\n     must point to a #GOptionArgFunc callback function, which will be\n     called to handle the extra argument. Otherwise, @arg_data is a\n     pointer to a location to store the value, the required type of\n     the location depends on the @arg type:\n     - %G_OPTION_ARG_NONE: %gboolean\n     - %G_OPTION_ARG_STRING: %gchar*\n     - %G_OPTION_ARG_INT: %gint\n     - %G_OPTION_ARG_FILENAME: %gchar*\n     - %G_OPTION_ARG_STRING_ARRAY: %gchar**\n     - %G_OPTION_ARG_FILENAME_ARRAY: %gchar**\n     - %G_OPTION_ARG_DOUBLE: %gdouble\n     If @arg type is %G_OPTION_ARG_STRING or %G_OPTION_ARG_FILENAME,\n     the location will contain a newly allocated string if the option\n     was given. That string needs to be freed by the callee using g_free().\n     Likewise if @arg type is %G_OPTION_ARG_STRING_ARRAY or\n     %G_OPTION_ARG_FILENAME_ARRAY, the data should be freed using g_strfreev().\n @description: the description for the option in `--help`\n     output. The @description is translated using the @translate_func\n     of the group, see g_option_group_set_translation_domain().\n @arg_description: The placeholder to use for the extra argument parsed\n     by the option in `--help` output. The @arg_description is translated\n     using the @translate_func of the group, see\n     g_option_group_set_translation_domain().\n\n A GOptionEntry struct defines a single option. To have an effect, they\n must be added to a #GOptionGroup with g_option_context_add_main_entries()\n or g_option_group_add_entries()."]
+#[doc = " GOptionEntry:\n @long_name: The long name of an option can be used to specify it\n     in a commandline as `--long_name`. Every option must have a\n     long name. To resolve conflicts if multiple option groups contain\n     the same long name, it is also possible to specify the option as\n     `--groupname-long_name`.\n @short_name: If an option has a short name, it can be specified\n     `-short_name` in a commandline. @short_name must be  a printable\n     ASCII character different from '-', or zero if the option has no\n     short name.\n @flags: Flags from #GOptionFlags\n @arg: The type of the option, as a #GOptionArg\n @arg_data: If the @arg type is %G_OPTION_ARG_CALLBACK, then @arg_data\n     must point to a #GOptionArgFunc callback function, which will be\n     called to handle the extra argument. Otherwise, @arg_data is a\n     pointer to a location to store the value, the required type of\n     the location depends on the @arg type:\n      - %G_OPTION_ARG_NONE: %gboolean\n      - %G_OPTION_ARG_STRING: %gchar*\n      - %G_OPTION_ARG_INT: %gint\n      - %G_OPTION_ARG_FILENAME: %gchar*\n      - %G_OPTION_ARG_STRING_ARRAY: %gchar**\n      - %G_OPTION_ARG_FILENAME_ARRAY: %gchar**\n      - %G_OPTION_ARG_DOUBLE: %gdouble\n     If @arg type is %G_OPTION_ARG_STRING or %G_OPTION_ARG_FILENAME,\n     the location will contain a newly allocated string if the option\n     was given. That string needs to be freed by the callee using g_free().\n     Likewise if @arg type is %G_OPTION_ARG_STRING_ARRAY or\n     %G_OPTION_ARG_FILENAME_ARRAY, the data should be freed using g_strfreev().\n @description: the description for the option in `--help`\n     output. The @description is translated using the @translate_func\n     of the group, see g_option_group_set_translation_domain().\n @arg_description: The placeholder to use for the extra argument parsed\n     by the option in `--help` output. The @arg_description is translated\n     using the @translate_func of the group, see\n     g_option_group_set_translation_domain().\n\n A GOptionEntry struct defines a single option. To have an effect, they\n must be added to a #GOptionGroup with g_option_context_add_main_entries()\n or g_option_group_add_entries()."]
 pub type GOptionEntry = _GOptionEntry;
 pub const GOptionFlags_G_OPTION_FLAG_NONE: GOptionFlags = 0;
 pub const GOptionFlags_G_OPTION_FLAG_HIDDEN: GOptionFlags = 1;
@@ -11584,7 +11717,7 @@ pub type GOptionError = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn g_option_error_quark() -> GQuark;
 }
-#[doc = " GOptionEntry:\n @long_name: The long name of an option can be used to specify it\n     in a commandline as `--long_name`. Every option must have a\n     long name. To resolve conflicts if multiple option groups contain\n     the same long name, it is also possible to specify the option as\n     `--groupname-long_name`.\n @short_name: If an option has a short name, it can be specified\n     `-short_name` in a commandline. @short_name must be  a printable\n     ASCII character different from '-', or zero if the option has no\n     short name.\n @flags: Flags from #GOptionFlags\n @arg: The type of the option, as a #GOptionArg\n @arg_data: If the @arg type is %G_OPTION_ARG_CALLBACK, then @arg_data\n     must point to a #GOptionArgFunc callback function, which will be\n     called to handle the extra argument. Otherwise, @arg_data is a\n     pointer to a location to store the value, the required type of\n     the location depends on the @arg type:\n     - %G_OPTION_ARG_NONE: %gboolean\n     - %G_OPTION_ARG_STRING: %gchar*\n     - %G_OPTION_ARG_INT: %gint\n     - %G_OPTION_ARG_FILENAME: %gchar*\n     - %G_OPTION_ARG_STRING_ARRAY: %gchar**\n     - %G_OPTION_ARG_FILENAME_ARRAY: %gchar**\n     - %G_OPTION_ARG_DOUBLE: %gdouble\n     If @arg type is %G_OPTION_ARG_STRING or %G_OPTION_ARG_FILENAME,\n     the location will contain a newly allocated string if the option\n     was given. That string needs to be freed by the callee using g_free().\n     Likewise if @arg type is %G_OPTION_ARG_STRING_ARRAY or\n     %G_OPTION_ARG_FILENAME_ARRAY, the data should be freed using g_strfreev().\n @description: the description for the option in `--help`\n     output. The @description is translated using the @translate_func\n     of the group, see g_option_group_set_translation_domain().\n @arg_description: The placeholder to use for the extra argument parsed\n     by the option in `--help` output. The @arg_description is translated\n     using the @translate_func of the group, see\n     g_option_group_set_translation_domain().\n\n A GOptionEntry struct defines a single option. To have an effect, they\n must be added to a #GOptionGroup with g_option_context_add_main_entries()\n or g_option_group_add_entries()."]
+#[doc = " GOptionEntry:\n @long_name: The long name of an option can be used to specify it\n     in a commandline as `--long_name`. Every option must have a\n     long name. To resolve conflicts if multiple option groups contain\n     the same long name, it is also possible to specify the option as\n     `--groupname-long_name`.\n @short_name: If an option has a short name, it can be specified\n     `-short_name` in a commandline. @short_name must be  a printable\n     ASCII character different from '-', or zero if the option has no\n     short name.\n @flags: Flags from #GOptionFlags\n @arg: The type of the option, as a #GOptionArg\n @arg_data: If the @arg type is %G_OPTION_ARG_CALLBACK, then @arg_data\n     must point to a #GOptionArgFunc callback function, which will be\n     called to handle the extra argument. Otherwise, @arg_data is a\n     pointer to a location to store the value, the required type of\n     the location depends on the @arg type:\n      - %G_OPTION_ARG_NONE: %gboolean\n      - %G_OPTION_ARG_STRING: %gchar*\n      - %G_OPTION_ARG_INT: %gint\n      - %G_OPTION_ARG_FILENAME: %gchar*\n      - %G_OPTION_ARG_STRING_ARRAY: %gchar**\n      - %G_OPTION_ARG_FILENAME_ARRAY: %gchar**\n      - %G_OPTION_ARG_DOUBLE: %gdouble\n     If @arg type is %G_OPTION_ARG_STRING or %G_OPTION_ARG_FILENAME,\n     the location will contain a newly allocated string if the option\n     was given. That string needs to be freed by the callee using g_free().\n     Likewise if @arg type is %G_OPTION_ARG_STRING_ARRAY or\n     %G_OPTION_ARG_FILENAME_ARRAY, the data should be freed using g_strfreev().\n @description: the description for the option in `--help`\n     output. The @description is translated using the @translate_func\n     of the group, see g_option_group_set_translation_domain().\n @arg_description: The placeholder to use for the extra argument parsed\n     by the option in `--help` output. The @arg_description is translated\n     using the @translate_func of the group, see\n     g_option_group_set_translation_domain().\n\n A GOptionEntry struct defines a single option. To have an effect, they\n must be added to a #GOptionGroup with g_option_context_add_main_entries()\n or g_option_group_add_entries()."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GOptionEntry {
@@ -11750,9 +11883,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn g_option_group_set_translation_domain(group: *mut GOptionGroup, domain: *const gchar);
 }
-#[doc = " GPathBuf: (copy-func g_path_buf_copy) (free-func g_path_buf_free)\n\n A mutable path builder.\n\n Since: 2.76"]
 pub type GPathBuf = _GPathBuf;
-#[doc = " GPathBuf: (copy-func g_path_buf_copy) (free-func g_path_buf_free)\n\n A mutable path builder.\n\n Since: 2.76"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GPathBuf {
@@ -12283,7 +12414,6 @@ pub type GRegexMatchFlags = ::std::os::raw::c_uint;
 pub struct _GRegex {
     _unused: [u8; 0],
 }
-#[doc = " GRegex:\n\n A GRegex is the \"compiled\" form of a regular expression pattern.\n This structure is opaque and its fields cannot be accessed directly.\n\n Since: 2.14"]
 pub type GRegex = _GRegex;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -14055,7 +14185,6 @@ unsafe extern "C" {
 pub struct _GStrvBuilder {
     _unused: [u8; 0],
 }
-#[doc = " GStrvBuilder:\n\n A helper object to build a %NULL-terminated string array\n by appending. See g_strv_builder_new().\n\n Since: 2.68"]
 pub type GStrvBuilder = _GStrvBuilder;
 unsafe extern "C" {
     pub fn g_strv_builder_new() -> *mut GStrvBuilder;
@@ -14077,6 +14206,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_strv_builder_add_many(builder: *mut GStrvBuilder, ...);
+}
+unsafe extern "C" {
+    pub fn g_strv_builder_take(builder: *mut GStrvBuilder, value: *mut ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     pub fn g_strv_builder_end(builder: *mut GStrvBuilder) -> GStrv;
@@ -14177,6 +14309,9 @@ unsafe extern "C" {
     pub fn g_test_set_nonfatal_assertions();
 }
 unsafe extern "C" {
+    pub fn g_test_disable_crash_reporting();
+}
+unsafe extern "C" {
     pub fn g_test_message(format: *const ::std::os::raw::c_char, ...);
 }
 unsafe extern "C" {
@@ -14220,6 +14355,14 @@ pub type GTestSubprocessFlags = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn g_test_trap_subprocess(
         test_path: *const ::std::os::raw::c_char,
+        usec_timeout: guint64,
+        test_flags: GTestSubprocessFlags,
+    );
+}
+unsafe extern "C" {
+    pub fn g_test_trap_subprocess_with_envp(
+        test_path: *const ::std::os::raw::c_char,
+        envp: *const *const ::std::os::raw::c_char,
         usec_timeout: guint64,
         test_flags: GTestSubprocessFlags,
     );
@@ -14323,6 +14466,19 @@ unsafe extern "C" {
         arg1: *const *const ::std::os::raw::c_char,
         arg2: *const *const ::std::os::raw::c_char,
         first_wrong_idx: gsize,
+    );
+}
+unsafe extern "C" {
+    pub fn g_assertion_message_cmpint(
+        domain: *const ::std::os::raw::c_char,
+        file: *const ::std::os::raw::c_char,
+        line: ::std::os::raw::c_int,
+        func: *const ::std::os::raw::c_char,
+        expr: *const ::std::os::raw::c_char,
+        arg1: guint64,
+        cmp: *const ::std::os::raw::c_char,
+        arg2: guint64,
+        numtype: ::std::os::raw::c_char,
     );
 }
 unsafe extern "C" {
@@ -15251,7 +15407,7 @@ unsafe extern "C" {
 }
 pub type GCompletion = _GCompletion;
 pub type GCompletionFunc =
-    ::std::option::Option<unsafe extern "C" fn(arg1: gpointer) -> *mut gchar>;
+    ::std::option::Option<unsafe extern "C" fn(item: gpointer) -> *mut gchar>;
 pub type GCompletionStrncmpFunc = ::std::option::Option<
     unsafe extern "C" fn(s1: *const gchar, s2: *const gchar, n: gsize) -> gint,
 >;
@@ -16432,7 +16588,7 @@ unsafe extern "C" {
     pub fn g_cond_timed_wait(
         cond: *mut GCond,
         mutex: *mut GMutex,
-        timeval: *mut GTimeVal,
+        abs_time: *mut GTimeVal,
     ) -> gboolean;
 }
 pub type GAsyncQueue_autoptr = *mut GAsyncQueue;
@@ -16670,7 +16826,7 @@ pub type GTypeInfo = _GTypeInfo;
 pub type GTypeFundamentalInfo = _GTypeFundamentalInfo;
 #[doc = " GInterfaceInfo:\n @interface_init: location of the interface initialization function\n @interface_finalize: location of the interface finalization function\n @interface_data: user-supplied data passed to the interface init/finalize functions\n\n A structure that provides information to the type system which is\n used specifically for managing interface types."]
 pub type GInterfaceInfo = _GInterfaceInfo;
-#[doc = " GTypeValueTable:\n @value_init: Default initialize @values contents by poking values\n  directly into the value->data array. The data array of\n  the #GValue passed into this function was zero-filled\n  with `memset()`, so no care has to be taken to free any\n  old contents. E.g. for the implementation of a string\n  value that may never be %NULL, the implementation might\n  look like:\n  |[<!-- language=\"C\" -->\n  value->data[0].v_pointer = g_strdup (\"\");\n  ]|\n @value_free: Free any old contents that might be left in the\n  data array of the passed in @value. No resources may\n  remain allocated through the #GValue contents after\n  this function returns. E.g. for our above string type:\n  |[<!-- language=\"C\" -->\n  // only free strings without a specific flag for static storage\n  if (!(value->data[1].v_uint & G_VALUE_NOCOPY_CONTENTS))\n    g_free (value->data[0].v_pointer);\n  ]|\n @value_copy: @dest_value is a #GValue with zero-filled data section\n  and @src_value is a properly setup #GValue of same or\n  derived type.\n  The purpose of this function is to copy the contents of\n  @src_value into @dest_value in a way, that even after\n  @src_value has been freed, the contents of @dest_value\n  remain valid. String type example:\n  |[<!-- language=\"C\" -->\n  dest_value->data[0].v_pointer = g_strdup (src_value->data[0].v_pointer);\n  ]|\n @value_peek_pointer: If the value contents fit into a pointer, such as objects\n  or strings, return this pointer, so the caller can peek at\n  the current contents. To extend on our above string example:\n  |[<!-- language=\"C\" -->\n  return value->data[0].v_pointer;\n  ]|\n @collect_format: A string format describing how to collect the contents of\n  this value bit-by-bit. Each character in the format represents\n  an argument to be collected, and the characters themselves indicate\n  the type of the argument. Currently supported arguments are:\n  - 'i' - Integers. passed as collect_values[].v_int.\n  - 'l' - Longs. passed as collect_values[].v_long.\n  - 'd' - Doubles. passed as collect_values[].v_double.\n  - 'p' - Pointers. passed as collect_values[].v_pointer.\n  It should be noted that for variable argument list construction,\n  ANSI C promotes every type smaller than an integer to an int, and\n  floats to doubles. So for collection of short int or char, 'i'\n  needs to be used, and for collection of floats 'd'.\n @collect_value: The collect_value() function is responsible for converting the\n  values collected from a variable argument list into contents\n  suitable for storage in a GValue. This function should setup\n  @value similar to value_init(); e.g. for a string value that\n  does not allow %NULL pointers, it needs to either spew an error,\n  or do an implicit conversion by storing an empty string.\n  The @value passed in to this function has a zero-filled data\n  array, so just like for value_init() it is guaranteed to not\n  contain any old contents that might need freeing.\n  @n_collect_values is exactly the string length of @collect_format,\n  and @collect_values is an array of unions #GTypeCValue with\n  length @n_collect_values, containing the collected values\n  according to @collect_format.\n  @collect_flags is an argument provided as a hint by the caller.\n  It may contain the flag %G_VALUE_NOCOPY_CONTENTS indicating,\n  that the collected value contents may be considered \"static\"\n  for the duration of the @value lifetime.\n  Thus an extra copy of the contents stored in @collect_values is\n  not required for assignment to @value.\n  For our above string example, we continue with:\n  |[<!-- language=\"C\" -->\n  if (!collect_values[0].v_pointer)\n    value->data[0].v_pointer = g_strdup (\"\");\n  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n  {\n    value->data[0].v_pointer = collect_values[0].v_pointer;\n    // keep a flag for the value_free() implementation to not free this string\n    value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;\n  }\n  else\n    value->data[0].v_pointer = g_strdup (collect_values[0].v_pointer);\n  return NULL;\n  ]|\n  It should be noted, that it is generally a bad idea to follow the\n  %G_VALUE_NOCOPY_CONTENTS hint for reference counted types. Due to\n  reentrancy requirements and reference count assertions performed\n  by the signal emission code, reference counts should always be\n  incremented for reference counted contents stored in the value->data\n  array.  To deviate from our string example for a moment, and taking\n  a look at an exemplary implementation for collect_value() of\n  #GObject:\n  |[<!-- language=\"C\" -->\n    GObject *object = G_OBJECT (collect_values[0].v_pointer);\n    g_return_val_if_fail (object != NULL,\n       g_strdup_printf (\"Object passed as invalid NULL pointer\"));\n    // never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types\n    value->data[0].v_pointer = g_object_ref (object);\n    return NULL;\n  ]|\n  The reference count for valid objects is always incremented,\n  regardless of @collect_flags. For invalid objects, the example\n  returns a newly allocated string without altering @value.\n  Upon success, collect_value() needs to return %NULL. If, however,\n  an error condition occurred, collect_value() may spew an\n  error by returning a newly allocated non-%NULL string, giving\n  a suitable description of the error condition.\n  The calling code makes no assumptions about the @value\n  contents being valid upon error returns, @value\n  is simply thrown away without further freeing. As such, it is\n  a good idea to not allocate #GValue contents, prior to returning\n  an error, however, collect_values() is not obliged to return\n  a correctly setup @value for error returns, simply because\n  any non-%NULL return is considered a fatal condition so further\n  program behaviour is undefined.\n @lcopy_format: Format description of the arguments to collect for @lcopy_value,\n  analogous to @collect_format. Usually, @lcopy_format string consists\n  only of 'p's to provide lcopy_value() with pointers to storage locations.\n @lcopy_value: This function is responsible for storing the @value contents into\n  arguments passed through a variable argument list which got\n  collected into @collect_values according to @lcopy_format.\n  @n_collect_values equals the string length of @lcopy_format,\n  and @collect_flags may contain %G_VALUE_NOCOPY_CONTENTS.\n  In contrast to collect_value(), lcopy_value() is obliged to\n  always properly support %G_VALUE_NOCOPY_CONTENTS.\n  Similar to collect_value() the function may prematurely abort\n  by returning a newly allocated string describing an error condition.\n  To complete the string example:\n  |[<!-- language=\"C\" -->\n  gchar **string_p = collect_values[0].v_pointer;\n  g_return_val_if_fail (string_p != NULL,\n      g_strdup_printf (\"string location passed as NULL\"));\n  if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n    *string_p = value->data[0].v_pointer;\n  else\n    *string_p = g_strdup (value->data[0].v_pointer);\n  ]|\n  And an illustrative version of lcopy_value() for\n  reference-counted types:\n  |[<!-- language=\"C\" -->\n  GObject **object_p = collect_values[0].v_pointer;\n  g_return_val_if_fail (object_p != NULL,\n    g_strdup_printf (\"object location passed as NULL\"));\n  if (!value->data[0].v_pointer)\n    *object_p = NULL;\n  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS) // always honour\n    *object_p = value->data[0].v_pointer;\n  else\n    *object_p = g_object_ref (value->data[0].v_pointer);\n  return NULL;\n  ]|\n\n The #GTypeValueTable provides the functions required by the #GValue\n implementation, to serve as a container for values of a type."]
+#[doc = " GTypeValueTable:\n @value_init: Function to initialize a GValue\n @value_free: Function to free a GValue\n @value_copy: Function to copy a GValue\n @value_peek_pointer: Function to peek the contents of a GValue if they fit\n   into a pointer\n @collect_format: A string format describing how to collect the contents of\n   this value bit-by-bit. Each character in the format represents\n   an argument to be collected, and the characters themselves indicate\n   the type of the argument. Currently supported arguments are:\n    - `'i'`: Integers, passed as `collect_values[].v_int`\n    - `'l'`: Longs, passed as `collect_values[].v_long`\n    - `'d'`: Doubles, passed as `collect_values[].v_double`\n    - `'p'`: Pointers, passed as `collect_values[].v_pointer`\n   It should be noted that for variable argument list construction,\n   ANSI C promotes every type smaller than an integer to an int, and\n   floats to doubles. So for collection of short int or char, `'i'`\n   needs to be used, and for collection of floats `'d'`.\n @collect_value: Function to initialize a GValue from the values\n   collected from variadic arguments\n @lcopy_format: Format description of the arguments to collect for @lcopy_value,\n   analogous to @collect_format. Usually, @lcopy_format string consists\n   only of `'p'`s to provide lcopy_value() with pointers to storage locations.\n @lcopy_value: Function to store the contents of a value into the\n   locations collected from variadic arguments\n\n The #GTypeValueTable provides the functions required by the #GValue\n implementation, to serve as a container for values of a type."]
 pub type GTypeValueTable = _GTypeValueTable;
 #[doc = " GTypeQuery:\n @type: the #GType value of the type\n @type_name: the name of the type\n @class_size: the size of the class structure\n @instance_size: the size of the instance structure\n\n A structure holding information for a specific type.\n\n See also: g_type_query()"]
 pub type GTypeQuery = _GTypeQuery;
@@ -16741,7 +16897,7 @@ pub const GTypeDebugFlags_G_TYPE_DEBUG_OBJECTS: GTypeDebugFlags = 1;
 pub const GTypeDebugFlags_G_TYPE_DEBUG_SIGNALS: GTypeDebugFlags = 2;
 pub const GTypeDebugFlags_G_TYPE_DEBUG_INSTANCE_COUNT: GTypeDebugFlags = 4;
 pub const GTypeDebugFlags_G_TYPE_DEBUG_MASK: GTypeDebugFlags = 7;
-#[doc = " GTypeDebugFlags:\n @G_TYPE_DEBUG_NONE: Print no messages\n @G_TYPE_DEBUG_OBJECTS: Print messages about object bookkeeping\n @G_TYPE_DEBUG_SIGNALS: Print messages about signal emissions\n @G_TYPE_DEBUG_MASK: Mask covering all debug flags\n @G_TYPE_DEBUG_INSTANCE_COUNT: Keep a count of instances of each type\n\n These flags used to be passed to g_type_init_with_debug_flags() which\n is now deprecated.\n\n If you need to enable debugging features, use the GOBJECT_DEBUG\n environment variable.\n\n Deprecated: 2.36: g_type_init() is now done automatically"]
+#[doc = " GTypeDebugFlags:\n @G_TYPE_DEBUG_NONE: Print no messages\n @G_TYPE_DEBUG_OBJECTS: Print messages about object bookkeeping\n @G_TYPE_DEBUG_SIGNALS: Print messages about signal emissions\n @G_TYPE_DEBUG_MASK: Mask covering all debug flags\n @G_TYPE_DEBUG_INSTANCE_COUNT: Keep a count of instances of each type\n\n These flags used to be passed to g_type_init_with_debug_flags() which\n is now deprecated.\n\n If you need to enable debugging features, use the `GOBJECT_DEBUG`\n environment variable.\n\n Deprecated: 2.36: g_type_init() is now done automatically"]
 pub type GTypeDebugFlags = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn g_type_init();
@@ -16930,35 +17086,46 @@ const _: () = {
     ["Offset of field: _GInterfaceInfo::interface_data"]
         [::std::mem::offset_of!(_GInterfaceInfo, interface_data) - 16usize];
 };
-#[doc = " GTypeValueTable:\n @value_init: Default initialize @values contents by poking values\n  directly into the value->data array. The data array of\n  the #GValue passed into this function was zero-filled\n  with `memset()`, so no care has to be taken to free any\n  old contents. E.g. for the implementation of a string\n  value that may never be %NULL, the implementation might\n  look like:\n  |[<!-- language=\"C\" -->\n  value->data[0].v_pointer = g_strdup (\"\");\n  ]|\n @value_free: Free any old contents that might be left in the\n  data array of the passed in @value. No resources may\n  remain allocated through the #GValue contents after\n  this function returns. E.g. for our above string type:\n  |[<!-- language=\"C\" -->\n  // only free strings without a specific flag for static storage\n  if (!(value->data[1].v_uint & G_VALUE_NOCOPY_CONTENTS))\n    g_free (value->data[0].v_pointer);\n  ]|\n @value_copy: @dest_value is a #GValue with zero-filled data section\n  and @src_value is a properly setup #GValue of same or\n  derived type.\n  The purpose of this function is to copy the contents of\n  @src_value into @dest_value in a way, that even after\n  @src_value has been freed, the contents of @dest_value\n  remain valid. String type example:\n  |[<!-- language=\"C\" -->\n  dest_value->data[0].v_pointer = g_strdup (src_value->data[0].v_pointer);\n  ]|\n @value_peek_pointer: If the value contents fit into a pointer, such as objects\n  or strings, return this pointer, so the caller can peek at\n  the current contents. To extend on our above string example:\n  |[<!-- language=\"C\" -->\n  return value->data[0].v_pointer;\n  ]|\n @collect_format: A string format describing how to collect the contents of\n  this value bit-by-bit. Each character in the format represents\n  an argument to be collected, and the characters themselves indicate\n  the type of the argument. Currently supported arguments are:\n  - 'i' - Integers. passed as collect_values[].v_int.\n  - 'l' - Longs. passed as collect_values[].v_long.\n  - 'd' - Doubles. passed as collect_values[].v_double.\n  - 'p' - Pointers. passed as collect_values[].v_pointer.\n  It should be noted that for variable argument list construction,\n  ANSI C promotes every type smaller than an integer to an int, and\n  floats to doubles. So for collection of short int or char, 'i'\n  needs to be used, and for collection of floats 'd'.\n @collect_value: The collect_value() function is responsible for converting the\n  values collected from a variable argument list into contents\n  suitable for storage in a GValue. This function should setup\n  @value similar to value_init(); e.g. for a string value that\n  does not allow %NULL pointers, it needs to either spew an error,\n  or do an implicit conversion by storing an empty string.\n  The @value passed in to this function has a zero-filled data\n  array, so just like for value_init() it is guaranteed to not\n  contain any old contents that might need freeing.\n  @n_collect_values is exactly the string length of @collect_format,\n  and @collect_values is an array of unions #GTypeCValue with\n  length @n_collect_values, containing the collected values\n  according to @collect_format.\n  @collect_flags is an argument provided as a hint by the caller.\n  It may contain the flag %G_VALUE_NOCOPY_CONTENTS indicating,\n  that the collected value contents may be considered \"static\"\n  for the duration of the @value lifetime.\n  Thus an extra copy of the contents stored in @collect_values is\n  not required for assignment to @value.\n  For our above string example, we continue with:\n  |[<!-- language=\"C\" -->\n  if (!collect_values[0].v_pointer)\n    value->data[0].v_pointer = g_strdup (\"\");\n  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n  {\n    value->data[0].v_pointer = collect_values[0].v_pointer;\n    // keep a flag for the value_free() implementation to not free this string\n    value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;\n  }\n  else\n    value->data[0].v_pointer = g_strdup (collect_values[0].v_pointer);\n  return NULL;\n  ]|\n  It should be noted, that it is generally a bad idea to follow the\n  %G_VALUE_NOCOPY_CONTENTS hint for reference counted types. Due to\n  reentrancy requirements and reference count assertions performed\n  by the signal emission code, reference counts should always be\n  incremented for reference counted contents stored in the value->data\n  array.  To deviate from our string example for a moment, and taking\n  a look at an exemplary implementation for collect_value() of\n  #GObject:\n  |[<!-- language=\"C\" -->\n    GObject *object = G_OBJECT (collect_values[0].v_pointer);\n    g_return_val_if_fail (object != NULL,\n       g_strdup_printf (\"Object passed as invalid NULL pointer\"));\n    // never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types\n    value->data[0].v_pointer = g_object_ref (object);\n    return NULL;\n  ]|\n  The reference count for valid objects is always incremented,\n  regardless of @collect_flags. For invalid objects, the example\n  returns a newly allocated string without altering @value.\n  Upon success, collect_value() needs to return %NULL. If, however,\n  an error condition occurred, collect_value() may spew an\n  error by returning a newly allocated non-%NULL string, giving\n  a suitable description of the error condition.\n  The calling code makes no assumptions about the @value\n  contents being valid upon error returns, @value\n  is simply thrown away without further freeing. As such, it is\n  a good idea to not allocate #GValue contents, prior to returning\n  an error, however, collect_values() is not obliged to return\n  a correctly setup @value for error returns, simply because\n  any non-%NULL return is considered a fatal condition so further\n  program behaviour is undefined.\n @lcopy_format: Format description of the arguments to collect for @lcopy_value,\n  analogous to @collect_format. Usually, @lcopy_format string consists\n  only of 'p's to provide lcopy_value() with pointers to storage locations.\n @lcopy_value: This function is responsible for storing the @value contents into\n  arguments passed through a variable argument list which got\n  collected into @collect_values according to @lcopy_format.\n  @n_collect_values equals the string length of @lcopy_format,\n  and @collect_flags may contain %G_VALUE_NOCOPY_CONTENTS.\n  In contrast to collect_value(), lcopy_value() is obliged to\n  always properly support %G_VALUE_NOCOPY_CONTENTS.\n  Similar to collect_value() the function may prematurely abort\n  by returning a newly allocated string describing an error condition.\n  To complete the string example:\n  |[<!-- language=\"C\" -->\n  gchar **string_p = collect_values[0].v_pointer;\n  g_return_val_if_fail (string_p != NULL,\n      g_strdup_printf (\"string location passed as NULL\"));\n  if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n    *string_p = value->data[0].v_pointer;\n  else\n    *string_p = g_strdup (value->data[0].v_pointer);\n  ]|\n  And an illustrative version of lcopy_value() for\n  reference-counted types:\n  |[<!-- language=\"C\" -->\n  GObject **object_p = collect_values[0].v_pointer;\n  g_return_val_if_fail (object_p != NULL,\n    g_strdup_printf (\"object location passed as NULL\"));\n  if (!value->data[0].v_pointer)\n    *object_p = NULL;\n  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS) // always honour\n    *object_p = value->data[0].v_pointer;\n  else\n    *object_p = g_object_ref (value->data[0].v_pointer);\n  return NULL;\n  ]|\n\n The #GTypeValueTable provides the functions required by the #GValue\n implementation, to serve as a container for values of a type."]
+#[doc = " GTypeValueInitFunc:\n @value: the value to initialize\n\n Initializes the value contents by setting the fields of the `value->data`\n array.\n\n The data array of the #GValue passed into this function was zero-filled\n with `memset()`, so no care has to be taken to free any old contents.\n For example, in the case of a string value that may never be %NULL, the\n implementation might look like:\n\n |[<!-- language=\"C\" -->\n value->data[0].v_pointer = g_strdup (\"\");\n ]|\n\n Since: 2.78"]
+pub type GTypeValueInitFunc = ::std::option::Option<unsafe extern "C" fn(value: *mut GValue)>;
+#[doc = " GTypeValueFreeFunc:\n @value: the value to free\n\n Frees any old contents that might be left in the `value->data` array of\n the given value.\n\n No resources may remain allocated through the #GValue contents after this\n function returns. E.g. for our above string type:\n\n |[<!-- language=\"C\" -->\n // only free strings without a specific flag for static storage\n if (!(value->data[1].v_uint & G_VALUE_NOCOPY_CONTENTS))\n   g_free (value->data[0].v_pointer);\n ]|\n\n Since: 2.78"]
+pub type GTypeValueFreeFunc = ::std::option::Option<unsafe extern "C" fn(value: *mut GValue)>;
+#[doc = " GTypeValueCopyFunc:\n @src_value: the value to copy\n @dest_value: (out): the location of the copy\n\n Copies the content of a #GValue into another.\n\n The @dest_value is a #GValue with zero-filled data section and @src_value\n is a properly initialized #GValue of same type, or derived type.\n\n The purpose of this function is to copy the contents of @src_value\n into @dest_value in a way, that even after @src_value has been freed, the\n contents of @dest_value remain valid. String type example:\n\n |[<!-- language=\"C\" -->\n dest_value->data[0].v_pointer = g_strdup (src_value->data[0].v_pointer);\n ]|\n\n Since: 2.78"]
+pub type GTypeValueCopyFunc =
+    ::std::option::Option<unsafe extern "C" fn(src_value: *const GValue, dest_value: *mut GValue)>;
+#[doc = " GTypeValuePeekPointerFunc:\n @value: the value to peek\n\n If the value contents fit into a pointer, such as objects or strings,\n return this pointer, so the caller can peek at the current contents.\n\n To extend on our above string example:\n\n |[<!-- language=\"C\" -->\n return value->data[0].v_pointer;\n ]|\n\n Returns: (transfer none): a pointer to the value contents\n\n Since: 2.78"]
+pub type GTypeValuePeekPointerFunc =
+    ::std::option::Option<unsafe extern "C" fn(value: *const GValue) -> gpointer>;
+#[doc = " GTypeValueCollectFunc:\n @value: the value to initialize\n @n_collect_values: the number of collected values\n @collect_values: (array length=n_collect_values): the collected values\n @collect_flags: optional flags\n\n This function is responsible for converting the values collected from\n a variadic argument list into contents suitable for storage in a #GValue.\n\n This function should setup @value similar to #GTypeValueInitFunc; e.g.\n for a string value that does not allow `NULL` pointers, it needs to either\n emit an error, or do an implicit conversion by storing an empty string.\n\n The @value passed in to this function has a zero-filled data array, so\n just like for #GTypeValueInitFunc it is guaranteed to not contain any old\n contents that might need freeing.\n\n The @n_collect_values argument is the string length of the `collect_format`\n field of #GTypeValueTable, and `collect_values` is an array of #GTypeCValue\n with length of @n_collect_values, containing the collected values according\n to `collect_format`.\n\n The @collect_flags argument provided as a hint by the caller. It may\n contain the flag %G_VALUE_NOCOPY_CONTENTS indicating that the collected\n value contents may be considered ‘static’ for the duration of the @value\n lifetime. Thus an extra copy of the contents stored in @collect_values is\n not required for assignment to @value.\n\n For our above string example, we continue with:\n\n |[<!-- language=\"C\" -->\n if (!collect_values[0].v_pointer)\n   value->data[0].v_pointer = g_strdup (\"\");\n else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n   {\n     value->data[0].v_pointer = collect_values[0].v_pointer;\n     // keep a flag for the value_free() implementation to not free this string\n     value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;\n   }\n else\n   value->data[0].v_pointer = g_strdup (collect_values[0].v_pointer);\n return NULL;\n ]|\n\n It should be noted, that it is generally a bad idea to follow the\n %G_VALUE_NOCOPY_CONTENTS hint for reference counted types. Due to\n reentrancy requirements and reference count assertions performed\n by the signal emission code, reference counts should always be\n incremented for reference counted contents stored in the `value->data`\n array. To deviate from our string example for a moment, and taking\n a look at an exemplary implementation for `GTypeValueTable.collect_value()`\n of `GObject`:\n\n |[<!-- language=\"C\" -->\n GObject *object = G_OBJECT (collect_values[0].v_pointer);\n g_return_val_if_fail (object != NULL,\n    g_strdup_printf (\"Object %p passed as invalid NULL pointer\", object));\n // never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types\n value->data[0].v_pointer = g_object_ref (object);\n return NULL;\n ]|\n\n The reference count for valid objects is always incremented, regardless\n of `collect_flags`. For invalid objects, the example returns a newly\n allocated string without altering `value`.\n\n Upon success, `collect_value()` needs to return `NULL`. If, however,\n an error condition occurred, `collect_value()` should return a newly\n allocated string containing an error diagnostic.\n\n The calling code makes no assumptions about the `value` contents being\n valid upon error returns, `value` is simply thrown away without further\n freeing. As such, it is a good idea to not allocate `GValue` contents\n prior to returning an error; however, `collect_values()` is not obliged\n to return a correctly setup @value for error returns, simply because\n any non-`NULL` return is considered a fatal programming error, and\n further program behaviour is undefined.\n\n Returns: (transfer full) (nullable): `NULL` on success, otherwise a\n   newly allocated error string on failure\n\n Since: 2.78"]
+pub type GTypeValueCollectFunc = ::std::option::Option<
+    unsafe extern "C" fn(
+        value: *mut GValue,
+        n_collect_values: guint,
+        collect_values: *mut GTypeCValue,
+        collect_flags: guint,
+    ) -> *mut gchar,
+>;
+#[doc = " GTypeValueLCopyFunc:\n @value: the value to lcopy\n @n_collect_values: the number of collected values\n @collect_values: (array length=n_collect_values): the collected\n   locations for storage\n @collect_flags: optional flags\n\n This function is responsible for storing the `value`\n contents into arguments passed through a variadic argument list which\n got collected into `collect_values` according to `lcopy_format`.\n\n The `n_collect_values` argument equals the string length of\n `lcopy_format`, and `collect_flags` may contain %G_VALUE_NOCOPY_CONTENTS.\n\n In contrast to #GTypeValueCollectFunc, this function is obliged to always\n properly support %G_VALUE_NOCOPY_CONTENTS.\n\n Similar to #GTypeValueCollectFunc the function may prematurely abort by\n returning a newly allocated string describing an error condition. To\n complete the string example:\n\n |[<!-- language=\"C\" -->\n gchar **string_p = collect_values[0].v_pointer;\n g_return_val_if_fail (string_p != NULL,\n   g_strdup (\"string location passed as NULL\"));\n\n if (collect_flags & G_VALUE_NOCOPY_CONTENTS)\n   *string_p = value->data[0].v_pointer;\n else\n   *string_p = g_strdup (value->data[0].v_pointer);\n ]|\n\n And an illustrative version of this function for reference-counted\n types:\n\n |[<!-- language=\"C\" -->\n GObject **object_p = collect_values[0].v_pointer;\n g_return_val_if_fail (object_p != NULL,\n   g_strdup (\"object location passed as NULL\"));\n\n if (value->data[0].v_pointer == NULL)\n   *object_p = NULL;\n else if (collect_flags & G_VALUE_NOCOPY_CONTENTS) // always honour\n   *object_p = value->data[0].v_pointer;\n else\n   *object_p = g_object_ref (value->data[0].v_pointer);\n\n return NULL;\n ]|\n\n Returns: (transfer full) (nullable): `NULL` on success, otherwise\n   a newly allocated error string on failure\n\n Since: 2.78"]
+pub type GTypeValueLCopyFunc = ::std::option::Option<
+    unsafe extern "C" fn(
+        value: *const GValue,
+        n_collect_values: guint,
+        collect_values: *mut GTypeCValue,
+        collect_flags: guint,
+    ) -> *mut gchar,
+>;
+#[doc = " GTypeValueTable:\n @value_init: Function to initialize a GValue\n @value_free: Function to free a GValue\n @value_copy: Function to copy a GValue\n @value_peek_pointer: Function to peek the contents of a GValue if they fit\n   into a pointer\n @collect_format: A string format describing how to collect the contents of\n   this value bit-by-bit. Each character in the format represents\n   an argument to be collected, and the characters themselves indicate\n   the type of the argument. Currently supported arguments are:\n    - `'i'`: Integers, passed as `collect_values[].v_int`\n    - `'l'`: Longs, passed as `collect_values[].v_long`\n    - `'d'`: Doubles, passed as `collect_values[].v_double`\n    - `'p'`: Pointers, passed as `collect_values[].v_pointer`\n   It should be noted that for variable argument list construction,\n   ANSI C promotes every type smaller than an integer to an int, and\n   floats to doubles. So for collection of short int or char, `'i'`\n   needs to be used, and for collection of floats `'d'`.\n @collect_value: Function to initialize a GValue from the values\n   collected from variadic arguments\n @lcopy_format: Format description of the arguments to collect for @lcopy_value,\n   analogous to @collect_format. Usually, @lcopy_format string consists\n   only of `'p'`s to provide lcopy_value() with pointers to storage locations.\n @lcopy_value: Function to store the contents of a value into the\n   locations collected from variadic arguments\n\n The #GTypeValueTable provides the functions required by the #GValue\n implementation, to serve as a container for values of a type."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GTypeValueTable {
-    pub value_init: ::std::option::Option<unsafe extern "C" fn(value: *mut GValue)>,
-    pub value_free: ::std::option::Option<unsafe extern "C" fn(value: *mut GValue)>,
-    pub value_copy: ::std::option::Option<
-        unsafe extern "C" fn(src_value: *const GValue, dest_value: *mut GValue),
-    >,
-    pub value_peek_pointer:
-        ::std::option::Option<unsafe extern "C" fn(value: *const GValue) -> gpointer>,
+    pub value_init: GTypeValueInitFunc,
+    pub value_free: GTypeValueFreeFunc,
+    pub value_copy: GTypeValueCopyFunc,
+    pub value_peek_pointer: GTypeValuePeekPointerFunc,
     pub collect_format: *const gchar,
-    pub collect_value: ::std::option::Option<
-        unsafe extern "C" fn(
-            value: *mut GValue,
-            n_collect_values: guint,
-            collect_values: *mut GTypeCValue,
-            collect_flags: guint,
-        ) -> *mut gchar,
-    >,
+    pub collect_value: GTypeValueCollectFunc,
     pub lcopy_format: *const gchar,
-    pub lcopy_value: ::std::option::Option<
-        unsafe extern "C" fn(
-            value: *const GValue,
-            n_collect_values: guint,
-            collect_values: *mut GTypeCValue,
-            collect_flags: guint,
-        ) -> *mut gchar,
-    >,
+    pub lcopy_value: GTypeValueLCopyFunc,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -17262,7 +17429,6 @@ pub const GParamFlags_G_PARAM_EXPLICIT_NOTIFY: GParamFlags = 1073741824;
 pub const GParamFlags_G_PARAM_DEPRECATED: GParamFlags = -2147483648;
 #[doc = " GParamFlags:\n @G_PARAM_READABLE: the parameter is readable\n @G_PARAM_WRITABLE: the parameter is writable\n @G_PARAM_READWRITE: alias for %G_PARAM_READABLE | %G_PARAM_WRITABLE\n @G_PARAM_CONSTRUCT: the parameter will be set upon object construction\n @G_PARAM_CONSTRUCT_ONLY: the parameter can only be set upon object construction\n @G_PARAM_LAX_VALIDATION: upon parameter conversion (see g_param_value_convert())\n  strict validation is not required\n @G_PARAM_STATIC_NAME: the string used as name when constructing the\n  parameter is guaranteed to remain valid and\n  unmodified for the lifetime of the parameter.\n  Since 2.8\n @G_PARAM_STATIC_NICK: the string used as nick when constructing the\n  parameter is guaranteed to remain valid and\n  unmmodified for the lifetime of the parameter.\n  Since 2.8\n @G_PARAM_STATIC_BLURB: the string used as blurb when constructing the\n  parameter is guaranteed to remain valid and\n  unmodified for the lifetime of the parameter.\n  Since 2.8\n @G_PARAM_EXPLICIT_NOTIFY: calls to g_object_set_property() for this\n   property will not automatically result in a \"notify\" signal being\n   emitted: the implementation must call g_object_notify() themselves\n   in case the property actually changes.  Since: 2.42.\n @G_PARAM_PRIVATE: internal\n @G_PARAM_DEPRECATED: the parameter is deprecated and will be removed\n  in a future version. A warning will be generated if it is used\n  while running with G_ENABLE_DIAGNOSTIC=1.\n  Since 2.26\n\n Through the #GParamFlags flag values, certain aspects of parameters\n can be configured.\n\n See also: %G_PARAM_STATIC_STRINGS"]
 pub type GParamFlags = ::std::os::raw::c_int;
-#[doc = " GParamSpec: (ref-func g_param_spec_ref_sink) (unref-func g_param_spec_unref) (set-value-func g_value_set_param) (get-value-func g_value_get_param)\n @g_type_instance: private #GTypeInstance portion\n @name: name of this parameter: always an interned string\n @flags: #GParamFlags flags for this parameter\n @value_type: the #GValue type for this parameter\n @owner_type: #GType type that uses (introduces) this parameter\n\n All other fields of the GParamSpec struct are private and\n should not be used directly."]
 pub type GParamSpec = _GParamSpec;
 #[doc = " GParamSpecClass:\n @g_type_class: the parent class\n @value_type: the #GValue type for this parameter\n @finalize: The instance finalization function (optional), should chain\n  up to the finalize method of the parent class.\n @value_set_default: Resets a @value to the default value for this type\n  (recommended, the default is g_value_reset()), see\n  g_param_value_set_default().\n @value_validate: Ensures that the contents of @value comply with the\n  specifications set out by this type (optional), see\n  g_param_value_validate().\n @values_cmp: Compares @value1 with @value2 according to this type\n  (recommended, the default is memcmp()), see g_param_values_cmp().\n @value_is_valid: Checks if contents of @value comply with the specifications\n   set out by this type, without modifying the value. This vfunc is optional.\n   If it isn't set, GObject will use @value_validate. Since 2.74\n\n The class structure for the GParamSpec type.\n Normally, GParamSpec classes are filled by\n g_param_type_register_static()."]
 pub type GParamSpecClass = _GParamSpecClass;
@@ -17274,7 +17440,6 @@ pub struct _GParamSpecPool {
     _unused: [u8; 0],
 }
 pub type GParamSpecPool = _GParamSpecPool;
-#[doc = " GParamSpec: (ref-func g_param_spec_ref_sink) (unref-func g_param_spec_unref) (set-value-func g_value_set_param) (get-value-func g_value_get_param)\n @g_type_instance: private #GTypeInstance portion\n @name: name of this parameter: always an interned string\n @flags: #GParamFlags flags for this parameter\n @value_type: the #GValue type for this parameter\n @owner_type: #GType type that uses (introduces) this parameter\n\n All other fields of the GParamSpec struct are private and\n should not be used directly."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GParamSpec {
@@ -17559,7 +17724,9 @@ unsafe extern "C" {
         n_pspecs_p: *mut guint,
     ) -> *mut *mut GParamSpec;
 }
-#[doc = " GClosure:\n @in_marshal: Indicates whether the closure is currently being invoked with\n  g_closure_invoke()\n @is_invalid: Indicates whether the closure has been invalidated by\n  g_closure_invalidate()\n\n A #GClosure represents a callback supplied by the programmer."]
+unsafe extern "C" {
+    pub fn g_param_spec_pool_free(pool: *mut GParamSpecPool);
+}
 pub type GClosure = _GClosure;
 pub type GClosureNotifyData = _GClosureNotifyData;
 #[doc = " GCallback:\n\n The type used for callback functions in structure definitions and function\n signatures.\n\n This doesn't mean that all callback functions must take no  parameters and\n return void. The required signature of a callback function is determined by\n the context in which is used (e.g. the signal to which it is connected).\n\n Use G_CALLBACK() to cast the callback function to a #GCallback."]
@@ -17607,7 +17774,6 @@ const _: () = {
     ["Offset of field: _GClosureNotifyData::notify"]
         [::std::mem::offset_of!(_GClosureNotifyData, notify) - 8usize];
 };
-#[doc = " GClosure:\n @in_marshal: Indicates whether the closure is currently being invoked with\n  g_closure_invoke()\n @is_invalid: Indicates whether the closure has been invalidated by\n  g_closure_invalidate()\n\n A #GClosure represents a callback supplied by the programmer."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GClosure {
@@ -19076,6 +19242,18 @@ unsafe extern "C" {
     pub fn g_bookmark_file_get_type() -> GType;
 }
 unsafe extern "C" {
+    pub fn g_hmac_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn g_dir_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn g_rand_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn g_strv_builder_get_type() -> GType;
+}
+unsafe extern "C" {
     pub fn g_variant_get_gtype() -> GType;
 }
 #[doc = " GBoxedCopyFunc:\n @boxed: (not nullable): The boxed structure to be copied.\n\n This function is provided by the user and should produce a copy\n of the passed in boxed structure.\n\n Returns: (not nullable): The newly created copy of the boxed structure."]
@@ -19119,11 +19297,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn g_value_get_type() -> GType;
 }
-#[doc = " GObject:\n\n The base object type.\n\n All the fields in the `GObject` structure are private to the implementation\n and should never be accessed directly.\n\n Since GLib 2.72, all #GObjects are guaranteed to be aligned to at least the\n alignment of the largest basic GLib type (typically this is #guint64 or\n #gdouble). If you need larger alignment for an element in a #GObject, you\n should allocate it on the heap (aligned), or arrange for your #GObject to be\n appropriately padded. This guarantee applies to the #GObject (or derived)\n struct, the #GObjectClass (or derived) struct, and any private data allocated\n by G_ADD_PRIVATE()."]
 pub type GObject = _GObject;
 #[doc = " GObjectClass:\n @g_type_class: the parent class\n @constructor: the @constructor function is called by g_object_new () to\n  complete the object initialization after all the construction properties are\n  set. The first thing a @constructor implementation must do is chain up to the\n  @constructor of the parent class. Overriding @constructor should be rarely\n  needed, e.g. to handle construct properties, or to implement singletons.\n @set_property: the generic setter for all properties of this type. Should be\n  overridden for every type with properties. If implementations of\n  @set_property don't emit property change notification explicitly, this will\n  be done implicitly by the type system. However, if the notify signal is\n  emitted explicitly, the type system will not emit it a second time.\n @get_property: the generic getter for all properties of this type. Should be\n  overridden for every type with properties.\n @dispose: the @dispose function is supposed to drop all references to other\n  objects, but keep the instance otherwise intact, so that client method\n  invocations still work. It may be run multiple times (due to reference\n  loops). Before returning, @dispose should chain up to the @dispose method\n  of the parent class.\n @finalize: instance finalization function, should finish the finalization of\n  the instance begun in @dispose and chain up to the @finalize method of the\n  parent class.\n @dispatch_properties_changed: emits property change notification for a bunch\n  of properties. Overriding @dispatch_properties_changed should be rarely\n  needed.\n @notify: the class closure for the notify signal\n @constructed: the @constructed function is called by g_object_new() as the\n  final step of the object creation process.  At the point of the call, all\n  construction properties have been set on the object.  The purpose of this\n  call is to allow for object initialisation steps that can only be performed\n  after construction properties have been set.  @constructed implementors\n  should chain up to the @constructed call of their parent class to allow it\n  to complete its initialisation.\n\n The class structure for the GObject type.\n\n |[<!-- language=\"C\" -->\n // Example of implementing a singleton using a constructor.\n static MySingleton *the_singleton = NULL;\n\n static GObject*\n my_singleton_constructor (GType                  type,\n                           guint                  n_construct_params,\n                           GObjectConstructParam *construct_params)\n {\n   GObject *object;\n\n   if (!the_singleton)\n     {\n       object = G_OBJECT_CLASS (parent_class)->constructor (type,\n                                                            n_construct_params,\n                                                            construct_params);\n       the_singleton = MY_SINGLETON (object);\n     }\n   else\n     object = g_object_ref (G_OBJECT (the_singleton));\n\n   return object;\n }\n ]|"]
 pub type GObjectClass = _GObjectClass;
-#[doc = " GObject:\n\n The base object type.\n\n All the fields in the `GObject` structure are private to the implementation\n and should never be accessed directly.\n\n Since GLib 2.72, all #GObjects are guaranteed to be aligned to at least the\n alignment of the largest basic GLib type (typically this is #guint64 or\n #gdouble). If you need larger alignment for an element in a #GObject, you\n should allocate it on the heap (aligned), or arrange for your #GObject to be\n appropriately padded. This guarantee applies to the #GObject (or derived)\n struct, the #GObjectClass (or derived) struct, and any private data allocated\n by G_ADD_PRIVATE()."]
 pub type GInitiallyUnowned = _GObject;
 #[doc = " GObjectClass:\n @g_type_class: the parent class\n @constructor: the @constructor function is called by g_object_new () to\n  complete the object initialization after all the construction properties are\n  set. The first thing a @constructor implementation must do is chain up to the\n  @constructor of the parent class. Overriding @constructor should be rarely\n  needed, e.g. to handle construct properties, or to implement singletons.\n @set_property: the generic setter for all properties of this type. Should be\n  overridden for every type with properties. If implementations of\n  @set_property don't emit property change notification explicitly, this will\n  be done implicitly by the type system. However, if the notify signal is\n  emitted explicitly, the type system will not emit it a second time.\n @get_property: the generic getter for all properties of this type. Should be\n  overridden for every type with properties.\n @dispose: the @dispose function is supposed to drop all references to other\n  objects, but keep the instance otherwise intact, so that client method\n  invocations still work. It may be run multiple times (due to reference\n  loops). Before returning, @dispose should chain up to the @dispose method\n  of the parent class.\n @finalize: instance finalization function, should finish the finalization of\n  the instance begun in @dispose and chain up to the @finalize method of the\n  parent class.\n @dispatch_properties_changed: emits property change notification for a bunch\n  of properties. Overriding @dispatch_properties_changed should be rarely\n  needed.\n @notify: the class closure for the notify signal\n @constructed: the @constructed function is called by g_object_new() as the\n  final step of the object creation process.  At the point of the call, all\n  construction properties have been set on the object.  The purpose of this\n  call is to allow for object initialisation steps that can only be performed\n  after construction properties have been set.  @constructed implementors\n  should chain up to the @constructed call of their parent class to allow it\n  to complete its initialisation.\n\n The class structure for the GObject type.\n\n |[<!-- language=\"C\" -->\n // Example of implementing a singleton using a constructor.\n static MySingleton *the_singleton = NULL;\n\n static GObject*\n my_singleton_constructor (GType                  type,\n                           guint                  n_construct_params,\n                           GObjectConstructParam *construct_params)\n {\n   GObject *object;\n\n   if (!the_singleton)\n     {\n       object = G_OBJECT_CLASS (parent_class)->constructor (type,\n                                                            n_construct_params,\n                                                            construct_params);\n       the_singleton = MY_SINGLETON (object);\n     }\n   else\n     object = g_object_ref (G_OBJECT (the_singleton));\n\n   return object;\n }\n ]|"]
 pub type GInitiallyUnownedClass = _GObjectClass;
@@ -19152,7 +19328,6 @@ pub type GObjectFinalizeFunc = ::std::option::Option<unsafe extern "C" fn(object
 #[doc = " GWeakNotify:\n @data: data that was provided when the weak reference was established\n @where_the_object_was: the object being disposed\n\n A #GWeakNotify function can be added to an object as a callback that gets\n triggered when the object is finalized.\n\n Since the object is already being disposed when the #GWeakNotify is called,\n there's not much you could do with the object, apart from e.g. using its\n address as hash-index or the like.\n\n In particular, this means it’s invalid to call g_object_ref(),\n g_weak_ref_init(), g_weak_ref_set(), g_object_add_toggle_ref(),\n g_object_weak_ref(), g_object_add_weak_pointer() or any function which calls\n them on the object from this callback."]
 pub type GWeakNotify =
     ::std::option::Option<unsafe extern "C" fn(data: gpointer, where_the_object_was: *mut GObject)>;
-#[doc = " GObject:\n\n The base object type.\n\n All the fields in the `GObject` structure are private to the implementation\n and should never be accessed directly.\n\n Since GLib 2.72, all #GObjects are guaranteed to be aligned to at least the\n alignment of the largest basic GLib type (typically this is #guint64 or\n #gdouble). If you need larger alignment for an element in a #GObject, you\n should allocate it on the heap (aligned), or arrange for your #GObject to be\n appropriately padded. This guarantee applies to the #GObject (or derived)\n struct, the #GObjectClass (or derived) struct, and any private data allocated\n by G_ADD_PRIVATE()."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GObject {
@@ -19611,7 +19786,6 @@ unsafe extern "C" {
 pub struct _GBinding {
     _unused: [u8; 0],
 }
-#[doc = " GBinding:\n\n GBinding is an opaque structure whose members\n cannot be accessed directly.\n\n Since: 2.26"]
 pub type GBinding = _GBinding;
 #[doc = " GBindingTransformFunc:\n @binding: a #GBinding\n @from_value: the #GValue containing the value to transform\n @to_value: the #GValue in which to store the transformed value\n @user_data: data passed to the transform function\n\n A function to be called to transform @from_value to @to_value.\n\n If this is the @transform_to function of a binding, then @from_value\n is the @source_property on the @source object, and @to_value is the\n @target_property on the @target object. If this is the\n @transform_from function of a %G_BINDING_BIDIRECTIONAL binding,\n then those roles are reversed.\n\n Returns: %TRUE if the transformation was successful, and %FALSE\n   otherwise\n\n Since: 2.26"]
 pub type GBindingTransformFunc = ::std::option::Option<
@@ -19696,7 +19870,6 @@ unsafe extern "C" {
 pub struct _GBindingGroup {
     _unused: [u8; 0],
 }
-#[doc = " GBindingGroup:\n\n GBindingGroup is an opaque structure whose members\n cannot be accessed directly.\n\n Since: 2.72"]
 pub type GBindingGroup = _GBindingGroup;
 unsafe extern "C" {
     pub fn g_binding_group_get_type() -> GType;
@@ -20733,7 +20906,6 @@ unsafe extern "C" {
 pub struct _GSignalGroup {
     _unused: [u8; 0],
 }
-#[doc = " GSignalGroup:\n\n #GSignalGroup is an opaque structure whose members\n cannot be accessed directly.\n\n Since: 2.72"]
 pub type GSignalGroup = _GSignalGroup;
 unsafe extern "C" {
     pub fn g_signal_group_get_type() -> GType;
@@ -20810,7 +20982,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn g_source_set_dummy_callback(source: *mut GSource);
 }
-#[doc = " GTypeModule:\n @name: the name of the module\n\n The members of the GTypeModule structure should not\n be accessed directly, except for the @name field."]
 pub type GTypeModule = _GTypeModule;
 #[doc = " GTypeModuleClass:\n @parent_class: the parent class\n @load: loads the module and registers one or more types using\n  g_type_module_register_type().\n @unload: unloads the module\n\n In order to implement dynamic loading of types based on #GTypeModule,\n the @load and @unload functions in #GTypeModuleClass must be implemented."]
 pub type GTypeModuleClass = _GTypeModuleClass;
@@ -20818,7 +20989,6 @@ pub type GTypeModule_autoptr = *mut GTypeModule;
 pub type GTypeModule_listautoptr = *mut GList;
 pub type GTypeModule_slistautoptr = *mut GSList;
 pub type GTypeModule_queueautoptr = *mut GQueue;
-#[doc = " GTypeModule:\n @name: the name of the module\n\n The members of the GTypeModule structure should not\n be accessed directly, except for the @name field."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GTypeModule {
@@ -20916,7 +21086,7 @@ unsafe extern "C" {
         const_static_values: *const GFlagsValue,
     ) -> GType;
 }
-#[doc = " GTypePlugin:\n\n The GTypePlugin typedef is used as a placeholder\n for objects that implement the GTypePlugin interface.\n/\n/**\n GTypePluginClass:\n @use_plugin: Increases the use count of the plugin.\n @unuse_plugin: Decreases the use count of the plugin.\n @complete_type_info: Fills in the #GTypeInfo and\n  #GTypeValueTable structs for the type. The structs are initialized\n  with `memset(s, 0, sizeof (s))` before calling this function.\n @complete_interface_info: Fills in missing parts of the #GInterfaceInfo\n  for the interface. The structs is initialized with\n  `memset(s, 0, sizeof (s))` before calling this function.\n\n The #GTypePlugin interface is used by the type system in order to handle\n the lifecycle of dynamically loaded types."]
+#[doc = " GTypePluginClass:\n @use_plugin: Increases the use count of the plugin.\n @unuse_plugin: Decreases the use count of the plugin.\n @complete_type_info: Fills in the #GTypeInfo and\n  #GTypeValueTable structs for the type. The structs are initialized\n  with `memset(s, 0, sizeof (s))` before calling this function.\n @complete_interface_info: Fills in missing parts of the #GInterfaceInfo\n  for the interface. The structs is initialized with\n  `memset(s, 0, sizeof (s))` before calling this function.\n\n The #GTypePlugin interface is used by the type system in order to handle\n the lifecycle of dynamically loaded types."]
 pub type GTypePluginClass = _GTypePluginClass;
 #[doc = " GTypePluginUse:\n @plugin: the #GTypePlugin whose use count should be increased\n\n The type of the @use_plugin function of #GTypePluginClass, which gets called\n to increase the use count of @plugin."]
 pub type GTypePluginUse = ::std::option::Option<unsafe extern "C" fn(plugin: *mut GTypePlugin)>;
@@ -20940,7 +21110,7 @@ pub type GTypePluginCompleteInterfaceInfo = ::std::option::Option<
         info: *mut GInterfaceInfo,
     ),
 >;
-#[doc = " GTypePlugin:\n\n The GTypePlugin typedef is used as a placeholder\n for objects that implement the GTypePlugin interface.\n/\n/**\n GTypePluginClass:\n @use_plugin: Increases the use count of the plugin.\n @unuse_plugin: Decreases the use count of the plugin.\n @complete_type_info: Fills in the #GTypeInfo and\n  #GTypeValueTable structs for the type. The structs are initialized\n  with `memset(s, 0, sizeof (s))` before calling this function.\n @complete_interface_info: Fills in missing parts of the #GInterfaceInfo\n  for the interface. The structs is initialized with\n  `memset(s, 0, sizeof (s))` before calling this function.\n\n The #GTypePlugin interface is used by the type system in order to handle\n the lifecycle of dynamically loaded types."]
+#[doc = " GTypePluginClass:\n @use_plugin: Increases the use count of the plugin.\n @unuse_plugin: Decreases the use count of the plugin.\n @complete_type_info: Fills in the #GTypeInfo and\n  #GTypeValueTable structs for the type. The structs are initialized\n  with `memset(s, 0, sizeof (s))` before calling this function.\n @complete_interface_info: Fills in missing parts of the #GInterfaceInfo\n  for the interface. The structs is initialized with\n  `memset(s, 0, sizeof (s))` before calling this function.\n\n The #GTypePlugin interface is used by the type system in order to handle\n the lifecycle of dynamically loaded types."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GTypePluginClass {
@@ -20990,9 +21160,7 @@ unsafe extern "C" {
         info: *mut GInterfaceInfo,
     );
 }
-#[doc = " GValueArray:\n @n_values: number of values contained in the array\n @values: array of values\n\n A #GValueArray contains an array of #GValue elements."]
 pub type GValueArray = _GValueArray;
-#[doc = " GValueArray:\n @n_values: number of values contained in the array\n @values: array of values\n\n A #GValueArray contains an array of #GValue elements."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GValueArray {
@@ -21147,6 +21315,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn g_value_dup_string(value: *const GValue) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn g_value_steal_string(value: *mut GValue) -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn g_value_set_pointer(value: *mut GValue, v_pointer: gpointer);
@@ -21525,8 +21696,9 @@ pub const GstStateChangeReturn_GST_STATE_CHANGE_NO_PREROLL: GstStateChangeReturn
 #[doc = " GstStateChangeReturn:\n @GST_STATE_CHANGE_FAILURE   : the state change failed\n @GST_STATE_CHANGE_SUCCESS   : the state change succeeded\n @GST_STATE_CHANGE_ASYNC     : the state change will happen asynchronously\n @GST_STATE_CHANGE_NO_PREROLL: the state change succeeded but the element\n                               cannot produce data in %GST_STATE_PAUSED.\n                               This typically happens with live sources.\n\n The possible return values from a state change function such as\n gst_element_set_state(). Only @GST_STATE_CHANGE_FAILURE is a real failure."]
 pub type GstStateChangeReturn = ::std::os::raw::c_uint;
 pub const GstObjectFlags_GST_OBJECT_FLAG_MAY_BE_LEAKED: GstObjectFlags = 1;
+pub const GstObjectFlags_GST_OBJECT_FLAG_CONSTRUCTED: GstObjectFlags = 2;
 pub const GstObjectFlags_GST_OBJECT_FLAG_LAST: GstObjectFlags = 16;
-#[doc = " GstObjectFlags:\n @GST_OBJECT_FLAG_MAY_BE_LEAKED: the object is expected to stay alive even\n after gst_deinit() has been called and so should be ignored by leak\n detection tools. (Since: 1.10)\n @GST_OBJECT_FLAG_LAST: subclasses can add additional flags starting from this flag\n\n The standard flags that an gstobject may have."]
+#[doc = " GstObjectFlags:\n @GST_OBJECT_FLAG_MAY_BE_LEAKED: the object is expected to stay alive even\n after gst_deinit() has been called and so should be ignored by leak\n detection tools. (Since: 1.10)\n @GST_OBJECT_FLAG_CONSTRUCTED: flag that's set when the object has been\n constructed. This can be used by API such as base class setters to\n differentiate between the case where they're called from a subclass's\n instance init function (and where the object isn't fully constructed yet,\n and so one shouldn't do anything but set values in the instance structure),\n and the case where the object is constructed. (Since: 1.24)\n @GST_OBJECT_FLAG_LAST: subclasses can add additional flags starting from this flag\n\n The standard flags that an gstobject may have."]
 pub type GstObjectFlags = ::std::os::raw::c_uint;
 #[doc = " GstObject:\n @lock: object LOCK\n @name: The name of the object\n @parent: this object's parent, weak ref\n @flags: flags for this object\n\n GStreamer base object class."]
 pub type GstObject = _GstObject;
@@ -22580,7 +22752,7 @@ pub const GstMapFlags_GST_MAP_WRITE: GstMapFlags = 2;
 pub const GstMapFlags_GST_MAP_FLAG_LAST: GstMapFlags = 65536;
 #[doc = " GstMapFlags:\n @GST_MAP_READ: map for read access\n @GST_MAP_WRITE: map for write access\n @GST_MAP_FLAG_LAST: first flag that can be used for custom purposes\n\n Flags used when mapping memory"]
 pub type GstMapFlags = ::std::os::raw::c_uint;
-#[doc = " GstMapInfo:\n @memory: a pointer to the mapped memory\n @flags: flags used when mapping the memory\n @data: (array length=size): a pointer to the mapped data\n @size: the valid size in @data\n @maxsize: the maximum bytes in @data\n @user_data: extra private user_data that the implementation of the memory\n             can use to store extra info.\n\n A structure containing the result of a map operation such as\n gst_memory_map(). It contains the data and size."]
+#[doc = " GstMapInfo:\n @memory: a pointer to the mapped memory\n @flags: flags used when mapping the memory\n @data: (array length=size): a pointer to the mapped data\n @size: the valid size in @data\n @maxsize: the maximum bytes in @data\n @user_data: extra private user_data that the implementation of the memory\n             can use to store extra info.\n\n A structure containing the result of a map operation such as\n gst_memory_map(). It contains the data and size.\n\n #GstMapInfo cannot be used with g_auto() because it is ambiguous whether it\n needs to be unmapped using gst_buffer_unmap() or gst_memory_unmap(). Instead,\n #GstBufferMapInfo and #GstMemoryMapInfo can be used in that case."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct GstMapInfo {
@@ -22698,6 +22870,8 @@ pub type GstAllocator_autoptr = *mut GstAllocator;
 pub type GstAllocator_listautoptr = *mut GList;
 pub type GstAllocator_slistautoptr = *mut GSList;
 pub type GstAllocator_queueautoptr = *mut GQueue;
+#[doc = " GstMemoryMapInfo: (skip):\n\n Alias for #GstMapInfo to be used with g_auto():\n ```c\n void my_func(GstMemory *mem)\n {\n   g_auto(GstMemoryMapInfo) map = GST_MAP_INFO_INIT;\n   if (!gst_memory_map(mem, &map, GST_MAP_READWRITE))\n     return;\n   ...\n   // No need to call gst_memory_unmap()\n }\n ```\n\n #GstMapInfo cannot be used with g_auto() because it is ambiguous whether it\n needs to be unmapped using gst_buffer_unmap() or gst_memory_unmap().\n\n See also #GstBufferMapInfo.\n\n Since: 1.22"]
+pub type GstMemoryMapInfo = GstMapInfo;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstAllocatorPrivate {
@@ -22741,8 +22915,9 @@ const _: () = {
         [::std::mem::offset_of!(_GstAllocationParams, _gst_reserved) - 32usize];
 };
 pub const GstAllocatorFlags_GST_ALLOCATOR_FLAG_CUSTOM_ALLOC: GstAllocatorFlags = 16;
+pub const GstAllocatorFlags_GST_ALLOCATOR_FLAG_NO_COPY: GstAllocatorFlags = 32;
 pub const GstAllocatorFlags_GST_ALLOCATOR_FLAG_LAST: GstAllocatorFlags = 1048576;
-#[doc = " GstAllocatorFlags:\n @GST_ALLOCATOR_FLAG_CUSTOM_ALLOC: The allocator has a custom alloc function.\n @GST_ALLOCATOR_FLAG_LAST: first flag that can be used for custom purposes\n\n Flags for allocators."]
+#[doc = " GstAllocatorFlags:\n @GST_ALLOCATOR_FLAG_CUSTOM_ALLOC: The allocator has a custom alloc function.\n    Only elements designed to work with this allocator should be using it,\n    other elements should ignore it from allocation propositions.\n    This implies %GST_ALLOCATOR_FLAG_NO_COPY.\n @GST_ALLOCATOR_FLAG_NO_COPY: When copying a #GstMemory allocated with this\n    allocator, the copy will instead be allocated using the default allocator.\n    Use this when allocating a new memory is an heavy opperation that should\n    only be done with a #GstBufferPool for example. (Since: 1.24)\n @GST_ALLOCATOR_FLAG_LAST: first flag that can be used for custom purposes\n\n Flags for allocators.\n/\n/**\n GST_ALLOCATOR_FLAG_NO_COPY:\n\n When copying a #GstMemory allocated with this allocator, the copy will\n instead be allocated using the default allocator. Use this when allocating a\n new memory is an heavy opperation that should only be done with a\n #GstBufferPool for example.\n\n Since: 1.24"]
 pub type GstAllocatorFlags = ::std::os::raw::c_uint;
 #[doc = " GstAllocator:\n @mem_map: the implementation of the GstMemoryMapFunction\n @mem_unmap: the implementation of the GstMemoryUnmapFunction\n @mem_copy: the implementation of the GstMemoryCopyFunction\n @mem_share: the implementation of the GstMemoryShareFunction\n @mem_is_span: the implementation of the GstMemoryIsSpanFunction\n @mem_map_full: the implementation of the GstMemoryMapFullFunction.\n      Will be used instead of @mem_map if present. (Since: 1.6)\n @mem_unmap_full: the implementation of the GstMemoryUnmapFullFunction.\n      Will be used instead of @mem_unmap if present. (Since: 1.6)\n\n The #GstAllocator is used to create new memory."]
 #[repr(C)]
@@ -22997,7 +23172,8 @@ unsafe extern "C" {
 pub type GstStructure = _GstStructure;
 pub const GstSerializeFlags_GST_SERIALIZE_FLAG_NONE: GstSerializeFlags = 0;
 pub const GstSerializeFlags_GST_SERIALIZE_FLAG_BACKWARD_COMPAT: GstSerializeFlags = 1;
-#[doc = " GstSerializeFlags:\n @GST_SERIALIZE_FLAG_NONE: No special flags specified.\n @GST_SERIALIZE_FLAG_BACKWARD_COMPAT: Serialize using the old format for\n                                      nested structures.\n\n Since: 1.20"]
+pub const GstSerializeFlags_GST_SERIALIZE_FLAG_STRICT: GstSerializeFlags = 2;
+#[doc = " GstSerializeFlags:\n @GST_SERIALIZE_FLAG_NONE: No special flags specified.\n @GST_SERIALIZE_FLAG_BACKWARD_COMPAT: Serialize using the old format for\n                                      nested structures.\n @GST_SERIALIZE_FLAG_STRICT: Serialization fails if a value cannot be\n  serialized instead of using placeholder \"NULL\" value (e.g. pointers,\n  objects). (Since 1.24)\n\n Since: 1.20"]
 pub type GstSerializeFlags = ::std::os::raw::c_uint;
 #[doc = " GstStructureForeachFunc:\n @field_id: the #GQuark of the field name\n @value: the #GValue of the field\n @user_data: user data\n\n A function that will be called in gst_structure_foreach(). The function may\n not modify @value.\n\n Returns: %TRUE if the foreach operation should continue, %FALSE if\n the foreach operation should stop with %FALSE."]
 pub type GstStructureForeachFunc = ::std::option::Option<
@@ -23373,10 +23549,24 @@ unsafe extern "C" {
     ) -> gboolean;
 }
 unsafe extern "C" {
+    pub fn gst_structure_get_flags(
+        structure: *const GstStructure,
+        fieldname: *const gchar,
+        flags_type: GType,
+        value: *mut guint,
+    ) -> gboolean;
+}
+unsafe extern "C" {
     pub fn gst_structure_to_string(structure: *const GstStructure) -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn gst_structure_serialize(
+        structure: *const GstStructure,
+        flags: GstSerializeFlags,
+    ) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_structure_serialize_full(
         structure: *const GstStructure,
         flags: GstSerializeFlags,
     ) -> *mut gchar;
@@ -23865,9 +24055,35 @@ unsafe extern "C" {
 pub type GstBuffer = _GstBuffer;
 #[doc = " GstBufferPool:\n @object: the parent structure\n @flushing: whether the pool is currently gathering back outstanding buffers\n\n The structure of a #GstBufferPool. Use the associated macros to access the public\n variables."]
 pub type GstBufferPool = _GstBufferPool;
+#[doc = " GstByteArrayInterface:\n @data: A pointer to an array of bytes.\n @len: Number of bytes in @data.\n @resize: Reallocate @data.\n\n Interface for an array of bytes. It is expected to be subclassed to implement\n @resize virtual method using language native array implementation, such as\n GLib's #GByteArray, C++'s `std::vector<uint8_t>` or Rust's `Vec<u8>`.\n\n @resize implementation could allocate more than requested to avoid repeated\n reallocations. It can return %FALSE, or be set to %NULL, in the case the\n array cannot grow.\n\n Since: 1.24"]
+pub type GstByteArrayInterface = _GstByteArrayInterface;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _GstByteArrayInterface {
+    pub data: *mut guint8,
+    pub len: gsize,
+    pub resize: ::std::option::Option<
+        unsafe extern "C" fn(self_: *mut GstByteArrayInterface, length: gsize) -> gboolean,
+    >,
+    pub _gst_reserved: [gpointer; 4usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _GstByteArrayInterface"][::std::mem::size_of::<_GstByteArrayInterface>() - 56usize];
+    ["Alignment of _GstByteArrayInterface"]
+        [::std::mem::align_of::<_GstByteArrayInterface>() - 8usize];
+    ["Offset of field: _GstByteArrayInterface::data"]
+        [::std::mem::offset_of!(_GstByteArrayInterface, data) - 0usize];
+    ["Offset of field: _GstByteArrayInterface::len"]
+        [::std::mem::offset_of!(_GstByteArrayInterface, len) - 8usize];
+    ["Offset of field: _GstByteArrayInterface::resize"]
+        [::std::mem::offset_of!(_GstByteArrayInterface, resize) - 16usize];
+    ["Offset of field: _GstByteArrayInterface::_gst_reserved"]
+        [::std::mem::offset_of!(_GstByteArrayInterface, _gst_reserved) - 24usize];
+};
 #[doc = " GstMeta:\n @flags: extra flags for the metadata\n @info: pointer to the #GstMetaInfo\n\n Base structure for metadata. Custom metadata will put this structure\n as the first member of their structure."]
 pub type GstMeta = _GstMeta;
-#[doc = " GstMetaInfo:\n @api: tag identifying the metadata structure and api\n @type: type identifying the implementor of the api\n @size: size of the metadata\n @init_func: function for initializing the metadata\n @free_func: function for freeing the metadata\n @transform_func: function for transforming the metadata\n\n The #GstMetaInfo provides information about a specific metadata\n structure."]
+#[doc = " GstMetaInfo:\n @api: tag identifying the metadata structure and api\n @type: type identifying the implementor of the api\n @size: size of the metadata\n @init_func: function for initializing the metadata\n @free_func: function for freeing the metadata\n @transform_func: function for transforming the metadata\n @serialize_func: function for serializing the metadata into a #GstStructure,\n  or %NULL if not supported by this meta. (Since 1.24)\n @deserialize_func: function for deserializing the metadata from a\n  #GstStructure, or %NULL if not supported by this meta. (Since 1.24)\n\n The #GstMetaInfo provides information about a specific metadata\n structure."]
 pub type GstMetaInfo = _GstMetaInfo;
 pub const GstMetaFlags_GST_META_FLAG_NONE: GstMetaFlags = 0;
 pub const GstMetaFlags_GST_META_FLAG_READONLY: GstMetaFlags = 1;
@@ -23890,17 +24106,20 @@ const _: () = {
     ["Offset of field: _GstMeta::flags"][::std::mem::offset_of!(_GstMeta, flags) - 0usize];
     ["Offset of field: _GstMeta::info"][::std::mem::offset_of!(_GstMeta, info) - 8usize];
 };
-#[doc = " GstCustomMeta:\n\n Simple typing wrapper around #GstMeta\n\n Since: 1.20"]
+#[doc = " GstCustomMeta:\n @meta: parent #GstMeta\n @structure: a #GstStructure containing custom metadata. (Since: 1.24)\n\n Extra custom metadata. The @structure field is the same as returned by\n gst_custom_meta_get_structure().\n\n Since 1.24 it can be serialized using gst_meta_serialize() and\n gst_meta_deserialize(), but only if the #GstStructure does not contain any\n fields that cannot be serialized, see %GST_SERIALIZE_FLAG_STRICT.\n\n Since: 1.20"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct GstCustomMeta {
     pub meta: GstMeta,
+    pub structure: *mut GstStructure,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of GstCustomMeta"][::std::mem::size_of::<GstCustomMeta>() - 16usize];
+    ["Size of GstCustomMeta"][::std::mem::size_of::<GstCustomMeta>() - 24usize];
     ["Alignment of GstCustomMeta"][::std::mem::align_of::<GstCustomMeta>() - 8usize];
     ["Offset of field: GstCustomMeta::meta"][::std::mem::offset_of!(GstCustomMeta, meta) - 0usize];
+    ["Offset of field: GstCustomMeta::structure"]
+        [::std::mem::offset_of!(GstCustomMeta, structure) - 16usize];
 };
 #[doc = " GstMetaInitFunction:\n @meta: a #GstMeta\n @params: parameters passed to the init function\n @buffer: a #GstBuffer\n\n Function called when @meta is initialized in @buffer."]
 pub type GstMetaInitFunction = ::std::option::Option<
@@ -23942,7 +24161,7 @@ pub type GstMetaTransformFunction = ::std::option::Option<
         data: gpointer,
     ) -> gboolean,
 >;
-#[doc = " GstCustomMetaTransformFunction:\n @transbuf: a #GstBuffer\n @meta: a #GstCustomMeta\n @buffer: a #GstBuffer\n @type: the transform type\n @data: transform specific data.\n @user_data: user data passed when registering the meta\n\n Function called for each @meta in @buffer as a result of performing a\n transformation on @transbuf. Additional @type specific transform data\n is passed to the function as @data.\n\n Implementations should check the @type of the transform and parse\n additional type specific fields in @data that should be used to update\n the metadata on @transbuf.\n\n Returns: %TRUE if the transform could be performed\n Since: 1.20"]
+#[doc = " GstCustomMetaTransformFunction:\n @transbuf: a #GstBuffer\n @meta: a #GstCustomMeta\n @buffer: a #GstBuffer\n @type: the transform type\n @data: transform specific data.\n @user_data: user data passed when registering the meta\n\n Function called for each @meta in @buffer as a result of performing a\n transformation that yields @transbuf. Additional @type specific transform\n data is passed to the function as @data.\n\n Implementations should check the @type of the transform and parse\n additional type specific fields in @data that should be used to update\n the metadata on @transbuf.\n\n Returns: %TRUE if the transform could be performed\n Since: 1.20"]
 pub type GstCustomMetaTransformFunction = ::std::option::Option<
     unsafe extern "C" fn(
         transbuf: *mut GstBuffer,
@@ -23953,7 +24172,28 @@ pub type GstCustomMetaTransformFunction = ::std::option::Option<
         user_data: gpointer,
     ) -> gboolean,
 >;
-#[doc = " GstMetaInfo:\n @api: tag identifying the metadata structure and api\n @type: type identifying the implementor of the api\n @size: size of the metadata\n @init_func: function for initializing the metadata\n @free_func: function for freeing the metadata\n @transform_func: function for transforming the metadata\n\n The #GstMetaInfo provides information about a specific metadata\n structure."]
+#[doc = " GstMetaSerializeFunction:\n @meta: a #GstMeta\n @data: #GstByteArrayInterface to append serialization data\n @version: (out): version of the serialization format\n\n Serialize @meta into a format that can be stored or transmitted and later\n deserialized by #GstMetaDeserializeFunction.\n\n By default version is set to 0, it should be bumped if incompatible changes\n are made to the format so %GstMetaDeserializeFunction can deserialize each\n version.\n\n Returns: %TRUE on success, %FALSE otherwise.\n\n Since: 1.24"]
+pub type GstMetaSerializeFunction = ::std::option::Option<
+    unsafe extern "C" fn(
+        meta: *const GstMeta,
+        data: *mut GstByteArrayInterface,
+        version: *mut guint8,
+    ) -> gboolean,
+>;
+#[doc = " GstMetaDeserializeFunction:\n @info: #GstMetaInfo of the meta\n @buffer: a #GstBuffer\n @data: data obtained from #GstMetaSerializeFunction\n @size: size of data to avoid buffer overflow\n\n Recreate a #GstMeta from serialized data returned by\n #GstMetaSerializeFunction and add it to @buffer.\n\n Returns: (transfer none) (nullable): the metadata owned by @buffer, or %NULL.\n\n Since: 1.24"]
+pub type GstMetaDeserializeFunction = ::std::option::Option<
+    unsafe extern "C" fn(
+        info: *const GstMetaInfo,
+        buffer: *mut GstBuffer,
+        data: *const guint8,
+        size: gsize,
+        version: guint8,
+    ) -> *mut GstMeta,
+>;
+#[doc = " GstMetaClearFunction:\n @buffer: a #GstBuffer\n @meta: a #GstMeta\n\n Clears the content of the meta. This will be called by the GstBufferPool\n when a pooled buffer is returned.\n\n Since: 1.24"]
+pub type GstMetaClearFunction =
+    ::std::option::Option<unsafe extern "C" fn(buffer: *mut GstBuffer, meta: *mut GstMeta)>;
+#[doc = " GstMetaInfo:\n @api: tag identifying the metadata structure and api\n @type: type identifying the implementor of the api\n @size: size of the metadata\n @init_func: function for initializing the metadata\n @free_func: function for freeing the metadata\n @transform_func: function for transforming the metadata\n @serialize_func: function for serializing the metadata into a #GstStructure,\n  or %NULL if not supported by this meta. (Since 1.24)\n @deserialize_func: function for deserializing the metadata from a\n  #GstStructure, or %NULL if not supported by this meta. (Since 1.24)\n\n The #GstMetaInfo provides information about a specific metadata\n structure."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstMetaInfo {
@@ -23963,10 +24203,13 @@ pub struct _GstMetaInfo {
     pub init_func: GstMetaInitFunction,
     pub free_func: GstMetaFreeFunction,
     pub transform_func: GstMetaTransformFunction,
+    pub serialize_func: GstMetaSerializeFunction,
+    pub deserialize_func: GstMetaDeserializeFunction,
+    pub clear_func: GstMetaClearFunction,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of _GstMetaInfo"][::std::mem::size_of::<_GstMetaInfo>() - 48usize];
+    ["Size of _GstMetaInfo"][::std::mem::size_of::<_GstMetaInfo>() - 72usize];
     ["Alignment of _GstMetaInfo"][::std::mem::align_of::<_GstMetaInfo>() - 8usize];
     ["Offset of field: _GstMetaInfo::api"][::std::mem::offset_of!(_GstMetaInfo, api) - 0usize];
     ["Offset of field: _GstMetaInfo::type_"][::std::mem::offset_of!(_GstMetaInfo, type_) - 8usize];
@@ -23977,6 +24220,12 @@ const _: () = {
         [::std::mem::offset_of!(_GstMetaInfo, free_func) - 32usize];
     ["Offset of field: _GstMetaInfo::transform_func"]
         [::std::mem::offset_of!(_GstMetaInfo, transform_func) - 40usize];
+    ["Offset of field: _GstMetaInfo::serialize_func"]
+        [::std::mem::offset_of!(_GstMetaInfo, serialize_func) - 48usize];
+    ["Offset of field: _GstMetaInfo::deserialize_func"]
+        [::std::mem::offset_of!(_GstMetaInfo, deserialize_func) - 56usize];
+    ["Offset of field: _GstMetaInfo::clear_func"]
+        [::std::mem::offset_of!(_GstMetaInfo, clear_func) - 64usize];
 };
 unsafe extern "C" {
     pub fn gst_meta_api_type_register(api: *const gchar, tags: *mut *const gchar) -> GType;
@@ -23995,6 +24244,12 @@ unsafe extern "C" {
     ) -> *const GstMetaInfo;
 }
 unsafe extern "C" {
+    pub fn gst_meta_info_new(api: GType, impl_: *const gchar, size: gsize) -> *mut GstMetaInfo;
+}
+unsafe extern "C" {
+    pub fn gst_meta_info_register(info: *mut GstMetaInfo) -> *const GstMetaInfo;
+}
+unsafe extern "C" {
     pub fn gst_meta_register_custom(
         name: *const gchar,
         tags: *mut *const gchar,
@@ -24002,6 +24257,9 @@ unsafe extern "C" {
         user_data: gpointer,
         destroy_data: GDestroyNotify,
     ) -> *const GstMetaInfo;
+}
+unsafe extern "C" {
+    pub fn gst_meta_register_custom_simple(name: *const gchar) -> *const GstMetaInfo;
 }
 unsafe extern "C" {
     pub fn gst_meta_info_is_custom(info: *const GstMetaInfo) -> gboolean;
@@ -24025,7 +24283,24 @@ unsafe extern "C" {
     pub fn gst_meta_compare_seqnum(meta1: *const GstMeta, meta2: *const GstMeta) -> gint;
 }
 unsafe extern "C" {
+    pub fn gst_meta_serialize(meta: *const GstMeta, data: *mut GstByteArrayInterface) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_meta_serialize_simple(meta: *const GstMeta, data: *mut GByteArray) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_meta_deserialize(
+        buffer: *mut GstBuffer,
+        data: *const guint8,
+        size: gsize,
+        consumed: *mut guint32,
+    ) -> *mut GstMeta;
+}
+unsafe extern "C" {
     pub static mut _gst_meta_tag_memory: GQuark;
+}
+unsafe extern "C" {
+    pub static mut _gst_meta_tag_memory_reference: GQuark;
 }
 pub const GstBufferFlags_GST_BUFFER_FLAG_LIVE: GstBufferFlags = 16;
 pub const GstBufferFlags_GST_BUFFER_FLAG_DECODE_ONLY: GstBufferFlags = 32;
@@ -24044,7 +24319,7 @@ pub const GstBufferFlags_GST_BUFFER_FLAG_SYNC_AFTER: GstBufferFlags = 32768;
 pub const GstBufferFlags_GST_BUFFER_FLAG_NON_DROPPABLE: GstBufferFlags = 65536;
 #[doc = " GST_BUFFER_FLAG_NON_DROPPABLE:\n\n This buffer is important and should not be dropped.\n\n This can be used to mark important buffers, e.g. to flag RTP packets\n carrying keyframes or codec setup data for RTP Forward Error Correction\n purposes, or to prevent still video frames from being dropped by elements\n due to QoS.\n\n Since: 1.14"]
 pub const GstBufferFlags_GST_BUFFER_FLAG_LAST: GstBufferFlags = 1048576;
-#[doc = " GstBufferFlags:\n @GST_BUFFER_FLAG_LIVE:          the buffer is live data and should be discarded in\n                                 the PAUSED state.\n @GST_BUFFER_FLAG_DECODE_ONLY:   the buffer contains data that should be dropped\n                                 because it will be clipped against the segment\n                                 boundaries or because it does not contain data\n                                 that should be shown to the user.\n @GST_BUFFER_FLAG_DISCONT:       the buffer marks a data discontinuity in the stream.\n                                 This typically occurs after a seek or a dropped buffer\n                                 from a live or network source.\n @GST_BUFFER_FLAG_RESYNC:        the buffer timestamps might have a discontinuity\n                                 and this buffer is a good point to resynchronize.\n @GST_BUFFER_FLAG_CORRUPTED:     the buffer data is corrupted.\n @GST_BUFFER_FLAG_MARKER:        the buffer contains a media specific marker. for\n                                 video this is the end of a frame boundary, for audio\n                                 this is the start of a talkspurt.\n @GST_BUFFER_FLAG_HEADER:        the buffer contains header information that is\n                                 needed to decode the following data.\n @GST_BUFFER_FLAG_GAP:           the buffer has been created to fill a gap in the\n                                 stream and contains media neutral data (elements can\n                                 switch to optimized code path that ignores the buffer\n                                 content).\n @GST_BUFFER_FLAG_DROPPABLE:     the buffer can be dropped without breaking the\n                                 stream, for example to reduce bandwidth.\n @GST_BUFFER_FLAG_DELTA_UNIT:    this unit cannot be decoded independently.\n @GST_BUFFER_FLAG_TAG_MEMORY:    this flag is set when memory of the buffer\n                                 is added/removed\n @GST_BUFFER_FLAG_LAST:          additional media specific flags can be added starting from\n                                 this flag.\n\n A set of buffer flags used to describe properties of a #GstBuffer."]
+#[doc = " GstBufferFlags:\n @GST_BUFFER_FLAG_LIVE:          the buffer is live data and should be discarded in\n                                 the PAUSED state.\n @GST_BUFFER_FLAG_DECODE_ONLY:   the buffer contains data that should be dropped\n                                 because it will be clipped against the segment\n                                 boundaries or because it does not contain data\n                                 that should be shown to the user.\n @GST_BUFFER_FLAG_DISCONT:       the buffer marks a data discontinuity in the stream.\n                                 This typically occurs after a seek or a dropped buffer\n                                 from a live or network source.\n @GST_BUFFER_FLAG_RESYNC:        the buffer timestamps might have a discontinuity\n                                 and this buffer is a good point to resynchronize.\n @GST_BUFFER_FLAG_CORRUPTED:     the buffer data is corrupted.\n @GST_BUFFER_FLAG_MARKER:        the buffer contains a media specific marker. for\n                                 video this is the end of a frame boundary, for audio\n                                 this is the start of a talkspurt. for RTP\n                                 packets this matches the marker flag in the\n                                 RTP packet header.\n @GST_BUFFER_FLAG_HEADER:        the buffer contains header information that is\n                                 needed to decode the following data.\n @GST_BUFFER_FLAG_GAP:           the buffer has been created to fill a gap in the\n                                 stream and contains media neutral data (elements can\n                                 switch to optimized code path that ignores the buffer\n                                 content).\n @GST_BUFFER_FLAG_DROPPABLE:     the buffer can be dropped without breaking the\n                                 stream, for example to reduce bandwidth.\n @GST_BUFFER_FLAG_DELTA_UNIT:    this unit cannot be decoded independently.\n @GST_BUFFER_FLAG_TAG_MEMORY:    this flag is set when memory of the buffer\n                                 is added/removed\n @GST_BUFFER_FLAG_LAST:          additional media specific flags can be added starting from\n                                 this flag.\n\n A set of buffer flags used to describe properties of a #GstBuffer."]
 pub type GstBufferFlags = ::std::os::raw::c_uint;
 #[doc = " GstBuffer:\n @mini_object: the parent structure\n @pool: pointer to the pool owner of the buffer\n @pts: presentation timestamp of the buffer, can be #GST_CLOCK_TIME_NONE when the\n     pts is not known or relevant. The pts contains the timestamp when the\n     media should be presented to the user.\n @dts: decoding timestamp of the buffer, can be #GST_CLOCK_TIME_NONE when the\n     dts is not known or relevant. The dts contains the timestamp when the\n     media should be processed.\n @duration: duration in time of the buffer data, can be #GST_CLOCK_TIME_NONE\n     when the duration is not known or relevant.\n @offset: a media specific offset for the buffer data.\n     For video frames, this is the frame number of this buffer.\n     For audio samples, this is the offset of the first sample in this buffer.\n     For file data or compressed data this is the byte offset of the first\n       byte in this buffer.\n @offset_end: the last offset contained in this buffer. It has the same\n     format as @offset.\n\n The structure of a #GstBuffer. Use the associated macros to access the public\n variables."]
 #[repr(C)]
@@ -24410,9 +24685,9 @@ unsafe extern "C" {
         ref_: *mut GstBuffer,
     ) -> *mut GstParentBufferMeta;
 }
-#[doc = " GstReferenceTimestampMeta:\n @parent: the parent #GstMeta structure\n @reference: identifier for the timestamp reference.\n @timestamp: timestamp\n @duration: duration, or %GST_CLOCK_TIME_NONE\n\n #GstReferenceTimestampMeta can be used to attach alternative timestamps and\n possibly durations to a #GstBuffer. These are generally not according to\n the pipeline clock and could be e.g. the NTP timestamp when the media was\n captured.\n\n The reference is stored as a #GstCaps in @reference. Examples of valid\n references would be `timestamp/x-drivername-stream` for timestamps that are locally\n generated by some driver named `drivername` when generating the stream,\n e.g. based on a frame counter, or `timestamp/x-ntp, host=pool.ntp.org,\n port=123` for timestamps based on a specific NTP server.\n\n Since: 1.14"]
+#[doc = " GstReferenceTimestampMeta:\n @parent: the parent #GstMeta structure\n @reference: identifier for the timestamp reference.\n @timestamp: timestamp\n @duration: duration, or %GST_CLOCK_TIME_NONE\n\n #GstReferenceTimestampMeta can be used to attach alternative timestamps and\n possibly durations to a #GstBuffer. These are generally not according to\n the pipeline clock and could be e.g. the NTP timestamp when the media was\n captured.\n\n The reference is stored as a #GstCaps in @reference. Examples of valid\n references would be\n\n  * `timestamp/x-drivername-stream`: for timestamps that are locally\n    generated by some driver named `drivername` when generating the stream,\n    e.g. based on a frame counter\n  * `timestamp/x-ntp, host=pool.ntp.org, port=123`: for timestamps based on a\n    specific NTP server. Note that the host/port parameters might not always\n    be given.\n  * `timestamp/x-ptp, version=IEEE1588-2008, domain=1`: for timestamps based\n    on a given PTP clock.\n  * `timestamp/x-unix`: for timestamps based on the UNIX epoch according to\n    the local clock.\n\n Since 1.24 it can be serialized using gst_meta_serialize() and\n gst_meta_deserialize().\n\n Since: 1.14"]
 pub type GstReferenceTimestampMeta = _GstReferenceTimestampMeta;
-#[doc = " GstReferenceTimestampMeta:\n @parent: the parent #GstMeta structure\n @reference: identifier for the timestamp reference.\n @timestamp: timestamp\n @duration: duration, or %GST_CLOCK_TIME_NONE\n\n #GstReferenceTimestampMeta can be used to attach alternative timestamps and\n possibly durations to a #GstBuffer. These are generally not according to\n the pipeline clock and could be e.g. the NTP timestamp when the media was\n captured.\n\n The reference is stored as a #GstCaps in @reference. Examples of valid\n references would be `timestamp/x-drivername-stream` for timestamps that are locally\n generated by some driver named `drivername` when generating the stream,\n e.g. based on a frame counter, or `timestamp/x-ntp, host=pool.ntp.org,\n port=123` for timestamps based on a specific NTP server.\n\n Since: 1.14"]
+#[doc = " GstReferenceTimestampMeta:\n @parent: the parent #GstMeta structure\n @reference: identifier for the timestamp reference.\n @timestamp: timestamp\n @duration: duration, or %GST_CLOCK_TIME_NONE\n\n #GstReferenceTimestampMeta can be used to attach alternative timestamps and\n possibly durations to a #GstBuffer. These are generally not according to\n the pipeline clock and could be e.g. the NTP timestamp when the media was\n captured.\n\n The reference is stored as a #GstCaps in @reference. Examples of valid\n references would be\n\n  * `timestamp/x-drivername-stream`: for timestamps that are locally\n    generated by some driver named `drivername` when generating the stream,\n    e.g. based on a frame counter\n  * `timestamp/x-ntp, host=pool.ntp.org, port=123`: for timestamps based on a\n    specific NTP server. Note that the host/port parameters might not always\n    be given.\n  * `timestamp/x-ptp, version=IEEE1588-2008, domain=1`: for timestamps based\n    on a given PTP clock.\n  * `timestamp/x-unix`: for timestamps based on the UNIX epoch according to\n    the local clock.\n\n Since 1.24 it can be serialized using gst_meta_serialize() and\n gst_meta_deserialize().\n\n Since: 1.14"]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstReferenceTimestampMeta {
@@ -24464,6 +24739,8 @@ pub type GstBufferPool_autoptr = *mut GstBufferPool;
 pub type GstBufferPool_listautoptr = *mut GList;
 pub type GstBufferPool_slistautoptr = *mut GSList;
 pub type GstBufferPool_queueautoptr = *mut GQueue;
+#[doc = " GstBufferMapInfo: (skip):\n\n Alias for #GstMapInfo to be used with g_auto():\n ```c\n void my_func(GstBuffer *buf)\n {\n   g_auto(GstBufferMapInfo) map = GST_MAP_INFO_INIT;\n   if (!gst_buffer_map(buf, &map, GST_MAP_READWRITE))\n     return;\n   ...\n   // No need to call gst_buffer_unmap()\n }\n ```\n\n #GstMapInfo cannot be used with g_auto() because it is ambiguous whether it\n needs to be unmapped using gst_buffer_unmap() or gst_memory_unmap().\n\n See also #GstMemoryMapInfo.\n\n Since: 1.22"]
+pub type GstBufferMapInfo = GstMapInfo;
 unsafe extern "C" {
     pub static mut _gst_buffer_list_type: GType;
 }
@@ -25503,7 +25780,9 @@ pub const GstQueryType_GST_QUERY_CAPS: GstQueryType = 43523;
 pub const GstQueryType_GST_QUERY_DRAIN: GstQueryType = 46086;
 pub const GstQueryType_GST_QUERY_CONTEXT: GstQueryType = 48643;
 pub const GstQueryType_GST_QUERY_BITRATE: GstQueryType = 51202;
-#[doc = " GstQueryType:\n @GST_QUERY_UNKNOWN: unknown query type\n @GST_QUERY_POSITION: current position in stream\n @GST_QUERY_DURATION: total duration of the stream\n @GST_QUERY_LATENCY: latency of stream\n @GST_QUERY_JITTER: current jitter of stream\n @GST_QUERY_RATE: current rate of the stream\n @GST_QUERY_SEEKING: seeking capabilities\n @GST_QUERY_SEGMENT: segment start/stop positions\n @GST_QUERY_CONVERT: convert values between formats\n @GST_QUERY_FORMATS: query supported formats for convert\n @GST_QUERY_BUFFERING: query available media for efficient seeking.\n @GST_QUERY_CUSTOM: a custom application or element defined query.\n @GST_QUERY_URI: query the URI of the source or sink.\n @GST_QUERY_ALLOCATION: the buffer allocation properties\n @GST_QUERY_SCHEDULING: the scheduling properties\n @GST_QUERY_ACCEPT_CAPS: the accept caps query\n @GST_QUERY_CAPS: the caps query\n @GST_QUERY_DRAIN: wait till all serialized data is consumed downstream\n @GST_QUERY_CONTEXT: query the pipeline-local context from\n     downstream or upstream (since 1.2)\n @GST_QUERY_BITRATE: the bitrate query (since 1.16)\n\n Standard predefined Query types"]
+#[doc = " GST_QUERY_SELECTABLE:\n\n Query stream selection capability.\n\n Since: 1.22"]
+pub const GstQueryType_GST_QUERY_SELECTABLE: GstQueryType = 53763;
+#[doc = " GstQueryType:\n @GST_QUERY_UNKNOWN: unknown query type\n @GST_QUERY_POSITION: current position in stream\n @GST_QUERY_DURATION: total duration of the stream\n @GST_QUERY_LATENCY: latency of stream\n @GST_QUERY_JITTER: current jitter of stream\n @GST_QUERY_RATE: current rate of the stream\n @GST_QUERY_SEEKING: seeking capabilities\n @GST_QUERY_SEGMENT: segment start/stop positions\n @GST_QUERY_CONVERT: convert values between formats\n @GST_QUERY_FORMATS: query supported formats for convert\n @GST_QUERY_BUFFERING: query available media for efficient seeking.\n @GST_QUERY_CUSTOM: a custom application or element defined query.\n @GST_QUERY_URI: query the URI of the source or sink.\n @GST_QUERY_ALLOCATION: the buffer allocation properties\n @GST_QUERY_SCHEDULING: the scheduling properties\n @GST_QUERY_ACCEPT_CAPS: the accept caps query\n @GST_QUERY_CAPS: the caps query\n @GST_QUERY_DRAIN: wait till all serialized data is consumed downstream\n @GST_QUERY_CONTEXT: query the pipeline-local context from\n     downstream or upstream (since 1.2)\n @GST_QUERY_BITRATE: the bitrate query (since 1.16)\n @GST_QUERY_SELECTABLE: Query stream selection capability (Since: 1.22)\n\n Standard predefined Query types"]
 pub type GstQueryType = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub static mut _gst_query_type: GType;
@@ -26143,6 +26422,15 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_query_parse_bitrate(query: *mut GstQuery, nominal_bitrate: *mut guint);
+}
+unsafe extern "C" {
+    pub fn gst_query_new_selectable() -> *mut GstQuery;
+}
+unsafe extern "C" {
+    pub fn gst_query_set_selectable(query: *mut GstQuery, selectable: gboolean);
+}
+unsafe extern "C" {
+    pub fn gst_query_parse_selectable(query: *mut GstQuery, selectable: *mut gboolean);
 }
 pub type GstQuery_autoptr = *mut GstQuery;
 pub type GstQuery_listautoptr = *mut GList;
@@ -27099,6 +27387,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_event_type_get_flags(type_: GstEventType) -> GstEventTypeFlags;
+}
+unsafe extern "C" {
+    pub fn gst_event_type_to_sticky_ordering(type_: GstEventType) -> guint;
 }
 unsafe extern "C" {
     pub fn gst_event_get_type() -> GType;
@@ -28988,6 +29279,24 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn gst_plugin_add_status_error(plugin: *mut GstPlugin, message: *const gchar);
+}
+unsafe extern "C" {
+    pub fn gst_plugin_add_status_warning(plugin: *mut GstPlugin, message: *const gchar);
+}
+unsafe extern "C" {
+    pub fn gst_plugin_add_status_info(plugin: *mut GstPlugin, message: *const gchar);
+}
+unsafe extern "C" {
+    pub fn gst_plugin_get_status_errors(plugin: *mut GstPlugin) -> *mut *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_plugin_get_status_warnings(plugin: *mut GstPlugin) -> *mut *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_plugin_get_status_infos(plugin: *mut GstPlugin) -> *mut *mut gchar;
+}
+unsafe extern "C" {
     pub fn gst_plugin_list_free(list: *mut GList);
 }
 pub type GstPlugin_autoptr = *mut GstPlugin;
@@ -29229,6 +29538,9 @@ unsafe extern "C" {
     pub fn gst_uri_to_string(uri: *const GstUri) -> *mut gchar;
 }
 unsafe extern "C" {
+    pub fn gst_uri_to_string_with_keys(uri: *const GstUri, keys: *const GList) -> *mut gchar;
+}
+unsafe extern "C" {
     pub fn gst_uri_is_normalized(uri: *const GstUri) -> gboolean;
 }
 unsafe extern "C" {
@@ -29284,6 +29596,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_uri_get_query_string(uri: *const GstUri) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_uri_get_query_string_ordered(uri: *const GstUri, keys: *const GList) -> *mut gchar;
 }
 unsafe extern "C" {
     pub fn gst_uri_set_query_string(uri: *mut GstUri, query: *const gchar) -> gboolean;
@@ -30285,7 +30600,7 @@ pub struct _GstBufferPoolClass {
     pub start: ::std::option::Option<unsafe extern "C" fn(pool: *mut GstBufferPool) -> gboolean>,
     #[doc = " GstBufferPoolClass::stop:\n @pool: the #GstBufferPool\n\n Stop the bufferpool. the default implementation will free the\n preallocated buffers. This function is called when all the buffers are\n returned to the pool.\n\n Returns: whether the pool could be stopped."]
     pub stop: ::std::option::Option<unsafe extern "C" fn(pool: *mut GstBufferPool) -> gboolean>,
-    #[doc = " GstBufferPoolClass::acquire_buffer:\n @pool: the #GstBufferPool\n @buffer: (out): a location for a #GstBuffer\n @params: (transfer none) (allow-none): parameters.\n\n Get a new buffer from the pool. The default implementation\n will take a buffer from the queue and optionally wait for a buffer to\n be released when there are no buffers available.\n\n Returns: a #GstFlowReturn such as %GST_FLOW_FLUSHING when the pool is\n inactive."]
+    #[doc = " GstBufferPoolClass::acquire_buffer:\n @pool: the #GstBufferPool\n @buffer: (out) (transfer full) (nullable): a location for a #GstBuffer\n @params: (transfer none) (nullable): parameters.\n\n Get a new buffer from the pool. The default implementation\n will take a buffer from the queue and optionally wait for a buffer to\n be released when there are no buffers available.\n\n Returns: a #GstFlowReturn such as %GST_FLOW_FLUSHING when the pool is\n inactive."]
     pub acquire_buffer: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut GstBufferPool,
@@ -30293,7 +30608,7 @@ pub struct _GstBufferPoolClass {
             params: *mut GstBufferPoolAcquireParams,
         ) -> GstFlowReturn,
     >,
-    #[doc = " GstBufferPoolClass::alloc_buffer:\n @pool: the #GstBufferPool\n @buffer: (out): a location for a #GstBuffer\n @params: (transfer none) (allow-none): parameters.\n\n Allocate a buffer. the default implementation allocates\n buffers from the configured memory allocator and with the configured\n parameters. All metadata that is present on the allocated buffer will\n be marked as #GST_META_FLAG_POOLED and #GST_META_FLAG_LOCKED and will\n not be removed from the buffer in #GstBufferPoolClass::reset_buffer.\n The buffer should have the #GST_BUFFER_FLAG_TAG_MEMORY cleared.\n\n Returns: a #GstFlowReturn to indicate whether the allocation was\n successful."]
+    #[doc = " GstBufferPoolClass::alloc_buffer:\n @pool: the #GstBufferPool\n @buffer: (out) (transfer full) (nullable): a location for a #GstBuffer\n @params: (transfer none) (nullable): parameters.\n\n Allocate a buffer. the default implementation allocates\n buffers from the configured memory allocator and with the configured\n parameters. All metadata that is present on the allocated buffer will\n be marked as #GST_META_FLAG_POOLED and #GST_META_FLAG_LOCKED and will\n not be removed from the buffer in #GstBufferPoolClass::reset_buffer.\n The buffer should have the #GST_BUFFER_FLAG_TAG_MEMORY cleared.\n\n Returns: a #GstFlowReturn to indicate whether the allocation was\n successful."]
     pub alloc_buffer: ::std::option::Option<
         unsafe extern "C" fn(
             pool: *mut GstBufferPool,
@@ -30510,6 +30825,12 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn gst_child_proxy_get_child_by_name(
         parent: *mut GstChildProxy,
+        name: *const gchar,
+    ) -> *mut GObject;
+}
+unsafe extern "C" {
+    pub fn gst_child_proxy_get_child_by_name_recurse(
+        child_proxy: *mut GstChildProxy,
         name: *const gchar,
     ) -> *mut GObject;
 }
@@ -31328,6 +31649,41 @@ unsafe extern "C" {
     );
 }
 unsafe extern "C" {
+    pub fn gst_debug_log_id(
+        category: *mut GstDebugCategory,
+        level: GstDebugLevel,
+        file: *const gchar,
+        function: *const gchar,
+        line: gint,
+        id: *const gchar,
+        format: *const gchar,
+        ...
+    );
+}
+unsafe extern "C" {
+    pub fn gst_debug_log_id_valist(
+        category: *mut GstDebugCategory,
+        level: GstDebugLevel,
+        file: *const gchar,
+        function: *const gchar,
+        line: gint,
+        id: *const gchar,
+        format: *const gchar,
+        args: *mut __va_list_tag,
+    );
+}
+unsafe extern "C" {
+    pub fn gst_debug_log_id_literal(
+        category: *mut GstDebugCategory,
+        level: GstDebugLevel,
+        file: *const gchar,
+        function: *const gchar,
+        line: gint,
+        id: *const gchar,
+        message_string: *const gchar,
+    );
+}
+unsafe extern "C" {
     pub fn _gst_debug_category_new(
         name: *const gchar,
         color: guint,
@@ -31349,6 +31705,18 @@ unsafe extern "C" {
         length: guint,
     );
 }
+unsafe extern "C" {
+    pub fn _gst_debug_dump_mem_id(
+        cat: *mut GstDebugCategory,
+        file: *const gchar,
+        func: *const gchar,
+        line: gint,
+        object_id: *const gchar,
+        msg: *const gchar,
+        data: *const guint8,
+        length: guint,
+    );
+}
 #[doc = " GstDebugFuncPtr: (attributes doc.skip=true)\n we define this to avoid a compiler warning regarding a cast from a function\n pointer to a void pointer\n (see https://bugzilla.gnome.org/show_bug.cgi?id=309253)"]
 pub type GstDebugFuncPtr = ::std::option::Option<unsafe extern "C" fn()>;
 unsafe extern "C" {
@@ -31359,6 +31727,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_debug_message_get(message: *mut GstDebugMessage) -> *const gchar;
+}
+unsafe extern "C" {
+    pub fn gst_debug_message_get_id(message: *mut GstDebugMessage) -> *const gchar;
 }
 unsafe extern "C" {
     pub fn gst_debug_log_get_line(
@@ -32025,6 +32396,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_pipeline_get_auto_flush_bus(pipeline: *mut GstPipeline) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_pipeline_is_live(pipeline: *mut GstPipeline) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_pipeline_get_configured_latency(pipeline: *mut GstPipeline) -> GstClockTime;
 }
 pub type GstPipeline_autoptr = *mut GstPipeline;
 pub type GstPipeline_listautoptr = *mut GList;
@@ -33138,6 +33515,26 @@ unsafe extern "C" {
     ) -> gboolean;
 }
 unsafe extern "C" {
+    pub fn gst_element_decorate_stream_id(
+        element: *mut GstElement,
+        stream_id: *const gchar,
+    ) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_element_decorate_stream_id_printf_valist(
+        element: *mut GstElement,
+        format: *const gchar,
+        var_args: *mut __va_list_tag,
+    ) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_element_decorate_stream_id_printf(
+        element: *mut GstElement,
+        format: *const gchar,
+        ...
+    ) -> *mut gchar;
+}
+unsafe extern "C" {
     pub fn gst_element_factory_can_sink_all_caps(
         factory: *mut GstElementFactory,
         caps: *const GstCaps,
@@ -33350,6 +33747,14 @@ unsafe extern "C" {
     pub fn gst_util_greatest_common_divisor_int64(a: gint64, b: gint64) -> gint64;
 }
 unsafe extern "C" {
+    pub fn gst_util_simplify_fraction(
+        numerator: *mut gint,
+        denominator: *mut gint,
+        n_terms: guint,
+        threshold: guint,
+    );
+}
+unsafe extern "C" {
     pub fn gst_util_fraction_to_double(src_n: gint, src_d: gint, dest: *mut gdouble);
 }
 unsafe extern "C" {
@@ -33395,6 +33800,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_type_is_plugin_api(type_: GType, flags: *mut GstPluginAPIFlags) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_util_ceil_log2(v: guint32) -> guint;
+}
+unsafe extern "C" {
+    pub fn gst_util_filename_compare(a: *const gchar, b: *const gchar) -> gint;
 }
 unsafe extern "C" {
     pub fn gst_init(argc: *mut ::std::os::raw::c_int, argv: *mut *mut *mut ::std::os::raw::c_char);
@@ -33460,6 +33871,9 @@ unsafe extern "C" {
     pub fn gst_video_codec_frame_flags_get_type() -> GType;
 }
 unsafe extern "C" {
+    pub fn gst_navigation_modifier_type_get_type() -> GType;
+}
+unsafe extern "C" {
     pub fn gst_navigation_command_get_type() -> GType;
 }
 unsafe extern "C" {
@@ -33476,6 +33890,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_ancillary_di_d16_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn gst_ancillary_meta_field_get_type() -> GType;
 }
 unsafe extern "C" {
     pub fn gst_video_afd_value_get_type() -> GType;
@@ -33591,12 +34008,43 @@ unsafe extern "C" {
 pub const GstVideoTileType_GST_VIDEO_TILE_TYPE_INDEXED: GstVideoTileType = 0;
 #[doc = " GstVideoTileType:\n @GST_VIDEO_TILE_TYPE_INDEXED: Tiles are indexed. Use\n   gst_video_tile_get_index () to retrieve the tile at the requested\n   coordinates.\n\n Enum value describing the most common tiling types."]
 pub type GstVideoTileType = ::std::os::raw::c_uint;
+#[doc = " GstVideoTileInfo:\n\n Description of a tile. This structure allow to describe arbitrary tile\n dimensions and sizes.\n\n Since: 1.22"]
+pub type GstVideoTileInfo = _GstVideoTileInfo;
 pub const GstVideoTileMode_GST_VIDEO_TILE_MODE_UNKNOWN: GstVideoTileMode = 0;
 pub const GstVideoTileMode_GST_VIDEO_TILE_MODE_ZFLIPZ_2X2: GstVideoTileMode = 65536;
 #[doc = " GST_VIDEO_TILE_MODE_LINEAR:\n\n Tiles are in row order.\n\n Since: 1.18"]
 pub const GstVideoTileMode_GST_VIDEO_TILE_MODE_LINEAR: GstVideoTileMode = 131072;
-#[doc = " GstVideoTileMode:\n @GST_VIDEO_TILE_MODE_UNKNOWN: Unknown or unset tile mode\n @GST_VIDEO_TILE_MODE_ZFLIPZ_2X2: Every four adjacent blocks - two\n    horizontally and two vertically are grouped together and are located\n    in memory in Z or flipped Z order. In case of odd rows, the last row\n    of blocks is arranged in linear order.\n @GST_VIDEO_TILE_MODE_LINEAR: Tiles are in row order. (Since: 1.18)\n\n Enum value describing the available tiling modes."]
+#[doc = " GstVideoTileMode:\n @GST_VIDEO_TILE_MODE_UNKNOWN: Unknown or unset tile mode\n @GST_VIDEO_TILE_MODE_ZFLIPZ_2X2: Every four adjacent blocks - two\n    horizontally and two vertically are grouped together and are located\n    in memory in Z or flipped Z order. In case of odd rows, the last row\n    of blocks is arranged in linear order.\n @GST_VIDEO_TILE_MODE_LINEAR: Tiles are in row order. (Since: 1.18)\n @GST_VIDEO_TILE_MODE_LINEAR_SUBSAMPLED: Tiles are in row order, with\n   variable tile size according to subsampling. (Since: 1.20)\n\n Enum value describing the available tiling modes."]
 pub type GstVideoTileMode = ::std::os::raw::c_uint;
+#[doc = " GstVideoTileInfo:\n\n Description of a tile. This structure allow to describe arbitrary tile\n dimensions and sizes.\n\n Since: 1.22"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _GstVideoTileInfo {
+    #[doc = " GstVideoTileInfo.width:\n\n The width in pixels of a tile. This value can be zero if the number of\n pixels per line is not an integer value.\n\n Since: 1.22"]
+    pub width: guint,
+    #[doc = " GstVideoTileInfo::height:\n\n The width in pixels of a tile. This value can be zero if the number of\n pixels per line is not an integer value.\n\n Since: 1.22"]
+    pub height: guint,
+    #[doc = " GstVideoTileInfo.stride:\n\n The stride (in bytes) of a tile line. Regardless if the tile have sub-tiles\n this stride multiplied by the height should be equal to\n #GstVideoTileInfo.size. This value is used to translate into linear stride\n when older APIs are being used to expose this format.\n\n Since: 1.22"]
+    pub stride: guint,
+    #[doc = " GstVideoTileInfo.size:\n\n The size in bytes of a tile. This value must be divisible by\n #GstVideoTileInfo.stride.\n\n Since: 1.22"]
+    pub size: guint,
+    pub padding: [guint32; 4usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _GstVideoTileInfo"][::std::mem::size_of::<_GstVideoTileInfo>() - 32usize];
+    ["Alignment of _GstVideoTileInfo"][::std::mem::align_of::<_GstVideoTileInfo>() - 4usize];
+    ["Offset of field: _GstVideoTileInfo::width"]
+        [::std::mem::offset_of!(_GstVideoTileInfo, width) - 0usize];
+    ["Offset of field: _GstVideoTileInfo::height"]
+        [::std::mem::offset_of!(_GstVideoTileInfo, height) - 4usize];
+    ["Offset of field: _GstVideoTileInfo::stride"]
+        [::std::mem::offset_of!(_GstVideoTileInfo, stride) - 8usize];
+    ["Offset of field: _GstVideoTileInfo::size"]
+        [::std::mem::offset_of!(_GstVideoTileInfo, size) - 12usize];
+    ["Offset of field: _GstVideoTileInfo::padding"]
+        [::std::mem::offset_of!(_GstVideoTileInfo, padding) - 16usize];
+};
 unsafe extern "C" {
     pub fn gst_video_tile_get_index(
         mode: GstVideoTileMode,
@@ -33729,9 +34177,57 @@ pub const GstVideoFormat_GST_VIDEO_FORMAT_BGRA64_BE: GstVideoFormat = 107;
 pub const GstVideoFormat_GST_VIDEO_FORMAT_ABGR64_LE: GstVideoFormat = 108;
 #[doc = " GST_VIDEO_FORMAT_ABGR64_BE:\n\n Reverse RGB with alpha channel first, 16 bits (big endian)\n per channel.\n\n Since: 1.20"]
 pub const GstVideoFormat_GST_VIDEO_FORMAT_ABGR64_BE: GstVideoFormat = 109;
-#[doc = " GstVideoFormat:\n @GST_VIDEO_FORMAT_UNKNOWN: Unknown or unset video format id\n @GST_VIDEO_FORMAT_ENCODED: Encoded video format. Only ever use that in caps for\n                            special video formats in combination with non-system\n                            memory GstCapsFeatures where it does not make sense\n                            to specify a real video format.\n @GST_VIDEO_FORMAT_I420: planar 4:2:0 YUV\n @GST_VIDEO_FORMAT_YV12: planar 4:2:0 YVU (like I420 but UV planes swapped)\n @GST_VIDEO_FORMAT_YUY2: packed 4:2:2 YUV (Y0-U0-Y1-V0 Y2-U2-Y3-V2 Y4 ...)\n @GST_VIDEO_FORMAT_UYVY: packed 4:2:2 YUV (U0-Y0-V0-Y1 U2-Y2-V2-Y3 U4 ...)\n @GST_VIDEO_FORMAT_VYUY: packed 4:2:2 YUV (V0-Y0-U0-Y1 V2-Y2-U2-Y3 V4 ...)\n @GST_VIDEO_FORMAT_AYUV: packed 4:4:4 YUV with alpha channel (A0-Y0-U0-V0 ...)\n @GST_VIDEO_FORMAT_RGBx: sparse rgb packed into 32 bit, space last\n @GST_VIDEO_FORMAT_BGRx: sparse reverse rgb packed into 32 bit, space last\n @GST_VIDEO_FORMAT_xRGB: sparse rgb packed into 32 bit, space first\n @GST_VIDEO_FORMAT_xBGR: sparse reverse rgb packed into 32 bit, space first\n @GST_VIDEO_FORMAT_RGBA: rgb with alpha channel last\n @GST_VIDEO_FORMAT_BGRA: reverse rgb with alpha channel last\n @GST_VIDEO_FORMAT_ARGB: rgb with alpha channel first\n @GST_VIDEO_FORMAT_ABGR: reverse rgb with alpha channel first\n @GST_VIDEO_FORMAT_RGB: RGB packed into 24 bits without padding (`R-G-B-R-G-B`)\n @GST_VIDEO_FORMAT_BGR: reverse RGB packed into 24 bits without padding (`B-G-R-B-G-R`)\n @GST_VIDEO_FORMAT_Y41B: planar 4:1:1 YUV\n @GST_VIDEO_FORMAT_Y42B: planar 4:2:2 YUV\n @GST_VIDEO_FORMAT_YVYU: packed 4:2:2 YUV (Y0-V0-Y1-U0 Y2-V2-Y3-U2 Y4 ...)\n @GST_VIDEO_FORMAT_Y444: planar 4:4:4 YUV\n @GST_VIDEO_FORMAT_v210: packed 4:2:2 10-bit YUV, complex format\n @GST_VIDEO_FORMAT_v216: packed 4:2:2 16-bit YUV, Y0-U0-Y1-V1 order\n @GST_VIDEO_FORMAT_NV12: planar 4:2:0 YUV with interleaved UV plane\n @GST_VIDEO_FORMAT_NV21: planar 4:2:0 YUV with interleaved VU plane\n @GST_VIDEO_FORMAT_NV12_10LE32: 10-bit variant of @GST_VIDEO_FORMAT_NV12, packed into 32bit words (MSB 2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_GRAY8: 8-bit grayscale\n @GST_VIDEO_FORMAT_GRAY10_LE32: 10-bit grayscale, packed into 32bit words (2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_GRAY16_BE: 16-bit grayscale, most significant byte first\n @GST_VIDEO_FORMAT_GRAY16_LE: 16-bit grayscale, least significant byte first\n @GST_VIDEO_FORMAT_v308: packed 4:4:4 YUV (Y-U-V ...)\n @GST_VIDEO_FORMAT_IYU2: packed 4:4:4 YUV (U-Y-V ...) (Since: 1.10)\n @GST_VIDEO_FORMAT_RGB16: rgb 5-6-5 bits per component\n @GST_VIDEO_FORMAT_BGR16: reverse rgb 5-6-5 bits per component\n @GST_VIDEO_FORMAT_RGB15: rgb 5-5-5 bits per component\n @GST_VIDEO_FORMAT_BGR15: reverse rgb 5-5-5 bits per component\n @GST_VIDEO_FORMAT_UYVP: packed 10-bit 4:2:2 YUV (U0-Y0-V0-Y1 U2-Y2-V2-Y3 U4 ...)\n @GST_VIDEO_FORMAT_A420: planar 4:4:2:0 AYUV\n @GST_VIDEO_FORMAT_RGB8P: 8-bit paletted RGB\n @GST_VIDEO_FORMAT_YUV9: planar 4:1:0 YUV\n @GST_VIDEO_FORMAT_YVU9: planar 4:1:0 YUV (like YUV9 but UV planes swapped)\n @GST_VIDEO_FORMAT_IYU1: packed 4:1:1 YUV (Cb-Y0-Y1-Cr-Y2-Y3 ...)\n @GST_VIDEO_FORMAT_ARGB64: rgb with alpha channel first, 16 bits (native endianness) per channel\n @GST_VIDEO_FORMAT_AYUV64: packed 4:4:4 YUV with alpha channel, 16 bits (native endianness) per channel (A0-Y0-U0-V0 ...)\n @GST_VIDEO_FORMAT_r210: packed 4:4:4 RGB, 10 bits per channel\n @GST_VIDEO_FORMAT_I420_10BE: planar 4:2:0 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I420_10LE: planar 4:2:0 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I422_10BE: planar 4:2:2 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I422_10LE: planar 4:2:2 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_Y444_10BE: planar 4:4:4 YUV, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_Y444_10LE: planar 4:4:4 YUV, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR: planar 4:4:4 RGB, 8 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR_10BE: planar 4:4:4 RGB, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR_10LE: planar 4:4:4 RGB, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_NV16: planar 4:2:2 YUV with interleaved UV plane (Since: 1.2)\n @GST_VIDEO_FORMAT_NV16_10LE32: 10-bit variant of @GST_VIDEO_FORMAT_NV16, packed into 32bit words (MSB 2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_NV24: planar 4:4:4 YUV with interleaved UV plane (Since: 1.2)\n @GST_VIDEO_FORMAT_NV12_64Z32: NV12 with 64x32 tiling in zigzag pattern (Since: 1.4)\n @GST_VIDEO_FORMAT_A420_10BE: planar 4:4:2:0 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A420_10LE: planar 4:4:2:0 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A422_10BE: planar 4:4:2:2 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A422_10LE: planar 4:4:2:2 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A444_10BE: planar 4:4:4:4 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A444_10LE: planar 4:4:4:4 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_NV61: planar 4:2:2 YUV with interleaved VU plane (Since: 1.6)\n @GST_VIDEO_FORMAT_P010_10BE: planar 4:2:0 YUV with interleaved UV plane, 10 bits per channel (Since: 1.10)\n @GST_VIDEO_FORMAT_P010_10LE: planar 4:2:0 YUV with interleaved UV plane, 10 bits per channel (Since: 1.10)\n @GST_VIDEO_FORMAT_GBRA: planar 4:4:4:4 ARGB, 8 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_10BE: planar 4:4:4:4 ARGB, 10 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_10LE: planar 4:4:4:4 ARGB, 10 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBR_12BE: planar 4:4:4 RGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBR_12LE: planar 4:4:4 RGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_12BE: planar 4:4:4:4 ARGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_12LE: planar 4:4:4:4 ARGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I420_12BE: planar 4:2:0 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I420_12LE: planar 4:2:0 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I422_12BE: planar 4:2:2 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I422_12LE: planar 4:2:2 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_Y444_12BE: planar 4:4:4 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_Y444_12LE: planar 4:4:4 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_NV12_10LE40: Fully packed variant of NV12_10LE32 (Since: 1.16)\n @GST_VIDEO_FORMAT_Y210: packed 4:2:2 YUV, 10 bits per channel (Since: 1.16)\n @GST_VIDEO_FORMAT_Y410: packed 4:4:4 YUV, 10 bits per channel(A-V-Y-U...) (Since: 1.16)\n @GST_VIDEO_FORMAT_VUYA: packed 4:4:4 YUV with alpha channel (V0-U0-Y0-A0...) (Since: 1.16)\n @GST_VIDEO_FORMAT_BGR10A2_LE: packed 4:4:4 RGB with alpha channel(B-G-R-A), 10 bits for R/G/B channel and MSB 2 bits for alpha channel (Since: 1.16)\n @GST_VIDEO_FORMAT_RGB10A2_LE: packed 4:4:4 RGB with alpha channel(R-G-B-A), 10 bits for R/G/B channel and MSB 2 bits for alpha channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y444_16BE: planar 4:4:4 YUV, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y444_16LE: planar 4:4:4 YUV, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P016_BE: planar 4:2:0 YUV with interleaved UV plane, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P016_LE: planar 4:2:0 YUV with interleaved UV plane, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P012_BE: planar 4:2:0 YUV with interleaved UV plane, 12 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P012_LE: planar 4:2:0 YUV with interleaved UV plane, 12 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y212_BE: packed 4:2:2 YUV, 12 bits per channel (Y-U-Y-V) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y212_LE: packed 4:2:2 YUV, 12 bits per channel (Y-U-Y-V) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y412_BE: packed 4:4:4:4 YUV, 12 bits per channel(U-Y-V-A...) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y412_LE: packed 4:4:4:4 YUV, 12 bits per channel(U-Y-V-A...) (Since: 1.18)\n @GST_VIDEO_FORMAT_NV12_4L4: NV12 with 4x4 tiles in linear order (Since: 1.18)\n @GST_VIDEO_FORMAT_NV12_32L32: NV12 with 32x32 tiles in linear order (Since: 1.18)\n @GST_VIDEO_FORMAT_RGBP: planar 4:4:4 RGB, 8 bits per channel (Since: 1.20)\n @GST_VIDEO_FORMAT_BGRP: planar 4:4:4 RGB, 8 bits per channel (Since: 1.20)\n @GST_VIDEO_FORMAT_AV12: Planar 4:2:0 YUV with interleaved UV plane with alpha as 3rd plane (Since: 1.20)\n @GST_VIDEO_FORMAT_ARGB64_LE: RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_ARGB64_BE: RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_RGBA64_LE: RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_RGBA64_BE: RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_BGRA64_LE: reverse RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_BGRA64_BE: reverse RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_ABGR64_LE: reverse RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_ABGR64_BE: reverse RGB with alpha channel first, 16 bits per channel\n\n Enum value describing the most common video formats.\n\n See the [GStreamer raw video format design document](https://gstreamer.freedesktop.org/documentation/additional/design/mediatype-video-raw.html#formats)\n for details about the layout and packing of these formats in memory."]
+#[doc = " GST_VIDEO_FORMAT_NV12_16L32S:\n\n NV12 with 16x32 Y tiles and 16x16 UV tiles.\n\n Since: 1.22"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_NV12_16L32S: GstVideoFormat = 110;
+#[doc = " GST_VIDEO_FORMAT_NV12_8L128:\n\n NV12 with 8x128 tiles in linear order.\n\n Since: 1.22"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_NV12_8L128: GstVideoFormat = 111;
+#[doc = " GST_VIDEO_FORMAT_NV12_10BE_8L128:\n\n NV12 10bit big endian with 8x128 tiles in linear order.\n\n Since: 1.22"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_NV12_10BE_8L128: GstVideoFormat = 112;
+#[doc = " GST_VIDEO_FORMAT_NV12_10LE40_4L4:\n\n  @GST_VIDEO_FORMAT_NV12_10LE40 with 4x4 pixels tiles (5 bytes\n  per tile row). This format is produced by Verisilicon/Hantro decoders.\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_NV12_10LE40_4L4: GstVideoFormat = 113;
+#[doc = " GST_VIDEO_FORMAT_DMA_DRM:\n\n @GST_VIDEO_FORMAT_DMA_DRM represent the DMA DRM special format. It's\n only used with memory:DMABuf #GstCapsFeatures, where an extra\n parameter (drm-format) is required to define the image format and\n its memory layout.\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_DMA_DRM: GstVideoFormat = 114;
+#[doc = " GST_VIDEO_FORMAT_MT2110T:\n\n Mediatek 10bit NV12 little endian with 16x32 tiles in linear order, tile 2\n bits.\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_MT2110T: GstVideoFormat = 115;
+#[doc = " GST_VIDEO_FORMAT_MT2110R:\n\n Mediatek 10bit NV12 little endian with 16x32 tiles in linear order, raster\n 2 bits.\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_MT2110R: GstVideoFormat = 116;
+#[doc = " GST_VIDEO_FORMAT_A422:\n\n planar 4:4:2:2 YUV, 8 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A422: GstVideoFormat = 117;
+#[doc = " GST_VIDEO_FORMAT_A444:\n\n planar 4:4:4:4 YUV, 8 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A444: GstVideoFormat = 118;
+#[doc = " GST_VIDEO_FORMAT_A444_12LE:\n\n planar 4:4:4:4 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A444_12LE: GstVideoFormat = 119;
+#[doc = " GST_VIDEO_FORMAT_A444_12BE:\n\n planar 4:4:4:4 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A444_12BE: GstVideoFormat = 120;
+#[doc = " GST_VIDEO_FORMAT_A422_12LE:\n\n planar 4:4:2:2 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A422_12LE: GstVideoFormat = 121;
+#[doc = " GST_VIDEO_FORMAT_A422_12BE:\n\n planar 4:4:2:2 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A422_12BE: GstVideoFormat = 122;
+#[doc = " GST_VIDEO_FORMAT_A420_12LE:\n\n planar 4:4:2:0 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A420_12LE: GstVideoFormat = 123;
+#[doc = " GST_VIDEO_FORMAT_A420_12BE:\n\n planar 4:4:2:0 YUV, 12 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A420_12BE: GstVideoFormat = 124;
+#[doc = " GST_VIDEO_FORMAT_A444_16LE:\n\n planar 4:4:4:4 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A444_16LE: GstVideoFormat = 125;
+#[doc = " GST_VIDEO_FORMAT_A444_16BE:\n\n planar 4:4:4:4 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A444_16BE: GstVideoFormat = 126;
+#[doc = " GST_VIDEO_FORMAT_A422_16LE:\n\n planar 4:4:2:2 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A422_16LE: GstVideoFormat = 127;
+#[doc = " GST_VIDEO_FORMAT_A422_16BE:\n\n planar 4:4:2:2 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A422_16BE: GstVideoFormat = 128;
+#[doc = " GST_VIDEO_FORMAT_A420_16LE:\n\n planar 4:4:2:0 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A420_16LE: GstVideoFormat = 129;
+#[doc = " GST_VIDEO_FORMAT_A420_16BE:\n\n planar 4:4:2:0 YUV, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_A420_16BE: GstVideoFormat = 130;
+#[doc = " GST_VIDEO_FORMAT_GBR_16LE:\n\n planar 4:4:4 RGB, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_GBR_16LE: GstVideoFormat = 131;
+#[doc = " GST_VIDEO_FORMAT_GBR_16BE:\n\n planar 4:4:4 RGB, 16 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_GBR_16BE: GstVideoFormat = 132;
+#[doc = " GST_VIDEO_FORMAT_RBGA:\n\n packed RGB with alpha, 8 bits per channel\n\n Since: 1.24"]
+pub const GstVideoFormat_GST_VIDEO_FORMAT_RBGA: GstVideoFormat = 133;
+#[doc = " GstVideoFormat:\n @GST_VIDEO_FORMAT_UNKNOWN: Unknown or unset video format id\n @GST_VIDEO_FORMAT_ENCODED: Encoded video format. Only ever use that in caps for\n                            special video formats in combination with non-system\n                            memory GstCapsFeatures where it does not make sense\n                            to specify a real video format.\n @GST_VIDEO_FORMAT_I420: planar 4:2:0 YUV\n @GST_VIDEO_FORMAT_YV12: planar 4:2:0 YVU (like I420 but UV planes swapped)\n @GST_VIDEO_FORMAT_YUY2: packed 4:2:2 YUV (Y0-U0-Y1-V0 Y2-U2-Y3-V2 Y4 ...)\n @GST_VIDEO_FORMAT_UYVY: packed 4:2:2 YUV (U0-Y0-V0-Y1 U2-Y2-V2-Y3 U4 ...)\n @GST_VIDEO_FORMAT_VYUY: packed 4:2:2 YUV (V0-Y0-U0-Y1 V2-Y2-U2-Y3 V4 ...)\n @GST_VIDEO_FORMAT_AYUV: packed 4:4:4 YUV with alpha channel (A0-Y0-U0-V0 ...)\n @GST_VIDEO_FORMAT_RGBx: sparse rgb packed into 32 bit, space last\n @GST_VIDEO_FORMAT_BGRx: sparse reverse rgb packed into 32 bit, space last\n @GST_VIDEO_FORMAT_xRGB: sparse rgb packed into 32 bit, space first\n @GST_VIDEO_FORMAT_xBGR: sparse reverse rgb packed into 32 bit, space first\n @GST_VIDEO_FORMAT_RGBA: rgb with alpha channel last\n @GST_VIDEO_FORMAT_BGRA: reverse rgb with alpha channel last\n @GST_VIDEO_FORMAT_ARGB: rgb with alpha channel first\n @GST_VIDEO_FORMAT_ABGR: reverse rgb with alpha channel first\n @GST_VIDEO_FORMAT_RGB: RGB packed into 24 bits without padding (`R-G-B-R-G-B`)\n @GST_VIDEO_FORMAT_BGR: reverse RGB packed into 24 bits without padding (`B-G-R-B-G-R`)\n @GST_VIDEO_FORMAT_Y41B: planar 4:1:1 YUV\n @GST_VIDEO_FORMAT_Y42B: planar 4:2:2 YUV\n @GST_VIDEO_FORMAT_YVYU: packed 4:2:2 YUV (Y0-V0-Y1-U0 Y2-V2-Y3-U2 Y4 ...)\n @GST_VIDEO_FORMAT_Y444: planar 4:4:4 YUV\n @GST_VIDEO_FORMAT_v210: packed 4:2:2 10-bit YUV, complex format\n @GST_VIDEO_FORMAT_v216: packed 4:2:2 16-bit YUV, Y0-U0-Y1-V1 order\n @GST_VIDEO_FORMAT_NV12: planar 4:2:0 YUV with interleaved UV plane\n @GST_VIDEO_FORMAT_NV21: planar 4:2:0 YUV with interleaved VU plane\n @GST_VIDEO_FORMAT_NV12_10LE32: 10-bit variant of @GST_VIDEO_FORMAT_NV12, packed into 32bit words (MSB 2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_GRAY8: 8-bit grayscale\n @GST_VIDEO_FORMAT_GRAY10_LE32: 10-bit grayscale, packed into 32bit words (2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_GRAY16_BE: 16-bit grayscale, most significant byte first\n @GST_VIDEO_FORMAT_GRAY16_LE: 16-bit grayscale, least significant byte first\n @GST_VIDEO_FORMAT_v308: packed 4:4:4 YUV (Y-U-V ...)\n @GST_VIDEO_FORMAT_IYU2: packed 4:4:4 YUV (U-Y-V ...) (Since: 1.10)\n @GST_VIDEO_FORMAT_RGB16: rgb 5-6-5 bits per component\n @GST_VIDEO_FORMAT_BGR16: reverse rgb 5-6-5 bits per component\n @GST_VIDEO_FORMAT_RGB15: rgb 5-5-5 bits per component\n @GST_VIDEO_FORMAT_BGR15: reverse rgb 5-5-5 bits per component\n @GST_VIDEO_FORMAT_UYVP: packed 10-bit 4:2:2 YUV (U0-Y0-V0-Y1 U2-Y2-V2-Y3 U4 ...)\n @GST_VIDEO_FORMAT_A420: planar 4:4:2:0 AYUV\n @GST_VIDEO_FORMAT_RGB8P: 8-bit paletted RGB\n @GST_VIDEO_FORMAT_YUV9: planar 4:1:0 YUV\n @GST_VIDEO_FORMAT_YVU9: planar 4:1:0 YUV (like YUV9 but UV planes swapped)\n @GST_VIDEO_FORMAT_IYU1: packed 4:1:1 YUV (Cb-Y0-Y1-Cr-Y2-Y3 ...)\n @GST_VIDEO_FORMAT_ARGB64: rgb with alpha channel first, 16 bits (native endianness) per channel\n @GST_VIDEO_FORMAT_AYUV64: packed 4:4:4 YUV with alpha channel, 16 bits (native endianness) per channel (A0-Y0-U0-V0 ...)\n @GST_VIDEO_FORMAT_r210: packed 4:4:4 RGB, 10 bits per channel\n @GST_VIDEO_FORMAT_I420_10BE: planar 4:2:0 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I420_10LE: planar 4:2:0 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I422_10BE: planar 4:2:2 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_I422_10LE: planar 4:2:2 YUV, 10 bits per channel\n @GST_VIDEO_FORMAT_Y444_10BE: planar 4:4:4 YUV, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_Y444_10LE: planar 4:4:4 YUV, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR: planar 4:4:4 RGB, 8 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR_10BE: planar 4:4:4 RGB, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_GBR_10LE: planar 4:4:4 RGB, 10 bits per channel (Since: 1.2)\n @GST_VIDEO_FORMAT_NV16: planar 4:2:2 YUV with interleaved UV plane (Since: 1.2)\n @GST_VIDEO_FORMAT_NV16_10LE32: 10-bit variant of @GST_VIDEO_FORMAT_NV16, packed into 32bit words (MSB 2 bits padding) (Since: 1.14)\n @GST_VIDEO_FORMAT_NV24: planar 4:4:4 YUV with interleaved UV plane (Since: 1.2)\n @GST_VIDEO_FORMAT_NV12_64Z32: NV12 with 64x32 tiling in zigzag pattern (Since: 1.4)\n @GST_VIDEO_FORMAT_A420_10BE: planar 4:4:2:0 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A420_10LE: planar 4:4:2:0 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A422_10BE: planar 4:4:2:2 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A422_10LE: planar 4:4:2:2 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A444_10BE: planar 4:4:4:4 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_A444_10LE: planar 4:4:4:4 YUV, 10 bits per channel (Since: 1.6)\n @GST_VIDEO_FORMAT_NV61: planar 4:2:2 YUV with interleaved VU plane (Since: 1.6)\n @GST_VIDEO_FORMAT_P010_10BE: planar 4:2:0 YUV with interleaved UV plane, 10 bits per channel (Since: 1.10)\n @GST_VIDEO_FORMAT_P010_10LE: planar 4:2:0 YUV with interleaved UV plane, 10 bits per channel (Since: 1.10)\n @GST_VIDEO_FORMAT_GBRA: planar 4:4:4:4 ARGB, 8 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_10BE: planar 4:4:4:4 ARGB, 10 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_10LE: planar 4:4:4:4 ARGB, 10 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBR_12BE: planar 4:4:4 RGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBR_12LE: planar 4:4:4 RGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_12BE: planar 4:4:4:4 ARGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_GBRA_12LE: planar 4:4:4:4 ARGB, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I420_12BE: planar 4:2:0 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I420_12LE: planar 4:2:0 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I422_12BE: planar 4:2:2 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_I422_12LE: planar 4:2:2 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_Y444_12BE: planar 4:4:4 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_Y444_12LE: planar 4:4:4 YUV, 12 bits per channel (Since: 1.12)\n @GST_VIDEO_FORMAT_NV12_10LE40: Fully packed variant of NV12_10LE32 (Since: 1.16)\n @GST_VIDEO_FORMAT_Y210: packed 4:2:2 YUV, 10 bits per channel (Since: 1.16)\n @GST_VIDEO_FORMAT_Y410: packed 4:4:4 YUV, 10 bits per channel(A-V-Y-U...) (Since: 1.16)\n @GST_VIDEO_FORMAT_VUYA: packed 4:4:4 YUV with alpha channel (V0-U0-Y0-A0...) (Since: 1.16)\n @GST_VIDEO_FORMAT_BGR10A2_LE: packed 4:4:4 RGB with alpha channel(B-G-R-A), 10 bits for R/G/B channel and MSB 2 bits for alpha channel (Since: 1.16)\n @GST_VIDEO_FORMAT_RGB10A2_LE: packed 4:4:4 RGB with alpha channel(R-G-B-A), 10 bits for R/G/B channel and MSB 2 bits for alpha channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y444_16BE: planar 4:4:4 YUV, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y444_16LE: planar 4:4:4 YUV, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P016_BE: planar 4:2:0 YUV with interleaved UV plane, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P016_LE: planar 4:2:0 YUV with interleaved UV plane, 16 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P012_BE: planar 4:2:0 YUV with interleaved UV plane, 12 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_P012_LE: planar 4:2:0 YUV with interleaved UV plane, 12 bits per channel (Since: 1.18)\n @GST_VIDEO_FORMAT_Y212_BE: packed 4:2:2 YUV, 12 bits per channel (Y-U-Y-V) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y212_LE: packed 4:2:2 YUV, 12 bits per channel (Y-U-Y-V) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y412_BE: packed 4:4:4:4 YUV, 12 bits per channel(U-Y-V-A...) (Since: 1.18)\n @GST_VIDEO_FORMAT_Y412_LE: packed 4:4:4:4 YUV, 12 bits per channel(U-Y-V-A...) (Since: 1.18)\n @GST_VIDEO_FORMAT_NV12_4L4: NV12 with 4x4 tiles in linear order (Since: 1.18)\n @GST_VIDEO_FORMAT_NV12_32L32: NV12 with 32x32 tiles in linear order (Since: 1.18)\n @GST_VIDEO_FORMAT_RGBP: planar 4:4:4 RGB, 8 bits per channel (Since: 1.20)\n @GST_VIDEO_FORMAT_BGRP: planar 4:4:4 RGB, 8 bits per channel (Since: 1.20)\n @GST_VIDEO_FORMAT_AV12: Planar 4:2:0 YUV with interleaved UV plane with alpha as 3rd plane (Since: 1.20)\n @GST_VIDEO_FORMAT_ARGB64_LE: RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_ARGB64_BE: RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_RGBA64_LE: RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_RGBA64_BE: RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_BGRA64_LE: reverse RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_BGRA64_BE: reverse RGB with alpha channel last, 16 bits per channel\n @GST_VIDEO_FORMAT_ABGR64_LE: reverse RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_ABGR64_BE: reverse RGB with alpha channel first, 16 bits per channel\n @GST_VIDEO_FORMAT_NV12_16L32S: NV12 with 16x32 Y tiles and 16x16 UV tiles. (Since: 1.22)\n @GST_VIDEO_FORMAT_NV12_8L128 : NV12 with 8x128 tiles in linear order (Since: 1.22)\n @GST_VIDEO_FORMAT_NV12_10BE_8L128 : NV12 10bit big endian with 8x128 tiles in linear order (Since: 1.22)\n @GST_VIDEO_FORMAT_NV12_10LE40_4L4: @GST_VIDEO_FORMAT_NV12_10LE40 with 4x4 pixels tiles (5 bytes per tile row) (Since: 1.24)\n @GST_VIDEO_FORMAT_DMA_DRM: DMA DRM special format. It's only used with\n                            memory:DMABuf #GstCapsFeatures, where an extra\n                            parameter (drm-format) is required to define the\n                            image format and its memory layout.\n @GST_VIDEO_FORMAT_MT2110T : Mediatek 10bit NV12 little endian with 16x32 tiles in linear order, tiled 2 bits (Since: 1.24)\n @GST_VIDEO_FORMAT_MT2110R : Mediatek 10bit NV12 little endian with 16x32 tiles in linear order, raster 2 bits (Since: 1.24)\n @GST_VIDEO_FORMAT_A422: planar 4:4:2:2 YUV, 8 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A444: planar 4:4:4:4 YUV, 8 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A444_12LE: planar 4:4:4:4 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A444_12BE: planar 4:4:4:4 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A422_12LE: planar 4:4:2:2 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A422_12BE: planar 4:4:2:2 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A420_12LE: planar 4:4:2:0 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A420_12BE: planar 4:4:2:0 YUV, 12 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A444_16LE: planar 4:4:4:4 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A444_16BE: planar 4:4:4:4 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A422_16LE: planar 4:4:2:2 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A422_16BE: planar 4:4:2:2 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A420_16LE: planar 4:4:2:0 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_A420_16BE: planar 4:4:2:0 YUV, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_GBR_16LE: planar 4:4:4 RGB, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_GBR_16BE: planar 4:4:4 RGB, 16 bits per channel (Since: 1.24)\n @GST_VIDEO_FORMAT_RBGA: packed RGB with alpha, 8 bits per channel (Since: 1.24)\n\n Enum value describing the most common video formats.\n\n See the [GStreamer raw video format design document](https://gstreamer.freedesktop.org/documentation/additional/design/mediatype-video-raw.html#formats)\n for details about the layout and packing of these formats in memory."]
 pub type GstVideoFormat = ::std::os::raw::c_uint;
-#[doc = " GstVideoFormatInfo:\n @format: #GstVideoFormat\n @name: string representation of the format\n @description: use readable description of the format\n @flags: #GstVideoFormatFlags\n @bits: The number of bits used to pack data items. This can be less than 8\n    when multiple pixels are stored in a byte. for values > 8 multiple bytes\n    should be read according to the endianness flag before applying the shift\n    and mask.\n @n_components: the number of components in the video format.\n @shift: the number of bits to shift away to get the component data\n @depth: the depth in bits for each component\n @pixel_stride: the pixel stride of each component. This is the amount of\n    bytes to the pixel immediately to the right. When bits < 8, the stride is\n    expressed in bits. For 24-bit RGB, this would be 3 bytes, for example,\n    while it would be 4 bytes for RGBx or ARGB.\n @n_planes: the number of planes for this format. The number of planes can be\n    less than the amount of components when multiple components are packed into\n    one plane.\n @plane: the plane number where a component can be found\n @poffset: the offset in the plane where the first pixel of the components\n    can be found.\n @w_sub: subsampling factor of the width for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a width.\n @h_sub: subsampling factor of the height for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a height.\n @unpack_format: the format of the unpacked pixels. This format must have the\n     #GST_VIDEO_FORMAT_FLAG_UNPACK flag set.\n @unpack_func: an unpack function for this format\n @pack_lines: the amount of lines that will be packed\n @pack_func: an pack function for this format\n @tile_mode: The tiling mode\n @tile_ws: The width of a tile, in bytes, represented as a shift\n @tile_hs: The height of a tile, in bytes, represented as a shift\n\n Information for a video format."]
+#[doc = " GstVideoFormatInfo:\n @format: #GstVideoFormat\n @name: string representation of the format\n @description: use readable description of the format\n @flags: #GstVideoFormatFlags\n @bits: The number of bits used to pack data items. This can be less than 8\n    when multiple pixels are stored in a byte. for values > 8 multiple bytes\n    should be read according to the endianness flag before applying the shift\n    and mask.\n @n_components: the number of components in the video format.\n @shift: the number of bits to shift away to get the component data\n @depth: the depth in bits for each component\n @pixel_stride: the pixel stride of each component. This is the amount of\n    bytes to the pixel immediately to the right. When bits < 8, the stride is\n    expressed in bits. For 24-bit RGB, this would be 3 bytes, for example,\n    while it would be 4 bytes for RGBx or ARGB.\n @n_planes: the number of planes for this format. The number of planes can be\n    less than the amount of components when multiple components are packed into\n    one plane.\n @plane: the plane number where a component can be found\n @poffset: the offset in the plane where the first pixel of the components\n    can be found.\n @w_sub: subsampling factor of the width for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a width.\n @h_sub: subsampling factor of the height for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a height.\n @unpack_format: the format of the unpacked pixels. This format must have the\n     #GST_VIDEO_FORMAT_FLAG_UNPACK flag set.\n @unpack_func: an unpack function for this format\n @pack_lines: the amount of lines that will be packed\n @pack_func: an pack function for this format\n @tile_mode: The tiling mode\n @tile_ws: The width of a tile, in bytes, represented as a shift. DEPRECATED,\n use tile_info[] array instead.\n @tile_hs: The height of a tile, in bytes, represented as a shift. DEPREACTED,\n use tile_info[] array instead.\n @tile_info: Per-plane tile information\n\n Information for a video format."]
 pub type GstVideoFormatInfo = _GstVideoFormatInfo;
 pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_YUV: GstVideoFormatFlags = 1;
 pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_RGB: GstVideoFormatFlags = 2;
@@ -33742,7 +34238,9 @@ pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_PALETTE: GstVideoFormatFlags
 pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_COMPLEX: GstVideoFormatFlags = 64;
 pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_UNPACK: GstVideoFormatFlags = 128;
 pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_TILED: GstVideoFormatFlags = 256;
-#[doc = " GstVideoFormatFlags:\n @GST_VIDEO_FORMAT_FLAG_YUV: The video format is YUV, components are numbered\n   0=Y, 1=U, 2=V.\n @GST_VIDEO_FORMAT_FLAG_RGB: The video format is RGB, components are numbered\n   0=R, 1=G, 2=B.\n @GST_VIDEO_FORMAT_FLAG_GRAY: The video is gray, there is one gray component\n   with index 0.\n @GST_VIDEO_FORMAT_FLAG_ALPHA: The video format has an alpha components with\n   the number 3.\n @GST_VIDEO_FORMAT_FLAG_LE: The video format has data stored in little\n   endianness.\n @GST_VIDEO_FORMAT_FLAG_PALETTE: The video format has a palette. The palette\n   is stored in the second plane and indexes are stored in the first plane.\n @GST_VIDEO_FORMAT_FLAG_COMPLEX: The video format has a complex layout that\n   can't be described with the usual information in the #GstVideoFormatInfo.\n @GST_VIDEO_FORMAT_FLAG_UNPACK: This format can be used in a\n   #GstVideoFormatUnpack and #GstVideoFormatPack function.\n @GST_VIDEO_FORMAT_FLAG_TILED: The format is tiled, there is tiling information\n   in the last plane.\n\n The different video flags that a format info can have."]
+#[doc = " GST_VIDEO_FORMAT_FLAG_SUBTILES:\n\n The tile size varies per plane according to the subsampling.\n\n Since: 1.22"]
+pub const GstVideoFormatFlags_GST_VIDEO_FORMAT_FLAG_SUBTILES: GstVideoFormatFlags = 512;
+#[doc = " GstVideoFormatFlags:\n @GST_VIDEO_FORMAT_FLAG_YUV: The video format is YUV, components are numbered\n   0=Y, 1=U, 2=V.\n @GST_VIDEO_FORMAT_FLAG_RGB: The video format is RGB, components are numbered\n   0=R, 1=G, 2=B.\n @GST_VIDEO_FORMAT_FLAG_GRAY: The video is gray, there is one gray component\n   with index 0.\n @GST_VIDEO_FORMAT_FLAG_ALPHA: The video format has an alpha components with\n   the number 3.\n @GST_VIDEO_FORMAT_FLAG_LE: The video format has data stored in little\n   endianness.\n @GST_VIDEO_FORMAT_FLAG_PALETTE: The video format has a palette. The palette\n   is stored in the second plane and indexes are stored in the first plane.\n @GST_VIDEO_FORMAT_FLAG_COMPLEX: The video format has a complex layout that\n   can't be described with the usual information in the #GstVideoFormatInfo.\n @GST_VIDEO_FORMAT_FLAG_UNPACK: This format can be used in a\n   #GstVideoFormatUnpack and #GstVideoFormatPack function.\n @GST_VIDEO_FORMAT_FLAG_TILED: The format is tiled, there is tiling information\n   in the last plane.\n @GST_VIDEO_FORMAT_FLAG_SUBTILES: The tile size varies per plane\n   according to the subsampling. (Since: 1.22)\n\n The different video flags that a format info can have."]
 pub type GstVideoFormatFlags = ::std::os::raw::c_uint;
 pub const GstVideoChromaSite_GST_VIDEO_CHROMA_SITE_UNKNOWN: GstVideoChromaSite = 0;
 pub const GstVideoChromaSite_GST_VIDEO_CHROMA_SITE_NONE: GstVideoChromaSite = 1;
@@ -33840,7 +34338,7 @@ pub type GstVideoFormatPack = ::std::option::Option<
         width: gint,
     ),
 >;
-#[doc = " GstVideoFormatInfo:\n @format: #GstVideoFormat\n @name: string representation of the format\n @description: use readable description of the format\n @flags: #GstVideoFormatFlags\n @bits: The number of bits used to pack data items. This can be less than 8\n    when multiple pixels are stored in a byte. for values > 8 multiple bytes\n    should be read according to the endianness flag before applying the shift\n    and mask.\n @n_components: the number of components in the video format.\n @shift: the number of bits to shift away to get the component data\n @depth: the depth in bits for each component\n @pixel_stride: the pixel stride of each component. This is the amount of\n    bytes to the pixel immediately to the right. When bits < 8, the stride is\n    expressed in bits. For 24-bit RGB, this would be 3 bytes, for example,\n    while it would be 4 bytes for RGBx or ARGB.\n @n_planes: the number of planes for this format. The number of planes can be\n    less than the amount of components when multiple components are packed into\n    one plane.\n @plane: the plane number where a component can be found\n @poffset: the offset in the plane where the first pixel of the components\n    can be found.\n @w_sub: subsampling factor of the width for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a width.\n @h_sub: subsampling factor of the height for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a height.\n @unpack_format: the format of the unpacked pixels. This format must have the\n     #GST_VIDEO_FORMAT_FLAG_UNPACK flag set.\n @unpack_func: an unpack function for this format\n @pack_lines: the amount of lines that will be packed\n @pack_func: an pack function for this format\n @tile_mode: The tiling mode\n @tile_ws: The width of a tile, in bytes, represented as a shift\n @tile_hs: The height of a tile, in bytes, represented as a shift\n\n Information for a video format."]
+#[doc = " GstVideoFormatInfo:\n @format: #GstVideoFormat\n @name: string representation of the format\n @description: use readable description of the format\n @flags: #GstVideoFormatFlags\n @bits: The number of bits used to pack data items. This can be less than 8\n    when multiple pixels are stored in a byte. for values > 8 multiple bytes\n    should be read according to the endianness flag before applying the shift\n    and mask.\n @n_components: the number of components in the video format.\n @shift: the number of bits to shift away to get the component data\n @depth: the depth in bits for each component\n @pixel_stride: the pixel stride of each component. This is the amount of\n    bytes to the pixel immediately to the right. When bits < 8, the stride is\n    expressed in bits. For 24-bit RGB, this would be 3 bytes, for example,\n    while it would be 4 bytes for RGBx or ARGB.\n @n_planes: the number of planes for this format. The number of planes can be\n    less than the amount of components when multiple components are packed into\n    one plane.\n @plane: the plane number where a component can be found\n @poffset: the offset in the plane where the first pixel of the components\n    can be found.\n @w_sub: subsampling factor of the width for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a width.\n @h_sub: subsampling factor of the height for the component. Use\n     GST_VIDEO_SUB_SCALE to scale a height.\n @unpack_format: the format of the unpacked pixels. This format must have the\n     #GST_VIDEO_FORMAT_FLAG_UNPACK flag set.\n @unpack_func: an unpack function for this format\n @pack_lines: the amount of lines that will be packed\n @pack_func: an pack function for this format\n @tile_mode: The tiling mode\n @tile_ws: The width of a tile, in bytes, represented as a shift. DEPRECATED,\n use tile_info[] array instead.\n @tile_hs: The height of a tile, in bytes, represented as a shift. DEPREACTED,\n use tile_info[] array instead.\n @tile_info: Per-plane tile information\n\n Information for a video format."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstVideoFormatInfo {
@@ -33865,11 +34363,12 @@ pub struct _GstVideoFormatInfo {
     pub tile_mode: GstVideoTileMode,
     pub tile_ws: guint,
     pub tile_hs: guint,
-    pub _gst_reserved: [gpointer; 4usize],
+    #[doc = " GstVideoFormatInfo.tile_info:\n\n Information about the tiles for each of the planes.\n\n Since: 1.22"]
+    pub tile_info: [GstVideoTileInfo; 4usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of _GstVideoFormatInfo"][::std::mem::size_of::<_GstVideoFormatInfo>() - 232usize];
+    ["Size of _GstVideoFormatInfo"][::std::mem::size_of::<_GstVideoFormatInfo>() - 328usize];
     ["Alignment of _GstVideoFormatInfo"][::std::mem::align_of::<_GstVideoFormatInfo>() - 8usize];
     ["Offset of field: _GstVideoFormatInfo::format"]
         [::std::mem::offset_of!(_GstVideoFormatInfo, format) - 0usize];
@@ -33913,8 +34412,8 @@ const _: () = {
         [::std::mem::offset_of!(_GstVideoFormatInfo, tile_ws) - 188usize];
     ["Offset of field: _GstVideoFormatInfo::tile_hs"]
         [::std::mem::offset_of!(_GstVideoFormatInfo, tile_hs) - 192usize];
-    ["Offset of field: _GstVideoFormatInfo::_gst_reserved"]
-        [::std::mem::offset_of!(_GstVideoFormatInfo, _gst_reserved) - 200usize];
+    ["Offset of field: _GstVideoFormatInfo::tile_info"]
+        [::std::mem::offset_of!(_GstVideoFormatInfo, tile_info) - 196usize];
 };
 unsafe extern "C" {
     pub fn gst_video_format_info_component(
@@ -33922,6 +34421,13 @@ unsafe extern "C" {
         plane: guint,
         components: *mut gint,
     );
+}
+unsafe extern "C" {
+    pub fn gst_video_format_info_extrapolate_stride(
+        finfo: *const GstVideoFormatInfo,
+        plane: gint,
+        stride: gint,
+    ) -> gint;
 }
 unsafe extern "C" {
     pub fn gst_video_format_from_masks(
@@ -33954,6 +34460,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn gst_video_formats_raw(len: *mut guint) -> *const GstVideoFormat;
+}
+unsafe extern "C" {
+    pub fn gst_video_formats_any(len: *mut guint) -> *const GstVideoFormat;
 }
 unsafe extern "C" {
     pub fn gst_video_make_raw_caps(formats: *const GstVideoFormat, len: guint) -> *mut GstCaps;
@@ -34085,6 +34594,12 @@ unsafe extern "C" {
         primaries: GstVideoColorPrimaries,
     ) -> *const GstVideoColorPrimariesInfo;
 }
+unsafe extern "C" {
+    pub fn gst_video_color_primaries_is_equivalent(
+        primaries: GstVideoColorPrimaries,
+        other: GstVideoColorPrimaries,
+    ) -> gboolean;
+}
 #[doc = " GstVideoColorimetry:\n @range: the color range. This is the valid range for the samples.\n         It is used to convert the samples to Y'PbPr values.\n @matrix: the color matrix. Used to convert between Y'PbPr and\n          non-linear RGB (R'G'B')\n @transfer: the transfer function. used to convert between R'G'B' and RGB\n @primaries: color primaries. used to convert between R'G'B' and CIE XYZ\n\n Structure describing the color info."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -34126,6 +34641,14 @@ unsafe extern "C" {
     pub fn gst_video_colorimetry_is_equal(
         cinfo: *const GstVideoColorimetry,
         other: *const GstVideoColorimetry,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_colorimetry_is_equivalent(
+        cinfo: *const GstVideoColorimetry,
+        bitdepth: guint,
+        other: *const GstVideoColorimetry,
+        other_bitdepth: guint,
     ) -> gboolean;
 }
 unsafe extern "C" {
@@ -34616,6 +35139,13 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn gst_video_converter_frame_finish(convert: *mut GstVideoConverter);
 }
+unsafe extern "C" {
+    pub fn gst_video_converter_get_in_info(convert: *mut GstVideoConverter) -> *const GstVideoInfo;
+}
+unsafe extern "C" {
+    pub fn gst_video_converter_get_out_info(convert: *mut GstVideoConverter)
+        -> *const GstVideoInfo;
+}
 #[doc = " GstVideoResampler:\n @in_size: the input size\n @out_size: the output size\n @max_taps: the maximum number of taps\n @n_phases: the number of phases\n @offset: array with the source offset for each output element\n @phase: array with the phase to use for each output element\n @n_taps: array with new number of taps for each phase\n @taps: the taps for all phases\n\n A structure holding resampler information.\n\n Since: 1.6"]
 pub type GstVideoResampler = _GstVideoResampler;
 pub const GstVideoResamplerMethod_GST_VIDEO_RESAMPLER_METHOD_NEAREST: GstVideoResamplerMethod = 0;
@@ -34803,6 +35333,85 @@ unsafe extern "C" {
         par_d: guint,
     ) -> gboolean;
 }
+#[doc = " GstVideoInfoDmaDrm:\n @vinfo: the associated #GstVideoInfo\n @drm_fourcc: the fourcc defined by drm\n @drm_modifier: the drm modifier\n\n Information describing a DMABuf image properties. It wraps #GstVideoInfo and\n adds DRM information such as drm-fourcc and drm-modifier, required for\n negotiation and mapping.\n\n Since: 1.24"]
+pub type GstVideoInfoDmaDrm = _GstVideoInfoDmaDrm;
+#[doc = " GstVideoInfoDmaDrm:\n @vinfo: the associated #GstVideoInfo\n @drm_fourcc: the fourcc defined by drm\n @drm_modifier: the drm modifier\n\n Information describing a DMABuf image properties. It wraps #GstVideoInfo and\n adds DRM information such as drm-fourcc and drm-modifier, required for\n negotiation and mapping.\n\n Since: 1.24"]
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct _GstVideoInfoDmaDrm {
+    pub vinfo: GstVideoInfo,
+    pub drm_fourcc: guint32,
+    pub drm_modifier: guint64,
+    pub _gst_reserved: [guint32; 20usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of _GstVideoInfoDmaDrm"][::std::mem::size_of::<_GstVideoInfoDmaDrm>() - 248usize];
+    ["Alignment of _GstVideoInfoDmaDrm"][::std::mem::align_of::<_GstVideoInfoDmaDrm>() - 8usize];
+    ["Offset of field: _GstVideoInfoDmaDrm::vinfo"]
+        [::std::mem::offset_of!(_GstVideoInfoDmaDrm, vinfo) - 0usize];
+    ["Offset of field: _GstVideoInfoDmaDrm::drm_fourcc"]
+        [::std::mem::offset_of!(_GstVideoInfoDmaDrm, drm_fourcc) - 152usize];
+    ["Offset of field: _GstVideoInfoDmaDrm::drm_modifier"]
+        [::std::mem::offset_of!(_GstVideoInfoDmaDrm, drm_modifier) - 160usize];
+    ["Offset of field: _GstVideoInfoDmaDrm::_gst_reserved"]
+        [::std::mem::offset_of!(_GstVideoInfoDmaDrm, _gst_reserved) - 168usize];
+};
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_free(drm_info: *mut GstVideoInfoDmaDrm);
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_init(drm_info: *mut GstVideoInfoDmaDrm);
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_new() -> *mut GstVideoInfoDmaDrm;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_to_caps(drm_info: *const GstVideoInfoDmaDrm) -> *mut GstCaps;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_from_caps(
+        drm_info: *mut GstVideoInfoDmaDrm,
+        caps: *const GstCaps,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_from_video_info(
+        drm_info: *mut GstVideoInfoDmaDrm,
+        info: *const GstVideoInfo,
+        modifier: guint64,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_to_video_info(
+        drm_info: *const GstVideoInfoDmaDrm,
+        info: *mut GstVideoInfo,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_info_dma_drm_new_from_caps(caps: *const GstCaps) -> *mut GstVideoInfoDmaDrm;
+}
+unsafe extern "C" {
+    pub fn gst_video_is_dma_drm_caps(caps: *const GstCaps) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_dma_drm_fourcc_from_string(
+        format_str: *const gchar,
+        modifier: *mut guint64,
+    ) -> guint32;
+}
+unsafe extern "C" {
+    pub fn gst_video_dma_drm_fourcc_to_string(fourcc: guint32, modifier: guint64) -> *mut gchar;
+}
+unsafe extern "C" {
+    pub fn gst_video_dma_drm_fourcc_from_format(format: GstVideoFormat) -> guint32;
+}
+unsafe extern "C" {
+    pub fn gst_video_dma_drm_fourcc_to_format(fourcc: guint32) -> GstVideoFormat;
+}
 #[doc = " GstVideoAlignment:\n @padding_left: extra pixels on the left side\n @padding_right: extra pixels on the right side\n @padding_top: extra pixels on the top\n @padding_bottom: extra pixels on the bottom\n @stride_align: array with extra alignment requirements for the strides\n\n Extra alignment parameters for the memory of video buffers. This\n structure is usually used to configure the bufferpool if it supports the\n #GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -34860,6 +35469,14 @@ unsafe extern "C" {
         duration: GstClockTime,
         dest_n: *mut gint,
         dest_d: *mut gint,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_video_is_common_aspect_ratio(
+        width: gint,
+        height: gint,
+        par_n: gint,
+        par_d: gint,
     ) -> gboolean;
 }
 pub type GstVideoConvertSampleCallback = ::std::option::Option<
@@ -35453,6 +36070,12 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn gst_aggregator_get_ignore_inactive_pads(self_: *mut GstAggregator) -> gboolean;
 }
+unsafe extern "C" {
+    pub fn gst_aggregator_get_force_live(self_: *mut GstAggregator) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_aggregator_set_force_live(self_: *mut GstAggregator, force_live: gboolean);
+}
 pub const GstAggregatorStartTimeSelection_GST_AGGREGATOR_START_TIME_SELECTION_ZERO:
     GstAggregatorStartTimeSelection = 0;
 pub const GstAggregatorStartTimeSelection_GST_AGGREGATOR_START_TIME_SELECTION_FIRST:
@@ -35764,6 +36387,7 @@ pub struct _GstVideoAggregatorClass {
             outbuffer: *mut *mut GstBuffer,
         ) -> GstFlowReturn,
     >,
+    #[doc = " GstVideoAggregatorClass::find_best_format:\n @at_least_one_alpha: (out):"]
     pub find_best_format: ::std::option::Option<
         unsafe extern "C" fn(
             vagg: *mut GstVideoAggregator,
@@ -37654,11 +38278,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn gst_video_time_code_interval_clear(tc: *mut GstVideoTimeCodeInterval);
 }
-#[doc = " GstVideoMeta:\n @meta: parent #GstMeta\n @buffer: the buffer this metadata belongs to\n @flags: additional video flags\n @format: the video format\n @id: identifier of the frame\n @width: the video width\n @height: the video height\n @n_planes: the number of planes in the image\n @offset: array of offsets for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @stride: array of strides for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @map: map the memory of a plane\n @unmap: unmap the memory of a plane\n @alignment: the paddings and alignment constraints of the video buffer.\n It is up to the caller of `gst_buffer_add_video_meta_full()` to set it\n using gst_video_meta_set_alignment(), if they did not it defaults\n to no padding and no alignment. Since: 1.18\n\n Extra buffer metadata describing image properties\n\n This meta can also be used by downstream elements to specifiy their\n buffer layout requirements for upstream. Upstream should try to\n fit those requirements, if possible, in order to prevent buffer copies.\n\n This is done by passing a custom #GstStructure to\n gst_query_add_allocation_meta() when handling the ALLOCATION query.\n This structure should be named 'video-meta' and can have the following\n fields:\n - padding-top (uint): extra pixels on the top\n - padding-bottom (uint): extra pixels on the bottom\n - padding-left (uint): extra pixels on the left side\n - padding-right (uint): extra pixels on the right side\n The padding fields have the same semantic as #GstVideoMeta.alignment\n and so represent the paddings requested on produced video buffers."]
+#[doc = " GstVideoMeta:\n @meta: parent #GstMeta\n @buffer: the buffer this metadata belongs to\n @flags: additional video flags\n @format: the video format\n @id: identifier of the frame\n @width: the video width\n @height: the video height\n @n_planes: the number of planes in the image\n @offset: array of offsets for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @stride: array of strides for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @map: map the memory of a plane\n @unmap: unmap the memory of a plane\n @alignment: the paddings and alignment constraints of the video buffer.\n It is up to the caller of `gst_buffer_add_video_meta_full()` to set it\n using gst_video_meta_set_alignment(), if they did not it defaults\n to no padding and no alignment. Since: 1.18\n\n Extra buffer metadata describing image properties\n\n This meta can also be used by downstream elements to specifiy their\n buffer layout requirements for upstream. Upstream should try to\n fit those requirements, if possible, in order to prevent buffer copies.\n\n This is done by passing a custom #GstStructure to\n gst_query_add_allocation_meta() when handling the ALLOCATION query.\n This structure should be named 'video-meta' and can have the following\n fields:\n - padding-top (uint): extra pixels on the top\n - padding-bottom (uint): extra pixels on the bottom\n - padding-left (uint): extra pixels on the left side\n - padding-right (uint): extra pixels on the right side\n The padding fields have the same semantic as #GstVideoMeta.alignment\n and so represent the paddings requested on produced video buffers.\n\n Since 1.24 it can be serialized using gst_meta_serialize() and\n gst_meta_deserialize()."]
 pub type GstVideoMeta = _GstVideoMeta;
 #[doc = " GstVideoCropMeta:\n @meta: parent #GstMeta\n @x: the horizontal offset\n @y: the vertical offset\n @width: the cropped width\n @height: the cropped height\n\n Extra buffer metadata describing image cropping."]
 pub type GstVideoCropMeta = _GstVideoCropMeta;
-#[doc = " GstVideoMeta:\n @meta: parent #GstMeta\n @buffer: the buffer this metadata belongs to\n @flags: additional video flags\n @format: the video format\n @id: identifier of the frame\n @width: the video width\n @height: the video height\n @n_planes: the number of planes in the image\n @offset: array of offsets for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @stride: array of strides for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @map: map the memory of a plane\n @unmap: unmap the memory of a plane\n @alignment: the paddings and alignment constraints of the video buffer.\n It is up to the caller of `gst_buffer_add_video_meta_full()` to set it\n using gst_video_meta_set_alignment(), if they did not it defaults\n to no padding and no alignment. Since: 1.18\n\n Extra buffer metadata describing image properties\n\n This meta can also be used by downstream elements to specifiy their\n buffer layout requirements for upstream. Upstream should try to\n fit those requirements, if possible, in order to prevent buffer copies.\n\n This is done by passing a custom #GstStructure to\n gst_query_add_allocation_meta() when handling the ALLOCATION query.\n This structure should be named 'video-meta' and can have the following\n fields:\n - padding-top (uint): extra pixels on the top\n - padding-bottom (uint): extra pixels on the bottom\n - padding-left (uint): extra pixels on the left side\n - padding-right (uint): extra pixels on the right side\n The padding fields have the same semantic as #GstVideoMeta.alignment\n and so represent the paddings requested on produced video buffers."]
+#[doc = " GstVideoMeta:\n @meta: parent #GstMeta\n @buffer: the buffer this metadata belongs to\n @flags: additional video flags\n @format: the video format\n @id: identifier of the frame\n @width: the video width\n @height: the video height\n @n_planes: the number of planes in the image\n @offset: array of offsets for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @stride: array of strides for the planes. This field might not always be\n          valid, it is used by the default implementation of @map.\n @map: map the memory of a plane\n @unmap: unmap the memory of a plane\n @alignment: the paddings and alignment constraints of the video buffer.\n It is up to the caller of `gst_buffer_add_video_meta_full()` to set it\n using gst_video_meta_set_alignment(), if they did not it defaults\n to no padding and no alignment. Since: 1.18\n\n Extra buffer metadata describing image properties\n\n This meta can also be used by downstream elements to specifiy their\n buffer layout requirements for upstream. Upstream should try to\n fit those requirements, if possible, in order to prevent buffer copies.\n\n This is done by passing a custom #GstStructure to\n gst_query_add_allocation_meta() when handling the ALLOCATION query.\n This structure should be named 'video-meta' and can have the following\n fields:\n - padding-top (uint): extra pixels on the top\n - padding-bottom (uint): extra pixels on the bottom\n - padding-left (uint): extra pixels on the left side\n - padding-right (uint): extra pixels on the right side\n The padding fields have the same semantic as #GstVideoMeta.alignment\n and so represent the paddings requested on produced video buffers.\n\n Since 1.24 it can be serialized using gst_meta_serialize() and\n gst_meta_deserialize()."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstVideoMeta {
@@ -37748,8 +38372,8 @@ unsafe extern "C" {
         width: guint,
         height: guint,
         n_planes: guint,
-        offset: *mut gsize,
-        stride: *mut gint,
+        offset: *const gsize,
+        stride: *const gint,
     ) -> *mut GstVideoMeta;
 }
 unsafe extern "C" {
@@ -38199,7 +38823,7 @@ const _: () = {
 #[derive(Debug, Copy, Clone)]
 pub struct _GstBaseSinkClass {
     pub parent_class: GstElementClass,
-    #[doc = " GstBaseSink::get_caps:\n @filter: (in) (nullable):\n\n Called to get sink pad caps from the subclass."]
+    #[doc = " GstBaseSinkClass::get_caps:\n @filter: (in) (nullable):\n\n Called to get sink pad caps from the subclass."]
     pub get_caps: ::std::option::Option<
         unsafe extern "C" fn(sink: *mut GstBaseSink, filter: *mut GstCaps) -> *mut GstCaps,
     >,
@@ -38212,7 +38836,7 @@ pub struct _GstBaseSinkClass {
     pub activate_pull: ::std::option::Option<
         unsafe extern "C" fn(sink: *mut GstBaseSink, active: gboolean) -> gboolean,
     >,
-    #[doc = " GstBaseSink::get_times:\n @start: (out): the start #GstClockTime\n @end: (out): the end #GstClockTime\n\n Get the start and end times for syncing on this buffer."]
+    #[doc = " GstBaseSinkClass::get_times:\n @start: (out): the start #GstClockTime\n @end: (out): the end #GstClockTime\n\n Get the start and end times for syncing on this buffer."]
     pub get_times: ::std::option::Option<
         unsafe extern "C" fn(
             sink: *mut GstBaseSink,
@@ -38551,26 +39175,70 @@ pub struct _GstNavigation {
     _unused: [u8; 0],
 }
 pub type GstNavigation = _GstNavigation;
-#[doc = " GstNavigationInterface:\n @iface: the parent interface\n @send_event: sending a navigation event\n\n Navigation interface."]
+#[doc = " GstNavigationInterface:\n @iface: the parent interface\n @send_event: sending a navigation event\n @send_event_simple: sending a navigation event (Since: 1.22)\n\n Navigation interface."]
 pub type GstNavigationInterface = _GstNavigationInterface;
-#[doc = " GstNavigationInterface:\n @iface: the parent interface\n @send_event: sending a navigation event\n\n Navigation interface."]
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_NONE: GstNavigationModifierType = 0;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_SHIFT_MASK: GstNavigationModifierType =
+    1;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_LOCK_MASK: GstNavigationModifierType =
+    2;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_CONTROL_MASK:
+    GstNavigationModifierType = 4;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MOD1_MASK: GstNavigationModifierType =
+    8;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MOD2_MASK: GstNavigationModifierType =
+    16;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MOD3_MASK: GstNavigationModifierType =
+    32;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MOD4_MASK: GstNavigationModifierType =
+    64;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MOD5_MASK: GstNavigationModifierType =
+    128;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_BUTTON1_MASK:
+    GstNavigationModifierType = 256;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_BUTTON2_MASK:
+    GstNavigationModifierType = 512;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_BUTTON3_MASK:
+    GstNavigationModifierType = 1024;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_BUTTON4_MASK:
+    GstNavigationModifierType = 2048;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_BUTTON5_MASK:
+    GstNavigationModifierType = 4096;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_SUPER_MASK: GstNavigationModifierType =
+    67108864;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_HYPER_MASK: GstNavigationModifierType =
+    134217728;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_META_MASK: GstNavigationModifierType =
+    268435456;
+pub const GstNavigationModifierType_GST_NAVIGATION_MODIFIER_MASK: GstNavigationModifierType =
+    469770239;
+#[doc = " GstNavigationModifierType:\n @GST_NAVIGATION_MODIFIER_SHIFT_MASK: the Shift key.\n @GST_NAVIGATION_MODIFIER_CONTROL_MASK: the Control key.\n @GST_NAVIGATION_MODIFIER_MOD1_MASK: the third modifier key\n @GST_NAVIGATION_MODIFIER_MOD2_MASK: the fourth modifier key\n @GST_NAVIGATION_MODIFIER_MOD3_MASK: the fifth modifier key\n @GST_NAVIGATION_MODIFIER_MOD4_MASK: the sixth modifier key\n @GST_NAVIGATION_MODIFIER_MOD5_MASK: the seventh modifier key\n @GST_NAVIGATION_MODIFIER_BUTTON1_MASK: the first mouse button (usually the left button).\n @GST_NAVIGATION_MODIFIER_BUTTON2_MASK: the second mouse button (usually the right button).\n @GST_NAVIGATION_MODIFIER_BUTTON3_MASK: the third mouse button (usually the mouse wheel button or middle button).\n @GST_NAVIGATION_MODIFIER_BUTTON4_MASK: the fourth mouse button (typically the \"Back\" button).\n @GST_NAVIGATION_MODIFIER_BUTTON5_MASK: the fifth mouse button (typically the \"forward\" button).\n @GST_NAVIGATION_MODIFIER_SUPER_MASK: the Super modifier\n @GST_NAVIGATION_MODIFIER_HYPER_MASK: the Hyper modifier\n @GST_NAVIGATION_MODIFIER_META_MASK: the Meta modifier\n @GST_NAVIGATION_MODIFIER_MASK: A mask covering all entries in #GdkModifierType.\n\n Flags to indicate the state of modifier keys and mouse buttons\n in events.\n\n Typical modifier keys are Shift, Control, Meta, Super, Hyper, Alt, Compose,\n Apple, CapsLock or ShiftLock.\n\n Since: 1.22"]
+pub type GstNavigationModifierType = ::std::os::raw::c_uint;
+#[doc = " GstNavigationInterface:\n @iface: the parent interface\n @send_event: sending a navigation event\n @send_event_simple: sending a navigation event (Since: 1.22)\n\n Navigation interface."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct _GstNavigationInterface {
     pub iface: GTypeInterface,
+    #[doc = " GstNavigationInterface::send_event:\n\n sending a navigation event.\n\n Deprecated: 1.22: Use #GstNavigationInterface.send_event_simple() instead."]
     pub send_event: ::std::option::Option<
         unsafe extern "C" fn(navigation: *mut GstNavigation, structure: *mut GstStructure),
+    >,
+    #[doc = " GstNavigationInterface::send_event_simple:\n @navigation: The navigation interface instance\n @event: (transfer full): The event to send\n\n sending a navigation event.\n\n Since: 1.22"]
+    pub send_event_simple: ::std::option::Option<
+        unsafe extern "C" fn(navigation: *mut GstNavigation, event: *mut GstEvent),
     >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of _GstNavigationInterface"][::std::mem::size_of::<_GstNavigationInterface>() - 24usize];
+    ["Size of _GstNavigationInterface"][::std::mem::size_of::<_GstNavigationInterface>() - 32usize];
     ["Alignment of _GstNavigationInterface"]
         [::std::mem::align_of::<_GstNavigationInterface>() - 8usize];
     ["Offset of field: _GstNavigationInterface::iface"]
         [::std::mem::offset_of!(_GstNavigationInterface, iface) - 0usize];
     ["Offset of field: _GstNavigationInterface::send_event"]
         [::std::mem::offset_of!(_GstNavigationInterface, send_event) - 16usize];
+    ["Offset of field: _GstNavigationInterface::send_event_simple"]
+        [::std::mem::offset_of!(_GstNavigationInterface, send_event_simple) - 24usize];
 };
 unsafe extern "C" {
     pub fn gst_navigation_get_type() -> GType;
@@ -38703,10 +39371,100 @@ pub const GstNavigationEventType_GST_NAVIGATION_EVENT_MOUSE_MOVE: GstNavigationE
 pub const GstNavigationEventType_GST_NAVIGATION_EVENT_COMMAND: GstNavigationEventType = 6;
 #[doc = " GST_NAVIGATION_EVENT_MOUSE_SCROLL:\n\n A mouse scroll event. Use gst_navigation_event_parse_mouse_scroll_event()\n to extract the details from the event.\n\n Since: 1.18"]
 pub const GstNavigationEventType_GST_NAVIGATION_EVENT_MOUSE_SCROLL: GstNavigationEventType = 7;
-#[doc = " GstNavigationEventType:\n @GST_NAVIGATION_EVENT_INVALID: Returned from\n gst_navigation_event_get_type() when the passed event is not a navigation event.\n @GST_NAVIGATION_EVENT_KEY_PRESS: A key press event. Use\n gst_navigation_event_parse_key_event() to extract the details from the event.\n @GST_NAVIGATION_EVENT_KEY_RELEASE: A key release event. Use\n gst_navigation_event_parse_key_event() to extract the details from the event.\n @GST_NAVIGATION_EVENT_MOUSE_BUTTON_PRESS: A mouse button press event. Use\n gst_navigation_event_parse_mouse_button_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_MOUSE_BUTTON_RELEASE: A mouse button release event. Use\n gst_navigation_event_parse_mouse_button_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_MOUSE_MOVE: A mouse movement event. Use\n gst_navigation_event_parse_mouse_move_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_COMMAND: A navigation command event. Use\n gst_navigation_event_parse_command() to extract the details from the event.\n @GST_NAVIGATION_EVENT_MOUSE_SCROLL: A mouse scroll event. Use\n gst_navigation_event_parse_mouse_scroll_event() to extract the details from\n the event. (Since: 1.18)\n\n Enum values for the various events that an element implementing the\n GstNavigation interface might send up the pipeline."]
+#[doc = " GST_NAVIGATION_EVENT_TOUCH_DOWN:\n\n An event describing a new touch point, which will be assigned an identifier\n that is unique to it for the duration of its movement on the screen.\n Use gst_navigation_event_parse_touch_event() to extract the details\n from the event.\n\n Since: 1.22"]
+pub const GstNavigationEventType_GST_NAVIGATION_EVENT_TOUCH_DOWN: GstNavigationEventType = 8;
+#[doc = " GST_NAVIGATION_EVENT_TOUCH_MOTION:\n\n An event describing the movement of an active touch point across\n the screen. Use gst_navigation_event_parse_touch_event() to extract\n the details from the event.\n\n Since: 1.22"]
+pub const GstNavigationEventType_GST_NAVIGATION_EVENT_TOUCH_MOTION: GstNavigationEventType = 9;
+#[doc = " GST_NAVIGATION_EVENT_TOUCH_UP:\n\n An event describing a removed touch point. After this event,\n its identifier may be reused for any new touch points.\n Use gst_navigation_event_parse_touch_up_event() to extract the details\n from the event.\n\n Since: 1.22"]
+pub const GstNavigationEventType_GST_NAVIGATION_EVENT_TOUCH_UP: GstNavigationEventType = 10;
+#[doc = " GST_NAVIGATION_EVENT_TOUCH_FRAME:\n\n An event signaling the end of a sequence of simultaneous touch events.\n\n Since: 1.22"]
+pub const GstNavigationEventType_GST_NAVIGATION_EVENT_TOUCH_FRAME: GstNavigationEventType = 11;
+#[doc = " GST_NAVIGATION_EVENT_TOUCH_CANCEL:\n\n An event cancelling all currently active touch points.\n\n Since: 1.22"]
+pub const GstNavigationEventType_GST_NAVIGATION_EVENT_TOUCH_CANCEL: GstNavigationEventType = 12;
+#[doc = " GstNavigationEventType:\n @GST_NAVIGATION_EVENT_INVALID: Returned from\n gst_navigation_event_get_type() when the passed event is not a navigation event.\n @GST_NAVIGATION_EVENT_KEY_PRESS: A key press event. Use\n gst_navigation_event_parse_key_event() to extract the details from the event.\n @GST_NAVIGATION_EVENT_KEY_RELEASE: A key release event. Use\n gst_navigation_event_parse_key_event() to extract the details from the event.\n @GST_NAVIGATION_EVENT_MOUSE_BUTTON_PRESS: A mouse button press event. Use\n gst_navigation_event_parse_mouse_button_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_MOUSE_BUTTON_RELEASE: A mouse button release event. Use\n gst_navigation_event_parse_mouse_button_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_MOUSE_MOVE: A mouse movement event. Use\n gst_navigation_event_parse_mouse_move_event() to extract the details from the\n event.\n @GST_NAVIGATION_EVENT_COMMAND: A navigation command event. Use\n gst_navigation_event_parse_command() to extract the details from the event.\n @GST_NAVIGATION_EVENT_MOUSE_SCROLL: A mouse scroll event. Use\n gst_navigation_event_parse_mouse_scroll_event() to extract the details from\n the event. (Since: 1.18)\n @GST_NAVIGATION_EVENT_TOUCH_DOWN: An event describing a new touch point,\n which will be assigned an identifier that is unique to it for the duration\n of its movement on the screen. Use gst_navigation_event_parse_touch_event()\n to extract the details from the event. (Since: 1.22)\n @GST_NAVIGATION_EVENT_TOUCH_MOTION: An event describing the movement of an\n active touch point across the screen. Use\n gst_navigation_event_parse_touch_event() to extract the details from the\n event. (Since: 1.22)\n @GST_NAVIGATION_EVENT_TOUCH_UP: An event describing a removed touch point.\n After this event, its identifier may be reused for any new touch points. Use\n gst_navigation_event_parse_touch_up_event() to extract the details from the\n event. (Since: 1.22)\n @GST_NAVIGATION_EVENT_TOUCH_FRAME: An event signaling the end of a sequence\n of simultaneous touch events. (Since: 1.22)\n @GST_NAVIGATION_EVENT_TOUCH_CANCEL: An event cancelling all currently active\n touch points. (Since: 1.22)\n\n Enum values for the various events that an element implementing the\n GstNavigation interface might send up the pipeline. Touch events have been\n inspired by the libinput API, and have the same meaning here."]
 pub type GstNavigationEventType = ::std::os::raw::c_uint;
 unsafe extern "C" {
     pub fn gst_navigation_event_get_type(event: *mut GstEvent) -> GstNavigationEventType;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_key_press(
+        key: *const gchar,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_key_release(
+        key: *const gchar,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_mouse_button_press(
+        button: gint,
+        x: gdouble,
+        y: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_mouse_button_release(
+        button: gint,
+        x: gdouble,
+        y: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_mouse_move(
+        x: gdouble,
+        y: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_mouse_scroll(
+        x: gdouble,
+        y: gdouble,
+        delta_x: gdouble,
+        delta_y: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_command(command: GstNavigationCommand) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_touch_down(
+        identifier: guint,
+        x: gdouble,
+        y: gdouble,
+        pressure: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_touch_motion(
+        identifier: guint,
+        x: gdouble,
+        y: gdouble,
+        pressure: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_touch_up(
+        identifier: guint,
+        x: gdouble,
+        y: gdouble,
+        state: GstNavigationModifierType,
+    ) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_touch_frame(state: GstNavigationModifierType) -> *mut GstEvent;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_new_touch_cancel(state: GstNavigationModifierType)
+        -> *mut GstEvent;
 }
 unsafe extern "C" {
     pub fn gst_navigation_event_parse_key_event(
@@ -38745,6 +39503,37 @@ unsafe extern "C" {
     ) -> gboolean;
 }
 unsafe extern "C" {
+    pub fn gst_navigation_event_parse_touch_event(
+        event: *mut GstEvent,
+        identifier: *mut guint,
+        x: *mut gdouble,
+        y: *mut gdouble,
+        pressure: *mut gdouble,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_parse_touch_up_event(
+        event: *mut GstEvent,
+        identifier: *mut guint,
+        x: *mut gdouble,
+        y: *mut gdouble,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_get_coordinates(
+        event: *mut GstEvent,
+        x: *mut gdouble,
+        y: *mut gdouble,
+    ) -> gboolean;
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_set_coordinates(
+        event: *mut GstEvent,
+        x: gdouble,
+        y: gdouble,
+    ) -> gboolean;
+}
+unsafe extern "C" {
     pub fn gst_navigation_send_event(navigation: *mut GstNavigation, structure: *mut GstStructure);
 }
 unsafe extern "C" {
@@ -38777,6 +39566,15 @@ unsafe extern "C" {
         navigation: *mut GstNavigation,
         command: GstNavigationCommand,
     );
+}
+unsafe extern "C" {
+    pub fn gst_navigation_send_event_simple(navigation: *mut GstNavigation, event: *mut GstEvent);
+}
+unsafe extern "C" {
+    pub fn gst_navigation_event_parse_modifier_state(
+        event: *mut GstEvent,
+        state: *mut GstNavigationModifierType,
+    ) -> gboolean;
 }
 #[doc = " GstVideoAncillary:\n @DID: The Data Identifier\n @SDID_block_number: The Secondary Data Identifier (if type 2) or the Data\n                     Block Number (if type 1)\n @data_count: The amount of data (in bytes) in @data (max 255 bytes)\n @data: (array length=data_count): The user data content of the Ancillary packet.\n    Does not contain the ADF, DID, SDID nor CS.\n\n Video Ancillary data, according to SMPTE-291M specification.\n\n Note that the contents of the data are always stored as 8bit data (i.e. do not contain\n the parity check bits).\n\n Since: 1.16"]
 pub type GstVideoAncillary = _GstVideoAncillary;
@@ -38836,6 +39634,62 @@ pub const GstVideoAncillaryDID16_GST_VIDEO_ANCILLARY_DID16_S2016_3_AFD_BAR: GstV
     16645;
 #[doc = " GstVideoAncillaryDID16:\n @GST_VIDEO_ANCILLARY_DID16_S334_EIA_708: CEA 708 Ancillary data according to SMPTE 334\n @GST_VIDEO_ANCILLARY_DID16_S334_EIA_608: CEA 608 Ancillary data according to SMPTE 334\n @GST_VIDEO_ANCILLARY_DID16_S2016_3_AFD_BAR: AFD/Bar Ancillary data according to SMPTE 2016-3 (Since: 1.18)\n\n Some know types of Ancillary Data identifiers.\n\n Since: 1.16"]
 pub type GstVideoAncillaryDID16 = ::std::os::raw::c_uint;
+pub const GstAncillaryMetaField_GST_ANCILLARY_META_FIELD_PROGRESSIVE: GstAncillaryMetaField = 0;
+pub const GstAncillaryMetaField_GST_ANCILLARY_META_FIELD_INTERLACED_FIRST: GstAncillaryMetaField =
+    16;
+pub const GstAncillaryMetaField_GST_ANCILLARY_META_FIELD_INTERLACED_SECOND: GstAncillaryMetaField =
+    17;
+#[doc = " GstAncillaryMetaField:\n @GST_ANCILLARY_META_FIELD_PROGRESSIVE: Progressive or no field specified (default)\n @GST_ANCILLARY_META_FIELD_INTERLACED_FIRST: Interlaced first field\n @GST_ANCILLARY_META_FIELD_INTERLACED_SECOND: Interlaced second field\n\n Location of a @GstAncillaryMeta.\n\n Since: 1.24"]
+pub type GstAncillaryMetaField = ::std::os::raw::c_uint;
+#[doc = " GstAncillaryMeta:\n @meta: Parent #GstMeta\n @field: The field where the ancillary data is located\n @c_not_y_channel: Which channel (luminance or chrominance) the ancillary\n    data is located. 0 if content is SD or stored in the luminance channel\n    (default). 1 if HD and stored in the chrominance channel.\n @line: The line on which the ancillary data is located (max 11bit). There\n    are two special values: 0x7ff if no line is specified (default), 0x7fe\n    to specify the ancillary data is on any valid line before active video\n @offset: The location of the ancillary data packet in a SDI raster relative\n    to the start of active video (max 12bits). A value of 0 means the ADF of\n    the ancillary packet starts immediately following SAV. There are 3\n    special values: 0xfff: No specified location (default), 0xffe: within\n    HANC data space, 0xffd: within the ancillary data space located between\n    SAV and EAV\n @DID: Data Identified\n @SDID_block_number: Secondary Data identification (if type 2) or Data block\n    number (if type 1)\n @data_count: The amount of user data\n @data: The User data\n @checksum: The checksum of the ADF\n\n #GstMeta for carrying SMPTE-291M Ancillary data. Note that all the ADF fields\n    (@DID to @checksum) are 10bit values with parity/non-parity high-bits set.\n\n Since: 1.24"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct GstAncillaryMeta {
+    pub meta: GstMeta,
+    pub field: GstAncillaryMetaField,
+    pub c_not_y_channel: gboolean,
+    pub line: guint16,
+    pub offset: guint16,
+    pub DID: guint16,
+    pub SDID_block_number: guint16,
+    pub data_count: guint16,
+    pub data: *mut guint16,
+    pub checksum: guint16,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of GstAncillaryMeta"][::std::mem::size_of::<GstAncillaryMeta>() - 56usize];
+    ["Alignment of GstAncillaryMeta"][::std::mem::align_of::<GstAncillaryMeta>() - 8usize];
+    ["Offset of field: GstAncillaryMeta::meta"]
+        [::std::mem::offset_of!(GstAncillaryMeta, meta) - 0usize];
+    ["Offset of field: GstAncillaryMeta::field"]
+        [::std::mem::offset_of!(GstAncillaryMeta, field) - 16usize];
+    ["Offset of field: GstAncillaryMeta::c_not_y_channel"]
+        [::std::mem::offset_of!(GstAncillaryMeta, c_not_y_channel) - 20usize];
+    ["Offset of field: GstAncillaryMeta::line"]
+        [::std::mem::offset_of!(GstAncillaryMeta, line) - 24usize];
+    ["Offset of field: GstAncillaryMeta::offset"]
+        [::std::mem::offset_of!(GstAncillaryMeta, offset) - 26usize];
+    ["Offset of field: GstAncillaryMeta::DID"]
+        [::std::mem::offset_of!(GstAncillaryMeta, DID) - 28usize];
+    ["Offset of field: GstAncillaryMeta::SDID_block_number"]
+        [::std::mem::offset_of!(GstAncillaryMeta, SDID_block_number) - 30usize];
+    ["Offset of field: GstAncillaryMeta::data_count"]
+        [::std::mem::offset_of!(GstAncillaryMeta, data_count) - 32usize];
+    ["Offset of field: GstAncillaryMeta::data"]
+        [::std::mem::offset_of!(GstAncillaryMeta, data) - 40usize];
+    ["Offset of field: GstAncillaryMeta::checksum"]
+        [::std::mem::offset_of!(GstAncillaryMeta, checksum) - 48usize];
+};
+unsafe extern "C" {
+    pub fn gst_ancillary_meta_api_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn gst_ancillary_meta_get_info() -> *const GstMetaInfo;
+}
+unsafe extern "C" {
+    pub fn gst_buffer_add_ancillary_meta(buffer: *mut GstBuffer) -> *mut GstAncillaryMeta;
+}
 pub const GstVideoAFDValue_GST_VIDEO_AFD_UNAVAILABLE: GstVideoAFDValue = 0;
 pub const GstVideoAFDValue_GST_VIDEO_AFD_16_9_TOP_ALIGNED: GstVideoAFDValue = 2;
 pub const GstVideoAFDValue_GST_VIDEO_AFD_14_9_TOP_ALIGNED: GstVideoAFDValue = 3;
@@ -39564,6 +40418,60 @@ unsafe extern "C" {
         value: *const GValue,
     ) -> gboolean;
 }
+unsafe extern "C" {
+    pub static H264_MISP_MICROSECTIME: [guint8; 16usize];
+}
+unsafe extern "C" {
+    pub static H265_MISP_MICROSECONDS: [guint8; 16usize];
+}
+unsafe extern "C" {
+    pub static H265_MISP_NANOSECONDS: [guint8; 16usize];
+}
+#[doc = " GstVideoSEIUserDataUnregisteredMeta:\n @meta: parent #GstMeta\n @uuid: User Data Unregistered UUID\n @data: Unparsed data buffer\n @size: Size of the data buffer\n\n H.264 H.265 metadata from SEI User Data Unregistered messages\n\n Since: 1.22"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct GstVideoSEIUserDataUnregisteredMeta {
+    pub meta: GstMeta,
+    pub uuid: [guint8; 16usize],
+    pub data: *mut guint8,
+    pub size: gsize,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of GstVideoSEIUserDataUnregisteredMeta"]
+        [::std::mem::size_of::<GstVideoSEIUserDataUnregisteredMeta>() - 48usize];
+    ["Alignment of GstVideoSEIUserDataUnregisteredMeta"]
+        [::std::mem::align_of::<GstVideoSEIUserDataUnregisteredMeta>() - 8usize];
+    ["Offset of field: GstVideoSEIUserDataUnregisteredMeta::meta"]
+        [::std::mem::offset_of!(GstVideoSEIUserDataUnregisteredMeta, meta) - 0usize];
+    ["Offset of field: GstVideoSEIUserDataUnregisteredMeta::uuid"]
+        [::std::mem::offset_of!(GstVideoSEIUserDataUnregisteredMeta, uuid) - 16usize];
+    ["Offset of field: GstVideoSEIUserDataUnregisteredMeta::data"]
+        [::std::mem::offset_of!(GstVideoSEIUserDataUnregisteredMeta, data) - 32usize];
+    ["Offset of field: GstVideoSEIUserDataUnregisteredMeta::size"]
+        [::std::mem::offset_of!(GstVideoSEIUserDataUnregisteredMeta, size) - 40usize];
+};
+unsafe extern "C" {
+    pub fn gst_video_sei_user_data_unregistered_meta_api_get_type() -> GType;
+}
+unsafe extern "C" {
+    pub fn gst_video_sei_user_data_unregistered_meta_get_info() -> *const GstMetaInfo;
+}
+unsafe extern "C" {
+    pub fn gst_buffer_add_video_sei_user_data_unregistered_meta(
+        buffer: *mut GstBuffer,
+        uuid: *mut guint8,
+        data: *mut guint8,
+        size: gsize,
+    ) -> *mut GstVideoSEIUserDataUnregisteredMeta;
+}
+unsafe extern "C" {
+    pub fn gst_video_sei_user_data_unregistered_parse_precision_time_stamp(
+        user_data: *mut GstVideoSEIUserDataUnregisteredMeta,
+        status: *mut guint8,
+        precision_time_stamp: *mut guint64,
+    ) -> gboolean;
+}
 pub const GModuleFlags_G_MODULE_BIND_LAZY: GModuleFlags = 1;
 pub const GModuleFlags_G_MODULE_BIND_LOCAL: GModuleFlags = 2;
 pub const GModuleFlags_G_MODULE_BIND_MASK: GModuleFlags = 3;
@@ -40123,6 +41031,8 @@ pub const NvDsMetaType_NVDS_PREPROCESS_FRAME_META: NvDsMetaType = 26;
 pub const NvDsMetaType_NVDS_PREPROCESS_BATCH_META: NvDsMetaType = 27;
 #[doc = " Specifies user defined custom message blob to be part of payload generated"]
 pub const NvDsMetaType_NVDS_CUSTOM_MSG_BLOB: NvDsMetaType = 28;
+#[doc = " Specifies user defined custom message blob to be part of payload generated"]
+pub const NvDsMetaType_NVDS_ROI_META: NvDsMetaType = 29;
 #[doc = " Reserved field"]
 pub const NvDsMetaType_NVDS_RESERVED_META: NvDsMetaType = 4095;
 #[doc = " Specifies the start of a range of enum values that represent types of\n NVIDIA-defined Gst metas. The range is from NVDS_GST_CUSTOM_META to\n NVDS_GST_CUSTOM_META+4096, inclusive."]
@@ -41597,6 +42507,8 @@ pub const NvDsInferDataType_HALF: NvDsInferDataType = 1;
 pub const NvDsInferDataType_INT8: NvDsInferDataType = 2;
 #[doc = " Specifies INT32 format."]
 pub const NvDsInferDataType_INT32: NvDsInferDataType = 3;
+#[doc = " Specifies INT64 format."]
+pub const NvDsInferDataType_INT64: NvDsInferDataType = 4;
 #[doc = " Specifies the data type of a layer."]
 pub type NvDsInferDataType = ::std::os::raw::c_uint;
 #[doc = " Holds information about one layer in the model."]
@@ -41855,10 +42767,12 @@ pub struct NvDsInferTensorMeta {
     pub network_info: NvDsInferNetworkInfo,
     #[doc = " Whether aspect ratio was maintained while scaling to network resolution"]
     pub maintain_aspect_ratio: gboolean,
+    #[doc = " Whether symmetric padding was maintained while scaling to network resolution\n valid only when maintain_aspect_ratio is true"]
+    pub symmetric_padding: gboolean,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of NvDsInferTensorMeta"][::std::mem::size_of::<NvDsInferTensorMeta>() - 64usize];
+    ["Size of NvDsInferTensorMeta"][::std::mem::size_of::<NvDsInferTensorMeta>() - 72usize];
     ["Alignment of NvDsInferTensorMeta"][::std::mem::align_of::<NvDsInferTensorMeta>() - 8usize];
     ["Offset of field: NvDsInferTensorMeta::unique_id"]
         [::std::mem::offset_of!(NvDsInferTensorMeta, unique_id) - 0usize];
@@ -41878,6 +42792,8 @@ const _: () = {
         [::std::mem::offset_of!(NvDsInferTensorMeta, network_info) - 48usize];
     ["Offset of field: NvDsInferTensorMeta::maintain_aspect_ratio"]
         [::std::mem::offset_of!(NvDsInferTensorMeta, maintain_aspect_ratio) - 60usize];
+    ["Offset of field: NvDsInferTensorMeta::symmetric_padding"]
+        [::std::mem::offset_of!(NvDsInferTensorMeta, symmetric_padding) - 64usize];
 };
 #[doc = " Holds the segmentation model output information for one frame / one object.\n\n The \"nvinfer\" plugins adds this meta for segmentation models.\n\n This meta data is added as NvDsUserMeta to the frame_user_meta_list of the\n corresponding frame_meta or object_user_meta_list of the corresponding object\n with the meta_type set to NVDSINFER_SEGMENTATION_META."]
 #[repr(C)]

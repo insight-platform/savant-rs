@@ -570,40 +570,40 @@ mod tests {
         let mut db = RocksDbStore::new(&conf)?;
 
         // add to stream 1 (0)
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let source_id = f.get_source_id();
         let first_indx = db.add_message(&f.to_message(), &[], &[]).await?;
         for _ in 0..DELTA_FRAMES {
-            let f = gen_properly_filled_frame(false);
+            let f = gen_properly_filled_frame(false)?;
             db.add_message(&f.to_message(), &[], &[]).await?;
         }
 
         // add to stream 1 (11)
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let second_indx = db.add_message(&f.to_message(), &[], &[]).await?;
         for _ in 0..DELTA_FRAMES {
-            let f = gen_properly_filled_frame(false);
+            let f = gen_properly_filled_frame(false)?;
             db.add_message(&f.to_message(), &[], &[]).await?;
         }
 
         // add to stream 2 (22)
-        let mut other_source_frame = gen_properly_filled_frame(true);
+        let mut other_source_frame = gen_properly_filled_frame(true)?;
         let other_source_id = "other_source_id";
         other_source_frame.set_source_id(other_source_id);
         db.add_message(&other_source_frame.to_message(), &[], &[])
             .await?;
         for _ in 0..DELTA_FRAMES {
-            let mut f = gen_properly_filled_frame(false);
+            let mut f = gen_properly_filled_frame(false)?;
             f.set_source_id(other_source_id);
             db.add_message(&f.to_message(), &[], &[]).await?;
         }
 
         // add to stream 1 (33)
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let uuid_f3 = f.get_uuid();
         let last_indx = db.add_message(&f.to_message(), &[], &[]).await?;
         for _ in 0..DELTA_FRAMES {
-            let f = gen_properly_filled_frame(false);
+            let f = gen_properly_filled_frame(false)?;
             db.add_message(&f.to_message(), &[], &[]).await?;
         }
 
@@ -637,14 +637,14 @@ mod tests {
             path.clone()
         };
         let mut db = RocksDbStore::new(&conf)?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let source_id = f.get_source_id();
         db.add_message(&f.to_message(), &[], &[]).await?;
         sleep(Duration::from_millis(10)).await?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         db.add_message(&f.to_message(), &[], &[]).await?;
         sleep(Duration::from_millis(10)).await?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let uuid_f3 = f.get_uuid();
         db.add_message(&f.to_message(), &[], &[]).await?;
 
@@ -673,7 +673,7 @@ mod tests {
         };
         let mut db = RocksDbStore::new(&conf)?;
 
-        let frame = gen_properly_filled_frame(true);
+        let frame = gen_properly_filled_frame(true)?;
         db.add_message(&frame.to_message(), b"topic", &[vec![0u8; 2]])
             .await?;
 
@@ -696,7 +696,7 @@ mod tests {
         };
         let mut db = RocksDbStore::new(&conf)?;
 
-        let mut frame = gen_properly_filled_frame(true);
+        let mut frame = gen_properly_filled_frame(true)?;
         frame.set_source_id("source-one");
         let uuid = frame.get_uuid();
         db.add_message(&frame.to_message(), b"topic", &[vec![0u8; 4]])
@@ -718,7 +718,7 @@ mod tests {
         };
         let mut db = RocksDbStore::new(&conf)?;
 
-        let frame = gen_properly_filled_frame(true);
+        let frame = gen_properly_filled_frame(true)?;
         let uuid = frame.get_uuid();
         let source_id = frame.get_source_id();
         let data_items = vec![vec![1u8, 2, 3, 4], vec![5u8, 6, 7, 8]];
@@ -752,9 +752,9 @@ mod tests {
         let mut db = RocksDbStore::new(&conf)?;
         let mut keyframes = vec![];
         const N: usize = 20;
-        let source = gen_properly_filled_frame(true).get_source_id();
+        let source = gen_properly_filled_frame(true)?.get_source_id();
         for i in 0..N {
-            let f = gen_properly_filled_frame(true);
+            let f = gen_properly_filled_frame(true)?;
             db.add_message(&f.to_message(), &[], &[]).await?;
             keyframes.push(f.get_uuid());
             if i + 1 == N.div(2) {
@@ -794,9 +794,9 @@ mod tests {
         };
         let mut db = RocksDbStore::new(&conf)?;
         let source_id = "test_source_id";
-        let message = gen_properly_filled_frame(true).to_message();
+        let message = gen_properly_filled_frame(true)?.to_message();
         db.add_message(&message, &[], &[]).await?;
-        let message = gen_properly_filled_frame(true).to_message();
+        let message = gen_properly_filled_frame(true)?.to_message();
         db.add_message(&message, &[], &[]).await?;
 
         let now = std::time::Instant::now();

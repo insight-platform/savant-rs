@@ -30,8 +30,8 @@ class LoggerMixin:
 
     def _init_logger(self):
         logger_name = self.__module__
-        if hasattr(self, 'get_name') and self.get_name():
-            logger_name += f'.{self.get_name()}'
+        if hasattr(self, "get_name") and self.get_name():
+            logger_name += f".{self.get_name()}"
 
         init_logging()
         self._logger = get_logger(logger_name)

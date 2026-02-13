@@ -19,12 +19,12 @@ class LogEntry:
         """Get pretty formatted string of log entry."""
 
         if self._pretty_format is None:
-            ts = self.timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')
-            message = f'[{self.level}] [{self.target}] {self.message}'
-            lines = [f'{ts} | {message}']
+            ts = self.timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+            message = f"[{self.level}] [{self.target}] {self.message}"
+            lines = [f"{ts} | {message}"]
             for k, v in sorted(self.attributes.items()):
-                lines.append(f'{" " * len(ts)} | {k}={v}')
-            self._pretty_format = '\n'.join(lines)
+                lines.append(f"{' ' * len(ts)} | {k}={v}")
+            self._pretty_format = "\n".join(lines)
 
         return self._pretty_format
 
@@ -45,7 +45,7 @@ class Logs:
         """Get pretty formatted string of logs."""
 
         if self._pretty_format is None:
-            self._pretty_format = '\n'.join(
+            self._pretty_format = "\n".join(
                 entry.pretty_format() for entry in self._entries
             )
         return self._pretty_format

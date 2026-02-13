@@ -8,7 +8,7 @@ Configuration Structure
 
 The configuration file has the following structure:
 
-.. code-block:: json
+.. code-block:: javascript
 
    {
      "ingress": {
@@ -78,8 +78,8 @@ Egress Configuration
 
 The egress section defines how the service sends messages to downstream destinations.
 
-Socket Configuration
-^^^^^^^^^^^^^^^^^^^^
+Egress Socket Configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: json
 
@@ -212,7 +212,7 @@ Environment Variable Substitution
 
 The configuration file supports environment variable substitution using the `${VARIABLE_NAME:-default_value}` syntax:
 
-.. code-block:: json
+.. code-block:: javascript
 
    {
      "ingress": {

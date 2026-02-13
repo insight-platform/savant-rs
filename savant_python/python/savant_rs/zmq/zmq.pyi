@@ -156,7 +156,9 @@ class BlockingWriter:
     def start(self) -> None: ...
     def shutdown(self) -> None: ...
     def send_eos(self, topic: str) -> None: ...
-    def send_message(self, topic: str, message: Message) -> Union[
+    def send_message(
+        self, topic: str, message: Message
+    ) -> Union[
         WriterResultSendTimeout,
         WriterResultAckTimeout,
         WriterResultAck,

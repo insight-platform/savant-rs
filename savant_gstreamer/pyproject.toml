@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.8"]
+build-backend = "maturin"
+
+[project]
+dynamic = ['version']
+name = "savant_gstreamer"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module", "pymodule_init"]
+python-source = "python"
+module-name = "savant_gstreamer._native"
+auditwheel = "skip"
+
+[tool.pytest.ini_options]
+testpaths = ["pytests"]

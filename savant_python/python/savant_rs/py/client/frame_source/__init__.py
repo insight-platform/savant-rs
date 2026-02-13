@@ -3,7 +3,7 @@ from typing import Tuple, TypeVar
 
 from savant_rs.primitives import VideoFrame, VideoFrameUpdate
 
-T = TypeVar('T', bound='FrameSource')
+T = TypeVar("T", bound="FrameSource")
 
 
 class FrameSource(ABC):

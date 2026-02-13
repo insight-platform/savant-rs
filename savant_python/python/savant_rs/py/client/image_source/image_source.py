@@ -2,8 +2,12 @@ import os
 from os import PathLike
 from typing import Any, BinaryIO, List, Optional, Tuple, TypeVar, Union
 
-from savant_rs.primitives import (AttributeValue, VideoFrame,
-                                  VideoFrameContent, VideoFrameUpdate)
+from savant_rs.primitives import (
+    AttributeValue,
+    VideoFrame,
+    VideoFrameContent,
+    VideoFrameUpdate,
+)
 
 from ...api.constants import DEFAULT_NAMESPACE
 from ...api.enums import ExternalFrameType
@@ -12,7 +16,7 @@ from ..frame_source import FrameSource
 from .img_header_parse import get_image_size_codec
 
 SECOND_IN_NS = 10**9
-T = TypeVar('T', bound='ImageSource')
+T = TypeVar("T", bound="ImageSource")
 
 logger = get_logger(__name__)
 
@@ -38,9 +42,9 @@ class ImageSource(FrameSource):
     ):
         if isinstance(file, (str, PathLike)):
             if not os.path.exists(file):
-                raise ValueError(f'File path is set, but file {file!r} does not exist.')
-        elif not hasattr(file, 'read'):
-            raise ValueError('File path or file handle is expected.')
+                raise ValueError(f"File path is set, but file {file!r} does not exist.")
+        elif not hasattr(file, "read"):
+            raise ValueError("File path or file handle is expected.")
 
         self._source_id = source_id
         self._file = file
@@ -84,27 +88,27 @@ class ImageSource(FrameSource):
 
     def with_pts(self: T, pts: int) -> T:
         """Set frame presentation timestamp."""
-        return self._update_param('pts', pts)
+        return self._update_param("pts", pts)
 
     def with_framerate(self: T, framerate: Tuple[int, int]) -> T:
         """Set framerate."""
-        return self._update_param('framerate', framerate)
+        return self._update_param("framerate", framerate)
 
     def with_update(self: T, update: VideoFrameUpdate) -> T:
-        return self._update_param('updates', self._updates + [update])
+        return self._update_param("updates", self._updates + [update])
 
     def build_frame(self) -> Tuple[VideoFrame, bytes]:
         width, height, codec = get_image_size_codec(self._file)
 
         if isinstance(self._file, (str, PathLike)):
-            with open(self._file, 'rb') as f:
+            with open(self._file, "rb") as f:
                 content = f.read()
         else:
             content = self._file.read()
 
         video_frame = VideoFrame(
             source_id=self._source_id,
-            framerate=f'{self._framerate[0]}/{self._framerate[1]}',
+            framerate=f"{self._framerate[0]}/{self._framerate[1]}",
             codec=codec,
             width=width,
             height=height,
@@ -117,13 +121,13 @@ class ImageSource(FrameSource):
         if isinstance(self._file, (str, PathLike)):
             video_frame.set_persistent_attribute(
                 namespace=DEFAULT_NAMESPACE,
-                name='location',
+                name="location",
                 values=[AttributeValue.string(str(self._file))],
             )
         for update in self._updates:
             video_frame.update(update)
         logger.debug(
-            'Built video frame %s/%s from file %s.',
+            "Built video frame %s/%s from file %s.",
             video_frame.source_id,
             video_frame.pts,
             self._file,
@@ -134,21 +138,21 @@ class ImageSource(FrameSource):
     def _update_param(self: T, name: str, value: Any) -> T:
         return self.__class__(
             **{
-                'source_id': self._source_id,
-                'file': self._file,
-                'pts': self._pts,
-                'framerate': self._framerate,
-                'updates': self._updates,
+                "source_id": self._source_id,
+                "file": self._file,
+                "pts": self._pts,
+                "framerate": self._framerate,
+                "updates": self._updates,
                 name: value,
             }
         )
 
     def __repr__(self):
         return (
-            f'{self.__class__.__name__}('
-            f'source_id={self._source_id}, '
-            f'file={self._file}, '
-            f'pts={self._pts})'
+            f"{self.__class__.__name__}("
+            f"source_id={self._source_id}, "
+            f"file={self._file}, "
+            f"pts={self._pts})"
         )
 
 

@@ -116,14 +116,14 @@ mod tests {
 
         let mut factory =
             RocksDbJobFactory::new(store.clone(), 1024u64.try_into()?, Duration::from_secs(30))?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let source_id = f.get_source_id();
         store
             .lock()
             .await
             .add_message(&f.to_message(), &[], &[])
             .await?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         store
             .lock()
             .await
@@ -159,14 +159,14 @@ mod tests {
 
         let mut factory =
             RocksDbJobFactory::new(store.clone(), 1024u64.try_into()?, Duration::from_secs(30))?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
         let source_id = f.get_source_id();
         store
             .lock()
             .await
             .add_message(&f.to_message(), &[], &[])
             .await?;
-        let f = gen_properly_filled_frame(true);
+        let f = gen_properly_filled_frame(true)?;
 
         let f_clone = f.clone();
         tokio::spawn(async move {

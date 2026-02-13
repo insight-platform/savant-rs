@@ -1,4 +1,4 @@
-use crate::message::Message;
+use crate::message::{Message, MessageEnvelope, SeqStore, AUX_SEQ_ID_KEY};
 use crate::primitives::eos::EndOfStream;
 use crate::protobuf::{deserialize, serialize};
 use crate::transport::zeromq::{
@@ -10,7 +10,14 @@ use anyhow::bail;
 use log::{debug, info, warn};
 use std::str::from_utf8;
 
+#[inline]
+fn gen_system_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 pub struct Writer<R: MockSocketResponder, P: SocketProvider<R>> {
+    sender_seq_store: SeqStore,
+    system_id: String,
     context: Option<zmq::Context>,
     config: WriterConfig,
     socket: Option<Socket<R>>,
@@ -94,7 +101,19 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
             socket.connect(config.endpoint())?;
         }
 
+        let system_id = gen_system_id();
+        info!(
+            target: "savant_rs::zeromq::writer",
+            "ZMQ Writer bind={}/type={:?} system_id={} is started on endpoint {}",
+            config.bind(),
+            config.socket_type(),
+            system_id,
+            config.endpoint()
+        );
+
         Ok(Self {
+            sender_seq_store: SeqStore::new(),
+            system_id,
             context: Some(context),
             config: config.clone(),
             socket: Some(socket),
@@ -122,17 +141,59 @@ impl<R: MockSocketResponder, P: SocketProvider<R> + Default> Writer<R, P> {
         self.socket.is_some()
     }
 
-    pub fn send_eos(&mut self, topic: &str) -> anyhow::Result<WriterResult> {
-        let m = Message::end_of_stream(EndOfStream::new(topic.to_string()));
+    pub fn send_eos(&mut self, source_id: &str) -> anyhow::Result<WriterResult> {
+        self.send_eos_with_topic(source_id, source_id)
+    }
+
+    pub fn send_eos_with_topic(
+        &mut self,
+        topic: &str,
+        source_id: &str,
+    ) -> anyhow::Result<WriterResult> {
+        let mut m = Message::end_of_stream(EndOfStream::new(source_id));
+        m.meta.system_id = self.system_id.clone();
+        m.meta.seq_id = self
+            .sender_seq_store
+            .generate_message_seq_id(&self.system_id, source_id);
+        self.sender_seq_store
+            .reset_seq_id(&self.system_id, source_id);
         self.send(topic.as_bytes(), &m, &[])
     }
 
     pub fn send_message(
         &mut self,
         topic: &str,
-        m: &Message,
+        m: &mut Message,
         extra_parts: &[&[u8]],
     ) -> anyhow::Result<WriterResult> {
+        m.meta.system_id = self.system_id.clone();
+        match &m.payload {
+            MessageEnvelope::EndOfStream(eos) => {
+                m.meta.seq_id = self
+                    .sender_seq_store
+                    .generate_message_seq_id(&self.system_id, eos.get_source_id());
+                self.sender_seq_store
+                    .reset_seq_id(&self.system_id, eos.get_source_id());
+            }
+            MessageEnvelope::VideoFrame(vf) => {
+                m.meta.seq_id = self
+                    .sender_seq_store
+                    .generate_message_seq_id(&self.system_id, &vf.get_source_id());
+            }
+            MessageEnvelope::UserData(ud) => {
+                m.meta.seq_id = self
+                    .sender_seq_store
+                    .generate_message_seq_id(&self.system_id, ud.get_source_id());
+            }
+            MessageEnvelope::VideoFrameUpdate(_)
+            | MessageEnvelope::Shutdown(_)
+            | MessageEnvelope::Unknown(_)
+            | MessageEnvelope::VideoFrameBatch(_) => {
+                m.meta.seq_id = self
+                    .sender_seq_store
+                    .generate_message_seq_id(&self.system_id, AUX_SEQ_ID_KEY);
+            }
+        }
         self.send(topic.as_bytes(), m, extra_parts)
     }
 
@@ -301,8 +362,8 @@ mod tests {
                     .with_receive_retries(3)?
                     .build()?,
             )?;
-            let m = Message::video_frame(&gen_frame());
-            let res = writer.send_message("test", &m, &[b"abc"])?;
+            let mut m = Message::video_frame(&gen_frame());
+            let res = writer.send_message("test", &mut m, &[b"abc"])?;
             assert!(matches!(res, WriterResult::Ack {
                 receive_retries_spent,
                 send_retries_spent,
@@ -326,8 +387,8 @@ mod tests {
                     .with_receive_retries(3)?
                     .build()?,
             )?;
-            let m = Message::video_frame(&gen_frame());
-            let res = writer.send_message("test", &m, &[b"abc"])?;
+            let mut m = Message::video_frame(&gen_frame());
+            let res = writer.send_message("test", &mut m, &[b"abc"])?;
             assert!(matches!(res, WriterResult::Success {
                 retries_spent,
                 time_spent: _
