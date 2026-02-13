@@ -106,6 +106,7 @@ mod tests {
 
     #[test]
     fn test_validate() -> anyhow::Result<()> {
+        std::env::set_var("PYTHON_MODULE_ROOT", "assets/python");
         let _ = ServiceConfiguration::new("assets/configuration.json")?;
         Ok(())
     }

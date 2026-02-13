@@ -5,3 +5,9 @@ sh rustup.sh -y
 source $HOME/.cargo/env
 rustup update
 rustc -V
+
+pip install --no-cache-dir \
+    skia-python \
+    maturin \
+    virtualenv \
+    ruff

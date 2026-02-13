@@ -54,4 +54,6 @@ html_theme_options = {
     "titles_only": False,
 }
 
+autosectionlabel_prefix_document = True
+
 suppress_warnings = ["toc.duplicate_entry"]

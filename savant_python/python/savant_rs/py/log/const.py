@@ -1,2 +1,2 @@
-LOGGING_PREFIX = 'insight.savant'
-DEFAULT_LOGLEVEL = 'info'
+LOGGING_PREFIX = "insight.savant"
+DEFAULT_LOGLEVEL = "info"

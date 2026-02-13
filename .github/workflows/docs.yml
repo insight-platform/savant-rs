@@ -40,14 +40,14 @@ jobs:
       - name: Build docs
         uses: docker/build-push-action@v5
         with:
-          file: docker/Dockerfile.docs
+          file: docker/Dockerfile.savant
           tags: savant-rs-docs
           push: false
           load: true
           context: .
 
       - name: Copy docs
-        run: docker run --rm -v $(pwd)/docs:/tmp savant-rs-docs cp -R /opt/docs-artifact.tar /tmp
+        run: docker run --rm --entrypoint cp -v $(pwd)/docs:/tmp savant-rs-docs /opt/docs-artifact.tar /tmp
 
 
       - name: Upload artifact

@@ -9,14 +9,16 @@ fn bbox_benchmarks(c: &mut Criterion) {
     group.bench_function("scale_90", |b| {
         let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(0.0));
         b.iter(|| {
-            black_box(bb1.clone().scale(black_box(0.9), black_box(0.7)));
+            bb1.clone().scale(black_box(0.9), black_box(0.7));
+            black_box(());
         })
     });
 
     group.bench_function("scale_generic", |b| {
         let bb1 = RBBox::new(0.0, 0.0, 10.0, 20.0, Some(35.0));
         b.iter(|| {
-            black_box(bb1.clone().scale(black_box(0.9), black_box(0.7)));
+            bb1.clone().scale(black_box(0.9), black_box(0.7));
+            black_box(());
         })
     });
 

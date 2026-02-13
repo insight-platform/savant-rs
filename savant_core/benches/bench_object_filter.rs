@@ -14,20 +14,15 @@ const COUNT: i64 = 100;
 
 fn get_objects() -> Vec<VideoObject> {
     (0..COUNT)
-        .into_iter()
         .map(|i| {
             let mut o = VideoObjectBuilder::default()
                 .namespace(format!("created_by_{i}"))
                 .label(format!("label_{i}"))
                 .id(i)
                 .confidence(Some(0.53))
-                .detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None).try_into().unwrap())
+                .detection_box(RBBox::new(0.0, 0.0, 1.0, 1.0, None))
                 .track_id(Some(i))
-                .track_box(Some(
-                    RBBox::new(10.0, 20.0, 21.0, 231.0, None)
-                        .try_into()
-                        .unwrap(),
-                ))
+                .track_box(Some(RBBox::new(10.0, 20.0, 21.0, 231.0, None)))
                 .build()
                 .unwrap();
             o.set_attribute(Attribute::persistent(

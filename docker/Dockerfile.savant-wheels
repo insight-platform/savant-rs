@@ -1,0 +1,45 @@
+FROM ghcr.io/insight-platform/savant_rust:v1.6.0 AS builder
+
+RUN apt-get update && apt-get install -y clang build-essential \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    ninja-build \
+    libgl-dev \
+    libegl-dev \
+    libfontconfig-dev \
+    fonts-dejavu-core
+
+# On arm64 (Jetson) images the DeepStream .so files under
+# /opt/nvidia/deepstream/deepstream/lib/ are symlinks into
+# /usr/lib/aarch64-linux-gnu/nvidia/ which does not ship the actual
+# libs (they come from the host BSP at runtime).  Create minimal stub
+# shared libraries so that the linker can succeed during the build.
+RUN set -e; \
+    for lib in /opt/nvidia/deepstream/deepstream/lib/*.so; do \
+        [ -L "$lib" ] && [ ! -e "$lib" ] && { \
+            target="$(readlink "$lib")"; \
+            mkdir -p "$(dirname "$target")"; \
+            echo "void __stub(void){}" | cc -shared -o "$target" -x c -; \
+            echo "created stub for $lib -> $target"; \
+        }; \
+    done; \
+    ldconfig; \
+    true
+
+RUN --mount=type=bind,source=.,target=/opt/savant-rs \
+    pip install -r /opt/savant-rs/requirements.txt
+
+# add rust path to PATH
+ENV PATH="/root/.cargo/bin:$PATH"
+ENV CARGO_TARGET_DIR=/tmp/build
+
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/tmp/build \
+    --mount=type=bind,rw,source=.,target=/opt/savant-rs \
+    cd /opt/savant-rs && \
+    make gst-release ds-nvbuf-release ds-enc-release && \
+    mkdir -p /opt/dist && \
+    cp dist/*.whl /opt/dist/
+
+FROM alpine:3.18 AS dist
+COPY --from=builder /opt/dist /opt/dist

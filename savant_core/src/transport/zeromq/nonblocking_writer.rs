@@ -123,10 +123,10 @@ impl NonBlockingWriter {
                     break;
                 }
                 match command {
-                    Command::Message(topic, message, payload, resp_channel) => {
+                    Command::Message(topic, mut message, payload, resp_channel) => {
                         let _ = resp_channel.send(writer.send_message(
                             &topic,
-                            &message,
+                            &mut message,
                             &payload.iter().map(|e| e.as_slice()).collect::<Vec<_>>(),
                         ));
                     }
@@ -142,14 +142,33 @@ impl NonBlockingWriter {
         Ok(())
     }
 
-    pub fn send_eos(&self, topic: &str) -> anyhow::Result<WriteOperationResult> {
+    pub fn send_eos(&self, source_id: &str) -> anyhow::Result<WriteOperationResult> {
+        if !self.is_started() {
+            anyhow::bail!("Writer is not started.");
+        }
+        let (resp_sender, resp_receiver) = crossbeam::channel::bounded(1);
+        self.ops_queue.as_ref().unwrap().send(Command::Message(
+            source_id.to_string(),
+            Box::new(Message::end_of_stream(EndOfStream::new(source_id))),
+            vec![],
+            resp_sender,
+        ))?;
+
+        Ok(WriteOperationResult(Some(resp_receiver)))
+    }
+
+    pub fn send_eos_with_topic(
+        &self,
+        topic: &str,
+        source_id: &str,
+    ) -> anyhow::Result<WriteOperationResult> {
         if !self.is_started() {
             anyhow::bail!("Writer is not started.");
         }
         let (resp_sender, resp_receiver) = crossbeam::channel::bounded(1);
         self.ops_queue.as_ref().unwrap().send(Command::Message(
             topic.to_string(),
-            Box::new(Message::end_of_stream(EndOfStream::new(topic.to_string()))),
+            Box::new(Message::end_of_stream(EndOfStream::new(source_id))),
             vec![],
             resp_sender,
         ))?;

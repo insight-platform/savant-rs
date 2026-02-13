@@ -704,7 +704,7 @@ mod tests {
     async fn test_read_message() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let f0 = gen_properly_filled_frame(true);
+        let f0 = gen_properly_filled_frame(true)?;
         let f0_uuid = f0.get_uuid();
         let store = MockStore {
             current_index: 0,
@@ -714,7 +714,11 @@ mod tests {
                     Duration::from_millis(10),
                 ),
                 (
-                    Some((gen_properly_filled_frame(true).to_message(), vec![], vec![])),
+                    Some((
+                        gen_properly_filled_frame(true)?.to_message(),
+                        vec![],
+                        vec![],
+                    )),
                     Duration::from_millis(100),
                 ),
                 (None, Duration::from_millis(1)),
@@ -755,7 +759,7 @@ mod tests {
     async fn test_read_no_data() -> Result<()> {
         let (r, w) = get_channel().await?;
 
-        let f0 = gen_properly_filled_frame(true);
+        let f0 = gen_properly_filled_frame(true)?;
         let f0_uuid = f0.get_uuid();
         let store = MockStore {
             current_index: 0,
@@ -832,7 +836,7 @@ mod tests {
             None,
         )?;
 
-        let m = job.prepare_message(gen_properly_filled_frame(true).to_message())?;
+        let m = job.prepare_message(gen_properly_filled_frame(true)?.to_message())?;
         assert!(m.is_some());
         let m = m.unwrap();
         assert_eq!(
@@ -841,9 +845,7 @@ mod tests {
         );
         let m = m.as_video_frame().unwrap();
         assert_eq!(m.get_source_id(), "resulting_id".to_string());
-        let m = job.prepare_message(Message::end_of_stream(EndOfStream::new(
-            "source_id".to_string(),
-        )))?;
+        let m = job.prepare_message(Message::end_of_stream(EndOfStream::new("source_id")))?;
         assert!(m.is_some());
         let m = m.unwrap();
         assert_eq!(
@@ -888,14 +890,12 @@ mod tests {
             None,
         )?;
 
-        let m = job.prepare_message(gen_properly_filled_frame(true).to_message())?;
+        let m = job.prepare_message(gen_properly_filled_frame(true)?.to_message())?;
         assert!(m.is_some());
         let m = m.unwrap().as_video_frame().unwrap();
         assert_eq!(m.get_source_id(), "resulting_id".to_string());
 
-        let m = job.prepare_message(Message::end_of_stream(EndOfStream::new(
-            "source_id".to_string(),
-        )))?;
+        let m = job.prepare_message(Message::end_of_stream(EndOfStream::new("source_id")))?;
         assert!(m.is_none());
 
         drop(job);
@@ -932,17 +932,17 @@ mod tests {
             None,
         )?;
 
-        let eos = Message::end_of_stream(EndOfStream::new("source_id".to_string()));
+        let eos = Message::end_of_stream(EndOfStream::new("source_id"));
         let res = job.check_ts_decrease(&eos)?;
         assert_eq!(res, false);
 
-        let first = gen_properly_filled_frame(true).to_message();
+        let first = gen_properly_filled_frame(true)?.to_message();
 
         tokio_timerfd::sleep(Duration::from_millis(1)).await?;
-        let second = gen_properly_filled_frame(true).to_message();
+        let second = gen_properly_filled_frame(true)?.to_message();
 
         tokio_timerfd::sleep(Duration::from_millis(1)).await?;
-        let third = gen_properly_filled_frame(true).to_message();
+        let third = gen_properly_filled_frame(true)?.to_message();
 
         let res = job.check_ts_decrease(&first)?;
         assert_eq!(res, false);
@@ -987,10 +987,10 @@ mod tests {
             None,
         )?;
 
-        let first = gen_properly_filled_frame(true).to_message();
+        let first = gen_properly_filled_frame(true)?.to_message();
 
         tokio_timerfd::sleep(Duration::from_millis(1)).await?;
-        let second = gen_properly_filled_frame(true).to_message();
+        let second = gen_properly_filled_frame(true)?.to_message();
 
         let res = job.check_ts_decrease(&second)?;
         assert_eq!(res, false);
@@ -1094,9 +1094,9 @@ mod tests {
         let (r, w) = get_channel().await?;
 
         let frames = vec![
-            gen_properly_filled_frame(true),
-            gen_properly_filled_frame(true),
-            gen_properly_filled_frame(true),
+            gen_properly_filled_frame(true)?,
+            gen_properly_filled_frame(true)?,
+            gen_properly_filled_frame(true)?,
         ];
 
         let store = MockStore {
@@ -1157,7 +1157,7 @@ mod tests {
         let mut frames = vec![];
         let n = 20;
         for _ in 0..n {
-            let f = gen_properly_filled_frame(true);
+            let f = gen_properly_filled_frame(true)?;
             frames.push(f);
             tokio_timerfd::sleep(Duration::from_millis(30)).await?;
         }
@@ -1237,7 +1237,7 @@ mod tests {
             messages: vec![
                 (
                     {
-                        let f = gen_properly_filled_frame(true);
+                        let f = gen_properly_filled_frame(true)?;
                         first_uuid = f.get_uuid();
                         Some((f.to_message(), vec![], vec![]))
                     },
@@ -1245,19 +1245,23 @@ mod tests {
                 ),
                 (
                     Some((
-                        Message::end_of_stream(EndOfStream::new("source_id".to_string())),
+                        Message::end_of_stream(EndOfStream::new("source_id")),
                         vec![],
                         vec![],
                     )),
                     Duration::from_millis(0),
                 ),
                 (
-                    Some((gen_properly_filled_frame(true).to_message(), vec![], vec![])),
+                    Some((
+                        gen_properly_filled_frame(true)?.to_message(),
+                        vec![],
+                        vec![],
+                    )),
                     Duration::from_millis(0),
                 ),
                 (
                     Some((
-                        Message::end_of_stream(EndOfStream::new("source_id".to_string())),
+                        Message::end_of_stream(EndOfStream::new("source_id")),
                         vec![],
                         vec![],
                     )),
@@ -1266,7 +1270,7 @@ mod tests {
                 (
                     Some((
                         {
-                            let f = gen_properly_filled_frame(true);
+                            let f = gen_properly_filled_frame(true)?;
                             last_uuid = f.get_uuid_u128();
                             f
                         }
@@ -1332,7 +1336,7 @@ mod tests {
 
         let n = 20;
         for _ in 0..n {
-            let f = gen_properly_filled_frame(true);
+            let f = gen_properly_filled_frame(true)?;
             frames.push(f);
             tokio_timerfd::sleep(Duration::from_millis(10)).await?;
         }
@@ -1406,7 +1410,7 @@ mod tests {
 
         let n = 20;
         for _ in 0..n {
-            let f = gen_properly_filled_frame(true);
+            let f = gen_properly_filled_frame(true)?;
             frames.push(f);
             tokio_timerfd::sleep(Duration::from_millis(30)).await?;
         }
@@ -1491,9 +1495,9 @@ mod tests {
         let (r, w) = get_channel().await?;
 
         let frames = vec![
-            gen_properly_filled_frame(true),
-            gen_properly_filled_frame(true),
-            gen_properly_filled_frame(true),
+            gen_properly_filled_frame(true)?,
+            gen_properly_filled_frame(true)?,
+            gen_properly_filled_frame(true)?,
         ];
 
         let store = MockStore {
@@ -1613,8 +1617,8 @@ mod tests {
     async fn test_future_message() -> Result<()> {
         let (_, w) = get_channel().await?;
 
-        let first_frame = gen_properly_filled_frame(true);
-        let last_frame = gen_properly_filled_frame(true);
+        let first_frame = gen_properly_filled_frame(true)?;
+        let last_frame = gen_properly_filled_frame(true)?;
         let store = MockStore {
             current_index: 0,
             messages: vec![

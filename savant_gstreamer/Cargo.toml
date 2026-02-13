@@ -3,7 +3,7 @@ name = "savant_gstreamer"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "GStreamer utilities for Savant — buffer helpers, MP4 muxer, and Python bindings"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -13,11 +13,30 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 anyhow = { workspace = true }
 gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
 lazy_static = { workspace = true }
+log = { workspace = true }
 parking_lot = { workspace = true }
+thiserror = { workspace = true }
+pyo3 = { workspace = true, optional = true }
 
+[build-dependencies]
+pyo3-build-config = { workspace = true }
+
+[features]
+default = []
+python = ["pyo3"]
+# Enable the #[pymodule] init function. Only used when building savant_gstreamer
+# as its own cdylib (via maturin). Downstream crates that depend on
+# savant_gstreamer should enable "python" only — not "pymodule_init" — to
+# avoid duplicate PyInit__native symbols.
+pymodule_init = ["python"]
+
+[dev-dependencies]
+env_logger = "0.11"

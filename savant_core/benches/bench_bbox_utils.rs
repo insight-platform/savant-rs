@@ -29,11 +29,11 @@ fn bench_solely_owned_areas_criterion(c: &mut Criterion) {
     let mut group = c.benchmark_group("solely_owned_areas");
 
     for &bbox_count in &[10, 20, 50] {
-        group.bench_function(&format!("seq_{:03}", bbox_count), |b| {
+        group.bench_function(format!("seq_{:03}", bbox_count), |b| {
             b.iter(|| bench_solely_owned_areas(black_box(bbox_count), black_box(false)))
         });
 
-        group.bench_function(&format!("par_{:03}", bbox_count), |b| {
+        group.bench_function(format!("par_{:03}", bbox_count), |b| {
             b.iter(|| bench_solely_owned_areas(black_box(bbox_count), black_box(true)))
         });
     }

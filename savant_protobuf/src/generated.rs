@@ -422,6 +422,8 @@ pub struct Message {
     >,
     #[prost(uint64, tag = "4")]
     pub seq_id: u64,
+    #[prost(string, tag = "20")]
+    pub system_id: ::prost::alloc::string::String,
     #[prost(oneof = "message::Content", tags = "5, 6, 7, 8, 9, 10, 11")]
     pub content: ::core::option::Option<message::Content>,
 }

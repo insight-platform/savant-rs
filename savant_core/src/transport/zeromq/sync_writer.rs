@@ -12,15 +12,24 @@ impl SyncWriter {
         Ok(Self(Arc::new(Mutex::new(Writer::new(config)?))))
     }
 
-    pub fn send_eos(&self, topic: &str) -> anyhow::Result<WriterResult> {
+    pub fn send_eos(&self, source_id: &str) -> anyhow::Result<WriterResult> {
         let mut writer = self.0.lock();
-        writer.send_eos(topic)
+        writer.send_eos(source_id)
+    }
+
+    pub fn send_eos_with_topic(
+        &self,
+        topic: &str,
+        source_id: &str,
+    ) -> anyhow::Result<WriterResult> {
+        let mut writer = self.0.lock();
+        writer.send_eos_with_topic(topic, source_id)
     }
 
     pub fn send_message(
         &self,
         topic: &str,
-        message: &crate::message::Message,
+        message: &mut crate::message::Message,
         data: &[&[u8]],
     ) -> anyhow::Result<WriterResult> {
         let mut writer = self.0.lock();

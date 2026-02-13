@@ -8,11 +8,11 @@ from .log_provider import LogProvider
 from .log_provider.jaeger import JaegerLogProvider
 
 __all__ = [
-    'SinkBuilder',
-    'SourceBuilder',
-    'LogProvider',
-    'FrameSource',
-    'JaegerLogProvider',
-    'JpegSource',
-    'PngSource',
+    "SinkBuilder",
+    "SourceBuilder",
+    "LogProvider",
+    "FrameSource",
+    "JaegerLogProvider",
+    "JpegSource",
+    "PngSource",
 ]
