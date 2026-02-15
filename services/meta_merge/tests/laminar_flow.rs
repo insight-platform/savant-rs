@@ -69,24 +69,30 @@ fn laminar_flow_test() -> Result<()> {
     let mut writer_a = start_source_writer(&ingress_ipc_a)?;
     let mut writer_b = start_source_writer(&ingress_ipc_b)?;
 
-    let frames: Vec<Message> = (0..num_frames)
-        .map(|_| Message::video_frame(&gen_frame()))
-        .collect();
+    // Each route carries its own label; the merge handler is expected to
+    // accumulate labels from both routes into the current state.
+    let base_frames: Vec<_> = (0..num_frames).map(|_| gen_frame()).collect();
 
-    for (i, msg) in frames.iter().enumerate() {
+    for (i, frame) in base_frames.iter().enumerate() {
+        let mut msg_a = Message::video_frame(frame);
+        msg_a.set_labels(vec!["route_a".into()]);
+
+        let mut msg_b = Message::video_frame(frame);
+        msg_b.set_labels(vec!["route_b".into()]);
+
         let delay_a = pseudo_delay(i as u64 * 2, jitter_window);
         let delay_b = pseudo_delay(i as u64 * 2 + 1, jitter_window);
 
         if delay_a <= delay_b {
             thread::sleep(delay_a);
-            writer_a.send_message("test", msg, &[])?.get()?;
+            writer_a.send_message("test", &msg_a, &[])?.get()?;
             thread::sleep(delay_b - delay_a);
-            writer_b.send_message("test", msg, &[])?.get()?;
+            writer_b.send_message("test", &msg_b, &[])?.get()?;
         } else {
             thread::sleep(delay_b);
-            writer_b.send_message("test", msg, &[])?.get()?;
+            writer_b.send_message("test", &msg_b, &[])?.get()?;
             thread::sleep(delay_a - delay_b);
-            writer_a.send_message("test", msg, &[])?.get()?;
+            writer_a.send_message("test", &msg_a, &[])?.get()?;
         }
     }
 
@@ -132,6 +138,18 @@ fn laminar_flow_test() -> Result<()> {
                     assert!(
                         f.get_attribute("merge", "second_ingress").is_some(),
                         "Frame should have (merge, second_ingress)"
+                    );
+
+                    let labels = message.get_labels();
+                    assert!(
+                        labels.contains(&"route_a".to_string()),
+                        "Outbound frame should carry label 'route_a', got {:?}",
+                        labels
+                    );
+                    assert!(
+                        labels.contains(&"route_b".to_string()),
+                        "Outbound frame should carry label 'route_b', got {:?}",
+                        labels
                     );
 
                     frames_at_dest += 1;
