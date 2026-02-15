@@ -1,13 +1,11 @@
 use anyhow::{anyhow, Result};
 use log::{debug, info};
 use meta_merge::configuration::ServiceConfiguration;
-use meta_merge::egress::{egress::Egress, processor::EgressProcessor};
-use meta_merge::ingress::Ingress;
+use meta_merge::run_service_loop;
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyDict, PyList, PyListMethods, PyModule},
     PyResult, Python,
 };
-use savant_core::transport::zeromq::NonBlockingWriter;
 use savant_core_py::logging::LogLevel;
 use std::env::args;
 
@@ -83,45 +81,5 @@ fn main() -> Result<()> {
         ));
     }
 
-    let mut ingress = Ingress::new(&conf)?;
-
-    // Create egress buffer and writer
-    let buffer = Egress::new(conf.common.queue.max_duration);
-    let writer = NonBlockingWriter::try_from(&conf.egress.socket)?;
-    let mut processor = EgressProcessor::new(buffer, conf.common.callbacks.clone(), writer);
-
-    loop {
-        let messages = ingress.get()?;
-        if messages.is_empty() {
-            // Even when idle, poll for expired heads
-            processor.send_ready()?;
-            std::thread::sleep(conf.common.idle_sleep);
-            debug!(
-                "No messages received, sleeping for {:?}",
-                conf.common.idle_sleep
-            );
-            continue;
-        }
-        for ingress_message in messages {
-            let topic = &ingress_message.topic;
-            let message = ingress_message.message;
-            let data = ingress_message.data;
-            let ingress_name = &ingress_message.ingress_name;
-
-            if message.is_video_frame() {
-                let frame_proxy = message.as_video_frame().unwrap();
-                let frame = savant_core_py::primitives::frame::VideoFrame(frame_proxy);
-                let labels = message.get_labels();
-                processor.process_frame(ingress_name, topic, frame, data, labels)?;
-            } else if message.is_end_of_stream() {
-                let eos = message.as_end_of_stream().unwrap();
-                let source_id = eos.get_source_id().to_string();
-                let labels = message.get_labels();
-                processor.process_eos(source_id, data, labels)?;
-            }
-        }
-
-        // After processing all messages, send any ready heads
-        processor.send_ready()?;
-    }
+    run_service_loop(&conf, None)
 }

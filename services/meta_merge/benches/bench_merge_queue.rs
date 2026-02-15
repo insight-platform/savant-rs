@@ -92,11 +92,14 @@ fn bench_push_and_fetch(c: &mut Criterion) {
                         let labels = PyList::empty(py);
                         let frame = gen_frame();
                         let uuid = frame.0.get_uuid();
-                        if let Ok(_) = queue.push_frame(
-                            black_box(frame),
-                            black_box(py_data.unbind()),
-                            black_box(labels.unbind()),
-                        ) {
+                        if queue
+                            .push_frame(
+                                black_box(frame),
+                                black_box(py_data.unbind()),
+                                black_box(labels.unbind()),
+                            )
+                            .is_ok()
+                        {
                             uuids.push(uuid);
                         }
                         if let Ok((_, _eos, _reason)) = black_box(queue.fetch_head()) {

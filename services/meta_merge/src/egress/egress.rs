@@ -83,10 +83,10 @@ impl Egress {
         })
     }
 
-    pub fn take_frame(&mut self, source_id: String, uuid: Uuid) -> Result<EgressItem, EgressError> {
+    pub fn take_frame(&mut self, source_id: &str, uuid: Uuid) -> Result<EgressItem, EgressError> {
         let queue = self
             .queues
-            .entry(source_id)
+            .entry(source_id.to_string())
             .or_insert(MergeQueue::new(self.max_duration));
         let item = queue
             .take_frame(uuid)
@@ -94,19 +94,19 @@ impl Egress {
         Ok(item)
     }
 
-    pub fn put_frame(&mut self, source_id: String, item: EgressItem) -> Result<(), EgressError> {
+    pub fn put_frame(&mut self, source_id: &str, item: EgressItem) -> Result<(), EgressError> {
         let queue = self
             .queues
-            .entry(source_id)
+            .entry(source_id.to_string())
             .or_insert(MergeQueue::new(self.max_duration));
         queue.put_frame(item).map_err(EgressError::PutFrameError)?;
         Ok(())
     }
 
-    pub fn set_frame_ready(&mut self, source_id: String, uuid: Uuid) -> anyhow::Result<()> {
+    pub fn set_frame_ready(&mut self, source_id: &str, uuid: Uuid) -> anyhow::Result<()> {
         let queue = self
             .queues
-            .entry(source_id)
+            .entry(source_id.to_string())
             .or_insert(MergeQueue::new(self.max_duration));
         queue.set_frame_ready(uuid)?;
         Ok(())

@@ -116,6 +116,23 @@ impl Default for EgressItem {
 }
 
 impl EgressItem {
+    pub fn new_frame_rust_types(
+        frame: VideoFrame,
+        data: Vec<Vec<u8>>,
+        labels: Vec<String>,
+        py: Python<'_>,
+    ) -> PyResult<Self> {
+        let data = PyList::new(py, data)?.unbind();
+        let labels = PyList::new(py, labels)?.unbind();
+        Ok(Self {
+            uuid: Some(frame.0.get_uuid()),
+            message: EgressMessage::VideoFrame(frame),
+            data,
+            labels,
+            ..Default::default()
+        })
+    }
+
     pub fn new_frame(frame: VideoFrame, data: Py<PyList>, labels: Py<PyList>) -> Self {
         Self {
             uuid: Some(frame.0.get_uuid()),
@@ -153,8 +170,8 @@ impl EgressItem {
         }
     }
 
-    pub fn to_py(&self) -> PyResult<Py<EgressItemPy>> {
-        Python::attach(|py| match &self.message {
+    pub fn to_py(&self, py: Python<'_>) -> PyResult<Py<EgressItemPy>> {
+        match &self.message {
             EgressMessage::VideoFrame(frame) => Py::new(
                 py,
                 EgressItemPy {
@@ -167,7 +184,7 @@ impl EgressItem {
             _ => Err(PyValueError::new_err(
                 "Invalid message type, the operation is supported only for video frames",
             )),
-        })
+        }
     }
 
     /// Update this EgressItem in-place from a modified EgressItemPy (after Python callback).
@@ -384,7 +401,7 @@ mod tests {
             let mut item = EgressItem::new_frame(frame.clone(), data, labels);
 
             // Convert to py
-            let py_item = item.to_py()?;
+            let py_item = item.to_py(py)?;
             let py_item_bound = py_item.bind(py);
 
             // Modify through Python interface
@@ -406,7 +423,7 @@ mod tests {
 
             // EOS should fail to_py
             let eos = EgressItem::new_eos(PyList::empty(py).unbind(), PyList::empty(py).unbind());
-            assert!(eos.to_py().is_err());
+            assert!(eos.to_py(py).is_err());
 
             Ok::<(), anyhow::Error>(())
         })
