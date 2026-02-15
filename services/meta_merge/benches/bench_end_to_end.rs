@@ -36,6 +36,42 @@ fn now_nanos() -> i64 {
         .as_nanos() as i64
 }
 
+fn get_int_attr(f: &VideoFrameProxy, namespace: &str, name: &str) -> i64 {
+    let attr = f
+        .get_attribute(namespace, name)
+        .unwrap_or_else(|| panic!("missing ({}, {})", namespace, name));
+    match attr.values.as_ref()[0].get() {
+        AttributeValueVariant::Integer(n) => *n,
+        other => panic!(
+            "expected integer for ({}, {}), got {:?}",
+            namespace, name, other
+        ),
+    }
+}
+
+fn print_timing_stats(label: &str, nanos: &[i64]) {
+    let mut sorted = nanos.to_vec();
+    sorted.sort();
+    let n = sorted.len();
+    let sum: i64 = sorted.iter().sum();
+    let mean = sum / n as i64;
+    let p50 = sorted[n / 2];
+    let p95 = sorted[n * 95 / 100];
+    let p99 = sorted[n * 99 / 100];
+    let min = sorted[0];
+    let max = sorted[n - 1];
+    println!(
+        "  {}: min={:.1}µs mean={:.1}µs p50={:.1}µs p95={:.1}µs p99={:.1}µs max={:.1}µs",
+        label,
+        min as f64 / 1000.0,
+        mean as f64 / 1000.0,
+        p50 as f64 / 1000.0,
+        p95 as f64 / 1000.0,
+        p99 as f64 / 1000.0,
+        max as f64 / 1000.0,
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Minimal PyO3 handlers with timestamp instrumentation
 // ═══════════════════════════════════════════════════════════════════════════
@@ -380,6 +416,78 @@ fn bench_end_to_end(c: &mut Criterion) {
     });
 
     group.finish();
+
+    // ── Profiling pass: per-stage latency breakdown ────────────────────
+    #[derive(Debug)]
+    struct FrameTiming {
+        ingress_ns: i64,
+        process_ns: i64,
+        egress_ns: i64,
+        total_ns: i64,
+    }
+
+    let timings = Arc::new(std::sync::Mutex::new(Vec::with_capacity(
+        NUM_FRAMES as usize,
+    )));
+
+    let sw = source_writer.clone();
+    let send_handle = thread::spawn(move || sender_loop(&sw, NUM_FRAMES));
+
+    let dr = dest_reader.clone();
+    let tm = timings.clone();
+    let recv_handle = thread::spawn(move || {
+        let mut received = 0u32;
+        while received < NUM_FRAMES {
+            match dr.receive() {
+                Ok(ReaderResult::Message { message, .. }) if message.is_video_frame() => {
+                    let t_recv = now_nanos();
+                    let f = message.as_video_frame().unwrap();
+                    let t_send = get_int_attr(&f, "bench", "t_send");
+                    let t_merge = get_int_attr(&f, "bench", "t_merge");
+                    let t_ready = get_int_attr(&f, "bench", "t_ready");
+                    tm.lock().unwrap().push(FrameTiming {
+                        ingress_ns: t_merge - t_send,
+                        process_ns: t_ready - t_merge,
+                        egress_ns: t_recv - t_ready,
+                        total_ns: t_recv - t_send,
+                    });
+                    received += 1;
+                }
+                Ok(_) => {}
+                Err(e) => panic!("profiling receive error: {}", e),
+            }
+        }
+    });
+
+    send_handle.join().unwrap();
+    recv_handle.join().unwrap();
+
+    let timings = Arc::try_unwrap(timings).unwrap().into_inner().unwrap();
+    let total_wall: Duration = timings
+        .iter()
+        .map(|t| Duration::from_nanos(t.total_ns as u64))
+        .sum();
+    let rps = timings.len() as f64 / total_wall.as_secs_f64();
+
+    println!();
+    println!("=== Profiling pass ({} frames) ===", NUM_FRAMES);
+    print_timing_stats(
+        "Ingress (send→merge)",
+        &timings.iter().map(|t| t.ingress_ns).collect::<Vec<_>>(),
+    );
+    print_timing_stats(
+        "Process (merge→ready)",
+        &timings.iter().map(|t| t.process_ns).collect::<Vec<_>>(),
+    );
+    print_timing_stats(
+        "Egress  (ready→recv)",
+        &timings.iter().map(|t| t.egress_ns).collect::<Vec<_>>(),
+    );
+    print_timing_stats(
+        "Total   (send→recv) ",
+        &timings.iter().map(|t| t.total_ns).collect::<Vec<_>>(),
+    );
+    println!("  Effective RPS: {:.0}", rps);
 
     // ── Cleanup ────────────────────────────────────────────────────────
     shutdown.store(true, Ordering::SeqCst);

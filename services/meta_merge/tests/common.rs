@@ -99,12 +99,31 @@ impl TwoStreamMergeHandler {
         current_state: Bound<'_, PyAny>,
         incoming_state: Option<Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
-        use savant_core::primitives::attribute_value::AttributeValue;
+        use savant_core::primitives::attribute_value::{AttributeValue, AttributeValueVariant};
 
         let mut vf: savant_core_py::primitives::frame::VideoFrame =
             current_state.getattr("video_frame")?.extract()?;
 
         if incoming_state.is_some() {
+            // Verify state from the first merge call persisted on current_state
+            let mc =
+                vf.0.get_attribute("merge", "merge_count")
+                    .expect("(merge, merge_count) must persist from first merge call");
+            match mc.values.as_ref()[0].get() {
+                AttributeValueVariant::Integer(n) => {
+                    assert_eq!(
+                        *n, 1,
+                        "merge_count should be 1 before second merge, got {}",
+                        n
+                    );
+                }
+                other => panic!("merge_count should be Integer, got {:?}", other),
+            }
+            assert!(
+                vf.0.get_attribute("merge", "first_ingress").is_some(),
+                "(merge, first_ingress) must persist from first merge call"
+            );
+
             vf.0.set_persistent_attribute(
                 "merge",
                 "merge_count",

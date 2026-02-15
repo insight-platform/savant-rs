@@ -14,3 +14,4 @@ Savant Rust Components
    services/retina_rtsp/index
    services/router/index
    services/buffer_ng/index
+   services/meta_merge/index
