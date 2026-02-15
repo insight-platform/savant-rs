@@ -3,14 +3,14 @@ use crate::{
     egress::{
         egress::{Egress, EgressError},
         merge_queue::{HeadReadyReason, MergeQueueError},
-        payload::{EgressItem, EgressItemPy},
+        payload::{EgressItem, EgressMessage},
     },
 };
 use anyhow::Result;
 use log::{debug, info, warn};
 use pyo3::{
     types::{PyAnyMethods, PyBool, PyListMethods, PyNone},
-    Py, Python,
+    Python,
 };
 use savant_core::{message::Message, transport::zeromq::NonBlockingWriter};
 use savant_core_py::primitives::frame::VideoFrame;
@@ -52,7 +52,7 @@ impl EgressProcessor {
         let uuid = frame.0.get_uuid();
 
         // Try to take an existing frame with the same UUID from the buffer
-        let take_result = self.buffer.take_frame(source_id.clone(), uuid);
+        let take_result = self.buffer.take_frame(&source_id, uuid);
         match take_result {
             Ok(mut current_item) => {
                 // Frame exists -- call the merge handler
@@ -67,11 +67,11 @@ impl EgressProcessor {
 
                 // Put the (possibly modified) frame back into the buffer
                 self.buffer
-                    .put_frame(source_id.clone(), current_item)
+                    .put_frame(&source_id, current_item)
                     .map_err(|e| anyhow::anyhow!("Failed to put frame back: {}", e))?;
 
                 if ready {
-                    self.buffer.set_frame_ready(source_id, uuid)?;
+                    self.buffer.set_frame_ready(&source_id, uuid)?;
                 }
             }
             Err(EgressError::TakeFrameError(MergeQueueError::ItemNotFound(_))) => {
@@ -83,10 +83,8 @@ impl EgressProcessor {
                     Ok(()) => {
                         // First arrival: call merge with None as incoming to let
                         // the handler initialise the frame state.
-                        let mut first_item = self
-                            .buffer
-                            .take_frame(source_id.clone(), uuid)
-                            .map_err(|e| {
+                        let mut first_item =
+                            self.buffer.take_frame(&source_id, uuid).map_err(|e| {
                                 anyhow::anyhow!("Failed to take just-pushed frame: {}", e)
                             })?;
 
@@ -100,11 +98,11 @@ impl EgressProcessor {
                         )?;
 
                         self.buffer
-                            .put_frame(source_id.clone(), first_item)
+                            .put_frame(&source_id, first_item)
                             .map_err(|e| anyhow::anyhow!("Failed to put frame back: {}", e))?;
 
                         if ready {
-                            self.buffer.set_frame_ready(source_id, uuid)?;
+                            self.buffer.set_frame_ready(&source_id, uuid)?;
                         }
                     }
                     Err(EgressError::PushFrameError(MergeQueueError::LateFrame(late_uuid))) => {
@@ -124,19 +122,32 @@ impl EgressProcessor {
     }
 
     /// Process an incoming EOS message.
+    ///
+    /// If there are frames still in the queue for this source, the EOS is
+    /// attached to the last one and will be delivered when that frame is sent.
+    /// If the queue is already empty (all frames have been sent), the EOS is
+    /// forwarded immediately to the egress socket.
     pub fn process_eos(
         &mut self,
         source_id: String,
         data: Vec<Vec<u8>>,
         labels: Vec<String>,
     ) -> Result<()> {
-        match self.buffer.push_eos(source_id, data, labels) {
+        match self.buffer.push_eos(source_id.clone(), data, labels) {
             Ok(()) => Ok(()),
             Err(EgressError::PushEosError(MergeQueueError::QueueIsEmpty)) => {
                 debug!(
                     target: "meta_merge::processor",
-                    "EOS received but queue is empty, ignoring"
+                    "EOS received but queue is empty for source {}, forwarding immediately",
+                    source_id
                 );
+                self.writer.send_eos(&source_id).map_err(|e| {
+                    anyhow::anyhow!(
+                        "Failed to send EOS for source {}: {}",
+                        source_id,
+                        e
+                    )
+                })?;
                 Ok(())
             }
             Err(e) => Err(e.into()),
@@ -197,29 +208,19 @@ impl EgressProcessor {
         incoming_labels: Vec<String>,
     ) -> Result<bool> {
         let handler_name = self.handlers.on_merge.clone();
-        let current_py = current_item.to_py()?;
-
-        let incoming_py: Option<Py<EgressItemPy>> = match incoming_frame {
-            Some(frame) => {
-                let item = Python::attach(|py| {
-                    let data = pyo3::types::PyList::new(py, incoming_data)?.unbind();
-                    let labels = pyo3::types::PyList::new(py, incoming_labels)?.unbind();
-                    Py::new(
-                        py,
-                        EgressItemPy {
-                            video_frame: frame,
-                            state: pyo3::types::PyDict::new(py).unbind(),
-                            data,
-                            labels,
-                        },
-                    )
-                })?;
-                Some(item)
-            }
-            None => None,
-        };
 
         let ready: bool = Python::attach(|py| {
+            let current_py = current_item.to_py(py)?;
+            let incoming_py = if let Some(frame) = incoming_frame {
+                Some(
+                    EgressItem::new_frame_rust_types(frame, incoming_data, incoming_labels, py)?
+                        .to_py(py)?,
+                )
+            } else {
+                None
+            };
+
+            // Call the handler
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name.as_str())
@@ -227,20 +228,18 @@ impl EgressProcessor {
 
             let result = handler.call1(
                 py,
-                (
-                    ingress_name,
-                    topic,
-                    current_py.clone_ref(py),
-                    incoming_py.as_ref().map(|p| p.clone_ref(py)),
-                ),
+                (ingress_name, topic, current_py.clone_ref(py), incoming_py),
             )?;
 
             let is_ready = result.bind(py).downcast::<PyBool>()?.extract::<bool>()?;
 
-            // Update the current_item from the (possibly modified) Python object
+            // Update current_item in-place from the (possibly modified) Python object
             let current_bound = current_py.bind(py);
             let current_ref = current_bound.borrow();
-            current_item.update_from_py(&current_ref);
+            current_item.message = EgressMessage::VideoFrame(current_ref.video_frame.clone());
+            current_item.state = current_ref.state.clone_ref(py);
+            current_item.data = current_ref.data.clone_ref(py);
+            current_item.labels = current_ref.labels.clone_ref(py);
 
             Ok::<bool, pyo3::PyErr>(is_ready)
         })?;
@@ -257,26 +256,16 @@ impl EgressProcessor {
     ) -> Result<()> {
         let handler_name = self.handlers.on_late_arrival.clone();
 
-        let item_py = Python::attach(|py| {
-            let data = pyo3::types::PyList::new(py, data)?.unbind();
-            let labels = pyo3::types::PyList::new(py, labels)?.unbind();
-            Py::new(
-                py,
-                EgressItemPy {
-                    video_frame: frame,
-                    state: pyo3::types::PyDict::new(py).unbind(),
-                    data,
-                    labels,
-                },
-            )
-        })?;
-
         Python::attach(|py| {
+            let item_py = EgressItem::new_frame_rust_types(frame, data, labels, py)?.to_py(py)?;
+
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name.as_str())
                 .unwrap_or_else(|| panic!("Python handler '{}' not found", handler_name));
-            handler.call1(py, (item_py.clone_ref(py),))
+            handler.call1(py, (item_py.clone_ref(py),))?;
+
+            Ok::<(), pyo3::PyErr>(())
         })?;
 
         Ok(())
@@ -285,28 +274,24 @@ impl EgressProcessor {
     /// Call the `on_head_expire` Python handler.
     /// Returns `Some(Message)` if the frame should be sent, `None` to drop.
     fn call_head_expire_handler(&self, item: &EgressItem) -> Result<Option<Message>> {
-        let handler_name = self.handlers.on_head_expire.clone();
-        let item_py = item.to_py()?;
-
-        self.call_message_returning_handler(&handler_name, item_py)
+        self.call_message_returning_handler(&self.handlers.on_head_expire, item)
     }
 
     /// Call the `on_head_ready` Python handler.
     /// Returns `Some(Message)` if the frame should be sent, `None` to drop.
     fn call_head_ready_handler(&self, item: &EgressItem) -> Result<Option<Message>> {
-        let handler_name = self.handlers.on_head_ready.clone();
-        let item_py = item.to_py()?;
-
-        self.call_message_returning_handler(&handler_name, item_py)
+        self.call_message_returning_handler(&self.handlers.on_head_ready, item)
     }
 
     /// Shared helper for handlers that return `Optional[Message]`.
     fn call_message_returning_handler(
         &self,
         handler_name: &str,
-        item_py: Py<EgressItemPy>,
+        item: &EgressItem,
     ) -> Result<Option<Message>> {
         let result: Option<Message> = Python::attach(|py| -> pyo3::PyResult<Option<Message>> {
+            let item_py = item.to_py(py)?;
+
             let handlers_bind = REGISTERED_HANDLERS.read();
             let handler = handlers_bind
                 .get(handler_name)
@@ -339,8 +324,8 @@ impl EgressProcessor {
         let topic = self.call_send_handler(message, item)?;
         let topic = topic.as_deref().unwrap_or(source_id);
 
-        // Extract data bytes for the payload
-        let data_bytes: Vec<Vec<u8>> = Python::attach(|py| {
+        // Extract data bytes and routing labels from the item
+        let (data_bytes, labels): (Vec<Vec<u8>>, Vec<String>) = Python::attach(|py| {
             let data_list = item.data.bind(py);
             let mut bytes_vec = Vec::new();
             for elem in data_list.iter() {
@@ -348,13 +333,7 @@ impl EgressProcessor {
                     bytes_vec.push(bytes);
                 }
             }
-            bytes_vec
-        });
 
-        let payload_slices: Vec<&[u8]> = data_bytes.iter().map(|v| v.as_slice()).collect();
-
-        // Set routing labels from the item
-        let labels: Vec<String> = Python::attach(|py| {
             let labels_list = item.labels.bind(py);
             let mut label_vec = Vec::new();
             for elem in labels_list.iter() {
@@ -362,8 +341,11 @@ impl EgressProcessor {
                     label_vec.push(s);
                 }
             }
-            label_vec
+
+            (bytes_vec, label_vec)
         });
+
+        let payload_slices: Vec<&[u8]> = data_bytes.iter().map(|v| v.as_slice()).collect();
         message.set_labels(labels);
 
         match self.writer.send_message(topic, message, &payload_slices) {
