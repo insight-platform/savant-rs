@@ -45,5 +45,12 @@ fn main() {
         .write_to_file(&gstnvdsmeta_out_path)
         .expect("Couldn't write bindings!");
 
-    fs::copy(gstnvdsmeta_out_path, gstnvdsmeta_module_path).unwrap();
+    let new_content = fs::read(&gstnvdsmeta_out_path).unwrap();
+    let needs_update = match fs::read(&gstnvdsmeta_module_path) {
+        Ok(existing) => existing != new_content,
+        Err(_) => true,
+    };
+    if needs_update {
+        fs::write(gstnvdsmeta_module_path, new_content).unwrap();
+    }
 }
