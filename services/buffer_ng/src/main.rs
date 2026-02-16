@@ -1,31 +1,15 @@
-mod configuration;
-mod message_handler;
-mod metric_collector;
-mod rocksdb;
-use ::rocksdb::Options;
 use anyhow::{Context, Result};
-use log::{debug, info};
-use parking_lot::Mutex;
+use log::info;
 use pyo3::{
     types::{PyAnyMethods, PyDict, PyList, PyListMethods, PyModule},
     Py, PyAny, PyResult, Python,
 };
-use savant_core::{
-    metrics::set_extra_labels,
-    transport::zeromq::{NonBlockingReader, NonBlockingWriter, ReaderResult},
-    webserver::init_webserver,
-};
+use savant_core::{metrics::set_extra_labels, webserver::init_webserver};
 use savant_core_py::webserver::set_status_running;
 use savant_rs::LogLevel;
-use savant_services_common::{fps_meter::FpsMeter, topic_to_string};
-use std::{env::args, sync::Arc};
+use std::env::args;
 
-use crate::{
-    configuration::{InvocationContext, ServiceConfiguration},
-    message_handler::{MessageHandler, MessageWriter},
-    metric_collector::{CommonMetrics, StatsLogger},
-    rocksdb::PersistentQueueWithCapacity,
-};
+use buffer_ng::configuration::{InvocationContext, ServiceConfiguration};
 
 const DEFAULT_CONFIGURATION_PATH: &str = "assets/configuration.json";
 
@@ -58,7 +42,7 @@ fn main() -> Result<()> {
     let conf_arg = args().nth(1).unwrap_or(default_config_path);
     info!("Configuration: {}", conf_arg);
     let conf = ServiceConfiguration::new(&conf_arg)?;
-    debug!("Configuration: {:?}", conf);
+    log::debug!("Configuration: {:?}", conf);
 
     // python handler init
     let py_handler_init_opt = conf.common.message_handler_init.as_ref();
@@ -81,7 +65,6 @@ fn main() -> Result<()> {
 
             let module = PyModule::new(py, "savant_rs")?;
             savant_rs::init_all(py, &module)?;
-            // add the current directory to the Python module load path
             let sys = PyModule::import(py, "sys")?;
             let sys_modules_bind = sys.getattr("modules")?;
             let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
@@ -96,7 +79,6 @@ fn main() -> Result<()> {
         });
 
         let res = invocation?;
-        // if not none, set the python_handler
         Python::attach(|py| {
             if !res.is_none(py) {
                 python_handler = Some(res);
@@ -104,14 +86,12 @@ fn main() -> Result<()> {
         });
 
         if python_handler.is_none() {
-            // working without python handler
             log::info!(
                 "Init module {} function {} returned None, working without python handler",
                 module_name,
                 function_name
             );
         } else {
-            // working with python handler
             log::info!(
                 "Init module {} function {} returned non-None, working with python handler, invocation context: {:?}",
                 module_name,
@@ -132,83 +112,6 @@ fn main() -> Result<()> {
         (None, None)
     };
 
-    let reader = NonBlockingReader::try_from(&conf.ingress.socket)?;
-    let writer = NonBlockingWriter::try_from(&conf.egress.socket)?;
-    let db_opts = Options::default();
-    if conf.common.buffer.reset_on_start {
-        PersistentQueueWithCapacity::remove_db(&conf.common.buffer.path)?;
-    }
-    let queue = PersistentQueueWithCapacity::new(
-        &conf.common.buffer.path,
-        conf.common.buffer.max_length,
-        conf.common.buffer.full_threshold_percentage,
-        db_opts,
-    )?;
-    log::info!(
-        "Buffer initialized, path: {}, max length: {}, \
-        full threshold: {}, reset on start: {}, \
-        current length: {}, current disk size: {}",
-        conf.common.buffer.path,
-        conf.common.buffer.max_length,
-        conf.common.buffer.full_threshold_percentage,
-        conf.common.buffer.reset_on_start,
-        queue.len(),
-        queue.disk_size()?
-    );
-
-    let queue = Arc::new(Mutex::new(queue));
-
-    let ingress_fps_meter = Arc::new(Mutex::new(FpsMeter::default()));
-    let egress_fps_meter = Arc::new(Mutex::new(FpsMeter::default()));
-
-    let common_metrics = CommonMetrics::new();
-
-    let mut message_writer = MessageWriter::new(
-        queue.clone(),
-        ingress_ph_opt,
-        ingress_fps_meter.clone(),
-        &common_metrics,
-    );
-
-    let mut message_handler = MessageHandler::new(
-        queue,
-        writer,
-        conf.common.idle_sleep,
-        egress_ph_opt,
-        egress_fps_meter.clone(),
-        &common_metrics,
-    );
-
-    let mut stats_logger = StatsLogger::new(
-        ingress_fps_meter,
-        egress_fps_meter,
-        message_writer.get_metrics(),
-        message_handler.get_metrics(),
-        conf.common.telemetry.stats_log_interval,
-    );
-    std::thread::spawn(move || loop {
-        let res = message_handler.process_stored_message();
-        if let Err(e) = res {
-            log::warn!(
-                target: "buffer_ng::message_handler",
-                "Failed to process message delivery: {:?}",
-                e
-            );
-        }
-    });
-
-    std::thread::spawn(move || loop {
-        let res = stats_logger.log_stats();
-        if let Err(e) = res {
-            log::warn!(
-                target: "buffer_ng::stats_logger",
-                "Failed to log stats: {:?}",
-                e
-            );
-        }
-        std::thread::sleep(conf.common.telemetry.stats_log_interval);
-    });
-
     init_webserver(conf.common.telemetry.port)?;
     info!(
         "Webserver initialized, port: {}",
@@ -216,74 +119,12 @@ fn main() -> Result<()> {
     );
     set_status_running()?;
     info!("Buffer NG status is set to running");
-    if let Some(extra_labels) = conf.common.telemetry.metrics_extra_labels {
+    if let Some(ref extra_labels) = conf.common.telemetry.metrics_extra_labels {
         let extra_labels = serde_json::from_value(extra_labels.clone())
             .with_context(|| format!("Failed to parse metrics extra labels: {:?}", extra_labels))?;
         info!("Metrics extra labels: {:?}", extra_labels);
         set_extra_labels(extra_labels);
     }
-    loop {
-        let message = reader.receive()?;
-        match message {
-            ReaderResult::Message {
-                message,
-                topic,
-                routing_id: _,
-                data,
-            } => {
-                message_writer.push(topic_to_string(&topic), *message, data)?;
-            }
-            ReaderResult::Timeout => {
-                debug!(
-                    target: "buffer_ng::ingress",
-                    "Timeout receiving message, waiting for next message."
-                );
-            }
-            ReaderResult::PrefixMismatch { topic, routing_id } => {
-                log::warn!(
-                    target: "buffer_ng::ingress",
-                    "Received message with mismatched prefix: topic: {:?}, routing_id: {:?}",
-                    topic_to_string(&topic),
-                    topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new()))
-                );
-            }
-            ReaderResult::RoutingIdMismatch { topic, routing_id } => {
-                log::warn!(
-                    target: "buffer_ng::ingress",
-                    "Received message with mismatched routing_id: topic: {:?}, routing_id: {:?}",
-                    topic_to_string(&topic),
-                    topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new()))
-                );
-            }
-            ReaderResult::TooShort(m) => {
-                log::warn!(
-                    target: "buffer_ng::ingress",
-                    "Received message that was too short: {:?}",
-                    m
-                );
-            }
-            ReaderResult::MessageVersionMismatch {
-                topic,
-                routing_id,
-                sender_version,
-                expected_version,
-            } => {
-                log::warn!(
-                    target: "buffer_ng::ingress",
-                    "Received message with mismatched version: topic: {:?}, routing_id: {:?}, sender_version: {:?}, expected_version: {:?}",
-                    topic_to_string(&topic),
-                    topic_to_string(routing_id.as_ref().unwrap_or(&Vec::new())),
-                    sender_version,
-                    expected_version
-                );
-            }
-            ReaderResult::Blacklisted(items) => {
-                log::warn!(
-                    target: "buffer_ng::ingress",
-                    "Received blacklisted message: {:?}",
-                    items
-                );
-            }
-        }
-    }
+
+    buffer_ng::run_service_loop(&conf, ingress_ph_opt, egress_ph_opt, None)
 }
