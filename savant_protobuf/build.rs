@@ -20,5 +20,12 @@ fn main() {
         )
         .expect("Failed to compile protobuf definitions");
 
-    fs::copy(out_path, module_path).unwrap();
+    let new_content = fs::read(&out_path).unwrap();
+    let needs_update = match fs::read(&module_path) {
+        Ok(existing) => existing != new_content,
+        Err(_) => true,
+    };
+    if needs_update {
+        fs::write(module_path, new_content).unwrap();
+    }
 }
