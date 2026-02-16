@@ -142,11 +142,7 @@ impl EgressProcessor {
                     source_id
                 );
                 self.writer.send_eos(&source_id).map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to send EOS for source {}: {}",
-                        source_id,
-                        e
-                    )
+                    anyhow::anyhow!("Failed to send EOS for source {}: {}", source_id, e)
                 })?;
                 Ok(())
             }

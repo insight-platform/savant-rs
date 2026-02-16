@@ -45,3 +45,7 @@ serial_test = { workspace = true }
 [[bench]]
 name = "bench_merge_queue"
 harness = false
+
+[[bench]]
+name = "bench_end_to_end"
+harness = false
