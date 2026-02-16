@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_validate() -> anyhow::Result<()> {
-        let _ = ServiceConfiguration::new("assets/configuration.json")?;
+        let _ = ServiceConfiguration::new("assets/configuration_full.json")?;
         Ok(())
     }
 }
