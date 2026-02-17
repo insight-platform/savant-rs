@@ -185,8 +185,6 @@ impl Message {
     }
 
     pub fn end_of_stream(eos: EndOfStream) -> Self {
-        // clear_source_seq_id(&eos.source_id);
-        // let seq_id = generate_message_seq_id(&eos.source_id);
         Self {
             meta: MessageMeta::default(),
             payload: MessageEnvelope::EndOfStream(eos),
