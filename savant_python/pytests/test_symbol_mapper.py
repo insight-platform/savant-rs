@@ -54,16 +54,12 @@ class TestRegisterAndLookup:
         assert isinstance(model_id, int)
 
     def test_get_model_id(self):
-        register_model_objects(
-            "detector", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("detector", {0: "person"}, RegistrationPolicy.Override)
         mid = get_model_id("detector")
         assert isinstance(mid, int)
 
     def test_get_model_name(self):
-        register_model_objects(
-            "detector", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("detector", {0: "person"}, RegistrationPolicy.Override)
         mid = get_model_id("detector")
         name = get_model_name(mid)
         assert name == "detector"
@@ -74,9 +70,7 @@ class TestRegisterAndLookup:
 
     def test_is_model_registered(self):
         assert not is_model_registered("nomodel")
-        register_model_objects(
-            "mymodel", {0: "obj"}, RegistrationPolicy.Override
-        )
+        register_model_objects("mymodel", {0: "obj"}, RegistrationPolicy.Override)
         assert is_model_registered("mymodel")
 
     def test_get_object_id(self):
@@ -96,17 +90,13 @@ class TestRegisterAndLookup:
         assert label == "person"
 
     def test_get_object_label_not_found(self):
-        register_model_objects(
-            "det", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("det", {0: "person"}, RegistrationPolicy.Override)
         mid = get_model_id("det")
         label = get_object_label(mid, 999)
         assert label is None
 
     def test_is_object_registered(self):
-        register_model_objects(
-            "det", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("det", {0: "person"}, RegistrationPolicy.Override)
         assert is_object_registered("det", "person")
         assert not is_object_registered("det", "unknown")
 
@@ -163,16 +153,12 @@ class TestDumpAndClear:
         assert len(dump) == 0
 
     def test_dump_with_data(self):
-        register_model_objects(
-            "det", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("det", {0: "person"}, RegistrationPolicy.Override)
         dump = dump_registry()
         assert isinstance(dump, list)
         assert len(dump) > 0
 
     def test_clear(self):
-        register_model_objects(
-            "det", {0: "person"}, RegistrationPolicy.Override
-        )
+        register_model_objects("det", {0: "person"}, RegistrationPolicy.Override)
         clear_symbol_maps()
         assert not is_model_registered("det")

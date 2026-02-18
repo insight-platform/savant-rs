@@ -14,7 +14,6 @@ from savant_rs.primitives import (
     VideoFrame,
     VideoFrameContent,
     VideoObject,
-    VideoObjectsView,
 )
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import VideoObjectBBoxTransformation
@@ -106,9 +105,7 @@ class TestVideoObject:
             track_id=None,
             track_box=None,
         )
-        vo.set_attribute(
-            Attribute.persistent("ns", "k", [AttributeValue.integer(42)])
-        )
+        vo.set_attribute(Attribute.persistent("ns", "k", [AttributeValue.integer(42)]))
         assert vo.get_attribute("ns", "k") is not None
 
     def test_set_persistent_attribute(self):
@@ -221,26 +218,20 @@ class TestBorrowedVideoObject:
 
     def test_set_attribute(self, frame_with_object):
         _, obj = frame_with_object
-        obj.set_attribute(
-            Attribute.persistent("ns", "k", [AttributeValue.string("v")])
-        )
+        obj.set_attribute(Attribute.persistent("ns", "k", [AttributeValue.string("v")]))
         fetched = obj.get_attribute("ns", "k")
         assert fetched is not None
 
     def test_delete_attribute(self, frame_with_object):
         _, obj = frame_with_object
-        obj.set_attribute(
-            Attribute.persistent("ns", "k", [AttributeValue.integer(1)])
-        )
+        obj.set_attribute(Attribute.persistent("ns", "k", [AttributeValue.integer(1)]))
         deleted = obj.delete_attribute("ns", "k")
         assert deleted is not None
         assert obj.get_attribute("ns", "k") is None
 
     def test_clear_attributes(self, frame_with_object):
         _, obj = frame_with_object
-        obj.set_attribute(
-            Attribute.persistent("ns", "k", [AttributeValue.integer(1)])
-        )
+        obj.set_attribute(Attribute.persistent("ns", "k", [AttributeValue.integer(1)]))
         obj.clear_attributes()
         assert len(obj.attributes) == 0
 
@@ -280,12 +271,8 @@ class TestBorrowedVideoObject:
 
     def test_find_attributes_with_ns(self, frame_with_object):
         _, obj = frame_with_object
-        obj.set_attribute(
-            Attribute.persistent("ns1", "a", [AttributeValue.integer(1)])
-        )
-        obj.set_attribute(
-            Attribute.persistent("ns2", "b", [AttributeValue.integer(2)])
-        )
+        obj.set_attribute(Attribute.persistent("ns1", "a", [AttributeValue.integer(1)]))
+        obj.set_attribute(Attribute.persistent("ns2", "b", [AttributeValue.integer(2)]))
         found = obj.find_attributes_with_ns("ns1")
         assert len(found) == 1
 

@@ -181,9 +181,7 @@ class TestAttributeValuePoint:
 
 class TestAttributeValuePolygon:
     def test_polygon(self):
-        poly = PolygonalArea(
-            [Point(0.0, 0.0), Point(10.0, 0.0), Point(10.0, 10.0)]
-        )
+        poly = PolygonalArea([Point(0.0, 0.0), Point(10.0, 0.0), Point(10.0, 10.0)])
         v = AttributeValue.polygon(poly)
         result = v.as_polygon()
         assert result is not None

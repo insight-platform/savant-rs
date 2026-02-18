@@ -3,7 +3,13 @@ log_level_enabled, log."""
 
 from __future__ import annotations
 
-from savant_rs.logging import LogLevel, get_log_level, log, log_level_enabled, set_log_level
+from savant_rs.logging import (
+    LogLevel,
+    get_log_level,
+    log,
+    log_level_enabled,
+    set_log_level,
+)
 
 
 # ── LogLevel enum ─────────────────────────────────────────────────────────

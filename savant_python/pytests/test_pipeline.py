@@ -19,7 +19,6 @@ from savant_rs.primitives import (
     VideoFrameContent,
     VideoFrameUpdate,
 )
-from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import TelemetrySpan
 
 

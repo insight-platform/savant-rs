@@ -489,9 +489,7 @@ class TestVideoFrameUpdate:
 
     def test_policies(self):
         u = VideoFrameUpdate()
-        u.frame_attribute_policy = (
-            AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
-        )
+        u.frame_attribute_policy = AttributeUpdatePolicy.ReplaceWithForeignWhenDuplicate
         u.object_attribute_policy = AttributeUpdatePolicy.KeepOwnWhenDuplicate
         u.object_policy = ObjectUpdatePolicy.AddForeignObjects
         assert (
@@ -560,9 +558,7 @@ class TestVideoFrameBatch:
         assert len(batch.ids) == 0
 
     def test_add_and_ids(self):
-        batch = self._make_batch(
-            [self._make_frame("cam1"), self._make_frame("cam2")]
-        )
+        batch = self._make_batch([self._make_frame("cam1"), self._make_frame("cam2")])
         assert len(batch.ids) == 2
 
     def test_get_frame(self):

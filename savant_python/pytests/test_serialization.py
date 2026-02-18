@@ -3,7 +3,6 @@ functions."""
 
 from __future__ import annotations
 
-import pytest
 
 from savant_rs.primitives import (
     Attribute,
@@ -15,7 +14,6 @@ from savant_rs.primitives import (
     VideoFrameBatch,
     VideoFrameContent,
     VideoFrameUpdate,
-    VideoObject,
 )
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import ByteBuffer
@@ -69,9 +67,7 @@ class TestMessageTypes:
 
     def test_user_data(self):
         ud = UserData("src")
-        ud.set_attribute(
-            Attribute.persistent("ns", "k", [AttributeValue.string("v")])
-        )
+        ud.set_attribute(Attribute.persistent("ns", "k", [AttributeValue.string("v")]))
         msg = Message.user_data(ud)
         assert msg.is_user_data()
         extracted = msg.as_user_data()

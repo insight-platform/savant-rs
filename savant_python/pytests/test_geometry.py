@@ -264,11 +264,11 @@ class TestRBBox:
 
     def test_as_ltrb(self):
         bb = RBBox(5.0, 10.0, 10.0, 20.0)
-        l, t, r, b = bb.as_ltrb()
-        assert l == pytest.approx(0.0)
-        assert t == pytest.approx(0.0)
-        assert r == pytest.approx(10.0)
-        assert b == pytest.approx(20.0)
+        left, top, right, bottom = bb.as_ltrb()
+        assert left == pytest.approx(0.0)
+        assert top == pytest.approx(0.0)
+        assert right == pytest.approx(10.0)
+        assert bottom == pytest.approx(20.0)
 
     def test_as_ltrb_int(self):
         bb = RBBox(5.0, 10.0, 10.0, 20.0)
@@ -391,9 +391,9 @@ class TestBBox:
 
     def test_as_ltrb(self):
         bb = BBox(5.0, 10.0, 10.0, 20.0)
-        l, t, r, b = bb.as_ltrb()
-        assert l == pytest.approx(0.0)
-        assert b == pytest.approx(20.0)
+        left, _top, _right, bottom = bb.as_ltrb()
+        assert left == pytest.approx(0.0)
+        assert bottom == pytest.approx(20.0)
 
     def test_as_ltrb_int(self):
         bb = BBox(5.0, 10.0, 10.0, 20.0)

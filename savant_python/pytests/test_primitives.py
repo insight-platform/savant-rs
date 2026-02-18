@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from savant_rs.primitives import (
     Attribute,
@@ -93,35 +92,23 @@ class TestUserData:
 
     def test_delete_attribute(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns", "key", [AttributeValue.integer(1)])
-        )
+        ud.set_attribute(Attribute.persistent("ns", "key", [AttributeValue.integer(1)]))
         deleted = ud.delete_attribute("ns", "key")
         assert deleted is not None
         assert ud.get_attribute("ns", "key") is None
 
     def test_attributes_list(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns1", "a", [AttributeValue.string("x")])
-        )
-        ud.set_attribute(
-            Attribute.persistent("ns2", "b", [AttributeValue.string("y")])
-        )
+        ud.set_attribute(Attribute.persistent("ns1", "a", [AttributeValue.string("x")]))
+        ud.set_attribute(Attribute.persistent("ns2", "b", [AttributeValue.string("y")]))
         attrs = ud.attributes
         assert len(attrs) == 2
 
     def test_find_attributes_with_ns(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns1", "a", [AttributeValue.integer(1)])
-        )
-        ud.set_attribute(
-            Attribute.persistent("ns1", "b", [AttributeValue.integer(2)])
-        )
-        ud.set_attribute(
-            Attribute.persistent("ns2", "c", [AttributeValue.integer(3)])
-        )
+        ud.set_attribute(Attribute.persistent("ns1", "a", [AttributeValue.integer(1)]))
+        ud.set_attribute(Attribute.persistent("ns1", "b", [AttributeValue.integer(2)]))
+        ud.set_attribute(Attribute.persistent("ns2", "c", [AttributeValue.integer(3)]))
         found = ud.find_attributes_with_ns("ns1")
         assert len(found) == 2
 
@@ -139,9 +126,7 @@ class TestUserData:
     def test_find_attributes_with_hints(self):
         ud = UserData("s1")
         ud.set_attribute(
-            Attribute.persistent(
-                "ns", "a", [AttributeValue.integer(1)], hint="special"
-            )
+            Attribute.persistent("ns", "a", [AttributeValue.integer(1)], hint="special")
         )
         ud.set_attribute(Attribute.persistent("ns", "b", [AttributeValue.integer(2)]))
         found = ud.find_attributes_with_hints(["special"])
@@ -149,24 +134,16 @@ class TestUserData:
 
     def test_delete_attributes_with_ns(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns1", "a", [AttributeValue.integer(1)])
-        )
-        ud.set_attribute(
-            Attribute.persistent("ns2", "b", [AttributeValue.integer(2)])
-        )
+        ud.set_attribute(Attribute.persistent("ns1", "a", [AttributeValue.integer(1)]))
+        ud.set_attribute(Attribute.persistent("ns2", "b", [AttributeValue.integer(2)]))
         ud.delete_attributes_with_ns("ns1")
         assert ud.get_attribute("ns1", "a") is None
         assert ud.get_attribute("ns2", "b") is not None
 
     def test_delete_attributes_with_names(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns", "a", [AttributeValue.integer(1)])
-        )
-        ud.set_attribute(
-            Attribute.persistent("ns", "b", [AttributeValue.integer(2)])
-        )
+        ud.set_attribute(Attribute.persistent("ns", "a", [AttributeValue.integer(1)]))
+        ud.set_attribute(Attribute.persistent("ns", "b", [AttributeValue.integer(2)]))
         ud.delete_attributes_with_names(["a"])
         assert ud.get_attribute("ns", "a") is None
         assert ud.get_attribute("ns", "b") is not None
@@ -185,9 +162,7 @@ class TestUserData:
 
     def test_clear_attributes(self):
         ud = UserData("s1")
-        ud.set_attribute(
-            Attribute.persistent("ns", "a", [AttributeValue.integer(1)])
-        )
+        ud.set_attribute(Attribute.persistent("ns", "a", [AttributeValue.integer(1)]))
         ud.clear_attributes()
         assert len(ud.attributes) == 0
 
