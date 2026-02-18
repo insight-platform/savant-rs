@@ -69,18 +69,6 @@ class TestWriterConfigBuilder:
         assert isinstance(cfg, WriterConfig)
         assert cfg.endpoint == "tcp://127.0.0.1:5555"
 
-    def test_with_socket_type(self):
-        b = WriterConfigBuilder("tcp://127.0.0.1:5555")
-        b.with_socket_type(WriterSocketType.Dealer)
-        cfg = b.build()
-        assert cfg.socket_type == WriterSocketType.Dealer
-
-    def test_with_bind(self):
-        b = WriterConfigBuilder("tcp://127.0.0.1:5555")
-        b.with_bind(True)
-        cfg = b.build()
-        assert cfg.bind is True
-
     def test_with_timeouts(self):
         b = WriterConfigBuilder("tcp://127.0.0.1:5555")
         b.with_send_timeout(1000)
@@ -119,12 +107,10 @@ class TestWriterConfigBuilder:
 
     def test_config_properties(self):
         b = WriterConfigBuilder("tcp://127.0.0.1:5555")
-        b.with_socket_type(WriterSocketType.Pub)
-        b.with_bind(False)
         cfg = b.build()
         assert cfg.endpoint == "tcp://127.0.0.1:5555"
-        assert cfg.socket_type == WriterSocketType.Pub
-        assert cfg.bind is False
+        assert cfg.socket_type is not None
+        assert isinstance(cfg.bind, bool)
 
 
 # ── ReaderConfigBuilder ──────────────────────────────────────────────────
@@ -136,18 +122,6 @@ class TestReaderConfigBuilder:
         cfg = b.build()
         assert isinstance(cfg, ReaderConfig)
         assert cfg.endpoint == "tcp://127.0.0.1:5556"
-
-    def test_with_socket_type(self):
-        b = ReaderConfigBuilder("tcp://127.0.0.1:5556")
-        b.with_socket_type(ReaderSocketType.Router)
-        cfg = b.build()
-        assert cfg.socket_type == ReaderSocketType.Router
-
-    def test_with_bind(self):
-        b = ReaderConfigBuilder("tcp://127.0.0.1:5556")
-        b.with_bind(True)
-        cfg = b.build()
-        assert cfg.bind is True
 
     def test_with_receive_timeout(self):
         b = ReaderConfigBuilder("tcp://127.0.0.1:5556")

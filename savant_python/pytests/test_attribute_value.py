@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from savant_rs.primitives.attribute_value import AttributeValue, AttributeValueType
+from savant_rs.primitives import AttributeValue, AttributeValueType
 from savant_rs.primitives.geometry import (
     BBox,
     Intersection,
@@ -55,7 +55,7 @@ class TestAttributeValueNone:
     def test_none(self):
         v = AttributeValue.none()
         assert v.is_none()
-        assert v.get_value_type() == AttributeValueType.None_
+        assert v.value_type == AttributeValueType.None_
 
 
 class TestAttributeValueString:
@@ -63,12 +63,12 @@ class TestAttributeValueString:
         v = AttributeValue.string("hello", confidence=0.9)
         assert v.as_string() == "hello"
         assert v.confidence == pytest.approx(0.9)
-        assert v.get_value_type() == AttributeValueType.String
+        assert v.value_type == AttributeValueType.String
 
     def test_strings(self):
         v = AttributeValue.strings(["a", "b", "c"])
         assert v.as_strings() == ["a", "b", "c"]
-        assert v.get_value_type() == AttributeValueType.StringList
+        assert v.value_type == AttributeValueType.StringList
 
 
 class TestAttributeValueInteger:
@@ -76,38 +76,38 @@ class TestAttributeValueInteger:
         v = AttributeValue.integer(42, confidence=0.8)
         assert v.as_integer() == 42
         assert v.confidence == pytest.approx(0.8)
-        assert v.get_value_type() == AttributeValueType.Integer
+        assert v.value_type == AttributeValueType.Integer
 
     def test_integers(self):
         v = AttributeValue.integers([1, 2, 3])
         assert v.as_integers() == [1, 2, 3]
-        assert v.get_value_type() == AttributeValueType.IntegerList
+        assert v.value_type == AttributeValueType.IntegerList
 
 
 class TestAttributeValueFloat:
     def test_float(self):
         v = AttributeValue.float(3.14, confidence=0.7)
         assert v.as_float() == pytest.approx(3.14)
-        assert v.get_value_type() == AttributeValueType.Float
+        assert v.value_type == AttributeValueType.Float
 
     def test_floats(self):
         v = AttributeValue.floats([1.1, 2.2])
         result = v.as_floats()
         assert len(result) == 2
         assert result[0] == pytest.approx(1.1)
-        assert v.get_value_type() == AttributeValueType.FloatList
+        assert v.value_type == AttributeValueType.FloatList
 
 
 class TestAttributeValueBoolean:
     def test_boolean(self):
         v = AttributeValue.boolean(True)
         assert v.as_boolean() is True
-        assert v.get_value_type() == AttributeValueType.Boolean
+        assert v.value_type == AttributeValueType.Boolean
 
     def test_booleans(self):
         v = AttributeValue.booleans([True, False, True])
         assert v.as_booleans() == [True, False, True]
-        assert v.get_value_type() == AttributeValueType.BooleanList
+        assert v.value_type == AttributeValueType.BooleanList
 
 
 class TestAttributeValueBytes:
@@ -116,29 +116,31 @@ class TestAttributeValueBytes:
         v = AttributeValue.bytes([2, 2], data, confidence=0.5)
         raw = v.as_bytes()
         assert raw is not None
-        assert v.get_value_type() == AttributeValueType.Bytes
+        assert v.value_type == AttributeValueType.Bytes
 
     def test_bytes_from_list(self):
         v = AttributeValue.bytes_from_list([2, 2], [1, 2, 3, 4])
         assert v.as_bytes() is not None
-        assert v.get_value_type() == AttributeValueType.Bytes
+        assert v.value_type == AttributeValueType.Bytes
 
 
 class TestAttributeValueBBox:
     def test_bbox(self):
         bb = BBox(5.0, 10.0, 20.0, 40.0)
         v = AttributeValue.bbox(bb, confidence=0.6)
-        result = v.as_bbox()
+        # BBox is stored as RBBox internally, use as_rbbox
+        result = v.as_rbbox()
         assert result is not None
         assert result.xc == pytest.approx(5.0)
-        assert v.get_value_type() == AttributeValueType.BBox
+        assert v.value_type == AttributeValueType.BBox
 
     def test_bboxes(self):
         bbs = [BBox(1.0, 2.0, 3.0, 4.0), BBox(5.0, 6.0, 7.0, 8.0)]
         v = AttributeValue.bboxes(bbs)
-        result = v.as_bboxes()
+        # BBoxes are stored as RBBoxes internally, use as_rbboxes
+        result = v.as_rbboxes()
         assert len(result) == 2
-        assert v.get_value_type() == AttributeValueType.BBoxList
+        assert v.value_type == AttributeValueType.BBoxList
 
 
 class TestAttributeValueRBBox:
@@ -148,14 +150,16 @@ class TestAttributeValueRBBox:
         result = v.as_rbbox()
         assert result is not None
         assert result.angle == pytest.approx(45.0)
-        assert v.get_value_type() == AttributeValueType.RBBox
+        # RBBox is stored as BBox internally
+        assert v.value_type == AttributeValueType.BBox
 
     def test_rbboxes(self):
         rbbs = [RBBox(1.0, 2.0, 3.0, 4.0), RBBox(5.0, 6.0, 7.0, 8.0)]
         v = AttributeValue.rbboxes(rbbs)
         result = v.as_rbboxes()
         assert len(result) == 2
-        assert v.get_value_type() == AttributeValueType.RBBoxList
+        # RBBox list is stored as BBoxList internally
+        assert v.value_type == AttributeValueType.BBoxList
 
 
 class TestAttributeValuePoint:
@@ -165,14 +169,14 @@ class TestAttributeValuePoint:
         result = v.as_point()
         assert result is not None
         assert result.x == pytest.approx(1.5)
-        assert v.get_value_type() == AttributeValueType.Point
+        assert v.value_type == AttributeValueType.Point
 
     def test_points(self):
         pts = [Point(1.0, 2.0), Point(3.0, 4.0)]
         v = AttributeValue.points(pts)
         result = v.as_points()
         assert len(result) == 2
-        assert v.get_value_type() == AttributeValueType.PointList
+        assert v.value_type == AttributeValueType.PointList
 
 
 class TestAttributeValuePolygon:
@@ -183,7 +187,7 @@ class TestAttributeValuePolygon:
         v = AttributeValue.polygon(poly)
         result = v.as_polygon()
         assert result is not None
-        assert v.get_value_type() == AttributeValueType.Polygon
+        assert v.value_type == AttributeValueType.Polygon
 
     def test_polygons(self):
         p1 = PolygonalArea([Point(0.0, 0.0), Point(1.0, 0.0), Point(1.0, 1.0)])
@@ -191,7 +195,7 @@ class TestAttributeValuePolygon:
         v = AttributeValue.polygons([p1, p2])
         result = v.as_polygons()
         assert len(result) == 2
-        assert v.get_value_type() == AttributeValueType.PolygonList
+        assert v.value_type == AttributeValueType.PolygonList
 
 
 class TestAttributeValueIntersection:
@@ -201,7 +205,7 @@ class TestAttributeValueIntersection:
         result = v.as_intersection()
         assert result is not None
         assert result.kind == IntersectionKind.Enter
-        assert v.get_value_type() == AttributeValueType.Intersection
+        assert v.value_type == AttributeValueType.Intersection
 
 
 class TestAttributeValueTemporary:
@@ -210,7 +214,7 @@ class TestAttributeValueTemporary:
         v = AttributeValue.temporary_python_object(obj)
         result = v.as_temporary_python_object()
         assert result == obj
-        assert v.get_value_type() == AttributeValueType.TemporaryValue
+        assert v.value_type == AttributeValueType.TemporaryValue
 
 
 # ── Cross-type mismatches return None ─────────────────────────────────────

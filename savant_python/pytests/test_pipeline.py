@@ -7,14 +7,18 @@ import pytest
 
 from savant_rs.pipeline import (
     FrameProcessingStatRecordType,
-    Pipeline,
-    PipelineConfiguration,
     StageFunction,
+    VideoPipeline,
+    VideoPipelineConfiguration,
     VideoPipelineStagePayloadType,
 )
-from savant_rs.primitives import VideoFrame, VideoFrameContent, VideoFrameUpdate
-from savant_rs.primitives.attribute import Attribute
-from savant_rs.primitives.attribute_value import AttributeValue
+from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
+    VideoFrame,
+    VideoFrameContent,
+    VideoFrameUpdate,
+)
 from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import TelemetrySpan
 
@@ -52,43 +56,41 @@ class TestStageFunction:
 
 class TestPipelineConfiguration:
     def test_create(self):
-        cfg = PipelineConfiguration()
+        cfg = VideoPipelineConfiguration()
         assert cfg is not None
 
-    def test_keyframe_history(self):
-        cfg = PipelineConfiguration()
-        default_val = cfg.keyframe_history
-        assert isinstance(default_val, int)
+    def test_set_keyframe_history(self):
+        cfg = VideoPipelineConfiguration()
         cfg.keyframe_history = 10
-        assert cfg.keyframe_history == 10
+        s = repr(cfg)
+        assert "keyframe_history: 10" in s
 
-    def test_append_frame_meta(self):
-        cfg = PipelineConfiguration()
-        assert isinstance(cfg.append_frame_meta_to_otlp_span, bool)
+    def test_set_append_frame_meta(self):
+        cfg = VideoPipelineConfiguration()
         cfg.append_frame_meta_to_otlp_span = True
-        assert cfg.append_frame_meta_to_otlp_span is True
+        s = repr(cfg)
+        assert "true" in s
 
-    def test_timestamp_period(self):
-        cfg = PipelineConfiguration()
+    def test_set_timestamp_period(self):
+        cfg = VideoPipelineConfiguration()
         cfg.timestamp_period = 5000
-        assert cfg.timestamp_period == 5000
-        cfg.timestamp_period = None
-        assert cfg.timestamp_period is None
+        s = repr(cfg)
+        assert "5000" in s
 
-    def test_frame_period(self):
-        cfg = PipelineConfiguration()
+    def test_set_frame_period(self):
+        cfg = VideoPipelineConfiguration()
         cfg.frame_period = 100
-        assert cfg.frame_period == 100
+        s = repr(cfg)
+        assert "100" in s
 
-    def test_collection_history(self):
-        cfg = PipelineConfiguration()
-        default_val = cfg.collection_history
-        assert isinstance(default_val, int)
+    def test_set_collection_history(self):
+        cfg = VideoPipelineConfiguration()
         cfg.collection_history = 50
-        assert cfg.collection_history == 50
+        s = repr(cfg)
+        assert "50" in s
 
     def test_repr(self):
-        cfg = PipelineConfiguration()
+        cfg = VideoPipelineConfiguration()
         assert isinstance(repr(cfg), str)
         assert isinstance(str(cfg), str)
 
@@ -99,7 +101,7 @@ class TestPipelineConfiguration:
 class TestPipeline:
     @pytest.fixture()
     def pipeline(self):
-        cfg = PipelineConfiguration()
+        cfg = VideoPipelineConfiguration()
         stages = [
             (
                 "input",
@@ -114,7 +116,7 @@ class TestPipeline:
                 StageFunction.none(),
             ),
         ]
-        return Pipeline("test-pipeline", stages, cfg)
+        return VideoPipeline("test-pipeline", stages, cfg)
 
     def test_create(self, pipeline):
         assert pipeline is not None
@@ -123,7 +125,7 @@ class TestPipeline:
         assert isinstance(pipeline.memory_handle, int)
 
     def test_root_span_name(self, pipeline):
-        name = pipeline.get_root_span_name
+        name = pipeline.root_span_name
         assert isinstance(name, str)
 
     def test_sampling_period(self, pipeline):

@@ -244,7 +244,7 @@ class TestMatchQueryConstruction:
     def test_with_children(self):
         q = MatchQuery.with_children(
             MatchQuery.label(StringExpression.eq("child")),
-            e=IntExpression.ge(1),
+            IntExpression.ge(1),
         )
         assert q is not None
 
@@ -383,5 +383,5 @@ class TestEtcdCredentials:
 
 class TestTlsConfig:
     def test_create(self):
-        tls = TlsConfig(ca="ca.pem", cert="cert.pem", key="key.pem")
+        tls = TlsConfig("ca.pem", "cert.pem", "key.pem")
         assert tls is not None

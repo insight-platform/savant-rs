@@ -5,8 +5,7 @@ from __future__ import annotations
 
 import json
 
-from savant_rs.primitives.attribute import Attribute, AttributeUpdatePolicy
-from savant_rs.primitives.attribute_value import AttributeValue
+from savant_rs.primitives import Attribute, AttributeUpdatePolicy, AttributeValue
 
 
 # ── Attribute construction ────────────────────────────────────────────────
@@ -50,7 +49,7 @@ class TestAttributeConstruction:
         assert not attr.is_temporary()
         attr.make_temporary()
         assert attr.is_temporary()
-        attr.make_peristent()
+        attr.make_persistent()
         assert not attr.is_temporary()
 
 

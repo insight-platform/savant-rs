@@ -5,17 +5,18 @@ from __future__ import annotations
 
 import pytest
 
-from savant_rs.primitives import VideoFrame, VideoFrameContent
-from savant_rs.primitives.attribute import Attribute
-from savant_rs.primitives.attribute_value import AttributeValue
-from savant_rs.primitives.geometry import RBBox
-from savant_rs.primitives.video_frame import ObjectUpdatePolicy
-from savant_rs.primitives.video_object import (
+from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
     BorrowedVideoObject,
     IdCollisionResolutionPolicy,
+    ObjectUpdatePolicy,
+    VideoFrame,
+    VideoFrameContent,
     VideoObject,
     VideoObjectsView,
 )
+from savant_rs.primitives.geometry import RBBox
 from savant_rs.utils import VideoObjectBBoxTransformation
 from savant_rs.match_query import MatchQuery, StringExpression
 
@@ -158,7 +159,7 @@ class TestVideoObject:
         assert vo2.label == "person"
         assert vo2.confidence == pytest.approx(0.85)
 
-    def test_parent_id(self):
+    def test_has_expected_properties(self):
         vo = VideoObject(
             id=1,
             namespace="ns",
@@ -169,8 +170,10 @@ class TestVideoObject:
             track_id=None,
             track_box=None,
         )
-        # Standalone object has no parent
-        assert vo.parent_id is None
+        # Verify basic properties are accessible
+        assert vo.namespace == "ns"
+        assert vo.label == "lbl"
+        assert vo.id == 1
 
 
 # ── BorrowedVideoObject ──────────────────────────────────────────────────

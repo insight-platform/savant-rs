@@ -6,9 +6,13 @@ import json
 
 import pytest
 
-from savant_rs.primitives import EndOfStream, Shutdown, UserData
-from savant_rs.primitives.attribute import Attribute
-from savant_rs.primitives.attribute_value import AttributeValue
+from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
+    EndOfStream,
+    Shutdown,
+    UserData,
+)
 
 
 # ── EndOfStream ───────────────────────────────────────────────────────────

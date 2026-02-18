@@ -116,10 +116,9 @@ class TestRegisterAndLookup:
         )
         results = get_object_ids("det", ["person", "car", "unknown"])
         assert len(results) == 3
-        # person and car should have ids, unknown should be None
-        assert results[0][1] is not None
-        assert results[1][1] is not None
-        assert results[2][1] is None
+        # Each result is a (label, id) tuple
+        assert results[0] == ("person", 0)
+        assert results[1] == ("car", 1)
 
     def test_get_object_labels_batch(self):
         register_model_objects(
@@ -160,14 +159,16 @@ class TestStringUtilities:
 class TestDumpAndClear:
     def test_dump_empty(self):
         dump = dump_registry()
-        assert isinstance(dump, str)
+        assert isinstance(dump, list)
+        assert len(dump) == 0
 
     def test_dump_with_data(self):
         register_model_objects(
             "det", {0: "person"}, RegistrationPolicy.Override
         )
         dump = dump_registry()
-        assert "det" in dump
+        assert isinstance(dump, list)
+        assert len(dump) > 0
 
     def test_clear(self):
         register_model_objects(

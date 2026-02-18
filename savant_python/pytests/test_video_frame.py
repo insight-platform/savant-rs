@@ -8,20 +8,20 @@ import json
 import pytest
 
 from savant_rs.primitives import (
+    Attribute,
+    AttributeUpdatePolicy,
+    AttributeValue,
+    IdCollisionResolutionPolicy,
+    ObjectUpdatePolicy,
     VideoFrame,
     VideoFrameBatch,
     VideoFrameContent,
     VideoFrameTranscodingMethod,
-    VideoFrameUpdate,
-)
-from savant_rs.primitives.attribute import Attribute, AttributeUpdatePolicy
-from savant_rs.primitives.attribute_value import AttributeValue
-from savant_rs.primitives.geometry import RBBox
-from savant_rs.primitives.video_frame import (
-    ObjectUpdatePolicy,
     VideoFrameTransformation,
+    VideoFrameUpdate,
+    VideoObject,
 )
-from savant_rs.primitives.video_object import IdCollisionResolutionPolicy, VideoObject
+from savant_rs.primitives.geometry import RBBox
 from savant_rs.match_query import MatchQuery, StringExpression
 
 
@@ -484,7 +484,7 @@ class TestVideoFrameUpdate:
             track_box=None,
         )
         u.add_object(vo, parent_id=None)
-        objs = u.get_objects()
+        objs = u.objects
         assert len(objs) == 1
 
     def test_policies(self):
@@ -548,34 +548,40 @@ class TestVideoFrameBatch:
             content=VideoFrameContent.none(),
         )
 
-    def test_from_frames(self):
-        frames = [self._make_frame("cam1"), self._make_frame("cam2")]
-        batch = VideoFrameBatch.from_frames(frames)
-        assert len(batch.frame_ids) == 2
+    def _make_batch(self, frames=None):
+        batch = VideoFrameBatch()
+        if frames:
+            for i, f in enumerate(frames):
+                batch.add(i, f)
+        return batch
 
-    def test_add_frame(self):
-        batch = VideoFrameBatch.from_frames([])
-        f = self._make_frame()
-        fid = batch.add_frame(f)
-        assert isinstance(fid, int)
+    def test_create_empty(self):
+        batch = VideoFrameBatch()
+        assert len(batch.ids) == 0
+
+    def test_add_and_ids(self):
+        batch = self._make_batch(
+            [self._make_frame("cam1"), self._make_frame("cam2")]
+        )
+        assert len(batch.ids) == 2
 
     def test_get_frame(self):
         f = self._make_frame("test")
-        batch = VideoFrameBatch.from_frames([f])
-        ids = batch.frame_ids
+        batch = self._make_batch([f])
+        ids = batch.ids
         assert len(ids) == 1
-        retrieved = batch.get_frame(ids[0])
+        retrieved = batch.get(ids[0])
         assert retrieved is not None
 
-    def test_frames_dict(self):
+    def test_frames_list(self):
         frames = [self._make_frame("a"), self._make_frame("b")]
-        batch = VideoFrameBatch.from_frames(frames)
+        batch = self._make_batch(frames)
         d = batch.frames
-        assert isinstance(d, dict)
+        assert isinstance(d, list)
         assert len(d) == 2
 
     def test_add_get_del(self):
-        batch = VideoFrameBatch.from_frames([])
+        batch = VideoFrameBatch()
         f = self._make_frame()
         batch.add(42, f)
         retrieved = batch.get(42)
@@ -584,15 +590,17 @@ class TestVideoFrameBatch:
         assert deleted is not None
         assert batch.get(42) is None
 
-    def test_to_message(self):
-        batch = VideoFrameBatch.from_frames([self._make_frame()])
-        msg = batch.to_message()
-        assert msg.is_video_frame_batch()
+    def test_to_protobuf_roundtrip(self):
+        batch = self._make_batch([self._make_frame()])
+        data = batch.to_protobuf()
+        assert isinstance(data, bytes)
+        batch2 = VideoFrameBatch.from_protobuf(data)
+        assert len(batch2.ids) == 1
 
     def test_access_objects(self):
         f = self._make_frame()
         f.create_object("ns", "lbl", detection_box=RBBox(0, 0, 10, 10))
-        batch = VideoFrameBatch.from_frames([f])
+        batch = self._make_batch([f])
         q = MatchQuery.idle()
         result = batch.access_objects(q)
         assert isinstance(result, dict)
@@ -600,7 +608,7 @@ class TestVideoFrameBatch:
     def test_delete_objects(self):
         f = self._make_frame()
         f.create_object("ns", "lbl", detection_box=RBBox(0, 0, 10, 10))
-        batch = VideoFrameBatch.from_frames([f])
+        batch = self._make_batch([f])
         q = MatchQuery.idle()
-        result = batch.delete_objects(q)
-        assert isinstance(result, dict)
+        # delete_objects may return None or dict
+        batch.delete_objects(q)

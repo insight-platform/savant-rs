@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from savant_rs.primitives.attribute import Attribute
-from savant_rs.primitives.attribute_value import AttributeValue
+from savant_rs.primitives import Attribute, AttributeValue
 from savant_rs.webserver.kvs import (
     del_attribute,
     del_attributes,

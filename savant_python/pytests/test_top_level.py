@@ -3,6 +3,8 @@ unregister_handler."""
 
 from __future__ import annotations
 
+import pytest
+
 import savant_rs
 
 
@@ -27,6 +29,6 @@ class TestHandlerRegistration:
         savant_rs.register_handler("test_element", handler)
         savant_rs.unregister_handler("test_element")
 
-    def test_unregister_nonexistent(self):
-        # Should not raise even if nothing is registered
-        savant_rs.unregister_handler("nonexistent_element")
+    def test_unregister_nonexistent_raises(self):
+        with pytest.raises(Exception):
+            savant_rs.unregister_handler("nonexistent_element")

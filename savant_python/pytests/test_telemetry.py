@@ -48,16 +48,16 @@ class TestIdentity:
 
 class TestClientTlsConfig:
     def test_no_args(self):
-        tls = ClientTlsConfig()
+        tls = ClientTlsConfig(None, None)
         assert tls is not None
 
     def test_with_certificate(self):
-        tls = ClientTlsConfig(certificate="ca-cert")
+        tls = ClientTlsConfig("ca-cert", None)
         assert tls is not None
 
     def test_with_identity(self):
-        ident = Identity(key="k", certificate="c")
-        tls = ClientTlsConfig(identity=ident)
+        ident = Identity("k", "c")
+        tls = ClientTlsConfig(None, ident)
         assert tls is not None
 
 
@@ -74,13 +74,13 @@ class TestTracerConfiguration:
         assert tc is not None
 
     def test_with_tls_and_timeout(self):
-        tls = ClientTlsConfig(certificate="cert")
+        tls = ClientTlsConfig("cert", None)
         tc = TracerConfiguration(
-            service_name="svc",
-            protocol=Protocol.HttpBinary,
-            endpoint="https://otel:4318",
-            tls=tls,
-            timeout=5000,
+            "svc",
+            Protocol.HttpBinary,
+            "https://otel:4318",
+            tls,
+            5000,
         )
         assert tc is not None
 

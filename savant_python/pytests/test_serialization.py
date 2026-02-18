@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 
 from savant_rs.primitives import (
+    Attribute,
+    AttributeValue,
     EndOfStream,
     Shutdown,
     UserData,
@@ -13,11 +15,9 @@ from savant_rs.primitives import (
     VideoFrameBatch,
     VideoFrameContent,
     VideoFrameUpdate,
+    VideoObject,
 )
-from savant_rs.primitives.attribute import Attribute
-from savant_rs.primitives.attribute_value import AttributeValue
 from savant_rs.primitives.geometry import RBBox
-from savant_rs.primitives.video_object import VideoObject
 from savant_rs.utils import ByteBuffer
 from savant_rs.utils.serialization import (
     Message,
@@ -97,7 +97,8 @@ class TestMessageTypes:
         assert extracted is not None
 
     def test_video_frame_batch(self):
-        batch = VideoFrameBatch.from_frames([_make_frame()])
+        batch = VideoFrameBatch()
+        batch.add(0, _make_frame())
         msg = Message.video_frame_batch(batch)
         assert msg.is_video_frame_batch()
         extracted = msg.as_video_frame_batch()

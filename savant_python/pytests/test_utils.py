@@ -29,19 +29,19 @@ from savant_rs.primitives import VideoFrame
 
 class TestEvalExpr:
     def test_math(self):
-        result = eval_expr("2 + 3", ttl=100)
+        result, _cached = eval_expr("2 + 3", ttl=100)
         assert result == 5
 
     def test_float_math(self):
-        result = eval_expr("2.5 * 4.0", ttl=100)
+        result, _cached = eval_expr("2.5 * 4.0", ttl=100)
         assert result == pytest.approx(10.0)
 
     def test_string(self):
-        result = eval_expr('"hello"', ttl=100)
+        result, _cached = eval_expr('"hello"', ttl=100)
         assert result == "hello"
 
     def test_boolean(self):
-        result = eval_expr("true", ttl=100)
+        result, _cached = eval_expr("true", ttl=100)
         assert result is True
 
 
@@ -105,9 +105,8 @@ class TestByteBuffer:
     def test_create(self):
         bb = ByteBuffer(b"\x01\x02\x03", checksum=None)
         assert bb.len() == 3
-        assert len(bb) == 3
         assert not bb.is_empty()
-        assert bb.checksum() is None
+        assert bb.checksum is None
         assert bb.bytes == b"\x01\x02\x03"
 
     def test_empty(self):
@@ -117,7 +116,7 @@ class TestByteBuffer:
 
     def test_with_checksum(self):
         bb = ByteBuffer(b"\xff", checksum=12345)
-        assert bb.checksum() == 12345
+        assert bb.checksum == 12345
 
 
 # ── VideoObjectBBoxType ──────────────────────────────────────────────────

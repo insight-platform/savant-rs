@@ -138,7 +138,9 @@ class TestPolygonalArea:
         pts = [Point(5.0, 5.0), Point(20.0, 20.0)]
         result = PolygonalArea.points_positions(polys, pts)
         assert isinstance(result, list)
-        assert len(result) == 2
+        # result is [[bool, bool]] - one list per polygon
+        assert len(result) == 1
+        assert len(result[0]) == 2
 
     def test_segments_intersections(self, square):
         polys = [square]
@@ -198,9 +200,9 @@ class TestRBBox:
 
     def test_shift(self):
         bb = RBBox(10.0, 20.0, 5.0, 5.0)
-        shifted = bb.shift(1.0, 2.0)
-        assert shifted.xc == pytest.approx(11.0)
-        assert shifted.yc == pytest.approx(22.0)
+        bb.shift(1.0, 2.0)
+        assert bb.xc == pytest.approx(11.0)
+        assert bb.yc == pytest.approx(22.0)
 
     def test_vertices(self):
         bb = RBBox(5.0, 5.0, 10.0, 10.0)
@@ -327,7 +329,7 @@ class TestRBBox:
     def test_get_visual_box(self):
         bb = RBBox(50.0, 50.0, 20.0, 20.0)
         pad = PaddingDraw(2, 2, 2, 2)
-        vb = bb.get_visual_box(pad, 1)
+        vb = bb.get_visual_box(pad, 1, 1000.0, 1000.0)
         assert isinstance(vb, RBBox)
 
     def test_new_padded(self):
@@ -426,15 +428,15 @@ class TestBBox:
 
     def test_scale(self):
         bb = BBox(0.0, 0.0, 10.0, 20.0)
-        scaled = bb.scale(2.0, 3.0)
-        assert scaled.width == pytest.approx(20.0)
-        assert scaled.height == pytest.approx(60.0)
+        bb.scale(2.0, 3.0)
+        assert bb.width == pytest.approx(20.0)
+        assert bb.height == pytest.approx(60.0)
 
     def test_shift(self):
         bb = BBox(10.0, 20.0, 5.0, 5.0)
-        shifted = bb.shift(1.0, 2.0)
-        assert shifted.xc == pytest.approx(11.0)
-        assert shifted.yc == pytest.approx(22.0)
+        bb.shift(1.0, 2.0)
+        assert bb.xc == pytest.approx(11.0)
+        assert bb.yc == pytest.approx(22.0)
 
     def test_as_polygonal_area(self):
         bb = BBox(5.0, 5.0, 10.0, 10.0)
@@ -483,7 +485,7 @@ class TestBBox:
     def test_get_visual_box(self):
         bb = BBox(50.0, 50.0, 20.0, 20.0)
         pad = PaddingDraw(2, 2, 2, 2)
-        vb = bb.get_visual_box(pad, 1)
+        vb = bb.get_visual_box(pad, 1, 1000.0, 1000.0)
         assert isinstance(vb, BBox)
 
     def test_new_padded(self):
