@@ -49,13 +49,15 @@ all-dev: fmt clippy lint \
          dev install \
          gst-dev gst-test gst-install gst-pytest \
          ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest
+         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest \
+         sp-dev sp-install sp-pytest
 
 all-release: fmt clippy lint \
              release install \
              gst-release gst-test gst-install gst-pytest \
              ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest
+             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest \
+             sp-dev sp-install sp-pytest
 
 # -----------------------------------------------------------------------------
 
