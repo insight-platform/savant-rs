@@ -10,15 +10,15 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Start after py313/py314 container builds succeed (push to main / tags)
+  # Start only after py313/py314 container builds succeed (push to main / tags).
+  # PRs are validated by the py313/py314 workflows (which include the test suite
+  # in their Docker builds) so the heavy manylinux build is not needed on PRs.
   workflow_run:
     workflows:
       - "Python 3.13 Thin With Savant-RS installed"
       - "Python 3.14 Thin With Savant-RS installed"
     types:
       - completed
-  # PRs still run independently (py313/py314 tests are baked into their Docker builds)
-  pull_request:
   workflow_dispatch:
 
 permissions: write-all
