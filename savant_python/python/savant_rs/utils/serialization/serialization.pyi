@@ -18,7 +18,6 @@ __all__ = [
     "load_message",
     "load_message_from_bytebuffer",
     "load_message_from_bytes",
-    "clear_source_seq_id",
 ]
 
 

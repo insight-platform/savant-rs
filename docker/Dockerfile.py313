@@ -54,3 +54,11 @@ RUN SAVANT_GST_WHL=$(ls /tmp/savant_gstreamer-*.whl | head -n 1) && \
     pip3 install $SAVANT_GST_WHL && \
     rm $SAVANT_GST_WHL
 
+# Run savant_rs Python API tests
+COPY savant_python/pytests /tmp/pytests
+COPY savant_python/pyproject.toml /tmp/pyproject.toml
+RUN pip3 install pytest && \
+    cd /tmp && python3 -m pytest pytests/ -v --tb=short && \
+    pip3 uninstall -y pytest && \
+    rm -rf /tmp/pytests /tmp/pyproject.toml /tmp/.pytest_cache
+

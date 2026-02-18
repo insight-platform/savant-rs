@@ -22,6 +22,9 @@ clientsdk = [
 ]
 
 
+[tool.pytest.ini_options]
+testpaths = ["pytests"]
+
 [tool.black]
 skip-string-normalization = true
 
