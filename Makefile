@@ -13,7 +13,7 @@ SP_DIR=$(PROJECT_DIR)/savant_python
         ds-enc-test ds-enc-pytest \
         gst-dev gst-release gst-install \
         gst-test gst-pytest \
-        sp-dev sp-install sp-pytest \
+        sp-dev sp-release sp-install sp-pytest \
         all-dev all-release \
         fmt clippy lint
 
@@ -57,7 +57,7 @@ all-release: fmt clippy lint \
              gst-release gst-test gst-install gst-pytest \
              ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
              ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest \
-             sp-dev sp-install sp-pytest
+             sp-release sp-install sp-pytest
 
 # -----------------------------------------------------------------------------
 
@@ -150,6 +150,10 @@ gst-pytest: gst-dev gst-install
 sp-dev:
 	@echo "Building savant_python (dev)..."
 	cd $(SP_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
+
+sp-release:
+	@echo "Building savant_python (release)..."
+	cd $(SP_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
 
 sp-install:
 	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/savant_rs*$(PYTHON_VERSION)*.whl | head -1); \
