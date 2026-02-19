@@ -15,13 +15,6 @@ This service is crucial for complex streaming applications requiring conditional
 - provides backpressure control with configurable high watermarks;
 - can work as a central routing hub in distributed Savant pipeline architectures.
 
-Use Cases
-^^^^^^^^^
-
-- Route a stream between multiple processing pipelines based on the stream-pipelines assignment;
-- Duplicate a stream to process it by different pipelines simultaneously;
-- Load balance streams based on their name hashes among the same pipelines launched on multiple GPUs;
-
 
 .. toctree::
    :maxdepth: 2

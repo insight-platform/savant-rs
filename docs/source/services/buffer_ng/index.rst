@@ -17,16 +17,6 @@ This service provides reliable message buffering with the following capabilities
 - supports both ingress and egress Python handlers for message transformation;
 - can work as a reliable message queue in distributed Savant pipeline architectures.
 
-Use Cases
-^^^^^^^^^
-
-- Buffer video streams during downstream service outages or maintenance windows;
-- Provide message persistence for critical video analytics pipelines that cannot afford data loss;
-- Implement reliable message queuing with custom processing logic between pipeline stages;
-- Handle burst traffic by temporarily storing excess messages when downstream cannot keep up;
-- Provide message replay capabilities by maintaining a persistent buffer of processed messages;
-- Implement message filtering and transformation with guaranteed delivery;
-
 
 .. toctree::
    :maxdepth: 2
