@@ -159,6 +159,10 @@ sp-pytest: sp-dev sp-install
 	@echo "Running savant_python Python tests..."
 	cd $(SP_DIR) && python3 -m pytest pytests/ -v --tb=short
 
+docker-build-docs:
+	docker build -f docker/Dockerfile.docs -t savant-rs-docs .
+	docker run --rm --entrypoint cat savant-rs-docs /opt/docs-artifact.tar > $(PROJECT_DIR)/docs/docs-artifact.tar
+
 docs: dev install gst-dev gst-install ds-nvbuf-dev ds-nvbuf-install ds-enc-dev ds-enc-install
 	@echo "Building docs..."
 	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(PROJECT_DIR)/venv/bin:$$PATH" make clean html

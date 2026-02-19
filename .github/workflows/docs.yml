@@ -29,7 +29,7 @@ jobs:
       - name: Build docs
         uses: docker/build-push-action@v5
         with:
-          file: docker/Dockerfile.savant
+          file: docker/Dockerfile.docs
           tags: savant-rs-docs
           push: false
           load: true
