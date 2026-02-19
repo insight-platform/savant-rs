@@ -15,7 +15,8 @@ SP_DIR=$(PROJECT_DIR)/savant_python
         gst-test gst-pytest \
         sp-dev sp-install sp-pytest \
         all-dev all-release \
-        fmt clippy lint
+        fmt clippy lint \
+        docker-build-docs serve-docs
 
 dev: clean build_savant
 release: clean build_savant_release
@@ -161,7 +162,13 @@ sp-pytest: sp-dev sp-install
 
 docker-build-docs:
 	docker build -f docker/Dockerfile.docs -t savant-rs-docs .
-	docker run --rm --entrypoint cat savant-rs-docs /opt/docs-artifact.tar > $(PROJECT_DIR)/docs/docs-artifact.tar
+	mkdir -p $(PROJECT_DIR)/docs/build/html
+	docker run --rm --entrypoint cat savant-rs-docs /opt/docs-artifact.tar > $(PROJECT_DIR)/docs/build/html.tar
+	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -xvf $(PROJECT_DIR)/docs/build/html.tar
+
+serve-docs: docker-build-docs
+	@echo "Serving docs at http://localhost:8080"
+	docker run -it --rm -p 8080:80 -v $(PROJECT_DIR)/docs/build/html:/usr/share/nginx/html:ro nginx:alpine
 
 docs: dev install gst-dev gst-install ds-nvbuf-dev ds-nvbuf-install ds-enc-dev ds-enc-install
 	@echo "Building docs..."
