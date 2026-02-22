@@ -14,7 +14,7 @@ use savant_core::primitives::{rust, WithAttributes};
 use savant_core::protobuf::{from_pb, ToProtobuf};
 use serde_json::Value;
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdCollisionResolutionPolicy {
     GenerateNewId,
@@ -34,7 +34,7 @@ impl From<IdCollisionResolutionPolicy> for rust::IdCollisionResolutionPolicy {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct VideoObject(pub(crate) rust::VideoObject);
 
@@ -184,7 +184,7 @@ impl VideoObject {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct BorrowedVideoObject(pub rust::BorrowedVideoObject);
 

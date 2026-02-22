@@ -6,11 +6,11 @@ pub mod rocksdb;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ::rocksdb::Options;
 use anyhow::Result;
 use log::debug;
 use parking_lot::Mutex;
 use pyo3::{Py, PyAny};
-use ::rocksdb::Options;
 
 use crate::configuration::ServiceConfiguration;
 use crate::message_handler::{MessageHandler, MessageWriter};

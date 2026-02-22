@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 
 /// Represents a socket type for a writer socket.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub enum WriterSocketType {
     Pub,
@@ -52,7 +52,7 @@ impl From<WriterSocketType> for zeromq::WriterSocketType {
 
 /// Represents a socket type for a reader socket.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub enum ReaderSocketType {
     Sub,
@@ -100,7 +100,7 @@ impl From<ReaderSocketType> for zeromq::ReaderSocketType {
 /// The object is used to configure the rules to pass messages from a writer to a reader
 /// based on either exact topic match or a prefix match.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct TopicPrefixSpec(pub(crate) zeromq::TopicPrefixSpec);
 

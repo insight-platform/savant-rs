@@ -13,7 +13,7 @@ use savant_core::otlp::with_current_context;
 /// :py:class:`LogLevel`
 ///   The log level. By default, the log level is set to Info.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LogLevel {
     Trace,

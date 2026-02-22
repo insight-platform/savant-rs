@@ -215,7 +215,7 @@ fn init_python() {
             savant_rs::init_all(py, &module)?;
             let sys = PyModule::import(py, "sys")?;
             let sys_modules_bind = sys.getattr("modules")?;
-            let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
+            let sys_modules = sys_modules_bind.cast::<PyDict>()?;
             sys_modules.set_item("savant_rs", module)?;
             Ok(())
         })

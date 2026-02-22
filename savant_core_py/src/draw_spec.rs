@@ -24,7 +24,7 @@ use savant_core::draw as rust;
 ///   padding = PaddingDraw(1, 2, 3, 4)
 ///
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub struct PaddingDraw(pub(crate) rust::PaddingDraw);
 
@@ -148,7 +148,7 @@ impl PaddingDraw {
 ///   from savant_rs.draw_spec import ColorDraw
 ///   color = ColorDraw(1, 2, 3, 4)
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub struct ColorDraw(rust::ColorDraw);
 
@@ -255,7 +255,7 @@ impl ColorDraw {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub struct BoundingBoxDraw(rust::BoundingBoxDraw);
 
@@ -353,7 +353,7 @@ impl BoundingBoxDraw {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotDraw(rust::DotDraw);
 
@@ -413,7 +413,7 @@ impl DotDraw {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LabelPositionKind {
     /// Margin is relative to the **top** left corner of the text bounding box
@@ -450,7 +450,7 @@ impl From<rust::LabelPositionKind> for LabelPositionKind {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub struct LabelPosition(rust::LabelPosition);
 
@@ -520,7 +520,7 @@ impl LabelPosition {
 /// or get properties. There is no way to update properties inplace. Fields are
 /// not available in Python, use getters.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct LabelDraw(rust::LabelDraw);
 
@@ -639,7 +639,7 @@ impl LabelDraw {
 
 /// Represents the draw specification for an object.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct ObjectDraw(rust::ObjectDraw);
 
@@ -709,7 +709,7 @@ impl ObjectDraw {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct SetDrawLabelKind(pub(crate) rust::DrawLabelKind);
 
