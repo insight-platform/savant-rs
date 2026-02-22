@@ -22,6 +22,7 @@ members = [
     "savant_deepstream/deepstream_nvinfer",
     "savant_deepstream/deepstream_nvbufsurface",
     "savant_deepstream/deepstream_encoders",
+    "savant_deepstream/picasso",
 ]
 
 default-members = [
