@@ -14,7 +14,7 @@ use std::thread::ThreadId;
 
 /// A Span to be used locally. Works as a guard (use with `with` statement).
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct TelemetrySpan(pub(crate) Context, ThreadId);
 
@@ -190,13 +190,13 @@ impl TelemetrySpan {
                 attrs.insert("python.exception.type".to_string(), format!("{e:?}"));
 
                 if let Some(v) = exc_value {
-                    if let Ok(e) = v.downcast::<PyException>() {
+                    if let Ok(e) = v.cast::<PyException>() {
                         attrs.insert("python.exception.value".to_string(), e.to_string());
                     }
                 }
 
                 if let Some(t) = traceback {
-                    let traceback = t.downcast::<PyTraceback>().unwrap();
+                    let traceback = t.cast::<PyTraceback>().unwrap();
                     if let Ok(formatted) = traceback.format() {
                         attrs.insert("python.exception.traceback".to_string(), formatted);
                     }
@@ -375,7 +375,7 @@ impl TelemetrySpan {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct MaybeTelemetrySpan {
     span: Option<TelemetrySpan>,
@@ -453,7 +453,7 @@ impl MaybeTelemetrySpan {
 /// Represents a context that can be propagated to remote system like Python code
 ///
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Default)]
 pub struct PropagatedContext(pub(crate) rust::PropagatedContext);
 

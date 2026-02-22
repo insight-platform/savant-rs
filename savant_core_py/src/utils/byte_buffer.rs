@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// ByteBuffer
 ///   The byte buffer.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct ByteBuffer {
     inner: Arc<Vec<u8>>,

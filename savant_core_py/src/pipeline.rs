@@ -19,7 +19,7 @@ use crate::utils::check_pybound_name;
 use crate::utils::otlp::TelemetrySpan;
 use crate::{attach, detach};
 
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct StageFunction(Mutex<Option<Box<dyn RustPipelineStageFunction>>>);
 
 impl StageFunction {
@@ -68,14 +68,14 @@ pub fn load_stage_function_plugin(
 
 /// Defines which type of payload a stage handles.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VideoPipelineStagePayloadType {
     Frame,
     Batch,
 }
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameProcessingStatRecordType {
     Initial,
@@ -275,7 +275,7 @@ impl From<rust::PipelineStagePayloadType> for VideoPipelineStagePayloadType {
 #[derive(Debug)]
 pub struct Pipeline(rust::Pipeline);
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[pyo3(name = "VideoPipelineConfiguration")]
 #[derive(Debug, Clone)]
 pub struct PipelineConfiguration(rust::PipelineConfiguration);
@@ -345,8 +345,8 @@ impl Pipeline {
                     let egress = egress_func.into_bound(py);
                     check_pybound_name(&egress, "StageFunction")?;
 
-                    let typed_ingress = unsafe { ingress.downcast_unchecked::<StageFunction>() };
-                    let typed_egress = unsafe { egress.downcast_unchecked::<StageFunction>() };
+                    let typed_ingress = unsafe { ingress.cast_unchecked::<StageFunction>() };
+                    let typed_egress = unsafe { egress.cast_unchecked::<StageFunction>() };
 
                     let ingress = typed_ingress.borrow().0.lock().take();
                     let egress = typed_egress.borrow().0.lock().take();

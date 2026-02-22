@@ -1187,6 +1187,7 @@ pub mod python {
     /// - ``RIGHT_BOTTOM`` -- image at top-left, padding on right/bottom.
     /// - ``SYMMETRIC`` -- image centered, equal padding on all sides (default).
     #[pyclass(
+        from_py_object,
         name = "Padding",
         module = "deepstream_nvbufsurface._native",
         eq,
@@ -1225,6 +1226,7 @@ pub mod python {
     /// - ``ALGO4``    -- GPU: (ignored), VIC: nicest.
     /// - ``DEFAULT``  -- GPU: nearest, VIC: nearest.
     #[pyclass(
+        from_py_object,
         name = "Interpolation",
         module = "deepstream_nvbufsurface._native",
         eq,
@@ -1273,6 +1275,7 @@ pub mod python {
     /// - ``GPU``     -- always use GPU compute.
     /// - ``VIC``     -- VIC hardware (Jetson only, raises error on dGPU).
     #[pyclass(
+        from_py_object,
         name = "ComputeMode",
         module = "deepstream_nvbufsurface._native",
         eq,
@@ -1313,6 +1316,7 @@ pub mod python {
     /// - ``UYVY``  — YUV 4:2:2 packed.
     /// - ``GRAY8`` — single-channel grayscale.
     #[pyclass(
+        from_py_object,
         name = "VideoFormat",
         module = "deepstream_nvbufsurface._native",
         eq,
@@ -1447,6 +1451,7 @@ pub mod python {
     /// - ``HANDLE``        — NVRM Handle (Jetson only).
     /// - ``SYSTEM``        — System memory (malloc).
     #[pyclass(
+        from_py_object,
         name = "MemType",
         module = "deepstream_nvbufsurface._native",
         eq,
@@ -1582,7 +1587,11 @@ pub mod python {
     ///         interpolation=Interpolation.BILINEAR,
     ///         src_rect=(100, 200, 800, 600),   # optional crop
     ///     )
-    #[pyclass(name = "TransformConfig", module = "deepstream_nvbufsurface._native")]
+    #[pyclass(
+        from_py_object,
+        name = "TransformConfig",
+        module = "deepstream_nvbufsurface._native"
+    )]
     #[derive(Debug, Clone)]
     pub struct PyTransformConfig {
         #[pyo3(get, set)]

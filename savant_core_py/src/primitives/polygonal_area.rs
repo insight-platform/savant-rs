@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use savant_core::primitives::rust;
 use std::mem;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct PolygonalArea(pub(crate) rust::PolygonalArea);
 

@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum FlowResult {
     CustomSuccess2,
@@ -18,7 +18,7 @@ pub enum FlowResult {
     CustomError2,
 }
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum InvocationReason {
     Buffer,

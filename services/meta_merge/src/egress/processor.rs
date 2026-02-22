@@ -227,7 +227,7 @@ impl EgressProcessor {
                 (ingress_name, topic, current_py.clone_ref(py), incoming_py),
             )?;
 
-            let is_ready = result.bind(py).downcast::<PyBool>()?.extract::<bool>()?;
+            let is_ready = result.bind(py).cast::<PyBool>()?.extract::<bool>()?;
 
             // Update current_item in-place from the (possibly modified) Python object
             let current_bound = current_py.bind(py);

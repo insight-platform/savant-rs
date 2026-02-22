@@ -84,7 +84,10 @@ impl Ingress {
                             if res.is_none(py) {
                                 Ok::<Option<Box<Message>>, anyhow::Error>(None)
                             } else {
-                                let new_message = res.extract::<PyMessage>(py)?.extract();
+                                let new_message = res
+                                    .extract::<PyMessage>(py)
+                                    .map_err(pyo3::PyErr::from)?
+                                    .extract();
                                 Ok::<Option<Box<Message>>, anyhow::Error>(Some(Box::new(
                                     new_message,
                                 )))

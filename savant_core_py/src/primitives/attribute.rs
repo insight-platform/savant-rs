@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// For example, the attribute ``(person_profiler, bio)`` may include values in the form ``["Age", 32, "Gender", None, "Height", 186]``. Each element of the
 /// list is :class:`AttributeValue`.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Attribute(pub rust::Attribute);
 

@@ -2,7 +2,7 @@ use crate::primitives::point::Point;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Segment(pub(crate) rust::Segment);
 
@@ -35,7 +35,7 @@ impl Segment {
     }
 }
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum IntersectionKind {
     Enter,
@@ -83,7 +83,7 @@ impl IntersectionKind {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct Intersection(pub(crate) rust::Intersection);
 

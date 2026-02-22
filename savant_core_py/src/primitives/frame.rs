@@ -74,7 +74,7 @@ impl ToSerdeJsonValue for ExternalFrame {
 
 /// Represents the structure for accessing primary video content for the frame.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct VideoFrameContent(rust::VideoFrameContent);
 
@@ -200,7 +200,7 @@ impl VideoFrameContent {
 
 /// Represents the structure for accessing primary video content encoding information
 /// for the frame.
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VideoFrameTranscodingMethod {
     Copy,
@@ -236,7 +236,7 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
 
 /// Represents the structure for accessing/defining video frame transformation information.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct VideoFrameTransformation(rust::VideoFrameTransformation);
 
@@ -480,7 +480,7 @@ impl VideoFrameTransformation {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct VideoFrame(pub rust::VideoFrameProxy);
 

@@ -19,7 +19,7 @@ lazy_static! {
 /// ErrorIfNonUnique
 ///   The key will not be registered and a error will be triggered.
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum RegistrationPolicy {
     Override,

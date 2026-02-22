@@ -14,13 +14,6 @@ This service is crucial for fan-in topologies in distributed Savant pipeline arc
 - offers a send callback that allows overriding the egress topic before the frame is written;
 - handles unsupported message types through an optional Python callback.
 
-Use Cases
-^^^^^^^^^
-
-- Merge metadata from multiple inference pipelines that process the same video frame in parallel;
-- Combine detection, classification, and tracking results back into a single enriched frame;
-- Re-assemble a fan-out/fan-in topology where a stream is split across multiple GPUs and then merged back;
-
 
 .. toctree::
    :maxdepth: 2

@@ -14,7 +14,7 @@ use savant_core::primitives::rust;
 /// IoSelf - Intersection over Self (Intersection / Area of Self)
 /// IoOther - Intersection over Other (Intersection / Area of Other)
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum BBoxMetricType {
     IoU,
@@ -44,7 +44,7 @@ impl From<rust::BBoxMetricType> for BBoxMetricType {
 
 /// Represents a bounding box with an optional rotation angle in degrees.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct RBBox(pub(crate) rust::RBBox);
 
@@ -615,7 +615,7 @@ impl RBBox {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 #[pyo3(name = "BBox")]
 pub struct BBox(pub(crate) RBBox);
@@ -928,7 +928,7 @@ impl BBox {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Copy)]
 pub struct VideoObjectBBoxTransformation(pub(crate) rust::VideoObjectBBoxTransformation);
 

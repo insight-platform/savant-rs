@@ -61,7 +61,7 @@ fn main() -> anyhow::Result<()> {
         // add the current directory to the Python module load path
         let sys = PyModule::import(py, "sys")?;
         let path_bind = sys.getattr("path")?;
-        let path = path_bind.downcast::<PyList>()?;
+        let path = path_bind.cast::<PyList>()?;
         path.insert(0, module_root.as_str())?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name.as_str())?.unbind();
