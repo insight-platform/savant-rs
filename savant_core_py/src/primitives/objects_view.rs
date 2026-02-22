@@ -11,7 +11,7 @@ pub type VideoObjectsViewBatch = HashMap<i64, VideoObjectsView>;
 
 /// Determines which object bbox is a subject of the operation
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, Debug, Copy, PartialEq)]
 #[repr(C)]
 pub enum VideoObjectBBoxType {
@@ -45,7 +45,7 @@ impl From<savant_core::primitives::object::VideoObjectBBoxType> for VideoObjectB
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 #[repr(C)]
 pub struct VideoObjectsView(pub Arc<Vec<BorrowedVideoObject>>);
@@ -127,7 +127,7 @@ impl VideoObjectsView {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct QueryFunctions;
 

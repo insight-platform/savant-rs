@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 /// Returned when a writer is unable to send a message due to a timeout on ZMQ.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultSendTimeout;
 
@@ -33,7 +33,7 @@ impl WriterResultSendTimeout {
 /// Returned when a writer is unable to receive an ack due to a timeout on ZMQ.
 /// Contains a field holding the accumulated timeout (receive_retries x receive_timeout).
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultAckTimeout {
     #[pyo3(get)]
@@ -61,7 +61,7 @@ impl WriterResultAckTimeout {
 /// The result is expected for every Req/Rep message and for only for EOS when
 /// using Dealer/Router. Pub/Sub does not use acks.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultAck {
     #[pyo3(get)]
@@ -93,7 +93,7 @@ impl WriterResultAck {
 /// For Dealer/Router when the message is not EOS, for Pub/Sub always. Req/Rep does not
 /// use this result.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct WriterResultSuccess {
     #[pyo3(get)]
@@ -121,7 +121,7 @@ impl WriterResultSuccess {
 
 /// Returned when a reader received a message.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ReaderResultMessage {
     /// The :py:class:`savant_rs.utils.serialization.Message` received.
@@ -193,7 +193,7 @@ impl ReaderResultMessage {
 
 /// Returned when a reader is unable to receive a message due to a timeout on ZMQ.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultTimeout;
 
@@ -216,7 +216,7 @@ impl ReaderResultTimeout {
 
 /// Returned when a reader is unable to receive a message due to a timeout on ZMQ.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultBlacklisted {
     #[pyo3(get)]
@@ -242,7 +242,7 @@ impl ReaderResultBlacklisted {
 
 /// Returned when a reader received a message not matching the topic prefix configured.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultPrefixMismatch {
     /// The topic of the message.
@@ -272,7 +272,7 @@ impl ReaderResultPrefixMismatch {
 
 /// Returned when a reader received a message with a protocol version mismatch.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, Hash)]
 pub struct ReaderResultMessageVersionMismatch {
     pub topic: Vec<u8>,

@@ -1,7 +1,7 @@
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, PartialEq, Clone)]
 pub struct Point(pub(crate) rust::Point);
 

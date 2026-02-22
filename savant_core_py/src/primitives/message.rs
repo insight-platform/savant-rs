@@ -9,7 +9,7 @@ use crate::utils::otlp::PropagatedContext;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust as rust_primitives;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Message(pub(crate) rust_primitives::Message);
 

@@ -2,14 +2,14 @@ use pyo3::{pyclass, pyfunction, pymethods};
 use savant_core::telemetry;
 use std::time::Duration;
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, PartialEq)]
 pub enum ContextPropagationFormat {
     Jaeger,
     W3C,
 }
 
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Clone, PartialEq)]
 pub enum Protocol {
     Grpc,
@@ -17,7 +17,7 @@ pub enum Protocol {
     HttpJson,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Identity(telemetry::Identity);
 
@@ -29,7 +29,7 @@ impl Identity {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ClientTlsConfig(telemetry::ClientTlsConfig);
 
@@ -45,7 +45,7 @@ impl ClientTlsConfig {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct TracerConfiguration(telemetry::TracerConfiguration);
 

@@ -3,7 +3,7 @@ use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::json_api::ToSerdeJsonValue;
 use savant_core::primitives::rust;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct Shutdown(pub(crate) rust::Shutdown);
 

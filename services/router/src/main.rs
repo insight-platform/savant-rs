@@ -66,15 +66,15 @@ fn main() -> Result<()> {
         // add the current directory to the Python module load path
         let sys = PyModule::import(py, "sys")?;
         let sys_modules_bind = sys.getattr("modules")?;
-        let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
+        let sys_modules = sys_modules_bind.cast::<PyDict>()?;
         sys_modules.set_item("savant_rs", module)?;
         let path_bind = sys.getattr("path")?;
-        let path = path_bind.downcast::<PyList>()?;
+        let path = path_bind.cast::<PyList>()?;
         path.insert(0, module_root)?;
         let m = Python::import(py, module_name)?;
         let f = m.getattr(function_name)?.unbind();
         let res = f.call1(py, (py_data,))?.into_bound(py);
-        res.downcast::<PyBool>()?.extract()
+        res.cast::<PyBool>()?.extract()
     });
     let res = invocation?;
     if res {

@@ -5,7 +5,7 @@ use crate::err_to_pyerr;
 
 use super::VideoObject;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct VideoObjectTree(pub(crate) rust::VideoObjectTree);
 

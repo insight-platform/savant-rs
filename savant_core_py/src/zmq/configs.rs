@@ -26,12 +26,12 @@ use std::num::NonZeroU64;
 /// ValueError
 ///   If the URL is invalid
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct WriterConfigBuilder(Option<zeromq::WriterConfigBuilder>);
 
 /// A writer configuration
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct WriterConfig(pub(crate) zeromq::WriterConfig);
 
@@ -348,12 +348,12 @@ impl WriterConfigBuilder {
 /// ValueError
 ///   If the URL is invalid
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct ReaderConfigBuilder(Option<zeromq::ReaderConfigBuilder>);
 
 /// A reader configuration
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct ReaderConfig(pub(crate) zeromq::ReaderConfig);
 

@@ -13,7 +13,7 @@ use savant_core::match_query as rust;
 //  */
 /// A class allowing to define a float expression
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct FloatExpression(rust::FloatExpression);
 
@@ -261,7 +261,7 @@ impl FloatExpression {
 
 /// A class allowing to define an integer expression
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct IntExpression(rust::IntExpression);
 
@@ -508,7 +508,7 @@ impl IntExpression {
 
 /// A class allowing to define a string expression
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct StringExpression(rust::StringExpression);
 
@@ -725,7 +725,7 @@ impl StringExpression {
 
 /// A class allowing to define a Query based on expressions
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct MatchQuery(pub(crate) rust::MatchQuery);
 

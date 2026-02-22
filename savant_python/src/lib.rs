@@ -375,7 +375,7 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.getattr("modules")?;
-    let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
+    let sys_modules = sys_modules_bind.cast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;

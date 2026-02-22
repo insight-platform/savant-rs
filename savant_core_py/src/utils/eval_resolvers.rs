@@ -51,7 +51,7 @@ pub fn etcd_resolver_name() -> &'static str {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct EtcdCredentials(savant_core::eval_resolvers::EtcdCredentials);
 
 #[pymethods]
@@ -63,7 +63,7 @@ impl EtcdCredentials {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(from_py_object)]
 pub struct TlsConfig(savant_core::eval_resolvers::TlsConfig);
 
 #[pymethods]

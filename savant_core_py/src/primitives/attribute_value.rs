@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 use std::mem;
 use std::sync::Arc;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct AttributeValue(pub rust::AttributeValue);
 
@@ -848,7 +848,7 @@ impl AttributeValue {
 
 /// Represents attribute value types for matching
 ///
-#[pyclass(eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub enum AttributeValueType {
     Bytes,
@@ -894,7 +894,7 @@ impl AttributeValueType {
 /// work with compound values and want to check value partially before accessing costly operations. It supports Python's ``len(obj)`` and ``obj[i]``
 /// operations, but only on reading.
 ///
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct AttributeValuesView(pub Arc<Vec<rust::AttributeValue>>);
 

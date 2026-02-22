@@ -22,7 +22,13 @@ fn to_py_err(e: Mp4MuxerError) -> PyErr {
 /// - ``HEVC`` — H.265 / HEVC.
 /// - ``JPEG`` — Motion JPEG.
 /// - ``AV1``  — AV1.
-#[pyclass(name = "Codec", module = "savant_gstreamer._native", eq, eq_int)]
+#[pyclass(
+    from_py_object,
+    name = "Codec",
+    module = "savant_gstreamer._native",
+    eq,
+    eq_int
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyCodec {
     #[pyo3(name = "H264")]

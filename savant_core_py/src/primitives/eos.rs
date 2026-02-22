@@ -2,7 +2,7 @@ use crate::primitives::message::Message;
 use pyo3::{pyclass, pymethods, Py, PyAny};
 use savant_core::primitives::rust;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct EndOfStream(pub(crate) rust::EndOfStream);
 

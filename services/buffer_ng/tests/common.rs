@@ -37,11 +37,7 @@ impl PassthroughHandler {
     fn new() -> Self {
         Self
     }
-    fn __call__(
-        &self,
-        topic: &str,
-        message: Bound<'_, PyAny>,
-    ) -> (String, Py<PyAny>) {
+    fn __call__(&self, topic: &str, message: Bound<'_, PyAny>) -> (String, Py<PyAny>) {
         (topic.to_string(), message.unbind())
     }
 }
@@ -60,11 +56,7 @@ impl StampingHandler {
     fn new(namespace: String, label: String) -> Self {
         Self { namespace, label }
     }
-    fn __call__(
-        &self,
-        topic: &str,
-        message: Bound<'_, PyAny>,
-    ) -> PyResult<(String, Py<PyAny>)> {
+    fn __call__(&self, topic: &str, message: Bound<'_, PyAny>) -> PyResult<(String, Py<PyAny>)> {
         let is_vf: bool = message.call_method0("is_video_frame")?.extract()?;
         if is_vf {
             let mut frame: savant_core_py::primitives::frame::VideoFrame =
@@ -94,7 +86,7 @@ pub fn init_python() {
             savant_rs::init_all(py, &module)?;
             let sys = PyModule::import(py, "sys")?;
             let sys_modules_bind = sys.getattr("modules")?;
-            let sys_modules = sys_modules_bind.downcast::<PyDict>()?;
+            let sys_modules = sys_modules_bind.cast::<PyDict>()?;
             sys_modules.set_item("savant_rs", module)?;
             Ok(())
         })
@@ -107,11 +99,7 @@ pub fn init_python() {
 // ══════════════════════════════════════════════════════════════════════════
 
 pub fn make_passthrough_handler() -> Py<PyAny> {
-    Python::attach(|py| {
-        Py::new(py, PassthroughHandler::new())
-            .unwrap()
-            .into_any()
-    })
+    Python::attach(|py| Py::new(py, PassthroughHandler::new()).unwrap().into_any())
 }
 
 pub fn make_stamping_handler(namespace: &str, label: &str) -> Py<PyAny> {
@@ -291,7 +279,11 @@ where
 
 /// Assert that a video frame carries `(namespace, label)` as a boolean-true
 /// persistent attribute.
-pub fn assert_has_stamp(frame: &savant_core::primitives::frame::VideoFrameProxy, ns: &str, label: &str) {
+pub fn assert_has_stamp(
+    frame: &savant_core::primitives::frame::VideoFrameProxy,
+    ns: &str,
+    label: &str,
+) {
     let attr = frame
         .get_attribute(ns, label)
         .unwrap_or_else(|| panic!("Frame should have ({ns}, {label}) attribute"));
