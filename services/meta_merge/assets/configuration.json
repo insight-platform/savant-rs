@@ -39,8 +39,7 @@
             "args": [
                 {
                     "params": {
-                        "home_dir": "${HOME}",
-                        "user_name": "${USER}"
+                        "home_dir": "${HOME}"
                     }
                 }
             ]
