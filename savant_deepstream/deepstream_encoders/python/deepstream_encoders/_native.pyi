@@ -556,6 +556,11 @@ class EncoderConfig:
         """Video format (e.g. ``VideoFormat.NV12``, ``VideoFormat.RGBA``)."""
         ...
 
+    @property
+    def memory_handle(self) -> int:
+        """Raw pointer to the inner Rust ``EncoderConfig`` for FFI."""
+        ...
+
     def __repr__(self) -> str: ...
 
 

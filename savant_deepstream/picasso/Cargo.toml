@@ -3,7 +3,7 @@ name = "picasso"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "GPU-accelerated video frame processing pipeline with encoding and Skia rendering"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -12,4 +12,36 @@ categories.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+crate-type = ["rlib"]
+
 [dependencies]
+savant_core = { path = "../../savant_core" }
+deepstream_encoders = { path = "../deepstream_encoders" }
+deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface", features = ["skia"] }
+gstreamer = { workspace = true }
+skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"] }
+crossbeam = { workspace = true }
+parking_lot = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+env_logger = "0.11"
+serial_test = { workspace = true }
+gstreamer-video = { workspace = true }
+imagehash = "0.3"
+image = { version = "0.24", default-features = false, features = ["jpeg"] }
+
+[[bench]]
+name = "skia_pipeline"
+harness = false
+
+[[bench]]
+name = "bench_drop"
+harness = false
+
+[[bench]]
+name = "bench_bypass"
+harness = false

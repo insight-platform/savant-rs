@@ -47,9 +47,7 @@ if __name__ == "__main__":
         duration=10,
     )
     frame.add_transformation(VideoFrameTransformation.initial_size(1920, 1080))
-    frame.add_transformation(VideoFrameTransformation.scale(1280, 720))
-    frame.add_transformation(VideoFrameTransformation.padding(120, 0, 0, 0))
-    frame.add_transformation(VideoFrameTransformation.resulting_size(1400, 720))
+    frame.add_transformation(VideoFrameTransformation.letter_box(1400, 720, 120, 0, 0, 0))
 
     frame.set_attribute(
         Attribute(

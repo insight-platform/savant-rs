@@ -1,0 +1,65 @@
+use crate::message::{BypassOutput, EncodedOutput};
+use crate::spec::EvictionDecision;
+use savant_core::draw::ObjectDraw;
+use savant_core::primitives::frame::VideoFrameProxy;
+use savant_core::primitives::object::BorrowedVideoObject;
+use std::sync::Arc;
+
+/// Called when an encoded frame (or EOS sentinel) is ready.
+pub trait OnEncodedFrame: Send + Sync + 'static {
+    fn call(&self, output: EncodedOutput);
+}
+
+/// Called in bypass mode with transformed bboxes.
+pub trait OnBypassFrame: Send + Sync + 'static {
+    fn call(&self, output: BypassOutput);
+}
+
+/// Called before Skia flush — allows custom drawing on the canvas.
+pub trait OnRender: Send + Sync + 'static {
+    fn call(&self, source_id: &str, canvas: &skia_safe::Canvas, frame: &VideoFrameProxy);
+}
+
+/// Per-object callback that can override the static `ObjectDrawSpec`.
+///
+/// `current_spec` is the draw spec resolved from the static
+/// [`ObjectDrawSpec`] table for this object's `(namespace, label)`.  The
+/// callback may return `None` to use `current_spec` as-is, or return a
+/// replacement `ObjectDraw`.
+pub trait OnObjectDrawSpec: Send + Sync + 'static {
+    fn call(
+        &self,
+        source_id: &str,
+        object: &BorrowedVideoObject,
+        current_spec: Option<&ObjectDraw>,
+    ) -> Option<ObjectDraw>;
+}
+
+/// Called with the CUDA pointer of the destination buffer after transform.
+pub trait OnGpuMat: Send + Sync + 'static {
+    fn call(
+        &self,
+        source_id: &str,
+        frame: &VideoFrameProxy,
+        data_ptr: usize,
+        pitch: u32,
+        width: u32,
+        height: u32,
+    );
+}
+
+/// Called when a source has been idle longer than its timeout.
+pub trait OnEviction: Send + Sync + 'static {
+    fn call(&self, source_id: &str) -> EvictionDecision;
+}
+
+/// Aggregate holder for all optional callbacks.
+#[derive(Default)]
+pub struct Callbacks {
+    pub on_encoded_frame: Option<Arc<dyn OnEncodedFrame>>,
+    pub on_bypass_frame: Option<Arc<dyn OnBypassFrame>>,
+    pub on_render: Option<Arc<dyn OnRender>>,
+    pub on_object_draw_spec: Option<Arc<dyn OnObjectDrawSpec>>,
+    pub on_gpumat: Option<Arc<dyn OnGpuMat>>,
+    pub on_eviction: Option<Arc<dyn OnEviction>>,
+}

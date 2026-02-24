@@ -69,28 +69,53 @@ class TestVideoFrameTransformation:
         t = VideoFrameTransformation.initial_size(1920, 1080)
         assert t.is_initial_size
         assert t.as_initial_size == (1920, 1080)
-        assert not t.is_scale
+        assert not t.is_letter_box
 
-    def test_scale(self):
-        t = VideoFrameTransformation.scale(640, 480)
-        assert t.is_scale
-        assert t.as_scale == (640, 480)
+    def test_letter_box(self):
+        t = VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10)
+        assert t.is_letter_box
+        assert t.as_letter_box == (660, 500, 10, 10, 10, 10)
+
+    def test_letter_box_no_padding(self):
+        t = VideoFrameTransformation.letter_box(640, 480, 0, 0, 0, 0)
+        assert t.is_letter_box
+        assert t.as_letter_box == (640, 480, 0, 0, 0, 0)
 
     def test_padding(self):
         t = VideoFrameTransformation.padding(10, 20, 10, 20)
         assert t.is_padding
         assert t.as_padding == (10, 20, 10, 20)
 
-    def test_resulting_size(self):
-        t = VideoFrameTransformation.resulting_size(800, 600)
-        assert t.is_resulting_size
-        assert t.as_resulting_size == (800, 600)
+    def test_crop(self):
+        t = VideoFrameTransformation.crop(50, 25, 50, 25)
+        assert t.is_crop
+        assert t.as_crop == (50, 25, 50, 25)
 
     def test_wrong_type_returns_none(self):
         t = VideoFrameTransformation.initial_size(100, 100)
-        assert t.as_scale is None
+        assert t.as_letter_box is None
         assert t.as_padding is None
-        assert t.as_resulting_size is None
+        assert t.as_crop is None
+
+    def test_letter_box_validation(self):
+        with pytest.raises(ValueError):
+            VideoFrameTransformation.letter_box(0, 100, 0, 0, 0, 0)
+        with pytest.raises(ValueError):
+            VideoFrameTransformation.letter_box(100, 100, -1, 0, 0, 0)
+        with pytest.raises(ValueError):
+            VideoFrameTransformation.letter_box(100, 100, 50, 0, 50, 0)
+
+    def test_crop_validation(self):
+        with pytest.raises(ValueError):
+            VideoFrameTransformation.crop(-1, 0, 0, 0)
+
+    def test_repr(self):
+        t = VideoFrameTransformation.initial_size(1920, 1080)
+        assert "InitialSize" in repr(t)
+        t2 = VideoFrameTransformation.letter_box(640, 480, 0, 0, 0, 0)
+        assert "LetterBox" in repr(t2)
+        t3 = VideoFrameTransformation.crop(10, 20, 10, 20)
+        assert "Crop" in repr(t3)
 
 
 # ── VideoFrame construction & properties ──────────────────────────────────
@@ -291,17 +316,219 @@ class TestVideoFrameTransformations:
         )
 
     def test_add_and_get_transformations(self, frame):
-        frame.add_transformation(VideoFrameTransformation.initial_size(1920, 1080))
-        frame.add_transformation(VideoFrameTransformation.scale(640, 480))
+        # InitialSize(100,100) already added by constructor
+        frame.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
         transforms = frame.transformations
         assert len(transforms) == 2
         assert transforms[0].is_initial_size
-        assert transforms[1].is_scale
+        assert transforms[1].is_letter_box
 
     def test_clear_transformations(self, frame):
-        frame.add_transformation(VideoFrameTransformation.scale(640, 480))
+        frame.add_transformation(VideoFrameTransformation.letter_box(640, 480, 0, 0, 0, 0))
         frame.clear_transformations()
         assert len(frame.transformations) == 0
+
+    def test_add_crop_transformation(self, frame):
+        frame.add_transformation(VideoFrameTransformation.crop(100, 50, 100, 50))
+        transforms = frame.transformations
+        assert len(transforms) == 2
+        assert transforms[1].is_crop
+        assert transforms[1].as_crop == (100, 50, 100, 50)
+
+    def test_complex_chain(self, frame):
+        frame.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
+        frame.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
+        frame.add_transformation(VideoFrameTransformation.padding(5, 5, 5, 5))
+        transforms = frame.transformations
+        assert len(transforms) == 4
+        assert transforms[0].is_initial_size
+        assert transforms[1].is_crop
+        assert transforms[2].is_letter_box
+        assert transforms[3].is_padding
+
+
+# ── VideoFrame transform_backward / transform_forward ─────────────────
+
+
+class TestVideoFrameTransformToInitial:
+    def test_letterbox_to_initial(self):
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=1920,
+            height=1080,
+            content=VideoFrameContent.none(),
+        )
+        f.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
+        obj = f.create_object("det", "car", detection_box=RBBox(100.0, 100.0, 50.0, 50.0))
+        oid = obj.id
+
+        f.transform_backward()
+
+        assert f.width == 1920
+        assert f.height == 1080
+        transforms = f.transformations
+        assert len(transforms) == 1
+        assert transforms[0].is_initial_size
+        assert transforms[0].as_initial_size == (1920, 1080)
+
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        sx = 640.0 / 1920.0
+        sy = 480.0 / 1080.0
+        expected_x = (100.0 - 10.0) / sx
+        expected_y = (100.0 - 10.0) / sy
+        assert det.xc == pytest.approx(expected_x, abs=0.5)
+        assert det.yc == pytest.approx(expected_y, abs=0.5)
+
+    def test_identity_is_noop(self):
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=800,
+            height=600,
+            content=VideoFrameContent.none(),
+        )
+        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0))
+        oid = obj.id
+
+        f.transform_backward()
+
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        assert det.xc == pytest.approx(400.0, abs=0.01)
+        assert det.yc == pytest.approx(300.0, abs=0.01)
+        assert f.width == 800
+        assert f.height == 600
+
+    def test_no_initial_size_raises(self):
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=100,
+            height=100,
+            content=VideoFrameContent.none(),
+        )
+        f.clear_transformations()
+        f.add_transformation(VideoFrameTransformation.padding(10, 10, 10, 10))
+        with pytest.raises(RuntimeError, match="InitialSize"):
+            f.transform_backward()
+
+    def test_crop_then_letterbox_to_initial(self):
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=1920,
+            height=1080,
+            content=VideoFrameContent.none(),
+        )
+        f.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
+        f.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
+        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0))
+        oid = obj.id
+
+        f.transform_backward()
+
+        assert f.width == 1920
+        assert f.height == 1080
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        expected_x = 400.0 * 2.0 + 160.0
+        expected_y = 250.0 * 2.0 + 40.0
+        assert det.xc == pytest.approx(expected_x, abs=1.0)
+        assert det.yc == pytest.approx(expected_y, abs=1.0)
+
+
+class TestVideoFrameTransformToTarget:
+    def test_letterbox_to_target(self):
+        """Object in 1920x1080 (InitialSize) → forward through LetterBox → 660x500."""
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=1920,
+            height=1080,
+            content=VideoFrameContent.none(),
+        )
+        f.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
+        obj = f.create_object("det", "car", detection_box=RBBox(330.0, 250.0, 100.0, 100.0))
+        oid = obj.id
+
+        f.transform_forward()
+
+        assert f.width == 660
+        assert f.height == 500
+        transforms = f.transformations
+        assert len(transforms) == 1
+        assert transforms[0].as_initial_size == (660, 500)
+
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        sx = 640.0 / 1920.0
+        sy = 480.0 / 1080.0
+        expected_x = 330.0 * sx + 10.0
+        expected_y = 250.0 * sy + 10.0
+        assert det.xc == pytest.approx(expected_x, abs=0.5)
+        assert det.yc == pytest.approx(expected_y, abs=0.5)
+
+    def test_no_initial_size_raises(self):
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=100,
+            height=100,
+            content=VideoFrameContent.none(),
+        )
+        f.clear_transformations()
+        f.add_transformation(VideoFrameTransformation.padding(10, 10, 10, 10))
+        with pytest.raises(RuntimeError, match="InitialSize"):
+            f.transform_forward()
+
+    def test_crop_then_letterbox_to_target(self):
+        """Object in 1920x1080 → Crop(160,40,160,40) → LetterBox(800,500,0,0,0,0) → 800x500."""
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=1920,
+            height=1080,
+            content=VideoFrameContent.none(),
+        )
+        f.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
+        f.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
+        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0))
+        oid = obj.id
+
+        f.transform_forward()
+
+        assert f.width == 800
+        assert f.height == 500
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        # forward: sx=0.5, sy=0.5, tx=-80, ty=-20
+        expected_x = 400.0 * 0.5 - 80.0
+        expected_y = 250.0 * 0.5 - 20.0
+        assert det.xc == pytest.approx(expected_x, abs=1.0)
+        assert det.yc == pytest.approx(expected_y, abs=1.0)
+
+    def test_identity_is_noop(self):
+        """Only InitialSize in chain — no-op."""
+        f = VideoFrame(
+            source_id="cam",
+            framerate="30/1",
+            width=800,
+            height=600,
+            content=VideoFrameContent.none(),
+        )
+        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0))
+        oid = obj.id
+
+        f.transform_forward()
+
+        obj = f.get_object(oid)
+        det = obj.detection_box
+        assert det.xc == pytest.approx(400.0, abs=0.01)
+        assert det.yc == pytest.approx(300.0, abs=0.01)
+        assert f.width == 800
+        assert f.height == 600
 
 
 # ── VideoFrame objects ────────────────────────────────────────────────────

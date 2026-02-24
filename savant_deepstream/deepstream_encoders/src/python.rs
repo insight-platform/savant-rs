@@ -1989,6 +1989,14 @@ impl PyEncoderConfig {
         self.inner.format.into()
     }
 
+    /// Raw pointer to the inner Rust ``EncoderConfig``.
+    ///
+    /// Used to pass this config to picasso_py's ``CodecSpec`` constructors.
+    #[getter]
+    fn memory_handle(&self) -> usize {
+        &self.inner as *const EncoderConfig as usize
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "EncoderConfig(codec={:?}, {}x{}, format={}, fps={}/{})",

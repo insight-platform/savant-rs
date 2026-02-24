@@ -1,4 +1,5 @@
 use crate::draw::DrawLabelKind;
+use crate::geometry::Affine2D;
 use crate::json_api::ToSerdeJsonValue;
 use crate::match_query::{and, IntExpression, MatchQuery, StringExpression};
 use crate::message::Message;
@@ -104,12 +105,22 @@ impl ToSerdeJsonValue for VideoFrameTranscodingMethod {
     }
 }
 
+/// Describes a geometric transformation applied to a video frame.
+///
+/// Variants:
+/// - `InitialSize(w, h)` – records the original frame dimensions.
+/// - `LetterBox(outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)` –
+///   scales the image to fit inside the inner rectangle
+///   `(outer_w - pad_left - pad_right) × (outer_h - pad_top - pad_bottom)`
+///   and then pads it to `outer_w × outer_h`.
+/// - `Padding(left, top, right, bottom)` – adds border pixels.
+/// - `Crop(left, top, right, bottom)` – removes border pixels.
 #[derive(Debug, PartialEq, Clone, serde::Serialize)]
 pub enum VideoFrameTransformation {
     InitialSize(u64, u64),
-    Scale(u64, u64),
+    LetterBox(u64, u64, u64, u64, u64, u64),
     Padding(u64, u64, u64, u64),
-    ResultingSize(u64, u64),
+    Crop(u64, u64, u64, u64),
 }
 
 impl ToSerdeJsonValue for VideoFrameTransformation {
@@ -395,11 +406,87 @@ impl VideoFrameProxy {
         self as *const Self as usize
     }
 
+    /// Low-level: apply a list of bbox operations to every object in the
+    /// frame. Prefer [`Self::transform_backward`] or
+    /// [`Self::transform_forward`] which encapsulate the affine math.
     pub fn transform_geometry(&self, ops: &Vec<VideoObjectBBoxTransformation>) {
         let objs = self.get_all_objects();
         for mut obj in objs {
             obj.transform_geometry(ops);
         }
+    }
+
+    /// Map all object bounding boxes from the **current** (post-transform)
+    /// coordinate space back to the **initial** coordinate space recorded by
+    /// [`VideoFrameTransformation::InitialSize`].
+    ///
+    /// After the call the transformation chain is cleared, a single
+    /// `InitialSize(w, h)` entry is written with the original dimensions,
+    /// and the frame's `width`/`height` are updated to match.
+    ///
+    /// Returns `Err` if the chain contains no `InitialSize` entry or the
+    /// affine is degenerate (zero scale).
+    pub fn transform_backward(&mut self) -> anyhow::Result<()> {
+        let chain = self.get_transformations();
+        let r = Affine2D::from_transformations(&chain);
+        let (iw, ih) = r
+            .initial_size
+            .ok_or_else(|| anyhow!("Transformation chain has no InitialSize entry"))?;
+        let affine = r.affine;
+
+        if affine.sx.abs() <= f32::EPSILON || affine.sy.abs() <= f32::EPSILON {
+            bail!(
+                "Cannot invert degenerate affine (sx={}, sy={})",
+                affine.sx,
+                affine.sy
+            );
+        }
+
+        let inv = affine.inverse();
+        let ops = inv.to_bbox_ops();
+        self.transform_geometry(&ops);
+
+        self.clear_transformations();
+        self.add_transformation(VideoFrameTransformation::InitialSize(iw, ih));
+        self.set_width(iw as i64)?;
+        self.set_height(ih as i64)?;
+
+        Ok(())
+    }
+
+    /// Map all object bounding boxes from the **initial** coordinate space
+    /// through the transformation chain into the **target** (final/current)
+    /// coordinate space.
+    ///
+    /// Objects are assumed to be defined in the `InitialSize` space.
+    /// The forward affine built from the chain is applied directly.
+    ///
+    /// After the call the transformation chain is cleared, a single
+    /// `InitialSize(target_w, target_h)` entry is written (where target
+    /// dimensions come from the chain's accumulated current size), and
+    /// the frame's `width`/`height` are updated.
+    ///
+    /// Returns `Err` if the chain contains no `InitialSize` entry or has
+    /// no computable current size.
+    pub fn transform_forward(&mut self) -> anyhow::Result<()> {
+        let chain = self.get_transformations();
+        let r = Affine2D::from_transformations(&chain);
+        r.initial_size
+            .ok_or_else(|| anyhow!("Transformation chain has no InitialSize entry"))?;
+        let (tw, th) = r
+            .current_size
+            .ok_or_else(|| anyhow!("Transformation chain has no computable current size"))?;
+        let affine = r.affine;
+
+        let ops = affine.to_bbox_ops();
+        self.transform_geometry(&ops);
+
+        self.clear_transformations();
+        self.add_transformation(VideoFrameTransformation::InitialSize(tw, th));
+        self.set_width(tw as i64)?;
+        self.set_height(th as i64)?;
+
+        Ok(())
     }
 
     pub fn smart_copy(&self) -> Self {
@@ -875,6 +962,10 @@ impl VideoFrameProxy {
             codec: codec.map(String::from),
             keyframe,
             content: Arc::new(content),
+            transformations: vec![VideoFrameTransformation::InitialSize(
+                width as u64,
+                height as u64,
+            )],
             ..Default::default()
         }))
     }

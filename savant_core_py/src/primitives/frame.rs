@@ -253,7 +253,8 @@ impl VideoFrameTransformation {
         self.__repr__()
     }
 
-    /// Defines the size of the frame when it comes into the pipeline.
+    /// Creates an ``InitialSize`` transformation recording original frame
+    /// dimensions.
     ///
     /// Parameters
     /// ----------
@@ -281,63 +282,68 @@ impl VideoFrameTransformation {
         )))
     }
 
-    /// Defines the size of the frame when it leaves the pipeline.
+    /// Creates a ``LetterBox`` transformation: scales the image to fit inside
+    /// ``(outer_width - padding_left - padding_right) × (outer_height -
+    /// padding_top - padding_bottom)`` and then pads it to
+    /// ``outer_width × outer_height``.
     ///
     /// Parameters
     /// ----------
-    /// width : int
-    ///   The width of the frame.
-    /// height : int
-    ///   The height of the frame.
+    /// outer_width : int
+    ///   The total width after letterboxing.
+    /// outer_height : int
+    ///   The total height after letterboxing.
+    /// padding_left : int
+    ///   Inner padding on the left.
+    /// padding_top : int
+    ///   Inner padding on the top.
+    /// padding_right : int
+    ///   Inner padding on the right.
+    /// padding_bottom : int
+    ///   Inner padding on the bottom.
     ///
     /// Raises
     /// ------
     /// ValueError
-    ///   If the width or height is less than or equal to 0.
+    ///   If any dimension is invalid.
     ///
     #[staticmethod]
-    pub fn resulting_size(width: i64, height: i64) -> PyResult<Self> {
-        if width <= 0 || height <= 0 {
+    pub fn letter_box(
+        outer_width: i64,
+        outer_height: i64,
+        padding_left: i64,
+        padding_top: i64,
+        padding_right: i64,
+        padding_bottom: i64,
+    ) -> PyResult<Self> {
+        if outer_width <= 0 || outer_height <= 0 {
             return Err(PyValueError::new_err(format!(
-                "Width and height must be greater than 0, got {:?}x{:?}",
-                width, height,
+                "Outer width and height must be > 0, got {outer_width}x{outer_height}",
             )));
         }
-        Ok(Self(rust::VideoFrameTransformation::ResultingSize(
-            u64::try_from(width).unwrap(),
-            u64::try_from(height).unwrap(),
+        if padding_left < 0 || padding_top < 0 || padding_right < 0 || padding_bottom < 0 {
+            return Err(PyValueError::new_err(format!(
+                "Padding values must be >= 0, got {padding_left},{padding_top},{padding_right},{padding_bottom}",
+            )));
+        }
+        let inner_w = outer_width - padding_left - padding_right;
+        let inner_h = outer_height - padding_top - padding_bottom;
+        if inner_w <= 0 || inner_h <= 0 {
+            return Err(PyValueError::new_err(format!(
+                "Inner dimensions must be > 0, got {inner_w}x{inner_h}",
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::LetterBox(
+            u64::try_from(outer_width).unwrap(),
+            u64::try_from(outer_height).unwrap(),
+            u64::try_from(padding_left).unwrap(),
+            u64::try_from(padding_top).unwrap(),
+            u64::try_from(padding_right).unwrap(),
+            u64::try_from(padding_bottom).unwrap(),
         )))
     }
 
-    /// Defines the cloud operation on the frame.
-    ///
-    /// Parameters
-    /// ----------
-    /// width : int
-    ///   The width of the frame.
-    /// height : int
-    ///   The height of the frame.
-    ///
-    /// Raises
-    /// ------
-    /// ValueError
-    ///   If the width or height is less than or equal to 0.
-    ///
-    #[staticmethod]
-    pub fn scale(width: i64, height: i64) -> PyResult<Self> {
-        if width <= 0 || height <= 0 {
-            return Err(PyValueError::new_err(format!(
-                "Width and height must be greater than 0, got {:?}x{:?}",
-                width, height,
-            )));
-        }
-        Ok(Self(rust::VideoFrameTransformation::Scale(
-            u64::try_from(width).unwrap(),
-            u64::try_from(height).unwrap(),
-        )))
-    }
-
-    /// Defines the padding operation on the frame.
+    /// Creates a ``Padding`` transformation that adds border pixels.
     ///
     /// Parameters
     /// ----------
@@ -353,14 +359,13 @@ impl VideoFrameTransformation {
     /// Raises
     /// ------
     /// ValueError
-    ///   If the padding is less than 0.
+    ///   If any padding value is negative.
     ///
     #[staticmethod]
     pub fn padding(left: i64, top: i64, right: i64, bottom: i64) -> PyResult<Self> {
         if left < 0 || top < 0 || right < 0 || bottom < 0 {
             return Err(PyValueError::new_err(format!(
-                "Padding must be greater than 0, got {:?}x{:?}x{:?}x{:?}",
-                left, top, right, bottom,
+                "Padding must be >= 0, got {left},{top},{right},{bottom}",
             )));
         }
         Ok(Self(rust::VideoFrameTransformation::Padding(
@@ -371,61 +376,67 @@ impl VideoFrameTransformation {
         )))
     }
 
-    /// Returns true if the transformation is initial size, otherwise false.
+    /// Creates a ``Crop`` transformation that removes border pixels.
     ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the transformation is initial size, otherwise false.
+    /// Parameters
+    /// ----------
+    /// left : int
+    ///   Pixels to remove from the left.
+    /// top : int
+    ///   Pixels to remove from the top.
+    /// right : int
+    ///   Pixels to remove from the right.
+    /// bottom : int
+    ///   Pixels to remove from the bottom.
     ///
+    /// Raises
+    /// ------
+    /// ValueError
+    ///   If any value is negative.
+    ///
+    #[staticmethod]
+    pub fn crop(left: i64, top: i64, right: i64, bottom: i64) -> PyResult<Self> {
+        if left < 0 || top < 0 || right < 0 || bottom < 0 {
+            return Err(PyValueError::new_err(format!(
+                "Crop values must be >= 0, got {left},{top},{right},{bottom}",
+            )));
+        }
+        Ok(Self(rust::VideoFrameTransformation::Crop(
+            u64::try_from(left).unwrap(),
+            u64::try_from(top).unwrap(),
+            u64::try_from(right).unwrap(),
+            u64::try_from(bottom).unwrap(),
+        )))
+    }
+
+    /// Returns true if the transformation is initial size.
     #[getter]
     pub fn is_initial_size(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::InitialSize(_, _))
     }
 
-    /// Returns true if the transformation is cloud, otherwise false.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the transformation is cloud, otherwise false.
-    ///
+    /// Returns true if the transformation is a letterbox.
     #[getter]
-    pub fn is_scale(&self) -> bool {
-        matches!(self.0, rust::VideoFrameTransformation::Scale(_, _))
+    pub fn is_letter_box(&self) -> bool {
+        matches!(
+            self.0,
+            rust::VideoFrameTransformation::LetterBox(_, _, _, _, _, _)
+        )
     }
 
-    /// Returns true if the transformation is padding, otherwise false.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the transformation is padding, otherwise false.
-    ///
+    /// Returns true if the transformation is padding.
     #[getter]
     pub fn is_padding(&self) -> bool {
         matches!(self.0, rust::VideoFrameTransformation::Padding(_, _, _, _))
     }
 
-    /// Returns true if the transformation is resulting size, otherwise false.
-    ///
-    /// Returns
-    /// -------
-    /// bool
-    ///   True if the transformation is resulting size, otherwise false.
-    ///
+    /// Returns true if the transformation is a crop.
     #[getter]
-    pub fn is_resulting_size(&self) -> bool {
-        matches!(self.0, rust::VideoFrameTransformation::ResultingSize(_, _))
+    pub fn is_crop(&self) -> bool {
+        matches!(self.0, rust::VideoFrameTransformation::Crop(_, _, _, _))
     }
 
-    /// Returns the transformation as initial size if it is initial size, otherwise None.
-    ///
-    /// Returns
-    /// -------
-    /// Optional[Tuple[int, int]]
-    ///   The transformation as initial size if it is initial size, otherwise None.
-    ///
+    /// Returns ``(width, height)`` if this is an ``InitialSize``, else ``None``.
     #[getter]
     pub fn as_initial_size(&self) -> Option<(u64, u64)> {
         match &self.0 {
@@ -434,47 +445,34 @@ impl VideoFrameTransformation {
         }
     }
 
-    /// Returns the transformation as resulting size if it is resulting size, otherwise None.
-    ///
-    /// Returns
-    /// -------
-    /// Optional[Tuple[int, int]]
-    ///   The transformation as resulting size if it is resulting size, otherwise None.
-    ///
+    /// Returns ``(outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)``
+    /// if this is a ``LetterBox``, else ``None``.
     #[getter]
-    pub fn as_resulting_size(&self) -> Option<(u64, u64)> {
+    pub fn as_letter_box(&self) -> Option<(u64, u64, u64, u64, u64, u64)> {
         match &self.0 {
-            rust::VideoFrameTransformation::ResultingSize(w, h) => Some((*w, *h)),
+            rust::VideoFrameTransformation::LetterBox(ow, oh, pl, pt, pr, pb) => {
+                Some((*ow, *oh, *pl, *pt, *pr, *pb))
+            }
             _ => None,
         }
     }
 
-    /// Returns the transformation as cloud if it is cloud, otherwise None.
-    ///
-    /// Returns
-    /// -------
-    /// Optional[Tuple[int, int]]
-    ///   The transformation as cloud if it is cloud, otherwise None.
-    ///
-    #[getter]
-    pub fn as_scale(&self) -> Option<(u64, u64)> {
-        match &self.0 {
-            rust::VideoFrameTransformation::Scale(w, h) => Some((*w, *h)),
-            _ => None,
-        }
-    }
-
-    /// Returns the transformation as padding if it is padding, otherwise None.
-    ///
-    /// Returns
-    /// -------
-    /// Optional[Tuple[int, int, int, int]]
-    ///   The transformation as padding if it is padding, otherwise None.
-    ///
+    /// Returns ``(left, top, right, bottom)`` if this is a ``Padding``, else
+    /// ``None``.
     #[getter]
     pub fn as_padding(&self) -> Option<(u64, u64, u64, u64)> {
         match &self.0 {
             rust::VideoFrameTransformation::Padding(l, t, r, b) => Some((*l, *t, *r, *b)),
+            _ => None,
+        }
+    }
+
+    /// Returns ``(left, top, right, bottom)`` if this is a ``Crop``, else
+    /// ``None``.
+    #[getter]
+    pub fn as_crop(&self) -> Option<(u64, u64, u64, u64)> {
+        match &self.0 {
+            rust::VideoFrameTransformation::Crop(l, t, r, b) => Some((*l, *t, *r, *b)),
             _ => None,
         }
     }
@@ -492,7 +490,9 @@ impl ToSerdeJsonValue for VideoFrame {
 
 #[pymethods]
 impl VideoFrame {
-    /// Applies transformation operations ot all objects within the frame.
+    /// Low-level: apply a list of bbox operations to every object in the
+    /// frame.  Prefer :py:meth:`transform_backward` or
+    /// :py:meth:`transform_forward`.
     ///
     /// Parameters
     /// ----------
@@ -507,6 +507,68 @@ impl VideoFrame {
         detach!(no_gil, || {
             let ops_ref = ops.iter().map(|op| op.0).collect();
             self.0.transform_geometry(&ops_ref);
+        })
+    }
+
+    /// Map all object bounding boxes from the current (post-transform)
+    /// coordinate space back to the original coordinate space recorded by
+    /// ``VideoFrameTransformation.initial_size``.
+    ///
+    /// After the call the transformation chain is reset to a single
+    /// ``initial_size`` entry and the frame's ``width``/``height`` are
+    /// updated to the original dimensions.
+    ///
+    /// Parameters
+    /// ----------
+    /// no_gil : bool
+    ///   Whether to release the GIL while transforming.
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   If the chain has no ``InitialSize`` entry or the affine is
+    ///   degenerate.
+    ///
+    #[pyo3(name = "transform_backward")]
+    #[pyo3(signature = (no_gil=true))]
+    fn transform_backward_gil(&mut self, no_gil: bool) -> PyResult<()> {
+        detach!(no_gil, || {
+            self.0
+                .transform_backward()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Map all object bounding boxes from the **initial** coordinate space
+    /// through the transformation chain into the **target** (final/current)
+    /// coordinate space.
+    ///
+    /// Objects are assumed to be defined in the ``InitialSize`` space.
+    /// The forward affine built from the chain is applied directly.
+    /// Target dimensions are determined by the chain itself.
+    ///
+    /// After the call the transformation chain is reset to a single
+    /// ``initial_size(target_w, target_h)`` and the frame's
+    /// ``width``/``height`` are updated.
+    ///
+    /// Parameters
+    /// ----------
+    /// no_gil : bool
+    ///   Whether to release the GIL while transforming.
+    ///
+    /// Raises
+    /// ------
+    /// RuntimeError
+    ///   If the chain has no ``InitialSize`` entry or has no computable
+    ///   current size.
+    ///
+    #[pyo3(name = "transform_forward")]
+    #[pyo3(signature = (no_gil=true))]
+    fn transform_forward_gil(&mut self, no_gil: bool) -> PyResult<()> {
+        detach!(no_gil, || {
+            self.0
+                .transform_forward()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
         })
     }
 

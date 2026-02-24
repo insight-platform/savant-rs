@@ -637,11 +637,39 @@ impl LabelDraw {
     }
 }
 
+/// Selects which bounding box to use for rendering an object.
+#[pyclass(from_py_object, eq, eq_int)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BBoxSource {
+    /// Use the detection bounding box (always present).
+    DetectionBox,
+    /// Use the tracking bounding box (falls back to detection if absent).
+    TrackingBox,
+}
+
+impl From<BBoxSource> for rust::BBoxSource {
+    fn from(src: BBoxSource) -> Self {
+        match src {
+            BBoxSource::DetectionBox => rust::BBoxSource::DetectionBox,
+            BBoxSource::TrackingBox => rust::BBoxSource::TrackingBox,
+        }
+    }
+}
+
+impl From<rust::BBoxSource> for BBoxSource {
+    fn from(src: rust::BBoxSource) -> Self {
+        match src {
+            rust::BBoxSource::DetectionBox => BBoxSource::DetectionBox,
+            rust::BBoxSource::TrackingBox => BBoxSource::TrackingBox,
+        }
+    }
+}
+
 /// Represents the draw specification for an object.
 ///
 #[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
-pub struct ObjectDraw(rust::ObjectDraw);
+pub struct ObjectDraw(pub(crate) rust::ObjectDraw);
 
 #[pymethods]
 impl ObjectDraw {
@@ -663,20 +691,25 @@ impl ObjectDraw {
         self.clone()
     }
 
-    /// Returns the bounding box draw specification
-    ///
     #[new]
-    #[pyo3(signature = (bounding_box = None, central_dot = None, label = None, blur = false))]
+    #[pyo3(signature = (bounding_box = None, central_dot = None, label = None, blur = false, bbox_source = BBoxSource::DetectionBox))]
     pub fn new(
         bounding_box: Option<BoundingBoxDraw>,
         central_dot: Option<DotDraw>,
         label: Option<LabelDraw>,
         blur: bool,
+        bbox_source: BBoxSource,
     ) -> Self {
         let bounding_box = bounding_box.map(|x| x.0);
         let central_dot = central_dot.map(|x| x.0);
         let label = label.map(|x| x.0);
-        let object_draw = rust::ObjectDraw::new(bounding_box, central_dot, label, blur);
+        let object_draw = rust::ObjectDraw::with_bbox_source(
+            bounding_box,
+            central_dot,
+            label,
+            blur,
+            bbox_source.into(),
+        );
         Self(object_draw)
     }
 
@@ -685,6 +718,13 @@ impl ObjectDraw {
     #[getter]
     pub fn blur(&self) -> bool {
         self.0.blur
+    }
+
+    /// Returns which bounding box is used for rendering.
+    ///
+    #[getter]
+    pub fn bbox_source(&self) -> BBoxSource {
+        self.0.bbox_source.into()
     }
 
     /// Returns the bounding box draw specification
@@ -706,6 +746,14 @@ impl ObjectDraw {
     #[getter]
     pub fn label(&self) -> Option<LabelDraw> {
         self.0.label.clone().map(LabelDraw)
+    }
+
+    /// Returns the raw pointer to the inner Rust ``ObjectDraw`` struct.
+    ///
+    /// Used to pass this object to picasso_py's ``ObjectDrawSpec.insert()``.
+    #[getter]
+    pub fn memory_handle(&self) -> usize {
+        &self.0 as *const rust::ObjectDraw as usize
     }
 }
 

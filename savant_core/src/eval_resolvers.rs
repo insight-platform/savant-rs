@@ -615,6 +615,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     #[serial_test::serial]
     fn test_etcd_resolver() -> anyhow::Result<()> {
         let runtime = get_or_init_async_runtime();

@@ -9,8 +9,10 @@ pub mod draw;
 pub mod eval_cache;
 pub mod eval_context;
 pub mod eval_resolvers;
+pub mod geometry;
 /// A trait to serialize various objects to json.
 pub mod json_api;
+pub mod label_template;
 pub mod macros;
 pub mod match_query;
 pub mod message;

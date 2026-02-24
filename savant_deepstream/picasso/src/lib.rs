@@ -1,14 +1,19 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod callbacks;
+pub mod draw_context;
+pub mod engine;
+pub mod error;
+pub mod message;
+pub mod pipeline;
+pub mod render;
+pub mod spec;
+pub mod transform;
+pub mod watchdog;
+pub mod worker;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use callbacks::Callbacks;
+pub use engine::PicassoEngine;
+pub use error::PicassoError;
+pub use message::{BypassOutput, EncodedOutput};
+pub use spec::{
+    CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec,
+};

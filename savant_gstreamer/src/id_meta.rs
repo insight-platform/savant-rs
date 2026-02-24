@@ -75,6 +75,16 @@ mod imp {
 
     pub(super) fn savant_id_meta_api_get_type() -> glib::Type {
         static TYPE: LazyLock<glib::Type> = LazyLock::new(|| unsafe {
+            // When multiple shared libraries statically link savant_gstreamer
+            // (e.g. deepstream_nvbufsurface + picasso_py loaded in the same
+            // Python process), each gets its own LazyLock but the GType
+            // registry is process-global.  Re-registering the same name would
+            // trigger a g_pointer_type_register_static assertion failure, so
+            // check first.
+            if let Some(existing) = glib::Type::from_name("GstSavantIdMetaAPI") {
+                return existing;
+            }
+
             let t = from_glib(gstreamer::ffi::gst_meta_api_type_register(
                 c"GstSavantIdMetaAPI".as_ptr() as *const _,
                 [ptr::null::<std::os::raw::c_char>()].as_ptr() as *mut *const _,
@@ -132,10 +142,23 @@ mod imp {
         unsafe impl Sync for MetaInfo {}
 
         static META_INFO: LazyLock<MetaInfo> = LazyLock::new(|| unsafe {
+            let impl_name = c"GstSavantIdMeta";
+
+            // Same multi-library guard as savant_id_meta_api_get_type: if
+            // another copy of this code already registered the meta impl,
+            // reuse it instead of double-registering.
+            let existing = gstreamer::ffi::gst_meta_get_info(impl_name.as_ptr() as *const _);
+            if !existing.is_null() {
+                return MetaInfo(
+                    ptr::NonNull::new(existing as *mut gstreamer::ffi::GstMetaInfo)
+                        .expect("gst_meta_get_info returned non-null but cast failed"),
+                );
+            }
+
             MetaInfo(
                 ptr::NonNull::new(gstreamer::ffi::gst_meta_register(
                     savant_id_meta_api_get_type().into_glib(),
-                    c"GstSavantIdMeta".as_ptr() as *const _,
+                    impl_name.as_ptr() as *const _,
                     size_of::<SavantIdMeta>(),
                     Some(savant_id_meta_init),
                     Some(savant_id_meta_free),

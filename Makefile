@@ -3,6 +3,7 @@ export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_inf
 
 DS_NVBUF_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_nvbufsurface
 DS_ENC_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_encoders
+PICASSO_PY_DIR=$(PROJECT_DIR)/savant_deepstream/picasso_py
 GST_DIR=$(PROJECT_DIR)/savant_gstreamer
 SP_DIR=$(PROJECT_DIR)/savant_python
 
@@ -11,6 +12,8 @@ SP_DIR=$(PROJECT_DIR)/savant_python
         ds-nvbuf-test ds-nvbuf-pytest \
         ds-enc-dev ds-enc-release ds-enc-install \
         ds-enc-test ds-enc-pytest \
+        picasso-py-dev picasso-py-release picasso-py-install \
+        picasso-py-pytest \
         gst-dev gst-release gst-install \
         gst-test gst-pytest \
         sp-dev sp-install sp-pytest \
@@ -28,7 +31,8 @@ fmt:
 	cargo fmt --all
 	@echo "Running ruff format..."
 	ruff format $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
-	            $(SP_DIR)/pytests python/nvbufsurface 2>/dev/null || true
+	            $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
+	            python/nvbufsurface 2>/dev/null || true
 
 clippy:
 	@echo "Running clippy on savant_gstreamer..."
@@ -41,7 +45,8 @@ clippy:
 lint: fmt clippy
 	@echo "Running ruff check..."
 	ruff check $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
-	           $(SP_DIR)/pytests python/nvbufsurface --fix
+	           $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
+	           python/nvbufsurface --fix
 	@echo "Lint complete."
 
 # -- aggregate targets: build + test + install everything ---------------------
@@ -50,13 +55,15 @@ all-dev: fmt clippy lint \
          dev install \
          gst-dev gst-test gst-install gst-pytest \
          ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest
+         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest \
+         picasso-py-dev picasso-py-install picasso-py-pytest
 
 all-release: fmt clippy lint \
              release install \
              gst-release gst-test gst-install gst-pytest \
              ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest
+             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest \
+             picasso-py-release picasso-py-install picasso-py-pytest
 
 # -----------------------------------------------------------------------------
 
@@ -120,6 +127,26 @@ ds-enc-pytest: ds-enc-dev ds-enc-install
 	@echo "Running deepstream_encoders Python tests..."
 	cd $(DS_ENC_DIR) && python3 -m pytest pytests/ -v --tb=short
 
+# -- picasso_py Python bindings -----------------------------------------------
+
+picasso-py-dev:
+	@echo "Building picasso_py (dev)..."
+	cd $(PICASSO_PY_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
+
+picasso-py-release:
+	@echo "Building picasso_py (release)..."
+	cd $(PICASSO_PY_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
+
+picasso-py-install:
+	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/picasso*$(PYTHON_VERSION)*.whl | head -1); \
+	echo "Installing $$WHL_NAME"; \
+	pip install --force-reinstall "$$WHL_NAME"; \
+	echo "Installed $$WHL_NAME"
+
+picasso-py-pytest: picasso-py-dev picasso-py-install
+	@echo "Running picasso_py Python tests..."
+	cd $(PICASSO_PY_DIR) && python3 -m pytest pytests/ -v --tb=short
+
 # -- savant_gstreamer Python bindings -----------------------------------------
 
 gst-dev:
@@ -144,19 +171,7 @@ gst-pytest: gst-dev gst-install
 	@echo "Running savant_gstreamer Python tests..."
 	cd $(GST_DIR) && python3 -m pytest pytests/ -v --tb=short
 
-# -- savant_python Python bindings --------------------------------------------
-
-sp-dev:
-	@echo "Building savant_python (dev)..."
-	cd $(SP_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
-
-sp-install:
-	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/savant_rs*$(PYTHON_VERSION)*.whl | head -1); \
-	echo "Installing $$WHL_NAME"; \
-	pip install --force-reinstall "$$WHL_NAME"; \
-	echo "Installed $$WHL_NAME"
-
-sp-pytest: sp-dev sp-install
+sp-pytest: build_savant install
 	@echo "Running savant_python Python tests..."
 	cd $(SP_DIR) && python3 -m pytest pytests/ -v --tb=short
 

@@ -201,14 +201,26 @@ impl LabelDraw {
     }
 }
 
+/// Selects which bounding box to use for rendering an object.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BBoxSource {
+    /// Use the detection bounding box (always present).
+    #[default]
+    DetectionBox,
+    /// Use the tracking bounding box (falls back to detection if absent).
+    TrackingBox,
+}
+
 #[derive(Clone, Debug)]
 pub struct ObjectDraw {
     pub bounding_box: Option<BoundingBoxDraw>,
     pub central_dot: Option<DotDraw>,
     pub label: Option<LabelDraw>,
     pub blur: bool,
+    pub bbox_source: BBoxSource,
 }
 impl ObjectDraw {
+    /// Create a new draw spec with `DetectionBox` as the default bbox source.
     pub fn new(
         bounding_box: Option<BoundingBoxDraw>,
         central_dot: Option<DotDraw>,
@@ -220,6 +232,24 @@ impl ObjectDraw {
             central_dot,
             label,
             blur,
+            bbox_source: BBoxSource::DetectionBox,
+        }
+    }
+
+    /// Create a new draw spec with an explicit bbox source.
+    pub fn with_bbox_source(
+        bounding_box: Option<BoundingBoxDraw>,
+        central_dot: Option<DotDraw>,
+        label: Option<LabelDraw>,
+        blur: bool,
+        bbox_source: BBoxSource,
+    ) -> Self {
+        Self {
+            bounding_box,
+            central_dot,
+            label,
+            blur,
+            bbox_source,
         }
     }
 }
