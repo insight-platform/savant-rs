@@ -30,7 +30,7 @@ use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
 use savant_core::primitives::frame::{
-    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
+    VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
@@ -373,13 +373,17 @@ struct BenchEncodedSink {
 
 impl OnEncodedFrame for BenchEncodedSink {
     fn call(&self, output: EncodedOutput) {
-        if output.is_eos {
-            assert!(output.buffer.is_none(), "EOS sentinel must have no buffer");
+        let EncodedOutput::VideoFrame(frame) = output else {
             return;
-        }
+        };
 
-        // VideoFrame sanity checks on every encoded output.
-        let frame = &output.frame;
+        let content = frame.get_content();
+        let data = match content.as_ref() {
+            savant_core::primitives::frame::VideoFrameContent::Internal(d) => d,
+            _ => panic!("expected Internal content on encoded frame"),
+        };
+        assert!(!data.is_empty(), "encoded buffer must not be empty");
+
         assert!(
             frame.get_source_id().starts_with("src-"),
             "unexpected source_id in encoded output: {}",
@@ -397,14 +401,8 @@ impl OnEncodedFrame for BenchEncodedSink {
             objects.len()
         );
 
-        let buf = output
-            .buffer
-            .as_ref()
-            .expect("non-EOS output must have a buffer");
-        assert!(buf.size() > 0, "encoded buffer must not be empty");
-
         self.count.fetch_add(1, Ordering::Relaxed);
-        self.bytes.fetch_add(buf.size() as u64, Ordering::Relaxed);
+        self.bytes.fetch_add(data.len() as u64, Ordering::Relaxed);
     }
 }
 
@@ -413,7 +411,7 @@ impl OnEncodedFrame for BenchEncodedSink {
 // -----------------------------------------------------------------------
 
 fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
-    let f = VideoFrameProxy::new(
+    VideoFrameProxy::new(
         source_id,
         "30/1",
         w,
@@ -427,10 +425,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
         None,
         None,
     )
-    .unwrap();
-    let mut fm = f.clone();
-    fm.add_transformation(VideoFrameTransformation::InitialSize(w as u64, h as u64));
-    f
+    .unwrap()
 }
 
 fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Buffer {

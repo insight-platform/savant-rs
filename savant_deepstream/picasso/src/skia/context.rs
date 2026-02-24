@@ -2,7 +2,7 @@
 //! (typefaces, fonts, paints) and pre-parsed label templates across frames.
 //!
 //! Created once when a worker starts and reused for every
-//! [`draw_object`](crate::render::object::draw_object) call, avoiding
+//! [`draw_object`](crate::skia::object::draw_object) call, avoiding
 //! repeated `FontMgr::default()` + `match_family_style()` lookups and
 //! template re-parsing.
 

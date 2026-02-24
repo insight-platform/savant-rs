@@ -1,18 +1,27 @@
-use crate::callbacks::Callbacks;
-use crate::draw_context::DrawContext;
+use crate::callbacks::{Callbacks, OnEncodedFrame};
 use crate::error::PicassoError;
 use crate::message::EncodedOutput;
 use crate::pipeline::FrameInput;
-use deepstream_encoders::NvEncoder;
+use crate::skia::context::DrawContext;
+use deepstream_encoders::{EncodedFrame, NvEncoder};
 use deepstream_nvbufsurface::{Padding, SkiaRenderer, TransformConfig};
 use gstreamer as gst;
-use log::{debug, error};
+use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, LetterBoxKind, ScaleSpec};
-use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameTransformation};
+use savant_core::primitives::frame::{
+    VideoFrameContent, VideoFrameProxy, VideoFrameTransformation,
+};
 use savant_core::primitives::object::ObjectOperations;
+use savant_core::primitives::rust::VideoFrameTranscodingMethod;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::spec::draw::ObjectDrawSpec;
+
+/// Process-global lock that serializes Skia EGL rendering and the
+/// EGL-to-CUDA copy (`render_to_nvbuf`).  Concurrent `SkiaRenderer` GL
+/// contexts on the same GPU corrupt each other's output.
+static SKIA_EGL_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 /// Render-specific options and mutable state.  When provided to
 /// [`process_encode`], Skia overlays are drawn between the GPU transform
@@ -31,6 +40,7 @@ pub struct RenderOpts<'a> {
 ///
 /// When `render` is `Some`, the Skia overlay step is inserted after the GPU
 /// transform.  Otherwise the path is pure transform-and-encode.
+#[allow(clippy::too_many_arguments)]
 pub fn process_encode(
     source_id: &str,
     input: FrameInput,
@@ -39,6 +49,7 @@ pub fn process_encode(
     callbacks: &Arc<Callbacks>,
     use_on_gpumat: bool,
     render: Option<&mut RenderOpts<'_>>,
+    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
 ) -> Result<(), PicassoError> {
     let generator = encoder.generator();
     let target_w = generator.width();
@@ -60,6 +71,27 @@ pub fn process_encode(
     rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config)?;
 
     if let Some(render) = render {
+        let objects = input.frame.get_all_objects();
+        let resolved: Vec<_> = objects
+            .iter()
+            .filter_map(|obj| {
+                let ns = obj.get_namespace();
+                let label = obj.get_label();
+                let static_spec = render.draw_spec.lookup(&ns, &label);
+                let draw = callbacks
+                    .on_object_draw_spec
+                    .as_ref()
+                    .and_then(|cb| cb.call(source_id, obj, static_spec))
+                    .or_else(|| static_spec.cloned());
+                draw.map(|d| {
+                    let templates = render.draw_ctx.resolve_templates(&ns, &label, &d).cloned();
+                    (obj, d, templates)
+                })
+            })
+            .collect();
+
+        let _egl = SKIA_EGL_LOCK.lock();
+
         let skia = match render.renderer {
             Some(r) => {
                 r.load_from_nvbuf(data_ptr, pitch)
@@ -77,29 +109,14 @@ pub fn process_encode(
             }
         };
 
-        let objects = input.frame.get_all_objects();
-        for obj in &objects {
-            let ns = obj.get_namespace();
-            let label = obj.get_label();
-
-            let static_spec = render.draw_spec.lookup(&ns, &label);
-
-            let draw = callbacks
-                .on_object_draw_spec
-                .as_ref()
-                .and_then(|cb| cb.call(source_id, obj, static_spec))
-                .or_else(|| static_spec.cloned());
-
-            if let Some(ref d) = draw {
-                let templates = render.draw_ctx.resolve_templates(&ns, &label, d).cloned();
-                crate::render::object::draw_object(
-                    skia.canvas(),
-                    obj,
-                    d,
-                    templates.as_ref(),
-                    render.draw_ctx,
-                );
-            }
+        for (obj, d, templates) in &resolved {
+            crate::skia::object::draw_object(
+                skia.canvas(),
+                obj,
+                d,
+                templates.as_ref(),
+                render.draw_ctx,
+            );
         }
 
         if render.use_on_render {
@@ -129,11 +146,13 @@ pub fn process_encode(
     let pts = frame_pts(&input.buffer);
     let duration = frame_duration(&input.buffer);
 
+    pending_frames.insert(input.frame_id, input.frame);
+
     encoder
         .submit_frame(dst_buf, input.frame_id, pts, duration)
         .map_err(|e| PicassoError::Encoder(source_id.to_string(), e.to_string()))?;
 
-    drain_encoded(source_id, &input.frame, encoder, callbacks);
+    drain_encoded(source_id, encoder, callbacks, pending_frames);
 
     debug!("encode: source={source_id}, pts={pts}");
     Ok(())
@@ -201,34 +220,29 @@ fn padding_to_letterbox_kind(padding: Padding) -> LetterBoxKind {
 }
 
 /// Pull all available encoded frames from the encoder and fire callbacks.
+///
+/// Each drained frame is matched to its original [`VideoFrameProxy`] via
+/// `frame_id` in `pending_frames`.  The proxy is updated with the encoded
+/// bitstream, pts/dts/duration, and codec, then delivered as
+/// [`EncodedOutput::VideoFrame`].
 pub fn drain_encoded(
     source_id: &str,
-    frame: &VideoFrameProxy,
     encoder: &mut NvEncoder,
     callbacks: &Arc<Callbacks>,
+    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
 ) {
     loop {
         match encoder.pull_encoded() {
             Ok(Some(encoded)) => {
                 if let Some(cb) = &callbacks.on_encoded_frame {
-                    let mut buf = gst::Buffer::with_size(encoded.data.len()).unwrap();
-                    {
-                        let buf_ref = buf.get_mut().unwrap();
-                        buf_ref.copy_from_slice(0, &encoded.data).unwrap();
-                        buf_ref.set_pts(gst::ClockTime::from_nseconds(encoded.pts_ns));
-                        if let Some(dur) = encoded.duration_ns {
-                            buf_ref.set_duration(gst::ClockTime::from_nseconds(dur));
-                        }
+                    if let Some(frame) = pending_frames.remove(&encoded.frame_id) {
+                        fill_encoded_frame(frame, encoded, cb);
+                    } else {
+                        warn!(
+                            "drain: no pending frame for frame_id={}, source={source_id}",
+                            encoded.frame_id
+                        );
                     }
-                    cb.call(EncodedOutput {
-                        source_id: source_id.to_string(),
-                        frame: frame.clone(),
-                        buffer: Some(buf),
-                        pts: encoded.pts_ns,
-                        duration: encoded.duration_ns,
-                        is_keyframe: false,
-                        is_eos: false,
-                    });
                 }
             }
             Ok(None) => break,
@@ -238,6 +252,25 @@ pub fn drain_encoded(
             }
         }
     }
+}
+
+/// Update a [`VideoFrameProxy`] with encoded output and fire the callback.
+pub fn fill_encoded_frame(
+    mut frame: VideoFrameProxy,
+    encoded: EncodedFrame,
+    cb: &Arc<dyn OnEncodedFrame>,
+) {
+    frame.set_content(VideoFrameContent::Internal(encoded.data));
+    frame.set_transcoding_method(VideoFrameTranscodingMethod::Encoded);
+    frame.set_pts(encoded.pts_ns as i64).ok();
+    frame.set_dts(encoded.dts_ns.map(|v| v as i64)).ok();
+    frame
+        .set_duration(encoded.duration_ns.map(|v| v as i64))
+        .ok();
+    frame.set_time_base(encoded.time_base).ok();
+    frame.set_codec(Some(encoded.codec.name().to_string()));
+    frame.set_keyframe(Some(encoded.keyframe));
+    cb.call(EncodedOutput::VideoFrame(frame));
 }
 
 pub fn frame_pts(buf: &gst::Buffer) -> u64 {

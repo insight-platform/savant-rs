@@ -90,7 +90,7 @@ fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> gstreamer::Buffer {
 struct EncodedCounter(Arc<AtomicUsize>);
 impl OnEncodedFrame for EncodedCounter {
     fn call(&self, output: EncodedOutput) {
-        if !output.is_eos {
+        if matches!(output, EncodedOutput::VideoFrame(_)) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
     }

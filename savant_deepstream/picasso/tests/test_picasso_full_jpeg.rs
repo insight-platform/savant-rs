@@ -24,9 +24,9 @@ use deepstream_encoders::{cuda_init, Codec, EncoderConfig};
 use deepstream_nvbufsurface::TransformConfig;
 use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, Padding, VideoFormat};
 use picasso::callbacks::{Callbacks, OnEncodedFrame, OnRender};
-use picasso::draw_context::DrawContext;
 use picasso::message::EncodedOutput;
-use picasso::render::object::draw_object;
+use picasso::skia::context::DrawContext;
+use picasso::skia::object::draw_object;
 use picasso::spec::{CodecSpec, GeneralSpec, ObjectDrawSpec, SourceSpec};
 use picasso::transform::compute_letterbox_params;
 use picasso::PicassoEngine;
@@ -276,7 +276,7 @@ impl OnRender for PixelCapture {
 struct CountSink(Arc<AtomicUsize>);
 impl OnEncodedFrame for CountSink {
     fn call(&self, output: EncodedOutput) {
-        if !output.is_eos {
+        if matches!(output, EncodedOutput::VideoFrame(_)) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -393,16 +393,17 @@ struct JpegCapture {
 
 impl OnEncodedFrame for JpegCapture {
     fn call(&self, output: EncodedOutput) {
-        if output.is_eos {
+        let EncodedOutput::VideoFrame(frame) = output else {
             return;
-        }
+        };
         let mut guard = self.data.lock().unwrap();
         if guard.is_some() {
-            return; // keep only the first frame
+            return;
         }
-        if let Some(buf) = &output.buffer {
-            let map = buf.map_readable().expect("map encoded buffer");
-            *guard = Some(map.as_slice().to_vec());
+        let content = frame.get_content();
+        if let savant_core::primitives::frame::VideoFrameContent::Internal(data) = content.as_ref()
+        {
+            *guard = Some(data.clone());
             self.ready.notify_all();
         }
     }

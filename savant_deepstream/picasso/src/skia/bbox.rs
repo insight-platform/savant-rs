@@ -1,8 +1,8 @@
 //! Bounding box rendering with full `BoundingBoxDraw` spec support:
 //! border color, background fill, thickness, padding, and rotation.
 
-use crate::draw_context::DrawContext;
-use crate::render::common::{color_to_skia, padded_rect, ResolvedBBox};
+use crate::skia::common::{color_to_skia, padded_rect, ResolvedBBox};
+use crate::skia::context::DrawContext;
 use savant_core::draw::BoundingBoxDraw;
 
 /// Draw a bounding box on the canvas.

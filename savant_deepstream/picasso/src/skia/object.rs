@@ -4,8 +4,8 @@
 //! renderers in the correct order: blur (background), bbox, dot, label
 //! (foreground).
 
-use crate::draw_context::DrawContext;
-use crate::render::{bbox, blur, common, dot, label};
+use crate::skia::context::DrawContext;
+use crate::skia::{bbox, blur, common, dot, label};
 use savant_core::draw::ObjectDraw;
 use savant_core::label_template::ParsedLabelFormats;
 use savant_core::primitives::object::BorrowedVideoObject;

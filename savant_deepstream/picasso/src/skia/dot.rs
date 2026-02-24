@@ -1,7 +1,7 @@
 //! Central dot rendering.
 
-use crate::draw_context::DrawContext;
-use crate::render::common::{color_to_skia, ResolvedBBox};
+use crate::skia::common::{color_to_skia, ResolvedBBox};
+use crate::skia::context::DrawContext;
 use savant_core::draw::DotDraw;
 
 /// Draw a filled circle at the bbox center.

@@ -2047,6 +2047,14 @@ impl PyEncodedFrame {
         self.inner.codec.into()
     }
     #[getter]
+    fn keyframe(&self) -> bool {
+        self.inner.keyframe
+    }
+    #[getter]
+    fn time_base(&self) -> (i32, i32) {
+        self.inner.time_base
+    }
+    #[getter]
     fn size(&self) -> usize {
         self.inner.data.len()
     }

@@ -4,7 +4,7 @@
 //! bounding box.  Uses a Skia `save_layer` with a `blur` image filter so
 //! that only the clipped region is affected.
 
-use crate::render::common::ResolvedBBox;
+use crate::skia::common::ResolvedBBox;
 
 /// Draw a blurred region covering the object's bounding box.
 ///

@@ -10,11 +10,11 @@
 //! cargo test -p picasso --test test_render_figures -- --nocapture
 //! ```
 
-use picasso::draw_context::DrawContext;
-use savant_core::label_template::ParsedLabelFormats;
-use picasso::render::common::ResolvedBBox;
-use picasso::render::{bbox, blur, dot, label, object};
+use picasso::skia::common::ResolvedBBox;
+use picasso::skia::context::DrawContext;
+use picasso::skia::{bbox, blur, dot, label, object};
 use savant_core::draw::*;
+use savant_core::label_template::ParsedLabelFormats;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };

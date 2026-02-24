@@ -1,5 +1,6 @@
 use crate::spec::SourceSpec;
 use gstreamer as gst;
+use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
 
 /// Messages sent from the engine to per-source worker threads.
@@ -14,17 +15,16 @@ pub enum WorkerMessage {
     Shutdown,
 }
 
-/// Output produced after encoding a frame (or EOS sentinel).
-pub struct EncodedOutput {
-    pub source_id: String,
-    pub frame: VideoFrameProxy,
-    /// `None` for the terminal EOS sentinel.
-    pub buffer: Option<gst::Buffer>,
-    pub pts: u64,
-    pub duration: Option<u64>,
-    pub is_keyframe: bool,
-    /// `true` only for the terminal EOS sentinel (buffer is `None`).
-    pub is_eos: bool,
+/// Output produced by the encoding pipeline.
+///
+/// For [`VideoFrame`](EncodedOutput::VideoFrame), the proxy carries all
+/// metadata (pts, dts, duration, keyframe, codec, framerate) and the
+/// encoded bitstream in [`VideoFrameContent::Internal`].
+pub enum EncodedOutput {
+    /// An encoded video frame with content stored in the proxy.
+    VideoFrame(VideoFrameProxy),
+    /// End-of-stream signal for a source.
+    EndOfStream(EndOfStream),
 }
 
 /// Output for bypass mode — frame with bboxes transformed back to initial

@@ -51,10 +51,13 @@ struct CountingEncodedCb {
 
 impl OnEncodedFrame for CountingEncodedCb {
     fn call(&self, output: EncodedOutput) {
-        if output.is_eos {
-            self.eos_count.fetch_add(1, Ordering::SeqCst);
-        } else {
-            self.count.fetch_add(1, Ordering::SeqCst);
+        match output {
+            EncodedOutput::EndOfStream(_) => {
+                self.eos_count.fetch_add(1, Ordering::SeqCst);
+            }
+            EncodedOutput::VideoFrame(_) => {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
         }
     }
 }

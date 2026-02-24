@@ -1,18 +1,24 @@
 use crate::callbacks::Callbacks;
-use crate::draw_context::DrawContext;
 use crate::message::{EncodedOutput, WorkerMessage};
 use crate::pipeline::encode::RenderOpts;
 use crate::pipeline::{bypass, encode, FrameInput};
+use crate::skia::context::DrawContext;
 use crate::spec::{CodecSpec, SourceSpec};
 use crossbeam::channel::{Receiver, Sender};
 use deepstream_encoders::NvEncoder;
 use deepstream_nvbufsurface::SkiaRenderer;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
+use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::WithAttributes;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// Timeout (ms) given to the hardware encoder to flush remaining frames on
+/// EOS / shutdown / codec hot-swap.
+const ENCODER_DRAIN_TIMEOUT_MS: u64 = 3000;
 
 /// Handle to a running source worker thread.
 pub struct SourceWorker {
@@ -95,6 +101,10 @@ struct WorkerState {
     callbacks: Arc<Callbacks>,
     frame_counter: u128,
     draw_ctx: DrawContext,
+    /// Frames submitted to the encoder but not yet drained as encoded output.
+    /// Keyed by `frame_id` (monotonic counter) so that encoded output can be
+    /// matched back to the original [`VideoFrameProxy`].
+    pending_frames: HashMap<u128, VideoFrameProxy>,
 }
 
 impl WorkerState {
@@ -155,6 +165,7 @@ impl WorkerState {
                         &self.callbacks,
                         self.spec.use_on_gpumat,
                         render_opts.as_mut(),
+                        &mut self.pending_frames,
                     ) {
                         error!("encode error: source={}, err={e}", self.source_id);
                     }
@@ -170,7 +181,12 @@ impl WorkerState {
             }
             CodecSpec::Encode { .. } => {
                 if let Some(ref mut enc) = self.encoder {
-                    drain_and_finish(&self.source_id, enc, &self.callbacks);
+                    drain_and_finish(
+                        &self.source_id,
+                        enc,
+                        &self.callbacks,
+                        &mut self.pending_frames,
+                    );
                 }
                 fire_eos_sentinel(&self.source_id, &self.callbacks);
                 self.encoder = None;
@@ -182,7 +198,12 @@ impl WorkerState {
         let codec_changed = codec_differs(&self.spec.codec, &new_spec.codec);
         if codec_changed {
             if let Some(ref mut enc) = self.encoder {
-                drain_and_finish(&self.source_id, enc, &self.callbacks);
+                drain_and_finish(
+                    &self.source_id,
+                    enc,
+                    &self.callbacks,
+                    &mut self.pending_frames,
+                );
             }
             self.encoder = None;
             self.renderer = None;
@@ -198,7 +219,12 @@ impl WorkerState {
 
     fn shutdown(&mut self) {
         if let Some(ref mut enc) = self.encoder {
-            drain_and_finish(&self.source_id, enc, &self.callbacks);
+            drain_and_finish(
+                &self.source_id,
+                enc,
+                &self.callbacks,
+                &mut self.pending_frames,
+            );
         }
     }
 }
@@ -222,6 +248,7 @@ fn worker_loop(
         callbacks,
         frame_counter: 0,
         draw_ctx,
+        pending_frames: HashMap::new(),
     };
 
     info!("worker started: source={source_id}");
@@ -305,25 +332,24 @@ fn ensure_encoder<'a>(
     encoder.as_mut()
 }
 
-fn drain_and_finish(source_id: &str, encoder: &mut NvEncoder, callbacks: &Arc<Callbacks>) {
-    match encoder.finish(Some(3000)) {
+fn drain_and_finish(
+    source_id: &str,
+    encoder: &mut NvEncoder,
+    callbacks: &Arc<Callbacks>,
+    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
+) {
+    match encoder.finish(Some(ENCODER_DRAIN_TIMEOUT_MS)) {
         Ok(remaining) => {
             for encoded in remaining {
                 if let Some(cb) = &callbacks.on_encoded_frame {
-                    let mut buf = gstreamer::Buffer::with_size(encoded.data.len()).unwrap();
-                    {
-                        let buf_ref = buf.get_mut().unwrap();
-                        buf_ref.copy_from_slice(0, &encoded.data).unwrap();
+                    if let Some(frame) = pending_frames.remove(&encoded.frame_id) {
+                        encode::fill_encoded_frame(frame, encoded, cb);
+                    } else {
+                        warn!(
+                            "drain: no pending frame for frame_id={}, source={source_id}",
+                            encoded.frame_id
+                        );
                     }
-                    cb.call(EncodedOutput {
-                        source_id: source_id.to_string(),
-                        frame: make_eos_frame(source_id),
-                        buffer: Some(buf),
-                        pts: encoded.pts_ns,
-                        duration: encoded.duration_ns,
-                        is_keyframe: false,
-                        is_eos: false,
-                    });
                 }
             }
         }
@@ -335,35 +361,8 @@ fn drain_and_finish(source_id: &str, encoder: &mut NvEncoder, callbacks: &Arc<Ca
 
 fn fire_eos_sentinel(source_id: &str, callbacks: &Arc<Callbacks>) {
     if let Some(cb) = &callbacks.on_encoded_frame {
-        cb.call(EncodedOutput {
-            source_id: source_id.to_string(),
-            frame: make_eos_frame(source_id),
-            buffer: None,
-            pts: 0,
-            duration: None,
-            is_keyframe: false,
-            is_eos: true,
-        });
+        cb.call(EncodedOutput::EndOfStream(EndOfStream::new(source_id)));
     }
-}
-
-fn make_eos_frame(source_id: &str) -> VideoFrameProxy {
-    use savant_core::primitives::frame::{VideoFrameContent, VideoFrameTranscodingMethod};
-    VideoFrameProxy::new(
-        source_id,
-        "0/1",
-        1,
-        1,
-        VideoFrameContent::None,
-        VideoFrameTranscodingMethod::Copy,
-        &None,
-        None,
-        (1, 1),
-        0,
-        None,
-        None,
-    )
-    .expect("EOS frame creation should not fail")
 }
 
 fn codec_differs(a: &CodecSpec, b: &CodecSpec) -> bool {

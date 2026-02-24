@@ -2,8 +2,8 @@
 //! position (TopLeftOutside / TopLeftInside / Center), margin, padding,
 //! background, border, font color/scale, and template interpolation.
 
-use crate::draw_context::DrawContext;
-use crate::render::common::{color_to_skia, ResolvedBBox};
+use crate::skia::common::{color_to_skia, ResolvedBBox};
+use crate::skia::context::DrawContext;
 use savant_core::draw::{LabelDraw, LabelPositionKind};
 use savant_core::label_template::ParsedLabelFormats;
 use savant_core::primitives::object::{BorrowedVideoObject, ObjectOperations};

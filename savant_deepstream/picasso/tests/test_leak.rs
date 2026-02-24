@@ -100,7 +100,7 @@ impl OnBypassFrame for SinkBypass {
 
 struct SinkEncoded(Arc<AtomicUsize>);
 impl OnEncodedFrame for SinkEncoded {
-    fn call(&self, _output: EncodedOutput) {
+    fn call(&self, _: EncodedOutput) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 }

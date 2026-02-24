@@ -529,6 +529,11 @@ impl NvEncoder {
         // Use original duration if the encoder didn't set one.
         let final_duration = duration_ns.or(orig_duration);
 
+        let keyframe = match self.codec {
+            Codec::Jpeg => true,
+            _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
+        };
+
         // Extract encoded data.
         let map = buffer
             .map_readable()
@@ -542,6 +547,8 @@ impl NvEncoder {
             duration_ns: final_duration,
             data,
             codec: self.codec,
+            keyframe,
+            time_base: (1, 1_000_000_000),
         }))
     }
 

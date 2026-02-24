@@ -178,10 +178,9 @@ struct EosOnlyEncodedSink;
 impl OnEncodedFrame for EosOnlyEncodedSink {
     fn call(&self, output: EncodedOutput) {
         assert!(
-            output.is_eos,
+            matches!(output, EncodedOutput::EndOfStream(_)),
             "Bypass mode must only produce EOS sentinels, got a real encoded frame"
         );
-        assert!(output.buffer.is_none(), "EOS sentinel must have no buffer");
     }
 }
 

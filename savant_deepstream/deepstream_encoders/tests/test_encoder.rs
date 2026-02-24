@@ -6,6 +6,7 @@
 use deepstream_encoders::{
     cuda_init, Codec, EncoderConfig, EncoderError, NvBufSurfaceMemType, NvEncoder, VideoFormat,
 };
+use serial_test::serial;
 
 /// Initialize CUDA and GStreamer once.
 fn init() {
@@ -99,6 +100,7 @@ fn test_config_with_typed_properties() {
 // ─── NvEncoder creation tests ────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_encoder_creation_hevc() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 640, 480);
@@ -111,6 +113,7 @@ fn test_encoder_creation_hevc() {
 }
 
 #[test]
+#[serial]
 fn test_encoder_creation_h264() {
     init();
     let config = EncoderConfig::new(Codec::H264, 640, 480);
@@ -123,6 +126,7 @@ fn test_encoder_creation_h264() {
 }
 
 #[test]
+#[serial]
 fn test_encoder_creation_jpeg() {
     init();
     let config = EncoderConfig::new(Codec::Jpeg, 640, 480).format(VideoFormat::I420);
@@ -135,6 +139,7 @@ fn test_encoder_creation_jpeg() {
 }
 
 #[test]
+#[serial]
 fn test_encoder_creation_av1() {
     init();
     let config = EncoderConfig::new(Codec::Av1, 640, 480);
@@ -147,6 +152,7 @@ fn test_encoder_creation_av1() {
 }
 
 #[test]
+#[serial]
 fn test_encoder_codec_getter() {
     init();
     let config = EncoderConfig::new(Codec::H264, 320, 240);
@@ -157,6 +163,7 @@ fn test_encoder_codec_getter() {
 // ─── NvEncoder frame submission tests ────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_submit_and_pull_frames() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
@@ -193,6 +200,7 @@ fn test_submit_and_pull_frames() {
 }
 
 #[test]
+#[serial]
 fn test_submit_rgba_with_conversion() {
     init();
     let config = EncoderConfig::new(Codec::H264, 320, 240).format(VideoFormat::RGBA);
@@ -220,6 +228,7 @@ fn test_submit_rgba_with_conversion() {
 // validation does not reject these codec-injected headers.
 
 #[test]
+#[serial]
 fn test_av1_single_frame() {
     init();
     let config = EncoderConfig::new(Codec::Av1, 320, 240);
@@ -240,6 +249,7 @@ fn test_av1_single_frame() {
 }
 
 #[test]
+#[serial]
 fn test_av1_multi_frame() {
     init();
     let config = EncoderConfig::new(Codec::Av1, 320, 240);
@@ -263,6 +273,7 @@ fn test_av1_multi_frame() {
 }
 
 #[test]
+#[serial]
 fn test_av1_with_rgba_conversion() {
     init();
     let config = EncoderConfig::new(Codec::Av1, 320, 240).format(VideoFormat::RGBA);
@@ -285,6 +296,7 @@ fn test_av1_with_rgba_conversion() {
 // ─── PTS validation tests ────────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_pts_reordering_rejected() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
@@ -314,6 +326,7 @@ fn test_pts_reordering_rejected() {
 }
 
 #[test]
+#[serial]
 fn test_pts_equal_rejected() {
     init();
     let config = EncoderConfig::new(Codec::H264, 320, 240);
@@ -331,6 +344,7 @@ fn test_pts_equal_rejected() {
 // ─── Finalization tests ──────────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_double_finish_returns_empty() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
@@ -348,6 +362,7 @@ fn test_double_finish_returns_empty() {
 }
 
 #[test]
+#[serial]
 fn test_submit_after_finish_fails() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
@@ -367,6 +382,7 @@ fn test_submit_after_finish_fails() {
 // ─── Drop behavior test ─────────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_encoder_drop_does_not_panic() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);
@@ -382,6 +398,7 @@ fn test_encoder_drop_does_not_panic() {
 // ─── Generator accessor test ─────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_generator_accessor() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 640, 480);
@@ -396,6 +413,7 @@ fn test_generator_accessor() {
 // ─── Frame ID tracking test ─────────────────────────────────────────────
 
 #[test]
+#[serial]
 fn test_frame_id_preserved() {
     init();
     let config = EncoderConfig::new(Codec::Hevc, 320, 240);

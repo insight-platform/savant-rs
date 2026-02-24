@@ -187,4 +187,13 @@ pub struct EncodedFrame {
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
     pub codec: Codec,
+    /// `true` when this is an intra-coded (key) frame.
+    ///
+    /// For JPEG every frame is a keyframe.  For H.264/H.265/AV1 this is
+    /// derived from the GStreamer buffer flags (`DELTA_UNIT` absent ⇒ key).
+    pub keyframe: bool,
+    /// Time base (numerator, denominator) for interpreting timestamps.
+    ///
+    /// GStreamer operates in nanoseconds, so this is always `(1, 1_000_000_000)`.
+    pub time_base: (i32, i32),
 }
