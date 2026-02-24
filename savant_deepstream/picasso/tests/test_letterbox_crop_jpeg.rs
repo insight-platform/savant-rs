@@ -18,17 +18,12 @@
 //! All JPEGs are saved to `CARGO_TARGET_TMPDIR/letterbox/` for manual
 //! inspection.  Dimensions are verified programmatically.
 
-use deepstream_encoders::properties::{EncoderProperties, JpegProps};
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig};
-use deepstream_nvbufsurface::{
-    NvBufSurfaceGenerator, NvBufSurfaceMemType, Padding, Rect, TransformConfig, VideoFormat,
-};
-use picasso::callbacks::{Callbacks, OnEncodedFrame};
-use picasso::message::EncodedOutput;
+use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::{Padding, Rect, TransformConfig};
+use picasso::prelude::*;
+use picasso::rewrite_frame_transformations;
 use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
-use picasso::spec::{CodecSpec, GeneralSpec, ObjectDrawSpec, SourceSpec};
-use picasso::PicassoEngine;
 use savant_core::draw::{BoundingBoxDraw, ColorDraw, ObjectDraw, PaddingDraw};
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -157,8 +152,7 @@ fn render_cpu(padding: Padding) -> Vec<u8> {
 
     let frame = create_frame("cpu");
     let config = transform_config(padding);
-    picasso::pipeline::encode::rewrite_frame_transformations(&frame, DST_W, DST_H, &config)
-        .unwrap();
+    rewrite_frame_transformations(&frame, DST_W, DST_H, &config).unwrap();
 
     let draw_spec = build_draw_spec();
     let mut ctx = DrawContext::new(FONT);
@@ -230,7 +224,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: transform_config(padding),
-            encoder: enc_config,
+            encoder: Box::new(enc_config),
         },
         draw: build_draw_spec(),
         font_family: FONT.to_string(),
@@ -429,7 +423,7 @@ fn letterbox_crop_two_sources_one_engine() {
         SourceSpec {
             codec: CodecSpec::Encode {
                 transform: transform_config(padding),
-                encoder: enc_config,
+                encoder: Box::new(enc_config),
             },
             draw: build_draw_spec(),
             font_family: FONT.to_string(),
@@ -485,8 +479,8 @@ fn letterbox_crop_two_sources_one_engine() {
 
     engine.shutdown();
 
-    let cpu_pad = render_cpu(Padding::Symmetric);
-    let cpu_str = render_cpu(Padding::None);
+    let _cpu_pad = render_cpu(Padding::Symmetric);
+    let _cpu_str = render_cpu(Padding::None);
 
     std::fs::write(dir.join("dual_gpu_symmetric.jpg"), &gpu_pad).unwrap();
     std::fs::write(dir.join("dual_gpu_stretch.jpg"), &gpu_str).unwrap();

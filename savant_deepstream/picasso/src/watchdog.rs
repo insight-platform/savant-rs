@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Shared signal used to wake the watchdog thread immediately on shutdown.
-pub struct WatchdogSignal {
+pub(crate) struct WatchdogSignal {
     mu: std::sync::Mutex<bool>,
     cv: std::sync::Condvar,
 }
@@ -18,7 +18,7 @@ impl Default for WatchdogSignal {
 }
 
 impl WatchdogSignal {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             mu: std::sync::Mutex::new(false),
             cv: std::sync::Condvar::new(),
@@ -26,7 +26,7 @@ impl WatchdogSignal {
     }
 
     /// Signal the watchdog to wake up and exit.
-    pub fn notify_shutdown(&self) {
+    pub(crate) fn notify_shutdown(&self) {
         let mut guard = self.mu.lock().unwrap();
         *guard = true;
         self.cv.notify_one();
@@ -45,7 +45,7 @@ impl WatchdogSignal {
 
 /// Periodically scans all sources for idle workers and invokes the eviction
 /// callback. Runs in its own thread.
-pub fn spawn_watchdog(
+pub(crate) fn spawn_watchdog(
     workers: Arc<Mutex<HashMap<String, SourceWorker>>>,
     scan_interval: Duration,
     signal: Arc<WatchdogSignal>,

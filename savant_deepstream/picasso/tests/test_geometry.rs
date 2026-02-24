@@ -1,4 +1,5 @@
 use deepstream_nvbufsurface::{Padding, Rect, TransformConfig};
+use picasso::rewrite_frame_transformations;
 use savant_core::primitives::bbox::RBBox;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -92,8 +93,7 @@ fn encode_transform(
     target_h: u32,
     config: &TransformConfig,
 ) {
-    picasso::pipeline::encode::rewrite_frame_transformations(frame, target_w, target_h, config)
-        .unwrap();
+    rewrite_frame_transformations(frame, target_w, target_h, config).unwrap();
 }
 
 fn config_with_padding(padding: Padding) -> TransformConfig {

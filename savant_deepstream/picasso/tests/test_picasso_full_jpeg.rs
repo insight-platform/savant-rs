@@ -17,19 +17,12 @@
 //! inspection.  Perceptual hashes are compared; a small Hamming distance
 //! means the images are structurally equivalent.
 
-use deepstream_encoders::properties::{
-    DgpuPreset, EncoderProperties, H264DgpuProps, JpegProps, TuningPreset,
-};
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig};
-use deepstream_nvbufsurface::TransformConfig;
-use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, Padding, VideoFormat};
-use picasso::callbacks::{Callbacks, OnEncodedFrame, OnRender};
-use picasso::message::EncodedOutput;
+use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::{Padding, TransformConfig};
+use picasso::prelude::*;
 use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
-use picasso::spec::{CodecSpec, GeneralSpec, ObjectDrawSpec, SourceSpec};
 use picasso::transform::compute_letterbox_params;
-use picasso::PicassoEngine;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
@@ -320,7 +313,7 @@ fn render_gpu() -> Vec<u8> {
                 padding: Padding::Symmetric,
                 ..Default::default()
             },
-            encoder: enc_config,
+            encoder: Box::new(enc_config),
         },
         draw: build_draw_spec(),
         font_family: FONT.to_string(),
@@ -439,7 +432,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
                 padding: Padding::Symmetric,
                 ..Default::default()
             },
-            encoder: enc_config,
+            encoder: Box::new(enc_config),
         },
         draw: build_draw_spec(),
         font_family: FONT.to_string(),

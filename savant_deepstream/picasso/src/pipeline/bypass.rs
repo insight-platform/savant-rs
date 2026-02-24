@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// Bypass mode: mark the frame as copy (no re-encoding), transform bboxes
 /// from current → initial coordinates, then fire `on_bypass_frame`.
-pub fn process_bypass(
+pub(crate) fn process_bypass(
     source_id: &str,
     mut frame: VideoFrameProxy,
     buffer: gst::Buffer,

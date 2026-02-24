@@ -10,14 +10,9 @@
 //! Success criterion: all frames produce encoded output and no panic or
 //! crash occurs.
 
-use deepstream_encoders::properties::{DgpuPreset, EncoderProperties, H264DgpuProps, TuningPreset};
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
-use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
-use picasso::callbacks::{Callbacks, OnEncodedFrame, OnRender};
-use picasso::message::EncodedOutput;
-use picasso::spec::{CodecSpec, GeneralSpec, ObjectDrawSpec, SourceSpec};
-use picasso::PicassoEngine;
+use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
@@ -195,7 +190,7 @@ fn out_of_viewport_objects_do_not_crash() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         draw: build_draw_spec(),
         font_family: "sans-serif".to_string(),
@@ -274,7 +269,7 @@ fn all_oob_objects_on_single_frame() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         draw: build_draw_spec(),
         font_family: "sans-serif".to_string(),

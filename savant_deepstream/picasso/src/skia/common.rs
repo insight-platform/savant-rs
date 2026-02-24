@@ -6,7 +6,7 @@ use savant_core::primitives::RBBox;
 
 /// Convert a [`ColorDraw`] to a Skia [`Color`](skia_safe::Color).
 #[inline]
-pub fn color_to_skia(c: &ColorDraw) -> skia_safe::Color {
+pub(crate) fn color_to_skia(c: &ColorDraw) -> skia_safe::Color {
     skia_safe::Color::from_argb(c.alpha as u8, c.red as u8, c.green as u8, c.blue as u8)
 }
 
@@ -52,7 +52,7 @@ impl ResolvedBBox {
 ///
 /// If `TrackingBox` is selected but no tracking box exists, falls back to
 /// the detection box.
-pub fn resolve_bbox(obj: &BorrowedVideoObject, source: BBoxSource) -> ResolvedBBox {
+pub(crate) fn resolve_bbox(obj: &BorrowedVideoObject, source: BBoxSource) -> ResolvedBBox {
     let bbox: RBBox = match source {
         BBoxSource::TrackingBox => obj
             .get_track_box()
@@ -73,7 +73,7 @@ pub fn resolve_bbox(obj: &BorrowedVideoObject, source: BBoxSource) -> ResolvedBB
 /// The input rect is centered at the origin with half-extents `(hw, hh)`.
 /// Returns `(left, top, width, height)` in the local coordinate system.
 #[inline]
-pub fn padded_rect(hw: f32, hh: f32, pad: &PaddingDraw) -> skia_safe::Rect {
+pub(crate) fn padded_rect(hw: f32, hh: f32, pad: &PaddingDraw) -> skia_safe::Rect {
     skia_safe::Rect::from_xywh(
         -hw - pad.left as f32,
         -hh - pad.top as f32,

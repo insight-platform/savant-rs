@@ -1,4 +1,4 @@
-use deepstream_encoders::EncoderConfig;
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
 
 /// Describes what to do with each incoming frame for a given source.
@@ -13,6 +13,6 @@ pub enum CodecSpec {
     /// overlays, then encode.
     Encode {
         transform: TransformConfig,
-        encoder: EncoderConfig,
+        encoder: Box<EncoderConfig>,
     },
 }

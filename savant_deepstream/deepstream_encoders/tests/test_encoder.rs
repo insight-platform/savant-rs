@@ -3,9 +3,7 @@
 //! These tests require a GPU with NVENC support and DeepStream installed.
 //! Run with: `cargo test -p deepstream_encoders`
 
-use deepstream_encoders::{
-    cuda_init, Codec, EncoderConfig, EncoderError, NvBufSurfaceMemType, NvEncoder, VideoFormat,
-};
+use deepstream_encoders::prelude::*;
 use serial_test::serial;
 
 /// Initialize CUDA and GStreamer once.
@@ -88,7 +86,6 @@ fn test_config_builder_chain() {
 
 #[test]
 fn test_config_with_typed_properties() {
-    use deepstream_encoders::properties::*;
     let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
         bitrate: Some(4_000_000),
         ..Default::default()

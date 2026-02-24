@@ -1,7 +1,4 @@
-use picasso::callbacks::{OnBypassFrame, OnEncodedFrame};
-use picasso::message::{BypassOutput, EncodedOutput};
-use picasso::spec::{CodecSpec, GeneralSpec, SourceSpec};
-use picasso::{Callbacks, PicassoEngine};
+use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
@@ -10,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn make_frame(source_id: &str) -> VideoFrameProxy {
-    let f = VideoFrameProxy::new(
+    VideoFrameProxy::new(
         source_id,
         "30/1",
         320,
@@ -24,8 +21,7 @@ fn make_frame(source_id: &str) -> VideoFrameProxy {
         None,
         None,
     )
-    .unwrap();
-    f
+    .unwrap()
 }
 
 fn make_gst_buffer() -> gstreamer::Buffer {

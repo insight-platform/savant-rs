@@ -2,7 +2,6 @@ export PROJECT_DIR=$(CURDIR)
 export PYTHON_VERSION=$(shell python3 -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
 DS_NVBUF_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_nvbufsurface
-DS_ENC_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_encoders
 PICASSO_PY_DIR=$(PROJECT_DIR)/savant_deepstream/picasso_py
 GST_DIR=$(PROJECT_DIR)/savant_gstreamer
 SP_DIR=$(PROJECT_DIR)/savant_python
@@ -10,8 +9,6 @@ SP_DIR=$(PROJECT_DIR)/savant_python
 .PHONY: docs build_savant build_savant_release clean tests bench reformat \
         ds-nvbuf-dev ds-nvbuf-release ds-nvbuf-install \
         ds-nvbuf-test ds-nvbuf-pytest \
-        ds-enc-dev ds-enc-release ds-enc-install \
-        ds-enc-test ds-enc-pytest \
         picasso-py-dev picasso-py-release picasso-py-install \
         picasso-py-pytest \
         gst-dev gst-release gst-install \
@@ -30,7 +27,7 @@ fmt:
 	@echo "Running cargo fmt..."
 	cargo fmt --all
 	@echo "Running ruff format..."
-	ruff format $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
+	ruff format $(DS_NVBUF_DIR)/pytests $(GST_DIR)/pytests \
 	            $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
 	            python/nvbufsurface 2>/dev/null || true
 
@@ -39,12 +36,10 @@ clippy:
 	cd $(GST_DIR) && cargo clippy --all-targets -- -D warnings
 	@echo "Running clippy on deepstream_nvbufsurface..."
 	cd $(DS_NVBUF_DIR) && cargo clippy --all-targets -- -D warnings
-	@echo "Running clippy on deepstream_encoders..."
-	cd $(DS_ENC_DIR) && cargo clippy --all-targets -- -D warnings
 
 lint: fmt clippy
 	@echo "Running ruff check..."
-	ruff check $(DS_NVBUF_DIR)/pytests $(DS_ENC_DIR)/pytests $(GST_DIR)/pytests \
+	ruff check $(DS_NVBUF_DIR)/pytests $(GST_DIR)/pytests \
 	           $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
 	           python/nvbufsurface --fix
 	@echo "Lint complete."
@@ -55,14 +50,12 @@ all-dev: fmt clippy lint \
          dev install \
          gst-dev gst-test gst-install gst-pytest \
          ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-         ds-enc-dev ds-enc-test ds-enc-install ds-enc-pytest \
          picasso-py-dev picasso-py-install picasso-py-pytest
 
 all-release: fmt clippy lint \
              release install \
              gst-release gst-test gst-install gst-pytest \
              ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
-             ds-enc-release ds-enc-test ds-enc-install ds-enc-pytest \
              picasso-py-release picasso-py-install picasso-py-pytest
 
 # -----------------------------------------------------------------------------
@@ -102,30 +95,6 @@ ds-nvbuf-test:
 ds-nvbuf-pytest: ds-nvbuf-dev ds-nvbuf-install
 	@echo "Running deepstream_nvbufsurface Python tests..."
 	cd $(DS_NVBUF_DIR) && python3 -m pytest pytests/ -v --tb=short
-
-# -- deepstream_encoders Python bindings --------------------------------------
-
-ds-enc-dev:
-	@echo "Building deepstream_encoders (dev)..."
-	cd $(DS_ENC_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
-
-ds-enc-release:
-	@echo "Building deepstream_encoders (release)..."
-	cd $(DS_ENC_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
-
-ds-enc-install:
-	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/deepstream_encoders*$(PYTHON_VERSION)*.whl | head -1); \
-	echo "Installing $$WHL_NAME"; \
-	pip install --force-reinstall "$$WHL_NAME"; \
-	echo "Installed $$WHL_NAME"
-
-ds-enc-test:
-	@echo "Running deepstream_encoders Rust tests..."
-	cd $(DS_ENC_DIR) && cargo test -- --test-threads=1
-
-ds-enc-pytest: ds-enc-dev ds-enc-install
-	@echo "Running deepstream_encoders Python tests..."
-	cd $(DS_ENC_DIR) && python3 -m pytest pytests/ -v --tb=short
 
 # -- picasso_py Python bindings -----------------------------------------------
 
@@ -185,7 +154,7 @@ serve-docs: docker-build-docs
 	@echo "Serving docs at http://localhost:8080"
 	docker run -it --rm -p 8080:80 -v $(PROJECT_DIR)/docs/build/html:/usr/share/nginx/html:ro nginx:alpine
 
-docs: dev install gst-dev gst-install ds-nvbuf-dev ds-nvbuf-install ds-enc-dev ds-enc-install
+docs: dev install gst-dev gst-install ds-nvbuf-dev ds-nvbuf-install
 	@echo "Building docs..."
 	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(PROJECT_DIR)/venv/bin:$$PATH" make clean html
 	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .

@@ -18,14 +18,9 @@
 //! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench skia_pipeline
 //! ```
 
-use deepstream_encoders::properties::{DgpuPreset, EncoderProperties, H264DgpuProps, TuningPreset};
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, NvBufSurfaceGenerator};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
-use deepstream_nvbufsurface::{NvBufSurfaceMemType, VideoFormat};
-use picasso::callbacks::OnEncodedFrame;
-use picasso::message::EncodedOutput;
-use picasso::spec::{CodecSpec, GeneralSpec, ObjectDrawSpec, SourceSpec};
-use picasso::{Callbacks, PicassoEngine};
+use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
@@ -237,7 +232,7 @@ impl BenchOnRender {
     }
 }
 
-impl picasso::callbacks::OnRender for BenchOnRender {
+impl OnRender for BenchOnRender {
     fn call(&self, _source_id: &str, canvas: &skia_safe::Canvas, frame: &VideoFrameProxy) {
         let frame_idx = frame.get_pts() as u64 / FRAME_DURATION_NS;
         let mut ctx = self.ctx.lock();
@@ -507,7 +502,7 @@ fn build_draw_spec() -> ObjectDrawSpec {
 
         spec.insert(
             "detector",
-            &cls.name,
+            cls.name,
             ObjectDraw::new(Some(bb), Some(dot), Some(label), false),
         );
     }
@@ -532,7 +527,7 @@ fn build_source_spec() -> SourceSpec {
     SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: build_encoder_config(),
+            encoder: Box::new(build_encoder_config()),
         },
         draw: build_draw_spec(),
         font_family: "monospace".to_string(),

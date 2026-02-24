@@ -17,14 +17,12 @@
 //!   that provides NVMM GPU buffers for zero-copy rendering.
 //! - **Typed encoder properties**: Codec and platform-specific property
 //!   structs replace untyped string key-value pairs.  See the
-//!   [`properties`] module for all available types.
+//!   [`prelude`] module for all available types.
 //!
 //! # Example (Rust)
 //!
 //! ```rust,no_run
-//! use deepstream_encoders::{NvEncoder, EncoderConfig, Codec};
-//! use deepstream_encoders::properties::*;
-//! use deepstream_nvbufsurface::cuda_init;
+//! use deepstream_encoders::prelude::*;
 //!
 //! gstreamer::init().unwrap();
 //! cuda_init(0).unwrap();
@@ -51,12 +49,10 @@
 //! let remaining = encoder.finish(None).unwrap();
 //! ```
 
-pub mod encoder;
-pub mod error;
-pub mod properties;
-
-#[cfg(feature = "python")]
-pub mod python;
+pub(crate) mod encoder;
+pub(crate) mod error;
+pub mod prelude;
+pub(crate) mod properties;
 
 pub use encoder::NvEncoder;
 pub use error::EncoderError;

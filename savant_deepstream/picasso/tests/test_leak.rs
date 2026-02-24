@@ -9,14 +9,11 @@
 //! cargo test -p picasso --test test_leak -- --ignored --nocapture
 //! ```
 
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, NvBufSurfaceGenerator};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
-use deepstream_nvbufsurface::{NvBufSurfaceMemType, VideoFormat};
-use picasso::callbacks::{OnBypassFrame, OnEncodedFrame};
-use picasso::message::{BypassOutput, EncodedOutput, WorkerMessage};
-use picasso::spec::{CodecSpec, GeneralSpec, SourceSpec};
+use picasso::message::WorkerMessage;
+use picasso::prelude::*;
 use picasso::worker::SourceWorker;
-use picasso::{Callbacks, PicassoEngine};
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
@@ -50,7 +47,7 @@ fn gpu_mem_mib() -> u64 {
 }
 
 fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
-    let f = VideoFrameProxy::new(
+    VideoFrameProxy::new(
         source_id,
         "30/1",
         w,
@@ -64,8 +61,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
         None,
         None,
     )
-    .unwrap();
-    f
+    .unwrap()
 }
 
 fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Buffer {
@@ -501,7 +497,7 @@ fn leak_engine_gpu_encode_sustained() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: enc_cfg.clone(),
+            encoder: Box::new(enc_cfg.clone()),
         },
         ..Default::default()
     };

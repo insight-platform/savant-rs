@@ -3,7 +3,7 @@ use crate::error::PicassoError;
 use crate::message::EncodedOutput;
 use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
-use deepstream_encoders::{EncodedFrame, NvEncoder};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{Padding, SkiaRenderer, TransformConfig};
 use gstreamer as gst;
 use log::{debug, error, warn};
@@ -26,12 +26,12 @@ static SKIA_EGL_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 /// Render-specific options and mutable state.  When provided to
 /// [`process_encode`], Skia overlays are drawn between the GPU transform
 /// and the hardware encode step.
-pub struct RenderOpts<'a> {
-    pub draw_spec: &'a ObjectDrawSpec,
-    pub use_on_render: bool,
-    pub gpu_id: u32,
-    pub renderer: &'a mut Option<SkiaRenderer>,
-    pub draw_ctx: &'a mut DrawContext,
+pub(crate) struct RenderOpts<'a> {
+    pub(crate) draw_spec: &'a ObjectDrawSpec,
+    pub(crate) use_on_render: bool,
+    pub(crate) gpu_id: u32,
+    pub(crate) renderer: &'a mut Option<SkiaRenderer>,
+    pub(crate) draw_ctx: &'a mut DrawContext,
 }
 
 /// Unified encode pipeline:
@@ -41,7 +41,7 @@ pub struct RenderOpts<'a> {
 /// When `render` is `Some`, the Skia overlay step is inserted after the GPU
 /// transform.  Otherwise the path is pure transform-and-encode.
 #[allow(clippy::too_many_arguments)]
-pub fn process_encode(
+pub(crate) fn process_encode(
     source_id: &str,
     input: FrameInput,
     transform_config: &TransformConfig,
@@ -225,7 +225,7 @@ fn padding_to_letterbox_kind(padding: Padding) -> LetterBoxKind {
 /// `frame_id` in `pending_frames`.  The proxy is updated with the encoded
 /// bitstream, pts/dts/duration, and codec, then delivered as
 /// [`EncodedOutput::VideoFrame`].
-pub fn drain_encoded(
+pub(crate) fn drain_encoded(
     source_id: &str,
     encoder: &mut NvEncoder,
     callbacks: &Arc<Callbacks>,
@@ -255,7 +255,7 @@ pub fn drain_encoded(
 }
 
 /// Update a [`VideoFrameProxy`] with encoded output and fire the callback.
-pub fn fill_encoded_frame(
+pub(crate) fn fill_encoded_frame(
     mut frame: VideoFrameProxy,
     encoded: EncodedFrame,
     cb: &Arc<dyn OnEncodedFrame>,
@@ -273,10 +273,10 @@ pub fn fill_encoded_frame(
     cb.call(EncodedOutput::VideoFrame(frame));
 }
 
-pub fn frame_pts(buf: &gst::Buffer) -> u64 {
+pub(crate) fn frame_pts(buf: &gst::Buffer) -> u64 {
     buf.pts().map(|t| t.nseconds()).unwrap_or(0)
 }
 
-pub fn frame_duration(buf: &gst::Buffer) -> Option<u64> {
+pub(crate) fn frame_duration(buf: &gst::Buffer) -> Option<u64> {
     buf.duration().map(|t| t.nseconds())
 }

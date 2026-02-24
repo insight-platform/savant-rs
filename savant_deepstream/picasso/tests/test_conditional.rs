@@ -11,14 +11,9 @@
 //!    attribute go through the full render-and-encode path.  The `on_render`
 //!    callback fires only for those frames.
 
-use deepstream_encoders::properties::{DgpuPreset, EncoderProperties, H264DgpuProps, TuningPreset};
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
-use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
-use picasso::callbacks::{Callbacks, OnEncodedFrame, OnRender};
-use picasso::message::EncodedOutput;
-use picasso::spec::{CodecSpec, ConditionalSpec, GeneralSpec, SourceSpec};
-use picasso::PicassoEngine;
+use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
 };
@@ -125,7 +120,7 @@ fn encode_attribute_gate_drops_frames_without_attr() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         conditional: ConditionalSpec {
             encode_attribute: Some(("gate".into(), "process".into())),
@@ -199,7 +194,7 @@ fn render_attribute_gate_skips_rendering_without_attr() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         conditional: ConditionalSpec {
             encode_attribute: None,
@@ -279,7 +274,7 @@ fn both_gates_active() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         conditional: ConditionalSpec {
             encode_attribute: Some(("gate".into(), "process".into())),
@@ -389,7 +384,7 @@ fn no_gates_all_frames_pass() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: make_encoder_config(),
+            encoder: Box::new(make_encoder_config()),
         },
         use_on_render: true,
         ..Default::default()

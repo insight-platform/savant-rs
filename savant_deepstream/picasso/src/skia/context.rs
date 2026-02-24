@@ -15,9 +15,9 @@ use std::collections::HashMap;
 type SpecKey = (String, String);
 
 pub struct DrawContext {
-    pub default_typeface: skia_safe::Typeface,
-    pub stroke_paint: skia_safe::Paint,
-    pub fill_paint: skia_safe::Paint,
+    pub(crate) default_typeface: skia_safe::Typeface,
+    pub(crate) stroke_paint: skia_safe::Paint,
+    pub(crate) fill_paint: skia_safe::Paint,
     font_family: String,
     template_cache: HashMap<SpecKey, ParsedLabelFormats>,
 }
@@ -49,7 +49,7 @@ impl DrawContext {
     }
 
     /// Returns the font family this context was created with.
-    pub fn font_family(&self) -> &str {
+    pub(crate) fn font_family(&self) -> &str {
         &self.font_family
     }
 

@@ -12,12 +12,8 @@
 //! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench bench_drop
 //! ```
 
-use deepstream_encoders::{cuda_init, NvBufSurfaceGenerator};
-use deepstream_nvbufsurface::{NvBufSurfaceMemType, VideoFormat};
-use picasso::callbacks::{Callbacks, OnBypassFrame, OnEncodedFrame};
-use picasso::message::{BypassOutput, EncodedOutput};
-use picasso::spec::{CodecSpec, GeneralSpec, SourceSpec};
-use picasso::PicassoEngine;
+use deepstream_encoders::prelude::*;
+use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
 };

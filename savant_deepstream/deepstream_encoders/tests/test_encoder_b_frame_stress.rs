@@ -33,8 +33,7 @@
 //! cargo test -p deepstream_encoders --test test_encoder_b_frame_stress -- --nocapture
 //! ```
 
-use deepstream_encoders::properties::*;
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, NvEncoder, VideoFormat};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{ComputeMode, Interpolation, Padding, TransformConfig};
 use gstreamer as gst;
 use gstreamer::prelude::*;

@@ -5,7 +5,7 @@ use crate::pipeline::{bypass, encode, FrameInput};
 use crate::skia::context::DrawContext;
 use crate::spec::{CodecSpec, SourceSpec};
 use crossbeam::channel::{Receiver, Sender};
-use deepstream_encoders::NvEncoder;
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::SkiaRenderer;
 use log::{debug, error, info, warn};
 use savant_core::primitives::eos::EndOfStream;
@@ -14,16 +14,15 @@ use savant_core::primitives::WithAttributes;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Timeout (ms) given to the hardware encoder to flush remaining frames on
 /// EOS / shutdown / codec hot-swap.
-const ENCODER_DRAIN_TIMEOUT_MS: u64 = 3000;
+const ENCODER_DRAIN_TIMEOUT_MS: u64 = 5000;
 
 /// Handle to a running source worker thread.
 pub struct SourceWorker {
     tx: Sender<WorkerMessage>,
-    pub(crate) last_activity: Arc<parking_lot::Mutex<Instant>>,
     alive: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -37,22 +36,18 @@ impl SourceWorker {
         idle_timeout: Duration,
     ) -> Self {
         let (tx, rx) = crossbeam::channel::bounded::<WorkerMessage>(16);
-        let last_activity = Arc::new(parking_lot::Mutex::new(Instant::now()));
         let alive = Arc::new(AtomicBool::new(true));
-
-        let la = last_activity.clone();
         let al = alive.clone();
 
         let thread = std::thread::Builder::new()
             .name(format!("picasso-{source_id}"))
             .spawn(move || {
-                worker_loop(source_id, rx, spec, callbacks, idle_timeout, la, al);
+                worker_loop(source_id, rx, spec, callbacks, idle_timeout, al);
             })
             .expect("failed to spawn picasso worker thread");
 
         Self {
             tx,
-            last_activity,
             alive,
             thread: Some(thread),
         }
@@ -70,16 +65,6 @@ impl SourceWorker {
     /// Whether the worker thread is still alive.
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
-    }
-
-    /// Update the last-activity timestamp (called on eviction keep-for).
-    pub fn touch(&self) {
-        *self.last_activity.lock() = Instant::now();
-    }
-
-    /// Get the elapsed time since last activity.
-    pub fn idle_duration(&self) -> Duration {
-        self.last_activity.lock().elapsed()
     }
 }
 
@@ -235,7 +220,6 @@ fn worker_loop(
     spec: SourceSpec,
     callbacks: Arc<Callbacks>,
     mut idle_timeout: Duration,
-    last_activity: Arc<parking_lot::Mutex<Instant>>,
     alive: Arc<AtomicBool>,
 ) {
     let mut draw_ctx = DrawContext::new(&spec.font_family);
@@ -256,7 +240,6 @@ fn worker_loop(
     loop {
         match rx.recv_timeout(idle_timeout) {
             Ok(WorkerMessage::Frame(frame, buffer)) => {
-                *last_activity.lock() = Instant::now();
                 state.process_frame(frame, buffer);
             }
             Ok(WorkerMessage::Eos) => {
@@ -282,7 +265,6 @@ fn worker_loop(
                     match decision {
                         crate::spec::EvictionDecision::KeepFor(secs) => {
                             idle_timeout = Duration::from_secs(secs);
-                            *last_activity.lock() = Instant::now();
                             debug!("eviction: keep for {secs}s, source={source_id}");
                         }
                         crate::spec::EvictionDecision::Terminate => {

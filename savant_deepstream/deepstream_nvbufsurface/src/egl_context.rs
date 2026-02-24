@@ -79,13 +79,13 @@ extern "C" {
 }
 
 // EGL extension function pointer types
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 type PFNEGLQUERYDEVICESEXTPROC = unsafe extern "C" fn(
     max_devices: EGLint,
     devices: *mut EGLDeviceEXT,
     num_devices: *mut EGLint,
 ) -> EGLBoolean;
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 type PFNEGLGETPLATFORMDISPLAYEXTPROC = unsafe extern "C" fn(
     platform: u32,
     native_display: EGLDeviceEXT,
