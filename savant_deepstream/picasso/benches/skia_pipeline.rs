@@ -35,9 +35,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
-const NUM_FRAMES: u64 = 10_000;
+const WIDTH: u32 = 1280;
+const HEIGHT: u32 = 720;
+const NUM_FRAMES: u64 = 100_000;
 const NUM_BOXES: usize = 20;
 const FPS: i32 = 30;
 const FRAME_DURATION_NS: u64 = 1_000_000_000 / FPS as u64;
