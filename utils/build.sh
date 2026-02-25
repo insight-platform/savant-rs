@@ -134,5 +134,32 @@ if [ "$MODE" = "release" ]; then
     EXTRA_FLAGS="--release $MATURIN_PYTHON_SEARCH_ARGS"
 fi
 
-export CARGO_INCREMENTAL=true 
+export CARGO_INCREMENTAL=true
 maturin build $EXTRA_FLAGS $FEATURE_ARGS -o "$PROJECT_DIR/dist"
+
+# Run auditwheel repair with system libs excluded.  Maturin's built-in
+# repair bundles everything; we need our libs (libsavant_core_py.so) but not
+# GStreamer, CUDA, or DeepStream (expected on the target system at runtime).
+#
+# Only repair linux_* tagged wheels (the raw maturin output).  Previously
+# repaired manylinux_* wheels must be removed first to avoid auditwheel
+# choking on hash-suffixed SONAMEs from a prior run.
+if command -v auditwheel >/dev/null 2>&1; then
+    rm -f "$PROJECT_DIR"/dist/savant_rs-*manylinux*.whl
+    for whl in "$PROJECT_DIR"/dist/savant_rs-*linux_*.whl; do
+        [ -f "$whl" ] || continue
+        echo "Repairing wheel (excluding system libs): $whl"
+        auditwheel repair "$whl" -w "$PROJECT_DIR/dist" \
+            --exclude 'libgst*.so*' \
+            --exclude 'libgstreamer*.so*' \
+            --exclude 'libgobject*.so*' \
+            --exclude 'libglib*.so*' \
+            --exclude 'libgio*.so*' \
+            --exclude 'libcudart*.so*' \
+            --exclude 'libnvdsbufferpool*.so*' \
+            --exclude 'libnvbufsurftransform*.so*' \
+            --exclude 'libEGL*.so*' \
+            --exclude 'libGL*.so*'
+        rm -f "$whl"
+    done
+fi

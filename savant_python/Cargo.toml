@@ -17,7 +17,6 @@ crate-type = ["dylib"]
 
 [dependencies]
 savant_core_py = { workspace = true }
-savant_gstreamer_py = { workspace = true, optional = true }
 pretty_env_logger = { workspace = true }
 pyo3 = { workspace = true }
 
@@ -26,7 +25,8 @@ pyo3-build-config = { workspace = true }
 
 [features]
 default = []
-gst = ["savant_gstreamer_py"]
+gst = ["savant_core_py/gst"]
+deepstream = ["gst", "savant_core_py/deepstream"]
 
 [package.metadata.maturin]
 python-source = "python"

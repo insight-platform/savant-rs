@@ -35,3 +35,6 @@ max-line-length = 88
 python-source = "python"
 include = ["*"]
 features = ["pyo3/extension-module"]
+# Skip maturin's built-in auditwheel; we run external auditwheel repair with
+# --exclude to bundle our libs (libsavant_core_py.so) but not GStreamer.
+auditwheel = "skip"

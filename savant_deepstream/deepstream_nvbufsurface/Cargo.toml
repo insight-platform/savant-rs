@@ -13,7 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 gstreamer = { workspace = true }
@@ -21,7 +21,6 @@ gstreamer-app = { workspace = true }
 glib = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
-pyo3 = { workspace = true, optional = true }
 savant_gstreamer = { workspace = true }
 
 # Skia rendering (optional)
@@ -34,11 +33,9 @@ gl = { version = "0.14", optional = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
-pyo3-build-config = { workspace = true }
 
 [features]
 default = []
-python = ["pyo3"]
 skia = ["dep:skia-safe", "dep:gl"]
 
 [dev-dependencies]

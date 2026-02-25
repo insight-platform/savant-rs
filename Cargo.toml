@@ -9,7 +9,6 @@ members = [
     "savant_gstreamer_elements",
     "savant_launcher",
     "savant_gstreamer/savant_gstreamer",
-    "savant_gstreamer/savant_gstreamer_py",
     "savant_info",
     "services/replay/replaydb",
     "services/replay/replay",
@@ -24,7 +23,7 @@ members = [
     "savant_deepstream/deepstream_nvbufsurface",
     "savant_deepstream/deepstream_encoders",
     "savant_deepstream/picasso",
-    # picasso_py excluded until it is migrated to savant_gstreamer_py
+    # picasso_py excluded until migrated to savant_core_py gst feature
     # "savant_deepstream/picasso_py",
 ]
 
@@ -153,7 +152,7 @@ savant_core_py = { path = "savant_core/savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
 savant_rs = { path = "savant_python" }
 savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer" }
-savant_gstreamer_py = { path = "savant_gstreamer/savant_gstreamer_py" }
+deepstream_nvbufsurface = { path = "savant_deepstream/deepstream_nvbufsurface" }
 savant_services_common = { path = "services/common" }
 
 serde = { version = "1.0", features = ["derive"] }

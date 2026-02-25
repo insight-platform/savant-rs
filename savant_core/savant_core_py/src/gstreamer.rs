@@ -218,8 +218,6 @@ impl PyMp4Muxer {
 }
 
 /// Register the GStreamer Python classes on the given module.
-///
-/// Called by `savant_python` when the `gst` feature is enabled.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodec>()?;
     m.add_class::<PyMp4Muxer>()?;

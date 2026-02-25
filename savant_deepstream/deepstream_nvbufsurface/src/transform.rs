@@ -174,7 +174,7 @@ impl Default for TransformConfig {
 ///
 /// # Safety
 /// The buffer must contain a valid NvBufSurface in its first memory block.
-pub(crate) unsafe fn extract_nvbufsurface(
+pub unsafe fn extract_nvbufsurface(
     buf: &gstreamer::BufferRef,
 ) -> Result<*mut ffi::NvBufSurface, TransformError> {
     let map = buf

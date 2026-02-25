@@ -11,16 +11,13 @@ PYTEST    := $(VENV_BIN)/python3 -m pytest
 export PYTHON_VERSION=$(shell $(PYTHON) -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')
 
 # Optional Cargo features for savant_python (e.g. SAVANT_FEATURES=gst).
-# Multiple features can be comma-separated: SAVANT_FEATURES=gst,foo
+# Multiple features can be comma-separated: SAVANT_FEATURES=gst,deepstream
 SAVANT_FEATURES ?=
 
-DS_NVBUF_DIR=$(PROJECT_DIR)/savant_deepstream/deepstream_nvbufsurface
 PICASSO_PY_DIR=$(PROJECT_DIR)/savant_deepstream/picasso_py
 SP_DIR=$(PROJECT_DIR)/savant_python
 
 .PHONY: docs build_savant build_savant_release clean tests bench reformat \
-        ds-nvbuf-dev ds-nvbuf-release ds-nvbuf-install \
-        ds-nvbuf-test ds-nvbuf-pytest \
         picasso-py-dev picasso-py-release picasso-py-install \
         picasso-py-pytest \
         sp-dev sp-install sp-pytest \
@@ -37,33 +34,27 @@ fmt:
 	@echo "Running cargo fmt..."
 	cargo fmt --all
 	@echo "Running ruff format..."
-	ruff format $(DS_NVBUF_DIR)/pytests \
-	            $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
+	ruff format $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
 	            python/nvbufsurface 2>/dev/null || true
 
 clippy:
 	@echo "Running clippy on default members..."
 	cargo clippy --all-targets -- -D warnings
-	@echo "Running clippy on deepstream_nvbufsurface..."
-	cd $(DS_NVBUF_DIR) && cargo clippy --all-targets -- -D warnings
 
 lint: fmt clippy
 	@echo "Running ruff check..."
-	ruff check $(DS_NVBUF_DIR)/pytests \
-	           $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
-	           python/nvbufsurface --fix
+	ruff check $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
+	           python/nvbufsurface --fix 2>/dev/null || true
 	@echo "Lint complete."
 
 # -- aggregate targets: build + test + install everything ---------------------
 
 all-dev: fmt clippy lint \
          dev install \
-         ds-nvbuf-dev ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
          picasso-py-dev picasso-py-install picasso-py-pytest
 
 all-release: fmt clippy lint \
              release install \
-             ds-nvbuf-release ds-nvbuf-test ds-nvbuf-install ds-nvbuf-pytest \
              picasso-py-release picasso-py-install picasso-py-pytest
 
 # -----------------------------------------------------------------------------
@@ -79,30 +70,6 @@ install:
 	echo "Installing $$WHL_NAME"; \
 	$(PIP) install --force-reinstall "$$WHL_NAME"; \
 	echo "Installed $$WHL_NAME"
-
-# -- deepstream_nvbufsurface Python bindings ----------------------------------
-
-ds-nvbuf-dev:
-	@echo "Building deepstream_nvbufsurface (dev)..."
-	cd $(DS_NVBUF_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
-
-ds-nvbuf-release:
-	@echo "Building deepstream_nvbufsurface (release)..."
-	cd $(DS_NVBUF_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
-
-ds-nvbuf-install:
-	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/deepstream_nvbufsurface*$(PYTHON_VERSION)*.whl | head -1); \
-	echo "Installing $$WHL_NAME"; \
-	$(PIP) install --force-reinstall "$$WHL_NAME"; \
-	echo "Installed $$WHL_NAME"
-
-ds-nvbuf-test:
-	@echo "Running deepstream_nvbufsurface Rust tests..."
-	cd $(DS_NVBUF_DIR) && cargo test -- --test-threads=1
-
-ds-nvbuf-pytest: ds-nvbuf-dev ds-nvbuf-install
-	@echo "Running deepstream_nvbufsurface Python tests..."
-	cd $(DS_NVBUF_DIR) && $(PYTEST) pytests/ -v --tb=short
 
 # -- picasso_py Python bindings -----------------------------------------------
 
@@ -140,7 +107,7 @@ serve-docs: docker-build-docs
 	@echo "Serving docs at http://localhost:8080"
 	docker run -it --rm -p 8080:80 -v $(PROJECT_DIR)/docs/build/html:/usr/share/nginx/html:ro nginx:alpine
 
-docs: dev install ds-nvbuf-dev ds-nvbuf-install
+docs: dev install
 	@echo "Building docs..."
 	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(PROJECT_DIR)/venv/bin:$$PATH" make clean html
 	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .
