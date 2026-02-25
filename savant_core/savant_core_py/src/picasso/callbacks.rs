@@ -79,10 +79,7 @@ impl OnObjectDrawSpec for PyOnObjectDrawSpec {
                         return None;
                     }
                     match result.extract::<crate::draw_spec::ObjectDraw>(py) {
-                        Ok(draw) => {
-                            let ptr = draw.memory_handle() as *const ObjectDraw;
-                            Some(unsafe { &*ptr }.clone())
-                        }
+                        Ok(draw) => Some(draw.0.clone()),
                         Err(e) => {
                             log::error!("on_object_draw_spec return type error: {e}");
                             None
