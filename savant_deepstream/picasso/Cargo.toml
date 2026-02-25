@@ -16,7 +16,7 @@ rust-version.workspace = true
 crate-type = ["rlib"]
 
 [dependencies]
-savant_core = { path = "../../savant_core" }
+savant_core = { path = "../../savant_core/savant_core" }
 deepstream_encoders = { path = "../deepstream_encoders" }
 deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface", features = ["skia"] }
 gstreamer = { workspace = true }

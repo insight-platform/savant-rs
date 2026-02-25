@@ -77,6 +77,8 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<gst::FlowResult>()?;
     m.add_class::<gst::InvocationReason>()?;
+    #[cfg(feature = "gst")]
+    savant_gstreamer_py::register_classes(m)?;
     Ok(())
 }
 

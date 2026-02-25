@@ -61,7 +61,7 @@ uuid = { workspace = true }
 zmq = { workspace = true }
 
 [lib]
-crate-type = ["dylib", "rlib"]
+crate-type = ["rlib", "dylib"]
 
 [dev-dependencies]
 bollard = { workspace = true }

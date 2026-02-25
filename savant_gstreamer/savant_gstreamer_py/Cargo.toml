@@ -1,9 +1,9 @@
 [package]
-name = "savant_rs"
+name = "savant_gstreamer_py"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "PyO3 Python bindings for savant_gstreamer"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -16,17 +16,9 @@ rust-version.workspace = true
 crate-type = ["dylib", "rlib"]
 
 [dependencies]
-savant_core_py = { workspace = true }
-savant_gstreamer_py = { workspace = true, optional = true }
-pretty_env_logger = { workspace = true }
+savant_gstreamer = { workspace = true }
+gstreamer = { workspace = true }
 pyo3 = { workspace = true }
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }
-
-[features]
-default = []
-gst = ["savant_gstreamer_py"]
-
-[package.metadata.maturin]
-python-source = "python"

@@ -79,38 +79,51 @@ if [ "$MODE" = "release" ]; then
     CARGO_BUILD_FLAG="--release"
 fi
 
-if [ "${BUILD_ENVIRONMENT:-}" != "manylinux" ]; then
-    echo "Building python-embedded libraries"
-    if [ -n "${PYTHON_INTERPRETER:-}" ]; then
-        export PYO3_PYTHON="$PYTHON_INTERPRETER"
-    fi
-    
-    # Build with explicit targets
-    cargo build $CARGO_BUILD_FLAG -p savant_rs -p savant_gstreamer_elements -p savant_launcher
+# NOT RELEVANT, DO NOT UNCOMMENT
+#
+# if [ "${BUILD_ENVIRONMENT:-}" != "manylinux" ]; then
+#     echo "Building python-embedded libraries"
+#     if [ -n "${PYTHON_INTERPRETER:-}" ]; then
+#         export PYO3_PYTHON="$PYTHON_INTERPRETER"
+#     fi
 
-    # Clean previous artifacts
-    rm -rf "$ARTIFACT_LOCATION"
+#     # Build with explicit targets
+#     cargo build $CARGO_BUILD_FLAG -p savant_rs -p savant_gstreamer_elements -p savant_launcher
 
-    # Copy artifacts with error checking
-    for file in "$BUILD_ARTIFACT_LOCATION"/*.so "$BUILD_ARTIFACT_LOCATION/savant_launcher"; do
-        if [ -f "$file" ]; then
-            install -D "$file" "$ARTIFACT_LOCATION/$(basename "$file")"
-        fi
-    done
+#     # Clean previous artifacts
+#     rm -rf "$ARTIFACT_LOCATION"
 
-    # Copy libstd safely
-    find "$HOME" -name "libstd-*.so" 2>/dev/null | grep -F "$RUST_TOOLCHAIN" | head -n1 | xargs -r install -D -t "$ARTIFACT_LOCATION"
+#     # Copy artifacts with error checking
+#     for file in "$BUILD_ARTIFACT_LOCATION"/*.so "$BUILD_ARTIFACT_LOCATION/savant_launcher"; do
+#         if [ -f "$file" ]; then
+#             install -D "$file" "$ARTIFACT_LOCATION/$(basename "$file")"
+#         fi
+#     done
 
-    # Create tarball with explicit paths
-    echo "Packing artifacts"
-    (cd "$ARTIFACT_LOCATION" && tar --create --gzip --file "../embedded_python-${ARCHITECTURE}.tar.gz" ./*.so)
+#     # Copy libstd safely
+#     find "$HOME" -name "libstd-*.so" 2>/dev/null | grep -F "$RUST_TOOLCHAIN" | head -n1 | xargs -r install -D -t "$ARTIFACT_LOCATION"
+
+#     # Create tarball with explicit paths
+#     echo "Packing artifacts"
+#     (cd "$ARTIFACT_LOCATION" && tar --create --gzip --file "../embedded_python-${ARCHITECTURE}.tar.gz" ./*.so)
+# fi
+
+# Resolve Python interpreter: explicit override > project venv > auto-find.
+if [ -z "${PYTHON_INTERPRETER:-}" ] && [ -x "$PROJECT_DIR/venv/bin/python3" ]; then
+    PYTHON_INTERPRETER="$PROJECT_DIR/venv/bin/python3"
 fi
 
-# Set maturin arguments
 MATURIN_PYTHON_SEARCH_ARGS="-f"
 if [ -n "${PYTHON_INTERPRETER:-}" ]; then
     echo "Building for $PYTHON_INTERPRETER"
     MATURIN_PYTHON_SEARCH_ARGS="-i $PYTHON_INTERPRETER"
+fi
+
+# Optional Cargo features forwarded to the savant_rs crate (e.g. gst).
+FEATURE_ARGS=""
+if [ -n "${SAVANT_FEATURES:-}" ]; then
+    echo "Enabling Cargo features: $SAVANT_FEATURES"
+    FEATURE_ARGS="--features=${SAVANT_FEATURES}"
 fi
 
 # Build Python package
@@ -122,4 +135,4 @@ if [ "$MODE" = "release" ]; then
 fi
 
 export CARGO_INCREMENTAL=true 
-maturin build $EXTRA_FLAGS -o "$PROJECT_DIR/dist"
+maturin build $EXTRA_FLAGS $FEATURE_ARGS -o "$PROJECT_DIR/dist"

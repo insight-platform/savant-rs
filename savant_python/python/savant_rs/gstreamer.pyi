@@ -1,14 +1,44 @@
-"""Type stubs for the savant_gstreamer._native Rust extension."""
+"""Type stubs for savant_rs.gstreamer submodule.
+
+The Codec and Mp4Muxer classes are only available when savant_rs is built
+with the ``gst`` Cargo feature.
+"""
 
 from __future__ import annotations
 
 from typing import Optional, Union, final
 
-# ── Codec enum ───────────────────────────────────────────────────────────
+# ── Always available ─────────────────────────────────────────────────────
+
+@final
+class FlowResult:
+    CustomSuccess2: FlowResult
+    CustomSuccess1: FlowResult
+    CustomSuccess: FlowResult
+    Ok: FlowResult
+    NotLinked: FlowResult
+    Flushing: FlowResult
+    Eos: FlowResult
+    NotNegotiated: FlowResult
+    Error: FlowResult
+    NotSupported: FlowResult
+    CustomError: FlowResult
+    CustomError1: FlowResult
+    CustomError2: FlowResult
+
+@final
+class InvocationReason:
+    Buffer: InvocationReason
+    SinkEvent: InvocationReason
+    SourceEvent: InvocationReason
+    StateChange: InvocationReason
+    IngressMessageTransformer: InvocationReason
+
+# ── Available with gst feature ───────────────────────────────────────────
 
 @final
 class Codec:
-    """Video codec identifier.
+    """Video codec identifier (requires ``gst`` feature).
 
     - ``H264`` — H.264 / AVC.
     - ``HEVC`` — H.265 / HEVC.
@@ -49,10 +79,9 @@ class Codec:
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
-# ── Mp4Muxer ─────────────────────────────────────────────────────────────
-
 class Mp4Muxer:
-    """Minimal GStreamer pipeline: ``appsrc -> parser -> qtmux -> filesink``.
+    """Minimal GStreamer pipeline: ``appsrc -> parser -> qtmux -> filesink``
+    (requires ``gst`` feature).
 
     Accepts raw encoded frames (H.264, HEVC, JPEG, AV1) and writes them
     into an MP4 (QuickTime) container.
@@ -75,14 +104,6 @@ class Mp4Muxer:
         If the codec name is not recognized.
     RuntimeError
         If the GStreamer pipeline fails to start.
-
-    Example::
-
-        from savant_gstreamer import Mp4Muxer, Codec
-
-        muxer = Mp4Muxer(Codec.HEVC, "/tmp/out.mp4", fps_num=30)
-        muxer.push(encoded_bytes, pts_ns=0, dts_ns=0, duration_ns=33_333_333)
-        muxer.finish()
     """
 
     def __init__(
@@ -110,7 +131,6 @@ class Mp4Muxer:
             Presentation timestamp in nanoseconds.
         dts_ns : int or None
             Optional decode timestamp in nanoseconds.
-            Required for streams with B-frames where DTS != PTS.
         duration_ns : int or None
             Optional frame duration in nanoseconds.
 

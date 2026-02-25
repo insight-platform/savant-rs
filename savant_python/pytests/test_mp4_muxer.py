@@ -1,4 +1,4 @@
-"""Tests for savant_gstreamer.Mp4Muxer and Codec."""
+"""Tests for savant_rs.gstreamer — Codec and Mp4Muxer (requires gst feature)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,56 @@ import tempfile
 
 import pytest
 
-from savant_gstreamer import Codec, Mp4Muxer
+try:
+    from savant_rs.gstreamer import Codec
+except ImportError:
+    Codec = None
+
+try:
+    from savant_rs.gstreamer import Mp4Muxer
+except ImportError:
+    Mp4Muxer = None
+
+requires_gst_feature = pytest.mark.skipif(
+    Codec is None, reason="savant_rs built without gst feature"
+)
+
+requires_gst_runtime = pytest.mark.skipif(
+    Mp4Muxer is None, reason="Mp4Muxer not available (gst feature disabled)"
+)
+
+
+def _gst_runtime_available() -> bool:
+    """Check whether GStreamer runtime can create an appsrc element."""
+    if Mp4Muxer is None:
+        return False
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            path = f.name
+        muxer = Mp4Muxer(Codec.H264, path)
+        muxer.finish()
+        os.unlink(path)
+        return True
+    except RuntimeError:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return False
+
+
+_HAS_GST_RUNTIME = _gst_runtime_available()
+
+requires_gst_runtime = pytest.mark.skipif(
+    not _HAS_GST_RUNTIME,
+    reason="GStreamer runtime not available (missing plugins or misconfigured)",
+)
 
 
 # ── Codec enum tests ──────────────────────────────────────────────────────
 
 
+@requires_gst_feature
 class TestCodecValues:
     def test_h264(self):
         assert Codec.H264 is not None
@@ -27,6 +71,7 @@ class TestCodecValues:
         assert Codec.AV1 is not None
 
 
+@requires_gst_feature
 class TestCodecFromName:
     def test_h264(self):
         assert Codec.from_name("h264") == Codec.H264
@@ -51,6 +96,7 @@ class TestCodecFromName:
             Codec.from_name("vp9")
 
 
+@requires_gst_feature
 class TestCodecName:
     def test_h264_name(self):
         assert Codec.H264.name() == "h264"
@@ -65,6 +111,7 @@ class TestCodecName:
         assert Codec.AV1.name() == "av1"
 
 
+@requires_gst_feature
 class TestCodecRepr:
     def test_repr_h264(self):
         assert "H264" in repr(Codec.H264)
@@ -76,6 +123,7 @@ class TestCodecRepr:
 # ── Mp4Muxer construction ────────────────────────────────────────────────
 
 
+@requires_gst_runtime
 class TestConstruction:
     def test_create_with_codec_enum_h264(self):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
@@ -159,6 +207,7 @@ class TestConstruction:
 # ── Push and finish ──────────────────────────────────────────────────────
 
 
+@requires_gst_runtime
 class TestPushAndFinish:
     def test_push_bytes(self):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
@@ -208,7 +257,6 @@ class TestPushAndFinish:
         try:
             muxer = Mp4Muxer(Codec.H264, path)
             data = bytes(64)
-            # Simulate B-frame reordering: PTS and DTS differ
             muxer.push(data, pts_ns=66_666_666, dts_ns=0, duration_ns=33_333_333)
             muxer.push(data, pts_ns=0, dts_ns=33_333_333, duration_ns=33_333_333)
             muxer.push(
@@ -232,6 +280,7 @@ class TestPushAndFinish:
 # ── Finalization ─────────────────────────────────────────────────────────
 
 
+@requires_gst_runtime
 class TestFinalization:
     def test_double_finish_is_safe(self):
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:

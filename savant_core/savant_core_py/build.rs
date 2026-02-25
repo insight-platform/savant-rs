@@ -14,7 +14,7 @@ fn main() {
     let mut new_content = Vec::new();
     bindings.write(&mut new_content);
 
-    let header_path = "../savant_python/python/savant_rs/include/savant_rs.h";
+    let header_path = "../../savant_python/python/savant_rs/include/savant_rs.h";
     let needs_update = match fs::read(header_path) {
         Ok(existing) => existing != new_content,
         Err(_) => true,

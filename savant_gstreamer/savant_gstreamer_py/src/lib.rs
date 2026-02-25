@@ -1,20 +1,15 @@
-//! Python (PyO3) bindings for the `savant_gstreamer` crate.
+//! PyO3 bindings for the `savant_gstreamer` crate.
+//!
+//! These types are registered in the `savant_rs.gstreamer` Python submodule
+//! by `savant_python` when the `gst` feature is enabled.
 
-use crate::codec::Codec;
-use crate::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
 use pyo3::prelude::*;
-
-// ---------------------------------------------------------------------------
-// Error conversion
-// ---------------------------------------------------------------------------
+use savant_gstreamer::codec::Codec;
+use savant_gstreamer::mp4_muxer::{Mp4Muxer, Mp4MuxerError};
 
 fn to_py_err(e: Mp4MuxerError) -> PyErr {
     pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
 }
-
-// ---------------------------------------------------------------------------
-// PyCodec
-// ---------------------------------------------------------------------------
 
 /// Python enum for video codecs.
 ///
@@ -25,7 +20,7 @@ fn to_py_err(e: Mp4MuxerError) -> PyErr {
 #[pyclass(
     from_py_object,
     name = "Codec",
-    module = "savant_gstreamer._native",
+    module = "savant_rs.gstreamer",
     eq,
     eq_int
 )]
@@ -108,10 +103,6 @@ impl From<Codec> for PyCodec {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Codec extraction helper (cross-module compatible)
-// ---------------------------------------------------------------------------
-
 /// Extract a [`Codec`] from a Python object.
 ///
 /// Accepts:
@@ -120,11 +111,9 @@ impl From<Codec> for PyCodec {
 /// 3. Any object with a `.name()` method returning a codec name string
 ///    (e.g. a `Codec` instance from a *different* extension module).
 pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
-    // 1. Direct downcast to our own PyCodec.
     if let Ok(py_codec) = ob.extract::<PyCodec>() {
         return Ok(py_codec.into());
     }
-    // 2. String codec name.
     if let Ok(s) = ob.extract::<String>() {
         return Codec::from_name(&s).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
@@ -132,7 +121,6 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
             ))
         });
     }
-    // 3. Object with .name() method (cross-module Codec compatibility).
     if let Ok(name_val) = ob.call_method0("name") {
         if let Ok(s) = name_val.extract::<String>() {
             return Codec::from_name(&s).ok_or_else(|| {
@@ -146,10 +134,6 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
         "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, av1)",
     ))
 }
-
-// ---------------------------------------------------------------------------
-// PyMp4Muxer
-// ---------------------------------------------------------------------------
 
 /// Minimal GStreamer pipeline: ``appsrc -> parser -> qtmux -> filesink``.
 ///
@@ -166,13 +150,13 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///
 /// Example::
 ///
-///     from savant_gstreamer import Mp4Muxer, Codec
+///     from savant_rs.gstreamer import Mp4Muxer, Codec
 ///
 ///     muxer = Mp4Muxer(Codec.HEVC, "/tmp/out.mp4", fps_num=30)
 ///     muxer.push(b"\\x00\\x00\\x00\\x01...", pts_ns=0,
 ///                dts_ns=0, duration_ns=33_333_333)
 ///     muxer.finish()
-#[pyclass(name = "Mp4Muxer", module = "savant_gstreamer._native", unsendable)]
+#[pyclass(name = "Mp4Muxer", module = "savant_rs.gstreamer", unsendable)]
 pub struct PyMp4Muxer {
     inner: Mp4Muxer,
 }
@@ -233,26 +217,11 @@ impl PyMp4Muxer {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Module registration
-// ---------------------------------------------------------------------------
-
-/// Register the `savant_gstreamer` Python classes on the given module.
+/// Register the GStreamer Python classes on the given module.
 ///
-/// Downstream crates that embed these types in their own `#[pymodule]`
-/// should call this helper instead of duplicating `add_class` calls.
+/// Called by `savant_python` when the `gst` feature is enabled.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodec>()?;
     m.add_class::<PyMp4Muxer>()?;
     Ok(())
-}
-
-/// Module init — only compiled when building `savant_gstreamer` as its
-/// own cdylib (maturin wheel).  Downstream crates should NOT enable the
-/// `pymodule_init` feature.
-#[cfg(feature = "pymodule_init")]
-#[pymodule]
-#[pyo3(name = "_native")]
-pub fn savant_gstreamer(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    register_classes(m)
 }
