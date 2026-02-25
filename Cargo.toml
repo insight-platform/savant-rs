@@ -23,8 +23,7 @@ members = [
     "savant_deepstream/deepstream_nvbufsurface",
     "savant_deepstream/deepstream_encoders",
     "savant_deepstream/picasso",
-    # picasso_py excluded until migrated to savant_core_py gst feature
-    # "savant_deepstream/picasso_py",
+    # picasso_py bindings migrated to savant_core_py::picasso (deepstream feature)
 ]
 
 default-members = [

@@ -467,10 +467,7 @@ impl PyTransformConfig {
 ///     gpu_id (int): GPU device ID (default 0).
 ///     mem_type (MemType | int): Memory type (default ``MemType.DEFAULT``).
 ///     pool_size (int): Buffer pool size (default 4).
-#[pyclass(
-    name = "NvBufSurfaceGenerator",
-    module = "savant_rs.deepstream"
-)]
+#[pyclass(name = "NvBufSurfaceGenerator", module = "savant_rs.deepstream")]
 pub struct PyNvBufSurfaceGenerator {
     inner: NvBufSurfaceGenerator,
 }
@@ -479,6 +476,7 @@ pub struct PyNvBufSurfaceGenerator {
 impl PyNvBufSurfaceGenerator {
     #[new]
     #[pyo3(signature = (format, width, height, fps_num=30, fps_den=1, gpu_id=0, mem_type=None, pool_size=4))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         format: &Bound<'_, PyAny>,
         width: u32,
@@ -548,6 +546,44 @@ impl PyNvBufSurfaceGenerator {
         })
     }
 
+    /// Acquire a buffer and stamp PTS and duration on it.
+    ///
+    /// Convenience wrapper around :meth:`acquire_surface` +
+    /// :func:`set_buffer_pts` + :func:`set_buffer_duration`.
+    ///
+    /// Args:
+    ///     pts_ns (int): Presentation timestamp in nanoseconds.
+    ///     duration_ns (int): Frame duration in nanoseconds.
+    ///     id (int or None): Optional buffer ID / frame index.
+    ///
+    /// Returns:
+    ///     int: Raw pointer address of the GstBuffer.
+    #[pyo3(signature = (pts_ns, duration_ns, id=None))]
+    fn acquire_surface_with_params(
+        &self,
+        py: Python<'_>,
+        pts_ns: u64,
+        duration_ns: u64,
+        id: Option<i64>,
+    ) -> PyResult<usize> {
+        py.detach(|| {
+            let mut buffer = self
+                .inner
+                .acquire_surface(id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            {
+                let buf_ref = buffer.make_mut();
+                buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+                buf_ref.set_duration(gst::ClockTime::from_nseconds(duration_ns));
+            }
+            let raw = unsafe {
+                use glib::translate::IntoGlibPtr;
+                buffer.into_glib_ptr() as usize
+            };
+            Ok(raw)
+        })
+    }
+
     /// Acquire a buffer and return ``(gst_buffer_ptr, data_ptr, pitch)``.
     #[pyo3(signature = (id=None))]
     fn acquire_surface_with_ptr(
@@ -584,9 +620,8 @@ impl PyNvBufSurfaceGenerator {
                     "src_buf_ptr is null",
                 ));
             }
-            let src_buf = unsafe {
-                gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer)
-            };
+            let src_buf =
+                unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
             let dst_buf = self
                 .inner
                 .transform(&src_buf, &config, id)
@@ -615,13 +650,12 @@ impl PyNvBufSurfaceGenerator {
                     "src_buf_ptr is null",
                 ));
             }
-            let src_buf = unsafe {
-                gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer)
-            };
-            let (dst_buf, data_ptr, pitch) = self
-                .inner
-                .transform_with_ptr(&src_buf, &config, id)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let src_buf =
+                unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
+            let (dst_buf, data_ptr, pitch) =
+                self.inner
+                    .transform_with_ptr(&src_buf, &config, id)
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let raw_buf = unsafe {
                 use glib::translate::IntoGlibPtr;
                 dst_buf.into_glib_ptr() as usize
@@ -698,8 +732,7 @@ pub fn py_bridge_savant_id_meta(element_ptr: usize) -> PyResult<()> {
     }
     let _ = gst::init();
     unsafe {
-        let elem: gst::Element =
-            from_glib_none(element_ptr as *mut gst::ffi::GstElement);
+        let elem: gst::Element = from_glib_none(element_ptr as *mut gst::ffi::GstElement);
         bridge_savant_id_meta(&elem);
     }
     Ok(())
@@ -768,11 +801,7 @@ pub fn py_get_nvbufsurface_info(buffer_ptr: usize) -> PyResult<(usize, u32, u32,
 // ─── SkiaContext ────────────────────────────────────────────────────────
 
 /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
-#[pyclass(
-    name = "SkiaContext",
-    module = "savant_rs.deepstream",
-    unsendable
-)]
+#[pyclass(name = "SkiaContext", module = "savant_rs.deepstream", unsendable)]
 pub struct PySkiaContext {
     inner: deepstream_nvbufsurface::SkiaRenderer,
 }
@@ -847,6 +876,46 @@ impl PySkiaContext {
     }
 }
 
+// ─── GstBuffer timestamp helpers ────────────────────────────────────────
+
+/// Set the PTS (presentation timestamp) on a raw ``GstBuffer`` pointer.
+///
+/// Args:
+///     buf_ptr (int): Raw pointer to a ``GstBuffer``.
+///     pts_ns (int): PTS in nanoseconds.
+#[pyfunction]
+#[pyo3(name = "set_buffer_pts")]
+pub fn py_set_buffer_pts(buf_ptr: usize, pts_ns: u64) -> PyResult<()> {
+    if buf_ptr == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
+    }
+    let _ = gst::init();
+    unsafe {
+        let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
+        buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+    }
+    Ok(())
+}
+
+/// Set the duration on a raw ``GstBuffer`` pointer.
+///
+/// Args:
+///     buf_ptr (int): Raw pointer to a ``GstBuffer``.
+///     duration_ns (int): Duration in nanoseconds.
+#[pyfunction]
+#[pyo3(name = "set_buffer_duration")]
+pub fn py_set_buffer_duration(buf_ptr: usize, duration_ns: u64) -> PyResult<()> {
+    if buf_ptr == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
+    }
+    let _ = gst::init();
+    unsafe {
+        let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
+        buf_ref.set_duration(gst::ClockTime::from_nseconds(duration_ns));
+    }
+    Ok(())
+}
+
 // ─── Registration ───────────────────────────────────────────────────────
 
 /// Register the DeepStream Python classes on the given module.
@@ -862,6 +931,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(py_bridge_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_nvbufsurface_info, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_set_buffer_pts, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_set_buffer_duration, m)?)?;
     m.add_class::<PySkiaContext>()?;
     Ok(())
 }

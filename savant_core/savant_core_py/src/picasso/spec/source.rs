@@ -6,7 +6,7 @@ use super::conditional::PyConditionalSpec;
 use super::draw::PyObjectDrawSpec;
 
 /// Complete per-source configuration combining all spec facets.
-#[pyclass(from_py_object, name = "SourceSpec", module = "picasso._native")]
+#[pyclass(from_py_object, name = "SourceSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PySourceSpec {
     codec: PyCodecSpec,

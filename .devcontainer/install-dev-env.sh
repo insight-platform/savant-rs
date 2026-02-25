@@ -29,6 +29,7 @@ echo 'export RUSTC_WRAPPER=sccache' >> "$HOME/.bashrc"
 
 # ── Python packages ───────────────────────────────────────────────────────────
 pip install --no-cache-dir \
+    auditwheel \
     skia-python \
     maturin \
     virtualenv \

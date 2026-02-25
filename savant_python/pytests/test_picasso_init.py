@@ -10,7 +10,14 @@ from __future__ import annotations
 
 import pytest
 
-from picasso import (
+ds = pytest.importorskip("savant_rs.picasso")
+if not hasattr(ds, "PicassoEngine"):
+    pytest.skip(
+        "savant_rs.picasso not compiled (deepstream feature disabled)",
+        allow_module_level=True,
+    )
+
+from savant_rs.picasso import (
     Callbacks,
     CodecSpec,
     ConditionalSpec,
@@ -150,7 +157,7 @@ class TestSourceSpec:
         assert spec.idle_timeout_secs is None
         assert spec.use_on_render is False
         assert spec.use_on_gpumat is False
-        assert spec.codec.is_drop is True  # default is drop
+        assert spec.codec.is_drop is True
 
     def test_with_drop_codec(self) -> None:
         spec = SourceSpec(codec=CodecSpec.drop_frames())
@@ -261,7 +268,7 @@ class TestPicassoEngineShutdown:
     def test_shutdown_idempotent(self) -> None:
         engine = PicassoEngine(GeneralSpec(), Callbacks())
         engine.shutdown()
-        engine.shutdown()  # second shutdown should not raise
+        engine.shutdown()
 
     def test_repr_after_shutdown(self) -> None:
         engine = PicassoEngine(GeneralSpec(), Callbacks())

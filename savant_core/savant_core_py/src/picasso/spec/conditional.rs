@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 ///
 /// When set, the pipeline checks whether the frame carries the specified
 /// attribute before proceeding with the corresponding stage.
-#[pyclass(from_py_object, name = "ConditionalSpec", module = "picasso._native")]
+#[pyclass(from_py_object, name = "ConditionalSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone, Default)]
 pub struct PyConditionalSpec {
     encode_attribute: Option<(String, String)>,

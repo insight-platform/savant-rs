@@ -76,7 +76,7 @@ mod imp {
     pub(super) fn savant_id_meta_api_get_type() -> glib::Type {
         static TYPE: LazyLock<glib::Type> = LazyLock::new(|| unsafe {
             // When multiple shared libraries statically link savant_gstreamer
-            // (e.g. deepstream_nvbufsurface + picasso_py loaded in the same
+            // (e.g. deepstream_nvbufsurface + picasso loaded in the same
             // Python process), each gets its own LazyLock but the GType
             // registry is process-global.  Re-registering the same name would
             // trigger a g_pointer_type_register_static assertion failure, so

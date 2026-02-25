@@ -1,4 +1,7 @@
-use pyo3::prelude::*;
+//! PyO3 bindings for the `picasso` GPU video processing pipeline.
+//!
+//! These types are registered in the `savant_rs.picasso` Python submodule
+//! by `savant_python` when the `deepstream` feature is enabled.
 
 mod callbacks;
 pub(crate) mod encoder;
@@ -7,13 +10,12 @@ mod error;
 mod message;
 pub(crate) mod spec;
 
-#[pymodule]
-#[pyo3(name = "_native")]
-fn picasso_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Encoder types (enums, props, config, properties)
+use pyo3::prelude::*;
+
+/// Register all Picasso Python classes on the given module.
+pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     encoder::register_encoder_classes(m)?;
 
-    // Spec types
     m.add_class::<spec::PyGeneralSpec>()?;
     m.add_class::<spec::PyEvictionDecision>()?;
     m.add_class::<spec::PyConditionalSpec>()?;
@@ -21,14 +23,11 @@ fn picasso_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<spec::PyCodecSpec>()?;
     m.add_class::<spec::PySourceSpec>()?;
 
-    // Message types
     m.add_class::<message::PyEncodedOutput>()?;
     m.add_class::<message::PyBypassOutput>()?;
 
-    // Callbacks
     m.add_class::<callbacks::PyCallbacks>()?;
 
-    // Engine
     m.add_class::<engine::PyPicassoEngine>()?;
 
     Ok(())

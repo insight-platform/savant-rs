@@ -9,6 +9,7 @@ Savant Rust Components
    savant_rs/index
    savant_gstreamer/index
    deepstream_nvbufsurface/index
+   picasso/index
    services/replay/index
    services/retina_rtsp/index
    services/router/index

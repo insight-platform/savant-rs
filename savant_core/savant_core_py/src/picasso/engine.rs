@@ -1,7 +1,7 @@
-use crate::callbacks::PyCallbacks;
-use crate::error::to_py_err;
-use crate::spec::general::PyGeneralSpec;
-use crate::spec::source::PySourceSpec;
+use super::callbacks::PyCallbacks;
+use super::error::to_py_err;
+use super::spec::general::PyGeneralSpec;
+use super::spec::source::PySourceSpec;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
 
@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 ///
 /// Manages per-source worker threads, a watchdog for idle-source eviction,
 /// and dispatches frames to the appropriate worker.
-#[pyclass(name = "PicassoEngine", module = "picasso._native")]
+#[pyclass(name = "PicassoEngine", module = "savant_rs.picasso")]
 pub struct PyPicassoEngine {
     inner: Option<PicassoEngine>,
 }
@@ -64,7 +64,7 @@ impl PyPicassoEngine {
         &self,
         py: Python<'_>,
         source_id: &str,
-        frame: &savant_core_py::primitives::frame::VideoFrame,
+        frame: &crate::primitives::frame::VideoFrame,
         buf_ptr: usize,
     ) -> PyResult<()> {
         let engine = self
@@ -77,8 +77,12 @@ impl PyPicassoEngine {
         let frame_proxy = frame.0.clone();
         py.detach(|| {
             let _ = gstreamer::init();
+            // `from_glib_full`: the caller owns the pointer (obtained via
+            // `into_glib_ptr` in acquire_surface), so we take ownership
+            // without incrementing the refcount.  This ensures the buffer
+            // is returned to the pool when the worker drops it.
             let buf = unsafe {
-                gstreamer::Buffer::from_glib_none(buf_ptr as *mut gstreamer::ffi::GstBuffer)
+                gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
             };
             engine
                 .send_frame(source_id, frame_proxy, buf)
@@ -96,9 +100,13 @@ impl PyPicassoEngine {
     }
 
     /// Gracefully shut down all workers and the watchdog.
-    fn shutdown(&mut self) {
+    ///
+    /// Releases the GIL while joining worker threads so that any pending
+    /// Python callbacks (on_encoded_frame, on_render, etc.) can acquire
+    /// the GIL and complete without deadlocking.
+    fn shutdown(&mut self, py: Python<'_>) {
         if let Some(mut engine) = self.inner.take() {
-            engine.shutdown();
+            py.detach(|| engine.shutdown());
         }
     }
 

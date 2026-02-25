@@ -1,15 +1,17 @@
 pub mod atomic_counter;
 pub mod capi;
+#[cfg(feature = "deepstream")]
+pub mod deepstream;
 /// The draw specification used to draw objects on the frame when they are visualized.
 pub mod draw_spec;
 pub mod gst;
 #[cfg(feature = "gst")]
 pub mod gstreamer;
-#[cfg(feature = "deepstream")]
-pub mod deepstream;
 pub mod logging;
 pub mod match_query;
 pub mod metrics;
+#[cfg(feature = "deepstream")]
+pub mod picasso;
 pub mod pipeline;
 /// # Basic objects
 ///

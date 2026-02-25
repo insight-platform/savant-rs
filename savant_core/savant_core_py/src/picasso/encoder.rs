@@ -1,18 +1,14 @@
+use crate::deepstream::{PyMemType, PyVideoFormat};
+use crate::gstreamer::PyCodec;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::python::{PyMemType, PyVideoFormat};
 use pyo3::prelude::*;
-use savant_gstreamer::python::PyCodec;
-
-// ═══════════════════════════════════════════════════════════════════════
-// Enum wrappers
-// ═══════════════════════════════════════════════════════════════════════
 
 // ─── PyPlatform ────────────────────────────────────────────────────────
 
 #[pyclass(
     from_py_object,
     name = "Platform",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -70,7 +66,7 @@ impl From<Platform> for PyPlatform {
 #[pyclass(
     from_py_object,
     name = "RateControl",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -133,7 +129,7 @@ impl From<RateControl> for PyRateControl {
 #[pyclass(
     from_py_object,
     name = "H264Profile",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -201,7 +197,7 @@ impl From<H264Profile> for PyH264Profile {
 #[pyclass(
     from_py_object,
     name = "HevcProfile",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -264,7 +260,7 @@ impl From<HevcProfile> for PyHevcProfile {
 #[pyclass(
     from_py_object,
     name = "DgpuPreset",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -347,7 +343,7 @@ impl From<DgpuPreset> for PyDgpuPreset {
 #[pyclass(
     from_py_object,
     name = "TuningPreset",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -415,7 +411,7 @@ impl From<TuningPreset> for PyTuningPreset {
 #[pyclass(
     from_py_object,
     name = "JetsonPresetLevel",
-    module = "picasso._native",
+    module = "savant_rs.picasso",
     eq,
     eq_int
 )]
@@ -483,13 +479,9 @@ impl From<JetsonPresetLevel> for PyJetsonPresetLevel {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Property structs
-// ═══════════════════════════════════════════════════════════════════════
-
 // ─── PyH264DgpuProps ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "H264DgpuProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "H264DgpuProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyH264DgpuProps {
     #[pyo3(get, set)]
@@ -622,7 +614,7 @@ impl PyH264DgpuProps {
 
 // ─── PyHevcDgpuProps ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "HevcDgpuProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "HevcDgpuProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyHevcDgpuProps {
     #[pyo3(get, set)]
@@ -755,7 +747,7 @@ impl PyHevcDgpuProps {
 
 // ─── PyH264JetsonProps ─────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "H264JetsonProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "H264JetsonProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyH264JetsonProps {
     #[pyo3(get, set)]
@@ -802,24 +794,13 @@ pub struct PyH264JetsonProps {
 impl PyH264JetsonProps {
     #[new]
     #[pyo3(signature = (
-        bitrate = None,
-        control_rate = None,
-        profile = None,
-        iframeinterval = None,
-        idrinterval = None,
-        preset_level = None,
-        peak_bitrate = None,
-        vbv_size = None,
-        qp_range = None,
-        quant_i_frames = None,
-        quant_p_frames = None,
-        ratecontrol_enable = None,
-        maxperf_enable = None,
-        two_pass_cbr = None,
-        num_ref_frames = None,
-        insert_sps_pps = None,
-        insert_aud = None,
-        insert_vui = None,
+        bitrate = None, control_rate = None, profile = None,
+        iframeinterval = None, idrinterval = None, preset_level = None,
+        peak_bitrate = None, vbv_size = None, qp_range = None,
+        quant_i_frames = None, quant_p_frames = None,
+        ratecontrol_enable = None, maxperf_enable = None,
+        two_pass_cbr = None, num_ref_frames = None,
+        insert_sps_pps = None, insert_aud = None, insert_vui = None,
         disable_cabac = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -900,7 +881,7 @@ impl PyH264JetsonProps {
 
 // ─── PyHevcJetsonProps ─────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "HevcJetsonProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "HevcJetsonProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyHevcJetsonProps {
     #[pyo3(get, set)]
@@ -941,21 +922,12 @@ pub struct PyHevcJetsonProps {
 impl PyHevcJetsonProps {
     #[new]
     #[pyo3(signature = (
-        bitrate = None,
-        control_rate = None,
-        profile = None,
-        iframeinterval = None,
-        idrinterval = None,
-        preset_level = None,
-        peak_bitrate = None,
-        vbv_size = None,
-        qp_range = None,
-        quant_i_frames = None,
-        quant_p_frames = None,
-        ratecontrol_enable = None,
-        maxperf_enable = None,
-        two_pass_cbr = None,
-        num_ref_frames = None,
+        bitrate = None, control_rate = None, profile = None,
+        iframeinterval = None, idrinterval = None, preset_level = None,
+        peak_bitrate = None, vbv_size = None, qp_range = None,
+        quant_i_frames = None, quant_p_frames = None,
+        ratecontrol_enable = None, maxperf_enable = None,
+        two_pass_cbr = None, num_ref_frames = None,
         enable_lossless = None,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -1027,7 +999,7 @@ impl PyHevcJetsonProps {
 
 // ─── PyJpegProps ───────────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "JpegProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "JpegProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyJpegProps {
     #[pyo3(get, set)]
@@ -1057,7 +1029,7 @@ impl PyJpegProps {
 
 // ─── PyAv1DgpuProps ────────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "Av1DgpuProps", module = "picasso._native")]
+#[pyclass(from_py_object, name = "Av1DgpuProps", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyAv1DgpuProps {
     #[pyo3(get, set)]
@@ -1092,19 +1064,10 @@ pub struct PyAv1DgpuProps {
 impl PyAv1DgpuProps {
     #[new]
     #[pyo3(signature = (
-        bitrate = None,
-        control_rate = None,
-        iframeinterval = None,
-        idrinterval = None,
-        preset = None,
-        tuning_info = None,
-        qp_range = None,
-        max_bitrate = None,
-        vbv_buf_size = None,
-        vbv_init = None,
-        cq = None,
-        aq = None,
-        temporal_aq = None,
+        bitrate = None, control_rate = None, iframeinterval = None,
+        idrinterval = None, preset = None, tuning_info = None,
+        qp_range = None, max_bitrate = None, vbv_buf_size = None,
+        vbv_init = None, cq = None, aq = None, temporal_aq = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -1164,11 +1127,13 @@ impl PyAv1DgpuProps {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// EncoderProperties wrapper
-// ═══════════════════════════════════════════════════════════════════════
+// ─── PyEncoderProperties ───────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "EncoderProperties", module = "picasso._native")]
+#[pyclass(
+    from_py_object,
+    name = "EncoderProperties",
+    module = "savant_rs.picasso"
+)]
 #[derive(Debug, Clone)]
 pub struct PyEncoderProperties {
     pub(crate) inner: EncoderProperties,
@@ -1223,11 +1188,9 @@ impl PyEncoderProperties {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// EncoderConfig wrapper
-// ═══════════════════════════════════════════════════════════════════════
+// ─── PyEncoderConfig ───────────────────────────────────────────────────
 
-#[pyclass(from_py_object, name = "EncoderConfig", module = "picasso._native")]
+#[pyclass(from_py_object, name = "EncoderConfig", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyEncoderConfig {
     codec: PyCodec,
@@ -1376,9 +1339,7 @@ impl PyEncoderConfig {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Module registration
-// ═══════════════════════════════════════════════════════════════════════
+// ─── Module registration ───────────────────────────────────────────────
 
 pub fn register_encoder_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPlatform>()?;

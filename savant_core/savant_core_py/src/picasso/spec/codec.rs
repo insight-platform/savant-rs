@@ -1,18 +1,19 @@
-use deepstream_nvbufsurface::python::PyTransformConfig;
-use deepstream_nvbufsurface::{Rect, TransformConfig};
+use crate::deepstream::PyTransformConfig;
+use deepstream_nvbufsurface::transform::Rect;
+use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::CodecSpec;
 use pyo3::prelude::*;
 
-use crate::encoder::PyEncoderConfig;
+use super::super::encoder::PyEncoderConfig;
 
 /// Describes what to do with each incoming frame for a given source.
 ///
 /// This is a tagged union exposed via factory static methods:
 ///
-/// - `CodecSpec.drop_frames()` — discard frames entirely.
-/// - `CodecSpec.bypass()` — pass frames through without encoding.
-/// - `CodecSpec.encode(transform, encoder)` — transform + optional render + encode.
-#[pyclass(from_py_object, name = "CodecSpec", module = "picasso._native")]
+/// - `CodecSpec.drop_frames()` -- discard frames entirely.
+/// - `CodecSpec.bypass()` -- pass frames through without encoding.
+/// - `CodecSpec.encode(transform, encoder)` -- transform + optional render + encode.
+#[pyclass(from_py_object, name = "CodecSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyCodecSpec {
     inner: CodecSpec,
@@ -21,8 +22,6 @@ pub struct PyCodecSpec {
 #[pymethods]
 impl PyCodecSpec {
     /// Discard the frame entirely.
-    ///
-    /// Named `drop_frames` to avoid conflict with the Python `drop` built-in.
     #[staticmethod]
     fn drop_frames() -> Self {
         Self {
@@ -30,7 +29,7 @@ impl PyCodecSpec {
         }
     }
 
-    /// Pass the frame through without encoding — only transform bboxes back
+    /// Pass the frame through without encoding -- only transform bboxes back
     /// to initial coordinates.
     #[staticmethod]
     fn bypass() -> Self {
@@ -88,7 +87,6 @@ impl PyCodecSpec {
         self.inner.clone()
     }
 
-    /// Convenience for constructing the default `Drop` variant from Rust.
     pub(crate) fn default_drop() -> Self {
         Self {
             inner: CodecSpec::Drop,
@@ -96,9 +94,6 @@ impl PyCodecSpec {
     }
 }
 
-/// Reconstruct [`TransformConfig`] from the public fields of
-/// [`PyTransformConfig`], since `PyTransformConfig::to_rust()` is not
-/// publicly visible.
 fn py_transform_to_rust(t: &PyTransformConfig) -> TransformConfig {
     TransformConfig {
         padding: t.padding.into(),

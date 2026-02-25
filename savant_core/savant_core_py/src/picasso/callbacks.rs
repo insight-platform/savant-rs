@@ -1,5 +1,5 @@
-use crate::message::{PyBypassOutput, PyEncodedOutput};
-use crate::spec::general::PyEvictionDecision;
+use super::message::{PyBypassOutput, PyEncodedOutput};
+use super::spec::general::PyEvictionDecision;
 use deepstream_nvbufsurface::SkiaRenderer;
 use picasso::prelude::*;
 use pyo3::prelude::*;
@@ -7,10 +7,6 @@ use savant_core::draw::ObjectDraw;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::object::BorrowedVideoObject;
 use std::sync::Arc;
-
-// ═══════════════════════════════════════════════════════════════════════
-// Callback wrappers — hold a `Py<PyAny>` callable and acquire the GIL
-// ═══════════════════════════════════════════════════════════════════════
 
 struct PyOnEncodedFrame(Py<PyAny>);
 unsafe impl Send for PyOnEncodedFrame {}
@@ -52,7 +48,7 @@ impl OnRender for PyOnRender {
         let width = renderer.width();
         let height = renderer.height();
         Python::attach(|py| {
-            let py_frame = savant_core_py::primitives::frame::VideoFrame(frame.clone());
+            let py_frame = crate::primitives::frame::VideoFrame(frame.clone());
             if let Err(e) = self
                 .0
                 .call1(py, (source_id, fbo_id, width, height, py_frame))
@@ -75,14 +71,14 @@ impl OnObjectDrawSpec for PyOnObjectDrawSpec {
         current_spec: Option<&ObjectDraw>,
     ) -> Option<ObjectDraw> {
         Python::attach(|py| {
-            let py_object = savant_core_py::primitives::object::BorrowedVideoObject(object.clone());
-            let py_spec = current_spec.map(crate::spec::draw::rebuild_py_object_draw);
+            let py_object = crate::primitives::object::BorrowedVideoObject(object.clone());
+            let py_spec = current_spec.map(super::spec::draw::rebuild_py_object_draw);
             match self.0.call1(py, (source_id, py_object, py_spec)) {
                 Ok(result) => {
                     if result.is_none(py) {
                         return None;
                     }
-                    match result.extract::<savant_core_py::draw_spec::ObjectDraw>(py) {
+                    match result.extract::<crate::draw_spec::ObjectDraw>(py) {
                         Ok(draw) => {
                             let ptr = draw.memory_handle() as *const ObjectDraw;
                             Some(unsafe { &*ptr }.clone())
@@ -117,7 +113,7 @@ impl OnGpuMat for PyOnGpuMat {
         height: u32,
     ) {
         Python::attach(|py| {
-            let py_frame = savant_core_py::primitives::frame::VideoFrame(frame.clone());
+            let py_frame = crate::primitives::frame::VideoFrame(frame.clone());
             if let Err(e) = self
                 .0
                 .call1(py, (source_id, py_frame, data_ptr, pitch, width, height))
@@ -150,12 +146,8 @@ impl OnEviction for PyOnEviction {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// PyCallbacks — builder exposed to Python
-// ═══════════════════════════════════════════════════════════════════════
-
 /// Aggregate holder for all optional Python callbacks.
-#[pyclass(name = "Callbacks", module = "picasso._native")]
+#[pyclass(name = "Callbacks", module = "savant_rs.picasso")]
 pub struct PyCallbacks {
     pub(crate) on_encoded_frame: Option<Py<PyAny>>,
     pub(crate) on_bypass_frame: Option<Py<PyAny>>,
@@ -275,8 +267,6 @@ impl PyCallbacks {
 
 impl PyCallbacks {
     /// Convert into the Rust [`Callbacks`] struct.
-    ///
-    /// Must be called while holding the GIL (from a `#[pymethods]` context).
     pub(crate) fn to_rust(&self, py: Python<'_>) -> Callbacks {
         Callbacks {
             on_encoded_frame: self

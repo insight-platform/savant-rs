@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 ///
 /// Use the ``is_video_frame`` / ``is_eos`` properties to discriminate,
 /// then ``as_video_frame()`` or ``as_eos()`` to extract the payload.
-#[pyclass(name = "EncodedOutput", module = "picasso._native")]
+#[pyclass(name = "EncodedOutput", module = "savant_rs.picasso")]
 pub struct PyEncodedOutput {
     inner: EncodedOutput,
 }
@@ -28,11 +28,9 @@ impl PyEncodedOutput {
     ///
     /// Raises:
     ///     RuntimeError: If this is an EOS output, not a video frame.
-    fn as_video_frame(&self) -> PyResult<savant_core_py::primitives::frame::VideoFrame> {
+    fn as_video_frame(&self) -> PyResult<crate::primitives::frame::VideoFrame> {
         match &self.inner {
-            EncodedOutput::VideoFrame(f) => {
-                Ok(savant_core_py::primitives::frame::VideoFrame(f.clone()))
-            }
+            EncodedOutput::VideoFrame(f) => Ok(crate::primitives::frame::VideoFrame(f.clone())),
             EncodedOutput::EndOfStream(_) => Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "EncodedOutput is EndOfStream, not VideoFrame",
             )),
@@ -43,9 +41,9 @@ impl PyEncodedOutput {
     ///
     /// Raises:
     ///     RuntimeError: If this is a video-frame output, not EOS.
-    fn as_eos(&self) -> PyResult<savant_core_py::primitives::eos::EndOfStream> {
+    fn as_eos(&self) -> PyResult<crate::primitives::eos::EndOfStream> {
         match &self.inner {
-            EncodedOutput::EndOfStream(e) => Ok(savant_core_py::primitives::eos::EndOfStream::new(
+            EncodedOutput::EndOfStream(e) => Ok(crate::primitives::eos::EndOfStream::new(
                 e.source_id.clone(),
             )),
             EncodedOutput::VideoFrame(_) => Err(pyo3::exceptions::PyRuntimeError::new_err(
@@ -72,11 +70,13 @@ impl PyEncodedOutput {
 
 /// Output for bypass mode — frame with bboxes transformed back to initial
 /// coordinates.
-#[pyclass(name = "BypassOutput", module = "picasso._native")]
+///
+/// The ``GstBuffer`` is dropped on the Rust side (returning it to the
+/// NvBufSurface pool).  Python only receives the ``VideoFrame``.
+#[pyclass(name = "BypassOutput", module = "savant_rs.picasso")]
 pub struct PyBypassOutput {
     source_id: String,
     frame: savant_core::primitives::frame::VideoFrameProxy,
-    buffer_ptr: usize,
 }
 
 #[pymethods]
@@ -89,34 +89,21 @@ impl PyBypassOutput {
 
     /// The ``VideoFrame`` with bboxes in the initial coordinate space.
     #[getter]
-    fn frame(&self) -> savant_core_py::primitives::frame::VideoFrame {
-        savant_core_py::primitives::frame::VideoFrame(self.frame.clone())
-    }
-
-    /// Raw pointer to the ``GstBuffer`` (for PyGObject interop).
-    #[getter]
-    fn buffer_ptr(&self) -> usize {
-        self.buffer_ptr
+    fn frame(&self) -> crate::primitives::frame::VideoFrame {
+        crate::primitives::frame::VideoFrame(self.frame.clone())
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "BypassOutput(source_id={:?}, buffer_ptr=0x{:x})",
-            self.source_id, self.buffer_ptr
-        )
+        format!("BypassOutput(source_id={:?})", self.source_id)
     }
 }
 
 impl PyBypassOutput {
     pub(crate) fn from_rust(output: BypassOutput) -> Self {
-        use glib::translate::IntoGlibPtr;
-        // SAFETY: we transfer ownership of the GstBuffer to Python.
-        // The caller (via PyGObject) is expected to manage the refcount.
-        let buffer_ptr = unsafe { output.buffer.into_glib_ptr() } as usize;
+        // `output.buffer` (gst::Buffer) is dropped here, returning it to the pool.
         Self {
             source_id: output.source_id,
             frame: output.frame,
-            buffer_ptr,
         }
     }
 }

@@ -14,12 +14,9 @@ export PYTHON_VERSION=$(shell $(PYTHON) -c 'import sys; print(f"cp{sys.version_i
 # Multiple features can be comma-separated: SAVANT_FEATURES=gst,deepstream
 SAVANT_FEATURES ?=
 
-PICASSO_PY_DIR=$(PROJECT_DIR)/savant_deepstream/picasso_py
 SP_DIR=$(PROJECT_DIR)/savant_python
 
 .PHONY: docs build_savant build_savant_release clean tests bench reformat \
-        picasso-py-dev picasso-py-release picasso-py-install \
-        picasso-py-pytest \
         sp-dev sp-install sp-pytest \
         all-dev all-release \
         fmt clippy lint \
@@ -34,8 +31,7 @@ fmt:
 	@echo "Running cargo fmt..."
 	cargo fmt --all
 	@echo "Running ruff format..."
-	ruff format $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
-	            python/nvbufsurface 2>/dev/null || true
+	ruff format $(SP_DIR)/pytests 2>/dev/null || true
 
 clippy:
 	@echo "Running clippy on default members..."
@@ -43,19 +39,14 @@ clippy:
 
 lint: fmt clippy
 	@echo "Running ruff check..."
-	ruff check $(SP_DIR)/pytests $(PICASSO_PY_DIR)/pytests $(PICASSO_PY_DIR)/python \
-	           python/nvbufsurface --fix 2>/dev/null || true
+	ruff check $(SP_DIR)/pytests --fix 2>/dev/null || true
 	@echo "Lint complete."
 
 # -- aggregate targets: build + test + install everything ---------------------
 
-all-dev: fmt clippy lint \
-         dev install \
-         picasso-py-dev picasso-py-install picasso-py-pytest
+all-dev: fmt clippy lint dev install
 
-all-release: fmt clippy lint \
-             release install \
-             picasso-py-release picasso-py-install picasso-py-pytest
+all-release: fmt clippy lint release install
 
 # -----------------------------------------------------------------------------
 
@@ -70,26 +61,6 @@ install:
 	echo "Installing $$WHL_NAME"; \
 	$(PIP) install --force-reinstall "$$WHL_NAME"; \
 	echo "Installed $$WHL_NAME"
-
-# -- picasso_py Python bindings -----------------------------------------------
-
-picasso-py-dev:
-	@echo "Building picasso_py (dev)..."
-	cd $(PICASSO_PY_DIR) && maturin build -f -o $(PROJECT_DIR)/dist
-
-picasso-py-release:
-	@echo "Building picasso_py (release)..."
-	cd $(PICASSO_PY_DIR) && maturin build --release -f -o $(PROJECT_DIR)/dist
-
-picasso-py-install:
-	@WHL_NAME=$$(ls -t $(PROJECT_DIR)/dist/picasso*$(PYTHON_VERSION)*.whl | head -1); \
-	echo "Installing $$WHL_NAME"; \
-	$(PIP) install --force-reinstall "$$WHL_NAME"; \
-	echo "Installed $$WHL_NAME"
-
-picasso-py-pytest: picasso-py-dev picasso-py-install
-	@echo "Running picasso_py Python tests..."
-	cd $(PICASSO_PY_DIR) && $(PYTEST) pytests/ -v --tb=short
 
 # -- savant_python (savant_rs wheel) ------------------------------------------
 

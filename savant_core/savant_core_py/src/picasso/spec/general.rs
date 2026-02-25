@@ -2,7 +2,7 @@ use picasso::prelude::{EvictionDecision, GeneralSpec};
 use pyo3::prelude::*;
 
 /// Global defaults for the Picasso engine.
-#[pyclass(from_py_object, name = "GeneralSpec", module = "picasso._native")]
+#[pyclass(from_py_object, name = "GeneralSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyGeneralSpec {
     /// Default idle timeout in seconds before a source is considered for
@@ -36,7 +36,11 @@ impl PyGeneralSpec {
 ///
 /// Construct via the factory static methods [`keep_for`], [`terminate`], or
 /// [`terminate_immediately`].
-#[pyclass(from_py_object, name = "EvictionDecision", module = "picasso._native")]
+#[pyclass(
+    from_py_object,
+    name = "EvictionDecision",
+    module = "savant_rs.picasso"
+)]
 #[derive(Debug, Clone)]
 pub struct PyEvictionDecision {
     inner: EvictionDecision,
@@ -84,6 +88,7 @@ impl PyEvictionDecision {
         self.inner.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_rust(d: EvictionDecision) -> Self {
         Self { inner: d }
     }

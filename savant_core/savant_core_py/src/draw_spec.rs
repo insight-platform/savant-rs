@@ -750,7 +750,7 @@ impl ObjectDraw {
 
     /// Returns the raw pointer to the inner Rust ``ObjectDraw`` struct.
     ///
-    /// Used to pass this object to picasso_py's ``ObjectDrawSpec.insert()``.
+    /// Used to pass this object to picasso's ``ObjectDrawSpec.insert()``.
     #[getter]
     pub fn memory_handle(&self) -> usize {
         &self.0 as *const rust::ObjectDraw as usize
