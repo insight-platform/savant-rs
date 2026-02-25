@@ -248,7 +248,13 @@ struct PixelCapture {
 }
 
 impl OnRender for PixelCapture {
-    fn call(&self, _source_id: &str, canvas: &skia_safe::Canvas, _frame: &VideoFrameProxy) {
+    fn call(
+        &self,
+        _source_id: &str,
+        renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _frame: &VideoFrameProxy,
+    ) {
+        let canvas = renderer.canvas();
         let info = skia_safe::ImageInfo::new(
             (DST_W as i32, DST_H as i32),
             skia_safe::ColorType::RGBA8888,

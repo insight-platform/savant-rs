@@ -68,6 +68,35 @@ class SkiaCanvas:
         )
 
     @classmethod
+    def from_fbo(cls, fbo_id: int, width: int, height: int) -> "SkiaCanvas":
+        """Create from an existing OpenGL FBO.
+
+        Used internally by the Picasso ``on_render`` callback to wrap the
+        worker's GPU canvas without creating a separate ``SkiaContext``.
+
+        Args:
+            fbo_id: OpenGL FBO ID backing the canvas.
+            width:  Canvas width in pixels.
+            height: Canvas height in pixels.
+        """
+        obj = cls.__new__(cls)
+        obj._ctx = None
+        interface = skia.GrGLInterface.MakeEGL()
+        obj._gr_context = skia.GrDirectContext.MakeGL(interface)
+        fb_info = skia.GrGLFramebufferInfo(fbo_id, GL_RGBA8)
+        backend_rt = skia.GrBackendRenderTarget(
+            width, height, 0, 8, fb_info
+        )
+        obj._surface = skia.Surface.MakeFromBackendRenderTarget(
+            obj._gr_context,
+            backend_rt,
+            skia.kTopLeft_GrSurfaceOrigin,
+            skia.kRGBA_8888_ColorType,
+            None,
+        )
+        return obj
+
+    @classmethod
     def create(cls, width: int, height: int, gpu_id: int = 0):
         """Create with an empty (transparent) canvas.
 

@@ -121,7 +121,7 @@ pub(crate) fn process_encode(
 
         if render.use_on_render {
             if let Some(cb) = &callbacks.on_render {
-                cb.call(source_id, skia.canvas(), &input.frame);
+                cb.call(source_id, skia, &input.frame);
             }
         }
 

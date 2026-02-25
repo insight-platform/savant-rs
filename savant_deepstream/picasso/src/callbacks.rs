@@ -1,5 +1,6 @@
 use crate::message::{BypassOutput, EncodedOutput};
 use crate::spec::EvictionDecision;
+use deepstream_nvbufsurface::SkiaRenderer;
 use savant_core::draw::ObjectDraw;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::object::BorrowedVideoObject;
@@ -16,8 +17,13 @@ pub trait OnBypassFrame: Send + Sync + 'static {
 }
 
 /// Called before Skia flush — allows custom drawing on the canvas.
+///
+/// The callback receives the [`SkiaRenderer`] that owns the current GPU
+/// canvas.  Rust callers can obtain the Skia canvas via
+/// [`SkiaRenderer::canvas()`]; Python callers receive the renderer's FBO
+/// info and build a `SkiaCanvas` wrapper around it.
 pub trait OnRender: Send + Sync + 'static {
-    fn call(&self, source_id: &str, canvas: &skia_safe::Canvas, frame: &VideoFrameProxy);
+    fn call(&self, source_id: &str, renderer: &mut SkiaRenderer, frame: &VideoFrameProxy);
 }
 
 /// Per-object callback that can override the static `ObjectDrawSpec`.

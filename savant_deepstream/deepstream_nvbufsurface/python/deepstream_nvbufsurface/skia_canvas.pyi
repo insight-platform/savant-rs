@@ -21,6 +21,18 @@ class SkiaCanvas:
         """
         ...
     @classmethod
+    def from_fbo(cls, fbo_id: int, width: int, height: int) -> SkiaCanvas:
+        """Create from an existing OpenGL FBO.
+
+        Used internally by Picasso's ``on_render`` callback.
+
+        Args:
+            fbo_id: OpenGL FBO ID backing the canvas.
+            width:  Canvas width in pixels.
+            height: Canvas height in pixels.
+        """
+        ...
+    @classmethod
     def create(cls, width: int, height: int, gpu_id: int = 0) -> SkiaCanvas:
         """Create with an empty (transparent) canvas.
 

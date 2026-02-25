@@ -125,7 +125,12 @@ impl OnEncodedFrame for EncodedCounter {
 
 struct RenderCounter(Arc<AtomicUsize>);
 impl OnRender for RenderCounter {
-    fn call(&self, _source_id: &str, _canvas: &skia_safe::Canvas, _frame: &VideoFrameProxy) {
+    fn call(
+        &self,
+        _source_id: &str,
+        _renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _frame: &VideoFrameProxy,
+    ) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 }

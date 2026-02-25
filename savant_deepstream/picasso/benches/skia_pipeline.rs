@@ -233,7 +233,13 @@ impl BenchOnRender {
 }
 
 impl OnRender for BenchOnRender {
-    fn call(&self, _source_id: &str, canvas: &skia_safe::Canvas, frame: &VideoFrameProxy) {
+    fn call(
+        &self,
+        _source_id: &str,
+        renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        frame: &VideoFrameProxy,
+    ) {
+        let canvas = renderer.canvas();
         let frame_idx = frame.get_pts() as u64 / FRAME_DURATION_NS;
         let mut ctx = self.ctx.lock();
         draw_scene_overlay(canvas, &mut ctx, frame_idx, frame);

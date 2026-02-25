@@ -21,7 +21,8 @@ picasso = { path = "../picasso" }
 savant_core = { path = "../../savant_core" }
 savant_core_py = { path = "../../savant_core_py" }
 deepstream_encoders = { path = "../deepstream_encoders" }
-deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface", features = ["skia"] }
+deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface", features = ["skia", "python"] }
+savant_gstreamer = { path = "../../savant_gstreamer", features = ["python"] }
 gstreamer = { workspace = true }
 glib = { workspace = true }
 pyo3 = { workspace = true, features = ["extension-module"] }
