@@ -47,8 +47,7 @@
             "args": [
                 {
                     "params": {
-                        "home_dir": "${HOME}",
-                        "user_name": "${USER}"
+                        "home_dir": "${HOME}"
                     }
                 }
             ],
@@ -66,7 +65,7 @@
             "path": "/tmp/buffer",
             "max_length": 1000000,
             "full_threshold_percentage": 90,
-            "reset_on_start": true   
+            "reset_on_start": true
         }
     }
 }

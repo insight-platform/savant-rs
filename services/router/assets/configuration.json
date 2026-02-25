@@ -40,7 +40,6 @@
             "source_mapper": "egress_source_handler",
             "topic_mapper": "egress_topic_handler"
         }
-
     ],
     "common": {
         "init": {
@@ -50,8 +49,7 @@
             "args": [
                 {
                     "params": {
-                        "home_dir": "${HOME}",
-                        "user_name": "${USER}"
+                        "home_dir": "${HOME}"
                     }
                 }
             ]
