@@ -56,34 +56,38 @@ impl From<&VideoFrameTransformation> for generated::VideoFrameTransformation {
     }
 }
 
-impl From<&generated::VideoFrameTransformation> for VideoFrameTransformation {
-    fn from(value: &generated::VideoFrameTransformation) -> Self {
+impl TryFrom<&generated::VideoFrameTransformation> for VideoFrameTransformation {
+    type Error = super::Error;
+
+    fn try_from(value: &generated::VideoFrameTransformation) -> Result<Self, Self::Error> {
         match &value.transformation {
             Some(generated::video_frame_transformation::Transformation::InitialSize(is)) => {
-                VideoFrameTransformation::InitialSize(is.width, is.height)
+                Ok(VideoFrameTransformation::InitialSize(is.width, is.height))
             }
             Some(generated::video_frame_transformation::Transformation::LetterBox(lb)) => {
-                VideoFrameTransformation::LetterBox(
+                Ok(VideoFrameTransformation::LetterBox(
                     lb.outer_width,
                     lb.outer_height,
                     lb.padding_left,
                     lb.padding_top,
                     lb.padding_right,
                     lb.padding_bottom,
-                )
+                ))
             }
             Some(generated::video_frame_transformation::Transformation::Padding(p)) => {
-                VideoFrameTransformation::Padding(
+                Ok(VideoFrameTransformation::Padding(
                     p.padding_left,
                     p.padding_top,
                     p.padding_right,
                     p.padding_bottom,
-                )
+                ))
             }
-            Some(generated::video_frame_transformation::Transformation::Crop(c)) => {
-                VideoFrameTransformation::Crop(c.left, c.top, c.right, c.bottom)
-            }
-            None => unreachable!("Transformation is not set"),
+            Some(generated::video_frame_transformation::Transformation::Crop(c)) => Ok(
+                VideoFrameTransformation::Crop(c.left, c.top, c.right, c.bottom),
+            ),
+            None => Err(super::Error::SerializationError(
+                "Unknown or unset transformation variant (possibly deprecated)".to_string(),
+            )),
         }
     }
 }
@@ -97,7 +101,7 @@ mod tests {
     fn test_video_frame_transformation_initial_size() {
         assert_eq!(
             VideoFrameTransformation::InitialSize(1, 2),
-            VideoFrameTransformation::from(&generated::VideoFrameTransformation {
+            VideoFrameTransformation::try_from(&generated::VideoFrameTransformation {
                 transformation: Some(
                     generated::video_frame_transformation::Transformation::InitialSize(
                         generated::InitialSize {
@@ -107,6 +111,7 @@ mod tests {
                     )
                 )
             })
+            .unwrap()
         );
         assert_eq!(
             generated::VideoFrameTransformation {
@@ -127,7 +132,7 @@ mod tests {
     fn test_video_frame_transformation_letter_box() {
         assert_eq!(
             VideoFrameTransformation::LetterBox(100, 80, 5, 5, 5, 5),
-            VideoFrameTransformation::from(&generated::VideoFrameTransformation {
+            VideoFrameTransformation::try_from(&generated::VideoFrameTransformation {
                 transformation: Some(
                     generated::video_frame_transformation::Transformation::LetterBox(
                         generated::LetterBox {
@@ -141,6 +146,7 @@ mod tests {
                     )
                 )
             })
+            .unwrap()
         );
         assert_eq!(
             generated::VideoFrameTransformation {
@@ -167,7 +173,7 @@ mod tests {
     fn test_video_frame_transformation_padding() {
         assert_eq!(
             VideoFrameTransformation::Padding(1, 2, 3, 4),
-            VideoFrameTransformation::from(&generated::VideoFrameTransformation {
+            VideoFrameTransformation::try_from(&generated::VideoFrameTransformation {
                 transformation: Some(
                     generated::video_frame_transformation::Transformation::Padding(
                         generated::Padding {
@@ -179,6 +185,7 @@ mod tests {
                     )
                 )
             })
+            .unwrap()
         );
         assert_eq!(
             generated::VideoFrameTransformation {
@@ -203,7 +210,7 @@ mod tests {
     fn test_video_frame_transformation_crop() {
         assert_eq!(
             VideoFrameTransformation::Crop(10, 20, 30, 40),
-            VideoFrameTransformation::from(&generated::VideoFrameTransformation {
+            VideoFrameTransformation::try_from(&generated::VideoFrameTransformation {
                 transformation: Some(generated::video_frame_transformation::Transformation::Crop(
                     generated::Crop {
                         left: 10,
@@ -213,6 +220,7 @@ mod tests {
                     }
                 ))
             })
+            .unwrap()
         );
         assert_eq!(
             generated::VideoFrameTransformation {
@@ -229,5 +237,13 @@ mod tests {
                 10, 20, 30, 40
             ))
         );
+    }
+
+    #[test]
+    fn test_video_frame_transformation_none_returns_error() {
+        let result = VideoFrameTransformation::try_from(&generated::VideoFrameTransformation {
+            transformation: None,
+        });
+        assert!(result.is_err());
     }
 }

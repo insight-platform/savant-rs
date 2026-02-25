@@ -75,8 +75,8 @@ impl TryFrom<&generated::VideoFrame> for VideoFrame {
         let transformations = value
             .transformations
             .iter()
-            .map(VideoFrameTransformation::try_from)
-            .collect::<Result<Vec<VideoFrameTransformation>, _>>()?;
+            .filter_map(|t| VideoFrameTransformation::try_from(t).ok())
+            .collect::<Vec<VideoFrameTransformation>>();
 
         let attributes = value
             .attributes
