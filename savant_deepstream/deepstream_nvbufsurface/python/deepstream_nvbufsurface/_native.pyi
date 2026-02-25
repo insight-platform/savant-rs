@@ -142,7 +142,6 @@ class MemType:
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 # ── TransformConfig ──────────────────────────────────────────────────────
 
 class TransformConfig:
@@ -207,9 +206,7 @@ class NvBufSurfaceGenerator:
             Raw pointer address of the ``GstBuffer``.
         """
         ...
-    def acquire_surface_with_ptr(
-        self, id: int | None = None
-    ) -> tuple[int, int, int]:
+    def acquire_surface_with_ptr(self, id: int | None = None) -> tuple[int, int, int]:
         """Acquire a buffer and return ``(gst_buffer_ptr, data_ptr, pitch)``."""
         ...
     def transform(
@@ -245,9 +242,7 @@ class NvBufSurfaceGenerator:
     def send_eos(appsrc_ptr: int) -> None:
         """Send EOS to an ``appsrc``."""
         ...
-    def create_surface(
-        self, gst_buffer_dest: int, id: int | None = None
-    ) -> None:
+    def create_surface(self, gst_buffer_dest: int, id: int | None = None) -> None:
         """Create a new NvBufSurface and attach it to the given buffer."""
         ...
 
@@ -262,9 +257,7 @@ class SkiaContext:
     - ``SkiaContext.from_nvbuf(buf_ptr)`` — pre-loaded from an NvBufSurface.
     """
 
-    def __init__(
-        self, width: int, height: int, gpu_id: int = 0
-    ) -> None: ...
+    def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
     @staticmethod
     def from_nvbuf(buf_ptr: int, gpu_id: int = 0) -> SkiaContext:
         """Create a context pre-loaded from an NvBufSurface."""

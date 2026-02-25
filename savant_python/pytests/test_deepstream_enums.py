@@ -21,7 +21,11 @@ class TestPadding:
         assert ds.Padding.NONE != ds.Padding.SYMMETRIC
 
     def test_int_conversion(self):
-        vals = {int(ds.Padding.NONE), int(ds.Padding.RIGHT_BOTTOM), int(ds.Padding.SYMMETRIC)}
+        vals = {
+            int(ds.Padding.NONE),
+            int(ds.Padding.RIGHT_BOTTOM),
+            int(ds.Padding.SYMMETRIC),
+        }
         assert len(vals) == 3
 
 
@@ -59,7 +63,11 @@ class TestComputeMode:
         assert ds.ComputeMode.VIC is not None
 
     def test_all_distinct(self):
-        vals = {int(ds.ComputeMode.DEFAULT), int(ds.ComputeMode.GPU), int(ds.ComputeMode.VIC)}
+        vals = {
+            int(ds.ComputeMode.DEFAULT),
+            int(ds.ComputeMode.GPU),
+            int(ds.ComputeMode.VIC),
+        }
         assert len(vals) == 3
 
     def test_equality(self):

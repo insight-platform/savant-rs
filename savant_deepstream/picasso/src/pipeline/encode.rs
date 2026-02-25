@@ -5,7 +5,6 @@ use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{Padding, SkiaRenderer, TransformConfig};
-use gstreamer as gst;
 use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::frame::{
@@ -143,8 +142,8 @@ pub(crate) fn process_encode(
         }
     }
 
-    let pts = frame_pts(&input.buffer);
-    let duration = frame_duration(&input.buffer);
+    let pts = input.frame.get_pts().max(0) as u64;
+    let duration = input.frame.get_duration().map(|d| d.max(0) as u64);
 
     pending_frames.insert(input.frame_id, input.frame);
 
@@ -271,12 +270,4 @@ pub(crate) fn fill_encoded_frame(
     frame.set_codec(Some(encoded.codec.name().to_string()));
     frame.set_keyframe(Some(encoded.keyframe));
     cb.call(EncodedOutput::VideoFrame(frame));
-}
-
-pub(crate) fn frame_pts(buf: &gst::Buffer) -> u64 {
-    buf.pts().map(|t| t.nseconds()).unwrap_or(0)
-}
-
-pub(crate) fn frame_duration(buf: &gst::Buffer) -> Option<u64> {
-    buf.duration().map(|t| t.nseconds())
 }

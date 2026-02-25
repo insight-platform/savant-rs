@@ -93,12 +93,18 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    fn process_frame(&mut self, frame: VideoFrameProxy, buffer: gstreamer::Buffer) {
+    fn process_frame(&mut self, frame: VideoFrameProxy, mut buffer: gstreamer::Buffer) {
         if let Some((ns, name)) = &self.spec.conditional.encode_attribute {
             if frame.get_attribute(ns, name).is_none() {
                 debug!("conditional skip (frame attr): source={}", self.source_id);
                 return;
             }
+        }
+
+        // Apply frame timestamps to buffer; do not assume they were set by the producer.
+        {
+            let buf_ref = buffer.make_mut();
+            crate::pipeline::apply_frame_timestamps_to_buffer(&frame, buf_ref);
         }
 
         self.frame_counter += 1;

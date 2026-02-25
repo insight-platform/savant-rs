@@ -111,7 +111,6 @@ class Mp4Muxer:
         fps_num: int = 30,
         fps_den: int = 1,
     ) -> None: ...
-
     def push(
         self,
         data: bytes,

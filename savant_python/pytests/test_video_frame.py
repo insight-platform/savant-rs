@@ -317,14 +317,18 @@ class TestVideoFrameTransformations:
 
     def test_add_and_get_transformations(self, frame):
         # InitialSize(100,100) already added by constructor
-        frame.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
+        frame.add_transformation(
+            VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10)
+        )
         transforms = frame.transformations
         assert len(transforms) == 2
         assert transforms[0].is_initial_size
         assert transforms[1].is_letter_box
 
     def test_clear_transformations(self, frame):
-        frame.add_transformation(VideoFrameTransformation.letter_box(640, 480, 0, 0, 0, 0))
+        frame.add_transformation(
+            VideoFrameTransformation.letter_box(640, 480, 0, 0, 0, 0)
+        )
         frame.clear_transformations()
         assert len(frame.transformations) == 0
 
@@ -337,7 +341,9 @@ class TestVideoFrameTransformations:
 
     def test_complex_chain(self, frame):
         frame.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
-        frame.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
+        frame.add_transformation(
+            VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0)
+        )
         frame.add_transformation(VideoFrameTransformation.padding(5, 5, 5, 5))
         transforms = frame.transformations
         assert len(transforms) == 4
@@ -359,8 +365,12 @@ class TestVideoFrameTransformToInitial:
             height=1080,
             content=VideoFrameContent.none(),
         )
-        f.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
-        obj = f.create_object("det", "car", detection_box=RBBox(100.0, 100.0, 50.0, 50.0))
+        f.add_transformation(
+            VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10)
+        )
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(100.0, 100.0, 50.0, 50.0)
+        )
         oid = obj.id
 
         f.transform_backward()
@@ -389,7 +399,9 @@ class TestVideoFrameTransformToInitial:
             height=600,
             content=VideoFrameContent.none(),
         )
-        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0))
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0)
+        )
         oid = obj.id
 
         f.transform_backward()
@@ -424,7 +436,9 @@ class TestVideoFrameTransformToInitial:
         )
         f.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
         f.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
-        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0))
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0)
+        )
         oid = obj.id
 
         f.transform_backward()
@@ -449,8 +463,12 @@ class TestVideoFrameTransformToTarget:
             height=1080,
             content=VideoFrameContent.none(),
         )
-        f.add_transformation(VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10))
-        obj = f.create_object("det", "car", detection_box=RBBox(330.0, 250.0, 100.0, 100.0))
+        f.add_transformation(
+            VideoFrameTransformation.letter_box(660, 500, 10, 10, 10, 10)
+        )
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(330.0, 250.0, 100.0, 100.0)
+        )
         oid = obj.id
 
         f.transform_forward()
@@ -494,7 +512,9 @@ class TestVideoFrameTransformToTarget:
         )
         f.add_transformation(VideoFrameTransformation.crop(160, 40, 160, 40))
         f.add_transformation(VideoFrameTransformation.letter_box(800, 500, 0, 0, 0, 0))
-        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0))
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(400.0, 250.0, 100.0, 100.0)
+        )
         oid = obj.id
 
         f.transform_forward()
@@ -518,7 +538,9 @@ class TestVideoFrameTransformToTarget:
             height=600,
             content=VideoFrameContent.none(),
         )
-        obj = f.create_object("det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0))
+        obj = f.create_object(
+            "det", "car", detection_box=RBBox(400.0, 300.0, 100.0, 80.0)
+        )
         oid = obj.id
 
         f.transform_forward()

@@ -21,7 +21,9 @@ def _ds_runtime_available() -> bool:
 
 
 _has_runtime = _ds_runtime_available()
-skip_no_runtime = pytest.mark.skipif(not _has_runtime, reason="CUDA/DeepStream not available")
+skip_no_runtime = pytest.mark.skipif(
+    not _has_runtime, reason="CUDA/DeepStream not available"
+)
 
 
 def _make_gen(fmt: str, w: int, h: int) -> "ds.NvBufSurfaceGenerator":

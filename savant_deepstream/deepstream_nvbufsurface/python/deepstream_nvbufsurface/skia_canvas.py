@@ -56,9 +56,7 @@ class SkiaCanvas:
         interface = skia.GrGLInterface.MakeEGL()
         self._gr_context = skia.GrDirectContext.MakeGL(interface)
         fb_info = skia.GrGLFramebufferInfo(ctx.fbo_id, GL_RGBA8)
-        backend_rt = skia.GrBackendRenderTarget(
-            ctx.width, ctx.height, 0, 8, fb_info
-        )
+        backend_rt = skia.GrBackendRenderTarget(ctx.width, ctx.height, 0, 8, fb_info)
         self._surface = skia.Surface.MakeFromBackendRenderTarget(
             self._gr_context,
             backend_rt,
@@ -84,9 +82,7 @@ class SkiaCanvas:
         interface = skia.GrGLInterface.MakeEGL()
         obj._gr_context = skia.GrDirectContext.MakeGL(interface)
         fb_info = skia.GrGLFramebufferInfo(fbo_id, GL_RGBA8)
-        backend_rt = skia.GrBackendRenderTarget(
-            width, height, 0, 8, fb_info
-        )
+        backend_rt = skia.GrBackendRenderTarget(width, height, 0, 8, fb_info)
         obj._surface = skia.Surface.MakeFromBackendRenderTarget(
             obj._gr_context,
             backend_rt,

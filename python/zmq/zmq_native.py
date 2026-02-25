@@ -21,8 +21,7 @@ BLOCK_SIZE = 1024 * 1024
 
 
 def server():
-    reader_config = ReaderConfigBuilder(
-        "router+connect:" + socket_name).build()
+    reader_config = ReaderConfigBuilder("router+connect:" + socket_name).build()
     reader = BlockingReader(reader_config)
     reader.start()
     reader.blacklist_source(b"unused-topic")

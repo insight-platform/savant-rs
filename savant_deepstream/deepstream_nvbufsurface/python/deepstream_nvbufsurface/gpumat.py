@@ -76,7 +76,11 @@ def as_gpu_mat(
     """
     data_ptr, pitch, width, height = get_nvbufsurface_info(buf_ptr)
     gpumat = cv2.cuda.createGpuMatFromCudaMemory(
-        int(height), int(width), _RGBA_CV_TYPE, int(data_ptr), int(pitch),
+        int(height),
+        int(width),
+        _RGBA_CV_TYPE,
+        int(data_ptr),
+        int(pitch),
     )
     stream = cv2.cuda.Stream()
     try:
@@ -114,7 +118,11 @@ def from_gpumat(
     """
     buf_ptr, data_ptr, pitch = gen.acquire_surface_with_ptr(id=id)
     dst = cv2.cuda.createGpuMatFromCudaMemory(
-        gen.height, gen.width, _RGBA_CV_TYPE, data_ptr, pitch,
+        gen.height,
+        gen.width,
+        _RGBA_CV_TYPE,
+        data_ptr,
+        pitch,
     )
 
     src_w, src_h = gpumat.size()  # (cols, rows)

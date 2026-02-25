@@ -186,7 +186,6 @@ class TransformConfig:
         src_rect: Optional[Tuple[int, int, int, int]] = None,
         compute_mode: ComputeMode = ...,
     ) -> None: ...
-
     def __repr__(self) -> str: ...
 
 # ── NvBufSurfaceGenerator ───────────────────────────────────────────────
@@ -216,7 +215,6 @@ class NvBufSurfaceGenerator:
         mem_type: Union[MemType, int, None] = None,
         pool_size: int = 4,
     ) -> None: ...
-
     def nvmm_caps_str(self) -> str:
         """Return the NVMM caps string for configuring an ``appsrc``."""
         ...
@@ -227,7 +225,6 @@ class NvBufSurfaceGenerator:
     def height(self) -> int: ...
     @property
     def format(self) -> VideoFormat: ...
-
     def acquire_surface(self, id: Optional[int] = None) -> int:
         """Acquire a new NvBufSurface buffer from the pool.
 
@@ -312,7 +309,6 @@ class SkiaContext:
     """GPU-accelerated Skia rendering context backed by CUDA-GL interop."""
 
     def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
-
     @staticmethod
     def from_nvbuf(buf_ptr: int, gpu_id: int = 0) -> SkiaContext:
         """Create a SkiaContext from an existing NvBufSurface buffer."""
@@ -324,7 +320,6 @@ class SkiaContext:
     def width(self) -> int: ...
     @property
     def height(self) -> int: ...
-
     def render_to_nvbuf(
         self,
         buf_ptr: int,

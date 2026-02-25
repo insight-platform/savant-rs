@@ -141,9 +141,7 @@ def make_frame(source_id: str) -> VideoFrame:
 
 def make_nvmm_buffer(gen: NvBufSurfaceGenerator, frame_id: int) -> int:
     """Acquire a GPU buffer with PTS + duration stamped (mirrors Rust benchmark)."""
-    return gen.acquire_surface_with_params(
-        pts_ns=frame_id * FRAME_DURATION_NS,
-        duration_ns=FRAME_DURATION_NS,
+    return gen.acquire_surface(
         id=frame_id,
     )
 

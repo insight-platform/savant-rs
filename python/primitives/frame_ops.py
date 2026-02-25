@@ -65,9 +65,7 @@ frame.duration = 100
 print(frame.json)
 
 frame.add_transformation(VideoFrameTransformation.initial_size(1920, 1080))
-frame.add_transformation(
-    VideoFrameTransformation.letter_box(3840, 2280, 0, 120, 0, 0)
-)
+frame.add_transformation(VideoFrameTransformation.letter_box(3840, 2280, 0, 120, 0, 0))
 
 print(frame.transformations)
 
