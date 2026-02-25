@@ -13,7 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["dylib", "rlib"]
+crate-type = ["dylib"]
 
 [dependencies]
 anyhow = { workspace = true }
