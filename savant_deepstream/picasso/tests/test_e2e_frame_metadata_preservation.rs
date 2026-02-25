@@ -16,6 +16,7 @@ use savant_core::primitives::object::{
 };
 use savant_core::primitives::RBBox;
 use savant_core::primitives::WithAttributes;
+use savant_core::primitives::rust::VideoFrameTranscodingMethod;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -124,6 +125,8 @@ fn e2e_frame_metadata_preservation() {
         .unwrap();
 
     let buf = make_gpu_buffer(&gen, 0, DUR);
+    let frame_uuid = frame.get_uuid();
+    let frame_pts = frame.get_pts();
     engine.send_frame("meta", frame, buf).unwrap();
     engine.send_eos("meta").unwrap();
 
@@ -133,6 +136,9 @@ fn e2e_frame_metadata_preservation() {
     assert!(enc_count.load(Ordering::SeqCst) >= 1);
 
     let out = captured.lock().take().expect("expected captured frame");
+    // out uuid == frame uuid
+    assert_eq!(out.get_uuid(), frame_uuid);
+    assert_eq!(out.get_pts(), frame_pts);
     let objs: Vec<_> = out.get_all_objects().into_iter().collect();
     assert_eq!(objs.len(), 2, "expected 2 objects on output");
 
@@ -159,6 +165,8 @@ fn e2e_frame_metadata_preservation() {
         "object attribute should survive"
     );
 
+    let transcoding_method = out.get_transcoding_method();
+    assert!(matches!(transcoding_method, VideoFrameTranscodingMethod::Encoded), "transcoding method should be Encoded");
     let content = out.get_content();
     assert!(
         matches!(*content, VideoFrameContent::Internal(_)),
