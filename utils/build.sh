@@ -163,3 +163,17 @@ if command -v auditwheel >/dev/null 2>&1; then
         rm -f "$whl"
     done
 fi
+
+# Add features to wheel filename when SAVANT_FEATURES is set (e.g. savant_rs-1.15.1+gst-cp312-...)
+if [ -n "${SAVANT_FEATURES:-}" ]; then
+    FEATURE_SUFFIX=$(echo "$SAVANT_FEATURES" | tr ',' '.')
+    for whl in "$PROJECT_DIR"/dist/savant_rs-*.whl; do
+        [ -f "$whl" ] || continue
+        base=$(basename "$whl")
+        new=$(echo "$base" | sed "s|^savant_rs-\([0-9]*\.[0-9]*\.[0-9]*\)-|savant_rs-\1+${FEATURE_SUFFIX}-|")
+        if [ "$base" != "$new" ]; then
+            mv "$whl" "$PROJECT_DIR/dist/$new"
+            echo "Renamed wheel: $base -> $new"
+        fi
+    done
+fi
