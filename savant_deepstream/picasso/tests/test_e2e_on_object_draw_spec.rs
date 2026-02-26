@@ -148,7 +148,7 @@ fn e2e_on_object_draw_spec() {
         .unwrap();
 
     let buf = make_gpu_buffer(&gen, 0, DUR);
-    engine.send_frame("obj-draw", frame, buf).unwrap();
+    engine.send_frame("obj-draw", frame, buf, None).unwrap();
     engine.send_eos("obj-draw").unwrap();
 
     std::thread::sleep(Duration::from_secs(2));

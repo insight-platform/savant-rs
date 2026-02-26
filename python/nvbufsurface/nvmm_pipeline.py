@@ -72,7 +72,6 @@ def main() -> None:
             buf_ptr = session.acquire_surface(frame_id=i)
             session.submit(
                 buf_ptr,
-                frame_id=i,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

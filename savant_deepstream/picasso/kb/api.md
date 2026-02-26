@@ -37,7 +37,7 @@ pub struct PicassoEngine { /* private */ }
 | `new` | `(general: GeneralSpec, callbacks: Callbacks) → Self` | Spawns watchdog thread |
 | `set_source_spec` | `(&self, source_id: &str, spec: SourceSpec) → Result<(), PicassoError>` | Creates worker on first call; sends UpdateSpec if worker exists |
 | `remove_source_spec` | `(&self, source_id: &str)` | Sends Shutdown to worker, removes from map |
-| `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, buf: gstreamer::Buffer) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown |
+| `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, buf: gstreamer::Buffer, src_rect: Option<Rect>) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown. `src_rect` is optional per-frame crop. |
 | `send_eos` | `(&self, source_id: &str) → Result<(), PicassoError>` | No-op if source not found |
 | `shutdown` | `(&mut self)` | Drains all workers, joins watchdog. Idempotent via flag. |
 

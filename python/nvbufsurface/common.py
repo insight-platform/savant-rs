@@ -378,7 +378,6 @@ class PicassoSession:
         self,
         buf_ptr: int,
         *,
-        frame_id: int,
         pts_ns: int,
         duration_ns: int | None = None,
     ) -> None:

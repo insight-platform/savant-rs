@@ -42,11 +42,9 @@ import sys
 
 import cv2
 
-from savant_rs.deepstream import VideoFormat  # noqa: E402
+from savant_rs.deepstream import VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
 
 from common import PicassoSession, add_common_args
-
-_RGBA_CV_TYPE = cv2.CV_8UC4
 
 
 # ===========================================================================
@@ -156,12 +154,8 @@ class GpuMatRenderer:
         width: int,
         height: int,
     ) -> None:
-        gpumat = cv2.cuda.createGpuMatFromCudaMemory(
-            int(height), int(width), _RGBA_CV_TYPE, int(data_ptr), int(pitch),
-        )
-        stream = cv2.cuda.Stream()
-        draw_frame(gpumat, stream, self._rect, self._frame_idx)
-        stream.waitForCompletion()
+        with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (gpumat, stream):
+            draw_frame(gpumat, stream, self._rect, self._frame_idx)
         self._frame_idx += 1
 
 
@@ -194,7 +188,6 @@ def main() -> None:
         try:
             session.submit(
                 buf_ptr,
-                frame_id=i,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

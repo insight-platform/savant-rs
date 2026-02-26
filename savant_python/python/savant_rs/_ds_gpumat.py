@@ -1,44 +1,17 @@
 """OpenCV CUDA GpuMat helpers for NvBufSurface buffers.
 
-Provides zero-copy interop between NvBufSurface ``GstBuffer`` objects and
-:class:`cv2.cuda.GpuMat` via :func:`cv2.cuda.createGpuMatFromCudaMemory`.
+Injected into ``savant_rs.deepstream`` at import time so that
+``from savant_rs.deepstream import nvgstbuf_as_gpu_mat`` etc. work.
 
-Two main entry points:
+Two context managers for different call sites:
 
-1. :func:`as_gpu_mat` -- context manager that exposes an existing buffer as
-   a ``GpuMat`` + CUDA ``Stream``.  The stream is synchronised automatically
-   when the ``with`` block exits.
+- :func:`nvgstbuf_as_gpu_mat` — takes a ``GstBuffer*`` pointer, extracts
+  NvBufSurface metadata internally.  Use outside callbacks (e.g. pre-filling
+  a background before ``send_frame``).
 
-2. :func:`from_gpumat` -- acquires a new buffer from the generator's pool
-   and copies (with optional scaling) a ``GpuMat`` into it.
-
-.. warning::
-
-    Inside the ``as_gpu_mat`` context the ``GpuMat`` wraps memory owned by
-    the ``GstBuffer``.  Do **not** push or unref the buffer while the
-    context is active.
-
-Example::
-
-    from deepstream_nvbufsurface import (
-        NvBufSurfaceGenerator, init_cuda,
-        as_gpu_mat, from_gpumat,
-    )
-    import cv2
-
-    init_cuda()
-    gen = NvBufSurfaceGenerator("RGBA", 1920, 1080)
-
-    # ── Read / modify an existing buffer ──────────────────────────
-    buf_ptr = gen.acquire_surface()
-    with as_gpu_mat(buf_ptr) as (mat, stream):
-        mat.setTo((0, 255, 0, 255), stream=stream)
-    # stream is synchronised here; buf_ptr is safe to push downstream
-
-    # ── Create a buffer from a GpuMat ─────────────────────────────
-    src_gpumat = cv2.cuda.GpuMat(480, 640, cv2.CV_8UC4)
-    src_gpumat.setTo((255, 0, 0, 255))
-    buf_ptr = from_gpumat(gen, src_gpumat)  # scaled to 1920x1080
+- :func:`nvbuf_as_gpu_mat` — takes raw CUDA params ``(data_ptr, pitch,
+  width, height)`` directly.  Use inside the ``on_gpumat`` callback which
+  already provides these values.
 """
 
 from __future__ import annotations
@@ -48,24 +21,21 @@ from typing import Generator
 
 import cv2
 
-from deepstream_nvbufsurface._native import (
-    NvBufSurfaceGenerator,
-    get_nvbufsurface_info,
-)
+from savant_rs.deepstream import NvBufSurfaceGenerator, get_nvbufsurface_info
 
-# RGBA -> 4 channels, 8-bit unsigned
 _RGBA_CV_TYPE = cv2.CV_8UC4
 
 
 @contextmanager
-def as_gpu_mat(
+def nvgstbuf_as_gpu_mat(
     buf_ptr: int,
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
 
-    Creates a zero-copy ``GpuMat`` wrapping the buffer's CUDA device
-    memory together with a CUDA ``Stream``.  When the ``with`` block
-    exits the stream is synchronised (``waitForCompletion``).
+    Extracts the CUDA device pointer, pitch, width and height from the
+    buffer's NvBufSurface metadata, then creates a zero-copy ``GpuMat``
+    together with a CUDA ``Stream``.  When the ``with`` block exits the
+    stream is synchronised (``waitForCompletion``).
 
     Args:
         buf_ptr: Raw ``GstBuffer*`` pointer address.
@@ -75,6 +45,43 @@ def as_gpu_mat(
         buffer's native width, height and pitch.
     """
     data_ptr, pitch, width, height = get_nvbufsurface_info(buf_ptr)
+    gpumat = cv2.cuda.createGpuMatFromCudaMemory(
+        int(height),
+        int(width),
+        _RGBA_CV_TYPE,
+        int(data_ptr),
+        int(pitch),
+    )
+    stream = cv2.cuda.Stream()
+    try:
+        yield gpumat, stream
+    finally:
+        stream.waitForCompletion()
+
+
+@contextmanager
+def nvbuf_as_gpu_mat(
+    data_ptr: int,
+    pitch: int,
+    width: int,
+    height: int,
+) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
+    """Wrap raw CUDA memory as an OpenCV CUDA ``GpuMat``.
+
+    Unlike :func:`nvgstbuf_as_gpu_mat`, this function takes the CUDA
+    device pointer and layout directly — no ``GstBuffer`` or
+    ``get_nvbufsurface_info`` call involved.  Designed for the Picasso
+    ``on_gpumat`` callback which already supplies these values.
+
+    Args:
+        data_ptr: CUDA device pointer to the surface data.
+        pitch: Row stride in bytes.
+        width: Surface width in pixels.
+        height: Surface height in pixels.
+
+    Yields:
+        ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4``.
+    """
     gpumat = cv2.cuda.createGpuMatFromCudaMemory(
         int(height),
         int(width),
@@ -125,7 +132,7 @@ def from_gpumat(
         pitch,
     )
 
-    src_w, src_h = gpumat.size()  # (cols, rows)
+    src_w, src_h = gpumat.size()
     dst_w, dst_h = dst.size()
 
     if (src_w, src_h) == (dst_w, dst_h):

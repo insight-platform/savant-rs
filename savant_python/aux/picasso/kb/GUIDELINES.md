@@ -7,7 +7,7 @@ Self-contained reference for agents to write picasso Python tests without readin
 | File | Content |
 |---|---|
 | `api.md` | Full Python API: classes, constructors, methods, properties, signatures |
-| `deps.md` | External type dependencies (draw_spec, deepstream, gstreamer, primitives) |
+| `deps.md` | External type dependencies, Rust/Python mixed-import architecture, GPU drawing helpers |
 | `patterns.md` | Test patterns, helpers, GPU/non-GPU split, lifecycle idioms |
 | `enums.md` | All enum types with variants |
 | `errors.md` | Error conditions, RuntimeError/ValueError triggers |
@@ -20,10 +20,11 @@ Self-contained reference for agents to write picasso Python tests without readin
 5. Consult `errors.md` for negative-path tests.
 
 ## Critical Pitfalls (read before writing code)
+- **Native module shadows Python packages** — `savant_rs.deepstream` and `savant_rs.picasso` are native PyO3 submodules registered directly in `sys.modules` by the `.so`. Any Python files in the corresponding `deepstream/` or `picasso/` directories are **never loaded at runtime**. Pure-Python helpers (e.g. `nvgstbuf_as_gpu_mat`, `nvbuf_as_gpu_mat`, `SkiaCanvas`) must live at the `savant_rs` package root as `_ds_*.py` files and be injected via `savant_rs/__init__.py`. See `deps.md` → Rust/Python Mixed-Import Architecture for the full pattern.
 - **Render pipeline order**: draw spec → `on_render` → `on_gpumat` → encode. `on_render` draws **on top of** bboxes; do NOT `canvas.clear()` if using draw spec. Pre-fill input NvBufSurface for backgrounds. See `api.md` → Encode Pipeline Execution Order.
 - **EncoderConfig builder methods shadow property setters** — `cfg.gpu_id(0)` ✅, `cfg.gpu_id = 0` ❌ (read-only at runtime). Same for `format()`. See `api.md` → EncoderConfig.
 - **Callbacks fire on Rust worker threads** — `Mp4Muxer` is `Send` and can be used directly from callbacks. Other `unsendable` PyO3 objects would panic if accessed from a different thread; check the class annotation.
-- **Skia GL context on headless EGL** — `skia.GrDirectContext.MakeGL()` returns `None`; use `skia.GrGLInterface.MakeEGL()` first. See `deps.md` → skia-python / `patterns.md` → on_render.
+- **Skia GL context on headless EGL** — `skia.GrDirectContext.MakeGL()` returns `None`; use `skia.GrGLInterface.MakeEGL()` first. See `deps.md` → skia-python / `patterns.md` → on_render. The `SkiaCanvas` helper handles this automatically.
 - **Skia + draw spec GL state conflict** — When both `draw` (ObjectDrawSpec) and `on_render` are used, Picasso's internal Skia context and the user's Skia context share the same GL context but cache state independently. Call `gr_context.resetContext()` at the start of every `on_render` invocation to force Skia to re-query GL state; without it, rendering is corrupted.
 - **RBBox is centre-based** — `RBBox(xc, yc, width, height)`, not top-left corner. See `patterns.md` → Draw Spec + Callbacks Composition.
 

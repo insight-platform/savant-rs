@@ -69,7 +69,7 @@ fn e2e_encode_eos_reencode() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("reconnect", frame, buf).unwrap();
+        engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();
     std::thread::sleep(Duration::from_secs(2));
@@ -85,7 +85,7 @@ fn e2e_encode_eos_reencode() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("reconnect", frame, buf).unwrap();
+        engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();
     std::thread::sleep(Duration::from_secs(2));

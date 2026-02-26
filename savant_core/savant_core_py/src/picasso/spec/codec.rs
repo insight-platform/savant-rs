@@ -1,5 +1,4 @@
 use crate::deepstream::PyTransformConfig;
-use deepstream_nvbufsurface::transform::Rect;
 use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::CodecSpec;
 use pyo3::prelude::*;
@@ -98,12 +97,6 @@ fn py_transform_to_rust(t: &PyTransformConfig) -> TransformConfig {
     TransformConfig {
         padding: t.padding.into(),
         interpolation: t.interpolation.into(),
-        src_rect: t.src_rect.map(|(top, left, w, h)| Rect {
-            top,
-            left,
-            width: w,
-            height: h,
-        }),
         compute_mode: t.compute_mode.into(),
         cuda_stream: std::ptr::null_mut(),
     }

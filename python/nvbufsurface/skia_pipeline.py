@@ -12,7 +12,7 @@ The ``on_render`` callback draws the legend (detection list) on top of
 the scene after Picasso has finished its own rendering.
 
 The input NvBufSurface is pre-filled with a dark background via OpenCV
-CUDA (``as_gpu_mat``); Picasso loads it into its Skia FBO, draws the
+CUDA (``nvgstbuf_as_gpu_mat``); Picasso loads it into its Skia FBO, draws the
 bboxes from the draw spec, then calls ``on_render`` for the legend.
 
 Output pipeline (when ``--output`` is given)::
@@ -40,8 +40,7 @@ from dataclasses import dataclass
 
 import skia
 
-from deepstream_nvbufsurface import as_gpu_mat  # noqa: E402
-from savant_rs.deepstream import VideoFormat  # noqa: E402
+from savant_rs.deepstream import SkiaCanvas, VideoFormat, nvgstbuf_as_gpu_mat  # noqa: E402
 from savant_rs.draw_spec import (  # noqa: E402
     BoundingBoxDraw,
     ColorDraw,
@@ -59,8 +58,6 @@ from savant_rs.primitives import (  # noqa: E402
 from savant_rs.primitives.geometry import RBBox  # noqa: E402
 
 from common import PicassoSession, add_common_args
-
-GL_RGBA8 = 0x8058
 
 NUM_BOXES = 20
 NAMESPACE = "detector"
@@ -279,11 +276,11 @@ class SkiaRenderer:
 
     Picasso draws the detection bounding boxes via the draw spec before
     this callback fires.  The callback adds the legend (detection list)
-    on top of the rendered scene.
+    on top of the rendered scene using :class:`SkiaCanvas`.
     """
 
     def __init__(self):
-        self._gr_context: skia.GrDirectContext | None = None
+        self._canvas: SkiaCanvas | None = None
         self._legend_ctx: LegendCtx | None = None
 
     def __call__(
@@ -294,46 +291,24 @@ class SkiaRenderer:
         height: int,
         frame: object,
     ) -> None:
-        if self._gr_context is None:
-            self._init_context()
-        if self._gr_context is None:
-            return
+        if self._canvas is None:
+            self._canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
+            self._legend_ctx = LegendCtx()
+            print("SkiaCanvas created on Picasso worker thread")
 
         # Picasso's draw-spec renderer uses its own GrDirectContext on the
         # same GL context.  Tell our context that external GL state changes
         # may have occurred so it re-queries everything.
-        self._gr_context.resetContext()
-
-        fb_info = skia.GrGLFramebufferInfo(fbo_id, GL_RGBA8)
-        target = skia.GrBackendRenderTarget(width, height, 0, 8, fb_info)
-        surface = skia.Surface.MakeFromBackendRenderTarget(
-            self._gr_context,
-            target,
-            skia.kTopLeft_GrSurfaceOrigin,
-            skia.kRGBA_8888_ColorType,
-            None,
-        )
-        if surface is None:
-            print("Warning: failed to create Skia surface from FBO", file=sys.stderr)
-            return
+        self._canvas.gr_context.resetContext()
 
         draw_legend(
-            surface.getCanvas(),
+            self._canvas.canvas(),
             self._legend_ctx,
             frame,
             float(width),
             float(height),
         )
-        surface.flushAndSubmit()
-
-    def _init_context(self) -> None:
-        interface = skia.GrGLInterface.MakeEGL()
-        self._gr_context = skia.GrDirectContext.MakeGL(interface)
-        if self._gr_context is None:
-            print("Warning: failed to create Skia GrDirectContext", file=sys.stderr)
-            return
-        self._legend_ctx = LegendCtx()
-        print("Skia GrDirectContext created on Picasso worker thread")
+        self._canvas.gr_context.flushAndSubmit()
 
 
 # ===========================================================================
@@ -370,7 +345,7 @@ def main() -> None:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        with as_gpu_mat(buf_ptr) as (mat, stream):
+        with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
             mat.setTo((18, 20, 28, 255), stream=stream)
 
         pts_ns = i * session.frame_duration_ns

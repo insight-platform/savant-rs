@@ -104,7 +104,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("gpumat", frame, buf).unwrap();
+        engine.send_frame("gpumat", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat").unwrap();
 
@@ -180,7 +180,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("gpumat-off", frame, buf).unwrap();
+        engine.send_frame("gpumat-off", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat-off").unwrap();
 

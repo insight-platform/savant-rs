@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union, final
 
-from savant_rs.deepstream import MemType, TransformConfig, VideoFormat
+from savant_rs.deepstream import MemType, Rect, TransformConfig, VideoFormat
 from savant_rs.draw_spec import ObjectDraw
 from savant_rs.gstreamer import Codec
 from savant_rs.primitives import EndOfStream, VideoFrame
@@ -641,13 +641,20 @@ class PicassoEngine:
         """Remove the spec for a source.  The worker will be shut down."""
         ...
 
-    def send_frame(self, source_id: str, frame: VideoFrame, buf_ptr: int) -> None:
+    def send_frame(
+        self,
+        source_id: str,
+        frame: VideoFrame,
+        buf_ptr: int,
+        src_rect: Optional[Rect] = None,
+    ) -> None:
         """Submit a video frame for processing.
 
         Args:
             source_id: Source identifier.
             frame: The ``VideoFrame`` proxy.
             buf_ptr: Raw pointer to the ``GstBuffer``.
+            src_rect: Optional source crop rectangle (top, left, width, height).
         """
         ...
 

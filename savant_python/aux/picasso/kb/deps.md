@@ -32,6 +32,11 @@ from savant_rs.deepstream import (
     Padding,              # NONE, RIGHT_BOTTOM, SYMMETRIC
     Interpolation,        # NEAREST, BILINEAR, ALGO1-4, DEFAULT
     ComputeMode,          # DEFAULT, GPU, VIC
+    # Pure-Python helpers (injected at import time, see note below)
+    nvgstbuf_as_gpu_mat,  # context manager: GstBuffer ptr → (GpuMat, Stream)
+    nvbuf_as_gpu_mat,     # context manager: raw CUDA params → (GpuMat, Stream)
+    from_gpumat,          # GpuMat → buf_ptr via generator pool
+    SkiaCanvas,           # convenience Skia wrapper for SkiaContext FBO
 )
 ```
 
@@ -101,11 +106,15 @@ buf_ptr = gen.acquire_surface(id=frame_idx)
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
 ```
 
+### Rect
+```python
+Rect(top, left, width, height)  # optional per-call crop for transform/send_frame
+```
+
 ### TransformConfig
 ```python
-TransformConfig()  # all defaults: Padding.SYMMETRIC, Interpolation.BILINEAR, ComputeMode.DEFAULT, no crop
-TransformConfig(padding=Padding.SYMMETRIC, interpolation=Interpolation.BILINEAR, src_rect=None, compute_mode=ComputeMode.DEFAULT)
-# src_rect: Optional[Tuple[top, left, width, height]] for crop region
+TransformConfig()  # all defaults: Padding.SYMMETRIC, Interpolation.BILINEAR, ComputeMode.DEFAULT
+# src_rect removed — pass Rect to engine.send_frame(..., src_rect=...) or generator.transform(..., src_rect=...) per call
 ```
 
 ### ColorDraw
@@ -127,21 +136,150 @@ LabelPosition.default_position()  # TopLeftOutside, margin_x=0, margin_y=-10
 
 ---
 
-## Third-Party GPU Drawing (for on_gpumat / on_render callbacks)
+## Rust/Python Mixed-Import Architecture
 
-### OpenCV CUDA (on_gpumat)
-```python
-import cv2
-# Create GpuMat from raw CUDA pointer (zero-copy, as_gpu_mat equivalent)
-gpumat = cv2.cuda.createGpuMatFromCudaMemory(
-    height, width, cv2.CV_8UC4, data_ptr, pitch,
-)
-stream = cv2.cuda.Stream()
-gpumat.setTo((r, g, b, a), stream=stream)
-stream.waitForCompletion()
+`savant_rs` is a **maturin-built PyO3 extension module** (`savant_rs.cpython-*.so`).
+At import time the native `.so` registers submodules directly into `sys.modules`:
+
+```rust
+// savant_python/src/lib.rs
+sys_modules.set_item("savant_rs.deepstream", m.getattr("deepstream")?)?;
+sys_modules.set_item("savant_rs.picasso",    m.getattr("picasso")?)?;
+// ... etc.
 ```
 
-### skia-python (on_render)
+This means **`savant_rs.deepstream` resolves to the native submodule, NOT the
+Python `deepstream/` package directory** — even though both exist on disk.
+The `deepstream/__init__.py` is never executed at runtime.
+
+### How pure-Python helpers are exposed
+
+Pure-Python helpers (`nvgstbuf_as_gpu_mat`, `nvbuf_as_gpu_mat`, `from_gpumat`,
+`SkiaCanvas`) cannot live
+inside the native submodule.  They are exposed via **attribute injection** in
+`savant_rs/__init__.py`:
+
+```python
+# savant_rs/__init__.py (simplified)
+from .savant_rs import *                     # loads .so, registers submodules in sys.modules
+
+import sys as _sys
+_ds = _sys.modules.get("savant_rs.deepstream")
+if _ds is not None:
+    try:
+        from savant_rs._ds_gpumat import nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat
+        _ds.nvgstbuf_as_gpu_mat = nvgstbuf_as_gpu_mat
+        _ds.nvbuf_as_gpu_mat = nvbuf_as_gpu_mat
+        _ds.from_gpumat = from_gpumat
+    except ImportError:
+        pass
+    try:
+        from savant_rs._ds_skia_canvas import SkiaCanvas
+        _ds.SkiaCanvas = SkiaCanvas
+    except ImportError:
+        pass
+```
+
+### Rules for adding new pure-Python helpers to a native submodule
+
+1. **Place the file at the `savant_rs` package root** as `_<prefix>_<name>.py`
+   (e.g. `_ds_gpumat.py`).  Do NOT put it inside the shadowed `deepstream/`
+   directory — it will never be loaded.
+
+2. **Use absolute imports** to reference native symbols:
+   ```python
+   from savant_rs.deepstream import NvBufSurfaceGenerator, get_nvbufsurface_info
+   ```
+   By the time `savant_rs/__init__.py` imports your file, the native `.so` has
+   already registered `savant_rs.deepstream` in `sys.modules`, so this resolves
+   correctly.
+
+3. **Inject into the native module** from `savant_rs/__init__.py`:
+   ```python
+   _ds = _sys.modules.get("savant_rs.deepstream")
+   if _ds is not None:
+       try:
+           from savant_rs._my_helpers import my_func
+           _ds.my_func = my_func
+       except ImportError:
+           pass
+   ```
+
+4. **Wrap with `try/except ImportError`** when the helper has optional
+   dependencies (`cv2`, `skia`, etc.) so that users who don't need
+   those features aren't broken.
+
+5. **Update the `.pyi` type stubs** in `deepstream/deepstream.pyi` to include
+   the injected symbols — type checkers read the `.pyi`, not the runtime module.
+
+### File layout
+
+```
+savant_python/python/savant_rs/
+├── __init__.py              ← imports .so + injects pure-Python helpers
+├── _ds_gpumat.py            ← nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat (requires cv2)
+├── _ds_skia_canvas.py       ← SkiaCanvas (requires skia-python)
+├── deepstream/
+│   ├── __init__.py          ← dead at runtime (shadowed by native module)
+│   └── deepstream.pyi       ← type stubs used by IDEs/mypy
+├── picasso/
+│   └── picasso.pyi          ← type stubs for savant_rs.picasso
+└── ...
+```
+
+⚠ After adding/modifying helpers, the wheel must be rebuilt and reinstalled
+(`SAVANT_FEATURES=deepstream make build_savant install`) for changes to take
+effect.  For quick iteration, copy changed files directly into
+`venv/lib/python3.12/site-packages/savant_rs/` and clear `__pycache__`.
+
+---
+
+## Third-Party GPU Drawing (for on_gpumat / on_render callbacks)
+
+### OpenCV CUDA — GpuMat helpers
+
+Two context managers for different call sites:
+
+```python
+from savant_rs.deepstream import nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat
+
+# nvgstbuf_as_gpu_mat: takes a GstBuffer* pointer, extracts NvBufSurface info.
+# Use outside callbacks (e.g. pre-filling backgrounds before send_frame).
+buf_ptr = gen.acquire_surface(id=i)
+with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
+    mat.setTo((20, 20, 28, 255), stream=stream)
+# stream is synchronised on exit; buf_ptr safe to push downstream
+
+# nvbuf_as_gpu_mat: takes raw CUDA params directly.
+# Use inside the on_gpumat callback which already provides these values.
+def on_gpumat(source_id, frame, data_ptr, pitch, width, height):
+    with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (mat, stream):
+        mat.setTo((20, 20, 28, 255), stream=stream)
+
+# from_gpumat: copy a GpuMat into a new buffer (with optional scaling)
+new_buf_ptr = from_gpumat(gen, some_gpumat, interpolation=cv2.INTER_LINEAR)
+```
+
+### skia-python — SkiaCanvas helper (on_render)
+```python
+from savant_rs.deepstream import SkiaCanvas
+
+# SkiaCanvas wraps SkiaContext + skia GrDirectContext + Surface in one object.
+# from_fbo() is designed for Picasso's on_render callback:
+class MyRenderer:
+    def __init__(self):
+        self._canvas = None
+
+    def __call__(self, source_id, fbo_id, width, height, frame):
+        if self._canvas is None:
+            self._canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
+        self._canvas.gr_context.resetContext()  # ← CRITICAL with draw spec
+        c = self._canvas.canvas()
+        # ... draw on c (skia.Canvas) ...
+        self._canvas.gr_context.flushAndSubmit()
+```
+
+### skia-python — raw API (on_render)
 ```python
 import skia
 

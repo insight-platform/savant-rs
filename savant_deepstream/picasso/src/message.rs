@@ -1,4 +1,5 @@
 use crate::spec::SourceSpec;
+use deepstream_nvbufsurface::Rect;
 use gstreamer as gst;
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -6,7 +7,7 @@ use savant_core::primitives::frame::VideoFrameProxy;
 /// Messages sent from the engine to per-source worker threads.
 pub enum WorkerMessage {
     /// A new video frame to process.
-    Frame(VideoFrameProxy, gst::Buffer),
+    Frame(VideoFrameProxy, gst::Buffer, Option<Rect>),
     /// End-of-stream signal.
     Eos,
     /// Hot-swap the source spec.

@@ -2,6 +2,7 @@ use super::callbacks::PyCallbacks;
 use super::error::to_py_err;
 use super::spec::general::PyGeneralSpec;
 use super::spec::source::PySourceSpec;
+use crate::deepstream::PyRect;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
 
@@ -60,12 +61,14 @@ impl PyPicassoEngine {
     ///
     /// ``buf_ptr`` is the raw pointer to the ``GstBuffer`` (obtain via
     /// ``hash(buffer)`` in PyGObject).
+    #[pyo3(signature = (source_id, frame, buf_ptr, src_rect=None))]
     fn send_frame(
         &self,
         py: Python<'_>,
         source_id: &str,
         frame: &crate::primitives::frame::VideoFrame,
         buf_ptr: usize,
+        src_rect: Option<&PyRect>,
     ) -> PyResult<()> {
         let engine = self
             .inner
@@ -75,6 +78,7 @@ impl PyPicassoEngine {
             return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
         }
         let frame_proxy = frame.0.clone();
+        let src_rect_rust = src_rect.map(|r| r.into_rust());
         py.detach(|| {
             let _ = gstreamer::init();
             // `from_glib_full`: the caller owns the pointer (obtained via
@@ -85,7 +89,7 @@ impl PyPicassoEngine {
                 gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
             };
             engine
-                .send_frame(source_id, frame_proxy, buf)
+                .send_frame(source_id, frame_proxy, buf, src_rect_rust)
                 .map_err(to_py_err)
         })
     }

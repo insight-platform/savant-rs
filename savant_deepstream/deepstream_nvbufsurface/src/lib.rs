@@ -832,6 +832,7 @@ impl NvBufSurfaceGenerator {
     /// * `src` - Source GStreamer buffer containing an NvBufSurface.
     /// * `config` - Transform configuration (padding, interpolation, etc.).
     /// * `id` - Optional frame identifier for SavantIdMeta attachment.
+    /// * `src_rect` - Optional source crop rectangle. `None` means full source.
     ///
     /// # Errors
     ///
@@ -842,6 +843,7 @@ impl NvBufSurfaceGenerator {
         src: &gst::Buffer,
         config: &TransformConfig,
         id: Option<i64>,
+        src_rect: Option<&Rect>,
     ) -> Result<gst::Buffer, NvBufSurfaceError> {
         // Acquire destination buffer from our pool
         let dst_buf = self.acquire_surface(id)?;
@@ -858,7 +860,7 @@ impl NvBufSurfaceGenerator {
 
         // Perform the transform
         unsafe {
-            transform::do_transform(src_surf, dst_surf, config)
+            transform::do_transform(src_surf, dst_surf, config, src_rect)
                 .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?;
         }
 
@@ -873,6 +875,7 @@ impl NvBufSurfaceGenerator {
     /// * `src` - Source GStreamer buffer containing an NvBufSurface.
     /// * `config` - Transform configuration.
     /// * `id` - Optional frame identifier for SavantIdMeta attachment.
+    /// * `src_rect` - Optional source crop rectangle. `None` means full source.
     ///
     /// # Errors
     ///
@@ -882,6 +885,7 @@ impl NvBufSurfaceGenerator {
         src: &gst::Buffer,
         config: &TransformConfig,
         id: Option<i64>,
+        src_rect: Option<&Rect>,
     ) -> Result<(gst::Buffer, *mut std::ffi::c_void, u32), NvBufSurfaceError> {
         // Acquire destination with ptr info
         let (dst_buf, data_ptr, pitch) = self.acquire_surface_with_ptr(id)?;
@@ -898,7 +902,7 @@ impl NvBufSurfaceGenerator {
 
         // Perform the transform
         unsafe {
-            transform::do_transform(src_surf, dst_surf, config)
+            transform::do_transform(src_surf, dst_surf, config, src_rect)
                 .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?;
         }
 

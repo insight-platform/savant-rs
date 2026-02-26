@@ -136,7 +136,6 @@ fn crop_rect() -> Rect {
 fn transform_config(padding: Padding) -> TransformConfig {
     TransformConfig {
         padding,
-        src_rect: Some(crop_rect()),
         ..Default::default()
     }
 }
@@ -152,7 +151,7 @@ fn render_cpu(padding: Padding) -> Vec<u8> {
 
     let frame = create_frame("cpu");
     let config = transform_config(padding);
-    rewrite_frame_transformations(&frame, DST_W, DST_H, &config).unwrap();
+    rewrite_frame_transformations(&frame, DST_W, DST_H, &config, Some(&crop_rect())).unwrap();
 
     let draw_spec = build_draw_spec();
     let mut ctx = DrawContext::new(FONT);
@@ -253,7 +252,9 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame(source_id, frame, buf).unwrap();
+    engine
+        .send_frame(source_id, frame, buf, Some(crop_rect()))
+        .unwrap();
     engine.send_eos(source_id).unwrap();
 
     let guard = capture.data.lock().unwrap();
@@ -459,7 +460,9 @@ fn letterbox_crop_two_sources_one_engine() {
             buf_ref.set_pts(gstreamer::ClockTime::ZERO);
             buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
         }
-        engine.send_frame(src, frame, buf).unwrap();
+        engine
+            .send_frame(src, frame, buf, Some(crop_rect()))
+            .unwrap();
         engine.send_eos(src).unwrap();
     }
 

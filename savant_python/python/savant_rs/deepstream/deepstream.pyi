@@ -5,7 +5,11 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Union, final
+from contextlib import contextmanager
+from typing import Generator, List, Optional, Tuple, Union, final
+
+import cv2
+import skia
 
 __all__ = [
     "Padding",
@@ -13,15 +17,20 @@ __all__ = [
     "ComputeMode",
     "VideoFormat",
     "MemType",
+    "Rect",
     "TransformConfig",
     "NvBufSurfaceGenerator",
     "SkiaContext",
+    "SkiaCanvas",
     "init_cuda",
     "bridge_savant_id_meta",
     "get_savant_id_meta",
     "get_nvbufsurface_info",
     "set_buffer_pts",
     "set_buffer_duration",
+    "nvgstbuf_as_gpu_mat",
+    "nvbuf_as_gpu_mat",
+    "from_gpumat",
 ]
 
 # ── Enums ────────────────────────────────────────────────────────────────
@@ -165,25 +174,39 @@ class MemType:
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
+# ── Rect ────────────────────────────────────────────────────────────────
+
+class Rect:
+    """A rectangle in pixel coordinates (top, left, width, height).
+
+    Used as an optional source crop region for transform and send_frame.
+    """
+
+    top: int
+    left: int
+    width: int
+    height: int
+
+    def __init__(self, top: int, left: int, width: int, height: int) -> None: ...
+    def __repr__(self) -> str: ...
+
 # ── TransformConfig ─────────────────────────────────────────────────────
 
 class TransformConfig:
     """Configuration for a transform (scale / letterbox) operation.
 
     All fields have sensible defaults (``Padding.SYMMETRIC``,
-    ``Interpolation.BILINEAR``, ``ComputeMode.DEFAULT``, no crop).
+    ``Interpolation.BILINEAR``, ``ComputeMode.DEFAULT``).
     """
 
     padding: Padding
     interpolation: Interpolation
-    src_rect: Optional[Tuple[int, int, int, int]]
     compute_mode: ComputeMode
 
     def __init__(
         self,
         padding: Padding = ...,
         interpolation: Interpolation = ...,
-        src_rect: Optional[Tuple[int, int, int, int]] = None,
         compute_mode: ComputeMode = ...,
     ) -> None: ...
     def __repr__(self) -> str: ...
@@ -263,6 +286,7 @@ class NvBufSurfaceGenerator:
         src_buf_ptr: int,
         config: TransformConfig,
         id: Optional[int] = None,
+        src_rect: Optional[Rect] = None,
     ) -> int:
         """Transform (scale + letterbox) a source buffer into a new destination.
 
@@ -276,6 +300,7 @@ class NvBufSurfaceGenerator:
         src_buf_ptr: int,
         config: TransformConfig,
         id: Optional[int] = None,
+        src_rect: Optional[Rect] = None,
     ) -> Tuple[int, int, int]:
         """Like :meth:`transform` but also returns ``(buf_ptr, data_ptr, pitch)``."""
         ...
@@ -373,5 +398,152 @@ def set_buffer_duration(buf_ptr: int, duration_ns: int) -> None:
     Args:
         buf_ptr: Raw GstBuffer pointer address.
         duration_ns: Duration in nanoseconds.
+    """
+    ...
+
+# ── SkiaCanvas ──────────────────────────────────────────────────────────
+
+class SkiaCanvas:
+    """Convenience wrapper: SkiaContext + skia-python in one object.
+
+    Handles creation of the skia GrDirectContext and Surface backed
+    by the SkiaContext's GPU FBO.
+    """
+
+    def __init__(self, ctx: SkiaContext) -> None: ...
+    @classmethod
+    def from_fbo(cls, fbo_id: int, width: int, height: int) -> SkiaCanvas:
+        """Create from an existing OpenGL FBO.
+
+        Args:
+            fbo_id: OpenGL FBO ID backing the canvas.
+            width:  Canvas width in pixels.
+            height: Canvas height in pixels.
+        """
+        ...
+
+    @classmethod
+    def create(cls, width: int, height: int, gpu_id: int = 0) -> SkiaCanvas:
+        """Create with an empty (transparent) canvas.
+
+        Args:
+            width:  Canvas width in pixels.
+            height: Canvas height in pixels.
+            gpu_id: GPU device ID (default 0).
+        """
+        ...
+
+    @classmethod
+    def from_nvbuf(cls, buf_ptr: int, gpu_id: int = 0) -> SkiaCanvas:
+        """Create with canvas pre-loaded from an NvBufSurface.
+
+        Args:
+            buf_ptr: Raw pointer of the source GstBuffer.
+            gpu_id:  GPU device ID (default 0).
+        """
+        ...
+
+    @property
+    def gr_context(self) -> skia.GrDirectContext:
+        """The Skia GPU ``GrDirectContext`` backing this canvas."""
+        ...
+
+    @property
+    def width(self) -> int:
+        """Canvas width in pixels."""
+        ...
+
+    @property
+    def height(self) -> int:
+        """Canvas height in pixels."""
+        ...
+
+    def canvas(self) -> skia.Canvas:
+        """Get the skia-python Canvas for drawing."""
+        ...
+
+    def render_to_nvbuf(
+        self,
+        buf_ptr: int,
+        config: Optional[TransformConfig] = None,
+    ) -> None:
+        """Flush Skia and copy to destination NvBufSurface.
+
+        Args:
+            buf_ptr: Raw pointer of the destination GstBuffer.
+            config:  Optional ``TransformConfig`` for scaling / letterboxing.
+        """
+        ...
+
+# ── GpuMat helpers ──────────────────────────────────────────────────────
+
+@contextmanager
+def nvgstbuf_as_gpu_mat(
+    buf_ptr: int,
+) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
+    """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
+
+    Extracts the CUDA device pointer, pitch, width and height from the
+    buffer's NvBufSurface metadata, then creates a zero-copy ``GpuMat``
+    together with a CUDA ``Stream``.  When the ``with`` block exits the
+    stream is synchronised (``waitForCompletion``).
+
+    Args:
+        buf_ptr: Raw ``GstBuffer*`` pointer address.
+
+    Yields:
+        ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4`` with the
+        buffer's native width, height and pitch.
+    """
+    ...
+
+@contextmanager
+def nvbuf_as_gpu_mat(
+    data_ptr: int,
+    pitch: int,
+    width: int,
+    height: int,
+) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
+    """Wrap raw CUDA memory as an OpenCV CUDA ``GpuMat``.
+
+    Unlike :func:`nvgstbuf_as_gpu_mat`, this takes the CUDA device
+    pointer and layout directly.  Designed for the Picasso ``on_gpumat``
+    callback which supplies these values.
+
+    Args:
+        data_ptr: CUDA device pointer to the surface data.
+        pitch: Row stride in bytes.
+        width: Surface width in pixels.
+        height: Surface height in pixels.
+
+    Yields:
+        ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4``.
+    """
+    ...
+
+def from_gpumat(
+    gen: NvBufSurfaceGenerator,
+    gpumat: cv2.cuda.GpuMat,
+    *,
+    interpolation: int = ...,
+    id: Optional[int] = None,
+) -> int:
+    """Acquire a buffer from the pool and fill it from a ``GpuMat``.
+
+    If the source ``GpuMat`` dimensions differ from the generator's
+    dimensions the image is scaled using :func:`cv2.cuda.resize` with
+    the given *interpolation* method.  When sizes match the data is
+    copied directly (zero-overhead ``copyTo``).
+
+    Args:
+        gen: Surface generator (determines destination dimensions and
+            format).
+        gpumat: Source ``GpuMat`` (must be ``CV_8UC4``).
+        interpolation: OpenCV interpolation flag (default
+            ``cv2.INTER_LINEAR``).
+        id: Optional frame identifier for ``SavantIdMeta``.
+
+    Returns:
+        Raw ``GstBuffer*`` pointer address of the newly acquired buffer.
     """
     ...

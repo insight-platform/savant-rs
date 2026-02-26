@@ -133,6 +133,7 @@ fn leak_worker_lifecycle_churn() {
         w.send(WorkerMessage::Frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
             gstreamer::Buffer::new(),
+            None,
         ))
         .unwrap();
         std::thread::sleep(Duration::from_millis(20));
@@ -156,6 +157,7 @@ fn leak_worker_lifecycle_churn() {
             let _ = w.send(WorkerMessage::Frame(
                 make_frame(&source, 320, 240),
                 gstreamer::Buffer::new(),
+                None,
             ));
             if j == 9 {
                 let _ = w.send(WorkerMessage::Eos);
@@ -207,6 +209,7 @@ fn leak_sustained_bypass_frames() {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
             gstreamer::Buffer::new(),
+            None,
         ));
     }
     std::thread::sleep(Duration::from_millis(500));
@@ -219,6 +222,7 @@ fn leak_sustained_bypass_frames() {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
             gstreamer::Buffer::new(),
+            None,
         ));
     }
     // Drain the channel
@@ -264,7 +268,12 @@ fn leak_engine_multi_source_churn() {
         let src = format!("eng-warmup-{i}");
         engine.set_source_spec(&src, bypass_spec()).unwrap();
         for _ in 0..5 {
-            let _ = engine.send_frame(&src, make_frame(&src, 320, 240), gstreamer::Buffer::new());
+            let _ = engine.send_frame(
+                &src,
+                make_frame(&src, 320, 240),
+                gstreamer::Buffer::new(),
+                None,
+            );
         }
         std::thread::sleep(Duration::from_millis(30));
         engine.remove_source_spec(&src);
@@ -279,7 +288,12 @@ fn leak_engine_multi_source_churn() {
         let src = format!("eng-churn-{i}");
         engine.set_source_spec(&src, bypass_spec()).unwrap();
         for _ in 0..20 {
-            let _ = engine.send_frame(&src, make_frame(&src, 320, 240), gstreamer::Buffer::new());
+            let _ = engine.send_frame(
+                &src,
+                make_frame(&src, 320, 240),
+                gstreamer::Buffer::new(),
+                None,
+            );
         }
         std::thread::sleep(Duration::from_millis(15));
         engine.remove_source_spec(&src);
@@ -520,7 +534,7 @@ fn leak_engine_gpu_encode_sustained() {
     for i in 0..10i64 {
         let frame = make_frame("gpu-enc", 640, 480);
         let buf = make_nvmm_buffer(&src_gen, i);
-        let _ = engine.send_frame("gpu-enc", frame, buf);
+        let _ = engine.send_frame("gpu-enc", frame, buf, None);
         std::thread::sleep(Duration::from_millis(35));
     }
     std::thread::sleep(Duration::from_secs(1));
@@ -533,7 +547,7 @@ fn leak_engine_gpu_encode_sustained() {
     for i in 10..210i64 {
         let frame = make_frame("gpu-enc", 640, 480);
         let buf = make_nvmm_buffer(&src_gen, i);
-        let _ = engine.send_frame("gpu-enc", frame, buf);
+        let _ = engine.send_frame("gpu-enc", frame, buf, None);
         std::thread::sleep(Duration::from_millis(35));
     }
     std::thread::sleep(Duration::from_secs(2));

@@ -63,7 +63,12 @@ fn e2e_eviction_keep_for_then_terminate() {
         .unwrap();
 
     engine
-        .send_frame("evict-test", make_frame("evict-test"), make_gst_buffer())
+        .send_frame(
+            "evict-test",
+            make_frame("evict-test"),
+            make_gst_buffer(),
+            None,
+        )
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(3));

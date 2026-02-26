@@ -243,7 +243,7 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf).unwrap();
+            engine.send_frame(sid, frame, buf, None).unwrap();
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -265,7 +265,7 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf).unwrap();
+            engine.send_frame(sid, frame, buf, None).unwrap();
             submitted += 1;
         }
     }

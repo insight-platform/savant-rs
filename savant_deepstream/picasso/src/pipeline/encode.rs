@@ -4,7 +4,7 @@ use crate::message::EncodedOutput;
 use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, SkiaRenderer, TransformConfig};
+use deepstream_nvbufsurface::{Padding, Rect, SkiaRenderer, TransformConfig};
 use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::frame::{
@@ -117,6 +117,7 @@ pub(crate) fn process_encode(
     use_on_gpumat: bool,
     render: Option<&mut RenderOpts<'_>>,
     pending_frames: &SharedPendingFrames,
+    src_rect: Option<&Rect>,
 ) -> Result<(), PicassoError> {
     let (target_w, target_h, need_ptr);
     let (mut dst_buf, data_ptr, pitch);
@@ -142,14 +143,24 @@ pub(crate) fn process_encode(
 
         if need_ptr {
             let result = generator
-                .transform_with_ptr(&input.buffer, transform_config, Some(input.frame_id as i64))
+                .transform_with_ptr(
+                    &input.buffer,
+                    transform_config,
+                    Some(input.frame_id as i64),
+                    src_rect,
+                )
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
             dst_buf = result.0;
             data_ptr = result.1;
             pitch = result.2;
         } else {
             let buf = generator
-                .transform(&input.buffer, transform_config, Some(input.frame_id as i64))
+                .transform(
+                    &input.buffer,
+                    transform_config,
+                    Some(input.frame_id as i64),
+                    src_rect,
+                )
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
             dst_buf = buf;
             data_ptr = std::ptr::null_mut();
@@ -157,7 +168,7 @@ pub(crate) fn process_encode(
         }
     }
 
-    rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config)?;
+    rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config, src_rect)?;
 
     if let Some(render) = render {
         let objects = input.frame.get_all_objects();
@@ -264,6 +275,7 @@ pub fn rewrite_frame_transformations(
     target_w: u32,
     target_h: u32,
     config: &TransformConfig,
+    src_rect: Option<&Rect>,
 ) -> Result<(), PicassoError> {
     let mut f = frame.clone();
 
@@ -285,7 +297,7 @@ pub fn rewrite_frame_transformations(
         dest_width: target_w as u64,
         dest_height: target_h as u64,
         letterbox: padding_to_letterbox_kind(config.padding),
-        crop: config.src_rect.as_ref().map(|r| CropRect {
+        crop: src_rect.map(|r| CropRect {
             left: r.left as u64,
             top: r.top as u64,
             width: r.width as u64,

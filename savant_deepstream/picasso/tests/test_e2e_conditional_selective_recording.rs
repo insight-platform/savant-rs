@@ -124,22 +124,42 @@ fn e2e_conditional_selective_recording() {
 
     let buf_a = make_gpu_buffer(&gen, 0, DUR);
     engine
-        .send_frame("cond", make_frame_with_attrs(true, true, true, 0), buf_a)
+        .send_frame(
+            "cond",
+            make_frame_with_attrs(true, true, true, 0),
+            buf_a,
+            None,
+        )
         .unwrap();
 
     let buf_b = make_gpu_buffer(&gen, 1, DUR);
     engine
-        .send_frame("cond", make_frame_with_attrs(true, false, true, 1), buf_b)
+        .send_frame(
+            "cond",
+            make_frame_with_attrs(true, false, true, 1),
+            buf_b,
+            None,
+        )
         .unwrap();
 
     let buf_c = make_gpu_buffer(&gen, 2, DUR);
     engine
-        .send_frame("cond", make_frame_with_attrs(false, true, true, 2), buf_c)
+        .send_frame(
+            "cond",
+            make_frame_with_attrs(false, true, true, 2),
+            buf_c,
+            None,
+        )
         .unwrap();
 
     let buf_d = make_gpu_buffer(&gen, 3, DUR);
     engine
-        .send_frame("cond", make_frame_with_attrs(false, false, false, 3), buf_d)
+        .send_frame(
+            "cond",
+            make_frame_with_attrs(false, false, false, 3),
+            buf_d,
+            None,
+        )
         .unwrap();
 
     engine.send_eos("cond").unwrap();

@@ -422,14 +422,13 @@ impl NvEncoder {
             let transform_config = TransformConfig {
                 padding: deepstream_nvbufsurface::Padding::None,
                 interpolation: deepstream_nvbufsurface::Interpolation::Nearest,
-                src_rect: None,
                 compute_mode: deepstream_nvbufsurface::ComputeMode::Default,
                 cuda_stream: ctx.cuda_stream,
             };
 
             let mut native_buf = ctx
                 .native_generator
-                .transform(&buffer, &transform_config, None)
+                .transform(&buffer, &transform_config, None, None)
                 .map_err(|e| {
                     EncoderError::PipelineError(format!(
                         "NvBufSurfTransform (format conversion) failed: {}",

@@ -383,12 +383,62 @@ fn extract_mem_type(ob: &Bound<'_, PyAny>) -> PyResult<NvBufSurfaceMemType> {
     ))
 }
 
+// ─── Rect ────────────────────────────────────────────────────────────────
+
+/// A rectangle in pixel coordinates (top, left, width, height).
+///
+/// Used as an optional source crop region for transform and send_frame.
+#[pyclass(name = "Rect", module = "savant_rs.deepstream", skip_from_py_object)]
+#[derive(Debug, Clone, Copy)]
+pub struct PyRect {
+    #[pyo3(get, set)]
+    pub top: u32,
+    #[pyo3(get, set)]
+    pub left: u32,
+    #[pyo3(get, set)]
+    pub width: u32,
+    #[pyo3(get, set)]
+    pub height: u32,
+}
+
+#[pymethods]
+impl PyRect {
+    #[new]
+    #[pyo3(signature = (top, left, width, height))]
+    fn new(top: u32, left: u32, width: u32, height: u32) -> Self {
+        Self {
+            top,
+            left,
+            width,
+            height,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Rect(top={}, left={}, width={}, height={})",
+            self.top, self.left, self.width, self.height
+        )
+    }
+}
+
+impl PyRect {
+    pub(crate) fn into_rust(self) -> Rect {
+        Rect {
+            top: self.top,
+            left: self.left,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
 // ─── TransformConfig ────────────────────────────────────────────────────
 
 /// Configuration for a transform (scale / letterbox) operation.
 ///
 /// All fields have sensible defaults (``Padding.SYMMETRIC``,
-/// ``Interpolation.BILINEAR``, ``ComputeMode.DEFAULT``, no crop).
+/// ``Interpolation.BILINEAR``, ``ComputeMode.DEFAULT``).
 #[pyclass(
     from_py_object,
     name = "TransformConfig",
@@ -401,8 +451,6 @@ pub struct PyTransformConfig {
     #[pyo3(get, set)]
     pub interpolation: PyInterpolation,
     #[pyo3(get, set)]
-    pub src_rect: Option<(u32, u32, u32, u32)>,
-    #[pyo3(get, set)]
     pub compute_mode: PyComputeMode,
 }
 
@@ -412,27 +460,24 @@ impl PyTransformConfig {
     #[pyo3(signature = (
         padding = PyPadding::Symmetric,
         interpolation = PyInterpolation::Bilinear,
-        src_rect = None,
         compute_mode = PyComputeMode::Default,
     ))]
     fn new(
         padding: PyPadding,
         interpolation: PyInterpolation,
-        src_rect: Option<(u32, u32, u32, u32)>,
         compute_mode: PyComputeMode,
     ) -> Self {
         Self {
             padding,
             interpolation,
-            src_rect,
             compute_mode,
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "TransformConfig(padding={:?}, interpolation={:?}, src_rect={:?}, compute_mode={:?})",
-            self.padding, self.interpolation, self.src_rect, self.compute_mode,
+            "TransformConfig(padding={:?}, interpolation={:?}, compute_mode={:?})",
+            self.padding, self.interpolation, self.compute_mode,
         )
     }
 }
@@ -442,12 +487,6 @@ impl PyTransformConfig {
         TransformConfig {
             padding: self.padding.into(),
             interpolation: self.interpolation.into(),
-            src_rect: self.src_rect.map(|(top, left, w, h)| Rect {
-                top,
-                left,
-                width: w,
-                height: h,
-            }),
             compute_mode: self.compute_mode.into(),
             cuda_stream: std::ptr::null_mut(),
         }
@@ -605,15 +644,17 @@ impl PyNvBufSurfaceGenerator {
     }
 
     /// Transform (scale + letterbox) a source buffer into a new destination.
-    #[pyo3(signature = (src_buf_ptr, config, id=None))]
+    #[pyo3(signature = (src_buf_ptr, config, id=None, src_rect=None))]
     fn transform(
         &self,
         py: Python<'_>,
         src_buf_ptr: usize,
         config: &PyTransformConfig,
         id: Option<i64>,
+        src_rect: Option<&PyRect>,
     ) -> PyResult<usize> {
         let config = config.to_rust();
+        let src_rect_rust = src_rect.map(|r| r.into_rust());
         py.detach(|| {
             if src_buf_ptr == 0 {
                 return Err(pyo3::exceptions::PyValueError::new_err(
@@ -624,7 +665,7 @@ impl PyNvBufSurfaceGenerator {
                 unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
             let dst_buf = self
                 .inner
-                .transform(&src_buf, &config, id)
+                .transform(&src_buf, &config, id, src_rect_rust.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let raw = unsafe {
                 use glib::translate::IntoGlibPtr;
@@ -635,15 +676,17 @@ impl PyNvBufSurfaceGenerator {
     }
 
     /// Like :meth:`transform` but also returns ``(buf_ptr, data_ptr, pitch)``.
-    #[pyo3(signature = (src_buf_ptr, config, id=None))]
+    #[pyo3(signature = (src_buf_ptr, config, id=None, src_rect=None))]
     fn transform_with_ptr(
         &self,
         py: Python<'_>,
         src_buf_ptr: usize,
         config: &PyTransformConfig,
         id: Option<i64>,
+        src_rect: Option<&PyRect>,
     ) -> PyResult<(usize, usize, u32)> {
         let config = config.to_rust();
+        let src_rect_rust = src_rect.map(|r| r.into_rust());
         py.detach(|| {
             if src_buf_ptr == 0 {
                 return Err(pyo3::exceptions::PyValueError::new_err(
@@ -652,10 +695,10 @@ impl PyNvBufSurfaceGenerator {
             }
             let src_buf =
                 unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
-            let (dst_buf, data_ptr, pitch) =
-                self.inner
-                    .transform_with_ptr(&src_buf, &config, id)
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            let (dst_buf, data_ptr, pitch) = self
+                .inner
+                .transform_with_ptr(&src_buf, &config, id, src_rect_rust.as_ref())
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let raw_buf = unsafe {
                 use glib::translate::IntoGlibPtr;
                 dst_buf.into_glib_ptr() as usize
@@ -925,6 +968,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyComputeMode>()?;
     m.add_class::<PyVideoFormat>()?;
     m.add_class::<PyMemType>()?;
+    m.add_class::<PyRect>()?;
     m.add_class::<PyTransformConfig>()?;
     m.add_class::<PyNvBufSurfaceGenerator>()?;
     m.add_function(pyo3::wrap_pyfunction!(py_init_cuda, m)?)?;

@@ -94,7 +94,12 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    fn process_frame(&mut self, frame: VideoFrameProxy, mut buffer: gstreamer::Buffer) {
+    fn process_frame(
+        &mut self,
+        frame: VideoFrameProxy,
+        mut buffer: gstreamer::Buffer,
+        src_rect: Option<deepstream_nvbufsurface::Rect>,
+    ) {
         if let Some((ns, name)) = &self.spec.conditional.encode_attribute {
             if frame.get_attribute(ns, name).is_none() {
                 debug!("conditional skip (frame attr): source={}", self.source_id);
@@ -168,6 +173,7 @@ impl WorkerState {
                 self.spec.use_on_gpumat,
                 render_opts.as_mut(),
                 &self.pending_frames,
+                src_rect.as_ref(),
             ) {
                 error!("encode error: source={}, err={e}", self.source_id);
             }
@@ -271,8 +277,8 @@ fn worker_loop(
 
     loop {
         match rx.recv_timeout(idle_timeout) {
-            Ok(WorkerMessage::Frame(frame, buffer)) => {
-                state.process_frame(frame, buffer);
+            Ok(WorkerMessage::Frame(frame, buffer, src_rect)) => {
+                state.process_frame(frame, buffer, src_rect);
             }
             Ok(WorkerMessage::Eos) => {
                 info!("EOS received: source={source_id}");

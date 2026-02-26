@@ -93,7 +93,7 @@ fn e2e_hot_swap_encode_params() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen1, i, DUR);
-        engine.send_frame("swap", frame, buf).unwrap();
+        engine.send_frame("swap", frame, buf, None).unwrap();
     }
     std::thread::sleep(Duration::from_secs(2));
 
@@ -122,7 +122,7 @@ fn e2e_hot_swap_encode_params() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen2, i, DUR);
-        engine.send_frame("swap", frame, buf).unwrap();
+        engine.send_frame("swap", frame, buf, None).unwrap();
     }
     engine.send_eos("swap").unwrap();
     std::thread::sleep(Duration::from_secs(2));

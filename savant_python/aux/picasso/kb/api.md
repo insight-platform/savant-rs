@@ -24,7 +24,7 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 |---|---|---|
 | `set_source_spec` | `(source_id: str, spec: SourceSpec) → None` | Creates/replaces worker. ⚠ RuntimeError if shut down |
 | `remove_source_spec` | `(source_id: str) → None` | Stops worker. ⚠ RuntimeError if shut down |
-| `send_frame` | `(source_id: str, frame: VideoFrame, buf_ptr: int) → None` | GPU. ⚠ RuntimeError if shut down, ValueError if buf_ptr==0 |
+| `send_frame` | `(source_id: str, frame: VideoFrame, buf_ptr: int, src_rect: Optional[Rect]=None) → None` | GPU. Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf_ptr==0 |
 | `send_eos` | `(source_id: str) → None` | Signals end-of-stream. ⚠ RuntimeError if shut down |
 | `shutdown` | `() → None` | Idempotent. Releases GIL during join. |
 
@@ -100,7 +100,7 @@ When `CodecSpec.encode()` is used, the per-frame processing order is:
 7. **Hardware encode** — frame submitted to encoder
 
 ⚠ To place content **behind** draw-spec bboxes, pre-fill the input
-NvBufSurface before calling `send_frame` (e.g. via `as_gpu_mat`).
+NvBufSurface before calling `send_frame` (e.g. via `nvgstbuf_as_gpu_mat`).
 ⚠ `on_render` is for **overlays** (sidebar, HUD, watermarks), not backgrounds.
 ⚠ `on_gpumat` sees the fully-composited frame; modifications go directly to
 the encoder.

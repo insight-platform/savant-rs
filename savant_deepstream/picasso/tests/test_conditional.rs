@@ -151,14 +151,14 @@ fn encode_attribute_gate_drops_frames_without_attr() {
     for i in 0..3u64 {
         let frame = make_frame("src", i);
         let buf = make_buffer(&gen, i);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Send 2 frames WITH the gate attribute — these should be encoded.
     for i in 3..5u64 {
         let frame = make_frame_with_attr("src", i, "gate", "process");
         let buf = make_buffer(&gen, i);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Give the pipeline time to process all frames.
@@ -225,14 +225,14 @@ fn render_attribute_gate_skips_rendering_without_attr() {
     for i in 0..3u64 {
         let frame = make_frame("src", i);
         let buf = make_buffer(&gen, i);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Send 2 frames WITH the render attribute — should be both rendered AND encoded.
     for i in 3..5u64 {
         let frame = make_frame_with_attr("src", i, "gate", "render");
         let buf = make_buffer(&gen, i);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Give the pipeline time to process.
@@ -305,14 +305,14 @@ fn both_gates_active() {
     {
         let frame = make_frame("src", 0);
         let buf = make_buffer(&gen, 0);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Frame 1: only encode attribute → encoded but NOT rendered
     {
         let frame = make_frame_with_attr("src", 1, "gate", "process");
         let buf = make_buffer(&gen, 1);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Frame 2: only render attribute (no encode attr) → dropped by encode gate
@@ -321,7 +321,7 @@ fn both_gates_active() {
         let mut fm = frame.clone();
         fm.set_persistent_attribute("gate", "render", &None, false, vec![]);
         let buf = make_buffer(&gen, 2);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Frame 3: both attributes → rendered AND encoded
@@ -331,7 +331,7 @@ fn both_gates_active() {
         fm.set_persistent_attribute("gate", "process", &None, false, vec![]);
         fm.set_persistent_attribute("gate", "render", &None, false, vec![]);
         let buf = make_buffer(&gen, 3);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     // Frame 4: both attributes → rendered AND encoded
@@ -341,7 +341,7 @@ fn both_gates_active() {
         fm.set_persistent_attribute("gate", "process", &None, false, vec![]);
         fm.set_persistent_attribute("gate", "render", &None, false, vec![]);
         let buf = make_buffer(&gen, 4);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_secs(2));
@@ -410,7 +410,7 @@ fn no_gates_all_frames_pass() {
     for i in 0..4u64 {
         let frame = make_frame("src", i);
         let buf = make_buffer(&gen, i);
-        engine.send_frame("src", frame, buf).unwrap();
+        engine.send_frame("src", frame, buf, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_secs(2));

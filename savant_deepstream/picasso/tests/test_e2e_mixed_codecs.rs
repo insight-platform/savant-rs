@@ -133,13 +133,13 @@ fn e2e_mixed_codecs() {
         // Drop: stub buffer
         let frame_drop = make_frame("cam-drop");
         engine
-            .send_frame("cam-drop", frame_drop, make_gst_buffer())
+            .send_frame("cam-drop", frame_drop, make_gst_buffer(), None)
             .unwrap();
 
         // Bypass: stub buffer
         let frame_bypass = make_frame("cam-bypass");
         engine
-            .send_frame("cam-bypass", frame_bypass, make_gst_buffer())
+            .send_frame("cam-bypass", frame_bypass, make_gst_buffer(), None)
             .unwrap();
 
         // Encode: GPU buffer
@@ -147,7 +147,9 @@ fn e2e_mixed_codecs() {
         frame_enc.set_pts((i * DUR) as i64).unwrap();
         frame_enc.set_duration(Some(DUR as i64)).unwrap();
         let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("cam-encode", frame_enc, buf).unwrap();
+        engine
+            .send_frame("cam-encode", frame_enc, buf, None)
+            .unwrap();
     }
 
     engine.send_eos("cam-drop").unwrap();

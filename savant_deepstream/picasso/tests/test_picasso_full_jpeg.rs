@@ -348,7 +348,7 @@ fn render_gpu() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("gpu", frame, buf).unwrap();
+    engine.send_frame("gpu", frame, buf, None).unwrap();
 
     // Wait for the OnRender capture (timeout 10 s)
     let guard = capture.pixels.lock().unwrap();
@@ -467,7 +467,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("gpu-jpeg", frame, buf).unwrap();
+    engine.send_frame("gpu-jpeg", frame, buf, None).unwrap();
 
     // EOS triggers encoder flush which produces the pending JPEG frame.
     engine.send_eos("gpu-jpeg").unwrap();

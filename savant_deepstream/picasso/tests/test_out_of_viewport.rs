@@ -230,7 +230,7 @@ fn out_of_viewport_objects_do_not_crash() {
             .unwrap();
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
         let buf = make_buffer(&gen, i as u64);
-        engine.send_frame("oob", frame, buf).unwrap();
+        engine.send_frame("oob", frame, buf, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_secs(3));
@@ -308,7 +308,9 @@ fn all_oob_objects_on_single_frame() {
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
     }
     let buf = make_buffer(&gen, 0);
-    engine.send_frame("oob-all", frame.clone(), buf).unwrap();
+    engine
+        .send_frame("oob-all", frame.clone(), buf, None)
+        .unwrap();
 
     std::thread::sleep(Duration::from_secs(3));
     engine.send_eos("oob-all").unwrap();

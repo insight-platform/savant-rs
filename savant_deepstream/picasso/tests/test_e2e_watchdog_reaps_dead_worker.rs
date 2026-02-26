@@ -43,7 +43,12 @@ fn e2e_watchdog_reaps_dead_worker() {
         .unwrap();
 
     engine
-        .send_frame("reap-test", make_frame("reap-test"), make_gst_buffer())
+        .send_frame(
+            "reap-test",
+            make_frame("reap-test"),
+            make_gst_buffer(),
+            None,
+        )
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(5));
@@ -59,7 +64,12 @@ fn e2e_watchdog_reaps_dead_worker() {
         .unwrap();
 
     engine
-        .send_frame("reap-test", make_frame("reap-test"), make_gst_buffer())
+        .send_frame(
+            "reap-test",
+            make_frame("reap-test"),
+            make_gst_buffer(),
+            None,
+        )
         .expect("second send_frame should succeed after watchdog reaps dead worker");
     std::thread::sleep(Duration::from_millis(500));
 

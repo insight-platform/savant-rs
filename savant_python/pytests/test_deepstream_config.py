@@ -23,9 +23,18 @@ class TestTransformConfigDefaults:
         cfg = ds.TransformConfig()
         assert cfg.compute_mode == ds.ComputeMode.DEFAULT
 
-    def test_default_src_rect(self):
-        cfg = ds.TransformConfig()
-        assert cfg.src_rect is None
+
+class TestRect:
+    def test_rect_construction(self):
+        r = ds.Rect(10, 20, 100, 200)
+        assert r.top == 10
+        assert r.left == 20
+        assert r.width == 100
+        assert r.height == 200
+
+    def test_rect_repr(self):
+        r = ds.Rect(1, 2, 3, 4)
+        assert "Rect" in repr(r)
 
 
 class TestTransformConfigCustom:
@@ -41,21 +50,14 @@ class TestTransformConfigCustom:
         cfg = ds.TransformConfig(compute_mode=ds.ComputeMode.GPU)
         assert cfg.compute_mode == ds.ComputeMode.GPU
 
-    def test_set_src_rect(self):
-        rect = (10, 20, 100, 200)
-        cfg = ds.TransformConfig(src_rect=rect)
-        assert cfg.src_rect == rect
-
     def test_all_fields(self):
         cfg = ds.TransformConfig(
             padding=ds.Padding.NONE,
             interpolation=ds.Interpolation.ALGO3,
-            src_rect=(0, 0, 320, 240),
             compute_mode=ds.ComputeMode.GPU,
         )
         assert cfg.padding == ds.Padding.NONE
         assert cfg.interpolation == ds.Interpolation.ALGO3
-        assert cfg.src_rect == (0, 0, 320, 240)
         assert cfg.compute_mode == ds.ComputeMode.GPU
 
 
@@ -64,16 +66,6 @@ class TestTransformConfigMutable:
         cfg = ds.TransformConfig()
         cfg.padding = ds.Padding.NONE
         assert cfg.padding == ds.Padding.NONE
-
-    def test_set_src_rect_after_init(self):
-        cfg = ds.TransformConfig()
-        cfg.src_rect = (5, 10, 50, 100)
-        assert cfg.src_rect == (5, 10, 50, 100)
-
-    def test_clear_src_rect(self):
-        cfg = ds.TransformConfig(src_rect=(1, 2, 3, 4))
-        cfg.src_rect = None
-        assert cfg.src_rect is None
 
 
 class TestTransformConfigRepr:

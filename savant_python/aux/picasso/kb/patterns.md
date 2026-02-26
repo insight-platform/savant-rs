@@ -334,6 +334,11 @@ spec = SourceSpec(
 ⚠ A single source is processed sequentially on one worker thread; no
 locking is needed for the animation state within a single source.
 
+⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height)`.
+Use `nvbuf_as_gpu_mat(data_ptr, pitch, width, height)` inside the callback.
+Use `nvgstbuf_as_gpu_mat(buf_ptr)` outside callbacks (e.g. pre-filling
+backgrounds before `send_frame`) where you have a `GstBuffer*` pointer.
+
 ---
 
 ## on_render Callback Drawing Pattern (Skia → FBO)
@@ -349,6 +354,53 @@ behind bboxes, pre-fill the input NvBufSurface before `send_frame`.
 ⚠ **Do NOT call `canvas.clear()`** in `on_render` if you use draw spec —
 it erases the bboxes Picasso already rendered.
 
+### Preferred: SkiaCanvas helper
+
+`SkiaCanvas` from `savant_rs.deepstream` wraps the GL boilerplate
+(`GrGLInterface.MakeEGL()`, `GrDirectContext`, `GrBackendRenderTarget`,
+`Surface`) into a single object.  Cache it on first call:
+
+```python
+from savant_rs.deepstream import SkiaCanvas
+
+class SkiaOverlayRenderer:
+    """Callable on_render callback that draws overlays into Picasso's FBO."""
+
+    def __init__(self):
+        self._canvas: SkiaCanvas | None = None
+
+    def __call__(self, source_id, fbo_id, width, height, frame):
+        if self._canvas is None:
+            self._canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
+
+        # ⚠ CRITICAL when combining draw spec + on_render:
+        self._canvas.gr_context.resetContext()
+
+        c = self._canvas.canvas()
+        # ⚠ Do NOT clear — draw spec bboxes are already on the canvas
+        # Draw sidebar, HUD, or watermark here...
+
+        objects = frame.get_all_objects()
+        for obj in objects:
+            # obj.namespace, obj.label, obj.id, obj.confidence
+            # obj.detection_box → RBBox (.xc, .yc, .width, .height)
+            pass
+
+        self._canvas.gr_context.flushAndSubmit()
+
+renderer = SkiaOverlayRenderer()
+callbacks = Callbacks(on_render=renderer)
+spec = SourceSpec(
+    codec=CodecSpec.encode(TransformConfig(), enc_cfg),
+    use_on_render=True,
+)
+```
+
+### Alternative: raw skia-python API
+
+If you need finer control over the GL context lifecycle (e.g. texture
+caching, multi-context), use the raw skia-python API:
+
 ⚠ **On headless EGL systems** (typical for DeepStream), `skia.GrDirectContext.MakeGL()`
 with no arguments returns `None`.  You **must** use
 `skia.GrGLInterface.MakeEGL()` to get the GL interface first:
@@ -359,16 +411,15 @@ import skia
 GL_RGBA8 = 0x8058
 
 class SkiaOverlayRenderer:
-    """Callable on_render callback that draws overlays into Picasso's FBO."""
-
     def __init__(self):
         self._gr_context = None
 
     def __call__(self, source_id, fbo_id, width, height, frame):
         if self._gr_context is None:
-            # ⚠ MakeEGL() required on headless EGL; plain MakeGL() returns None
             interface = skia.GrGLInterface.MakeEGL()
             self._gr_context = skia.GrDirectContext.MakeGL(interface)
+
+        self._gr_context.resetContext()  # ← CRITICAL with draw spec
 
         fb_info = skia.GrGLFramebufferInfo(fbo_id, GL_RGBA8)
         target = skia.GrBackendRenderTarget(width, height, 0, 8, fb_info)
@@ -379,24 +430,8 @@ class SkiaOverlayRenderer:
             None,
         )
         canvas = surface.getCanvas()
-        # ⚠ Do NOT clear — draw spec bboxes are already on the canvas
-        # Draw sidebar, HUD, or watermark here...
-
-        # Access objects from the frame for overlay listings:
-        objects = frame.get_all_objects()
-        for obj in objects:
-            # obj.namespace, obj.label, obj.id, obj.confidence
-            # obj.detection_box → RBBox (.xc, .yc, .width, .height)
-            pass
-
+        # ... draw ...
         surface.flushAndSubmit()
-
-renderer = SkiaOverlayRenderer()
-callbacks = Callbacks(on_render=renderer)
-spec = SourceSpec(
-    codec=CodecSpec.encode(TransformConfig(), enc_cfg),
-    use_on_render=True,
-)
 ```
 
 ⚠ GPU textures (`makeTextureImage`) must be uploaded using the same
@@ -434,14 +469,14 @@ muxer.finish()
 Combine `ObjectDrawSpec` (automatic bbox rendering) with callbacks for
 a layered scene.  The composition order is:
 
-1. **Input surface** (background) → pre-filled via `as_gpu_mat` before `send_frame`
+1. **Input surface** (background) → pre-filled via `nvgstbuf_as_gpu_mat` before `send_frame`
 2. **Draw spec** → Picasso renders bboxes/labels/dots for all `VideoObject`s
 3. **`on_render`** → Skia overlays (sidebar, HUD) on top of bboxes
 4. **`on_gpumat`** → final CUDA-level post-processing (optional)
 
 ```python
 import cv2
-from deepstream_nvbufsurface import as_gpu_mat
+from savant_rs.deepstream import nvgstbuf_as_gpu_mat
 from savant_rs.draw_spec import (
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw,
     LabelPosition, ObjectDraw, PaddingDraw,
@@ -471,7 +506,7 @@ def build_draw_spec() -> ObjectDrawSpec:
 
 # 2. Per-frame: pre-fill bg + add objects + send
 buf_ptr = gen.acquire_surface(id=i)
-with as_gpu_mat(buf_ptr) as (mat, stream):
+with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 
 frame = VideoFrame(source_id="src-0", framerate="30/1",

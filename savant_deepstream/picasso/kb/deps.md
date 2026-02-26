@@ -33,8 +33,10 @@ use deepstream_encoders::prelude::*;
 ```rust
 use deepstream_nvbufsurface::{Padding, Rect, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
-// TransformConfig fields: padding, interpolation, src_rect: Option<Rect>, compute_mode, cuda_stream
-// TransformConfig implements Default (Symmetric, Bilinear, no crop, Default compute)
+// Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
+// TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
+// TransformConfig implements Default (Symmetric, Bilinear, Default compute)
+// NvBufSurfaceGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 ```
 
@@ -130,13 +132,8 @@ PNG uses the nvvideoconvert → pngenc GStreamer chain (gst-plugins-good). Forma
 
 ### TransformConfig
 ```rust
-TransformConfig::default()  // Padding::Symmetric, Bilinear, no crop, Default compute
-
-TransformConfig {
-    padding: Padding::Symmetric,
-    src_rect: Some(Rect { left: 0, top: 0, width: 960, height: 540 }),
-    ..Default::default()
-}
+TransformConfig::default()  // Padding::Symmetric, Bilinear, Default compute
+// src_rect removed — pass Option<Rect> to send_frame or generator.transform() per call
 ```
 
 ### ObjectDraw (from savant_core::draw)

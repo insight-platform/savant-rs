@@ -45,10 +45,18 @@ fn e2e_per_source_idle_timeout() {
     );
 
     worker_fast
-        .send(WorkerMessage::Frame(make_frame("fast"), make_gst_buffer()))
+        .send(WorkerMessage::Frame(
+            make_frame("fast"),
+            make_gst_buffer(),
+            None,
+        ))
         .unwrap();
     worker_slow
-        .send(WorkerMessage::Frame(make_frame("slow"), make_gst_buffer()))
+        .send(WorkerMessage::Frame(
+            make_frame("slow"),
+            make_gst_buffer(),
+            None,
+        ))
         .unwrap();
 
     std::thread::sleep(Duration::from_secs(3));

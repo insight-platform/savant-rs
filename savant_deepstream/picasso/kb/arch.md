@@ -61,8 +61,8 @@ values from the frame onto the buffer so downstream consumers see correct metada
 
 ## Data Flow (Encode Path)
 ```
-send_frame(source_id, VideoFrameProxy, gst::Buffer)
-  → WorkerMessage::Frame(proxy, buf) via crossbeam channel
+send_frame(source_id, VideoFrameProxy, gst::Buffer, src_rect: Option<Rect>)
+  → WorkerMessage::Frame(proxy, buf, src_rect) via crossbeam channel
   → worker_loop receives
   → apply_frame_timestamps_to_buffer(frame, buf)
   → WorkerState::process_frame

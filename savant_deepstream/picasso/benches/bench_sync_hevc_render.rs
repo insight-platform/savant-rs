@@ -207,7 +207,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         let frame = make_frame_with_objects("bench", i as i64, 0);
         let buf = make_gpu_buffer(&gen, i as i64);
         engine
-            .send_frame("bench", frame, buf)
+            .send_frame("bench", frame, buf, None)
             .unwrap_or_else(|e| panic!("send_frame failed: {}", e));
         rx.recv().expect("warm-up recv failed");
     }
@@ -232,7 +232,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
                 let frame = make_frame_with_objects("bench", idx, num_objects);
                 let buf = make_gpu_buffer(&gen, idx);
                 engine
-                    .send_frame("bench", frame, buf)
+                    .send_frame("bench", frame, buf, None)
                     .expect("send_frame failed");
                 rx.recv().expect("encoded recv failed");
             });

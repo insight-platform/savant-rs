@@ -92,8 +92,9 @@ fn encode_transform(
     target_w: u32,
     target_h: u32,
     config: &TransformConfig,
+    src_rect: Option<&Rect>,
 ) {
-    rewrite_frame_transformations(frame, target_w, target_h, config).unwrap();
+    rewrite_frame_transformations(frame, target_w, target_h, config, src_rect).unwrap();
 }
 
 fn config_with_padding(padding: Padding) -> TransformConfig {
@@ -103,10 +104,9 @@ fn config_with_padding(padding: Padding) -> TransformConfig {
     }
 }
 
-fn config_with_crop(rect: Rect, padding: Padding) -> TransformConfig {
+fn config_with_crop(_rect: Rect, padding: Padding) -> TransformConfig {
     TransformConfig {
         padding,
-        src_rect: Some(rect),
         ..Default::default()
     }
 }
@@ -223,7 +223,13 @@ fn multiple_letterbox_and_paddings() {
 fn symmetric_800x600_to_800x800_center_object() {
     let frame = make_frame(800, 600);
     let obj_id = add_object(&frame, 400.0, 300.0, 80.0, 60.0);
-    encode_transform(&frame, 800, 800, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        800,
+        800,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 400.0, 400.0, 80.0, 60.0, 0.5);
 }
 
@@ -231,7 +237,13 @@ fn symmetric_800x600_to_800x800_center_object() {
 fn symmetric_800x600_to_800x800_top_edge_object() {
     let frame = make_frame(800, 600);
     let obj_id = add_object(&frame, 400.0, 0.0, 80.0, 60.0);
-    encode_transform(&frame, 800, 800, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        800,
+        800,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 400.0, 100.0, 80.0, 60.0, 0.5);
 }
 
@@ -239,7 +251,13 @@ fn symmetric_800x600_to_800x800_top_edge_object() {
 fn symmetric_800x600_to_800x800_bottom_edge_object() {
     let frame = make_frame(800, 600);
     let obj_id = add_object(&frame, 400.0, 600.0, 80.0, 60.0);
-    encode_transform(&frame, 800, 800, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        800,
+        800,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 400.0, 700.0, 80.0, 60.0, 0.5);
 }
 
@@ -247,7 +265,13 @@ fn symmetric_800x600_to_800x800_bottom_edge_object() {
 fn same_aspect_1280x720_to_1920x1080_center() {
     let frame = make_frame(1280, 720);
     let obj_id = add_object(&frame, 640.0, 360.0, 100.0, 100.0);
-    encode_transform(&frame, 1920, 1080, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        1920,
+        1080,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 960.0, 540.0, 150.0, 150.0, 0.5);
 }
 
@@ -255,7 +279,13 @@ fn same_aspect_1280x720_to_1920x1080_center() {
 fn same_aspect_1280x720_to_1920x1080_origin() {
     let frame = make_frame(1280, 720);
     let obj_id = add_object(&frame, 0.0, 0.0, 20.0, 20.0);
-    encode_transform(&frame, 1920, 1080, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        1920,
+        1080,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 0.0, 0.0, 30.0, 30.0, 0.5);
 }
 
@@ -263,7 +293,13 @@ fn same_aspect_1280x720_to_1920x1080_origin() {
 fn same_aspect_1280x720_to_1920x1080_corner() {
     let frame = make_frame(1280, 720);
     let obj_id = add_object(&frame, 1280.0, 720.0, 20.0, 20.0);
-    encode_transform(&frame, 1920, 1080, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        1920,
+        1080,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 1920.0, 1080.0, 30.0, 30.0, 0.5);
 }
 
@@ -271,7 +307,13 @@ fn same_aspect_1280x720_to_1920x1080_corner() {
 fn right_bottom_1920x1080_to_800x600_center() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 960.0, 540.0, 100.0, 100.0);
-    encode_transform(&frame, 800, 600, &config_with_padding(Padding::RightBottom));
+    encode_transform(
+        &frame,
+        800,
+        600,
+        &config_with_padding(Padding::RightBottom),
+        None,
+    );
     let scale = 800.0 / 1920.0;
     assert_bbox_approx(
         &frame,
@@ -288,7 +330,13 @@ fn right_bottom_1920x1080_to_800x600_center() {
 fn right_bottom_1920x1080_to_800x600_origin() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 0.0, 0.0, 40.0, 40.0);
-    encode_transform(&frame, 800, 600, &config_with_padding(Padding::RightBottom));
+    encode_transform(
+        &frame,
+        800,
+        600,
+        &config_with_padding(Padding::RightBottom),
+        None,
+    );
     let scale = 800.0 / 1920.0;
     assert_bbox_approx(&frame, obj_id, 0.0, 0.0, 40.0 * scale, 40.0 * scale, 0.5);
 }
@@ -297,7 +345,13 @@ fn right_bottom_1920x1080_to_800x600_origin() {
 fn right_bottom_1920x1080_to_800x600_bottom_right_corner() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 1920.0, 1080.0, 40.0, 40.0);
-    encode_transform(&frame, 800, 600, &config_with_padding(Padding::RightBottom));
+    encode_transform(
+        &frame,
+        800,
+        600,
+        &config_with_padding(Padding::RightBottom),
+        None,
+    );
     let scale = 800.0 / 1920.0;
     assert_bbox_approx(
         &frame,
@@ -314,7 +368,13 @@ fn right_bottom_1920x1080_to_800x600_bottom_right_corner() {
 fn symmetric_pillarbox_720x1280_to_1920x1080() {
     let frame = make_frame(720, 1280);
     let obj_id = add_object(&frame, 360.0, 640.0, 100.0, 100.0);
-    encode_transform(&frame, 1920, 1080, &config_with_padding(Padding::Symmetric));
+    encode_transform(
+        &frame,
+        1920,
+        1080,
+        &config_with_padding(Padding::Symmetric),
+        None,
+    );
 
     let scale = 1080.0 / 1280.0;
     let scaled_w = (1080.0_f64 * 720.0 / 1280.0).round() as f32;
@@ -387,16 +447,14 @@ fn crop_center_no_padding() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 960.0, 540.0, 100.0, 100.0);
 
-    let cfg = config_with_crop(
-        Rect {
-            left: 480,
-            top: 270,
-            width: 960,
-            height: 540,
-        },
-        Padding::None,
-    );
-    encode_transform(&frame, 960, 540, &cfg);
+    let rect = Rect {
+        left: 480,
+        top: 270,
+        width: 960,
+        height: 540,
+    };
+    let cfg = config_with_crop(rect, Padding::None);
+    encode_transform(&frame, 960, 540, &cfg, Some(&rect));
 
     assert_bbox_approx(&frame, obj_id, 480.0, 270.0, 100.0, 100.0, 0.5);
 }
@@ -406,16 +464,14 @@ fn crop_top_left_no_padding() {
     let frame = make_frame(1000, 1000);
     let obj_id = add_object(&frame, 250.0, 250.0, 80.0, 80.0);
 
-    let cfg = config_with_crop(
-        Rect {
-            left: 0,
-            top: 0,
-            width: 500,
-            height: 500,
-        },
-        Padding::None,
-    );
-    encode_transform(&frame, 500, 500, &cfg);
+    let rect = Rect {
+        left: 0,
+        top: 0,
+        width: 500,
+        height: 500,
+    };
+    let cfg = config_with_crop(rect, Padding::None);
+    encode_transform(&frame, 500, 500, &cfg, Some(&rect));
 
     assert_bbox_approx(&frame, obj_id, 250.0, 250.0, 80.0, 80.0, 0.5);
 }
@@ -425,16 +481,14 @@ fn crop_and_scale_up_no_padding() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 960.0, 540.0, 50.0, 50.0);
 
-    let cfg = config_with_crop(
-        Rect {
-            left: 640,
-            top: 360,
-            width: 640,
-            height: 360,
-        },
-        Padding::None,
-    );
-    encode_transform(&frame, 1280, 720, &cfg);
+    let rect = Rect {
+        left: 640,
+        top: 360,
+        width: 640,
+        height: 360,
+    };
+    let cfg = config_with_crop(rect, Padding::None);
+    encode_transform(&frame, 1280, 720, &cfg, Some(&rect));
 
     assert_bbox_approx(&frame, obj_id, 640.0, 360.0, 100.0, 100.0, 0.5);
 }
@@ -444,16 +498,14 @@ fn crop_and_symmetric_letterbox() {
     let frame = make_frame(1920, 1080);
     let obj_id = add_object(&frame, 960.0, 540.0, 96.0, 96.0);
 
-    let cfg = config_with_crop(
-        Rect {
-            left: 480,
-            top: 60,
-            width: 960,
-            height: 960,
-        },
-        Padding::Symmetric,
-    );
-    encode_transform(&frame, 800, 800, &cfg);
+    let rect = Rect {
+        left: 480,
+        top: 60,
+        width: 960,
+        height: 960,
+    };
+    let cfg = config_with_crop(rect, Padding::Symmetric);
+    encode_transform(&frame, 800, 800, &cfg, Some(&rect));
 
     let scale = 800.0 / 960.0;
     assert_bbox_approx(
@@ -471,6 +523,12 @@ fn crop_and_symmetric_letterbox() {
 fn no_crop_no_padding_is_plain_stretch() {
     let frame = make_frame(800, 600);
     let obj_id = add_object(&frame, 400.0, 300.0, 100.0, 100.0);
-    encode_transform(&frame, 1600, 1200, &config_with_padding(Padding::None));
+    encode_transform(
+        &frame,
+        1600,
+        1200,
+        &config_with_padding(Padding::None),
+        None,
+    );
     assert_bbox_approx(&frame, obj_id, 800.0, 600.0, 200.0, 200.0, 0.5);
 }

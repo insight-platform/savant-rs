@@ -127,7 +127,7 @@ fn e2e_frame_metadata_preservation() {
     let buf = make_gpu_buffer(&gen, 0, DUR);
     let frame_uuid = frame.get_uuid();
     let frame_pts = frame.get_pts();
-    engine.send_frame("meta", frame, buf).unwrap();
+    engine.send_frame("meta", frame, buf, None).unwrap();
     engine.send_eos("meta").unwrap();
 
     std::thread::sleep(Duration::from_secs(2));

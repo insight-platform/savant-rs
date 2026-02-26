@@ -270,7 +270,7 @@ fn worker_bypass_fires_callback() {
     let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60));
 
     for _ in 0..5 {
-        worker.send(WorkerMessage::Frame(make_frame("test"), make_gst_buffer())).unwrap();
+        worker.send(WorkerMessage::Frame(make_frame("test"), make_gst_buffer(), None)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 5);

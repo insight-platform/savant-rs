@@ -1,30 +1,7 @@
 """Convenience wrapper: SkiaContext + skia-python in one object.
 
-Handles creation of the skia GrDirectContext and Surface backed
-by the SkiaContext's GPU FBO.  Eliminates all ctypes/FFI boilerplate
-that was previously required for GPU-accelerated Skia rendering.
-
-Usage::
-
-    from deepstream_nvbufsurface import (
-        SkiaCanvas, TransformConfig, Padding, Interpolation,
-    )
-
-    # Mode 2a: Fresh transparent canvas
-    canvas = SkiaCanvas.create(1920, 1080)
-    c = canvas.canvas()
-    c.drawRect(skia.Rect(10, 10, 100, 100), paint)
-    buf_ptr = gen.acquire_surface(id=42)
-    canvas.render_to_nvbuf(buf_ptr)  # 1:1 copy
-
-    # Mode 2b: Overlay on existing NvBufSurface
-    canvas = SkiaCanvas.from_nvbuf(src_buf_ptr)  # canvas = src dims
-    c = canvas.canvas()
-    c.drawRect(...)  # draw at source resolution
-    dst_buf_ptr = dst_gen.acquire_surface(id=42)
-    cfg = TransformConfig(padding=Padding.SYMMETRIC,
-                          interpolation=Interpolation.BILINEAR)
-    canvas.render_to_nvbuf(dst_buf_ptr, config=cfg)  # scale+letterbox
+Injected into ``savant_rs.deepstream`` at import time so that
+``from savant_rs.deepstream import SkiaCanvas`` works.
 """
 
 from __future__ import annotations
@@ -34,7 +11,7 @@ from typing import TYPE_CHECKING
 import skia
 
 if TYPE_CHECKING:
-    from deepstream_nvbufsurface import TransformConfig
+    from savant_rs.deepstream import TransformConfig
 
 GL_RGBA8 = 0x8058
 
@@ -47,10 +24,10 @@ class SkiaCanvas:
     """
 
     def __init__(self, ctx):
-        """Initialize from an existing PySkiaContext.
+        """Initialize from an existing SkiaContext.
 
         Args:
-            ctx: ``SkiaContext`` from ``deepstream_nvbufsurface``.
+            ctx: ``SkiaContext`` from ``savant_rs.deepstream``.
         """
         self._ctx = ctx
         interface = skia.GrGLInterface.MakeEGL()
@@ -101,7 +78,7 @@ class SkiaCanvas:
             height: Canvas height in pixels.
             gpu_id: GPU device ID (default 0).
         """
-        from deepstream_nvbufsurface._native import SkiaContext
+        from savant_rs.deepstream import SkiaContext
 
         ctx = SkiaContext(width, height, gpu_id)
         return cls(ctx)
@@ -116,7 +93,7 @@ class SkiaCanvas:
             buf_ptr: Raw pointer of the source GstBuffer.
             gpu_id:  GPU device ID (default 0).
         """
-        from deepstream_nvbufsurface._native import SkiaContext
+        from savant_rs.deepstream import SkiaContext
 
         ctx = SkiaContext.from_nvbuf(buf_ptr, gpu_id)
         return cls(ctx)
