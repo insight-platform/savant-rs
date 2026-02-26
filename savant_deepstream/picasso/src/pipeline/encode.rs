@@ -13,9 +13,74 @@ use savant_core::primitives::frame::{
 use savant_core::primitives::object::ObjectOperations;
 use savant_core::primitives::rust::VideoFrameTranscodingMethod;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::spec::draw::ObjectDrawSpec;
+
+/// Shared encoder state protected by a mutex so the worker (submit) and
+/// drain threads can access it concurrently.
+pub(crate) type SharedEncoder = Arc<parking_lot::Mutex<NvEncoder>>;
+
+/// Shared map of frames submitted to the encoder but not yet drained.
+pub(crate) type SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrameProxy>>>;
+
+/// Handle to the background drain thread that continuously pulls encoded
+/// output from the hardware encoder, independent of frame submission.
+pub(crate) struct DrainHandle {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DrainHandle {
+    /// Spawn a drain thread for `source_id` that polls the encoder for
+    /// encoded output and fires callbacks.
+    pub(crate) fn spawn(
+        source_id: String,
+        encoder: SharedEncoder,
+        callbacks: Arc<Callbacks>,
+        pending_frames: SharedPendingFrames,
+    ) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = stop.clone();
+
+        let thread = std::thread::Builder::new()
+            .name(format!("picasso-drain-{source_id}"))
+            .spawn(move || {
+                drain_loop(
+                    &source_id,
+                    &encoder,
+                    &callbacks,
+                    &pending_frames,
+                    &stop_flag,
+                );
+            })
+            .expect("failed to spawn drain thread");
+
+        Self {
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    /// Signal the drain thread to stop and wait for it to finish.
+    pub(crate) fn stop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+impl Drop for DrainHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Polling interval when the encoder has no output ready.
+const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 /// Process-global lock that serializes Skia EGL rendering and the
 /// EGL-to-CUDA copy (`render_to_nvbuf`).  Concurrent `SkiaRenderer` GL
@@ -35,7 +100,10 @@ pub(crate) struct RenderOpts<'a> {
 
 /// Unified encode pipeline:
 ///
-/// GPU-transform → (optional Skia render) → optional on_gpumat → encode → drain.
+/// GPU-transform → (optional Skia render) → optional on_gpumat → encode.
+///
+/// Draining encoded output is handled by a separate [`DrainHandle`] thread,
+/// so this function only submits frames to the encoder.
 ///
 /// When `render` is `Some`, the Skia overlay step is inserted after the GPU
 /// transform.  Otherwise the path is pure transform-and-encode.
@@ -44,28 +112,38 @@ pub(crate) fn process_encode(
     source_id: &str,
     input: FrameInput,
     transform_config: &TransformConfig,
-    encoder: &mut NvEncoder,
+    encoder: &SharedEncoder,
     callbacks: &Arc<Callbacks>,
     use_on_gpumat: bool,
     render: Option<&mut RenderOpts<'_>>,
-    pending_frames: &mut HashMap<u128, VideoFrameProxy>,
+    pending_frames: &SharedPendingFrames,
 ) -> Result<(), PicassoError> {
-    let generator = encoder.generator();
-    let target_w = generator.width();
-    let target_h = generator.height();
+    let (target_w, target_h, need_ptr);
+    let (mut dst_buf, data_ptr, pitch);
 
-    let need_ptr = render.is_some() || (use_on_gpumat && callbacks.on_gpumat.is_some());
+    {
+        let enc = encoder.lock();
+        let generator = enc.generator();
+        target_w = generator.width();
+        target_h = generator.height();
+        need_ptr = render.is_some() || (use_on_gpumat && callbacks.on_gpumat.is_some());
 
-    let (mut dst_buf, data_ptr, pitch) = if need_ptr {
-        generator
-            .transform_with_ptr(&input.buffer, transform_config, Some(input.frame_id as i64))
-            .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?
-    } else {
-        let buf = generator
-            .transform(&input.buffer, transform_config, Some(input.frame_id as i64))
-            .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
-        (buf, std::ptr::null_mut(), 0)
-    };
+        if need_ptr {
+            let result = generator
+                .transform_with_ptr(&input.buffer, transform_config, Some(input.frame_id as i64))
+                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
+            dst_buf = result.0;
+            data_ptr = result.1;
+            pitch = result.2;
+        } else {
+            let buf = generator
+                .transform(&input.buffer, transform_config, Some(input.frame_id as i64))
+                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
+            dst_buf = buf;
+            data_ptr = std::ptr::null_mut();
+            pitch = 0;
+        }
+    }
 
     rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config)?;
 
@@ -145,15 +223,14 @@ pub(crate) fn process_encode(
     let pts = input.frame.get_pts().max(0) as u64;
     let duration = input.frame.get_duration().map(|d| d.max(0) as u64);
 
-    pending_frames.insert(input.frame_id, input.frame);
+    let frame_id = input.frame.get_uuid_u128();
+    pending_frames.lock().insert(frame_id, input.frame);
 
     encoder
-        .submit_frame(dst_buf, input.frame_id, pts, duration)
+        .lock()
+        .submit_frame(dst_buf, frame_id, pts, duration)
         .map_err(|e| PicassoError::Encoder(source_id.to_string(), e.to_string()))?;
 
-    drain_encoded(source_id, encoder, callbacks, pending_frames);
-
-    debug!("encode: source={source_id}, pts={pts}");
     Ok(())
 }
 
@@ -218,13 +295,54 @@ fn padding_to_letterbox_kind(padding: Padding) -> LetterBoxKind {
     }
 }
 
+/// Background loop that continuously pulls encoded frames from the encoder.
+///
+/// Runs until `stop` is set to `true`.  Each drained frame is matched to its
+/// original [`VideoFrameProxy`] via `frame_id` in `pending_frames`.
+fn drain_loop(
+    source_id: &str,
+    encoder: &SharedEncoder,
+    callbacks: &Arc<Callbacks>,
+    pending_frames: &SharedPendingFrames,
+    stop: &AtomicBool,
+) {
+    debug!("drain thread started: source={source_id}");
+    while !stop.load(Ordering::Acquire) {
+        let encoded = {
+            let mut enc = encoder.lock();
+            match enc.pull_encoded() {
+                Ok(frame) => frame,
+                Err(e) => {
+                    error!("drain error: source={source_id}, err={e}");
+                    None
+                }
+            }
+        };
+
+        if let Some(encoded) = encoded {
+            if let Some(cb) = &callbacks.on_encoded_frame {
+                let frame = pending_frames.lock().remove(&encoded.frame_id);
+                if let Some(frame) = frame {
+                    fill_encoded_frame(frame, encoded, cb);
+                } else {
+                    warn!(
+                        "drain: no pending frame for frame_id={}, source={source_id}",
+                        encoded.frame_id
+                    );
+                }
+            }
+        } else {
+            std::thread::sleep(DRAIN_POLL_INTERVAL);
+        }
+    }
+    debug!("drain thread stopped: source={source_id}");
+}
+
 /// Pull all available encoded frames from the encoder and fire callbacks.
 ///
-/// Each drained frame is matched to its original [`VideoFrameProxy`] via
-/// `frame_id` in `pending_frames`.  The proxy is updated with the encoded
-/// bitstream, pts/dts/duration, and codec, then delivered as
-/// [`EncodedOutput::VideoFrame`].
-pub(crate) fn drain_encoded(
+/// Used during EOS / shutdown after the drain thread has been stopped, so
+/// the caller has exclusive access to the encoder.
+pub(crate) fn drain_remaining(
     source_id: &str,
     encoder: &mut NvEncoder,
     callbacks: &Arc<Callbacks>,

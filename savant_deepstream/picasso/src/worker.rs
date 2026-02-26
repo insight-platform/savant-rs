@@ -1,6 +1,6 @@
 use crate::callbacks::Callbacks;
 use crate::message::{EncodedOutput, WorkerMessage};
-use crate::pipeline::encode::RenderOpts;
+use crate::pipeline::encode::{DrainHandle, RenderOpts, SharedEncoder, SharedPendingFrames};
 use crate::pipeline::{bypass, encode, FrameInput};
 use crate::skia::context::DrawContext;
 use crate::spec::{CodecSpec, SourceSpec};
@@ -81,15 +81,16 @@ impl Drop for SourceWorker {
 struct WorkerState {
     source_id: String,
     spec: SourceSpec,
-    encoder: Option<NvEncoder>,
+    encoder: Option<SharedEncoder>,
     renderer: Option<SkiaRenderer>,
     callbacks: Arc<Callbacks>,
     frame_counter: u128,
     draw_ctx: DrawContext,
     /// Frames submitted to the encoder but not yet drained as encoded output.
-    /// Keyed by `frame_id` (monotonic counter) so that encoded output can be
-    /// matched back to the original [`VideoFrameProxy`].
-    pending_frames: HashMap<u128, VideoFrameProxy>,
+    /// Shared with the background [`DrainHandle`] thread.
+    pending_frames: SharedPendingFrames,
+    /// Background thread that pulls encoded output from the encoder.
+    drain_handle: Option<DrainHandle>,
 }
 
 impl WorkerState {
@@ -101,7 +102,6 @@ impl WorkerState {
             }
         }
 
-        // Apply frame timestamps to buffer; do not assume they were set by the producer.
         {
             let buf_ref = buffer.make_mut();
             crate::pipeline::apply_frame_timestamps_to_buffer(&frame, buf_ref);
@@ -118,50 +118,98 @@ impl WorkerState {
         match &self.spec.codec {
             CodecSpec::Drop => {
                 debug!("drop: source={}", self.source_id);
+                return;
             }
             CodecSpec::Bypass => {
                 bypass::process_bypass(&self.source_id, input.frame, input.buffer, &self.callbacks);
+                return;
             }
-            CodecSpec::Encode {
-                transform,
-                encoder: encoder_config,
-            } => {
-                let should_render =
-                    if let Some((ns, name)) = &self.spec.conditional.render_attribute {
-                        input.frame.get_attribute(ns, name).is_some()
-                    } else {
-                        self.spec.use_on_render || !self.spec.draw.is_empty()
-                    };
+            CodecSpec::Encode { .. } => {}
+        }
 
-                let gpu_id = encoder_config.gpu_id;
-                let enc = ensure_encoder(&self.source_id, &mut self.encoder, encoder_config);
-                if let Some(enc) = enc {
-                    let mut render_opts = if should_render {
-                        Some(RenderOpts {
-                            draw_spec: &self.spec.draw,
-                            use_on_render: self.spec.use_on_render,
-                            gpu_id,
-                            renderer: &mut self.renderer,
-                            draw_ctx: &mut self.draw_ctx,
-                        })
-                    } else {
-                        None
-                    };
+        let CodecSpec::Encode {
+            transform,
+            encoder: encoder_config,
+        } = &self.spec.codec
+        else {
+            unreachable!()
+        };
 
-                    if let Err(e) = encode::process_encode(
-                        &self.source_id,
-                        input,
-                        transform,
-                        enc,
-                        &self.callbacks,
-                        self.spec.use_on_gpumat,
-                        render_opts.as_mut(),
-                        &mut self.pending_frames,
-                    ) {
-                        error!("encode error: source={}, err={e}", self.source_id);
-                    }
-                }
+        let should_render = if let Some((ns, name)) = &self.spec.conditional.render_attribute {
+            input.frame.get_attribute(ns, name).is_some()
+        } else {
+            self.spec.use_on_render || !self.spec.draw.is_empty()
+        };
+
+        let gpu_id = encoder_config.gpu_id;
+        let transform = transform.clone();
+        let encoder_config = encoder_config.clone();
+        self.ensure_encoder(&encoder_config);
+
+        if let Some(enc) = &self.encoder {
+            let mut render_opts = if should_render {
+                Some(RenderOpts {
+                    draw_spec: &self.spec.draw,
+                    use_on_render: self.spec.use_on_render,
+                    gpu_id,
+                    renderer: &mut self.renderer,
+                    draw_ctx: &mut self.draw_ctx,
+                })
+            } else {
+                None
+            };
+
+            if let Err(e) = encode::process_encode(
+                &self.source_id,
+                input,
+                &transform,
+                enc,
+                &self.callbacks,
+                self.spec.use_on_gpumat,
+                render_opts.as_mut(),
+                &self.pending_frames,
+            ) {
+                error!("encode error: source={}, err={e}", self.source_id);
             }
+        }
+    }
+
+    /// Create the encoder (and its drain thread) if not already present.
+    fn ensure_encoder(&mut self, config: &deepstream_encoders::EncoderConfig) {
+        if self.encoder.is_some() {
+            return;
+        }
+        match NvEncoder::new(config) {
+            Ok(enc) => {
+                info!("encoder created: source={}", self.source_id);
+                let shared: SharedEncoder = Arc::new(parking_lot::Mutex::new(enc));
+                let drain = DrainHandle::spawn(
+                    self.source_id.clone(),
+                    shared.clone(),
+                    self.callbacks.clone(),
+                    self.pending_frames.clone(),
+                );
+                self.encoder = Some(shared);
+                self.drain_handle = Some(drain);
+            }
+            Err(e) => {
+                error!(
+                    "encoder creation failed: source={}, err={e}",
+                    self.source_id
+                );
+            }
+        }
+    }
+
+    /// Stop the drain thread and flush remaining encoder output.
+    fn stop_encoder(&mut self) {
+        if let Some(mut drain) = self.drain_handle.take() {
+            drain.stop();
+        }
+        if let Some(shared_enc) = self.encoder.take() {
+            let mut enc = shared_enc.lock();
+            let mut pending = self.pending_frames.lock();
+            drain_and_finish(&self.source_id, &mut enc, &self.callbacks, &mut pending);
         }
     }
 
@@ -171,16 +219,8 @@ impl WorkerState {
                 fire_eos_sentinel(&self.source_id, &self.callbacks);
             }
             CodecSpec::Encode { .. } => {
-                if let Some(ref mut enc) = self.encoder {
-                    drain_and_finish(
-                        &self.source_id,
-                        enc,
-                        &self.callbacks,
-                        &mut self.pending_frames,
-                    );
-                }
+                self.stop_encoder();
                 fire_eos_sentinel(&self.source_id, &self.callbacks);
-                self.encoder = None;
             }
         }
     }
@@ -188,15 +228,7 @@ impl WorkerState {
     fn update_spec(&mut self, new_spec: SourceSpec) -> Option<Duration> {
         let codec_changed = codec_differs(&self.spec.codec, &new_spec.codec);
         if codec_changed {
-            if let Some(ref mut enc) = self.encoder {
-                drain_and_finish(
-                    &self.source_id,
-                    enc,
-                    &self.callbacks,
-                    &mut self.pending_frames,
-                );
-            }
-            self.encoder = None;
+            self.stop_encoder();
             self.renderer = None;
         }
         if new_spec.font_family != self.draw_ctx.font_family() {
@@ -209,14 +241,7 @@ impl WorkerState {
     }
 
     fn shutdown(&mut self) {
-        if let Some(ref mut enc) = self.encoder {
-            drain_and_finish(
-                &self.source_id,
-                enc,
-                &self.callbacks,
-                &mut self.pending_frames,
-            );
-        }
+        self.stop_encoder();
     }
 }
 
@@ -238,7 +263,8 @@ fn worker_loop(
         callbacks,
         frame_counter: 0,
         draw_ctx,
-        pending_frames: HashMap::new(),
+        pending_frames: Arc::new(parking_lot::Mutex::new(HashMap::new())),
+        drain_handle: None,
     };
 
     info!("worker started: source={source_id}");
@@ -300,32 +326,13 @@ fn worker_loop(
     info!("worker exited: source={source_id}");
 }
 
-fn ensure_encoder<'a>(
-    source_id: &str,
-    encoder: &'a mut Option<NvEncoder>,
-    config: &deepstream_encoders::EncoderConfig,
-) -> Option<&'a mut NvEncoder> {
-    if encoder.is_none() {
-        match NvEncoder::new(config) {
-            Ok(enc) => {
-                info!("encoder created: source={source_id}");
-                *encoder = Some(enc);
-            }
-            Err(e) => {
-                error!("encoder creation failed: source={source_id}, err={e}");
-                return None;
-            }
-        }
-    }
-    encoder.as_mut()
-}
-
 fn drain_and_finish(
     source_id: &str,
     encoder: &mut NvEncoder,
     callbacks: &Arc<Callbacks>,
     pending_frames: &mut HashMap<u128, VideoFrameProxy>,
 ) {
+    encode::drain_remaining(source_id, encoder, callbacks, pending_frames);
     match encoder.finish(Some(ENCODER_DRAIN_TIMEOUT_MS)) {
         Ok(remaining) => {
             for encoded in remaining {

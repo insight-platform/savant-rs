@@ -9,7 +9,7 @@ picasso/src/
 ├── worker.rs         # SourceWorker: per-source thread, WorkerState, worker_loop
 ├── pipeline.rs       # FrameInput struct, sub-module declarations
 ├── pipeline/
-│   ├── encode.rs     # GPU transform → Skia render → encode → drain
+│   ├── encode.rs     # GPU transform → Skia render → encode; DrainHandle for async drain
 │   └── bypass.rs     # Bypass mode: transform_backward + callback
 ├── callbacks.rs      # Callback traits + Callbacks aggregate
 ├── message.rs        # WorkerMessage, EncodedOutput, BypassOutput
@@ -41,13 +41,17 @@ Main thread
        ├─ watchdog thread (picasso-watchdog)
        │    periodically scans worker map, reaps dead workers
        └─ per-source worker threads (picasso-{source_id})
-            each runs worker_loop:
-              recv_timeout(idle_timeout)
-              ├─ Frame → process_frame (Drop/Bypass/Encode)
-              ├─ Eos → handle_eos (drain encoder, fire EOS sentinel)
-              ├─ UpdateSpec → hot-swap (drain if codec changed)
-              ├─ Shutdown → drain + break
-              └─ Timeout → on_eviction callback → KeepFor/Terminate/TerminateImmediately
+       │    each runs worker_loop:
+       │      recv_timeout(idle_timeout)
+       │      ├─ Frame → process_frame (Drop/Bypass/Encode)
+       │      ├─ Eos → handle_eos (stop drain, flush encoder, fire EOS sentinel)
+       │      ├─ UpdateSpec → hot-swap (stop drain + flush if codec changed)
+       │      ├─ Shutdown → stop drain + flush + break
+       │      └─ Timeout → on_eviction callback → KeepFor/Terminate/TerminateImmediately
+       └─ per-source drain threads (picasso-drain-{source_id})
+            spawned when encoder is created, stopped on EOS/shutdown/hot-swap
+            continuously polls encoder.pull_encoded() in a loop (1ms sleep when idle)
+            fires on_encoded_frame callbacks independent of frame submission
 ```
 
 ## Timestamp Source
@@ -74,8 +78,7 @@ send_frame(source_id, VideoFrameProxy, gst::Buffer)
          6. (if render + use_on_render) fire on_render callback
          7. (if render) render_to_nvbuf (Skia → GPU surface)
          8. (if use_on_gpumat) fire on_gpumat callback
-         9. encoder.submit_frame
-        10. drain_encoded → fire on_encoded_frame for each pulled frame
+         9. encoder.submit_frame (drain thread pulls output independently)
 ```
 
 ## Data Flow (Bypass Path)
@@ -93,8 +96,8 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 
 ## EOS Handling
 - Drop/Bypass: fire EOS sentinel via on_encoded_frame(EncodedOutput::EndOfStream)
-- Encode: drain encoder (finish with 5s timeout), fire callbacks for remaining frames, then EOS sentinel
-- After EOS, encoder is set to None (re-created on next frame)
+- Encode: stop drain thread → drain_remaining → encoder.finish(5s timeout) → fire callbacks for remaining frames → EOS sentinel
+- After EOS, encoder + drain handle are set to None (re-created on next frame)
 
 ## Spec Hot-Swap
 - `set_source_spec` on existing worker → `WorkerMessage::UpdateSpec`

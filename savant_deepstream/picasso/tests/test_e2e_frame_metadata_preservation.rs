@@ -14,9 +14,9 @@ use savant_core::primitives::frame::VideoFrameContent;
 use savant_core::primitives::object::{
     IdCollisionResolutionPolicy, ObjectOperations, VideoObjectBuilder,
 };
+use savant_core::primitives::rust::VideoFrameTranscodingMethod;
 use savant_core::primitives::RBBox;
 use savant_core::primitives::WithAttributes;
-use savant_core::primitives::rust::VideoFrameTranscodingMethod;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -166,7 +166,10 @@ fn e2e_frame_metadata_preservation() {
     );
 
     let transcoding_method = out.get_transcoding_method();
-    assert!(matches!(transcoding_method, VideoFrameTranscodingMethod::Encoded), "transcoding method should be Encoded");
+    assert!(
+        matches!(transcoding_method, VideoFrameTranscodingMethod::Encoded),
+        "transcoding method should be Encoded"
+    );
     let content = out.get_content();
     assert!(
         matches!(*content, VideoFrameContent::Internal(_)),

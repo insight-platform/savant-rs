@@ -33,6 +33,7 @@ serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
 imagehash = "0.3"
 image = { version = "0.24", default-features = false, features = ["jpeg"] }
+criterion = { workspace = true }
 
 [[bench]]
 name = "skia_pipeline"
@@ -44,4 +45,8 @@ harness = false
 
 [[bench]]
 name = "bench_bypass"
+harness = false
+
+[[bench]]
+name = "bench_hevc_throughput"
 harness = false
