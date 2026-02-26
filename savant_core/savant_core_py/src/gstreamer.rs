@@ -162,7 +162,7 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
 ///     muxer.push(b"\\x00\\x00\\x00\\x01...", pts_ns=0,
 ///                dts_ns=0, duration_ns=33_333_333)
 ///     muxer.finish()
-#[pyclass(name = "Mp4Muxer", module = "savant_rs.gstreamer", unsendable)]
+#[pyclass(name = "Mp4Muxer", module = "savant_rs.gstreamer")]
 pub struct PyMp4Muxer {
     inner: Mp4Muxer,
 }

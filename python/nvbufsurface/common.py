@@ -1,8 +1,8 @@
 """Shared helpers for the nvbufsurface encoding pipeline examples.
 
 Provides reusable CLI argument definitions, encoder property builders,
-statistics tracking, and the encode-pull-mux-drain lifecycle via
-:class:`EncodingSession`.
+statistics tracking, and the Picasso-based encode-mux-drain lifecycle via
+:class:`PicassoSession`.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import signal
 import sys
 import threading
 import time
+from typing import Any, Callable
 
 import gi
 
@@ -19,12 +20,21 @@ gi.require_version("Gst", "1.0")
 gi.require_version("GstApp", "1.0")
 from gi.repository import Gst  # noqa: E402
 
-from deepstream_nvbufsurface import init_cuda  # noqa: E402
-from deepstream_nvbufsurface import VideoFormat  # noqa: E402
-from savant_gstreamer import Codec  # noqa: E402
-from deepstream_encoders import (  # noqa: E402
-    NvEncoder,
+from savant_rs.deepstream import (  # noqa: E402
+    NvBufSurfaceGenerator,
+    TransformConfig,
+    VideoFormat,
+    init_cuda,
+)
+from savant_rs.gstreamer import Codec, Mp4Muxer  # noqa: E402
+from savant_rs.picasso import (  # noqa: E402
+    Callbacks,
+    CodecSpec,
     EncoderConfig,
+    EncoderProperties,
+    GeneralSpec,
+    PicassoEngine,
+    SourceSpec,
     H264DgpuProps,
     HevcDgpuProps,
     Av1DgpuProps,
@@ -35,7 +45,9 @@ from deepstream_encoders import (  # noqa: E402
     DgpuPreset,
     TuningPreset,
 )
-from savant_gstreamer import Mp4Muxer  # noqa: E402
+from savant_rs.primitives import VideoFrame, VideoFrameContent  # noqa: E402
+
+SOURCE_ID = "src-0"
 
 
 # ---------------------------------------------------------------------------
@@ -71,43 +83,49 @@ def build_encoder_properties(
     *,
     bitrate: int | None = None,
     quality: int | None = None,
-):
-    """Build sensible predefined encoder properties for a given codec.
+) -> EncoderProperties | None:
+    """Build encoder properties wrapped in :class:`EncoderProperties`.
 
-    - H264/HEVC/AV1: Main/High profile, VBR, P4 preset, low-latency tuning.
+    - H264/HEVC/AV1: Main/High profile, VBR, P1 preset, low-latency tuning.
       ``bitrate`` overrides the default (4 Mbps).
     - JPEG: ``quality`` overrides the default (85).
     """
     default_bitrate = bitrate or 4_000_000  # 4 Mbps
 
     if codec == Codec.H264:
-        return H264DgpuProps(
-            profile=H264Profile.MAIN,
-            control_rate=RateControl.VBR,
-            bitrate=default_bitrate,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
+        return EncoderProperties.h264_dgpu(
+            H264DgpuProps(
+                profile=H264Profile.MAIN,
+                control_rate=RateControl.VARIABLE_BITRATE,
+                bitrate=default_bitrate,
+                preset=DgpuPreset.P1,
+                tuning_info=TuningPreset.LOW_LATENCY,
+                iframeinterval=30,
+            )
         )
     elif codec == Codec.HEVC:
-        return HevcDgpuProps(
-            profile=HevcProfile.MAIN,
-            control_rate=RateControl.VBR,
-            bitrate=default_bitrate,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
+        return EncoderProperties.hevc_dgpu(
+            HevcDgpuProps(
+                profile=HevcProfile.MAIN,
+                control_rate=RateControl.VARIABLE_BITRATE,
+                bitrate=default_bitrate,
+                preset=DgpuPreset.P1,
+                tuning_info=TuningPreset.LOW_LATENCY,
+                iframeinterval=30,
+            )
         )
     elif codec == Codec.AV1:
-        return Av1DgpuProps(
-            control_rate=RateControl.VBR,
-            bitrate=default_bitrate,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
+        return EncoderProperties.av1_dgpu(
+            Av1DgpuProps(
+                control_rate=RateControl.VARIABLE_BITRATE,
+                bitrate=default_bitrate,
+                preset=DgpuPreset.P1,
+                tuning_info=TuningPreset.LOW_LATENCY,
+                iframeinterval=30,
+            )
         )
     elif codec == Codec.JPEG:
-        return JpegProps(quality=quality or 85)
+        return EncoderProperties.jpeg(JpegProps(quality=quality or 85))
     else:
         return None
 
@@ -159,24 +177,38 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Encoding session — wraps encoder + muxer + stats + signal handling
+# Picasso session — wraps engine + generator + muxer + stats + signal handling
 # ---------------------------------------------------------------------------
 
 
-class EncodingSession:
-    """Manages encoder lifecycle, optional MP4 muxer, live stats, and
-    graceful Ctrl-C shutdown.
+class PicassoSession:
+    """Manages Picasso engine lifecycle, NvBufSurface buffer generation,
+    optional MP4 muxer, live stats, and graceful Ctrl-C shutdown.
+
+    Frames are submitted via :meth:`submit`; the engine handles transform,
+    rendering, and encoding asynchronously.  Encoded output is pushed to
+    an optional MP4 muxer via the ``on_encoded_frame`` callback.
+
+    Optional *on_gpumat* / *on_render* callbacks enable custom GPU drawing
+    inside the Picasso worker thread:
+
+    - ``on_gpumat(source_id, frame, data_ptr, pitch, width, height)`` —
+      raw CUDA pointer for OpenCV CUDA drawing.
+    - ``on_render(source_id, fbo_id, width, height, frame)`` —
+      OpenGL FBO for Skia / GL drawing.
+
+    The corresponding ``use_on_gpumat`` / ``use_on_render`` flags on the
+    ``SourceSpec`` are set automatically when a callback is provided.
 
     Usage::
 
-        session = EncodingSession(args, video_format=VideoFormat.RGBA)
+        session = PicassoSession(args, video_format=VideoFormat.RGBA,
+                                 on_gpumat=my_draw_callback)
 
         while session.is_running and i < session.limit:
-            buf = session.encoder.acquire_surface(id=i)
-            # ... render into buf ...
-            session.submit(buf, frame_id=i, pts_ns=pts_ns, duration_ns=dur)
-            session.pull_encoded()
-            session.check_error()
+            buf = session.acquire_surface(frame_id=i)
+            session.submit(buf, frame_id=i, pts_ns=pts_ns,
+                           duration_ns=session.frame_duration_ns)
             i += 1
 
         session.shutdown()
@@ -187,51 +219,44 @@ class EncodingSession:
         args: argparse.Namespace,
         *,
         video_format: VideoFormat,
+        on_gpumat: Callable[..., Any] | None = None,
+        on_render: Callable[..., Any] | None = None,
+        draw: object | None = None,
     ) -> None:
         # -- GStreamer + CUDA init (idempotent) --------------------------------
         init_gst_and_cuda(args.gpu_id)
 
-        self.codec = resolve_codec(args.codec)
+        self._codec = resolve_codec(args.codec)
+        self._fps = args.fps
+        self._width = args.width
+        self._height = args.height
         self.frame_duration_ns = (
             1_000_000_000 // args.fps if args.fps > 0 else 33_333_333
         )
         self.limit = args.num_frames if args.num_frames is not None else sys.maxsize
         self._output_path = args.output
 
-        # -- Encoder -----------------------------------------------------------
+        # -- Encoder configuration (Picasso) -----------------------------------
         enc_props = build_encoder_properties(
-            self.codec, bitrate=args.bitrate, quality=args.quality
+            self._codec, bitrate=args.bitrate, quality=args.quality
         )
-        config = EncoderConfig(
-            self.codec,
-            args.width,
-            args.height,
-            format=video_format,
-            fps_num=args.fps,
-            fps_den=1,
-            gpu_id=args.gpu_id,
-            mem_type=getattr(args, "mem_type", 0),
-            properties=enc_props,
-        )
-        self.encoder = NvEncoder(config)
+        enc_cfg = EncoderConfig(self._codec, self._width, self._height)
+        enc_cfg.format(video_format)
+        enc_cfg.fps(self._fps, 1)
+        enc_cfg.gpu_id(args.gpu_id)
+        if enc_props is not None:
+            enc_cfg.properties(enc_props)
+
         print(
-            f"Encoder created: {args.width}x{args.height} {video_format.name()} "
-            f"@ {args.fps} fps, codec={self.codec.name()} (gpu {args.gpu_id})"
+            f"Encoder config: {self._width}x{self._height} {video_format!r} "
+            f"@ {self._fps} fps, codec={self._codec!r} (gpu {args.gpu_id})"
         )
         print(f"Encoder properties: {enc_props}")
 
-        # -- Optional MP4 muxer -----------------------------------------------
-        self.muxer: Mp4Muxer | None = None
-        if args.output:
-            self.muxer = Mp4Muxer(self.codec, args.output, fps_num=args.fps)
-        else:
-            print("No output file — encoded frames will be discarded (benchmark mode)")
-
-        # -- Run banner --------------------------------------------------------
-        if args.num_frames is not None:
-            print(f"Running ({args.num_frames} frames)...\n")
-        else:
-            print("Running (Ctrl-C to stop)...\n")
+        # -- NvBufSurface generator for buffer acquisition ---------------------
+        self._generator = NvBufSurfaceGenerator(
+            video_format, self._width, self._height, self._fps, 1, args.gpu_id
+        )
 
         # -- Ctrl-C handler ----------------------------------------------------
         self._running = True
@@ -242,11 +267,69 @@ class EncodingSession:
         signal.signal(signal.SIGINT, _sigint)
 
         # -- Stats counters ----------------------------------------------------
+        self._lock = threading.Lock()
         self._frame_count = 0
         self._encoded_count = 0
         self._encoded_bytes = 0
-        self._lock = threading.Lock()
+        self._eos_event = threading.Event()
 
+        # -- Optional MP4 muxer (direct use from callback) ---------------------
+        self._muxer: Mp4Muxer | None = None
+        if args.output:
+            self._muxer = Mp4Muxer(self._codec, args.output, fps_num=self._fps)
+        else:
+            print("No output file — encoded frames will be discarded (benchmark mode)")
+
+        # -- Picasso callbacks -------------------------------------------------
+        def _on_encoded(output) -> None:
+            try:
+                if output.is_eos:
+                    self._eos_event.set()
+                    return
+                if output.is_video_frame:
+                    vf = output.as_video_frame()
+                    if vf.content.is_internal():
+                        data = vf.content.get_data()
+                        with self._lock:
+                            self._encoded_count += 1
+                            self._encoded_bytes += len(data)
+                        if self._muxer is not None:
+                            self._muxer.push(
+                                data,
+                                vf.pts,
+                                vf.dts if vf.dts is not None else vf.pts,
+                                vf.duration
+                                if vf.duration is not None
+                                else self.frame_duration_ns,
+                            )
+            except Exception as e:
+                print(f"Encoder callback error: {e}", file=sys.stderr)
+                self._running = False
+
+        callbacks = Callbacks(
+            on_encoded_frame=_on_encoded,
+            on_gpumat=on_gpumat,
+            on_render=on_render,
+        )
+
+        # -- Picasso engine ----------------------------------------------------
+        self._engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
+        source_spec = SourceSpec(
+            codec=CodecSpec.encode(TransformConfig(), enc_cfg),
+            draw=draw,
+            font_family="sans-serif",
+            use_on_gpumat=on_gpumat is not None,
+            use_on_render=on_render is not None,
+        )
+        self._engine.set_source_spec(SOURCE_ID, source_spec)
+
+        # -- Run banner --------------------------------------------------------
+        if args.num_frames is not None:
+            print(f"Running ({args.num_frames} frames)...\n")
+        else:
+            print("Running (Ctrl-C to stop)...\n")
+
+        # -- Stats reporter thread ---------------------------------------------
         self._stats_thread = threading.Thread(target=self._stats_reporter, daemon=True)
         self._stats_thread.start()
 
@@ -254,65 +337,66 @@ class EncodingSession:
 
     @property
     def is_running(self) -> bool:
-        """``False`` after Ctrl-C."""
+        """``False`` after Ctrl-C or an encoder callback error."""
         return self._running
+
+    def acquire_surface(self, *, frame_id: int) -> int:
+        """Acquire an NvBufSurface GPU buffer from the internal pool."""
+        return self._generator.acquire_surface(id=frame_id)
+
+    def make_frame(
+        self,
+        *,
+        pts_ns: int,
+        duration_ns: int | None = None,
+    ) -> VideoFrame:
+        """Create a :class:`VideoFrame` with the session's parameters.
+
+        Use this to add :class:`VideoObject` instances before sending
+        via :meth:`send_frame`.
+        """
+        frame = VideoFrame(
+            source_id=SOURCE_ID,
+            framerate=f"{self._fps}/1",
+            width=self._width,
+            height=self._height,
+            content=VideoFrameContent.none(),
+            time_base=(1, 1_000_000_000),
+            pts=pts_ns,
+        )
+        if duration_ns is not None:
+            frame.duration = duration_ns
+        return frame
+
+    def send_frame(self, frame: VideoFrame, buf_ptr: int) -> None:
+        """Submit a pre-built :class:`VideoFrame` to the Picasso engine."""
+        self._engine.send_frame(SOURCE_ID, frame, buf_ptr)
+        with self._lock:
+            self._frame_count += 1
 
     def submit(
         self,
-        buffer_ptr: int,
+        buf_ptr: int,
         *,
         frame_id: int,
         pts_ns: int,
         duration_ns: int | None = None,
     ) -> None:
-        """Submit a filled buffer to the encoder and update the submit counter."""
-        self.encoder.submit_frame(
-            buffer_ptr,
-            frame_id=frame_id,
-            pts_ns=pts_ns,
-            duration_ns=duration_ns,
-        )
-        with self._lock:
-            self._frame_count += 1
-
-    def pull_encoded(self) -> None:
-        """Non-blocking drain of all ready encoded frames into the muxer."""
-        while True:
-            frame = self.encoder.pull_encoded()
-            if frame is None:
-                break
-            with self._lock:
-                self._encoded_count += 1
-                self._encoded_bytes += frame.size
-            if self.muxer is not None:
-                muxer = self.muxer
-                muxer.push(frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns)
-
-    def check_error(self) -> None:
-        """Relay :meth:`NvEncoder.check_error`, printing to stderr on failure."""
-        try:
-            self.encoder.check_error()
-        except Exception as e:
-            print(f"Encoder error: {e}", file=sys.stderr)
-            self._running = False
+        """Shorthand: create a :class:`VideoFrame` and submit it."""
+        frame = self.make_frame(pts_ns=pts_ns, duration_ns=duration_ns)
+        self.send_frame(frame, buf_ptr)
 
     def shutdown(self) -> None:
-        """Send EOS, drain remaining frames, finalise muxer, print totals."""
+        """Send EOS, wait for encoder drain, finalise muxer, print totals."""
         print("\nStopping...")
         self._running = False
 
-        remaining = self.encoder.finish()
-        for frame in remaining:
-            with self._lock:
-                self._encoded_count += 1
-                self._encoded_bytes += frame.size
-            if self.muxer is not None:
-                self.muxer.push(
-                    frame.data, frame.pts_ns, frame.dts_ns, frame.duration_ns
-                )
+        self._engine.send_eos(SOURCE_ID)
+        self._eos_event.wait(timeout=10)
+        self._engine.shutdown()
 
-        if self.muxer is not None:
-            self.muxer.finish()
+        if self._muxer is not None:
+            self._muxer.finish()
             print(f"Output written to: {self._output_path}")
 
         self._stats_thread.join(timeout=2)

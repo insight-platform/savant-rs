@@ -167,13 +167,18 @@ pub(crate) fn process_encode(
                 let ns = obj.get_namespace();
                 let label = obj.get_label();
                 let static_spec = render.draw_spec.lookup(&ns, &label);
-                let draw = callbacks
+                let cb_draw = callbacks
                     .on_object_draw_spec
                     .as_ref()
-                    .and_then(|cb| cb.call(source_id, obj, static_spec))
-                    .or_else(|| static_spec.cloned());
+                    .and_then(|cb| cb.call(source_id, obj, static_spec));
+                let from_callback = cb_draw.is_some();
+                let draw = cb_draw.or_else(|| static_spec.cloned());
                 draw.map(|d| {
-                    let templates = render.draw_ctx.resolve_templates(&ns, &label, &d).cloned();
+                    let templates = if from_callback {
+                        render.draw_ctx.resolve_templates_ephemeral(&ns, &label, &d)
+                    } else {
+                        render.draw_ctx.resolve_templates(&ns, &label, &d).cloned()
+                    };
                     (obj, d, templates)
                 })
             })

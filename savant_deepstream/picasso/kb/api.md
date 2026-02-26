@@ -184,6 +184,8 @@ pub trait OnEviction {
 }
 ```
 
+- ⚠ `OnObjectDrawSpec`: callback-returned `labelDraw.format` is resolved ephemerally and never written to the template cache.
+
 ---
 
 ## EncodedOutput

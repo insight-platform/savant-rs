@@ -14,10 +14,18 @@ Self-contained reference for agents to write picasso Python tests without readin
 
 ## Usage
 1. Read `api.md` first — it has all picasso types.
-2. Read `deps.md` for imports from sibling modules.
-3. Read `patterns.md` for test scaffolding and ready-to-copy helpers.
+2. Read `deps.md` for imports from sibling modules + third-party GPU drawing.
+3. Read `patterns.md` for test scaffolding, callback drawing recipes, and ready-to-copy helpers.
 4. Consult `enums.md` only when building encoder configs.
 5. Consult `errors.md` for negative-path tests.
+
+## Critical Pitfalls (read before writing code)
+- **Render pipeline order**: draw spec → `on_render` → `on_gpumat` → encode. `on_render` draws **on top of** bboxes; do NOT `canvas.clear()` if using draw spec. Pre-fill input NvBufSurface for backgrounds. See `api.md` → Encode Pipeline Execution Order.
+- **EncoderConfig builder methods shadow property setters** — `cfg.gpu_id(0)` ✅, `cfg.gpu_id = 0` ❌ (read-only at runtime). Same for `format()`. See `api.md` → EncoderConfig.
+- **Callbacks fire on Rust worker threads** — `Mp4Muxer` is `Send` and can be used directly from callbacks. Other `unsendable` PyO3 objects would panic if accessed from a different thread; check the class annotation.
+- **Skia GL context on headless EGL** — `skia.GrDirectContext.MakeGL()` returns `None`; use `skia.GrGLInterface.MakeEGL()` first. See `deps.md` → skia-python / `patterns.md` → on_render.
+- **Skia + draw spec GL state conflict** — When both `draw` (ObjectDrawSpec) and `on_render` are used, Picasso's internal Skia context and the user's Skia context share the same GL context but cache state independently. Call `gr_context.resetContext()` at the start of every `on_render` invocation to force Skia to re-query GL state; without it, rendering is corrupted.
+- **RBBox is centre-based** — `RBBox(xc, yc, width, height)`, not top-left corner. See `patterns.md` → Draw Spec + Callbacks Composition.
 
 ## Building and Testing savant_python
 

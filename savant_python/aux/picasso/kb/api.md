@@ -82,6 +82,28 @@ All 6 slots: get/set as properties. All Optional, DEF: None.
 
 ⚠ Callbacks execute on Rust worker threads with GIL acquired. Keep them fast.
 ⚠ on_eviction MUST return EvictionDecision. On error → defaults to Terminate.
+⚠ **Thread affinity**: PyO3 objects marked `!Send` (e.g. `Mp4Muxer` from
+  `savant_gstreamer`) **cannot** be used inside callbacks — they panic if
+  accessed from a thread other than the one that created them. Relay data
+  to the owning thread via `queue.Queue` instead.
+
+### Encode Pipeline Execution Order
+
+When `CodecSpec.encode()` is used, the per-frame processing order is:
+
+1. **GPU transform** — input NvBufSurface scaled/padded to encoder resolution
+2. **Load into Skia FBO** — transformed pixels become the canvas background
+3. **Draw spec rendering** — `ObjectDrawSpec` entries rendered as Skia overlays
+4. **`on_render` callback** — fires AFTER draw spec; draws ON TOP of bboxes
+5. **Copy Skia FBO → NvBufSurface** — composited result written back
+6. **`on_gpumat` callback** — fires on the final NvBufSurface CUDA memory
+7. **Hardware encode** — frame submitted to encoder
+
+⚠ To place content **behind** draw-spec bboxes, pre-fill the input
+NvBufSurface before calling `send_frame` (e.g. via `as_gpu_mat`).
+⚠ `on_render` is for **overlays** (sidebar, HUD, watermarks), not backgrounds.
+⚠ `on_gpumat` sees the fully-composited frame; modifications go directly to
+the encoder.
 
 repr: `"Callbacks(active=[on_encoded_frame, ...])"` listing non-None slots.
 
@@ -164,19 +186,31 @@ SIG: __init__(codec: Codec, width: int, height: int) → None
 |---|---|
 | `format` | `(fmt: VideoFormat) → EncoderConfig` |
 | `fps` | `(num: int, den: int) → EncoderConfig` |
+| `gpu_id` | `(id: int) → EncoderConfig` |
 | `properties` | `(props: EncoderProperties) → EncoderConfig` |
 
-### Properties (get/set)
+### Properties (read-only getters after building)
 | Prop | Type |
 |---|---|
-| `format` | VideoFormat |
 | `fps_num` | int |
 | `fps_den` | int |
-| `gpu_id` | int |
 | `mem_type` | MemType |
 | `encoder_params` | Optional[EncoderProperties] |
 
-⚠ Builder `.format()` shadows the property getter. Use property access after building.
+⚠ **Builder methods shadow property setters.** The builder methods `format()`,
+`gpu_id()` are exposed with the same Python name as the underlying property.
+At runtime the property setter is **read-only** — always use the builder
+method call form:
+```python
+cfg = EncoderConfig(Codec.H264, 1280, 720)
+cfg.format(VideoFormat.RGBA)   # ✅ builder call
+cfg.gpu_id(0)                  # ✅ builder call
+cfg.fps(30, 1)
+cfg.properties(props)
+
+# cfg.gpu_id = 0              # ❌ AttributeError: read-only
+# cfg.format = VideoFormat.NV12  # ❌ AttributeError: read-only
+```
 
 ---
 
@@ -204,6 +238,18 @@ Received in `on_encoded_frame` callback. Tagged union.
 | `is_eos` | bool (getter) | |
 | `as_video_frame()` | VideoFrame | ⚠ RuntimeError if EOS |
 | `as_eos()` | EndOfStream | ⚠ RuntimeError if VideoFrame |
+
+### Accessing encoded bitstream data
+The `VideoFrame` returned by `as_video_frame()` carries the encoded
+bitstream in its `content` field:
+```python
+vf = output.as_video_frame()
+if vf.content.is_internal():
+    data: bytes = vf.content.get_data()   # raw H.264/HEVC/AV1/JPEG/PNG bytes
+    pts_ns = vf.pts                       # nanoseconds (time_base = 1/1e9)
+    dts_ns = vf.dts                       # Optional[int]
+    duration_ns = vf.duration             # Optional[int]
+```
 
 ---
 

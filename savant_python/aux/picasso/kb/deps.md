@@ -124,3 +124,53 @@ PaddingDraw.default_padding()  # all zeros
 ```python
 LabelPosition.default_position()  # TopLeftOutside, margin_x=0, margin_y=-10
 ```
+
+---
+
+## Third-Party GPU Drawing (for on_gpumat / on_render callbacks)
+
+### OpenCV CUDA (on_gpumat)
+```python
+import cv2
+# Create GpuMat from raw CUDA pointer (zero-copy, as_gpu_mat equivalent)
+gpumat = cv2.cuda.createGpuMatFromCudaMemory(
+    height, width, cv2.CV_8UC4, data_ptr, pitch,
+)
+stream = cv2.cuda.Stream()
+gpumat.setTo((r, g, b, a), stream=stream)
+stream.waitForCompletion()
+```
+
+### skia-python (on_render)
+```python
+import skia
+
+GL_RGBA8 = 0x8058
+
+# ⚠ On headless EGL (DeepStream), plain MakeGL() returns None.
+# Always use MakeEGL() for the GL interface:
+interface = skia.GrGLInterface.MakeEGL()
+gr_context = skia.GrDirectContext.MakeGL(interface)
+
+# Wrap Picasso's FBO as a Skia surface:
+fb_info = skia.GrGLFramebufferInfo(fbo_id, GL_RGBA8)
+target = skia.GrBackendRenderTarget(width, height, 0, 8, fb_info)
+surface = skia.Surface.MakeFromBackendRenderTarget(
+    gr_context, target,
+    skia.kTopLeft_GrSurfaceOrigin,
+    skia.kRGBA_8888_ColorType,
+    None,
+)
+canvas = surface.getCanvas()
+# ... draw ...
+surface.flushAndSubmit()
+```
+
+### savant_gstreamer (MP4 muxing)
+```python
+from savant_gstreamer import Mp4Muxer, Codec
+# Mp4Muxer is Send — safe to use directly from callbacks.
+muxer = Mp4Muxer(Codec.H264, "/tmp/out.mp4", fps_num=30)
+muxer.push(data_bytes, pts_ns, dts_ns, duration_ns)
+muxer.finish()
+```

@@ -127,4 +127,44 @@ impl DrawContext {
             }
         }
     }
+
+    /// Resolve label templates for the given object without writing to the cache.
+    ///
+    /// Use this when the draw spec came from the [`OnObjectDrawSpec`](crate::callbacks::OnObjectDrawSpec) callback.
+    /// Callback-overridden formats must not pollute the template cache; they
+    /// are parsed on-the-fly and used only for the current object.
+    ///
+    /// If the cache already has an entry for `(namespace, label)` with a
+    /// matching format hash, returns a clone to avoid re-parsing. Otherwise
+    /// parses the format and returns the result without caching.
+    ///
+    /// Returns `None` when the draw spec has no label or its format is empty.
+    pub fn resolve_templates_ephemeral(
+        &self,
+        namespace: &str,
+        label: &str,
+        draw: &ObjectDraw,
+    ) -> Option<ParsedLabelFormats> {
+        let format = draw.label.as_ref().map(|ld| &ld.format)?;
+        if format.is_empty() {
+            return None;
+        }
+
+        let key = (namespace.to_string(), label.to_string());
+        let new_hash = format_hash(format);
+
+        if let Some(existing) = self.template_cache.get(&key) {
+            if existing.source_hash() == new_hash {
+                return Some(existing.clone());
+            }
+        }
+
+        match ParsedLabelFormats::parse(format) {
+            Ok(parsed) => Some(parsed),
+            Err(e) => {
+                log::error!("failed to parse label template at render time: {e}");
+                None
+            }
+        }
+    }
 }

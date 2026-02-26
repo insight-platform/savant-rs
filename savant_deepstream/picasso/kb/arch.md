@@ -25,7 +25,7 @@ picasso/src/
 ├── watchdog.rs       # WatchdogSignal, spawn_watchdog (reaps dead workers)
 ├── skia.rs           # Skia rendering sub-modules
 └── skia/
-    ├── context.rs    # DrawContext: font/template cache
+    ├── context.rs    # DrawContext: font/template cache; resolve_templates (cached) vs resolve_templates_ephemeral (callback-only)
     ├── common.rs     # ResolvedBBox
     ├── object.rs     # draw_object (dispatches to bbox/label/dot/blur)
     ├── bbox.rs       # draw_bounding_box
@@ -138,6 +138,13 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - Draw-only change (same codec): encoder + drain thread continue, only spec updated
 - Font family change: rebuild DrawContext
 - Always rebuild template cache
+
+## OnObjectDrawSpec and Template Cache
+When `OnObjectDrawSpec` returns a custom draw spec for an object, its `labelDraw.format`
+must not pollute the persistent template cache. Callback-overridden formats are resolved
+via `resolve_templates_ephemeral`, which parses on-the-fly and never writes to the cache.
+Static-spec formats use `resolve_templates`, which may update the cache as a fallback.
+This ensures per-object callback overrides do not affect other objects or future frames.
 
 ## Watchdog
 - Runs in separate thread, wakes every `idle_timeout/2` seconds
