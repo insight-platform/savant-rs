@@ -195,6 +195,16 @@ pub unsafe fn extract_nvbufsurface(
     Ok(surf_ptr)
 }
 
+/// Extract the GPU ID from an NvBufSurface-backed GStreamer buffer.
+///
+/// Returns the `gpuId` field of the underlying `NvBufSurface`, which
+/// identifies the CUDA device the surface memory was allocated on.
+pub fn buffer_gpu_id(buf: &gstreamer::BufferRef) -> Result<u32, TransformError> {
+    let surf_ptr = unsafe { extract_nvbufsurface(buf)? };
+    let gpu_id = unsafe { (*surf_ptr).gpuId };
+    Ok(gpu_id)
+}
+
 /// Errors from transform operations.
 #[derive(Debug, thiserror::Error)]
 pub enum TransformError {

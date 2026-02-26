@@ -35,7 +35,9 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
-pub use transform::{ComputeMode, Interpolation, Padding, Rect, TransformConfig, TransformError};
+pub use transform::{
+    buffer_gpu_id, ComputeMode, Interpolation, Padding, Rect, TransformConfig, TransformError,
+};
 
 use glib::translate::from_glib_full;
 use gstreamer as gst;
@@ -238,6 +240,7 @@ pub struct NvBufSurfaceGenerator {
     height: u32,
     fps_num: i32,
     fps_den: i32,
+    gpu_id: u32,
 }
 
 /// Builder for [`NvBufSurfaceGenerator`] with advanced pool configuration.
@@ -543,6 +546,7 @@ impl NvBufSurfaceGenerator {
             height,
             fps_num,
             fps_den,
+            gpu_id,
         })
     }
 
@@ -914,6 +918,11 @@ impl NvBufSurfaceGenerator {
     /// Get the video format of buffers produced by this generator.
     pub fn format(&self) -> VideoFormat {
         self.format
+    }
+
+    /// Get the GPU device ID this generator allocates buffers on.
+    pub fn gpu_id(&self) -> u32 {
+        self.gpu_id
     }
 
     /// Send an end-of-stream signal to an AppSrc element.

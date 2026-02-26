@@ -19,6 +19,13 @@ pub enum PicassoError {
     #[error("Invalid transformation chain: {0}")]
     InvalidTransformationChain(String),
 
+    #[error("GPU mismatch for source '{source_id}': buffer on GPU {buffer_gpu}, encoder on GPU {encoder_gpu}")]
+    GpuMismatch {
+        source_id: String,
+        buffer_gpu: u32,
+        encoder_gpu: u32,
+    },
+
     #[error("Engine is shut down")]
     Shutdown,
 }

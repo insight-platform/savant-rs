@@ -126,6 +126,18 @@ pub(crate) fn process_encode(
         let generator = enc.generator();
         target_w = generator.width();
         target_h = generator.height();
+
+        let encoder_gpu = generator.gpu_id();
+        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.buffer.as_ref()) {
+            if buf_gpu != encoder_gpu {
+                return Err(PicassoError::GpuMismatch {
+                    source_id: source_id.to_string(),
+                    buffer_gpu: buf_gpu,
+                    encoder_gpu,
+                });
+            }
+        }
+
         need_ptr = render.is_some() || (use_on_gpumat && callbacks.on_gpumat.is_some());
 
         if need_ptr {
