@@ -49,12 +49,15 @@ fn ensure_init() {
 }
 
 /// Callback that signals when a VideoFrame (not EOS) is encoded.
+///
+/// Uses a bounded (non-rendezvous) channel so the drain thread never blocks
+/// inside the callback — critical because the drain thread runs independently.
 struct EncodedSignal(mpsc::SyncSender<()>);
 
 impl OnEncodedFrame for EncodedSignal {
     fn call(&self, output: EncodedOutput) {
         if let EncodedOutput::VideoFrame(_) = output {
-            let _ = self.0.send(());
+            let _ = self.0.try_send(());
         }
     }
 }
@@ -152,7 +155,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
     group.warm_up_time(std::time::Duration::from_secs(3));
     group.measurement_time(std::time::Duration::from_secs(10));
 
-    let (tx, rx) = mpsc::sync_channel::<()>(0);
+    let (tx, rx) = mpsc::sync_channel::<()>(16);
     let callbacks = Callbacks {
         on_encoded_frame: Some(Arc::new(EncodedSignal(tx))),
         ..Default::default()
@@ -173,8 +176,17 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         draw: build_draw_spec(),
         ..Default::default()
     };
+
+    let empty_spec = SourceSpec {
+        codec: CodecSpec::Encode {
+            transform: TransformConfig::default(),
+            encoder: Box::new(hevc_low_latency_encoder_config()),
+        },
+        ..Default::default()
+    };
+
     engine
-        .set_source_spec("bench", spec)
+        .set_source_spec("bench", spec.clone())
         .expect("set_source_spec failed");
 
     let gen = NvBufSurfaceGenerator::new(
@@ -188,6 +200,8 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
     )
     .expect("NvBufSurfaceGenerator::new failed");
 
+    let frame_counter = Cell::new(WARMUP_FRAMES as i64);
+
     // Warm-up: send a few frames and wait for them
     for i in 0..WARMUP_FRAMES {
         let frame = make_frame_with_objects("bench", i as i64, 0);
@@ -198,10 +212,19 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         rx.recv().expect("warm-up recv failed");
     }
 
-    let frame_counter = Cell::new(WARMUP_FRAMES as i64);
-
     for num_objects in [0_usize, 10, 20, 50, 100, 200] {
         group.bench_function(format!("{num_objects}_objects"), |b| {
+            if num_objects > 0 {
+                engine
+                    .set_source_spec("bench", spec.clone())
+                    .expect("set_source_spec failed");
+            } else {
+                engine
+                    .set_source_spec("bench", empty_spec.clone())
+                    .expect("set_source_spec failed");
+            }
+
+            while rx.try_recv().is_ok() {}
 
             b.iter(|| {
                 let idx = frame_counter.get();
@@ -213,9 +236,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
                     .expect("send_frame failed");
                 rx.recv().expect("encoded recv failed");
             });
-
         });
-
     }
     engine.shutdown();
     group.finish();

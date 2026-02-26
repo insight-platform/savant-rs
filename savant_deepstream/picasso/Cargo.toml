@@ -48,5 +48,5 @@ name = "bench_bypass"
 harness = false
 
 [[bench]]
-name = "bench_hevc_throughput"
+name = "bench_sync_hevc_render"
 harness = false

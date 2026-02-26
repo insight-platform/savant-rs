@@ -224,12 +224,13 @@ pub(crate) fn process_encode(
     let duration = input.frame.get_duration().map(|d| d.max(0) as u64);
 
     let frame_id = input.frame.get_uuid_u128();
-    pending_frames.lock().insert(frame_id, input.frame);
 
     encoder
         .lock()
         .submit_frame(dst_buf, frame_id, pts, duration)
         .map_err(|e| PicassoError::Encoder(source_id.to_string(), e.to_string()))?;
+
+    pending_frames.lock().insert(frame_id, input.frame);
 
     Ok(())
 }
