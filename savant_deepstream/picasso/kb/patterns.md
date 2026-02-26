@@ -361,8 +361,83 @@ fn symmetric_letterbox_center() {
 
 ---
 
+## Async Drain Test Pattern (GPU)
+
+With the async drain thread, encoded output arrives independently of frame
+submission. Use poll-with-deadline instead of fixed sleep:
+
+```rust
+#[test]
+#[serial_test::serial]
+fn e2e_async_drain_delivers_independently() {
+    let _ = env_logger::try_init();
+    let _ = gstreamer::init();
+    cuda_init(0).unwrap();
+
+    let enc_count = Arc::new(AtomicUsize::new(0));
+    let eos_count = Arc::new(AtomicUsize::new(0));
+    let callbacks = Callbacks {
+        on_encoded_frame: Some(Arc::new(CountingEncodedCb {
+            count: enc_count.clone(), eos_count: eos_count.clone(),
+        })),
+        ..Default::default()
+    };
+    let mut engine = PicassoEngine::new(GeneralSpec { idle_timeout_secs: 300 }, callbacks);
+    engine.set_source_spec("s", jpeg_spec()).unwrap();
+    let gen = make_generator();
+
+    let n = 10u64;
+    for i in 0..n {
+        let mut frame = make_frame_sized("s", W as i64, H as i64);
+        frame.set_pts((i * DUR) as i64).unwrap();
+        frame.set_duration(Some(DUR as i64)).unwrap();
+        let buf = make_gpu_buffer(&gen, i, DUR);
+        engine.send_frame("s", frame, buf).unwrap();
+    }
+
+    // Do NOT send more frames — only wait for the drain thread to deliver.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while enc_count.load(Ordering::SeqCst) < n as usize {
+        assert!(std::time::Instant::now() < deadline, "timed out");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(enc_count.load(Ordering::SeqCst), n as usize);
+    engine.shutdown();
+}
+```
+
+---
+
+## Benchmark Callback Pattern
+
+⚠ With the async drain thread, the `OnEncodedFrame` callback fires from the
+drain thread. Using `mpsc::sync_channel(0)` (rendezvous) will block the drain
+thread until someone calls `recv()`. Use a buffered channel + `try_send`:
+
+```rust
+struct EncodedSignal(mpsc::SyncSender<()>);
+
+impl OnEncodedFrame for EncodedSignal {
+    fn call(&self, output: EncodedOutput) {
+        if let EncodedOutput::VideoFrame(_) = output {
+            let _ = self.0.try_send(());  // never block the drain thread
+        }
+    }
+}
+
+// Create with capacity > 0:
+let (tx, rx) = mpsc::sync_channel::<()>(16);
+
+// Drain stale signals between criterion samples:
+while rx.try_recv().is_ok() {}
+```
+
+---
+
 ## Timing Guidance
 - NOGPU tests: `sleep(100-300ms)` sufficient for worker thread processing
-- GPU encode tests: `sleep(1-3s)` needed for hardware encoder warmup + drain
-- Always `send_eos` → `sleep` → `shutdown` for encode tests
+- GPU encode tests: prefer poll-with-deadline pattern (see Async Drain Test Pattern) over fixed sleeps
+- Fixed `sleep(1-3s)` still works for simple GPU tests
+- Always `send_eos` → wait for EOS sentinel → `shutdown` for encode tests
 - Idle timeout tests: set `Duration::from_millis(200)`, sleep 500ms to trigger
+- ⚠ Encoder rejects non-monotonic PTS (`PtsReordered`). Ensure frame counters keep incrementing across criterion closure invocations (define counter outside the closure).

@@ -13,11 +13,11 @@ Self-contained reference for agents to write Rust code/tests for the picasso cra
 | `errors.md` | PicassoError variants, error conditions |
 
 ## Usage Order
-1. `api.md` — picasso's own public types
-2. `deps.md` — imports from external crates
-3. `patterns.md` — test scaffolding, helpers, templates
-4. `arch.md` — only when understanding internals or writing integration tests touching pipeline stages
-5. `errors.md` — negative-path tests
+1. `api.md` — picasso's own public types + GPU utilities from deepstream_nvbufsurface
+2. `deps.md` — imports from external crates (includes `buffer_gpu_id`, `EncoderConfig.gpu_id()`)
+3. `patterns.md` — test scaffolding, helpers, templates (includes async drain + benchmark patterns)
+4. `arch.md` — internals: threading model, async drain, GPU affinity, shared encoder state, render omission fast path
+5. `errors.md` — all PicassoError variants including `GpuMismatch`
 
 ## Conventions
 - `SIG:` = function/method signature

@@ -29,12 +29,13 @@ use deepstream_encoders::prelude::*;
 //        JetsonPresetLevel, Platform, RateControl
 ```
 
-### deepstream_nvbufsurface (transform config)
+### deepstream_nvbufsurface (transform config, GPU utilities)
 ```rust
-use deepstream_nvbufsurface::{Padding, Rect, TransformConfig};
+use deepstream_nvbufsurface::{Padding, Rect, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
 // TransformConfig fields: padding, interpolation, src_rect: Option<Rect>, compute_mode, cuda_stream
 // TransformConfig implements Default (Symmetric, Bilinear, no crop, Default compute)
+// buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 ```
 
 ### savant_core (frames, objects, geometry)
@@ -90,6 +91,7 @@ let buf = gstreamer::Buffer::new();
 let gen = NvBufSurfaceGenerator::new(
     VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
 ).unwrap();
+assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter
 let mut buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
 // ⚠ pts/dts/duration are taken from the VideoFrame; do not assume they are in the buffer.
 // Set them on the frame before send_frame:
@@ -103,6 +105,7 @@ frame.set_duration(Some(dur_ns as i64)).unwrap();
 EncoderConfig::new(Codec::H264, W, H)
     .format(VideoFormat::RGBA)
     .fps(30, 1)
+    .gpu_id(0)  // default: 0 — must match incoming buffer GPU
     .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
         bitrate: Some(2_000_000),
         preset: Some(DgpuPreset::P1),
@@ -112,6 +115,7 @@ EncoderConfig::new(Codec::H264, W, H)
     }))
 ```
 ⚠ Builder returns `Self` by value (move semantics). Chain in one expression.
+⚠ `gpu_id` must match the GPU where incoming NvBufSurface buffers are allocated; `process_encode` validates this at entry.
 
 ### TransformConfig
 ```rust

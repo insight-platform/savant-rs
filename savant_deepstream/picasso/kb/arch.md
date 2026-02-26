@@ -68,18 +68,30 @@ send_frame(source_id, VideoFrameProxy, gst::Buffer)
   → WorkerState::process_frame
     → check encode_attribute gate (skip if missing)
     → match CodecSpec::Encode
-      → ensure_encoder (lazy NvEncoder creation)
+      → ensure_encoder (lazy NvEncoder + DrainHandle creation)
       → process_encode:
-         1. GPU transform (NvBufSurfaceGenerator.transform)
-         2. rewrite_frame_transformations (coordinate mapping)
-         3. (if render) resolve draw specs per object
-         4. (if render) SkiaRenderer.load_from_nvbuf / from_nvbuf
-         5. (if render) draw objects on Skia canvas
-         6. (if render + use_on_render) fire on_render callback
-         7. (if render) render_to_nvbuf (Skia → GPU surface)
-         8. (if use_on_gpumat) fire on_gpumat callback
-         9. encoder.submit_frame (drain thread pulls output independently)
+         1. Lock encoder, get generator
+         2. GPU affinity check (buffer_gpu_id vs generator.gpu_id → GpuMismatch)
+         3. GPU transform (generator.transform / transform_with_ptr)
+         4. Unlock encoder
+         5. rewrite_frame_transformations (coordinate mapping)
+         6. (if render) resolve draw specs per object
+         7. (if render) SkiaRenderer.load_from_nvbuf / from_nvbuf
+         8. (if render) draw objects on Skia canvas
+         9. (if render + use_on_render) fire on_render callback
+        10. (if render) render_to_nvbuf (Skia → GPU surface)
+        11. (if use_on_gpumat) fire on_gpumat callback
+        12. Lock encoder, submit_frame
+        13. Insert into pending_frames (only after successful submit)
+        14. Drain thread pulls output independently
 ```
+
+### Render Omission (Fast Path)
+When `use_on_render=false` AND `draw` spec is empty for a source, `should_render`
+is false, `render_opts` is `None`, and process_encode skips the entire Skia path:
+- `need_ptr=false` → plain `generator.transform()` (no CUDA pointer overhead)
+- Skia block (steps 6–10) skipped entirely: no EGL lock, no SkiaRenderer, no canvas
+- Frame goes straight from GPU transform to encoder submit
 
 ## Data Flow (Bypass Path)
 ```
@@ -99,9 +111,26 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - Encode: stop drain thread → drain_remaining → encoder.finish(5s timeout) → fire callbacks for remaining frames → EOS sentinel
 - After EOS, encoder + drain handle are set to None (re-created on next frame)
 
+## Shared Encoder State
+- `SharedEncoder = Arc<parking_lot::Mutex<NvEncoder>>` — shared between worker and drain threads
+- `SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrameProxy>>>` — frame map shared with drain
+- Worker locks encoder for: GPU transform, submit_frame (brief)
+- Drain thread locks encoder for: pull_encoded (brief, non-blocking)
+- `pending_frames` insert happens AFTER `submit_frame` succeeds (avoids leaking entries on encoder error)
+
+## GPU Affinity
+- `EncoderConfig.gpu_id` (default: 0) is the single source of truth per source
+- Propagates to: NvEncoder generators, SkiaRenderer, buffer pools
+- `NvBufSurfaceGenerator.gpu_id()` exposes the stored GPU ID
+- `deepstream_nvbufsurface::buffer_gpu_id(buf)` extracts GPU ID from an NvBufSurface-backed buffer
+- `process_encode` checks buffer GPU vs encoder GPU at entry; returns `PicassoError::GpuMismatch` on mismatch
+- Check is fail-open: if `buffer_gpu_id` can't extract (e.g., non-NVMM stub buffer in tests), proceeds silently
+- Transform (`NvBufSurfTransform`) reads GPU from the source buffer's `gpuId` field independently
+
 ## Spec Hot-Swap
 - `set_source_spec` on existing worker → `WorkerMessage::UpdateSpec`
-- If codec changed (Drop↔Bypass↔Encode, or encode dimensions/codec differ): drain encoder, drop renderer
+- If codec changed (Drop↔Bypass↔Encode, or encode dimensions/codec differ): stop drain thread, flush encoder, drop renderer
+- Draw-only change (same codec): encoder + drain thread continue, only spec updated
 - Font family change: rebuild DrawContext
 - Always rebuild template cache
 
@@ -115,6 +144,8 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - Serializes all SkiaRenderer operations (EGL contexts on same GPU corrupt each other)
 - Held during: load_from_nvbuf, canvas draws, render_to_nvbuf
 
-## Key Invariant
+## Key Invariants
 - Frame's transformation chain must start with exactly `[InitialSize(w, h)]` before `rewrite_frame_transformations`
 - VideoFrameProxy uses interior mutability (clone shares state via Arc)
+- `pending_frames` insert is always AFTER successful `submit_frame` (prevents orphaned entries on encoder error)
+- Drain thread callback must not block indefinitely (use buffered channels / `try_send` in benchmarks/consumers)

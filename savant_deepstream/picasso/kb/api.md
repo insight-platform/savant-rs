@@ -264,3 +264,21 @@ pub fn compute_letterbox_params(
 ) → (outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)
 ```
 Path: `picasso::transform::compute_letterbox_params`
+
+---
+
+## GPU Utilities (from deepstream_nvbufsurface)
+
+### buffer_gpu_id
+```rust
+pub fn buffer_gpu_id(buf: &gstreamer::BufferRef) → Result<u32, TransformError>
+```
+Path: `deepstream_nvbufsurface::buffer_gpu_id`
+
+Extracts the `gpuId` from the NvBufSurface inside a GStreamer buffer. Used by `process_encode` for GPU affinity validation.
+
+### NvBufSurfaceGenerator.gpu_id()
+```rust
+pub fn gpu_id(&self) → u32
+```
+Returns the GPU device ID this generator allocates buffers on. Stored at construction time.
