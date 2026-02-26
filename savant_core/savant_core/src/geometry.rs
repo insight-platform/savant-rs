@@ -80,8 +80,8 @@ impl Affine2D {
                     pad_r,
                     pad_b,
                 ) => {
-                    let inner_w = (*outer_w - pad_l - pad_r) as f64;
-                    let inner_h = (*outer_h - pad_t - pad_b) as f64;
+                    let inner_w = outer_w.saturating_sub(pad_l + pad_r) as f64;
+                    let inner_h = outer_h.saturating_sub(pad_t + pad_b) as f64;
                     if current_w > 0.0 && current_h > 0.0 && inner_w > 0.0 && inner_h > 0.0 {
                         let kx = inner_w / current_w;
                         let ky = inner_h / current_h;
