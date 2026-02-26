@@ -1027,6 +1027,38 @@ impl PyJpegProps {
     }
 }
 
+// ─── PyPngProps ───────────────────────────────────────────────────────
+
+/// PNG encoder properties (`pngenc`, CPU-based, gst-plugins-good).
+#[pyclass(from_py_object, name = "PngProps", module = "savant_rs.picasso")]
+#[derive(Debug, Clone)]
+pub struct PyPngProps {
+    /// PNG compression level (0–9, default: 6). Higher = smaller file, slower.
+    #[pyo3(get, set)]
+    pub compression_level: Option<u32>,
+}
+
+#[pymethods]
+impl PyPngProps {
+    #[new]
+    #[pyo3(signature = (compression_level = None))]
+    fn new(compression_level: Option<u32>) -> Self {
+        Self { compression_level }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl PyPngProps {
+    pub(crate) fn to_rust(&self) -> PngProps {
+        PngProps {
+            compression_level: self.compression_level,
+        }
+    }
+}
+
 // ─── PyAv1DgpuProps ────────────────────────────────────────────────────
 
 #[pyclass(from_py_object, name = "Av1DgpuProps", module = "savant_rs.picasso")]
@@ -1180,6 +1212,14 @@ impl PyEncoderProperties {
     fn av1_dgpu(props: PyAv1DgpuProps) -> Self {
         Self {
             inner: EncoderProperties::Av1Dgpu(props.to_rust()),
+        }
+    }
+
+    /// Create PNG encoder properties (CPU-based, gst-plugins-good).
+    #[staticmethod]
+    fn png(props: PyPngProps) -> Self {
+        Self {
+            inner: EncoderProperties::Png(props.to_rust()),
         }
     }
 
@@ -1354,6 +1394,7 @@ pub fn register_encoder_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyH264JetsonProps>()?;
     m.add_class::<PyHevcJetsonProps>()?;
     m.add_class::<PyJpegProps>()?;
+    m.add_class::<PyPngProps>()?;
     m.add_class::<PyAv1DgpuProps>()?;
     m.add_class::<PyEncoderProperties>()?;
     m.add_class::<PyEncoderConfig>()?;

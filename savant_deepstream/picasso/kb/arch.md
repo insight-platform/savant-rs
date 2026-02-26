@@ -127,6 +127,11 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - Check is fail-open: if `buffer_gpu_id` can't extract (e.g., non-NVMM stub buffer in tests), proceeds silently
 - Transform (`NvBufSurfTransform`) reads GPU from the source buffer's `gpuId` field independently
 
+## PNG Encoding (CPU-based)
+- Uses GStreamer pipeline: appsrc (NVMM RGBA) → nvvideoconvert → pngenc → appsink
+- `pngenc` (gst-plugins-good) runs on CPU; nvvideoconvert converts NVMM to system memory
+- Requires `VideoFormat::RGBA`; `PngProps` supports `compression_level` (0–9)
+
 ## Spec Hot-Swap
 - `set_source_spec` on existing worker → `WorkerMessage::UpdateSpec`
 - If codec changed (Drop↔Bypass↔Encode, or encode dimensions/codec differ): stop drain thread, flush encoder, drop renderer

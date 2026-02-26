@@ -31,7 +31,7 @@
 `DISABLED`, `ULTRA_FAST`, `FAST`, `MEDIUM`, `SLOW`
 
 ## Codec (from savant_rs.gstreamer)
-`H264`, `HEVC`, `JPEG`, `AV1`
+`H264`, `HEVC`, `JPEG`, `AV1`, `PNG`
 
 ## VideoFormat (from savant_rs.deepstream)
 `RGBA`, `BGRx`, `NV12`, `NV21`, `I420`, `UYVY`, `GRAY8`
@@ -65,6 +65,9 @@ Same as H264JetsonProps except: no `insert_aud`, `insert_vui`, `disable_cabac`; 
 
 ### JpegProps
 `quality: Optional[int]`
+
+### PngProps
+`compression_level: Optional[int]` (0–9, default: 6)
 
 ### Av1DgpuProps
 `bitrate`, `control_rate`, `iframeinterval`, `idrinterval`, `preset` (DgpuPreset), `tuning_info` (TuningPreset), `qp_range`, `max_bitrate`, `vbv_buf_size`, `vbv_init`, `cq`, `aq`, `temporal_aq`

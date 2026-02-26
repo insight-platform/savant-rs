@@ -190,6 +190,7 @@ Factory statics only:
 | `EncoderProperties.h264_jetson(props: H264JetsonProps)` | Jetson H.264 |
 | `EncoderProperties.hevc_jetson(props: HevcJetsonProps)` | Jetson HEVC |
 | `EncoderProperties.jpeg(props: JpegProps)` | JPEG |
+| `EncoderProperties.png(props: PngProps)` | PNG (CPU-based, lossless) |
 | `EncoderProperties.av1_dgpu(props: Av1DgpuProps)` | dGPU AV1 |
 
 ---

@@ -137,6 +137,17 @@ def build_encoder_config(width=1280, height=720, fps=30) -> EncoderConfig:
     return cfg
 ```
 
+### Build PNG Encoder Config (CPU-based, lossless)
+```python
+def build_png_encoder_config(width=1280, height=720, fps=30) -> EncoderConfig:
+    props = EncoderProperties.png(PngProps(compression_level=6))
+    cfg = EncoderConfig(Codec.PNG, width, height)
+    cfg.format(VideoFormat.RGBA)  # PNG requires RGBA
+    cfg.fps(fps, 1)
+    cfg.properties(props)
+    return cfg
+```
+
 ### Build Encode SourceSpec
 ```python
 def build_encode_spec(width=1280, height=720) -> SourceSpec:

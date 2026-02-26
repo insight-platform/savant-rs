@@ -51,19 +51,21 @@ class Codec:
     - ``HEVC`` — H.265 / HEVC.
     - ``JPEG`` — Motion JPEG.
     - ``AV1``  — AV1.
+    - ``PNG``  — PNG (CPU-based, lossless).
     """
 
     H264: Codec
     HEVC: Codec
     JPEG: Codec
     AV1: Codec
+    PNG: Codec
 
     @staticmethod
     def from_name(name: str) -> Codec:
         """Parse a codec from a string name.
 
         Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-        ``jpeg``, ``av1``.
+        ``jpeg``, ``av1``, ``png``.
 
         Args:
             name: Codec name.

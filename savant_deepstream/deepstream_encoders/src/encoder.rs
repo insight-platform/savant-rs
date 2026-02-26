@@ -134,7 +134,17 @@ impl NvEncoder {
             }
         }
 
-        // Determine the encoder and parser element names.
+        // PNG uses a CPU-based GStreamer pipeline (nvvideoconvert -> pngenc).
+        // Other codecs use NVIDIA hardware encoders.
+        let is_png = config.codec == Codec::Png;
+        if is_png && config.format != VideoFormat::RGBA {
+            return Err(EncoderError::InvalidProperty {
+                name: "format".to_string(),
+                reason: "PNG encoder requires VideoFormat::RGBA".to_string(),
+            });
+        }
+
+        // Determine the encoder and parser element names (unused for PNG).
         let (enc_name, parse_name, needs_convert) = match config.codec {
             Codec::H264 => (
                 "nvv4l2h264enc",
@@ -152,11 +162,13 @@ impl NvEncoder {
                 "av1parse",
                 config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
+            Codec::Png => ("pngenc", "identity", false),
         };
 
         // Determine encoder-native format.
         let native_format = match config.codec {
             Codec::Jpeg => VideoFormat::I420,
+            Codec::Png => VideoFormat::RGBA,
             _ => VideoFormat::NV12,
         };
 
@@ -181,7 +193,10 @@ impl NvEncoder {
         // a ConvertContext with a second generator + non-blocking CUDA stream.
         // This replaces the `nvvideoconvert` GStreamer element, avoiding the
         // CUDA default-stream serialization bottleneck.
-        let convert_ctx = if needs_convert {
+        // PNG uses nvvideoconvert in-pipeline (NVMM -> CPU for pngenc).
+        let convert_ctx = if is_png {
+            None
+        } else if needs_convert {
             let native_generator =
                 NvBufSurfaceGenerator::builder(native_format, config.width, config.height)
                     .fps(config.fps_num, config.fps_den)
@@ -212,7 +227,6 @@ impl NvEncoder {
         };
 
         // --- Build the GStreamer pipeline ---
-        // No nvvideoconvert: appsrc -> encoder -> parser -> appsink
         let pipeline = gst::Pipeline::new();
 
         let appsrc = gst::ElementFactory::make("appsrc")
@@ -220,33 +234,10 @@ impl NvEncoder {
             .build()
             .map_err(|_| EncoderError::ElementCreationFailed("appsrc".into()))?;
 
-        let enc = gst::ElementFactory::make(enc_name)
-            .name("enc")
-            .build()
-            .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?;
-
-        let parse = gst::ElementFactory::make(parse_name)
-            .name("parse")
-            .build()
-            .map_err(|_| EncoderError::ElementCreationFailed(parse_name.into()))?;
-
         let appsink = gst::ElementFactory::make("appsink")
             .name("sink")
             .build()
             .map_err(|_| EncoderError::ElementCreationFailed("appsink".into()))?;
-
-        // Bridge SavantIdMeta across the encoder element.
-        bridge_savant_id_meta(&enc);
-
-        // Apply typed encoder properties.
-        if let Some(ref params) = config.encoder_params {
-            for (key, value) in params.to_gst_pairs() {
-                Self::set_element_property(&enc, key, &value)?;
-            }
-        }
-
-        // Forcibly disable B-frames on the encoder if the property exists.
-        Self::force_disable_b_frames(&enc);
 
         // Configure appsrc with NVMM caps in the encoder-native format.
         // When conversion is needed, appsrc receives already-converted
@@ -266,28 +257,75 @@ impl NvEncoder {
         appsink_elem.set_property("sync", false);
         appsink_elem.set_property("emit-signals", false);
 
-        // Assemble the pipeline chain: appsrc -> enc -> parse -> appsink
-        let chain: Vec<&gst::Element> = vec![&appsrc, &enc, &parse, &appsink];
+        let enc = gst::ElementFactory::make(enc_name)
+            .name("enc")
+            .build()
+            .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?;
 
-        for elem in &chain {
-            pipeline.add(*elem).map_err(|e| {
-                EncoderError::PipelineError(format!("Failed to add element: {}", e))
-            })?;
-        }
-        for i in 0..chain.len() - 1 {
-            chain[i]
-                .link(chain[i + 1])
-                .map_err(|_| EncoderError::LinkFailed {
-                    from: chain[i].name().to_string(),
-                    to: chain[i + 1].name().to_string(),
+        if is_png {
+            // PNG: appsrc (NVMM RGBA) -> nvvideoconvert -> pngenc -> appsink
+            // nvvideoconvert converts NVMM to system memory for pngenc (gst-plugins-good).
+            let nvconv = gst::ElementFactory::make("nvvideoconvert")
+                .name("nvconv")
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed("nvvideoconvert".into()))?;
+
+            // Apply PNG encoder properties (compression-level etc.).
+            if let Some(ref params) = config.encoder_params {
+                for (key, value) in params.to_gst_pairs() {
+                    Self::set_element_property(&enc, key, &value)?;
+                }
+            }
+
+            for elem in [&appsrc, &nvconv, &enc, &appsink] {
+                pipeline.add(elem).map_err(|e| {
+                    EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
+            }
+            gst::Element::link_many([&appsrc, &nvconv, &enc, &appsink]).map_err(|_| {
+                EncoderError::LinkFailed {
+                    from: "appsrc->nvvideoconvert->pngenc->appsink".to_string(),
+                    to: "".to_string(),
+                }
+            })?;
+        } else {
+            // Hardware encoders: appsrc -> encoder -> parser -> appsink
+            let parse = gst::ElementFactory::make(parse_name)
+                .name("parse")
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed(parse_name.into()))?;
+
+            // Bridge SavantIdMeta across the encoder element.
+            bridge_savant_id_meta(&enc);
+
+            // Apply typed encoder properties.
+            if let Some(ref params) = config.encoder_params {
+                for (key, value) in params.to_gst_pairs() {
+                    Self::set_element_property(&enc, key, &value)?;
+                }
+            }
+
+            // Forcibly disable B-frames on the encoder if the property exists.
+            Self::force_disable_b_frames(&enc);
+
+            for elem in [&appsrc, &enc, &parse, &appsink] {
+                pipeline.add(elem).map_err(|e| {
+                    EncoderError::PipelineError(format!("Failed to add element: {}", e))
+                })?;
+            }
+            gst::Element::link_many([&appsrc, &enc, &parse, &appsink]).map_err(|_| {
+                EncoderError::LinkFailed {
+                    from: "appsrc->enc->parse->appsink".to_string(),
+                    to: "".to_string(),
+                }
+            })?;
         }
 
         debug!(
-            "NvEncoder pipeline built: {} elements, codec={:?}, convert={}",
-            chain.len(),
+            "NvEncoder pipeline built: codec={:?}, convert={}, png={}",
             config.codec,
             convert_ctx.is_some(),
+            is_png,
         );
 
         // Start the pipeline.
@@ -530,7 +568,7 @@ impl NvEncoder {
         let final_duration = duration_ns.or(orig_duration);
 
         let keyframe = match self.codec {
-            Codec::Jpeg => true,
+            Codec::Jpeg | Codec::Png => true,
             _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
         };
 

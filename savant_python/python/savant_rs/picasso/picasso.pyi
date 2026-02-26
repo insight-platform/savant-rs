@@ -27,6 +27,7 @@ __all__ = [
     "H264JetsonProps",
     "HevcJetsonProps",
     "JpegProps",
+    "PngProps",
     "Av1DgpuProps",
     "EncoderProperties",
     "EncoderConfig",
@@ -330,6 +331,14 @@ class JpegProps:
     def __init__(self, quality: Optional[int] = None) -> None: ...
     def __repr__(self) -> str: ...
 
+class PngProps:
+    """PNG encoder properties (CPU-based, ``pngenc`` from gst-plugins-good)."""
+
+    compression_level: Optional[int]
+
+    def __init__(self, compression_level: Optional[int] = None) -> None: ...
+    def __repr__(self) -> str: ...
+
 class Av1DgpuProps:
     bitrate: Optional[int]
     control_rate: Optional[RateControl]
@@ -380,6 +389,8 @@ class EncoderProperties:
     def jpeg(props: JpegProps) -> EncoderProperties: ...
     @staticmethod
     def av1_dgpu(props: Av1DgpuProps) -> EncoderProperties: ...
+    @staticmethod
+    def png(props: PngProps) -> EncoderProperties: ...
     def __repr__(self) -> str: ...
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -424,6 +435,7 @@ class EncoderConfig:
     # ── builder methods (return self for chaining) ──
     # Note: the builder method ``format()`` shadows the property getter.
     # Use ``repr()`` or direct property access after building.
+    def format(self, fmt: VideoFormat) -> EncoderConfig: ...
     def fps(self, num: int, den: int) -> EncoderConfig: ...
     def properties(self, props: EncoderProperties) -> EncoderConfig: ...
     def __repr__(self) -> str: ...

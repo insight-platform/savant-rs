@@ -10,7 +10,7 @@ from savant_rs.picasso import (
     DgpuPreset, TuningPreset, JetsonPresetLevel,
     # Encoder property structs
     H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
-    JpegProps, Av1DgpuProps, EncoderProperties, EncoderConfig,
+    JpegProps, PngProps, Av1DgpuProps, EncoderProperties, EncoderConfig,
     # Spec types
     GeneralSpec, EvictionDecision, ConditionalSpec, ObjectDrawSpec,
     CodecSpec, SourceSpec,
@@ -50,7 +50,7 @@ from savant_rs.draw_spec import (
 
 ### savant_rs.gstreamer
 ```python
-from savant_rs.gstreamer import Codec  # H264, HEVC, JPEG, AV1
+from savant_rs.gstreamer import Codec  # H264, HEVC, JPEG, AV1, PNG
 ```
 
 ### savant_rs.primitives (frames, objects, geometry)

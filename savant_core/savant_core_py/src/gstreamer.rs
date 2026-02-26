@@ -17,6 +17,7 @@ fn to_py_err(e: Mp4MuxerError) -> PyErr {
 /// - ``HEVC`` — H.265 / HEVC.
 /// - ``JPEG`` — Motion JPEG.
 /// - ``AV1``  — AV1.
+/// - ``PNG``  — PNG (CPU-based, lossless).
 #[pyclass(
     from_py_object,
     name = "Codec",
@@ -34,6 +35,8 @@ pub enum PyCodec {
     Jpeg = 2,
     #[pyo3(name = "AV1")]
     Av1 = 3,
+    #[pyo3(name = "PNG")]
+    Png = 4,
 }
 
 #[pymethods]
@@ -41,7 +44,7 @@ impl PyCodec {
     /// Parse a codec from a string name.
     ///
     /// Accepted names (case-insensitive): ``h264``, ``hevc``, ``h265``,
-    /// ``jpeg``, ``av1``.
+    /// ``jpeg``, ``av1``, ``png``.
     ///
     /// Args:
     ///     name (str): Codec name.
@@ -56,7 +59,7 @@ impl PyCodec {
         match Codec::from_name(name) {
             Some(c) => Ok(c.into()),
             None => Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown codec: '{}'. Expected one of: h264, hevc, h265, jpeg, av1",
+                "Unknown codec: '{}'. Expected one of: h264, hevc, h265, jpeg, av1, png",
                 name
             ))),
         }
@@ -76,6 +79,7 @@ impl PyCodec {
                 PyCodec::Hevc => "HEVC",
                 PyCodec::Jpeg => "JPEG",
                 PyCodec::Av1 => "AV1",
+                PyCodec::Png => "PNG",
             }
         )
     }
@@ -88,6 +92,7 @@ impl From<PyCodec> for Codec {
             PyCodec::Hevc => Codec::Hevc,
             PyCodec::Jpeg => Codec::Jpeg,
             PyCodec::Av1 => Codec::Av1,
+            PyCodec::Png => Codec::Png,
         }
     }
 }
@@ -99,6 +104,7 @@ impl From<Codec> for PyCodec {
             Codec::Hevc => PyCodec::Hevc,
             Codec::Jpeg => PyCodec::Jpeg,
             Codec::Av1 => PyCodec::Av1,
+            Codec::Png => PyCodec::Png,
         }
     }
 }
@@ -117,7 +123,7 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
     if let Ok(s) = ob.extract::<String>() {
         return Codec::from_name(&s).ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(format!(
-                "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1"
+                "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1, png"
             ))
         });
     }
@@ -125,13 +131,13 @@ pub fn extract_codec(ob: &Bound<'_, PyAny>) -> PyResult<Codec> {
         if let Ok(s) = name_val.extract::<String>() {
             return Codec::from_name(&s).ok_or_else(|| {
                 pyo3::exceptions::PyValueError::new_err(format!(
-                    "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1"
+                    "Unknown codec: '{s}'. Expected one of: h264, hevc, h265, jpeg, av1, png"
                 ))
             });
         }
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, av1)",
+        "Expected a Codec enum value or a codec name string (h264, hevc, h265, jpeg, av1, png)",
     ))
 }
 

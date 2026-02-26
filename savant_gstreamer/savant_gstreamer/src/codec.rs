@@ -11,26 +11,35 @@ pub enum Codec {
     Jpeg,
     /// AV1.
     Av1,
+    /// PNG (CPU-based, lossless).
+    Png,
 }
 
 impl Codec {
     /// Return the GStreamer encoder element name for this codec.
+    ///
+    /// For PNG, returns `pngenc` (CPU-based). Other codecs use NVIDIA
+    /// hardware encoders.
     pub fn encoder_element(&self) -> &'static str {
         match self {
             Codec::H264 => "nvv4l2h264enc",
             Codec::Hevc => "nvv4l2h265enc",
             Codec::Jpeg => "nvjpegenc",
             Codec::Av1 => "nvv4l2av1enc",
+            Codec::Png => "pngenc",
         }
     }
 
     /// Return the GStreamer parser element name for this codec.
+    ///
+    /// PNG has no parser; returns `identity` as a pass-through.
     pub fn parser_element(&self) -> &'static str {
         match self {
             Codec::H264 => "h264parse",
             Codec::Hevc => "h265parse",
             Codec::Jpeg => "jpegparse",
             Codec::Av1 => "av1parse",
+            Codec::Png => "identity",
         }
     }
 
@@ -41,18 +50,20 @@ impl Codec {
             Codec::Hevc => "video/x-h265, stream-format=byte-stream",
             Codec::Jpeg => "image/jpeg",
             Codec::Av1 => "video/x-av1",
+            Codec::Png => "image/png",
         }
     }
 
     /// Parse a codec from a string name.
     ///
-    /// Accepted names (case-insensitive): `h264`, `hevc`, `h265`, `jpeg`, `av1`.
+    /// Accepted names (case-insensitive): `h264`, `hevc`, `h265`, `jpeg`, `av1`, `png`.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().as_str() {
             "h264" => Some(Codec::H264),
             "hevc" | "h265" => Some(Codec::Hevc),
             "jpeg" => Some(Codec::Jpeg),
             "av1" => Some(Codec::Av1),
+            "png" => Some(Codec::Png),
             _ => None,
         }
     }
@@ -64,6 +75,7 @@ impl Codec {
             Codec::Hevc => "hevc",
             Codec::Jpeg => "jpeg",
             Codec::Av1 => "av1",
+            Codec::Png => "png",
         }
     }
 }
@@ -86,6 +98,8 @@ mod tests {
         assert_eq!(Codec::from_name("h265"), Some(Codec::Hevc));
         assert_eq!(Codec::from_name("jpeg"), Some(Codec::Jpeg));
         assert_eq!(Codec::from_name("av1"), Some(Codec::Av1));
+        assert_eq!(Codec::from_name("png"), Some(Codec::Png));
+        assert_eq!(Codec::from_name("PNG"), Some(Codec::Png));
         assert_eq!(Codec::from_name("vp9"), None);
         assert_eq!(Codec::from_name(""), None);
     }
@@ -96,6 +110,7 @@ mod tests {
         assert_eq!(Codec::Hevc.name(), "hevc");
         assert_eq!(Codec::Jpeg.name(), "jpeg");
         assert_eq!(Codec::Av1.name(), "av1");
+        assert_eq!(Codec::Png.name(), "png");
     }
 
     #[test]
@@ -109,6 +124,7 @@ mod tests {
         assert!(Codec::Hevc.caps_str().contains("h265"));
         assert!(Codec::Jpeg.caps_str().contains("jpeg"));
         assert!(Codec::Av1.caps_str().contains("av1"));
+        assert!(Codec::Png.caps_str().contains("png"));
     }
 
     #[test]
@@ -117,6 +133,7 @@ mod tests {
         assert_eq!(Codec::Hevc.parser_element(), "h265parse");
         assert_eq!(Codec::Jpeg.parser_element(), "jpegparse");
         assert_eq!(Codec::Av1.parser_element(), "av1parse");
+        assert_eq!(Codec::Png.parser_element(), "identity");
     }
 
     #[test]
@@ -125,5 +142,6 @@ mod tests {
         assert_eq!(Codec::Hevc.encoder_element(), "nvv4l2h265enc");
         assert_eq!(Codec::Jpeg.encoder_element(), "nvjpegenc");
         assert_eq!(Codec::Av1.encoder_element(), "nvv4l2av1enc");
+        assert_eq!(Codec::Png.encoder_element(), "pngenc");
     }
 }

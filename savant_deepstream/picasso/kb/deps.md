@@ -22,10 +22,10 @@ use picasso::rewrite_frame_transformations;
 ```rust
 use deepstream_encoders::prelude::*;
 // gives: NvEncoder, EncoderError, EncodedFrame, EncoderConfig,
-//        Codec (H264, HEVC, JPEG, AV1),
+//        Codec (H264, HEVC, JPEG, AV1, PNG),
 //        cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
 //        EncoderProperties, H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
-//        JpegProps, Av1DgpuProps, DgpuPreset, TuningPreset, H264Profile, HevcProfile,
+//        JpegProps, PngProps, Av1DgpuProps, DgpuPreset, TuningPreset, H264Profile, HevcProfile,
 //        JetsonPresetLevel, Platform, RateControl
 ```
 
@@ -116,6 +116,17 @@ EncoderConfig::new(Codec::H264, W, H)
 ```
 ⚠ Builder returns `Self` by value (move semantics). Chain in one expression.
 ⚠ `gpu_id` must match the GPU where incoming NvBufSurface buffers are allocated; `process_encode` validates this at entry.
+
+### PNG encoder (CPU-based, GStreamer pngenc)
+```rust
+EncoderConfig::new(Codec::Png, W, H)
+    .format(VideoFormat::RGBA)  // required for PNG
+    .fps(30, 1)
+    .properties(EncoderProperties::Png(PngProps {
+        compression_level: Some(6),  // 0–9, default 6
+    }))
+```
+PNG uses the nvvideoconvert → pngenc GStreamer chain (gst-plugins-good). Format must be RGBA.
 
 ### TransformConfig
 ```rust
