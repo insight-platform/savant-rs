@@ -29,6 +29,7 @@ _RGBA_CV_TYPE = cv2.CV_8UC4
 @contextmanager
 def nvgstbuf_as_gpu_mat(
     buf_ptr: int,
+    stream: cv2.cuda.Stream | None = None,
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
 
@@ -52,7 +53,7 @@ def nvgstbuf_as_gpu_mat(
         int(data_ptr),
         int(pitch),
     )
-    stream = cv2.cuda.Stream()
+    stream = stream or cv2.cuda.Stream()
     try:
         yield gpumat, stream
     finally:
@@ -65,6 +66,7 @@ def nvbuf_as_gpu_mat(
     pitch: int,
     width: int,
     height: int,
+    stream: cv2.cuda.Stream | None = None,
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Wrap raw CUDA memory as an OpenCV CUDA ``GpuMat``.
 
@@ -89,7 +91,7 @@ def nvbuf_as_gpu_mat(
         int(data_ptr),
         int(pitch),
     )
-    stream = cv2.cuda.Stream()
+    stream = stream or cv2.cuda.Stream()
     try:
         yield gpumat, stream
     finally:
