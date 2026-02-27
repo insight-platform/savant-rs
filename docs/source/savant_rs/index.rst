@@ -10,6 +10,7 @@ Savant Rust Library
 
    draw_spec
    logging
+   py_log
    metrics
    pipeline
    primitives
@@ -24,7 +25,6 @@ Savant Rust Library
    gstreamer
    deepstream
    picasso
-   py_log
    py_client
    py_api
    py_utils

@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y clang build-essential \
     libgl-dev \
     libegl-dev \
     libfontconfig-dev \
-    fonts-dejavu-core
+    fonts-dejavu-core \
+    jq
 
 # On arm64 (Jetson) images the DeepStream .so files under
 # /opt/nvidia/deepstream/deepstream/lib/ are symlinks into
