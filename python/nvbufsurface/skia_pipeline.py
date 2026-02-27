@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Skia GPU-rendered NVMM encoding pipeline using deepstream_encoders SDK.
+"""Skia GPU-rendered encoding pipeline using the Picasso engine with draw spec.
 
-Demonstrates GPU-accelerated Skia rendering + NvEncoder SDK:
-each frame is drawn with skia-python on an OpenGL texture (GPU), copied
-into the NvBufSurface via CUDA-GL interop (GPU-to-GPU, no CPU), and
-encoded with NVENC through the deepstream_encoders SDK.
+Demonstrates Picasso's ``ObjectDrawSpec`` for automatic bounding-box
+rendering combined with a custom ``on_render`` callback for the legend.
 
-The entire pixel data path is GPU-side -- no CPU copies occur.
+Detection objects are attached as :class:`VideoObject` instances to each
+:class:`VideoFrame`.  Picasso renders their bounding boxes via the draw
+spec — no manual Skia bbox drawing needed.
 
-All EGL/GL/CUDA-GL interop boilerplate is handled by the SkiaContext
-PyO3 class from ``deepstream_nvbufsurface``, exposed through the
-``SkiaCanvas`` helper.
+The ``on_render`` callback draws the legend (detection list) on top of
+the scene after Picasso has finished its own rendering.
 
-The SDK handles encoding, format conversion, B-frame prevention, and
-PTS validation.  The sample only uses a trivial GStreamer pipeline for
-MP4 muxing when ``--output`` is given.
+The input NvBufSurface is pre-filled with a dark background via OpenCV
+CUDA (``nvgstbuf_as_gpu_mat``); Picasso loads it into its Skia FBO, draws the
+bboxes from the draw spec, then calls ``on_render`` for the legend.
 
 Output pipeline (when ``--output`` is given)::
 
@@ -30,12 +29,6 @@ Usage::
 
     # Custom resolution and codec with 8 Mbps bitrate
     python skia_pipeline.py --width 1280 --height 720 --codec h264 --bitrate 8000000
-
-    # JPEG output with quality 95 (no MP4 container)
-    python skia_pipeline.py --codec jpeg --quality 95 --num-frames 100
-
-    # AV1 encoding
-    python skia_pipeline.py --codec av1 --num-frames 300 --output /tmp/av1_demo.mp4
 """
 
 from __future__ import annotations
@@ -43,136 +36,60 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-import urllib.request
 from dataclasses import dataclass
 
 import skia
 
-from deepstream_nvbufsurface import SkiaCanvas  # noqa: E402
-from deepstream_nvbufsurface import VideoFormat  # noqa: E402
-
-from common import EncodingSession, add_common_args, init_gst_and_cuda
-
-
-# ===========================================================================
-# SVG asset — pre-rendered to a GPU texture for zero per-frame transfer
-# ===========================================================================
-
-TIGER_SVG_URL = (
-    "https://upload.wikimedia.org/wikipedia/commons/d/d2/"
-    "Ghostscript_tiger_%28original_background%29.svg"
+from savant_rs.deepstream import SkiaCanvas, VideoFormat, nvgstbuf_as_gpu_mat  # noqa: E402
+from savant_rs.draw_spec import (  # noqa: E402
+    BoundingBoxDraw,
+    ColorDraw,
+    DotDraw,
+    LabelDraw,
+    LabelPosition,
+    ObjectDraw,
+    PaddingDraw,
 )
+from savant_rs.picasso import ObjectDrawSpec  # noqa: E402
+from savant_rs.primitives import (  # noqa: E402
+    IdCollisionResolutionPolicy,
+    VideoObject,
+)
+from savant_rs.primitives.geometry import RBBox  # noqa: E402
 
-
-def _load_svg_as_gpu_texture(
-    source: str,
-    gr_context: skia.GrDirectContext,
-    *,
-    render_width: int = 0,
-    render_height: int = 0,
-) -> skia.Image | None:
-    """Download/read an SVG, render it to a raster, and upload to GPU texture.
-
-    The SVG is rasterised once at full resolution (or *render_width* x
-    *render_height* if given), then uploaded to a GPU texture via
-    ``makeTextureImage``.  Subsequent ``drawImage`` calls on a GPU
-    canvas are pure GPU work with zero CPU->GPU transfers.
-
-    Returns:
-        A GPU-backed ``skia.Image``, or ``None`` on failure.
-    """
-    # -- Fetch bytes -------------------------------------------------------
-    try:
-        if source.startswith(("http://", "https://")):
-            print(f"Downloading SVG from {source} ...")
-            req = urllib.request.Request(
-                source, headers={"User-Agent": "skia_pipeline/1.0"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
-        else:
-            with open(source, "rb") as f:
-                data = f.read()
-        print(f"SVG fetched ({len(data)} bytes)")
-    except Exception as exc:
-        print(f"Warning: could not load SVG: {exc}", file=sys.stderr)
-        return None
-
-    # -- Parse SVG DOM -----------------------------------------------------
-    stream = skia.MemoryStream.MakeDirect(data)
-    dom = skia.SVGDOM.MakeFromStream(stream)
-    if dom is None:
-        print("Warning: skia.SVGDOM.MakeFromStream returned None", file=sys.stderr)
-        return None
-
-    svg_size = dom.containerSize()
-    svg_w, svg_h = svg_size.width(), svg_size.height()
-    if svg_w <= 0 or svg_h <= 0:
-        print("Warning: SVG has zero dimensions", file=sys.stderr)
-        return None
-
-    # -- Determine render size ---------------------------------------------
-    rw = render_width if render_width > 0 else int(svg_w)
-    rh = render_height if render_height > 0 else int(svg_h)
-
-    # -- Render SVG to a CPU raster (one-time) -----------------------------
-    info = skia.ImageInfo.MakeN32Premul(rw, rh)
-    surface = skia.Surface.MakeRaster(info)
-    if surface is None:
-        print("Warning: failed to create raster surface for SVG", file=sys.stderr)
-        return None
-
-    svg_canvas = surface.getCanvas()
-    svg_canvas.clear(skia.ColorTRANSPARENT)
-    # Scale to fill the render area
-    svg_canvas.scale(rw / svg_w, rh / svg_h)
-    dom.render(svg_canvas)
-    raster_snapshot = surface.makeImageSnapshot()
-
-    raw_mb = rw * rh * 4 / (1024 * 1024)
-    print(f"SVG pre-rendered: {rw}x{rh} (~{raw_mb:.1f} MB raw RGBA)")
-
-    # -- Upload to GPU texture (one-time) ----------------------------------
-    gpu_image = raster_snapshot.makeTextureImage(gr_context)
-    if gpu_image is not None:
-        print("  -> uploaded to GPU texture (zero CPU transfer per frame)")
-        return gpu_image
-
-    print("Warning: makeTextureImage failed for SVG raster", file=sys.stderr)
-    return None
-
-
-# ===========================================================================
-# Detection class definitions
-# ===========================================================================
+from common import PicassoSession, add_common_args
 
 NUM_BOXES = 20
+NAMESPACE = "detector"
+
+
+# ===========================================================================
+# Detection classes — used for draw spec colours and object generation
+# ===========================================================================
 
 
 @dataclass
 class DetectionClass:
     name: str
-    color: int  # ARGB as a 32-bit int
+    r: int
+    g: int
+    b: int
 
 
 CLASSES = [
-    DetectionClass("person", 0xFFFF5050),
-    DetectionClass("car", 0xFF50C8FF),
-    DetectionClass("truck", 0xFFFFB428),
-    DetectionClass("bicycle", 0xFF50FF78),
-    DetectionClass("dog", 0xFFDC64FF),
-    DetectionClass("bus", 0xFFFFFF50),
-    DetectionClass("bike", 0xFF50FFFF),
-    DetectionClass("sign", 0xFFFF8C8C),
+    DetectionClass("person", 255, 80, 80),
+    DetectionClass("car", 80, 200, 255),
+    DetectionClass("truck", 255, 180, 40),
+    DetectionClass("bicycle", 80, 255, 120),
+    DetectionClass("dog", 220, 100, 255),
+    DetectionClass("bus", 255, 255, 80),
+    DetectionClass("bike", 80, 255, 255),
+    DetectionClass("sign", 255, 140, 140),
 ]
 
 
-def _with_alpha(c: int, a: int) -> int:
-    return (a << 24) | (c & 0x00FFFFFF)
-
-
 # ===========================================================================
-# Pseudo-random
+# Pseudo-random (deterministic animation)
 # ===========================================================================
 
 
@@ -185,150 +102,47 @@ def pseudo_rand(seed1: int, seed2: int) -> float:
     return (h & 0x00FF_FFFF) / 0x0100_0000
 
 
-@dataclass
-class BBox:
-    x: float
-    y: float
-    w: float
-    h: float
-    class_idx: int
-    confidence: float
-    id: int
-
-
-def hsv_to_color(h_deg: float, s: float, v: float) -> int:
-    h = ((h_deg % 360.0) + 360.0) % 360.0
-    c = v * s
-    x = c * (1.0 - abs((h / 60.0) % 2.0 - 1.0))
-    m = v - c
-    sector = int(h / 60.0) % 6
-    if sector == 0:
-        r, g, b = c, x, 0.0
-    elif sector == 1:
-        r, g, b = x, c, 0.0
-    elif sector == 2:
-        r, g, b = 0.0, c, x
-    elif sector == 3:
-        r, g, b = 0.0, x, c
-    elif sector == 4:
-        r, g, b = x, 0.0, c
-    else:
-        r, g, b = c, 0.0, x
-    return (
-        (0xFF << 24)
-        | (int((r + m) * 255) << 16)
-        | (int((g + m) * 255) << 8)
-        | int((b + m) * 255)
-    )
-
-
 # ===========================================================================
-# Drawing context -- caches fonts/paints across frames
+# Build Picasso ObjectDrawSpec — one entry per detection class
 # ===========================================================================
 
 
-class DrawCtx:
-    """Cached fonts and paints for efficient per-frame rendering."""
-
-    def __init__(self):
-        bold_tf = skia.Typeface("monospace", skia.FontStyle.Bold())
-        normal_tf = skia.Typeface("monospace", skia.FontStyle.Normal())
-        self.label_font = skia.Font(bold_tf, 16)
-        self.title_font = skia.Font(bold_tf, 18)
-        self.legend_font = skia.Font(normal_tf, 13)
-        self.footer_font = skia.Font(bold_tf, 14)
-
-        self.white_paint = skia.Paint(Color=skia.ColorWHITE, AntiAlias=True)
-        self.black_paint = skia.Paint(Color=skia.ColorBLACK, AntiAlias=True)
-        self.sidebar_bg_paint = skia.Paint(Color=skia.Color(15, 18, 25, 210))
-        self.separator_paint = skia.Paint(
-            Color=skia.Color(255, 255, 255, 100),
-            StrokeWidth=1.0,
-            Style=skia.Paint.kStroke_Style,
+def build_draw_spec() -> ObjectDrawSpec:
+    """Create an :class:`ObjectDrawSpec` with per-class bounding boxes only."""
+    spec = ObjectDrawSpec()
+    for cls in CLASSES:
+        border = ColorDraw(cls.r, cls.g, cls.b, 255)
+        bg = ColorDraw(cls.r, cls.g, cls.b, 50)
+        bb = BoundingBoxDraw(border, bg, 2, PaddingDraw.default_padding())
+        label = LabelDraw(
+            font_color=ColorDraw(0, 0, 0, 255),
+            background_color=ColorDraw(cls.r, cls.g, cls.b, 200),
+            border_color=ColorDraw(0, 0, 0, 0),
+            font_scale=1.4,
+            thickness=1,
+            position=LabelPosition.default_position(),
+            padding=PaddingDraw(4, 2, 4, 2),
+            format=["{label} #{id}", "{confidence}"],
         )
-        self.divider_paint = skia.Paint(
-            Color=skia.Color(255, 255, 255, 60),
-            StrokeWidth=1.0,
-            Style=skia.Paint.kStroke_Style,
-        )
-        self.footer_bg_paint = skia.Paint(Color=skia.Color(0, 0, 0, 180))
-        self.footer_text_paint = skia.Paint(
-            Color=skia.Color(200, 200, 200, 200), AntiAlias=True
-        )
-        self.fill_paint = skia.Paint(AntiAlias=True)
-        self.stroke_paint = skia.Paint(
-            AntiAlias=True, Style=skia.Paint.kStroke_Style, StrokeWidth=2.0
-        )
-        self.label_bg_paint = skia.Paint()
-        self.dot_paint = skia.Paint(AntiAlias=True)
-        self.legend_text_paint = skia.Paint(
-            AntiAlias=True, Color=skia.Color(255, 255, 255, 220)
-        )
-        self.bg_paint = skia.Paint()
-        self.svg_paint = skia.Paint(AntiAlias=True)
-        self.boxes: list[BBox] = []
-        self.svg_gpu_image: skia.Image | None = None
+        dot = DotDraw(ColorDraw(cls.r, cls.g, cls.b, 255), 4)
+        od = ObjectDraw(bounding_box=bb, label=label, central_dot=dot)
+        spec.insert(NAMESPACE, cls.name, od)
+    return spec
 
 
 # ===========================================================================
-# draw_frame
+# Add detection objects to a VideoFrame
 # ===========================================================================
 
 
-def draw_frame(
-    skia_canvas: SkiaCanvas, ctx: DrawCtx, frame_idx: int, width: float, height: float
+def add_objects(
+    frame: object,
+    scene_w: float,
+    height: float,
+    frame_idx: int,
 ) -> None:
-    canvas = skia_canvas.canvas()
-
-    # -- Background gradient -----------------------------------------------
-    hue_shift = (frame_idx * 0.3) % 360.0
-    bg1 = hsv_to_color(hue_shift, 0.15, 0.10)
-    bg2 = hsv_to_color(hue_shift + 40.0, 0.20, 0.18)
-    shader = skia.GradientShader.MakeLinear(
-        points=[skia.Point(0, 0), skia.Point(width, height)],
-        colors=[bg1, bg2],
-    )
-    if shader:
-        bg_with_shader = skia.Paint(ctx.bg_paint)
-        bg_with_shader.setShader(shader)
-        canvas.drawRect(skia.Rect.MakeWH(width, height), bg_with_shader)
-    else:
-        canvas.clear(skia.Color(18, 20, 28))
-
-    # -- Sidebar dimensions ------------------------------------------------
-    sidebar_w = min(340.0, width * 0.22)
-    scene_w = width - sidebar_w
+    """Generate pseudo-random detections and attach them to *frame*."""
     t = frame_idx / 60.0
-
-    # -- SVG tiger (GPU texture, centered, gently floating) -----------------
-    if ctx.svg_gpu_image is not None:
-        iw = ctx.svg_gpu_image.width()
-        ih = ctx.svg_gpu_image.height()
-        if iw > 0 and ih > 0:
-            # Scale to fit ~55% of the scene area, preserving aspect ratio
-            target_w = scene_w * 0.55
-            target_h = height * 0.55
-            img_scale = min(target_w / iw, target_h / ih)
-            scaled_w = iw * img_scale
-            scaled_h = ih * img_scale
-
-            # Center + gentle floating motion
-            cx = (scene_w - scaled_w) / 2.0 + math.sin(t * 0.4) * 15.0
-            cy = (height - scaled_h) / 2.0 + math.cos(t * 0.3) * 10.0
-
-            canvas.save()
-            canvas.translate(cx, cy)
-            canvas.scale(img_scale, img_scale)
-
-            # Render with slight transparency so detections are visible on top
-            canvas.saveLayerAlpha(None, 160)
-            canvas.drawImage(ctx.svg_gpu_image, 0, 0, paint=ctx.svg_paint)
-            canvas.restore()  # layer
-
-            canvas.restore()  # translate+scale
-
-    # -- Generate bounding boxes -------------------------------------------
-    ctx.boxes.clear()
     for i in range(NUM_BOXES):
         seed = i
         cx_base = pseudo_rand(seed, 100) * scene_w * 0.7 + scene_w * 0.15
@@ -346,76 +160,88 @@ def draw_frame(
         class_idx = int(pseudo_rand(seed, 900) * len(CLASSES)) % len(CLASSES)
         confidence = 0.55 + pseudo_rand(seed, 1000) * 0.44
 
-        ctx.boxes.append(
-            BBox(
-                x=max(0.0, min(cx - bw / 2.0, scene_w - bw)),
-                y=max(0.0, min(cy - bh / 2.0, height - bh)),
-                w=bw,
-                h=bh,
-                class_idx=class_idx,
-                confidence=confidence,
-                id=i,
-            )
+        bx = max(0.0, min(cx - bw / 2.0, scene_w - bw))
+        by = max(0.0, min(cy - bh / 2.0, height - bh))
+
+        obj = VideoObject(
+            id=0,
+            namespace=NAMESPACE,
+            label=CLASSES[class_idx].name,
+            detection_box=RBBox(bx + bw / 2.0, by + bh / 2.0, bw, bh),
+            attributes=[],
+            confidence=confidence,
+            track_id=None,
+            track_box=None,
+        )
+        frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
+
+
+# ===========================================================================
+# Legend drawing (on_render overlay)
+# ===========================================================================
+
+
+class LegendCtx:
+    """Cached fonts and paints for the legend overlay."""
+
+    def __init__(self):
+        bold_tf = skia.Typeface("monospace", skia.FontStyle.Bold())
+        normal_tf = skia.Typeface("monospace", skia.FontStyle.Normal())
+        self.title_font = skia.Font(bold_tf, 18)
+        self.legend_font = skia.Font(normal_tf, 13)
+
+        self.white_paint = skia.Paint(Color=skia.ColorWHITE, AntiAlias=True)
+        self.sidebar_bg_paint = skia.Paint(Color=skia.Color(15, 18, 25, 210))
+        self.separator_paint = skia.Paint(
+            Color=skia.Color(255, 255, 255, 100),
+            StrokeWidth=1.0,
+            Style=skia.Paint.kStroke_Style,
+        )
+        self.divider_paint = skia.Paint(
+            Color=skia.Color(255, 255, 255, 60),
+            StrokeWidth=1.0,
+            Style=skia.Paint.kStroke_Style,
+        )
+        self.dot_paint = skia.Paint(AntiAlias=True)
+        self.legend_text_paint = skia.Paint(
+            AntiAlias=True, Color=skia.Color(255, 255, 255, 220)
         )
 
-    # -- Draw bounding boxes with semitransparent circles --------------------
-    for b in ctx.boxes:
-        cls = CLASSES[b.class_idx]
-        rect = skia.Rect.MakeXYWH(b.x, b.y, b.w, b.h)
+    _cls_color_cache: dict[str, tuple[int, int, int]] = {}
 
-        # Semitransparent circle centered on the bbox, pulsing radius
-        cx = b.x + b.w / 2.0
-        cy = b.y + b.h / 2.0
-        base_r = max(b.w, b.h) * 0.4
-        pulse = 0.85 + 0.15 * math.sin(t * 2.0 + b.id * 0.7)
-        radius = base_r * pulse
+    def class_color(self, label: str) -> tuple[int, int, int]:
+        if label not in self._cls_color_cache:
+            for cls in CLASSES:
+                self._cls_color_cache[cls.name] = (cls.r, cls.g, cls.b)
+        return self._cls_color_cache.get(label, (200, 200, 200))
 
-        ctx.fill_paint.setColor(_with_alpha(cls.color, 35))
-        canvas.drawCircle(cx, cy, radius, ctx.fill_paint)
 
-        ctx.stroke_paint.setColor(_with_alpha(cls.color, 80))
-        ctx.stroke_paint.setStrokeWidth(1.5)
-        canvas.drawCircle(cx, cy, radius, ctx.stroke_paint)
-        ctx.stroke_paint.setStrokeWidth(2.0)
+def draw_legend(
+    canvas: skia.Canvas,
+    ctx: LegendCtx,
+    frame: object,
+    width: float,
+    height: float,
+) -> None:
+    """Draw the legend (detection list) on *canvas*."""
+    sidebar_w = min(340.0, width * 0.22)
+    sx = width - sidebar_w
 
-        # Filled bbox
-        ctx.fill_paint.setColor(_with_alpha(cls.color, 50))
-        canvas.drawRect(rect, ctx.fill_paint)
-
-        # Bbox outline
-        ctx.stroke_paint.setColor(cls.color)
-        canvas.drawRect(rect, ctx.stroke_paint)
-
-        # Label
-        label_text = f"{cls.name} #{b.id} {b.confidence * 100:.0f}%"
-        tw = ctx.label_font.measureText(label_text)
-        lh = 22.0
-        lx = b.x
-        ly = b.y - lh - 2.0 if b.y >= lh + 2.0 else b.y
-
-        ctx.label_bg_paint.setColor(_with_alpha(cls.color, 200))
-        canvas.drawRect(skia.Rect.MakeXYWH(lx, ly, tw + 10, lh), ctx.label_bg_paint)
-
-        canvas.drawString(
-            label_text, lx + 5, ly + lh - 5, ctx.label_font, ctx.black_paint
-        )
-
-    # -- Sidebar -----------------------------------------------------------
-    sx = scene_w
     canvas.drawRect(skia.Rect.MakeXYWH(sx, 0, sidebar_w, height), ctx.sidebar_bg_paint)
     canvas.drawLine(sx, 0, sx, height, ctx.separator_paint)
-
     canvas.drawString("DETECTIONS", sx + 12, 28, ctx.title_font, ctx.white_paint)
     canvas.drawLine(sx + 8, 36, sx + sidebar_w - 8, 36, ctx.divider_paint)
 
     y_off = 52.0
     row_h = 18.0
+    objects = frame.get_all_objects()
+    num_objects = len(objects)
 
-    for i, b in enumerate(ctx.boxes):
-        if y_off + row_h > height - 40.0:
+    for i, obj in enumerate(objects):
+        if y_off + row_h > height - 20.0:
             ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 180))
             canvas.drawString(
-                f"... +{NUM_BOXES - i} more",
+                f"... +{num_objects - i} more",
                 sx + 12,
                 y_off + 14,
                 ctx.legend_font,
@@ -423,26 +249,66 @@ def draw_frame(
             )
             break
 
-        cls = CLASSES[b.class_idx]
-        ctx.dot_paint.setColor(cls.color)
+        r, g, b = ctx.class_color(obj.label)
+        ctx.dot_paint.setColor(skia.Color(r, g, b, 255))
         canvas.drawCircle(sx + 16, y_off + 6, 4.0, ctx.dot_paint)
 
-        entry = f"{cls.name:<8} #{b.id:<2} ({int(b.x):>4},{int(b.y):>4}) {b.confidence * 100:>3.0f}%"
+        box = obj.detection_box
+        conf = obj.confidence if obj.confidence is not None else 0.0
+        entry = (
+            f"{obj.label:<8} #{obj.id:<2} "
+            f"({int(box.xc):>4},{int(box.yc):>4}) {conf * 100:>3.0f}%"
+        )
         ctx.legend_text_paint.setColor(skia.Color(255, 255, 255, 220))
         canvas.drawString(
             entry, sx + 26, y_off + 10, ctx.legend_font, ctx.legend_text_paint
         )
-
         y_off += row_h
 
-    # -- Footer ------------------------------------------------------------
-    canvas.drawRect(
-        skia.Rect.MakeXYWH(sx, height - 32, sidebar_w, 32), ctx.footer_bg_paint
-    )
-    footer = f"F:{frame_idx:>6} {int(width)}x{int(height)} {NUM_BOXES}obj"
-    canvas.drawString(
-        footer, sx + 10, height - 11, ctx.footer_font, ctx.footer_text_paint
-    )
+
+# ===========================================================================
+# on_render callback wrapper
+# ===========================================================================
+
+
+class SkiaRenderer:
+    """Callable ``on_render`` callback that draws the legend overlay.
+
+    Picasso draws the detection bounding boxes via the draw spec before
+    this callback fires.  The callback adds the legend (detection list)
+    on top of the rendered scene using :class:`SkiaCanvas`.
+    """
+
+    def __init__(self):
+        self._canvas: SkiaCanvas | None = None
+        self._legend_ctx: LegendCtx | None = None
+
+    def __call__(
+        self,
+        source_id: str,
+        fbo_id: int,
+        width: int,
+        height: int,
+        frame: object,
+    ) -> None:
+        if self._canvas is None:
+            self._canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
+            self._legend_ctx = LegendCtx()
+            print("SkiaCanvas created on Picasso worker thread")
+
+        # Picasso's draw-spec renderer uses its own GrDirectContext on the
+        # same GL context.  Tell our context that external GL state changes
+        # may have occurred so it re-queries everything.
+        self._canvas.gr_context.resetContext()
+
+        draw_legend(
+            self._canvas.canvas(),
+            self._legend_ctx,
+            frame,
+            float(width),
+            float(height),
+        )
+        self._canvas.gr_context.flushAndSubmit()
 
 
 # ===========================================================================
@@ -452,75 +318,45 @@ def draw_frame(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Skia GPU-rendered encoding pipeline (deepstream_encoders SDK)"
+        description="Skia + draw-spec encoding pipeline (Picasso engine)"
     )
     add_common_args(parser)
-    parser.add_argument(
-        "--svg",
-        type=str,
-        default=TIGER_SVG_URL,
-        help="URL or local path to SVG file (use 'none' to disable)",
-    )
     args = parser.parse_args()
 
     w, h = args.width, args.height
+    sidebar_w = min(340.0, w * 0.22)
+    scene_w = w - sidebar_w
 
-    # -- GPU Skia canvas (all EGL/GL/CUDA managed by SkiaContext) ----------
-    #  init_gst_and_cuda is idempotent; EncodingSession will call it again.
-    init_gst_and_cuda(args.gpu_id)
-    skia_canvas = SkiaCanvas.create(w, h, gpu_id=args.gpu_id)
-    draw_ctx = DrawCtx()
-    print(f"SkiaCanvas created: {w}x{h} (gpu {args.gpu_id})")
-
-    # -- Load SVG as GPU texture -------------------------------------------
-    if args.svg and args.svg.lower() != "none":
-        draw_ctx.svg_gpu_image = _load_svg_as_gpu_texture(
-            args.svg,
-            skia_canvas.gr_context,
-            render_width=w,
-            render_height=h,
-        )
-
-    session = EncodingSession(args, video_format=VideoFormat.RGBA)
+    draw_spec = build_draw_spec()
+    renderer = SkiaRenderer()
+    session = PicassoSession(
+        args,
+        video_format=VideoFormat.RGBA,
+        on_render=renderer,
+        draw=draw_spec,
+    )
 
     # -- Push loop ---------------------------------------------------------
     i = 0
-
     while i < session.limit and session.is_running:
-        # 1. Draw with Skia (GPU)
-        draw_frame(skia_canvas, draw_ctx, i, float(w), float(h))
-
-        # 2. Acquire NvBufSurface buffer and render Skia into it
         try:
-            buf_ptr = session.encoder.acquire_surface(id=i)
+            buf_ptr = session.acquire_surface(frame_id=i)
         except Exception as e:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        try:
-            skia_canvas.render_to_nvbuf(buf_ptr)
-        except Exception as e:
-            print(f"render_to_nvbuf failed at frame {i}: {e}", file=sys.stderr)
-            break
+        with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
+            mat.setTo((18, 20, 28, 255), stream=stream)
 
-        # 3. Submit the rendered buffer to the encoder
         pts_ns = i * session.frame_duration_ns
+        frame = session.make_frame(pts_ns=pts_ns, duration_ns=session.frame_duration_ns)
+        add_objects(frame, scene_w, float(h), i)
+
         try:
-            session.submit(
-                buf_ptr,
-                frame_id=i,
-                pts_ns=pts_ns,
-                duration_ns=session.frame_duration_ns,
-            )
+            session.send_frame(frame, buf_ptr)
             i += 1
         except Exception as e:
             print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
-            break
-
-        # 4. Pull any ready encoded frames (non-blocking)
-        session.pull_encoded()
-        session.check_error()
-        if not session.is_running:
             break
 
     session.shutdown()

@@ -300,11 +300,19 @@ pub struct InitialSize {
     pub height: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Scale {
+pub struct LetterBox {
     #[prost(uint64, tag = "1")]
-    pub width: u64,
+    pub outer_width: u64,
     #[prost(uint64, tag = "2")]
-    pub height: u64,
+    pub outer_height: u64,
+    #[prost(uint64, tag = "3")]
+    pub padding_left: u64,
+    #[prost(uint64, tag = "4")]
+    pub padding_top: u64,
+    #[prost(uint64, tag = "5")]
+    pub padding_right: u64,
+    #[prost(uint64, tag = "6")]
+    pub padding_bottom: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct Padding {
@@ -318,15 +326,19 @@ pub struct Padding {
     pub padding_bottom: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct ResultingSize {
+pub struct Crop {
     #[prost(uint64, tag = "1")]
-    pub width: u64,
+    pub left: u64,
     #[prost(uint64, tag = "2")]
-    pub height: u64,
+    pub top: u64,
+    #[prost(uint64, tag = "3")]
+    pub right: u64,
+    #[prost(uint64, tag = "4")]
+    pub bottom: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VideoFrameTransformation {
-    #[prost(oneof = "video_frame_transformation::Transformation", tags = "1, 2, 3, 4")]
+    #[prost(oneof = "video_frame_transformation::Transformation", tags = "1, 2, 3, 5")]
     pub transformation: ::core::option::Option<
         video_frame_transformation::Transformation,
     >,
@@ -339,11 +351,11 @@ pub mod video_frame_transformation {
         #[prost(message, tag = "1")]
         InitialSize(super::InitialSize),
         #[prost(message, tag = "2")]
-        Scale(super::Scale),
+        LetterBox(super::LetterBox),
         #[prost(message, tag = "3")]
         Padding(super::Padding),
-        #[prost(message, tag = "4")]
-        ResultingSize(super::ResultingSize),
+        #[prost(message, tag = "5")]
+        Crop(super::Crop),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

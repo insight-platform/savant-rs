@@ -138,8 +138,6 @@ pub struct TransformConfig {
     pub padding: Padding,
     /// Interpolation method.
     pub interpolation: Interpolation,
-    /// Optional source crop rectangle. `None` means full source.
-    pub src_rect: Option<Rect>,
     /// Compute backend.
     pub compute_mode: ComputeMode,
     /// Optional CUDA stream for the transform operation.
@@ -162,7 +160,6 @@ impl Default for TransformConfig {
         Self {
             padding: Padding::default(),
             interpolation: Interpolation::default(),
-            src_rect: None,
             compute_mode: ComputeMode::default(),
             cuda_stream: std::ptr::null_mut(),
         }
@@ -174,7 +171,7 @@ impl Default for TransformConfig {
 ///
 /// # Safety
 /// The buffer must contain a valid NvBufSurface in its first memory block.
-pub(crate) unsafe fn extract_nvbufsurface(
+pub unsafe fn extract_nvbufsurface(
     buf: &gstreamer::BufferRef,
 ) -> Result<*mut ffi::NvBufSurface, TransformError> {
     let map = buf
@@ -193,6 +190,16 @@ pub(crate) unsafe fn extract_nvbufsurface(
         ));
     }
     Ok(surf_ptr)
+}
+
+/// Extract the GPU ID from an NvBufSurface-backed GStreamer buffer.
+///
+/// Returns the `gpuId` field of the underlying `NvBufSurface`, which
+/// identifies the CUDA device the surface memory was allocated on.
+pub fn buffer_gpu_id(buf: &gstreamer::BufferRef) -> Result<u32, TransformError> {
+    let surf_ptr = unsafe { extract_nvbufsurface(buf)? };
+    let gpu_id = unsafe { (*surf_ptr).gpuId };
+    Ok(gpu_id)
 }
 
 /// Errors from transform operations.
@@ -271,6 +278,7 @@ pub(crate) unsafe fn do_transform(
     src_surf: *mut ffi::NvBufSurface,
     dst_surf: *mut ffi::NvBufSurface,
     config: &TransformConfig,
+    src_rect: Option<&Rect>,
 ) -> Result<(), TransformError> {
     let src = &*src_surf;
     let dst = &*dst_surf;
@@ -293,7 +301,7 @@ pub(crate) unsafe fn do_transform(
     }
 
     // Compute source rect (optional crop or full source)
-    let mut src_rect_ffi = match &config.src_rect {
+    let mut src_rect_ffi = match src_rect {
         Some(r) => r.to_ffi(),
         None => transform_ffi::NvBufSurfTransformRect {
             top: 0,
@@ -352,7 +360,7 @@ pub(crate) unsafe fn do_transform(
         | transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
 
     // If user specified a source crop, add the CROP_SRC flag (already included)
-    if config.src_rect.is_some() {
+    if src_rect.is_some() {
         flags |= transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
     }
 

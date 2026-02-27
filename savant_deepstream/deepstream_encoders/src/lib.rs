@@ -17,14 +17,12 @@
 //!   that provides NVMM GPU buffers for zero-copy rendering.
 //! - **Typed encoder properties**: Codec and platform-specific property
 //!   structs replace untyped string key-value pairs.  See the
-//!   [`properties`] module for all available types.
+//!   [`prelude`] module for all available types.
 //!
 //! # Example (Rust)
 //!
 //! ```rust,no_run
-//! use deepstream_encoders::{NvEncoder, EncoderConfig, Codec};
-//! use deepstream_encoders::properties::*;
-//! use deepstream_nvbufsurface::cuda_init;
+//! use deepstream_encoders::prelude::*;
 //!
 //! gstreamer::init().unwrap();
 //! cuda_init(0).unwrap();
@@ -51,12 +49,10 @@
 //! let remaining = encoder.finish(None).unwrap();
 //! ```
 
-pub mod encoder;
-pub mod error;
-pub mod properties;
-
-#[cfg(feature = "python")]
-pub mod python;
+pub(crate) mod encoder;
+pub(crate) mod error;
+pub mod prelude;
+pub(crate) mod properties;
 
 pub use encoder::NvEncoder;
 pub use error::EncoderError;
@@ -187,4 +183,13 @@ pub struct EncodedFrame {
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
     pub codec: Codec,
+    /// `true` when this is an intra-coded (key) frame.
+    ///
+    /// For JPEG every frame is a keyframe.  For H.264/H.265/AV1 this is
+    /// derived from the GStreamer buffer flags (`DELTA_UNIT` absent ⇒ key).
+    pub keyframe: bool,
+    /// Time base (numerator, denominator) for interpreting timestamps.
+    ///
+    /// GStreamer operates in nanoseconds, so this is always `(1, 1_000_000_000)`.
+    pub time_base: (i32, i32),
 }

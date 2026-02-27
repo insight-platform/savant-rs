@@ -509,10 +509,10 @@ impl SkiaRenderer {
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
         };
 
-        // Perform transform: temp → dst
+        // Perform transform: temp → dst (no crop)
         let config = transform_config.cloned().unwrap_or_default();
         unsafe {
-            transform::do_transform(temp_surf, dst_surf, &config)
+            transform::do_transform(temp_surf, dst_surf, &config, None)
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
         }
 

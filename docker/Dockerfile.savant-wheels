@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y clang build-essential \
     libgl-dev \
     libegl-dev \
     libfontconfig-dev \
-    fonts-dejavu-core
+    fonts-dejavu-core \
+    jq
 
 # On arm64 (Jetson) images the DeepStream .so files under
 # /opt/nvidia/deepstream/deepstream/lib/ are symlinks into
@@ -37,7 +38,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && \
-    make gst-release ds-nvbuf-release ds-enc-release && \
+    SAVANT_FEATURES=deepstream make release && \
     mkdir -p /opt/dist && \
     cp dist/*.whl /opt/dist/
 

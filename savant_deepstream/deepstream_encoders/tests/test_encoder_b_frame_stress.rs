@@ -33,8 +33,7 @@
 //! cargo test -p deepstream_encoders --test test_encoder_b_frame_stress -- --nocapture
 //! ```
 
-use deepstream_encoders::properties::*;
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, NvEncoder, VideoFormat};
+use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{ComputeMode, Interpolation, Padding, TransformConfig};
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -162,7 +161,6 @@ fn decode_and_reencode(
     let transform_cfg = TransformConfig {
         padding: Padding::None,
         interpolation: Interpolation::Nearest,
-        src_rect: None,
         compute_mode: ComputeMode::Default,
         cuda_stream: std::ptr::null_mut(),
     };
@@ -179,7 +177,7 @@ fn decode_and_reencode(
         let owned = buf_ref.to_owned();
         let enc_buf = encoder
             .generator()
-            .transform(&owned, &transform_cfg, Some(idx as i64))
+            .transform(&owned, &transform_cfg, Some(idx as i64), None)
             .unwrap_or_else(|e| panic!("transform failed at frame {idx}: {e}"));
 
         let pts = idx as u64 * frame_dur_ns;

@@ -234,9 +234,13 @@ message InitialSize {
   uint64 height = 2;
 }
 
-message Scale {
-  uint64 width = 1;
-  uint64 height = 2;
+message LetterBox {
+  uint64 outer_width = 1;
+  uint64 outer_height = 2;
+  uint64 padding_left = 3;
+  uint64 padding_top = 4;
+  uint64 padding_right = 5;
+  uint64 padding_bottom = 6;
 }
 
 message Padding {
@@ -246,17 +250,19 @@ message Padding {
   uint64 padding_bottom = 4;
 }
 
-message ResultingSize {
-  uint64 width = 1;
-  uint64 height = 2;
+message Crop {
+  uint64 left = 1;
+  uint64 top = 2;
+  uint64 right = 3;
+  uint64 bottom = 4;
 }
 
 message VideoFrameTransformation {
   oneof transformation {
     InitialSize initial_size = 1;
-    Scale scale = 2;
+    LetterBox letter_box = 2;
     Padding padding = 3;
-    ResultingSize resulting_size = 4;
+    Crop crop = 5;
   }
 }
 

@@ -23,5 +23,10 @@ pyo3 = { workspace = true }
 [build-dependencies]
 pyo3-build-config = { workspace = true }
 
+[features]
+default = []
+gst = ["savant_core_py/gst"]
+deepstream = ["gst", "savant_core_py/deepstream"]
+
 [package.metadata.maturin]
 python-source = "python"

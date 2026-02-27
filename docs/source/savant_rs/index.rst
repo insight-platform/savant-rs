@@ -10,6 +10,7 @@ Savant Rust Library
 
    draw_spec
    logging
+   py_log
    metrics
    pipeline
    primitives
@@ -21,3 +22,9 @@ Savant Rust Library
    zmq
    webserver
    webserver_kvs
+   gstreamer
+   deepstream
+   picasso
+   py_client
+   py_api
+   py_utils

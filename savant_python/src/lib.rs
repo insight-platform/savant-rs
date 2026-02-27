@@ -77,6 +77,22 @@ pub fn metrics(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<gst::FlowResult>()?;
     m.add_class::<gst::InvocationReason>()?;
+    #[cfg(feature = "gst")]
+    savant_core_py::gstreamer::register_classes(m)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
+pub fn deepstream(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "deepstream")]
+    savant_core_py::deepstream::register_classes(m)?;
+    Ok(())
+}
+
+#[pymodule(gil_used = false)]
+pub fn picasso(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "deepstream")]
+    savant_core_py::picasso::register_classes(m)?;
     Ok(())
 }
 
@@ -309,6 +325,7 @@ pub fn draw_spec(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LabelPosition>()?;
     m.add_class::<PaddingDraw>()?;
     m.add_class::<ObjectDraw>()?;
+    m.add_class::<BBoxSource>()?;
     m.add_class::<SetDrawLabelKind>()?;
     Ok(())
 }
@@ -372,12 +389,16 @@ pub fn init_all(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pymodule!(self::metrics))?;
     m.add_wrapped(wrap_pymodule!(self::kvs))?;
     m.add_wrapped(wrap_pymodule!(self::gstreamer))?;
+    m.add_wrapped(wrap_pymodule!(self::deepstream))?;
+    m.add_wrapped(wrap_pymodule!(self::picasso))?;
 
     let sys = PyModule::import(py, "sys")?;
     let sys_modules_bind = sys.getattr("modules")?;
     let sys_modules = sys_modules_bind.cast::<PyDict>()?;
 
     sys_modules.set_item("savant_rs.gstreamer", m.getattr("gstreamer")?)?;
+    sys_modules.set_item("savant_rs.deepstream", m.getattr("deepstream")?)?;
+    sys_modules.set_item("savant_rs.picasso", m.getattr("picasso")?)?;
     sys_modules.set_item("savant_rs.primitives", m.getattr("primitives")?)?;
     sys_modules.set_item("savant_rs.pipeline", m.getattr("pipeline")?)?;
     sys_modules.set_item("savant_rs.pipeline2", m.getattr("pipeline")?)?;

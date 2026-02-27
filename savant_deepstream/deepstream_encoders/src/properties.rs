@@ -13,6 +13,7 @@
 //! | [`HevcDgpu`](HevcDgpuProps) | HEVC | dGPU | `nvv4l2h265enc` |
 //! | [`HevcJetson`](HevcJetsonProps) | HEVC | Jetson | `nvv4l2h265enc` |
 //! | [`Jpeg`](JpegProps) | JPEG | Both | `nvjpegenc` |
+//! | [`Png`](PngProps) | PNG | Both (CPU) | `pngenc` |
 //! | [`Av1Dgpu`](Av1DgpuProps) | AV1 | dGPU | `nvv4l2av1enc` |
 
 use crate::error::EncoderError;
@@ -960,6 +961,41 @@ impl HevcJetsonProps {
     }
 }
 
+// ─── PNG ─────────────────────────────────────────────────────────────────
+
+/// PNG encoder properties (`pngenc`, CPU-based, gst-plugins-good).
+#[derive(Debug, Clone, Default)]
+pub struct PngProps {
+    /// PNG compression level (0–9, default: 6). Higher = smaller file, slower.
+    pub compression_level: Option<u32>,
+}
+
+impl PngProps {
+    pub fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut p = Vec::new();
+        push_u32(&mut p, "compression-level", &self.compression_level);
+        p
+    }
+
+    pub fn from_pairs(pairs: &HashMap<String, String>) -> Result<Self, EncoderError> {
+        let mut props = Self::default();
+        for (key, value) in pairs {
+            match normalize_key(key).as_str() {
+                "compression_level" | "compression-level" => {
+                    props.compression_level = Some(parse_u32(key, value)?);
+                }
+                _ => {
+                    return Err(EncoderError::InvalidProperty {
+                        name: key.clone(),
+                        reason: format!("unknown PNG property '{key}'"),
+                    })
+                }
+            }
+        }
+        Ok(props)
+    }
+}
+
 // ─── JPEG ──────────────────────────────────────────────────────────────
 
 /// JPEG encoder properties (`nvjpegenc`, both platforms).
@@ -1138,6 +1174,8 @@ pub enum EncoderProperties {
     Jpeg(JpegProps),
     /// AV1 encoder on dGPU (`nvv4l2av1enc`).
     Av1Dgpu(Av1DgpuProps),
+    /// PNG encoder (`pngenc`, CPU-based, gst-plugins-good).
+    Png(PngProps),
 }
 
 impl EncoderProperties {
@@ -1148,15 +1186,16 @@ impl EncoderProperties {
             Self::HevcDgpu(_) | Self::HevcJetson(_) => Codec::Hevc,
             Self::Jpeg(_) => Codec::Jpeg,
             Self::Av1Dgpu(_) => Codec::Av1,
+            Self::Png(_) => Codec::Png,
         }
     }
 
-    /// The target platform, if platform-specific (`None` for JPEG).
+    /// The target platform, if platform-specific (`None` for JPEG, PNG).
     pub fn platform(&self) -> Option<Platform> {
         match self {
             Self::H264Dgpu(_) | Self::HevcDgpu(_) | Self::Av1Dgpu(_) => Some(Platform::Dgpu),
             Self::H264Jetson(_) | Self::HevcJetson(_) => Some(Platform::Jetson),
-            Self::Jpeg(_) => None,
+            Self::Jpeg(_) | Self::Png(_) => None,
         }
     }
 
@@ -1169,6 +1208,7 @@ impl EncoderProperties {
             Self::HevcJetson(p) => p.to_gst_pairs(),
             Self::Jpeg(p) => p.to_gst_pairs(),
             Self::Av1Dgpu(p) => p.to_gst_pairs(),
+            Self::Png(p) => p.to_gst_pairs(),
         }
     }
 
@@ -1194,6 +1234,7 @@ impl EncoderProperties {
                 Ok(Self::HevcJetson(HevcJetsonProps::from_pairs(pairs)?))
             }
             (Codec::Jpeg, _) => Ok(Self::Jpeg(JpegProps::from_pairs(pairs)?)),
+            (Codec::Png, _) => Ok(Self::Png(PngProps::from_pairs(pairs)?)),
             (Codec::Av1, Platform::Dgpu) => Ok(Self::Av1Dgpu(Av1DgpuProps::from_pairs(pairs)?)),
             (Codec::Av1, Platform::Jetson) => Err(EncoderError::UnsupportedCodec(
                 "AV1 encoding is not supported on Jetson".to_string(),
@@ -1380,6 +1421,10 @@ mod tests {
 
         let p = EncoderProperties::Jpeg(JpegProps::default());
         assert_eq!(p.codec(), Codec::Jpeg);
+        assert_eq!(p.platform(), None);
+
+        let p = EncoderProperties::Png(PngProps::default());
+        assert_eq!(p.codec(), Codec::Png);
         assert_eq!(p.platform(), None);
     }
 }

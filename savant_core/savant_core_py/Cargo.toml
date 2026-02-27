@@ -1,0 +1,53 @@
+[package]
+name = "savant_core_py"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["dylib"]
+
+[dependencies]
+anyhow = { workspace = true }
+colored = { workspace = true }
+evalexpr = { workspace = true }
+hashbrown = { workspace = true }
+geo = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+opentelemetry = { workspace = true }
+parking_lot = { workspace = true }
+pyo3 = { workspace = true, features = ["num-bigint"] }
+savant_core = { workspace = true }
+savant_gstreamer = { workspace = true, optional = true }
+gstreamer = { workspace = true, optional = true }
+glib = { workspace = true, optional = true }
+deepstream_nvbufsurface = { workspace = true, optional = true }
+deepstream_encoders = { path = "../../savant_deepstream/deepstream_encoders", optional = true }
+picasso = { path = "../../savant_deepstream/picasso", optional = true }
+skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"], optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+prometheus-client = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = []
+gst = ["savant_gstreamer", "gstreamer"]
+deepstream = ["gst", "glib", "deepstream_nvbufsurface", "deepstream_nvbufsurface/skia", "deepstream_encoders", "picasso", "skia-safe"]
+
+[build-dependencies]
+pyo3-build-config = { workspace = true }
+cbindgen = { workspace = true }
+
