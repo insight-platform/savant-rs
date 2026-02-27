@@ -37,7 +37,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && \
-    make gst-release ds-nvbuf-release ds-enc-release && \
+    SAVANT_FEATURES=deepstream make release && \
     mkdir -p /opt/dist && \
     cp dist/*.whl /opt/dist/
 

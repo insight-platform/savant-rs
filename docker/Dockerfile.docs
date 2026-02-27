@@ -18,9 +18,17 @@ RUN --mount=type=bind,source=.,target=/opt/savant-rs \
 ENV PATH="/root/.cargo/bin:$PATH"
 ENV CARGO_TARGET_DIR=/tmp/build
 
+# Create libcuda.so.1 stub so the deepstream-enabled wheel can be imported
+# at doc-generation time (no real GPU required).
+RUN if [ -f /usr/local/cuda/lib64/stubs/libcuda.so ]; then \
+        ln -sf /usr/local/cuda/lib64/stubs/libcuda.so \
+               /usr/local/cuda/lib64/stubs/libcuda.so.1; \
+    fi
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH}"
+
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/tmp/build \
     --mount=type=bind,rw,source=.,target=/opt/savant-rs \
     cd /opt/savant-rs && \
-    make docs && \
+    SAVANT_FEATURES=deepstream VENV_DIR=/opt/venv make docs && \
     cp docs-artifact.tar ../

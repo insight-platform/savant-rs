@@ -5,3 +5,4 @@ auditwheel
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon
+skia-python

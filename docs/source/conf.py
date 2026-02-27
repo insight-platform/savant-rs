@@ -31,6 +31,8 @@ extensions = [
 autosummary_generate = True
 autosummary_imported_members = True
 
+autodoc_mock_imports = ["cv2", "magic"]
+
 templates_path = ["_templates"]
 exclude_patterns = []
 

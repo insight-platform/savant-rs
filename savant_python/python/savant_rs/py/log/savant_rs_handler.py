@@ -19,6 +19,7 @@ class SavantRsLoggingHandler(logging.Handler):
     to the rust log from savant_rs with appropriate log level.
 
     No need to specify formatter during logging configuration:
+
     1. for all messages under ERROR priority no formatting is performed
        (rely on underlying rust log formatter)
     2. pretty_traceback formatter for ERROR and CRITICAL messages

@@ -80,7 +80,7 @@ serve-docs: docker-build-docs
 
 docs: dev install
 	@echo "Building docs..."
-	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(PROJECT_DIR)/venv/bin:$$PATH" make clean html
+	cd $(PROJECT_DIR)/docs && LC_ALL=C.utf8 PATH="$(VENV_BIN):$$PATH" make clean html
 	tar --dereference --hard-dereference --directory $(PROJECT_DIR)/docs/build/html -cvf $(PROJECT_DIR)/docs-artifact.tar .
 
 build_savant:

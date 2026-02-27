@@ -21,3 +21,10 @@ Savant Rust Library
    zmq
    webserver
    webserver_kvs
+   gstreamer
+   deepstream
+   picasso
+   py_log
+   py_client
+   py_api
+   py_utils
