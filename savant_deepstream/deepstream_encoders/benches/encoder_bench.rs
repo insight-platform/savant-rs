@@ -14,8 +14,7 @@
 //! ```
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use deepstream_encoders::properties::*;
-use deepstream_encoders::{cuda_init, Codec, EncoderConfig, NvEncoder, VideoFormat};
+use deepstream_encoders::prelude::*;
 use std::sync::Once;
 
 static INIT: Once = Once::new();

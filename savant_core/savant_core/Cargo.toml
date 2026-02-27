@@ -1,0 +1,108 @@
+[package]
+name = "savant_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = { workspace = true }
+actix-ws = { workspace = true }
+anyhow = { workspace = true }
+crc32fast = { workspace = true }
+crossbeam = { workspace = true }
+derive_builder = { workspace = true }
+savant_etcd = { workspace = true }
+etcd-client = { workspace = true }
+evalexpr = { workspace = true }
+futures-util = { workspace = true }
+globset = { workspace = true }
+jmespath = { workspace = true }
+hashbrown = { workspace = true }
+geo = { workspace = true }
+libloading = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+lru = { workspace = true }
+moka = { workspace = true }
+nom = { workspace = true }
+nix = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-stdout = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry-jaeger-propagator = { workspace = true }
+parking_lot = { workspace = true }
+prometheus-client = { workspace = true }
+prost = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+savant_protobuf = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+twelf = { workspace = true }
+uuid = { workspace = true }
+zmq = { workspace = true }
+
+[lib]
+crate-type = ["rlib"]
+
+[dev-dependencies]
+bollard = { workspace = true }
+criterion = { workspace = true }
+ctrlc = { workspace = true }
+futures-util = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "bench_bbox_utils"
+harness = false
+
+[[bench]]
+name = "bench_bboxes"
+harness = false
+
+[[bench]]
+name = "bench_frame_save_load_pb"
+harness = false
+
+[[bench]]
+name = "bench_json_attrs"
+harness = false
+
+[[bench]]
+name = "bench_label_filter"
+harness = false
+
+[[bench]]
+name = "bench_message_save_load"
+harness = false
+
+[[bench]]
+name = "bench_object_filter"
+harness = false
+
+[[bench]]
+name = "bench_pipeline"
+harness = false
+
+[[bench]]
+name = "bench_zmq"
+harness = false

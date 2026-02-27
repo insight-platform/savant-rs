@@ -30,7 +30,7 @@ fn transform_rgba_to_rgba_same_size() {
 
     let src_buf = src_gen.acquire_surface(None).unwrap();
     let config = TransformConfig::default();
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -47,7 +47,7 @@ fn transform_rgba_downscale_symmetric() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -64,7 +64,7 @@ fn transform_rgba_downscale_right_bottom() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -81,7 +81,7 @@ fn transform_rgba_no_padding() {
         interpolation: Interpolation::Nearest,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -98,7 +98,7 @@ fn transform_nv12_to_rgba() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -115,7 +115,7 @@ fn transform_rgba_to_nv12() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -144,7 +144,7 @@ fn transform_all_interpolation_methods() {
             interpolation: interp,
             ..Default::default()
         };
-        let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+        let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
         assert!(dst_buf.size() > 0, "interpolation {:?} failed", interp);
     }
 }
@@ -162,16 +162,17 @@ fn transform_with_src_crop() {
     let config = TransformConfig {
         padding: Padding::Symmetric,
         interpolation: Interpolation::Bilinear,
-        src_rect: Some(Rect {
-            top: 100,
-            left: 200,
-            width: 800,
-            height: 600,
-        }),
-        compute_mode: ComputeMode::Default,
-        cuda_stream: std::ptr::null_mut(),
+        ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let src_rect = Rect {
+        top: 100,
+        left: 200,
+        width: 800,
+        height: 600,
+    };
+    let dst_buf = dst_gen
+        .transform(&src_buf, &config, None, Some(&src_rect))
+        .unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -194,7 +195,9 @@ fn transform_preserves_savant_id_meta() {
     // Transform with a new ID (the transform creates a new destination buffer
     // with its own ID)
     let config = TransformConfig::default();
-    let dst_buf = dst_gen.transform(&src_buf, &config, Some(99)).unwrap();
+    let dst_buf = dst_gen
+        .transform(&src_buf, &config, Some(99), None)
+        .unwrap();
     let meta = dst_buf
         .meta::<SavantIdMeta>()
         .expect("destination should have SavantIdMeta");
@@ -221,7 +224,9 @@ fn transform_with_ptr_returns_valid_data() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let (dst_buf, data_ptr, pitch) = dst_gen.transform_with_ptr(&src_buf, &config, None).unwrap();
+    let (dst_buf, data_ptr, pitch) = dst_gen
+        .transform_with_ptr(&src_buf, &config, None, None)
+        .unwrap();
     assert!(dst_buf.size() > 0);
     assert!(!data_ptr.is_null(), "data_ptr should not be null");
     assert!(pitch > 0, "pitch should be > 0");
@@ -243,7 +248,7 @@ fn transform_gpu_compute_mode() {
         compute_mode: ComputeMode::Gpu,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }
 
@@ -262,6 +267,6 @@ fn transform_upscale_symmetric() {
         interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
-    let dst_buf = dst_gen.transform(&src_buf, &config, None).unwrap();
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
     assert!(dst_buf.size() > 0);
 }

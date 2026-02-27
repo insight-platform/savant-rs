@@ -1,6 +1,7 @@
 zmq
 numpy
 maturin[patchelf] ~= 1.9
+auditwheel
 sphinx
 sphinx-rtd-theme
 sphinxcontrib-napoleon

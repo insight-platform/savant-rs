@@ -2,13 +2,13 @@
 resolver = "2"
 members = [
     "savant_etcd",
-    "savant_core",
-    "savant_core_py",
+    "savant_core/savant_core",
+    "savant_core/savant_core_py",
     "savant_python",
     "savant_protobuf",
     "savant_gstreamer_elements",
     "savant_launcher",
-    "savant_gstreamer",
+    "savant_gstreamer/savant_gstreamer",
     "savant_info",
     "services/replay/replaydb",
     "services/replay/replay",
@@ -23,11 +23,12 @@ members = [
     "savant_deepstream/deepstream_nvbufsurface",
     "savant_deepstream/deepstream_encoders",
     "savant_deepstream/picasso",
+    # picasso_py bindings migrated to savant_core_py::picasso (deepstream feature)
 ]
 
 default-members = [
-    "savant_core",
-    "savant_core_py",
+    "savant_core/savant_core",
+    "savant_core/savant_core_py",
     "savant_python",
     "savant_protobuf",
 ]
@@ -145,11 +146,12 @@ rocksdb = { version = "0.23", default-features = false, features = [
 ring = "0.17"
 
 savant_etcd = { path = "savant_etcd" }
-savant_core = { path = "savant_core" }
-savant_core_py = { path = "savant_core_py" }
+savant_core = { path = "savant_core/savant_core" }
+savant_core_py = { path = "savant_core/savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
 savant_rs = { path = "savant_python" }
-savant_gstreamer = { path = "savant_gstreamer" }
+savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer" }
+deepstream_nvbufsurface = { path = "savant_deepstream/deepstream_nvbufsurface" }
 savant_services_common = { path = "services/common" }
 
 serde = { version = "1.0", features = ["derive"] }

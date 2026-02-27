@@ -10,29 +10,21 @@ from savant_rs.utils.serialization import Message
 # this is just an interface for type hints, it must not be used in the code
 class EgressItem:
     @property
-    def video_frame(self) -> VideoFrame:
-        ...
+    def video_frame(self) -> VideoFrame: ...
     @video_frame.setter
-    def video_frame(self, video_frame: VideoFrame):
-        ...
+    def video_frame(self, video_frame: VideoFrame): ...
     @property
-    def state(self) -> dict[str, Any]:
-        ...
+    def state(self) -> dict[str, Any]: ...
     @state.setter
-    def state(self, state: dict[str, Any]):
-        ...
+    def state(self, state: dict[str, Any]): ...
     @property
-    def data(self) -> list[bytes]:
-        ...
+    def data(self) -> list[bytes]: ...
     @data.setter
-    def data(self, data: list[bytes]):
-        ...
+    def data(self, data: list[bytes]): ...
     @property
-    def labels(self) -> list[str]:
-        ...
+    def labels(self) -> list[str]: ...
     @labels.setter
-    def labels(self, labels: list[str]):
-        ...
+    def labels(self, labels: list[str]): ...
 
 
 class MergeHandler:
@@ -95,7 +87,9 @@ class LateArrivalHandler:
 
 
 class UnsupportedMessageHandler:
-    def __call__(self, ingress_name: str, topic: str, message: Message, data: list[bytes]):
+    def __call__(
+        self, ingress_name: str, topic: str, message: Message, data: list[bytes]
+    ):
         """
         This handler is called when a message is unsupported.
 
@@ -105,11 +99,21 @@ class UnsupportedMessageHandler:
         :param data: data elements of the message
         :return: message to be sent to the egress or None if the message should be dropped
         """
-        log(LogLevel.Info, "meta_merge::unsupported_message_handler",
-            f"Unsupported message received from {ingress_name} on topic {topic}, message: {message}, data: {data}")
+        log(
+            LogLevel.Info,
+            "meta_merge::unsupported_message_handler",
+            f"Unsupported message received from {ingress_name} on topic {topic}, message: {message}, data: {data}",
+        )
+
 
 class SendHandler:
-    def __call__(self, message: Message, message_state: Optional[dict[Any, Any]], data: list[bytes], labels: list[str]) -> Optional[str]:
+    def __call__(
+        self,
+        message: Message,
+        message_state: Optional[dict[Any, Any]],
+        data: list[bytes],
+        labels: list[str],
+    ) -> Optional[str]:
         """
         This handler is called when a message is ready to be sent to the egress.
 
@@ -117,7 +121,7 @@ class SendHandler:
         :param message: message object (VideoFrame or EndOfStream), can be modified in place to add/remove labels, attributes, etc.
         :param data: data elements of the message
         :param labels: labels of the message
-        :return: Optional[str] topic of the message to be sent to the egress if any, 
+        :return: Optional[str] topic of the message to be sent to the egress if any,
                  None if the default topic should be used equal to the source id
         """
         return None
@@ -132,8 +136,7 @@ def init(params: Any):
     register_handler("head_expired_handler", HeadExpiredHandler())
     register_handler("head_ready_handler", HeadReadyHandler())
     register_handler("late_arrival_handler", LateArrivalHandler())
-    register_handler("unsupported_message_handler",
-                     UnsupportedMessageHandler())
+    register_handler("unsupported_message_handler", UnsupportedMessageHandler())
     register_handler("send_handler", SendHandler())
     log(
         LogLevel.Info, "meta_merge::init", "Meta merge service initialized successfully"

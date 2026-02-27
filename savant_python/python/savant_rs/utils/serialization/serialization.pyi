@@ -20,7 +20,6 @@ __all__ = [
     "load_message_from_bytes",
 ]
 
-
 class Message:
     """A class representing different types of messages in the Savant system."""
 
@@ -306,7 +305,6 @@ class Message:
         """
         ...
 
-
 def save_message(message: Message, no_gil: bool = True) -> bytes:
     """Save a message to a byte array.
 
@@ -323,7 +321,6 @@ def save_message(message: Message, no_gil: bool = True) -> bytes:
         The byte array containing the message
     """
     ...
-
 
 def save_message_to_bytebuffer(
     message: Message, with_hash: bool = True, no_gil: bool = True
@@ -346,7 +343,6 @@ def save_message_to_bytebuffer(
     """
     ...
 
-
 def save_message_to_bytes(message: Message, no_gil: bool = True) -> bytes:
     """Save a message to python bytes.
 
@@ -363,7 +359,6 @@ def save_message_to_bytes(message: Message, no_gil: bool = True) -> bytes:
         The byte buffer containing the message
     """
     ...
-
 
 def load_message(bytes: Union[bytes, bytearray], no_gil: bool = True) -> Message:
     """Loads a message from a byte array.
@@ -382,7 +377,6 @@ def load_message(bytes: Union[bytes, bytearray], no_gil: bool = True) -> Message
     """
     ...
 
-
 def load_message_from_bytebuffer(buffer: ByteBuffer, no_gil: bool = True) -> Message:
     """Loads a message from a ByteBuffer.
 
@@ -399,7 +393,6 @@ def load_message_from_bytebuffer(buffer: ByteBuffer, no_gil: bool = True) -> Mes
         The loaded message
     """
     ...
-
 
 def load_message_from_bytes(buffer: bytes, no_gil: bool = True) -> Message:
     """Loads a message from python bytes.

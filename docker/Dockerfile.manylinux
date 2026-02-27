@@ -2,7 +2,9 @@ FROM ghcr.io/insight-platform/manylinux_2_28:v1.6.0 AS builder
 
 COPY . .
 ARG PYTHON_INTERPRETER
-RUN BUILD_ENVIRONMENT=manylinux make release
+ENV BUILD_ENVIRONMENT=manylinux
+ENV SAVANT_FEATURES=
+RUN make release
 RUN rm -rf target
 
 FROM alpine:3.18 AS dist
