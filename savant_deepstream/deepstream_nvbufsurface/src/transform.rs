@@ -170,7 +170,10 @@ impl Default for TransformConfig {
 /// the DeepStream NvDS buffer pool.
 ///
 /// # Safety
+///
 /// The buffer must contain a valid NvBufSurface in its first memory block.
+/// The returned pointer is valid as long as the buffer is alive and not
+/// reallocated.
 pub unsafe fn extract_nvbufsurface(
     buf: &gstreamer::BufferRef,
 ) -> Result<*mut ffi::NvBufSurface, TransformError> {
@@ -402,6 +405,42 @@ pub(crate) unsafe fn do_transform(
     }
 
     Ok(())
+}
+
+/// Perform a transform into a specific batch slot of a batched NvBufSurface.
+///
+/// Creates a stack-local NvBufSurface "view" whose `surfaceList` points to
+/// `dst_surf.surfaceList[dst_slot]`, allowing the existing [`do_transform`]
+/// logic to write into an arbitrary slot without modification.
+///
+/// # Safety
+///
+/// - `src_surf` must point to a valid NvBufSurface with at least one filled entry.
+/// - `dst_surf` must point to a valid batched NvBufSurface with `batchSize > dst_slot`.
+/// - The caller must ensure that `dst_slot < dst_surf.batchSize`.
+pub(crate) unsafe fn do_transform_to_slot(
+    src_surf: *mut ffi::NvBufSurface,
+    dst_surf: *mut ffi::NvBufSurface,
+    dst_slot: u32,
+    config: &TransformConfig,
+    src_rect: Option<&Rect>,
+) -> Result<(), TransformError> {
+    let dst = &*dst_surf;
+    if dst_slot >= dst.batchSize {
+        return Err(TransformError::InvalidBuffer("dst_slot exceeds batchSize"));
+    }
+
+    let mut view = *dst;
+    view.surfaceList = dst.surfaceList.add(dst_slot as usize);
+    view.batchSize = 1;
+    view.numFilled = 1;
+
+    do_transform(
+        src_surf,
+        &mut view as *mut ffi::NvBufSurface,
+        config,
+        src_rect,
+    )
 }
 
 impl Padding {
