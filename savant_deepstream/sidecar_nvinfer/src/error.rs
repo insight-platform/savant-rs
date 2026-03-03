@@ -17,6 +17,9 @@ pub enum SidecarError {
     #[error("Invalid property: {0}")]
     InvalidProperty(String),
 
+    #[error("Invalid nvinfer config: {0}")]
+    InvalidConfig(String),
+
     #[error("Batch meta attachment failed: {0}")]
     BatchMetaFailed(String),
 

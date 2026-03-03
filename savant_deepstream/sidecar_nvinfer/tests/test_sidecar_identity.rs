@@ -7,6 +7,7 @@ use deepstream_nvbufsurface::{
     VideoFormat,
 };
 use sidecar_nvinfer::{attach_batch_meta, DataType, SidecarConfig, SidecarNvInfer};
+use std::collections::HashMap;
 
 #[link(name = "cuda")]
 extern "C" {
@@ -53,13 +54,22 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
 /// to RGB float32: `output_value = pixel_byte * 1.0`.
 /// Shape is [3, 12, 12] = 432 elements, each equal to `fill_byte as f64`.
 fn make_identity_batch_known(num_frames: u32, fill_byte: u8) -> (gstreamer::Buffer, f64) {
+    let (buf, sums) = make_identity_batch_per_frame(&vec![fill_byte; num_frames as usize]);
+    (buf, sums[0])
+}
+
+/// Build a batch where each frame `i` is memset to `fill_bytes[i]`.
+///
+/// Returns the batch buffer and a vector of expected per-element output sums.
+fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f64>) {
     common::init();
 
+    let num_frames = fill_bytes.len() as u32;
     let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 12, 12)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .min_buffers(4)
-        .max_buffers(4)
+        .min_buffers(num_frames.max(4))
+        .max_buffers(num_frames.max(4))
         .build()
         .expect("src generator");
 
@@ -77,26 +87,30 @@ fn make_identity_batch_known(num_frames: u32, fill_byte: u8) -> (gstreamer::Buff
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
-    for i in 0..num_frames {
+    for (i, &fill_byte) in fill_bytes.iter().enumerate() {
         let (src, data_ptr, pitch) = src_gen.acquire_surface_with_ptr(Some(i as i64)).unwrap();
-        // Fill the entire GPU allocation (pitch × height) with the known byte.
         let fill_size = (pitch * 12) as usize;
         let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill_byte, fill_size) };
         assert_eq!(ret, 0, "cuMemsetD8_v2 failed with code {}", ret);
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
-    let expected_sum = 3.0 * 12.0 * 12.0 * (fill_byte as f64);
-    (batch.finalize(), expected_sum)
+    let expected_sums: Vec<f64> = fill_bytes
+        .iter()
+        .map(|&b| 3.0 * 12.0 * 12.0 * (b as f64))
+        .collect();
+    (batch.finalize(), expected_sums)
 }
 
 fn identity_sidecar() -> Option<SidecarNvInfer> {
-    let config_path = common::identity_config_path();
-    if !config_path.exists() {
-        eprintln!("Skipping: config not found at {:?}", config_path);
+    use std::path::Path;
+    let onnx = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/identity.onnx");
+    if !onnx.exists() {
+        eprintln!("Skipping: identity.onnx not found at {:?}", onnx);
         return None;
     }
-    let config = SidecarConfig::new(config_path, "RGBA", 12, 12);
+    let props = common::identity_properties();
+    let config = SidecarConfig::new(props, "RGBA", 12, 12);
     let callback = Box::new(|_| {});
     Some(SidecarNvInfer::new(config, callback).expect("create sidecar"))
 }
@@ -197,14 +211,19 @@ fn test_identity_different_fill_values() {
         None => return,
     };
 
-    for fill in [64u8, 128, 200] {
-        let (batch, expected_sum) = make_identity_batch_known(1, fill);
-        let output = sidecar.infer_sync(batch, fill as u64).expect("infer_sync");
-        let actual_sum = tensor_f32_sum(&output.elements()[0].tensors[0]);
+    let fills: Vec<u8> = vec![64, 128, 200];
+    let (batch, expected_sums) = make_identity_batch_per_frame(&fills);
+    let output = sidecar.infer_sync(batch, 7).expect("infer_sync");
+
+    assert_eq!(output.num_elements(), fills.len());
+    for (i, (elem, &expected_sum)) in output.elements().iter().zip(&expected_sums).enumerate() {
+        assert!(!elem.tensors.is_empty(), "element {i} must have tensors");
+        let actual_sum = tensor_f32_sum(&elem.tensors[0]);
         let rel_err = (actual_sum - expected_sum).abs() / expected_sum;
         assert!(
             rel_err < 0.01,
-            "fill={fill}: expected={expected_sum}, actual={actual_sum}, rel_err={rel_err:.6}"
+            "element {i} (fill={}): expected={expected_sum}, actual={actual_sum}, rel_err={rel_err:.6}",
+            fills[i]
         );
     }
 }
@@ -264,9 +283,9 @@ fn test_element_ids_preserved() {
 fn test_async_callback() {
     common::init();
 
-    let config_path = common::identity_config_path();
-    if !config_path.exists() {
-        eprintln!("Skipping: config not found at {:?}", config_path);
+    let onnx = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/identity.onnx");
+    if !onnx.exists() {
+        eprintln!("Skipping: identity.onnx not found at {:?}", onnx);
         return;
     }
 
@@ -275,7 +294,8 @@ fn test_async_callback() {
     let received = Arc::new(AtomicU64::new(0));
     let received_clone = received.clone();
 
-    let config = SidecarConfig::new(config_path, "RGBA", 12, 12).queue_depth(2);
+    let props = common::identity_properties();
+    let config = SidecarConfig::new(props, "RGBA", 12, 12).queue_depth(2);
     let callback = Box::new(move |output: sidecar_nvinfer::BatchInferenceOutput| {
         received_clone.store(output.batch_id(), Ordering::SeqCst);
     });
@@ -291,4 +311,47 @@ fn test_async_callback() {
         received.load(Ordering::SeqCst) > 0,
         "callback should have been invoked"
     );
+}
+
+fn expect_new_fails_with(props: HashMap<String, String>, expected_substring: &str) {
+    match SidecarNvInfer::new(SidecarConfig::new(props, "RGBA", 12, 12), Box::new(|_| {})) {
+        Err(e) => {
+            let msg = format!("{e}");
+            assert!(
+                msg.contains(expected_substring),
+                "error should mention '{expected_substring}', got: {msg}"
+            );
+        }
+        Ok(_) => panic!("expected SidecarNvInfer::new to fail for '{expected_substring}'"),
+    }
+}
+
+#[test]
+fn test_config_rejects_wrong_process_mode() {
+    common::init();
+
+    let mut props = common::identity_properties();
+    props.insert("process-mode".into(), "2".into());
+    props.insert("output-tensor-meta".into(), "1".into());
+    expect_new_fails_with(props, "process-mode");
+}
+
+#[test]
+fn test_config_rejects_wrong_output_tensor_meta_value() {
+    common::init();
+
+    let mut props = common::identity_properties();
+    props.insert("process-mode".into(), "1".into());
+    props.insert("output-tensor-meta".into(), "2".into());
+    expect_new_fails_with(props, "output-tensor-meta");
+}
+
+#[test]
+fn test_config_rejects_disabled_output_tensor_meta() {
+    common::init();
+
+    let mut props = common::identity_properties();
+    props.insert("process-mode".into(), "1".into());
+    props.insert("output-tensor-meta".into(), "0".into());
+    expect_new_fails_with(props, "output-tensor-meta");
 }

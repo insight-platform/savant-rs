@@ -48,15 +48,16 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
 fn test_memory_no_leak() {
     common::init();
 
-    let config_path = common::identity_config_path();
-    if !config_path.exists() {
-        eprintln!("Skipping: config not found at {:?}", config_path);
+    let onnx = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/identity.onnx");
+    if !onnx.exists() {
+        eprintln!("Skipping: identity.onnx not found at {:?}", onnx);
         return;
     }
 
     let before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
 
-    let config = SidecarConfig::new(config_path, "RGBA", 12, 12);
+    let props = common::identity_properties();
+    let config = SidecarConfig::new(props, "RGBA", 12, 12);
     let callback = Box::new(|_| {});
     let sidecar = SidecarNvInfer::new(config, callback).expect("create sidecar");
 

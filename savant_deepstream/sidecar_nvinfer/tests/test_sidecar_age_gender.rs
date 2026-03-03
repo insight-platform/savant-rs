@@ -7,11 +7,6 @@ use deepstream_nvbufsurface::{
     VideoFormat,
 };
 use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
-use std::path::PathBuf;
-
-fn age_gender_config_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/age_gender_nvinfer.txt")
-}
 
 fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
@@ -50,19 +45,15 @@ fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
 fn test_multi_output_layer_names() {
     common::init();
 
-    let config_path = age_gender_config_path();
-    if !config_path.exists() {
-        eprintln!("Skipping: config not found at {:?}", config_path);
-        return;
-    }
-    let onnx_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let onnx_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("assets/age_gender_mobilenet_v2_dynBatch.onnx");
     if !onnx_path.exists() {
         eprintln!("Skipping: age_gender model not found at {:?}", onnx_path);
         return;
     }
 
-    let config = SidecarConfig::new(config_path, "RGBA", 112, 112);
+    let props = common::age_gender_properties();
+    let config = SidecarConfig::new(props, "RGBA", 112, 112);
     let callback = Box::new(|_| {});
     let sidecar = SidecarNvInfer::new(config, callback).expect("create sidecar");
 

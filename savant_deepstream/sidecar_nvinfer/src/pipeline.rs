@@ -15,6 +15,7 @@ use log::debug;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use tempfile::NamedTempFile;
 
 /// Callback type invoked when inference completes (async mode).
 pub type InferCallback = Box<dyn FnMut(BatchInferenceOutput) + Send>;
@@ -34,6 +35,8 @@ pub struct SidecarNvInfer {
     #[allow(dead_code)] // Kept alive for callbacks; pipeline owns the element
     appsink: gst_app::AppSink,
     _config: SidecarConfig,
+    #[allow(dead_code)] // Kept alive so temp config file persists
+    _config_file: NamedTempFile,
     delivery: Arc<SampleDelivery>,
 }
 
@@ -42,12 +45,8 @@ impl SidecarNvInfer {
     pub fn new(config: SidecarConfig, callback: InferCallback) -> Result<Self> {
         let _ = gst::init();
 
-        let config_path = config
-            .config_file_path
-            .canonicalize()
-            .map_err(|e| SidecarError::PipelineError(format!("Config file path invalid: {}", e)))?
-            .to_string_lossy()
-            .to_string();
+        let config_file = config.validate_and_materialize()?;
+        let config_path = config_file.path().to_string_lossy().to_string();
 
         let pipeline = gst::Pipeline::new();
 
@@ -86,11 +85,8 @@ impl SidecarNvInfer {
         // Set config file path.
         nvinfer.set_property_from_str("config-file-path", &config_path);
 
-        // Force output tensor meta so we can read results.
-        Self::set_element_property(&nvinfer, "output-tensor-meta", "1")?;
-
-        // Apply user properties.
-        for (key, value) in &config.properties {
+        // Apply element properties.
+        for (key, value) in &config.element_properties {
             Self::set_element_property(&nvinfer, key, value)?;
         }
 
@@ -188,6 +184,7 @@ impl SidecarNvInfer {
             appsrc: appsrc_typed,
             appsink: appsink_typed,
             _config: config,
+            _config_file: config_file,
             delivery,
         })
     }

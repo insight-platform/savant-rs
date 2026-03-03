@@ -21,6 +21,7 @@ deepstream = { path = "../deepstream" }
 deepstream_nvbufsurface = { path = "../nvbufsurface" }
 thiserror = { workspace = true }
 log = { workspace = true }
+tempfile = "3"
 
 [dev-dependencies]
 cudarc = { version = "0.17", features = ["cuda-12020"] }

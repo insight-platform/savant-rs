@@ -2,6 +2,7 @@
 
 use deepstream_nvbufsurface::cuda_init;
 use gstreamer as gst;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Once;
 
@@ -16,8 +17,61 @@ pub fn init() {
     });
 }
 
-/// Path to identity nvinfer config.
+fn assets_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
+}
+
+/// Identity model nvinfer properties with absolute paths.
 #[allow(dead_code)]
-pub fn identity_config_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/identity_nvinfer.txt")
+pub fn identity_properties() -> HashMap<String, String> {
+    let dir = assets_dir();
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "1".into());
+    m.insert("net-scale-factor".into(), "1.0".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("identity.onnx").to_string_lossy().into(),
+    );
+    m.insert(
+        "model-engine-file".into(),
+        dir.join("identity.onnx_b16_gpu0_fp16.engine")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert("batch-size".into(), "16".into());
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;12;12".into());
+    m.insert("model-color-format".into(), "0".into());
+    m
+}
+
+/// Age/gender model nvinfer properties with absolute paths.
+#[allow(dead_code)]
+pub fn age_gender_properties() -> HashMap<String, String> {
+    let dir = assets_dir();
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "2".into());
+    m.insert("net-scale-factor".into(), "0.007843137254902".into());
+    m.insert("offsets".into(), "127.5;127.5;127.5".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("age_gender_mobilenet_v2_dynBatch.onnx")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert(
+        "model-engine-file".into(),
+        dir.join("age_gender_mobilenet_v2_dynBatch.onnx_b16_gpu0_fp16.engine")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert("batch-size".into(), "16".into());
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;112;112".into());
+    m.insert("model-color-format".into(), "0".into());
+    m
 }

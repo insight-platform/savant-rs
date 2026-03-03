@@ -12,6 +12,7 @@ use deepstream_nvbufsurface::{
     TransformConfig, VideoFormat,
 };
 use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
@@ -39,76 +40,79 @@ fn assets_dir() -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// Config generation
+// Model specs
 // ---------------------------------------------------------------------------
 
-/// Model descriptor parsed from a template config.
+/// Model descriptor with base nvinfer properties. `batch-size` and
+/// `model-engine-file` are set per batch size in bench_model.
 struct ModelSpec {
     onnx_path: PathBuf,
-    template: PathBuf,
+    onnx_stem: String,
+    base_properties: HashMap<String, String>,
     format: VideoFormat,
     width: u32,
     height: u32,
     group_name: String,
 }
 
-/// Generate a temporary nvinfer config for a specific `batch_size`.
-///
-/// Rewrites:
-///   * `batch-size` → the requested value
-///   * `onnx-file` → absolute path
-///   * `model-engine-file` → `{onnx}_b{bs}_gpu0_fp16.engine` in assets/
-///   * `process-mode` → 1 (primary, required for sidecar pipeline)
-fn generate_config(template: &Path, batch_size: u32) -> PathBuf {
-    let dir = template.parent().unwrap();
-    let content = std::fs::read_to_string(template).expect("read template config");
-
-    let mut onnx_filename = String::new();
-    let mut lines: Vec<String> = Vec::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let key = trimmed.split(['=', ' ']).next().unwrap_or("");
-
-        match key {
-            "batch-size" => {
-                lines.push(format!("batch-size={}", batch_size));
-            }
-            "onnx-file" => {
-                let val = kv_value(trimmed);
-                onnx_filename = val.to_string();
-                let abs = dir.join(val);
-                lines.push(format!("onnx-file={}", abs.display()));
-            }
-            "model-engine-file" => {}
-            "process-mode" => {
-                lines.push("process-mode=1".to_string());
-            }
-            _ => {
-                lines.push(line.to_string());
-            }
-        }
-    }
-
-    let engine_name = format!("{}_b{}_gpu0_fp16.engine", onnx_filename, batch_size);
-    let engine_abs = dir.join(&engine_name);
-    lines.insert(
-        lines
-            .iter()
-            .position(|l| l.starts_with("onnx-file"))
-            .map(|i| i + 1)
-            .unwrap_or(1),
-        format!("model-engine-file={}", engine_abs.display()),
+fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "1".into());
+    m.insert("net-scale-factor".into(), "1.0".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("identity.onnx").to_string_lossy().into(),
     );
-
-    let stem = template.file_stem().unwrap().to_string_lossy();
-    let tmp = std::env::temp_dir().join(format!("sidecar_bench_{}_b{}.txt", stem, batch_size));
-    std::fs::write(&tmp, lines.join("\n")).unwrap();
-    tmp
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;12;12".into());
+    m.insert("model-color-format".into(), "0".into());
+    m
 }
 
-fn kv_value(line: &str) -> &str {
-    line.split_once('=').map(|x| x.1).unwrap_or("").trim()
+fn age_gender_base_properties(dir: &Path) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "2".into());
+    m.insert("net-scale-factor".into(), "0.007843137254902".into());
+    m.insert("offsets".into(), "127.5;127.5;127.5".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("age_gender_mobilenet_v2_dynBatch.onnx")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;112;112".into());
+    m.insert("model-color-format".into(), "0".into());
+    m
+}
+
+fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert(
+        "onnx-file".into(),
+        dir.join("yolo11m-seg.onnx").to_string_lossy().into(),
+    );
+    m.insert("network-mode".into(), "2".into());
+    m.insert("workspace-size".into(), "6144".into());
+    m.insert("infer-dims".into(), "3;640;640".into());
+    m.insert("maintain-aspect-ratio".into(), "1".into());
+    m.insert("symmetric-padding".into(), "0".into());
+    m.insert("net-scale-factor".into(), "0.003921569790691137".into());
+    m.insert("offsets".into(), "0.0;0.0;0.0".into());
+    m.insert("model-color-format".into(), "0".into());
+    m.insert("output-blob-names".into(), "output0;output1".into());
+    m.insert("num-detected-classes".into(), "80".into());
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("secondary-reinfer-interval".into(), "0".into());
+    m.insert("operate-on-gie-id".into(), "0".into());
+    m.insert("operate-on-class-ids".into(), "0".into());
+    m.insert("gie-unique-id".into(), "1".into());
+    m.insert("network-type".into(), "100".into());
+    m
 }
 
 // ---------------------------------------------------------------------------
@@ -145,12 +149,7 @@ fn make_batch(
     }
 }
 
-fn make_uniform_batch(
-    format: VideoFormat,
-    w: u32,
-    h: u32,
-    batch_size: u32,
-) -> gstreamer::Buffer {
+fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> gstreamer::Buffer {
     init();
 
     let min_bufs = batch_size.max(4);
@@ -229,12 +228,21 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         return;
     }
 
+    let dir = assets_dir();
     let group_name = format!("{}/{}", spec.group_name, mode);
     let mut group = c.benchmark_group(&group_name);
 
     for &bs in batch_sizes {
-        let cfg_path = generate_config(&spec.template, bs);
-        let config = SidecarConfig::new(&cfg_path, "RGBA", spec.width, spec.height);
+        let mut props = spec.base_properties.clone();
+        props.insert("batch-size".into(), bs.to_string());
+        props.insert(
+            "model-engine-file".into(),
+            dir.join(format!("{}_b{}_gpu0_fp16.engine", spec.onnx_stem, bs))
+                .to_string_lossy()
+                .into(),
+        );
+
+        let config = SidecarConfig::new(props, "RGBA", spec.width, spec.height);
         let sidecar =
             SidecarNvInfer::new(config, Box::new(|_| {})).expect("create sidecar for bench");
 
@@ -264,7 +272,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
     let models = [
         ModelSpec {
             onnx_path: dir.join("identity.onnx"),
-            template: dir.join("identity_nvinfer.txt"),
+            onnx_stem: "identity.onnx".into(),
+            base_properties: identity_base_properties(&dir),
             format: VideoFormat::RGBA,
             width: 12,
             height: 12,
@@ -272,7 +281,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
         },
         ModelSpec {
             onnx_path: dir.join("age_gender_mobilenet_v2_dynBatch.onnx"),
-            template: dir.join("age_gender_nvinfer.txt"),
+            onnx_stem: "age_gender_mobilenet_v2_dynBatch.onnx".into(),
+            base_properties: age_gender_base_properties(&dir),
             format: VideoFormat::RGBA,
             width: 112,
             height: 112,
@@ -280,7 +290,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
         },
         ModelSpec {
             onnx_path: dir.join("yolo11m-seg.onnx"),
-            template: dir.join("yolo11m-seg_config_savant.txt"),
+            onnx_stem: "yolo11m-seg.onnx".into(),
+            base_properties: yolo_base_properties(&dir),
             format: VideoFormat::RGBA,
             width: 640,
             height: 640,

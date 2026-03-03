@@ -45,7 +45,7 @@ pub fn attach_batch_meta(
             ));
         }
         unsafe {
-            (*frame_meta).batch_id = 0;
+            (*frame_meta).batch_id = i;
             (*frame_meta).frame_num = i as i32;
             (*frame_meta).pad_index = i;
             (*frame_meta).source_id = 0;
