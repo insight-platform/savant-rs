@@ -24,6 +24,7 @@ from savant_rs.picasso import (
 ### savant_rs.deepstream (GPU/transform, required for encode/bypass)
 ```python
 from savant_rs.deepstream import (
+    GstBuffer,            # RAII guard wrapping a GStreamer buffer (auto-unrefs on GC)
     MemType,              # memory type enum
     NvBufSurfaceGenerator,# GPU buffer pool
     TransformConfig,      # transform config for CodecSpec.encode()
@@ -33,9 +34,9 @@ from savant_rs.deepstream import (
     Interpolation,        # NEAREST, BILINEAR, ALGO1-4, DEFAULT
     ComputeMode,          # DEFAULT, GPU, VIC
     # Pure-Python helpers (injected at import time, see note below)
-    nvgstbuf_as_gpu_mat,  # context manager: GstBuffer ptr → (GpuMat, Stream)
+    nvgstbuf_as_gpu_mat,  # context manager: GstBuffer guard → (GpuMat, Stream)
     nvbuf_as_gpu_mat,     # context manager: raw CUDA params → (GpuMat, Stream)
-    from_gpumat,          # GpuMat → buf_ptr via generator pool
+    from_gpumat,          # GpuMat → GstBuffer guard via generator pool
     SkiaCanvas,           # convenience Skia wrapper for SkiaContext FBO
 )
 ```
@@ -102,8 +103,9 @@ frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
 ### NvBufSurfaceGenerator
 ```python
 gen = NvBufSurfaceGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
-buf_ptr = gen.acquire_surface(id=frame_idx)
+buf = gen.acquire_surface(id=frame_idx)  # returns GstBuffer (RAII guard)
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
+# buf.ptr → raw int pointer (for interop); buf is automatically unref'd when GC'd.
 ```
 
 ### Rect
@@ -243,12 +245,12 @@ Two context managers for different call sites:
 ```python
 from savant_rs.deepstream import nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat
 
-# nvgstbuf_as_gpu_mat: takes a GstBuffer* pointer, extracts NvBufSurface info.
+# nvgstbuf_as_gpu_mat: takes a GstBuffer guard (or raw int ptr), extracts NvBufSurface info.
 # Use outside callbacks (e.g. pre-filling backgrounds before send_frame).
-buf_ptr = gen.acquire_surface(id=i)
-with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
+buf = gen.acquire_surface(id=i)  # GstBuffer RAII guard
+with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((20, 20, 28, 255), stream=stream)
-# stream is synchronised on exit; buf_ptr safe to push downstream
+# stream is synchronised on exit; buf safe to push downstream
 
 # nvbuf_as_gpu_mat: takes raw CUDA params directly.
 # Use inside the on_gpumat callback which already provides these values.
@@ -257,7 +259,7 @@ def on_gpumat(source_id, frame, data_ptr, pitch, width, height):
         mat.setTo((20, 20, 28, 255), stream=stream)
 
 # from_gpumat: copy a GpuMat into a new buffer (with optional scaling)
-new_buf_ptr = from_gpumat(gen, some_gpumat, interpolation=cv2.INTER_LINEAR)
+new_buf = from_gpumat(gen, some_gpumat, interpolation=cv2.INTER_LINEAR)  # returns GstBuffer
 ```
 
 ### skia-python — SkiaCanvas helper (on_render)

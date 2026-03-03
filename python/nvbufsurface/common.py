@@ -21,9 +21,11 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from savant_rs.deepstream import (  # noqa: E402
+    GstBuffer,
     NvBufSurfaceGenerator,
     TransformConfig,
     VideoFormat,
+    gpu_mem_used_mib,
     init_cuda,
 )
 from savant_rs.gstreamer import Codec, Mp4Muxer  # noqa: E402
@@ -71,6 +73,14 @@ def rss_kb() -> int:
     except Exception:
         pass
     return 0
+
+
+def gpu_mem_mib(gpu_id: int = 0) -> int | None:
+    """Return GPU memory used in MiB, or None if unavailable."""
+    try:
+        return gpu_mem_used_mib(gpu_id)
+    except Exception:
+        return None
 
 
 def resolve_codec(name: str) -> Codec:
@@ -206,8 +216,8 @@ class PicassoSession:
                                  on_gpumat=my_draw_callback)
 
         while session.is_running and i < session.limit:
-            buf = session.acquire_surface(frame_id=i)
-            session.submit(buf, frame_id=i, pts_ns=pts_ns,
+            buf = session.acquire_surface(frame_id=i)  # GstBuffer guard
+            session.submit(buf, pts_ns=pts_ns,
                            duration_ns=session.frame_duration_ns)
             i += 1
 
@@ -272,6 +282,7 @@ class PicassoSession:
         self._encoded_count = 0
         self._encoded_bytes = 0
         self._eos_event = threading.Event()
+        self._gpu_id = args.gpu_id
 
         # -- Optional MP4 muxer (direct use from callback) ---------------------
         self._muxer: Mp4Muxer | None = None
@@ -340,7 +351,7 @@ class PicassoSession:
         """``False`` after Ctrl-C or an encoder callback error."""
         return self._running
 
-    def acquire_surface(self, *, frame_id: int) -> int:
+    def acquire_surface(self, *, frame_id: int) -> GstBuffer:
         """Acquire an NvBufSurface GPU buffer from the internal pool."""
         return self._generator.acquire_surface(id=frame_id)
 
@@ -368,22 +379,22 @@ class PicassoSession:
             frame.duration = duration_ns
         return frame
 
-    def send_frame(self, frame: VideoFrame, buf_ptr: int) -> None:
+    def send_frame(self, frame: VideoFrame, buf: GstBuffer | int) -> None:
         """Submit a pre-built :class:`VideoFrame` to the Picasso engine."""
-        self._engine.send_frame(SOURCE_ID, frame, buf_ptr)
+        self._engine.send_frame(SOURCE_ID, frame, buf)
         with self._lock:
             self._frame_count += 1
 
     def submit(
         self,
-        buf_ptr: int,
+        buf: GstBuffer | int,
         *,
         pts_ns: int,
         duration_ns: int | None = None,
     ) -> None:
         """Shorthand: create a :class:`VideoFrame` and submit it."""
         frame = self.make_frame(pts_ns=pts_ns, duration_ns=duration_ns)
-        self.send_frame(frame, buf_ptr)
+        self.send_frame(frame, buf)
 
     def shutdown(self) -> None:
         """Send EOS, wait for encoder drain, finalise muxer, print totals."""
@@ -426,10 +437,12 @@ class PicassoSession:
             delta = count - last_count
             fps = delta / elapsed if elapsed > 0 else 0.0
             rss = rss_kb()
+            gpu_mib = gpu_mem_mib(self._gpu_id)
+            gpu_str = f"{gpu_mib} MiB" if gpu_mib is not None else "N/A"
             print(
                 f"submitted: {count:>8}  |  encoded: {enc:>8}  |  "
                 f"fps: {fps:>8.1f}  |  bitstream: {ebytes // 1024} KB  |  "
-                f"RSS: {rss // 1024} MB"
+                f"RSS: {rss // 1024} MB  |  GPU: {gpu_str}"
             )
             last_count = count
             last_time = now

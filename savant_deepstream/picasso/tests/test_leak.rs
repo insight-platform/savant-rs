@@ -38,12 +38,7 @@ fn rss_kb() -> u64 {
 }
 
 fn gpu_mem_mib() -> u64 {
-    let out = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
-        .output()
-        .expect("nvidia-smi not found");
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.trim().parse::<u64>().unwrap()
+    nvidia_gpu_utils::gpu_mem_used_mib(0).expect("gpu_mem_used_mib failed")
 }
 
 fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {

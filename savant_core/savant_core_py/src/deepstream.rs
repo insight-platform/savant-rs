@@ -5,8 +5,9 @@
 
 use deepstream_nvbufsurface::transform::{self, Rect};
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, cuda_init, ComputeMode, Interpolation, NvBufSurfaceGenerator,
-    NvBufSurfaceMemType, Padding, TransformConfig,
+    bridge_savant_id_meta, cuda_init, set_num_filled, BatchedNvBufSurfaceGenerator, BatchedSurface,
+    ComputeMode, HeterogeneousBatch, Interpolation, NvBufSurfaceGenerator, NvBufSurfaceMemType,
+    Padding, TransformConfig,
 };
 use glib::translate::from_glib_none;
 use gstreamer as gst;
@@ -493,6 +494,125 @@ impl PyTransformConfig {
     }
 }
 
+// ─── GstBuffer guard ────────────────────────────────────────────────────
+
+/// RAII guard for a ``GstBuffer``.
+///
+/// Wraps a GStreamer buffer and automatically unrefs it when the Python
+/// object is garbage-collected.  Use ``ptr`` to obtain the raw pointer
+/// for interop with functions that accept raw addresses, and ``take``
+/// to transfer ownership out of the guard.
+#[pyclass(name = "GstBuffer", module = "savant_rs.deepstream")]
+pub struct PyGstBuffer {
+    inner: Option<gst::Buffer>,
+}
+
+impl PyGstBuffer {
+    pub fn new(buffer: gst::Buffer) -> Self {
+        Self {
+            inner: Some(buffer),
+        }
+    }
+
+    /// Return the raw pointer as `usize`, or an error if consumed.
+    pub fn ptr_usize(&self) -> PyResult<usize> {
+        self.inner
+            .as_ref()
+            .map(|b| b.as_ptr() as usize)
+            .ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("GstBuffer has been consumed (take)")
+            })
+    }
+}
+
+#[pymethods]
+impl PyGstBuffer {
+    /// Wrap a raw ``GstBuffer*`` pointer in a guard.
+    ///
+    /// Args:
+    ///     ptr (int): Raw ``GstBuffer*`` pointer address.
+    ///     add_ref (bool): If ``True`` (default) an additional reference
+    ///         is taken — use for borrowed pointers (pad probes,
+    ///         callbacks).  If ``False`` the guard assumes ownership of
+    ///         an existing reference — use for pointers obtained via the
+    ///         legacy ``int``-returning API.
+    ///
+    /// Raises:
+    ///     ValueError: If *ptr* is 0 (null).
+    #[staticmethod]
+    #[pyo3(signature = (ptr, add_ref=true))]
+    fn from_ptr(ptr: usize, add_ref: bool) -> PyResult<Self> {
+        if ptr == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err("ptr is null"));
+        }
+        let _ = gst::init();
+        let buffer = unsafe {
+            if add_ref {
+                gst::Buffer::from_glib_none(ptr as *const gst::ffi::GstBuffer)
+            } else {
+                gst::Buffer::from_glib_full(ptr as *mut gst::ffi::GstBuffer)
+            }
+        };
+        Ok(Self::new(buffer))
+    }
+
+    /// Raw ``GstBuffer*`` pointer address.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the buffer has been consumed via ``take``.
+    #[getter]
+    fn ptr(&self) -> PyResult<usize> {
+        self.ptr_usize()
+    }
+
+    /// Transfer ownership out of the guard and return the raw pointer.
+    ///
+    /// After this call the guard is empty — ``ptr`` will raise and the
+    /// destructor becomes a no-op.
+    ///
+    /// Returns:
+    ///     int: Raw ``GstBuffer*`` pointer (caller owns the reference).
+    ///
+    /// Raises:
+    ///     RuntimeError: If already consumed.
+    fn take(&mut self) -> PyResult<usize> {
+        let buffer = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("GstBuffer has been consumed (take)")
+        })?;
+        let raw = unsafe {
+            use glib::translate::IntoGlibPtr;
+            buffer.into_glib_ptr() as usize
+        };
+        Ok(raw)
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            Some(b) => format!("GstBuffer(ptr=0x{:x})", b.as_ptr() as usize),
+            None => "GstBuffer(<consumed>)".to_string(),
+        }
+    }
+
+    fn __bool__(&self) -> bool {
+        self.inner.is_some()
+    }
+}
+
+/// Extract a raw ``GstBuffer*`` pointer from either a ``GstBuffer`` guard
+/// or a plain ``int``.
+pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
+    if let Ok(guard) = ob.extract::<PyRef<'_, PyGstBuffer>>() {
+        return guard.ptr_usize();
+    }
+    let raw = ob.extract::<usize>().map_err(|_| {
+        pyo3::exceptions::PyTypeError::new_err("expected GstBuffer or int (raw pointer)")
+    })?;
+    if raw == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
+    }
+    Ok(raw)
+}
+
 // ─── NvBufSurfaceGenerator ──────────────────────────────────────────────
 
 /// Python wrapper for NvBufSurfaceGenerator.
@@ -569,20 +689,15 @@ impl PyNvBufSurfaceGenerator {
     /// Acquire a new NvBufSurface buffer from the pool.
     ///
     /// Returns:
-    ///     int: Raw pointer address of the GstBuffer.
+    ///     GstBuffer: Guard owning the acquired buffer.
     #[pyo3(signature = (id=None))]
-    fn acquire_surface(&self, py: Python<'_>, id: Option<i64>) -> PyResult<usize> {
-        py.detach(|| {
-            let buffer = self
-                .inner
+    fn acquire_surface(&self, py: Python<'_>, id: Option<i64>) -> PyResult<PyGstBuffer> {
+        let buffer = py.detach(|| {
+            self.inner
                 .acquire_surface(id)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            let raw = unsafe {
-                use glib::translate::IntoGlibPtr;
-                buffer.into_glib_ptr() as usize
-            };
-            Ok(raw)
-        })
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(PyGstBuffer::new(buffer))
     }
 
     /// Acquire a buffer and stamp PTS and duration on it.
@@ -596,7 +711,7 @@ impl PyNvBufSurfaceGenerator {
     ///     id (int or None): Optional buffer ID / frame index.
     ///
     /// Returns:
-    ///     int: Raw pointer address of the GstBuffer.
+    ///     GstBuffer: Guard owning the acquired buffer.
     #[pyo3(signature = (pts_ns, duration_ns, id=None))]
     fn acquire_surface_with_params(
         &self,
@@ -604,8 +719,8 @@ impl PyNvBufSurfaceGenerator {
         pts_ns: u64,
         duration_ns: u64,
         id: Option<i64>,
-    ) -> PyResult<usize> {
-        py.detach(|| {
+    ) -> PyResult<PyGstBuffer> {
+        let buffer = py.detach(|| -> PyResult<gst::Buffer> {
             let mut buffer = self
                 .inner
                 .acquire_surface(id)
@@ -615,96 +730,74 @@ impl PyNvBufSurfaceGenerator {
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
                 buf_ref.set_duration(gst::ClockTime::from_nseconds(duration_ns));
             }
-            let raw = unsafe {
-                use glib::translate::IntoGlibPtr;
-                buffer.into_glib_ptr() as usize
-            };
-            Ok(raw)
-        })
+            Ok(buffer)
+        })?;
+        Ok(PyGstBuffer::new(buffer))
     }
 
-    /// Acquire a buffer and return ``(gst_buffer_ptr, data_ptr, pitch)``.
+    /// Acquire a buffer and return ``(GstBuffer, data_ptr, pitch)``.
     #[pyo3(signature = (id=None))]
     fn acquire_surface_with_ptr(
         &self,
         py: Python<'_>,
         id: Option<i64>,
-    ) -> PyResult<(usize, usize, u32)> {
-        py.detach(|| {
-            let (buffer, data_ptr, pitch) = self
+    ) -> PyResult<(PyGstBuffer, usize, u32)> {
+        let (buffer, data_ptr, pitch) = py.detach(|| -> PyResult<(gst::Buffer, usize, u32)> {
+            let (buf, ptr, p) = self
                 .inner
                 .acquire_surface_with_ptr(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            let raw_buf = unsafe {
-                use glib::translate::IntoGlibPtr;
-                buffer.into_glib_ptr() as usize
-            };
-            Ok((raw_buf, data_ptr as usize, pitch))
-        })
+            Ok((buf, ptr as usize, p))
+        })?;
+        Ok((PyGstBuffer::new(buffer), data_ptr, pitch))
     }
 
     /// Transform (scale + letterbox) a source buffer into a new destination.
-    #[pyo3(signature = (src_buf_ptr, config, id=None, src_rect=None))]
+    #[pyo3(signature = (src_buf, config, id=None, src_rect=None))]
     fn transform(
         &self,
         py: Python<'_>,
-        src_buf_ptr: usize,
+        src_buf: &Bound<'_, PyAny>,
         config: &PyTransformConfig,
         id: Option<i64>,
         src_rect: Option<&PyRect>,
-    ) -> PyResult<usize> {
+    ) -> PyResult<PyGstBuffer> {
+        let src_buf_ptr = extract_buf_ptr(src_buf)?;
         let config = config.to_rust();
         let src_rect_rust = src_rect.map(|r| r.into_rust());
-        py.detach(|| {
-            if src_buf_ptr == 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "src_buf_ptr is null",
-                ));
-            }
+        let dst_buf = py.detach(|| {
             let src_buf =
                 unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
-            let dst_buf = self
-                .inner
+            self.inner
                 .transform(&src_buf, &config, id, src_rect_rust.as_ref())
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            let raw = unsafe {
-                use glib::translate::IntoGlibPtr;
-                dst_buf.into_glib_ptr() as usize
-            };
-            Ok(raw)
-        })
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })?;
+        Ok(PyGstBuffer::new(dst_buf))
     }
 
-    /// Like :meth:`transform` but also returns ``(buf_ptr, data_ptr, pitch)``.
-    #[pyo3(signature = (src_buf_ptr, config, id=None, src_rect=None))]
+    /// Like :meth:`transform` but also returns ``(GstBuffer, data_ptr, pitch)``.
+    #[pyo3(signature = (src_buf, config, id=None, src_rect=None))]
     fn transform_with_ptr(
         &self,
         py: Python<'_>,
-        src_buf_ptr: usize,
+        src_buf: &Bound<'_, PyAny>,
         config: &PyTransformConfig,
         id: Option<i64>,
         src_rect: Option<&PyRect>,
-    ) -> PyResult<(usize, usize, u32)> {
+    ) -> PyResult<(PyGstBuffer, usize, u32)> {
+        let src_buf_ptr = extract_buf_ptr(src_buf)?;
         let config = config.to_rust();
         let src_rect_rust = src_rect.map(|r| r.into_rust());
-        py.detach(|| {
-            if src_buf_ptr == 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "src_buf_ptr is null",
-                ));
-            }
+        let (dst_buf, data_ptr, pitch) = py.detach(|| -> PyResult<(gst::Buffer, usize, u32)> {
             let src_buf =
                 unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
-            let (dst_buf, data_ptr, pitch) = self
+            let (buf, ptr, p) = self
                 .inner
                 .transform_with_ptr(&src_buf, &config, id, src_rect_rust.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            let raw_buf = unsafe {
-                use glib::translate::IntoGlibPtr;
-                dst_buf.into_glib_ptr() as usize
-            };
-            Ok((raw_buf, data_ptr as usize, pitch))
-        })
+            Ok((buf, ptr as usize, p))
+        })?;
+        Ok((PyGstBuffer::new(dst_buf), data_ptr, pitch))
     }
 
     /// Push a new NVMM buffer to an AppSrc element.
@@ -738,14 +831,390 @@ impl PyNvBufSurfaceGenerator {
     fn create_surface(
         &self,
         py: Python<'_>,
-        gst_buffer_dest: usize,
+        gst_buffer_dest: &Bound<'_, PyAny>,
         id: Option<i64>,
     ) -> PyResult<()> {
+        let dest_ptr = extract_buf_ptr(gst_buffer_dest)?;
         py.detach(|| unsafe {
             self.inner
-                .create_surface_raw(gst_buffer_dest as *mut gst::ffi::GstBuffer, id)
+                .create_surface_raw(dest_ptr as *mut gst::ffi::GstBuffer, id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
+    }
+}
+
+// ─── BatchedNvBufSurfaceGenerator ────────────────────────────────────────
+
+/// Homogeneous batched NvBufSurface buffer generator.
+///
+/// Produces buffers whose ``surfaceList`` is an array of independently
+/// fillable GPU surfaces, all sharing the same pixel format and
+/// dimensions.
+///
+/// Args:
+///     format (VideoFormat | str): Pixel format (e.g. ``"RGBA"``).
+///     width (int): Slot width in pixels.
+///     height (int): Slot height in pixels.
+///     max_batch_size (int): Maximum number of slots per batch.
+///     pool_size (int): Number of pre-allocated batched buffers (default 2).
+///     fps_num (int): Framerate numerator (default 30).
+///     fps_den (int): Framerate denominator (default 1).
+///     gpu_id (int): GPU device ID (default 0).
+///     mem_type (MemType | None): Memory type (default ``MemType.DEFAULT``).
+///
+/// Raises:
+///     RuntimeError: If pool creation fails.
+#[pyclass(name = "BatchedNvBufSurfaceGenerator", module = "savant_rs.deepstream")]
+pub struct PyBatchedNvBufSurfaceGenerator {
+    inner: BatchedNvBufSurfaceGenerator,
+}
+
+#[pymethods]
+impl PyBatchedNvBufSurfaceGenerator {
+    #[new]
+    #[pyo3(signature = (format, width, height, max_batch_size, pool_size=2, fps_num=30, fps_den=1, gpu_id=0, mem_type=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        format: &Bound<'_, PyAny>,
+        width: u32,
+        height: u32,
+        max_batch_size: u32,
+        pool_size: u32,
+        fps_num: i32,
+        fps_den: i32,
+        gpu_id: u32,
+        mem_type: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let _ = gst::init();
+
+        let format = extract_video_format(format)?;
+        let mem_type = match mem_type {
+            Some(m) => extract_mem_type(m)?,
+            None => NvBufSurfaceMemType::Default,
+        };
+
+        let inner = BatchedNvBufSurfaceGenerator::builder(format, width, height, max_batch_size)
+            .fps(fps_num, fps_den)
+            .gpu_id(gpu_id)
+            .mem_type(mem_type)
+            .pool_size(pool_size)
+            .build()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    fn width(&self) -> u32 {
+        self.inner.width()
+    }
+
+    #[getter]
+    fn height(&self) -> u32 {
+        self.inner.height()
+    }
+
+    #[getter]
+    fn format(&self) -> PyVideoFormat {
+        self.inner.format().into()
+    }
+
+    #[getter]
+    fn gpu_id(&self) -> u32 {
+        self.inner.gpu_id()
+    }
+
+    #[getter]
+    fn max_batch_size(&self) -> u32 {
+        self.inner.max_batch_size()
+    }
+
+    /// Acquire a ``BatchedSurface`` from the pool, ready for slot filling.
+    ///
+    /// Args:
+    ///     config (TransformConfig): Scaling / letterboxing configuration
+    ///         applied to every ``fill_slot`` call on the returned surface.
+    ///
+    /// Returns:
+    ///     BatchedSurface: A fresh batched surface with ``num_filled == 0``.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the pool is exhausted.
+    fn acquire_batched_surface(
+        &self,
+        py: Python<'_>,
+        config: &PyTransformConfig,
+    ) -> PyResult<PyBatchedSurface> {
+        py.detach(|| {
+            let batch = self
+                .inner
+                .acquire_batched_surface(config.to_rust())
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Ok(PyBatchedSurface { inner: Some(batch) })
+        })
+    }
+}
+
+// ─── BatchedSurface ──────────────────────────────────────────────────────
+
+/// Pool-allocated batched NvBufSurface with per-slot fill tracking.
+///
+/// Obtained from
+/// ``BatchedNvBufSurfaceGenerator.acquire_batched_surface``.
+/// Fill individual slots with ``fill_slot``, then call ``finalize``
+/// to obtain the final ``GstBuffer*`` pointer.
+#[pyclass(name = "BatchedSurface", module = "savant_rs.deepstream")]
+pub struct PyBatchedSurface {
+    inner: Option<BatchedSurface>,
+}
+
+#[pymethods]
+impl PyBatchedSurface {
+    #[getter]
+    fn num_filled(&self) -> u32 {
+        self.inner.as_ref().map_or(0, BatchedSurface::num_filled)
+    }
+
+    #[getter]
+    fn max_batch_size(&self) -> u32 {
+        self.inner
+            .as_ref()
+            .map_or(0, BatchedSurface::max_batch_size)
+    }
+
+    /// Return the underlying buffer pointer (for inspection).
+    #[getter]
+    fn buffer_ptr(&self) -> PyResult<usize> {
+        self.inner
+            .as_ref()
+            .map(|b| b.buffer().as_ptr() as usize)
+            .ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("BatchedSurface already finalized")
+            })
+    }
+
+    /// Return ``(data_ptr, pitch)`` for a slot by index.
+    ///
+    /// Args:
+    ///     index (int): Zero-based slot index (``0 .. max_batch_size - 1``).
+    ///
+    /// Returns:
+    ///     tuple[int, int]: ``(data_ptr, pitch)`` — CUDA device pointer and
+    ///     row stride in bytes.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the surface is finalized or *index* is out of
+    ///         bounds.
+    fn slot_ptr(&self, index: u32) -> PyResult<(usize, u32)> {
+        let inner = self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("BatchedSurface already finalized")
+        })?;
+        let (data_ptr, pitch) = inner
+            .slot_ptr(index)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok((data_ptr as usize, pitch))
+    }
+
+    /// Transform a source buffer into the next available batch slot.
+    ///
+    /// The source surface is scaled (with optional letterboxing) into the
+    /// destination slot according to the ``TransformConfig`` that was passed
+    /// to ``acquire_batched_surface``.  The same source buffer may be used
+    /// for several slots with different ``src_rect`` regions.
+    ///
+    /// Args:
+    ///     src_buf_ptr (int): Raw ``GstBuffer*`` pointer of the source NVMM
+    ///         surface (as returned by ``NvBufSurfaceGenerator.acquire_surface``).
+    ///     src_rect (Rect | None): Optional crop rectangle applied to the
+    ///         source before scaling.  When ``None`` the full source frame is
+    ///         used.  Coordinates are ``(top, left, width, height)`` in pixels.
+    ///     id (int | None): Optional frame identifier stored in
+    ///         ``SavantIdMeta``.  When ``None``, the id is inherited from the
+    ///         source buffer's existing ``SavantIdMeta`` (if any).
+    ///
+    /// Raises:
+    ///     ValueError: If ``src_buf_ptr`` is 0 (null).
+    ///     RuntimeError: If the batch is already finalized, the batch is full,
+    ///         or the GPU transform fails.
+    #[pyo3(signature = (src_buf, src_rect=None, id=None))]
+    fn fill_slot(
+        &mut self,
+        py: Python<'_>,
+        src_buf: &Bound<'_, PyAny>,
+        src_rect: Option<&PyRect>,
+        id: Option<i64>,
+    ) -> PyResult<()> {
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("BatchedSurface already finalized")
+        })?;
+        let src_buf_ptr = extract_buf_ptr(src_buf)?;
+        let src_rect_rust = src_rect.map(|r| r.into_rust());
+        py.detach(|| {
+            let ptr = src_buf_ptr as *mut gst::ffi::GstBuffer;
+            let src_buf = unsafe { gst::Buffer::from_glib_none(ptr) };
+            inner
+                .fill_slot(&src_buf, src_rect_rust.as_ref(), id)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Finalize the batch and return the buffer.
+    ///
+    /// Writes ``SavantIdMeta`` with the collected frame IDs and sets
+    /// ``numFilled`` on the underlying ``NvBufSurface``.  After this call
+    /// the ``BatchedSurface`` is consumed — further method calls will
+    /// raise ``RuntimeError``.
+    ///
+    /// Returns:
+    ///     GstBuffer: Guard owning the finalized batched buffer.
+    ///
+    /// Raises:
+    ///     RuntimeError: If already finalized.
+    fn finalize(&mut self) -> PyResult<PyGstBuffer> {
+        let batch = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("BatchedSurface already finalized")
+        })?;
+        let buffer = batch.finalize();
+        Ok(PyGstBuffer::new(buffer))
+    }
+}
+
+// ─── HeterogeneousBatch ──────────────────────────────────────────────────
+
+/// Zero-copy heterogeneous batch (nvstreammux2-style).
+///
+/// Assembles individual NvBufSurface buffers of arbitrary dimensions
+/// and pixel formats into a single batched ``GstBuffer``.
+///
+/// Args:
+///     max_batch_size (int): Maximum number of surfaces in the batch.
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Raises:
+///     RuntimeError: If batch creation fails.
+#[pyclass(name = "HeterogeneousBatch", module = "savant_rs.deepstream")]
+pub struct PyHeterogeneousBatch {
+    inner: Option<HeterogeneousBatch>,
+}
+
+#[pymethods]
+impl PyHeterogeneousBatch {
+    #[new]
+    #[pyo3(signature = (max_batch_size, gpu_id=0))]
+    fn new(max_batch_size: u32, gpu_id: u32) -> PyResult<Self> {
+        let _ = gst::init();
+        let inner = HeterogeneousBatch::new(max_batch_size, gpu_id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok(Self { inner: Some(inner) })
+    }
+
+    #[getter]
+    fn num_filled(&self) -> u32 {
+        self.inner
+            .as_ref()
+            .map_or(0, HeterogeneousBatch::num_filled)
+    }
+
+    #[getter]
+    fn max_batch_size(&self) -> u32 {
+        self.inner
+            .as_ref()
+            .map_or(0, HeterogeneousBatch::max_batch_size)
+    }
+
+    #[getter]
+    fn gpu_id(&self) -> u32 {
+        self.inner.as_ref().map_or(0, HeterogeneousBatch::gpu_id)
+    }
+
+    /// Add a source buffer to the batch (zero-copy).
+    ///
+    /// The source buffer's ``NvBufSurface`` is appended to the batch
+    /// without copying pixel data.
+    ///
+    /// Args:
+    ///     src_buf_ptr (int): Raw ``GstBuffer*`` pointer of the source NVMM
+    ///         surface.
+    ///     id (int | None): Optional frame identifier stored in
+    ///         ``SavantIdMeta``.  When ``None``, the id is inherited from
+    ///         the source buffer's existing ``SavantIdMeta`` (if any).
+    ///
+    /// Raises:
+    ///     ValueError: If ``src_buf_ptr`` is 0 (null).
+    ///     RuntimeError: If the batch is already finalized or full.
+    #[pyo3(signature = (src_buf, id=None))]
+    fn add(&mut self, src_buf: &Bound<'_, PyAny>, id: Option<i64>) -> PyResult<()> {
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("HeterogeneousBatch already finalized")
+        })?;
+        let src_buf_ptr = extract_buf_ptr(src_buf)?;
+        let src_buf =
+            unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
+        inner
+            .add(&src_buf, id)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Return ``(data_ptr, pitch, width, height)`` for a slot by index.
+    ///
+    /// Args:
+    ///     index (int): Zero-based slot index (``0 .. num_filled - 1``).
+    ///
+    /// Returns:
+    ///     tuple[int, int, int, int]: ``(data_ptr, pitch, width, height)``
+    ///     — CUDA device pointer, row stride, and the slot's native
+    ///     dimensions in pixels.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the batch is finalized or *index* is out of
+    ///         bounds.
+    fn slot_ptr(&self, index: u32) -> PyResult<(usize, u32, u32, u32)> {
+        let inner = self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("HeterogeneousBatch already finalized")
+        })?;
+        let (data_ptr, pitch, width, height) = inner
+            .slot_ptr(index)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        Ok((data_ptr as usize, pitch, width, height))
+    }
+
+    /// Finalize the batch and return the buffer.
+    ///
+    /// Writes ``SavantIdMeta`` with the collected frame IDs and
+    /// assembles the heterogeneous ``NvBufSurface``.  After this call
+    /// the ``HeterogeneousBatch`` is consumed — further method calls
+    /// will raise ``RuntimeError``.
+    ///
+    /// Returns:
+    ///     GstBuffer: Guard owning the finalized batch buffer.
+    ///
+    /// Raises:
+    ///     RuntimeError: If already finalized.
+    fn finalize(&mut self) -> PyResult<PyGstBuffer> {
+        let batch = self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("HeterogeneousBatch already finalized")
+        })?;
+        let buffer = batch.finalize();
+        Ok(PyGstBuffer::new(buffer))
+    }
+}
+
+// ─── set_num_filled ──────────────────────────────────────────────────────
+
+/// Set numFilled on a batched NvBufSurface GstBuffer.
+///
+/// Args:
+///     buf (GstBuffer | int): Buffer containing a batched NvBufSurface.
+///     count (int): Number of filled slots.
+#[pyfunction]
+#[pyo3(name = "set_num_filled")]
+pub fn py_set_num_filled(buf: &Bound<'_, PyAny>, count: u32) -> PyResult<()> {
+    let buf_ptr = extract_buf_ptr(buf)?;
+    let _ = gst::init();
+    unsafe {
+        let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
+        set_num_filled(buf_ref, count)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 }
 
@@ -759,6 +1228,26 @@ impl PyNvBufSurfaceGenerator {
 #[pyo3(name = "init_cuda", signature = (gpu_id=0))]
 pub fn py_init_cuda(gpu_id: u32) -> PyResult<()> {
     cuda_init(gpu_id).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Returns GPU memory currently used, in MiB.
+///
+/// - dGPU (x86_64): Uses NVML to query device ``gpu_id``.
+/// - Jetson (aarch64): Reads /proc/meminfo (unified memory).
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     int: GPU memory used in MiB.
+///
+/// Raises:
+///     RuntimeError: If NVML or /proc/meminfo is unavailable.
+#[pyfunction]
+#[pyo3(name = "gpu_mem_used_mib", signature = (gpu_id=0))]
+pub fn py_gpu_mem_used_mib(gpu_id: u32) -> PyResult<u64> {
+    nvidia_gpu_utils::gpu_mem_used_mib(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
 /// Install pad probes on an element to propagate ``SavantIdMeta``.
@@ -787,15 +1276,11 @@ pub fn py_bridge_savant_id_meta(element_ptr: usize) -> PyResult<()> {
 ///     list[tuple[str, int]]: Meta entries, e.g. ``[("frame", 42)]``.
 #[pyfunction]
 #[pyo3(name = "get_savant_id_meta")]
-pub fn py_get_savant_id_meta(buffer_ptr: usize) -> PyResult<Vec<(String, i64)>> {
-    if buffer_ptr == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "buffer_ptr is null",
-        ));
-    }
+pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(String, i64)>> {
+    let buf_ptr = extract_buf_ptr(buf)?;
     let _ = gst::init();
     unsafe {
-        let buf_ref = gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
+        let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
         match buf_ref.meta::<SavantIdMeta>() {
             Some(meta) => {
                 let ids = meta
@@ -819,15 +1304,11 @@ pub fn py_get_savant_id_meta(buffer_ptr: usize) -> PyResult<Vec<(String, i64)>> 
 ///     tuple[int, int, int, int]: ``(data_ptr, pitch, width, height)``
 #[pyfunction]
 #[pyo3(name = "get_nvbufsurface_info")]
-pub fn py_get_nvbufsurface_info(buffer_ptr: usize) -> PyResult<(usize, u32, u32, u32)> {
-    if buffer_ptr == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "buffer_ptr is null",
-        ));
-    }
+pub fn py_get_nvbufsurface_info(buf: &Bound<'_, PyAny>) -> PyResult<(usize, u32, u32, u32)> {
+    let buf_ptr = extract_buf_ptr(buf)?;
     let _ = gst::init();
     unsafe {
-        let buf_ref = gst::BufferRef::from_ptr(buffer_ptr as *const gst::ffi::GstBuffer);
+        let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
         let surf_ptr = transform::extract_nvbufsurface(buf_ref)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let surf = &*surf_ptr;
@@ -860,11 +1341,9 @@ impl PySkiaContext {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (buf_ptr, gpu_id=0))]
-    fn from_nvbuf(buf_ptr: usize, gpu_id: u32) -> PyResult<Self> {
-        if buf_ptr == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
-        }
+    #[pyo3(signature = (buf, gpu_id=0))]
+    fn from_nvbuf(buf: &Bound<'_, PyAny>, gpu_id: u32) -> PyResult<Self> {
+        let buf_ptr = extract_buf_ptr(buf)?;
         let _ = gst::init();
         unsafe {
             let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
@@ -899,15 +1378,13 @@ impl PySkiaContext {
         self.inner.height()
     }
 
-    #[pyo3(signature = (buf_ptr, config=None))]
+    #[pyo3(signature = (buf, config=None))]
     fn render_to_nvbuf(
         &mut self,
-        buf_ptr: usize,
+        buf: &Bound<'_, PyAny>,
         config: Option<&PyTransformConfig>,
     ) -> PyResult<()> {
-        if buf_ptr == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
-        }
+        let buf_ptr = extract_buf_ptr(buf)?;
         let _ = gst::init();
         let rust_config = config.map(|c| c.to_rust());
         unsafe {
@@ -921,17 +1398,15 @@ impl PySkiaContext {
 
 // ─── GstBuffer timestamp helpers ────────────────────────────────────────
 
-/// Set the PTS (presentation timestamp) on a raw ``GstBuffer`` pointer.
+/// Set the PTS (presentation timestamp) on a ``GstBuffer``.
 ///
 /// Args:
-///     buf_ptr (int): Raw pointer to a ``GstBuffer``.
+///     buf (GstBuffer | int): Buffer to modify.
 ///     pts_ns (int): PTS in nanoseconds.
 #[pyfunction]
 #[pyo3(name = "set_buffer_pts")]
-pub fn py_set_buffer_pts(buf_ptr: usize, pts_ns: u64) -> PyResult<()> {
-    if buf_ptr == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
-    }
+pub fn py_set_buffer_pts(buf: &Bound<'_, PyAny>, pts_ns: u64) -> PyResult<()> {
+    let buf_ptr = extract_buf_ptr(buf)?;
     let _ = gst::init();
     unsafe {
         let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
@@ -940,21 +1415,47 @@ pub fn py_set_buffer_pts(buf_ptr: usize, pts_ns: u64) -> PyResult<()> {
     Ok(())
 }
 
-/// Set the duration on a raw ``GstBuffer`` pointer.
+/// Set the duration on a ``GstBuffer``.
 ///
 /// Args:
-///     buf_ptr (int): Raw pointer to a ``GstBuffer``.
+///     buf (GstBuffer | int): Buffer to modify.
 ///     duration_ns (int): Duration in nanoseconds.
 #[pyfunction]
 #[pyo3(name = "set_buffer_duration")]
-pub fn py_set_buffer_duration(buf_ptr: usize, duration_ns: u64) -> PyResult<()> {
+pub fn py_set_buffer_duration(buf: &Bound<'_, PyAny>, duration_ns: u64) -> PyResult<()> {
+    let buf_ptr = extract_buf_ptr(buf)?;
+    let _ = gst::init();
+    unsafe {
+        let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
+        buf_ref.set_duration(gst::ClockTime::from_nseconds(duration_ns));
+    }
+    Ok(())
+}
+
+// ─── release_buffer ─────────────────────────────────────────────────────
+
+/// Release (unref) a raw ``GstBuffer*`` pointer.
+///
+/// Call this to free a buffer obtained from ``acquire_surface``,
+/// ``acquire_surface_with_params``, ``acquire_surface_with_ptr``,
+/// ``transform``, ``transform_with_ptr``, or ``finalize`` when the
+/// buffer is no longer needed and is not being passed into a GStreamer
+/// pipeline.
+///
+/// Args:
+///     buf_ptr (int): Raw ``GstBuffer*`` pointer to release.
+///
+/// Raises:
+///     ValueError: If ``buf_ptr`` is 0 (null).
+#[pyfunction]
+#[pyo3(name = "release_buffer")]
+pub fn py_release_buffer(buf_ptr: usize) -> PyResult<()> {
     if buf_ptr == 0 {
         return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
     }
     let _ = gst::init();
     unsafe {
-        let buf_ref = gst::BufferRef::from_mut_ptr(buf_ptr as *mut gst::ffi::GstBuffer);
-        buf_ref.set_duration(gst::ClockTime::from_nseconds(duration_ns));
+        gst::ffi::gst_mini_object_unref(buf_ptr as *mut gst::ffi::GstMiniObject);
     }
     Ok(())
 }
@@ -970,13 +1471,20 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMemType>()?;
     m.add_class::<PyRect>()?;
     m.add_class::<PyTransformConfig>()?;
+    m.add_class::<PyGstBuffer>()?;
     m.add_class::<PyNvBufSurfaceGenerator>()?;
+    m.add_class::<PyBatchedNvBufSurfaceGenerator>()?;
+    m.add_class::<PyBatchedSurface>()?;
+    m.add_class::<PyHeterogeneousBatch>()?;
+    m.add_function(pyo3::wrap_pyfunction!(py_set_num_filled, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_init_cuda, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_gpu_mem_used_mib, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_bridge_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_nvbufsurface_info, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_set_buffer_pts, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_set_buffer_duration, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_release_buffer, m)?)?;
     m.add_class::<PySkiaContext>()?;
     Ok(())
 }

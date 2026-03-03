@@ -69,9 +69,9 @@ def main() -> None:
     while i < session.limit and session.is_running:
         pts_ns = i * session.frame_duration_ns
         try:
-            buf_ptr = session.acquire_surface(frame_id=i)
+            buf = session.acquire_surface(frame_id=i)
             session.submit(
-                buf_ptr,
+                buf,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

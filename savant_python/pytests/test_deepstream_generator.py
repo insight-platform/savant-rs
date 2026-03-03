@@ -55,16 +55,16 @@ class TestNvmmCaps:
 
 @skip_no_runtime
 class TestAcquireSurface:
-    def test_acquire_returns_nonzero(self):
+    def test_acquire_returns_gstbuffer(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=4)
-        buf_ptr = gen.acquire_surface()
-        assert isinstance(buf_ptr, int)
-        assert buf_ptr != 0
+        buf = gen.acquire_surface()
+        assert isinstance(buf, ds.GstBuffer)
+        assert buf.ptr != 0
 
     def test_acquire_with_id(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=4)
-        buf_ptr = gen.acquire_surface(id=42)
-        assert buf_ptr != 0
+        buf = gen.acquire_surface(id=42)
+        assert buf.ptr != 0
 
 
 @skip_no_runtime
@@ -77,8 +77,9 @@ class TestAcquireSurfaceWithPtr:
 
     def test_all_nonzero(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=4)
-        buf_ptr, data_ptr, pitch = gen.acquire_surface_with_ptr()
-        assert buf_ptr != 0
+        buf, data_ptr, pitch = gen.acquire_surface_with_ptr()
+        assert isinstance(buf, ds.GstBuffer)
+        assert buf.ptr != 0
         assert data_ptr != 0
         assert pitch > 0
 
@@ -128,15 +129,15 @@ class TestGetSavantIdMeta:
 class TestGetNvBufSurfaceInfo:
     def test_returns_tuple(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=2)
-        buf_ptr = gen.acquire_surface()
-        info = ds.get_nvbufsurface_info(buf_ptr)
+        buf = gen.acquire_surface()
+        info = ds.get_nvbufsurface_info(buf)
         assert isinstance(info, tuple)
         assert len(info) == 4
 
     def test_correct_dimensions(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=2)
-        buf_ptr = gen.acquire_surface()
-        data_ptr, pitch, width, height = ds.get_nvbufsurface_info(buf_ptr)
+        buf = gen.acquire_surface()
+        data_ptr, pitch, width, height = ds.get_nvbufsurface_info(buf)
         assert width == 640
         assert height == 480
         assert data_ptr != 0

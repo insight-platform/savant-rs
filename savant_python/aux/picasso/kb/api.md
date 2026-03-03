@@ -24,7 +24,7 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 |---|---|---|
 | `set_source_spec` | `(source_id: str, spec: SourceSpec) → None` | Creates/replaces worker. ⚠ RuntimeError if shut down |
 | `remove_source_spec` | `(source_id: str) → None` | Stops worker. ⚠ RuntimeError if shut down |
-| `send_frame` | `(source_id: str, frame: VideoFrame, buf_ptr: int, src_rect: Optional[Rect]=None) → None` | GPU. Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf_ptr==0 |
+| `send_frame` | `(source_id: str, frame: VideoFrame, buf: Union[GstBuffer, int], src_rect: Optional[Rect]=None) → None` | GPU. `buf` is a `GstBuffer` RAII guard or raw `int` pointer. Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf is null |
 | `send_eos` | `(source_id: str) → None` | Signals end-of-stream. ⚠ RuntimeError if shut down |
 | `shutdown` | `() → None` | Idempotent. Releases GIL during join. |
 

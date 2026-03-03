@@ -5,9 +5,9 @@ Injected into ``savant_rs.deepstream`` at import time so that
 
 Two context managers for different call sites:
 
-- :func:`nvgstbuf_as_gpu_mat` — takes a ``GstBuffer*`` pointer, extracts
-  NvBufSurface metadata internally.  Use outside callbacks (e.g. pre-filling
-  a background before ``send_frame``).
+- :func:`nvgstbuf_as_gpu_mat` — takes a ``GstBuffer`` guard (or raw ``int``
+  pointer), extracts NvBufSurface metadata internally.  Use outside callbacks
+  (e.g. pre-filling a background before ``send_frame``).
 
 - :func:`nvbuf_as_gpu_mat` — takes raw CUDA params ``(data_ptr, pitch,
   width, height)`` directly.  Use inside the ``on_gpumat`` callback which
@@ -17,18 +17,18 @@ Two context managers for different call sites:
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Union
 
 import cv2
 
-from savant_rs.deepstream import NvBufSurfaceGenerator, get_nvbufsurface_info
+from savant_rs.deepstream import GstBuffer, NvBufSurfaceGenerator, get_nvbufsurface_info
 
 _RGBA_CV_TYPE = cv2.CV_8UC4
 
 
 @contextmanager
 def nvgstbuf_as_gpu_mat(
-    buf_ptr: int,
+    buf: Union[GstBuffer, int],
     stream: cv2.cuda.Stream | None = None,
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
@@ -39,13 +39,13 @@ def nvgstbuf_as_gpu_mat(
     stream is synchronised (``waitForCompletion``).
 
     Args:
-        buf_ptr: Raw ``GstBuffer*`` pointer address.
+        buf: ``GstBuffer`` RAII guard or raw ``GstBuffer*`` pointer as ``int``.
 
     Yields:
         ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4`` with the
         buffer's native width, height and pitch.
     """
-    data_ptr, pitch, width, height = get_nvbufsurface_info(buf_ptr)
+    data_ptr, pitch, width, height = get_nvbufsurface_info(buf)
     gpumat = cv2.cuda.createGpuMatFromCudaMemory(
         int(height),
         int(width),
@@ -104,7 +104,7 @@ def from_gpumat(
     *,
     interpolation: int = cv2.INTER_LINEAR,
     id: int | None = None,
-) -> int:
+) -> GstBuffer:
     """Acquire a buffer from the pool and fill it from a ``GpuMat``.
 
     If the source ``GpuMat`` dimensions differ from the generator's
@@ -123,9 +123,9 @@ def from_gpumat(
         id: Optional frame identifier for ``SavantIdMeta``.
 
     Returns:
-        Raw ``GstBuffer*`` pointer address of the newly acquired buffer.
+        ``GstBuffer`` RAII guard owning the newly acquired buffer.
     """
-    buf_ptr, data_ptr, pitch = gen.acquire_surface_with_ptr(id=id)
+    buf, data_ptr, pitch = gen.acquire_surface_with_ptr(id=id)
     dst = cv2.cuda.createGpuMatFromCudaMemory(
         gen.height,
         gen.width,
@@ -142,4 +142,4 @@ def from_gpumat(
     else:
         cv2.cuda.resize(gpumat, (dst_w, dst_h), dst=dst, interpolation=interpolation)
 
-    return buf_ptr
+    return buf

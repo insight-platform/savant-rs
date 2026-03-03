@@ -2,7 +2,8 @@ use super::callbacks::PyCallbacks;
 use super::error::to_py_err;
 use super::spec::general::PyGeneralSpec;
 use super::spec::source::PySourceSpec;
-use crate::deepstream::PyRect;
+use crate::deepstream::{PyGstBuffer, PyRect};
+use glib::translate::from_glib_none;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
 
@@ -59,37 +60,48 @@ impl PyPicassoEngine {
 
     /// Submit a video frame for processing.
     ///
-    /// ``buf_ptr`` is the raw pointer to the ``GstBuffer`` (obtain via
-    /// ``hash(buffer)`` in PyGObject).
-    #[pyo3(signature = (source_id, frame, buf_ptr, src_rect=None))]
+    /// Args:
+    ///     source_id (str): Source identifier.
+    ///     frame (VideoFrame): Frame metadata.
+    ///     buf (GstBuffer | int): Buffer — either a ``GstBuffer`` RAII guard
+    ///         or a raw ``GstBuffer*`` pointer as ``int``.
+    ///     src_rect (Rect | None): Optional per-frame source crop.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the engine is shut down.
+    ///     ValueError: If ``buf`` is null.
+    #[pyo3(signature = (source_id, frame, buf, src_rect=None))]
     fn send_frame(
         &self,
         py: Python<'_>,
         source_id: &str,
         frame: &crate::primitives::frame::VideoFrame,
-        buf_ptr: usize,
+        buf: &Bound<'_, PyAny>,
         src_rect: Option<&PyRect>,
     ) -> PyResult<()> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
-        if buf_ptr == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
-        }
+
+        let is_guard = buf.extract::<PyRef<'_, PyGstBuffer>>().is_ok();
+        let buf_ptr = crate::deepstream::extract_buf_ptr(buf)?;
+
         let frame_proxy = frame.0.clone();
         let src_rect_rust = src_rect.map(|r| r.into_rust());
         py.detach(|| {
             let _ = gstreamer::init();
-            // `from_glib_full`: the caller owns the pointer (obtained via
-            // `into_glib_ptr` in acquire_surface), so we take ownership
-            // without incrementing the refcount.  This ensures the buffer
-            // is returned to the pool when the worker drops it.
-            let buf = unsafe {
-                gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
+            let gst_buf = unsafe {
+                if is_guard {
+                    // GstBuffer guard keeps its own ref; borrow by adding a ref.
+                    from_glib_none(buf_ptr as *const gstreamer::ffi::GstBuffer)
+                } else {
+                    // Raw int: caller transfers ownership (legacy API).
+                    gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
+                }
             };
             engine
-                .send_frame(source_id, frame_proxy, buf, src_rect_rust)
+                .send_frame(source_id, frame_proxy, gst_buf, src_rect_rust)
                 .map_err(to_py_err)
         })
     }

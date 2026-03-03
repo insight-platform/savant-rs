@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Union, final
 
-from savant_rs.deepstream import MemType, Rect, TransformConfig, VideoFormat
+from savant_rs.deepstream import GstBuffer, MemType, Rect, TransformConfig, VideoFormat
 from savant_rs.draw_spec import ObjectDraw
 from savant_rs.gstreamer import Codec
 from savant_rs.primitives import EndOfStream, VideoFrame
@@ -645,7 +645,7 @@ class PicassoEngine:
         self,
         source_id: str,
         frame: VideoFrame,
-        buf_ptr: int,
+        buf: Union[GstBuffer, int],
         src_rect: Optional[Rect] = None,
     ) -> None:
         """Submit a video frame for processing.
@@ -653,7 +653,7 @@ class PicassoEngine:
         Args:
             source_id: Source identifier.
             frame: The ``VideoFrame`` proxy.
-            buf_ptr: Raw pointer to the ``GstBuffer``.
+            buf: ``GstBuffer`` RAII guard or raw ``GstBuffer*`` pointer as ``int``.
             src_rect: Optional source crop rectangle (top, left, width, height).
         """
         ...

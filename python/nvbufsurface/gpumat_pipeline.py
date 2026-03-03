@@ -179,7 +179,7 @@ def main() -> None:
     i = 0
     while i < session.limit and session.is_running:
         try:
-            buf_ptr = session.acquire_surface(frame_id=i)
+            buf = session.acquire_surface(frame_id=i)
         except Exception as e:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
@@ -187,7 +187,7 @@ def main() -> None:
         pts_ns = i * session.frame_duration_ns
         try:
             session.submit(
-                buf_ptr,
+                buf,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

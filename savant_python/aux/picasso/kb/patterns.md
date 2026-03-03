@@ -66,8 +66,8 @@ from savant_rs.picasso import (
 engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
 # 2. Set source spec(s)
 engine.set_source_spec("src-0", spec)
-# 3. Send frames (GPU only)
-engine.send_frame("src-0", frame, buf_ptr)
+# 3. Send frames (GPU only) — buf is a GstBuffer RAII guard
+engine.send_frame("src-0", frame, buf)
 # 4. Send EOS when done
 engine.send_eos("src-0")
 # 5. Wait for async processing
@@ -117,10 +117,11 @@ FPS = 30
 FRAME_DURATION_NS = 1_000_000_000 // FPS
 
 gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
-buf_ptr = gen.acquire_surface(id=frame_idx)
+buf = gen.acquire_surface(id=frame_idx)  # returns GstBuffer (RAII guard, auto-unrefs)
 # pts/duration are taken from the VideoFrame; set them before send_frame:
 frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
+# buf.ptr gives raw int pointer; buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
 ```
 
 ### Build H.264 Encoder Config
@@ -216,11 +217,11 @@ class TestEncode:
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
             add_objects(frame)
-            buf_ptr = gen.acquire_surface_with_params(
+            buf = gen.acquire_surface_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf_ptr)
+            engine.send_frame("src-0", frame, buf)
 
         engine.send_eos("src-0")
         time.sleep(3)
@@ -254,11 +255,11 @@ class TestBypass:
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf_ptr = gen.acquire_surface_with_params(
+            buf = gen.acquire_surface_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf_ptr)
+            engine.send_frame("src-0", frame, buf)
 
         engine.send_eos("src-0")
         time.sleep(3)
@@ -283,11 +284,11 @@ class TestDrop:
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf_ptr = gen.acquire_surface_with_params(
+            buf = gen.acquire_surface_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf_ptr)
+            engine.send_frame("src-0", frame, buf)
 
         engine.send_eos("src-0")
         time.sleep(1)
@@ -336,8 +337,8 @@ locking is needed for the animation state within a single source.
 
 ⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height)`.
 Use `nvbuf_as_gpu_mat(data_ptr, pitch, width, height)` inside the callback.
-Use `nvgstbuf_as_gpu_mat(buf_ptr)` outside callbacks (e.g. pre-filling
-backgrounds before `send_frame`) where you have a `GstBuffer*` pointer.
+Use `nvgstbuf_as_gpu_mat(buf)` outside callbacks (e.g. pre-filling
+backgrounds before `send_frame`) where you have a `GstBuffer` guard (or raw `int` pointer).
 
 ---
 
@@ -476,7 +477,7 @@ a layered scene.  The composition order is:
 
 ```python
 import cv2
-from savant_rs.deepstream import nvgstbuf_as_gpu_mat
+from savant_rs.deepstream import GstBuffer, nvgstbuf_as_gpu_mat
 from savant_rs.draw_spec import (
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw,
     LabelPosition, ObjectDraw, PaddingDraw,
@@ -505,8 +506,8 @@ def build_draw_spec() -> ObjectDrawSpec:
     return spec
 
 # 2. Per-frame: pre-fill bg + add objects + send
-buf_ptr = gen.acquire_surface(id=i)
-with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
+buf = gen.acquire_surface(id=i)  # GstBuffer RAII guard
+with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 
 frame = VideoFrame(source_id="src-0", framerate="30/1",
@@ -520,7 +521,7 @@ obj = VideoObject(id=0, namespace="detector", label="person",
                   attributes=[], confidence=0.95,
                   track_id=None, track_box=None)
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-engine.send_frame("src-0", frame, buf_ptr)
+engine.send_frame("src-0", frame, buf)
 
 # 3. SourceSpec wiring
 spec = SourceSpec(

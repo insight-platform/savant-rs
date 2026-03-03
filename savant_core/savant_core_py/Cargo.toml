@@ -34,6 +34,7 @@ gstreamer = { workspace = true, optional = true }
 glib = { workspace = true, optional = true }
 deepstream_nvbufsurface = { workspace = true, optional = true }
 deepstream_encoders = { path = "../../savant_deepstream/deepstream_encoders", optional = true }
+nvidia_gpu_utils = { workspace = true, optional = true }
 picasso = { path = "../../savant_deepstream/picasso", optional = true }
 skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"], optional = true }
 serde = { workspace = true }
@@ -45,7 +46,7 @@ uuid = { workspace = true }
 [features]
 default = []
 gst = ["savant_gstreamer", "gstreamer"]
-deepstream = ["gst", "glib", "deepstream_nvbufsurface", "deepstream_nvbufsurface/skia", "deepstream_encoders", "picasso", "skia-safe"]
+deepstream = ["gst", "glib", "deepstream_nvbufsurface", "deepstream_nvbufsurface/skia", "deepstream_encoders", "nvidia_gpu_utils", "picasso", "skia-safe"]
 
 [build-dependencies]
 pyo3-build-config = { workspace = true }

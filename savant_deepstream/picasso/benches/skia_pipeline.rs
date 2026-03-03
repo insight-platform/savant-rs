@@ -708,10 +708,5 @@ fn rss_kb() -> u64 {
 }
 
 fn gpu_mem_mib() -> u64 {
-    std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
-        .unwrap_or(0)
+    nvidia_gpu_utils::gpu_mem_used_mib(0).unwrap_or(0)
 }
