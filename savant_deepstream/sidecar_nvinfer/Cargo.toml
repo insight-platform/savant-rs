@@ -1,0 +1,35 @@
+[package]
+name = "sidecar_nvinfer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "GStreamer pipeline sidecar for DeepStream nvinfer: appsrc -> queue -> nvinfer -> appsink with callback-driven batch inference"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
+deepstream-sys = { path = "../deepstream-sys" }
+deepstream = { path = "../deepstream" }
+deepstream_nvbufsurface = { path = "../nvbufsurface" }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+cudarc = { version = "0.17", features = ["cuda-12020"] }
+criterion = { workspace = true }
+env_logger = "0.11"
+nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
+serial_test = { workspace = true }
+
+[[bench]]
+name = "sidecar_infer"
+path = "benchmarks/sidecar_infer.rs"
+harness = false

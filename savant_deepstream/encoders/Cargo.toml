@@ -13,7 +13,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface" }
+deepstream_nvbufsurface = { path = "../nvbufsurface" }
 savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }

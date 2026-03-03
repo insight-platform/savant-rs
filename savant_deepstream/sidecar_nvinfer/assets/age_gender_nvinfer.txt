@@ -1,0 +1,14 @@
+[property]
+gpu-id=0
+gie-unique-id=2
+net-scale-factor=0.007843137254902
+offsets=127.5;127.5;127.5
+onnx-file=age_gender_mobilenet_v2_dynBatch.onnx
+model-engine-file=age_gender_mobilenet_v2_dynBatch.onnx_b16_gpu0_fp16.engine
+batch-size=16
+network-mode=2
+process-mode=1
+network-type=100
+output-tensor-meta=1
+infer-dims=3;112;112
+model-color-format=0

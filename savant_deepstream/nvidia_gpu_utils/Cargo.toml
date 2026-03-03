@@ -22,6 +22,6 @@ thiserror = { workspace = true }
 nvml-wrapper = "0.12"
 
 [dev-dependencies]
-deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface" }
+deepstream_nvbufsurface = { path = "../nvbufsurface" }
 gstreamer = { workspace = true }
 serial_test = { workspace = true }
