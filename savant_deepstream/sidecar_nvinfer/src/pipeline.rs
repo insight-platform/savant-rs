@@ -158,9 +158,13 @@ impl SidecarNvInfer {
                     gst::FlowError::Error
                 })?;
 
-                // If infer_sync is waiting for this batch_id, deliver there; otherwise invoke user callback.
-                let mut sync_tx_guard = delivery_clone.sync_tx.lock().unwrap();
-                if let Some(tx) = sync_tx_guard.remove(&batch_id) {
+                // If infer_sync is waiting for this batch_id, deliver there;
+                // otherwise invoke the user callback.  The sync_tx lock is
+                // released before the callback runs so that concurrent
+                // infer_sync callers (or a callback that itself calls
+                // infer_sync) never deadlock on the non-reentrant Mutex.
+                let sync_sender = delivery_clone.sync_tx.lock().unwrap().remove(&batch_id);
+                if let Some(tx) = sync_sender {
                     let _ = tx.send(output);
                 } else if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
                     cb(output);
@@ -217,7 +221,10 @@ impl SidecarNvInfer {
     pub fn infer_sync(&self, batch: gst::Buffer, batch_id: u64) -> Result<BatchInferenceOutput> {
         let (tx, rx) = mpsc::channel();
         self.delivery.sync_tx.lock().unwrap().insert(batch_id, tx);
-        self.submit(batch, batch_id)?;
+        if let Err(e) = self.submit(batch, batch_id) {
+            self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
+            return Err(e);
+        }
         match rx.recv_timeout(std::time::Duration::from_secs(30)) {
             Ok(output) => Ok(output),
             Err(e) => {

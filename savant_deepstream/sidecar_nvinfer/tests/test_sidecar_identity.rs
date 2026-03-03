@@ -248,9 +248,7 @@ fn test_element_ids_preserved() {
     }
     let buffer = batch.finalize();
 
-    let output = sidecar
-        .infer_sync(buffer, 99)
-        .expect("infer_sync");
+    let output = sidecar.infer_sync(buffer, 99).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 99);
     assert_eq!(output.num_elements(), ids_to_send.len());

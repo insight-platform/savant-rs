@@ -1,4 +1,6 @@
-//! Benchmarks for SidecarNvInfer with identity, age_gender, and yolo11m-seg models.
+//! Benchmarks for SidecarNvInfer with identity, age_gender, and yolo11m-seg models,
+//! using both **uniform** (all frames same resolution) and **non-uniform**
+//! (heterogeneous frame resolutions) batched surfaces.
 //!
 //! Each (model, batch_size) pair gets its own nvinfer config so TensorRT builds
 //! a dedicated engine optimised for that exact batch size.  Engine files are
@@ -6,17 +8,27 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use deepstream_nvbufsurface::{
-    BatchedNvBufSurfaceGenerator, NvBufSurfaceGenerator, NvBufSurfaceMemType, TransformConfig,
-    VideoFormat,
+    BatchedNvBufSurfaceGenerator, HeterogeneousBatch, NvBufSurfaceGenerator, NvBufSurfaceMemType,
+    TransformConfig, VideoFormat,
 };
 use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
+// ---------------------------------------------------------------------------
+// Initialisation
+// ---------------------------------------------------------------------------
+
 static INIT: Once = Once::new();
 
 fn init() {
     INIT.call_once(|| {
+        if std::env::var_os("GST_DEBUG_FILE").is_none() {
+            std::env::set_var("GST_DEBUG_FILE", "/dev/null");
+        }
+        if std::env::var_os("NVDSINFERSERVER_LOG_LEVEL").is_none() {
+            std::env::set_var("NVDSINFERSERVER_LOG_LEVEL", "0");
+        }
         gstreamer::init().unwrap();
         deepstream_nvbufsurface::cuda_init(0).expect("CUDA init — is a GPU available?");
     });
@@ -26,17 +38,17 @@ fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
 }
 
+// ---------------------------------------------------------------------------
+// Config generation
+// ---------------------------------------------------------------------------
+
 /// Model descriptor parsed from a template config.
 struct ModelSpec {
-    /// Absolute path to ONNX file.
     onnx_path: PathBuf,
-    /// Template config path (for identifying the model).
     template: PathBuf,
-    /// Input dimensions: format, width, height.
     format: VideoFormat,
     width: u32,
     height: u32,
-    /// Human-readable group name for Criterion.
     group_name: String,
 }
 
@@ -68,9 +80,7 @@ fn generate_config(template: &Path, batch_size: u32) -> PathBuf {
                 let abs = dir.join(val);
                 lines.push(format!("onnx-file={}", abs.display()));
             }
-            "model-engine-file" => {
-                // will be emitted after we know the onnx filename; skip for now
-            }
+            "model-engine-file" => {}
             "process-mode" => {
                 lines.push("process-mode=1".to_string());
             }
@@ -97,12 +107,50 @@ fn generate_config(template: &Path, batch_size: u32) -> PathBuf {
     tmp
 }
 
-/// Extract the value after the first `=` (with optional surrounding spaces).
 fn kv_value(line: &str) -> &str {
     line.split_once('=').map(|x| x.1).unwrap_or("").trim()
 }
 
-fn make_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> gstreamer::Buffer {
+// ---------------------------------------------------------------------------
+// Batch modes
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+enum BatchMode {
+    Uniform,
+    NonUniform,
+}
+
+impl std::fmt::Display for BatchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BatchMode::Uniform => f.write_str("uniform"),
+            BatchMode::NonUniform => f.write_str("nonuniform"),
+        }
+    }
+}
+
+const NON_UNIFORM_SCALES: [f32; 8] = [1.0, 0.75, 1.5, 0.5, 2.0, 1.25, 0.875, 1.75];
+
+fn make_batch(
+    mode: BatchMode,
+    format: VideoFormat,
+    base_w: u32,
+    base_h: u32,
+    batch_size: u32,
+) -> gstreamer::Buffer {
+    match mode {
+        BatchMode::Uniform => make_uniform_batch(format, base_w, base_h, batch_size),
+        BatchMode::NonUniform => make_nonuniform_batch(format, base_w, base_h, batch_size),
+    }
+}
+
+fn make_uniform_batch(
+    format: VideoFormat,
+    w: u32,
+    h: u32,
+    batch_size: u32,
+) -> gstreamer::Buffer {
     init();
 
     let min_bufs = batch_size.max(4);
@@ -136,7 +184,43 @@ fn make_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> gstreamer
     batch.finalize()
 }
 
-fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32]) {
+fn make_nonuniform_batch(
+    format: VideoFormat,
+    base_w: u32,
+    base_h: u32,
+    batch_size: u32,
+) -> gstreamer::Buffer {
+    init();
+
+    let mut src_bufs = Vec::with_capacity(batch_size as usize);
+    for i in 0..batch_size as usize {
+        let s = NON_UNIFORM_SCALES[i % NON_UNIFORM_SCALES.len()];
+        let w = ((base_w as f32 * s) as u32).max(4);
+        let h = ((base_h as f32 * s) as u32).max(4);
+
+        let gen = NvBufSurfaceGenerator::builder(format, w, h)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator for nonuniform slot");
+        src_bufs.push(gen.acquire_surface(Some(i as i64)).unwrap());
+    }
+
+    let mut batch = HeterogeneousBatch::new(batch_size, 0).unwrap();
+    for (i, buf) in src_bufs.iter().enumerate() {
+        batch.add(buf, Some(i as i64)).unwrap();
+    }
+
+    batch.finalize()
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark driver
+// ---------------------------------------------------------------------------
+
+fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: BatchMode) {
     if !spec.onnx_path.exists() {
         eprintln!(
             "Skipping {} benchmarks: ONNX not found at {:?}",
@@ -145,7 +229,8 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32]) {
         return;
     }
 
-    let mut group = c.benchmark_group(&spec.group_name);
+    let group_name = format!("{}/{}", spec.group_name, mode);
+    let mut group = c.benchmark_group(&group_name);
 
     for &bs in batch_sizes {
         let cfg_path = generate_config(&spec.template, bs);
@@ -153,13 +238,12 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32]) {
         let sidecar =
             SidecarNvInfer::new(config, Box::new(|_| {})).expect("create sidecar for bench");
 
-        // warm-up: one inference to ensure engine is loaded
-        let warm = make_batch(spec.format, spec.width, spec.height, bs);
+        let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
         let _ = sidecar.infer_sync(warm, 0);
 
         group.bench_with_input(BenchmarkId::new("batch", bs), &bs, |b, &bs| {
             b.iter(|| {
-                let batch = make_batch(spec.format, spec.width, spec.height, bs);
+                let batch = make_batch(mode, spec.format, spec.width, spec.height, bs);
                 let out = sidecar.infer_sync(batch, 0).expect("infer_sync");
                 std::hint::black_box(out);
             })
@@ -169,40 +253,49 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32]) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
 fn bench_sync_batch_sizes(c: &mut Criterion) {
     init();
     let dir = assets_dir();
 
-    let identity = ModelSpec {
-        onnx_path: dir.join("identity.onnx"),
-        template: dir.join("identity_nvinfer.txt"),
-        format: VideoFormat::RGBA,
-        width: 12,
-        height: 12,
-        group_name: "identity".into(),
-    };
+    let models = [
+        ModelSpec {
+            onnx_path: dir.join("identity.onnx"),
+            template: dir.join("identity_nvinfer.txt"),
+            format: VideoFormat::RGBA,
+            width: 12,
+            height: 12,
+            group_name: "identity".into(),
+        },
+        ModelSpec {
+            onnx_path: dir.join("age_gender_mobilenet_v2_dynBatch.onnx"),
+            template: dir.join("age_gender_nvinfer.txt"),
+            format: VideoFormat::RGBA,
+            width: 112,
+            height: 112,
+            group_name: "age_gender".into(),
+        },
+        ModelSpec {
+            onnx_path: dir.join("yolo11m-seg.onnx"),
+            template: dir.join("yolo11m-seg_config_savant.txt"),
+            format: VideoFormat::RGBA,
+            width: 640,
+            height: 640,
+            group_name: "yolo11m_seg".into(),
+        },
+    ];
 
-    let age_gender = ModelSpec {
-        onnx_path: dir.join("age_gender_mobilenet_v2_dynBatch.onnx"),
-        template: dir.join("age_gender_nvinfer.txt"),
-        format: VideoFormat::RGBA,
-        width: 112,
-        height: 112,
-        group_name: "age_gender".into(),
-    };
+    let batch_sizes: &[&[u32]] = &[&[1, 4, 16], &[1, 4, 16], &[1, 4, 8]];
+    let modes = [BatchMode::Uniform, BatchMode::NonUniform];
 
-    let yolo = ModelSpec {
-        onnx_path: dir.join("yolo11m-seg.onnx"),
-        template: dir.join("yolo11m-seg_config_savant.txt"),
-        format: VideoFormat::RGBA,
-        width: 640,
-        height: 640,
-        group_name: "yolo11m_seg".into(),
-    };
-
-    bench_model(c, &identity, &[1, 4, 16]);
-    bench_model(c, &age_gender, &[1, 4, 16]);
-    bench_model(c, &yolo, &[1, 4, 8]);
+    for mode in modes {
+        for (spec, sizes) in models.iter().zip(batch_sizes.iter()) {
+            bench_model(c, spec, sizes, mode);
+        }
+    }
 }
 
 criterion_group!(benches, bench_sync_batch_sizes);
