@@ -217,12 +217,49 @@ fn test_element_ids_preserved() {
         None => return,
     };
 
-    let batch = make_identity_batch(2);
-    let output = sidecar.infer_sync(batch, 1).expect("infer_sync");
+    // Use non-trivial IDs with gaps and negative values to prove the actual
+    // user-supplied IDs propagate, not just frame indices.
+    let ids_to_send: Vec<i64> = vec![42, -7, 1000, 0];
 
-    assert_eq!(output.num_elements(), 2);
-    let ids: Vec<Option<i64>> = output.elements().iter().map(|e| e.id).collect();
-    assert_eq!(ids, vec![Some(0), Some(1)]);
+    let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(4)
+        .max_buffers(4)
+        .build()
+        .expect("src generator");
+
+    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+        VideoFormat::RGBA,
+        12,
+        12,
+        16,
+        2,
+        0,
+        NvBufSurfaceMemType::Default,
+    )
+    .expect("batched generator");
+
+    let config = TransformConfig::default();
+    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    for &id in &ids_to_send {
+        let src = src_gen.acquire_surface(Some(id)).unwrap();
+        batch.fill_slot(&src, None, Some(id)).unwrap();
+    }
+    let buffer = batch.finalize();
+
+    let output = sidecar
+        .infer_sync(buffer, 99)
+        .expect("infer_sync");
+
+    assert_eq!(output.batch_id(), 99);
+    assert_eq!(output.num_elements(), ids_to_send.len());
+    let received_ids: Vec<Option<i64>> = output.elements().iter().map(|e| e.id).collect();
+    assert_eq!(
+        received_ids,
+        ids_to_send.iter().map(|&id| Some(id)).collect::<Vec<_>>(),
+        "IDs must propagate end-to-end through nvinfer"
+    );
 }
 
 #[test]
