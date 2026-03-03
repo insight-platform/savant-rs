@@ -12,6 +12,7 @@ use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
 use log::debug;
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
@@ -22,8 +23,8 @@ pub type InferCallback = Box<dyn FnMut(BatchInferenceOutput) + Send>;
 struct SampleDelivery {
     /// User callback for async mode.
     callback: Mutex<Option<InferCallback>>,
-    /// When Some, infer_sync is waiting; callback sends output here instead of invoking user cb.
-    sync_tx: Mutex<Option<mpsc::Sender<BatchInferenceOutput>>>,
+    /// Per-batch_id senders for infer_sync callers waiting on specific batches.
+    sync_tx: Mutex<HashMap<u64, mpsc::Sender<BatchInferenceOutput>>>,
 }
 
 /// The sidecar inference engine.
@@ -137,7 +138,7 @@ impl SidecarNvInfer {
 
         let delivery = Arc::new(SampleDelivery {
             callback: Mutex::new(Some(callback)),
-            sync_tx: Mutex::new(None),
+            sync_tx: Mutex::new(HashMap::new()),
         });
         let delivery_clone = delivery.clone();
         let callbacks = AppSinkCallbacks::builder()
@@ -157,9 +158,9 @@ impl SidecarNvInfer {
                     gst::FlowError::Error
                 })?;
 
-                // If infer_sync is waiting, deliver there; otherwise invoke user callback.
+                // If infer_sync is waiting for this batch_id, deliver there; otherwise invoke user callback.
                 let mut sync_tx_guard = delivery_clone.sync_tx.lock().unwrap();
-                if let Some(tx) = sync_tx_guard.take() {
+                if let Some(tx) = sync_tx_guard.remove(&batch_id) {
                     let _ = tx.send(output);
                 } else if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
                     cb(output);
@@ -215,12 +216,12 @@ impl SidecarNvInfer {
     /// Synchronous inference (ignores callback, returns output directly).
     pub fn infer_sync(&self, batch: gst::Buffer, batch_id: u64) -> Result<BatchInferenceOutput> {
         let (tx, rx) = mpsc::channel();
-        *self.delivery.sync_tx.lock().unwrap() = Some(tx);
+        self.delivery.sync_tx.lock().unwrap().insert(batch_id, tx);
         self.submit(batch, batch_id)?;
         match rx.recv_timeout(std::time::Duration::from_secs(30)) {
             Ok(output) => Ok(output),
             Err(e) => {
-                *self.delivery.sync_tx.lock().unwrap() = None;
+                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
                 Err(SidecarError::PipelineError(format!(
                     "infer_sync timeout: {:?}",
                     e
