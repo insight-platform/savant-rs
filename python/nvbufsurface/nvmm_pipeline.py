@@ -69,7 +69,7 @@ def main() -> None:
     i = 0
     while i < session.limit and session.is_running:
         mat = make_gpu_mat(args.width, args.height)
-        # mat.setTo((20, 20, 28, 255))
+        mat.setTo((i % 255, i % 255, i % 255, 255))
         cuda_frame = GpuMatCudaArray(mat)
 
         pts_ns = i * session.frame_duration_ns
