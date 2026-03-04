@@ -423,7 +423,7 @@ class PicassoSession:
         return frame
 
     def send_frame(
-        self, frame: VideoFrame, buf: SurfaceView | GstBuffer | int | Any
+        self, frame: VideoFrame, buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any
     ) -> None:
         """Submit a pre-built :class:`VideoFrame` to the Picasso engine.
 
