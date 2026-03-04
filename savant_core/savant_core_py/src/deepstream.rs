@@ -671,6 +671,30 @@ pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
     Ok(raw)
 }
 
+/// Extract a `gst::Buffer` from a Python buffer argument with correct
+/// refcount handling.
+///
+/// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner buffer pointer
+/// is borrowed (`from_glib_none` — refcount incremented), because the
+/// Python object retains ownership. For raw `usize` pointers the buffer is
+/// assumed to be transferred (`from_glib_full` — no extra refcount).
+///
+/// GStreamer must already be initialised before calling this function.
+pub(crate) fn extract_gst_buffer(buf: &Bound<'_, PyAny>) -> PyResult<gst::Buffer> {
+    let is_guard = buf
+        .extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>()
+        .is_ok();
+    let buf_ptr = extract_buf_ptr(buf)?;
+    let gst_buf = unsafe {
+        if is_guard {
+            from_glib_none(buf_ptr as *const gst::ffi::GstBuffer)
+        } else {
+            gst::Buffer::from_glib_full(buf_ptr as *mut gst::ffi::GstBuffer)
+        }
+    };
+    Ok(gst_buf)
+}
+
 // ─── SurfaceView ────────────────────────────────────────────────────────
 
 /// Zero-copy view of a single GPU surface.
@@ -812,20 +836,8 @@ impl PySurfaceView {
     #[staticmethod]
     #[pyo3(signature = (buf, slot_index=0))]
     fn from_buffer(py: Python<'_>, buf: &Bound<'_, PyAny>, slot_index: u32) -> PyResult<Self> {
-        let is_guard = buf
-            .extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>()
-            .is_ok();
-        let buf_ptr = extract_buf_ptr(buf)?;
-
+        let gst_buf = extract_gst_buffer(buf)?;
         py.detach(|| {
-            let _ = gst::init();
-            let gst_buf = unsafe {
-                if is_guard {
-                    from_glib_none(buf_ptr as *const gst::ffi::GstBuffer)
-                } else {
-                    gst::Buffer::from_glib_full(buf_ptr as *mut gst::ffi::GstBuffer)
-                }
-            };
             let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&gst_buf, slot_index)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok(PySurfaceView::new(view))
