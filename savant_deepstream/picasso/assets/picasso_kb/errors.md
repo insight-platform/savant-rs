@@ -36,7 +36,7 @@ pub enum PicassoError {
 | `Shutdown` | `send_frame`, `send_eos`, `set_source_spec` after `engine.shutdown()` |
 | `ChannelDisconnected` | Worker thread died or channel dropped; `send_frame`, `send_eos`, `set_source_spec` (UpdateSpec path) |
 | `Encoder` | `NvEncoder::submit_frame` or `NvEncoder::finish` failure (includes `PtsReordered` on non-monotonic PTS) |
-| `Transform` | `NvBufSurfaceGenerator::transform` failure |
+| `Transform` | `DsNvSurfaceBufferGenerator::transform` failure |
 | `Renderer` | `SkiaRenderer::from_nvbuf` / `load_from_nvbuf` / `render_to_nvbuf` failure |
 | `InvalidTransformationChain` | Frame doesn't have exactly `[InitialSize(w,h)]` matching its dimensions; also ScaleSpec errors |
 | `GpuMismatch` | Incoming buffer's `NvBufSurface.gpuId` differs from `EncoderConfig.gpu_id`; checked at top of `process_encode`. Fail-open: skipped if GPU ID cannot be extracted (e.g., non-NVMM buffers). |

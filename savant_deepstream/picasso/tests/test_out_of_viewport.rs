@@ -104,7 +104,7 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     frame
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
+fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -205,7 +205,7 @@ fn out_of_viewport_objects_do_not_crash() {
     };
     engine.set_source_spec("oob", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -284,7 +284,7 @@ fn all_oob_objects_on_single_frame() {
     };
     engine.set_source_spec("oob-all", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

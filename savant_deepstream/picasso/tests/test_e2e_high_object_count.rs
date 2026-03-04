@@ -64,7 +64,7 @@ fn e2e_high_object_count() {
     };
     engine.set_source_spec("many", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

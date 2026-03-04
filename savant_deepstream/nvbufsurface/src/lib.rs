@@ -1,23 +1,23 @@
 //! Safe Rust API for NVIDIA DeepStream NvBufSurface buffer generation.
 //!
-//! This crate provides a Rust implementation of the NvBufSurfaceGenerator,
+//! This crate provides a Rust implementation of the DsNvSurfaceBufferGenerator,
 //! which creates GStreamer buffers with NvBufSurface memory allocated via
 //! DeepStream's buffer pool mechanism.
 //!
 //! # Overview
 //!
-//! The [`NvBufSurfaceGenerator`] creates a DeepStream buffer pool configured
+//! The [`DsNvSurfaceBufferGenerator`] creates a DeepStream buffer pool configured
 //! with the specified caps, GPU ID, and memory type. It can then allocate
 //! NvBufSurface memory and attach it to GStreamer buffers.
 //!
 //! # Example (Rust)
 //!
 //! ```rust,no_run
-//! use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+//! use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
 //!
 //! gstreamer::init().unwrap();
 //!
-//! let generator = NvBufSurfaceGenerator::new(
+//! let generator = DsNvSurfaceBufferGenerator::new(
 //!     VideoFormat::RGBA, 640, 480, 30, 1,
 //!     0, NvBufSurfaceMemType::Default,
 //! ).unwrap();
@@ -89,6 +89,12 @@ pub enum NvBufSurfaceError {
 
     #[error("Slot index {index} out of bounds (max batch size {max})")]
     SlotOutOfBounds { index: u32, max: u32 },
+
+    #[error("Operation requires finalize() to be called first")]
+    NotFinalized,
+
+    #[error("Batch has already been finalized; mutation is not allowed")]
+    AlreadyFinalized,
 }
 
 /// NvBufSurface memory types.
@@ -136,7 +142,7 @@ impl From<NvBufSurfaceMemType> for u32 {
 
 /// Initialize CUDA context for the given GPU device.
 ///
-/// This must be called before creating an [`NvBufSurfaceGenerator`] when
+/// This must be called before creating an [`DsNvSurfaceBufferGenerator`] when
 /// not running inside a DeepStream pipeline (which handles CUDA initialization
 /// automatically). This is particularly needed in standalone usage and tests.
 ///

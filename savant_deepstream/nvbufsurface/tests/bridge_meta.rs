@@ -15,7 +15,8 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, NvBufSurfaceGenerator, NvBufSurfaceMemType, SavantIdMeta, VideoFormat,
+    bridge_savant_id_meta, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMeta,
+    VideoFormat,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -39,7 +40,7 @@ struct EncoderTestConfig {
 fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     common::init();
 
-    let generator = NvBufSurfaceGenerator::new(
+    let generator = DsNvSurfaceBufferGenerator::new(
         config.format,
         640,
         480,
@@ -139,7 +140,7 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     }
 
     // EOS + drain
-    NvBufSurfaceGenerator::send_eos(&appsrc).unwrap();
+    DsNvSurfaceBufferGenerator::send_eos(&appsrc).unwrap();
     let bus = pipeline.bus().unwrap();
     for msg in bus.iter_timed(gst::ClockTime::from_seconds(30)) {
         match msg.view() {

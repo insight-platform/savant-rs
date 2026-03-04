@@ -34,7 +34,7 @@
 
 use crate::egl_context::{EglError, EglHeadlessContext};
 use crate::transform::{self, TransformConfig};
-use crate::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+use crate::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
 use gstreamer as gst;
 use thiserror::Error;
 
@@ -144,12 +144,12 @@ pub enum SkiaRendererError {
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     SkiaRenderer, NvBufSurfaceGenerator, NvBufSurfaceMemType, cuda_init,
+///     SkiaRenderer, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, cuda_init,
 /// };
 /// use skia_safe::Color;
 ///
 /// cuda_init(0).unwrap();
-/// let gen = NvBufSurfaceGenerator::new(
+/// let gen = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
@@ -171,7 +171,7 @@ pub struct SkiaRenderer {
     gpu_id: u32,
     /// Lazily-created temporary generator for the scaled path
     /// (when canvas dimensions != destination dimensions).
-    temp_gen: Option<NvBufSurfaceGenerator>,
+    temp_gen: Option<DsNvSurfaceBufferGenerator>,
 }
 
 impl SkiaRenderer {
@@ -454,7 +454,7 @@ impl SkiaRenderer {
     /// # Arguments
     ///
     /// * `dst_buf` — Mutable reference to the destination GstBuffer
-    ///   (from [`NvBufSurfaceGenerator::acquire_surface`]).
+    ///   (from [`DsNvSurfaceBufferGenerator::acquire_surface`]).
     /// * `transform_config` — Optional scaling/padding configuration.
     ///   When `None` and dimensions match, fast path is used.
     pub fn render_to_nvbuf(
@@ -486,7 +486,7 @@ impl SkiaRenderer {
         // Lazily create temp generator at canvas resolution
         if self.temp_gen.is_none() {
             let surface_generator =
-                NvBufSurfaceGenerator::builder(VideoFormat::RGBA, self.width, self.height)
+                DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, self.width, self.height)
                     .gpu_id(self.gpu_id)
                     .mem_type(NvBufSurfaceMemType::Default)
                     .min_buffers(1)

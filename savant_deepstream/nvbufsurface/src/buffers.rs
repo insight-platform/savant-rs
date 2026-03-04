@@ -1,6 +1,6 @@
 //! NvBufSurface buffer types and generators.
 //!
-//! - [`single`]: Single-frame buffers (`NvBufSurfaceGenerator`)
+//! - [`single`]: Single-frame buffers (`DsNvSurfaceBufferGenerator`)
 //! - [`batched`]: Batched buffers (uniform and non-uniform)
 
 mod batched;

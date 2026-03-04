@@ -23,7 +23,7 @@ use picasso::rewrite_frame_transformations;
 use deepstream_encoders::prelude::*;
 // gives: NvEncoder, EncoderError, EncodedFrame, EncoderConfig,
 //        Codec (H264, HEVC, JPEG, AV1, PNG),
-//        cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+//        cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 //        EncoderProperties, H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
 //        JpegProps, PngProps, Av1DgpuProps, DgpuPreset, TuningPreset, H264Profile, HevcProfile,
 //        JetsonPresetLevel, Platform, RateControl
@@ -36,7 +36,7 @@ use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffe
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
 // TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
 // TransformConfig implements Default (Symmetric, Bilinear, Default compute)
-// NvBufSurfaceGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
+// DsNvSurfaceBufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 // SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed
 // SurfaceView::from_buffer(&buf, slot_index) — extract from NvBufSurface-backed buffer
@@ -94,9 +94,9 @@ let buf = gstreamer::Buffer::new();
 let view = SurfaceView::wrap(buf);
 ```
 
-### NvBufSurfaceGenerator (GPU)
+### DsNvSurfaceBufferGenerator (GPU)
 ```rust
-let gen = NvBufSurfaceGenerator::new(
+let gen = DsNvSurfaceBufferGenerator::new(
     VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
 ).unwrap();
 assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter

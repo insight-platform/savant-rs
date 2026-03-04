@@ -22,7 +22,7 @@ from gi.repository import Gst  # noqa: E402
 
 from savant_rs.deepstream import (  # noqa: E402
     DsNvBufSurfaceGstBuffer,
-    NvBufSurfaceGenerator,
+    DsNvSurfaceBufferGenerator,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -282,9 +282,9 @@ class PicassoSession:
         print(f"Encoder properties: {enc_props}")
 
         # -- NvBufSurface generator for buffer acquisition ---------------------
-        self._generator: NvBufSurfaceGenerator | None = None
+        self._generator: DsNvSurfaceBufferGenerator | None = None
         if use_generator:
-            self._generator = NvBufSurfaceGenerator(
+            self._generator = DsNvSurfaceBufferGenerator(
                 video_format, self._width, self._height, self._fps, 1, args.gpu_id
             )
 
@@ -382,7 +382,7 @@ class PicassoSession:
         """
         if self._generator is None:
             raise RuntimeError(
-                "NvBufSurfaceGenerator was not created (use_generator=False)"
+                "DsNvSurfaceBufferGenerator was not created (use_generator=False)"
             )
         return self._generator.acquire_surface(id=frame_id)
 

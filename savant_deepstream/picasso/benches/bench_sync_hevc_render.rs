@@ -143,7 +143,7 @@ fn make_frame_with_objects(source_id: &str, frame_idx: i64, num_objects: usize) 
 }
 
 /// Acquires an RGBA GPU surface from the generator for the given frame index.
-fn make_gpu_buffer(gen: &NvBufSurfaceGenerator, frame_idx: i64) -> gstreamer::Buffer {
+fn make_gpu_buffer(gen: &DsNvSurfaceBufferGenerator, frame_idx: i64) -> gstreamer::Buffer {
     gen.acquire_surface(Some(frame_idx)).unwrap()
 }
 
@@ -189,7 +189,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         .set_source_spec("bench", spec.clone())
         .expect("set_source_spec failed");
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         WIDTH,
         HEIGHT,
@@ -198,7 +198,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
         0,
         NvBufSurfaceMemType::Default,
     )
-    .expect("NvBufSurfaceGenerator::new failed");
+    .expect("DsNvSurfaceBufferGenerator::new failed");
 
     let frame_counter = Cell::new(WARMUP_FRAMES as i64);
 

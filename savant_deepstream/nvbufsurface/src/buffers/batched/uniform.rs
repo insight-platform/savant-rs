@@ -1,6 +1,6 @@
 //! Homogeneous batched NvBufSurface buffer generator.
 //!
-//! [`BatchedNvBufSurfaceGenerator`] produces buffers whose `surfaceList` is
+//! [`DsNvUniformSurfaceBufferGenerator`] produces buffers whose `surfaceList` is
 //! an array of `max_batch_size` independently fillable GPU surfaces — all
 //! with the same width, height and format.
 
@@ -13,33 +13,40 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
 
+extern "C" {
+    fn gst_buffer_add_parent_buffer_meta(
+        buffer: *mut gst::ffi::GstBuffer,
+        ref_: *mut gst::ffi::GstBuffer,
+    ) -> *mut std::ffi::c_void;
+}
+
 /// Generates GStreamer buffers with **batched** NvBufSurface memory.
 ///
-/// Unlike [`NvBufSurfaceGenerator`](crate::NvBufSurfaceGenerator) which creates single-frame
+/// Unlike [`DsNvSurfaceBufferGenerator`](crate::DsNvSurfaceBufferGenerator) which creates single-frame
 /// buffers (`batchSize=1`), this generator produces buffers whose
 /// `surfaceList` is an array of `max_batch_size` independently fillable GPU
 /// surfaces — all with the same width, height and format.
 ///
 /// Use [`acquire_batched_surface`](Self::acquire_batched_surface) to obtain
-/// a [`BatchedSurface`] wrapper, then fill slots via
-/// [`fill_slot`](BatchedSurface::fill_slot) or
-/// [`slot_ptr`](BatchedSurface::slot_ptr) and finalize.
+/// a [`DsNvUniformSurfaceBuffer`] wrapper, then fill slots via
+/// [`fill_slot`](DsNvUniformSurfaceBuffer::fill_slot) or
+/// [`slot_ptr`](DsNvUniformSurfaceBuffer::slot_ptr) and finalize.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     BatchedNvBufSurfaceGenerator, NvBufSurfaceGenerator,
+///     DsNvUniformSurfaceBufferGenerator, DsNvSurfaceBufferGenerator,
 ///     NvBufSurfaceMemType, TransformConfig, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let src_gen = NvBufSurfaceGenerator::new(
+/// let src_gen = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
-/// let batched_gen = BatchedNvBufSurfaceGenerator::new(
+/// let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 640, 640, 4, 2, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
@@ -48,9 +55,10 @@ use log::debug;
 ///
 /// let src = src_gen.acquire_surface(Some(42)).unwrap();
 /// batch.fill_slot(&src, None, Some(42)).unwrap();
-/// let buffer = batch.finalize();
+/// batch.finalize().unwrap();
+/// let buffer = batch.as_gst_buffer().unwrap();
 /// ```
-pub struct BatchedNvBufSurfaceGenerator {
+pub struct DsNvUniformSurfaceBufferGenerator {
     pool: gst::BufferPool,
     format: VideoFormat,
     width: u32,
@@ -59,19 +67,19 @@ pub struct BatchedNvBufSurfaceGenerator {
     max_batch_size: u32,
 }
 
-/// Builder for [`BatchedNvBufSurfaceGenerator`] with advanced pool
+/// Builder for [`DsNvUniformSurfaceBufferGenerator`] with advanced pool
 /// configuration.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     BatchedNvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+///     DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = BatchedNvBufSurfaceGenerator::builder(VideoFormat::RGBA, 640, 640, 4)
+/// let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, 640, 640, 4)
 ///     .pool_size(2)
 ///     .fps(30, 1)
 ///     .gpu_id(0)
@@ -79,7 +87,7 @@ pub struct BatchedNvBufSurfaceGenerator {
 ///     .build()
 ///     .unwrap();
 /// ```
-pub struct BatchedNvBufSurfaceGeneratorBuilder {
+pub struct DsNvUniformSurfaceBufferGeneratorBuilder {
     format: VideoFormat,
     width: u32,
     height: u32,
@@ -91,7 +99,7 @@ pub struct BatchedNvBufSurfaceGeneratorBuilder {
     pool_size: u32,
 }
 
-impl BatchedNvBufSurfaceGeneratorBuilder {
+impl DsNvUniformSurfaceBufferGeneratorBuilder {
     /// Set the framerate (numerator / denominator).
     pub fn fps(mut self, num: i32, den: i32) -> Self {
         self.fps_num = num;
@@ -121,9 +129,9 @@ impl BatchedNvBufSurfaceGeneratorBuilder {
         self
     }
 
-    /// Build the [`BatchedNvBufSurfaceGenerator`].
-    pub fn build(self) -> Result<BatchedNvBufSurfaceGenerator, NvBufSurfaceError> {
-        BatchedNvBufSurfaceGenerator::create_pool(
+    /// Build the [`DsNvUniformSurfaceBufferGenerator`].
+    pub fn build(self) -> Result<DsNvUniformSurfaceBufferGenerator, NvBufSurfaceError> {
+        DsNvUniformSurfaceBufferGenerator::create_pool(
             self.format,
             self.width,
             self.height,
@@ -137,7 +145,7 @@ impl BatchedNvBufSurfaceGeneratorBuilder {
     }
 }
 
-impl BatchedNvBufSurfaceGenerator {
+impl DsNvUniformSurfaceBufferGenerator {
     /// Create a new batched generator with simple parameters.
     ///
     /// # Arguments
@@ -178,8 +186,8 @@ impl BatchedNvBufSurfaceGenerator {
         width: u32,
         height: u32,
         max_batch_size: u32,
-    ) -> BatchedNvBufSurfaceGeneratorBuilder {
-        BatchedNvBufSurfaceGeneratorBuilder {
+    ) -> DsNvUniformSurfaceBufferGeneratorBuilder {
+        DsNvUniformSurfaceBufferGeneratorBuilder {
             format,
             width,
             height,
@@ -205,7 +213,7 @@ impl BatchedNvBufSurfaceGenerator {
         mem_type: NvBufSurfaceMemType,
     ) -> Result<Self, NvBufSurfaceError> {
         debug!(
-            "Creating BatchedNvBufSurfaceGenerator ({}x{}, batch={})",
+            "Creating DsNvUniformSurfaceBufferGenerator ({}x{}, batch={})",
             width, height, max_batch_size
         );
 
@@ -256,7 +264,7 @@ impl BatchedNvBufSurfaceGenerator {
             .map_err(|e| NvBufSurfaceError::PoolActivationFailed(e.to_string()))?;
 
         debug!(
-            "BatchedNvBufSurfaceGenerator created (batch={}, pool={})",
+            "DsNvUniformSurfaceBufferGenerator created (batch={}, pool={})",
             max_batch_size, pool_size
         );
         Ok(Self {
@@ -269,18 +277,18 @@ impl BatchedNvBufSurfaceGenerator {
         })
     }
 
-    /// Acquire a [`BatchedSurface`] from the pool, ready for slot filling.
+    /// Acquire a [`DsNvUniformSurfaceBuffer`] from the pool, ready for slot filling.
     ///
     /// The returned wrapper owns the underlying GstBuffer and stores the
     /// given [`TransformConfig`] for all subsequent
-    /// [`fill_slot`](BatchedSurface::fill_slot) calls.
+    /// [`fill_slot`](DsNvUniformSurfaceBuffer::fill_slot) calls.
     ///
     /// The NvBufSurface in the returned buffer has `batchSize=max_batch_size`
     /// and `numFilled=0`.
     pub fn acquire_batched_surface(
         &self,
         config: TransformConfig,
-    ) -> Result<BatchedSurface, NvBufSurfaceError> {
+    ) -> Result<DsNvUniformSurfaceBuffer, NvBufSurfaceError> {
         let mut buffer = self
             .pool
             .acquire_buffer(None)
@@ -296,12 +304,13 @@ impl BatchedNvBufSurfaceGenerator {
             surf.numFilled = 0;
         }
 
-        Ok(BatchedSurface {
+        Ok(DsNvUniformSurfaceBuffer {
             buffer,
             config,
             ids: Vec::with_capacity(self.max_batch_size as usize),
             max_batch_size: self.max_batch_size,
             num_filled: 0,
+            finalized: false,
         })
     }
 
@@ -331,34 +340,35 @@ impl BatchedNvBufSurfaceGenerator {
     }
 }
 
-impl Drop for BatchedNvBufSurfaceGenerator {
+impl Drop for DsNvUniformSurfaceBufferGenerator {
     fn drop(&mut self) {
-        debug!("Destroying BatchedNvBufSurfaceGenerator");
+        debug!("Destroying DsNvUniformSurfaceBufferGenerator");
         if let Err(e) = self.pool.set_active(false) {
             log::warn!("Failed to deactivate batched buffer pool on drop: {}", e);
         }
     }
 }
 
-// ─── BatchedSurface wrapper ──────────────────────────────────────────────────
+// ─── DsNvUniformSurfaceBuffer wrapper ──────────────────────────────────────────────────
 
 /// A pool-allocated batched NvBufSurface with per-slot fill tracking and ID
 /// accumulation.
 ///
 /// Obtained from
-/// [`BatchedNvBufSurfaceGenerator::acquire_batched_surface`]. Fill slots via
+/// [`DsNvUniformSurfaceBufferGenerator::acquire_batched_surface`]. Fill slots via
 /// [`fill_slot`](Self::fill_slot) or directly via
 /// [`slot_ptr`](Self::slot_ptr), then call [`finalize`](Self::finalize) to
 /// produce the finished GstBuffer.
-pub struct BatchedSurface {
+pub struct DsNvUniformSurfaceBuffer {
     buffer: gst::Buffer,
     config: TransformConfig,
     ids: Vec<Option<SavantIdMetaKind>>,
     max_batch_size: u32,
     num_filled: u32,
+    finalized: bool,
 }
 
-impl BatchedSurface {
+impl DsNvUniformSurfaceBuffer {
     /// Return the GPU data pointer and pitch for slot `index`.
     ///
     /// Useful for direct GPU writes (e.g. CUDA memcpy, GpuMat copy).
@@ -394,6 +404,9 @@ impl BatchedSurface {
         src_rect: Option<&Rect>,
         id: Option<i64>,
     ) -> Result<(), NvBufSurfaceError> {
+        if self.finalized {
+            return Err(NvBufSurfaceError::AlreadyFinalized);
+        }
         if self.num_filled >= self.max_batch_size {
             return Err(NvBufSurfaceError::BatchOverflow {
                 max: self.max_batch_size,
@@ -444,29 +457,110 @@ impl BatchedSurface {
     }
 
     /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor and
-    /// attach [`SavantIdMeta`] with collected IDs. Consumes `self` and returns
-    /// the owned GstBuffer.
-    pub fn finalize(mut self) -> gst::Buffer {
+    /// attach [`SavantIdMeta`] with collected IDs. Non-consuming; call
+    /// [`as_gst_buffer`](Self::as_gst_buffer) afterward to access the buffer.
+    pub fn finalize(&mut self) -> Result<(), NvBufSurfaceError> {
+        if self.finalized {
+            return Err(NvBufSurfaceError::AlreadyFinalized);
+        }
         {
             let buf_ref = self.buffer.make_mut();
-            let mut map = buf_ref.map_writable().expect("finalize: map failed");
+            let mut map = buf_ref
+                .map_writable()
+                .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
             let data = map.as_mut_slice();
             let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
             surf.numFilled = self.num_filled;
         }
 
-        let ids: Vec<SavantIdMetaKind> = self.ids.into_iter().flatten().collect();
+        let ids: Vec<SavantIdMetaKind> = self.ids.drain(..).flatten().collect();
         if !ids.is_empty() {
             let buf_ref = self.buffer.make_mut();
             SavantIdMeta::replace(buf_ref, ids);
         }
 
-        self.buffer
+        self.finalized = true;
+        Ok(())
     }
 
-    /// Access the underlying GstBuffer (read-only).
-    pub fn buffer(&self) -> &gst::Buffer {
-        &self.buffer
+    /// Whether the batch has been finalized.
+    pub fn is_finalized(&self) -> bool {
+        self.finalized
+    }
+
+    /// Build a self-contained `gst::Buffer` from the finalized batch.
+    ///
+    /// The returned buffer owns a system-memory copy of the `NvBufSurface`
+    /// header with the `surfaceList` entries inlined immediately after it.
+    /// A `GstParentBufferMeta` keeps the pool-allocated buffer (and its GPU
+    /// memory) alive for as long as the returned buffer exists.
+    ///
+    /// Because the `surfaceList` pointer lives inside the buffer's own
+    /// memory, the returned buffer is safe to clone, `make_mut`, or outlive
+    /// the `DsNvUniformSurfaceBuffer` struct.
+    ///
+    /// Available only after [`finalize`](Self::finalize) has been called.
+    pub fn as_gst_buffer(&self) -> Result<gst::Buffer, NvBufSurfaceError> {
+        if !self.finalized {
+            return Err(NvBufSurfaceError::NotFinalized);
+        }
+
+        let pool_surf = unsafe {
+            transform::extract_nvbufsurface(self.buffer.as_ref())
+                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+        };
+
+        let surface_size = std::mem::size_of::<ffi::NvBufSurface>();
+        let params_size = std::mem::size_of::<ffi::NvBufSurfaceParams>();
+        let num = unsafe { (*pool_surf).numFilled } as usize;
+        let total_size = surface_size + num.max(1) * params_size;
+
+        let mut out = gst::Buffer::with_size(total_size).map_err(|_| {
+            NvBufSurfaceError::BufferAcquisitionFailed(
+                "failed to allocate system memory for batch wrapper".into(),
+            )
+        })?;
+
+        {
+            let buf_ref = out.make_mut();
+            let mut map = buf_ref.map_writable().map_err(|e| {
+                NvBufSurfaceError::BufferAcquisitionFailed(format!("map failed: {:?}", e))
+            })?;
+            let data = map.as_mut_slice();
+            data.fill(0);
+
+            let pool_ref = unsafe { &*pool_surf };
+            let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
+            surf.gpuId = pool_ref.gpuId;
+            surf.batchSize = pool_ref.batchSize;
+            surf.numFilled = pool_ref.numFilled;
+            surf.memType = pool_ref.memType;
+            surf.isContiguous = pool_ref.isContiguous;
+            surf.surfaceList =
+                unsafe { data.as_mut_ptr().add(surface_size) as *mut ffi::NvBufSurfaceParams };
+
+            for i in 0..num {
+                let src = unsafe { &*pool_ref.surfaceList.add(i) };
+                let dst = unsafe {
+                    &mut *(data.as_mut_ptr().add(surface_size + i * params_size)
+                        as *mut ffi::NvBufSurfaceParams)
+                };
+                *dst = *src;
+            }
+        }
+
+        unsafe {
+            gst_buffer_add_parent_buffer_meta(
+                out.make_mut().as_mut_ptr(),
+                self.buffer.as_ptr() as *mut gst::ffi::GstBuffer,
+            );
+        }
+
+        if let Some(meta) = self.buffer.meta::<SavantIdMeta>() {
+            SavantIdMeta::replace(out.make_mut(), meta.ids().to_vec());
+        }
+
+        Ok(out)
     }
 
     /// Create a zero-copy single-frame view of one filled slot.
@@ -474,7 +568,12 @@ impl BatchedSurface {
     /// Delegates to [`extract_slot_view`](super::extract_slot_view).
     /// See that function's documentation for details on lifetime,
     /// timestamps, and ID propagation.
+    ///
+    /// Available only after [`finalize`](Self::finalize) has been called.
     pub fn extract_slot_view(&self, slot_index: u32) -> Result<gst::Buffer, NvBufSurfaceError> {
+        if !self.finalized {
+            return Err(NvBufSurfaceError::NotFinalized);
+        }
         super::extract_slot_view(&self.buffer, slot_index)
     }
 }
@@ -482,7 +581,7 @@ impl BatchedSurface {
 /// Set `numFilled` on a batched NvBufSurface GstBuffer.
 ///
 /// Low-level helper for callers who fill slots manually via
-/// [`BatchedSurface::slot_ptr`] instead of [`BatchedSurface::fill_slot`].
+/// [`DsNvUniformSurfaceBuffer::slot_ptr`] instead of [`DsNvUniformSurfaceBuffer::fill_slot`].
 pub fn set_num_filled(buffer: &mut gst::BufferRef, count: u32) -> Result<(), NvBufSurfaceError> {
     let mut map = buffer
         .map_writable()

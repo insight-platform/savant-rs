@@ -134,9 +134,11 @@ impl PyPicassoEngine {
                     .map_err(to_py_err)
             })
         } else {
-            // TODO: reconside if getting a first surface view from a buffer is worth it 
+            // TODO: reconside if getting a first surface view from a buffer is worth it
             //      instead of erroring out here
-            let is_guard = buf.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>().is_ok();
+            let is_guard = buf
+                .extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>()
+                .is_ok();
             let buf_ptr = crate::deepstream::extract_buf_ptr(buf)?;
             py.detach(|| {
                 let _ = gstreamer::init();

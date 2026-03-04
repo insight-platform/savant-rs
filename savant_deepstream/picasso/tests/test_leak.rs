@@ -60,7 +60,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 }
 
 fn make_nvmm_buffer(
-    gen: &NvBufSurfaceGenerator,
+    gen: &DsNvSurfaceBufferGenerator,
     frame_id: i64,
 ) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
@@ -437,7 +437,7 @@ fn leak_gpu_surface_acquire_release() {
     gstreamer::init().unwrap();
     cuda_init(0).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::NV12,
         320,
         240,
@@ -517,7 +517,7 @@ fn leak_engine_gpu_encode_sustained() {
 
     // We need real NVMM buffers for the encoder path.
     // Create a generator to produce them.
-    let src_gen = NvBufSurfaceGenerator::new(
+    let src_gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::NV12,
         640,
         480,

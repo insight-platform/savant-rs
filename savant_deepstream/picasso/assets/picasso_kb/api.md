@@ -305,7 +305,7 @@ Path: `deepstream_nvbufsurface::buffer_gpu_id`
 
 Extracts the `gpuId` from the NvBufSurface inside a GStreamer buffer. Used by `process_encode` for GPU affinity validation.
 
-### NvBufSurfaceGenerator.gpu_id()
+### DsNvSurfaceBufferGenerator.gpu_id()
 ```rust
 pub fn gpu_id(&self) → u32
 ```

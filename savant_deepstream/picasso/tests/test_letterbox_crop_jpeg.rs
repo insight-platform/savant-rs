@@ -233,7 +233,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
     };
     engine.set_source_spec(source_id, spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -442,7 +442,7 @@ fn letterbox_crop_two_sources_one_engine() {
         .set_source_spec("dual-str", make_spec(Padding::None))
         .unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,

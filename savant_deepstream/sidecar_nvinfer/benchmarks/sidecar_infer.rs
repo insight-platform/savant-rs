@@ -8,8 +8,8 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use deepstream_nvbufsurface::{
-    BatchedNvBufSurfaceGenerator, HeterogeneousBatch, NvBufSurfaceGenerator, NvBufSurfaceMemType,
-    TransformConfig, VideoFormat,
+    DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
+    NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
 use std::collections::HashMap;
@@ -161,7 +161,7 @@ fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> g
     init();
 
     let min_bufs = batch_size.max(4);
-    let src_gen = NvBufSurfaceGenerator::builder(format, w, h)
+    let src_gen = DsNvSurfaceBufferGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(min_bufs)
@@ -169,7 +169,7 @@ fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> g
         .build()
         .expect("src generator");
 
-    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
         format,
         w,
         h,
@@ -188,7 +188,8 @@ fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> g
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
-    batch.finalize()
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
 }
 
 fn make_nonuniform_batch(
@@ -205,7 +206,7 @@ fn make_nonuniform_batch(
         let w = ((base_w as f32 * s) as u32).max(4);
         let h = ((base_h as f32 * s) as u32).max(4);
 
-        let gen = NvBufSurfaceGenerator::builder(format, w, h)
+        let gen = DsNvSurfaceBufferGenerator::builder(format, w, h)
             .gpu_id(0)
             .mem_type(NvBufSurfaceMemType::Default)
             .min_buffers(1)
@@ -215,12 +216,13 @@ fn make_nonuniform_batch(
         src_bufs.push(gen.acquire_surface(Some(i as i64)).unwrap());
     }
 
-    let mut batch = HeterogeneousBatch::new(batch_size, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(batch_size, 0).unwrap();
     for (i, buf) in src_bufs.iter().enumerate() {
         batch.add(buf, Some(i as i64)).unwrap();
     }
 
-    batch.finalize()
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
 }
 
 // ---------------------------------------------------------------------------

@@ -63,7 +63,7 @@ fn e2e_font_family_hot_swap() {
     };
     engine.set_source_spec("font", spec1).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

@@ -98,7 +98,7 @@ fn e2e_on_object_draw_spec() {
     };
     engine.set_source_spec("obj-draw", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

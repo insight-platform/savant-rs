@@ -40,17 +40,17 @@ extern "C" {
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     extract_slot_view, BatchedNvBufSurfaceGenerator,
-///     NvBufSurfaceGenerator, NvBufSurfaceMemType,
+///     extract_slot_view, DsNvUniformSurfaceBufferGenerator,
+///     DsNvSurfaceBufferGenerator, NvBufSurfaceMemType,
 ///     TransformConfig, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let src_gen = NvBufSurfaceGenerator::new(
+/// let src_gen = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
-/// let batch_gen = BatchedNvBufSurfaceGenerator::new(
+/// let batch_gen = DsNvUniformSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 640, 640, 4, 2, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
@@ -58,7 +58,8 @@ extern "C" {
 /// let mut batch = batch_gen.acquire_batched_surface(config).unwrap();
 /// let src = src_gen.acquire_surface(Some(42)).unwrap();
 /// batch.fill_slot(&src, None, Some(42)).unwrap();
-/// let batch_buf = batch.finalize();
+/// batch.finalize().unwrap();
+/// let batch_buf = batch.as_gst_buffer().unwrap();
 ///
 /// let view = extract_slot_view(&batch_buf, 0).unwrap();
 /// // `view` is a single-frame buffer referencing slot 0's GPU memory.

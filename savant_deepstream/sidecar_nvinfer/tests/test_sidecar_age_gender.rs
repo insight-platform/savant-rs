@@ -3,15 +3,15 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    BatchedNvBufSurfaceGenerator, NvBufSurfaceGenerator, NvBufSurfaceMemType, TransformConfig,
-    VideoFormat,
+    DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
+    TransformConfig, VideoFormat,
 };
 use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
 
 fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
 
-    let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 112, 112)
+    let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, 112, 112)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(4)
@@ -19,7 +19,7 @@ fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
         .build()
         .expect("src generator");
 
-    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         112,
         112,
@@ -38,7 +38,8 @@ fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
-    batch.finalize()
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
 }
 
 #[test]

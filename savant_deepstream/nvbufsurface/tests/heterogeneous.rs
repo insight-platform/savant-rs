@@ -1,14 +1,14 @@
-//! Integration tests for [`HeterogeneousBatch`] (zero-copy, nvstreammux2-style).
+//! Integration tests for [`DsNvNonUniformSurfaceBuffer`] (zero-copy, nvstreammux2-style).
 
 mod common;
 
 use deepstream_nvbufsurface::{
-    extract_nvbufsurface, HeterogeneousBatch, NvBufSurfaceGenerator, NvBufSurfaceMemType,
-    SavantIdMeta, SavantIdMetaKind, VideoFormat,
+    extract_nvbufsurface, DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator,
+    NvBufSurfaceMemType, SavantIdMeta, SavantIdMetaKind, VideoFormat,
 };
 
-fn make_gen(format: VideoFormat, w: u32, h: u32) -> NvBufSurfaceGenerator {
-    NvBufSurfaceGenerator::builder(format, w, h)
+fn make_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerator {
+    DsNvSurfaceBufferGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(4)
@@ -22,7 +22,7 @@ fn make_gen(format: VideoFormat, w: u32, h: u32) -> NvBufSurfaceGenerator {
 #[test]
 fn test_heterogeneous_batch_create() {
     common::init();
-    let batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     assert_eq!(batch.max_batch_size(), 4);
     assert_eq!(batch.num_filled(), 0);
     assert_eq!(batch.gpu_id(), 0);
@@ -31,7 +31,7 @@ fn test_heterogeneous_batch_create() {
 #[test]
 fn test_heterogeneous_batch_size_1() {
     common::init();
-    let batch = HeterogeneousBatch::new(1, 0).unwrap();
+    let batch = DsNvNonUniformSurfaceBuffer::new(1, 0).unwrap();
     assert_eq!(batch.max_batch_size(), 1);
 }
 
@@ -48,12 +48,13 @@ fn test_heterogeneous_add_different_sizes() {
     let buf_1080p = gen_1080p.acquire_surface(None).unwrap();
     let buf_720p = gen_720p.acquire_surface(None).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(8, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(8, 0).unwrap();
     batch.add(&buf_small, Some(1)).unwrap();
     batch.add(&buf_1080p, Some(2)).unwrap();
     batch.add(&buf_720p, Some(3)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     let surf = unsafe { &*surf_ptr };
@@ -81,11 +82,12 @@ fn test_heterogeneous_add_different_formats() {
     let buf_rgba = gen_rgba.acquire_surface(None).unwrap();
     let buf_nv12 = gen_nv12.acquire_surface(None).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     batch.add(&buf_rgba, Some(1)).unwrap();
     batch.add(&buf_nv12, Some(2)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     let surf = unsafe { &*surf_ptr };
     assert_eq!(surf.numFilled, 2);
@@ -107,9 +109,10 @@ fn test_heterogeneous_slot_ptr_returns_correct_dims() {
     let buf_small = gen_small.acquire_surface(None).unwrap();
     let buf_1080p = gen_1080p.acquire_surface(None).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     batch.add(&buf_small, Some(1)).unwrap();
     batch.add(&buf_1080p, Some(2)).unwrap();
+    batch.finalize().unwrap();
 
     let (ptr0, pitch0, w0, h0) = batch.slot_ptr(0).unwrap();
     assert!(!ptr0.is_null());
@@ -131,13 +134,14 @@ fn test_heterogeneous_ids_preserved() {
     common::init();
     let gen = make_gen(VideoFormat::RGBA, 640, 480);
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     for id in [10i64, 20, 30] {
         let buf = gen.acquire_surface(None).unwrap();
         batch.add(&buf, Some(id)).unwrap();
     }
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let meta = buffer
         .meta::<SavantIdMeta>()
         .expect("should have SavantIdMeta");
@@ -158,10 +162,11 @@ fn test_heterogeneous_auto_propagate_ids() {
 
     let buf = gen.acquire_surface(Some(42)).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     batch.add(&buf, None).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let meta = buffer.meta::<SavantIdMeta>().unwrap();
     assert_eq!(meta.ids(), &[SavantIdMetaKind::Frame(42)]);
 }
@@ -173,10 +178,11 @@ fn test_heterogeneous_parent_buffer_meta() {
 
     let buf = gen.acquire_surface(None).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     batch.add(&buf, Some(1)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     // The finalized buffer should have at least one GstMeta (parent buffer).
     // We verify the buffer is valid and the slot's dataPtr matches the source.
@@ -195,7 +201,7 @@ fn test_heterogeneous_add_exceeds_capacity() {
     common::init();
     let gen = make_gen(VideoFormat::RGBA, 640, 480);
 
-    let mut batch = HeterogeneousBatch::new(2, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(2, 0).unwrap();
     let b1 = gen.acquire_surface(None).unwrap();
     let b2 = gen.acquire_surface(None).unwrap();
     let b3 = gen.acquire_surface(None).unwrap();
@@ -209,9 +215,10 @@ fn test_heterogeneous_add_exceeds_capacity() {
 #[test]
 fn test_heterogeneous_finalize_empty() {
     common::init();
-    let batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 0);
 
@@ -226,13 +233,14 @@ fn test_heterogeneous_add_partial() {
     common::init();
     let gen = make_gen(VideoFormat::RGBA, 640, 480);
 
-    let mut batch = HeterogeneousBatch::new(8, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(8, 0).unwrap();
     let b1 = gen.acquire_surface(None).unwrap();
     let b2 = gen.acquire_surface(None).unwrap();
     batch.add(&b1, Some(1)).unwrap();
     batch.add(&b2, Some(2)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 2);
 }
@@ -244,10 +252,11 @@ fn test_heterogeneous_source_buffer_not_leaked() {
 
     let buf = gen.acquire_surface(None).unwrap();
 
-    let mut batch = HeterogeneousBatch::new(4, 0).unwrap();
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(4, 0).unwrap();
     batch.add(&buf, Some(1)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     // Drop source and batched buffer - should not panic or leak.
     drop(buf);
     drop(buffer);

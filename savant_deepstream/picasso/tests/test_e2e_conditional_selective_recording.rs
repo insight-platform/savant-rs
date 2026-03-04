@@ -73,7 +73,7 @@ fn e2e_conditional_selective_recording() {
     };
     engine.set_source_spec("cond", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

@@ -27,7 +27,7 @@ from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer,  # RAII guard wrapping an NvBufSurface GStreamer buffer (auto-unrefs on GC)
     SurfaceView,          # unified GPU surface descriptor (preferred buf for send_frame)
     MemType,              # memory type enum
-    NvBufSurfaceGenerator,# GPU buffer pool
+    DsNvSurfaceBufferGenerator,# GPU buffer pool
     TransformConfig,      # transform config for CodecSpec.encode()
     VideoFormat,          # pixel format enum
     init_cuda,            # CUDA context init
@@ -101,9 +101,9 @@ VideoObject(
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
 ```
 
-### NvBufSurfaceGenerator
+### DsNvSurfaceBufferGenerator
 ```python
-gen = NvBufSurfaceGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
+gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
 buf = gen.acquire_surface(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard)
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
 # buf.ptr → raw int pointer (for interop); buf is automatically unref'd when GC'd.
@@ -191,7 +191,7 @@ if _ds is not None:
 
 2. **Use absolute imports** to reference native symbols:
    ```python
-   from savant_rs.deepstream import NvBufSurfaceGenerator, get_nvbufsurface_info
+   from savant_rs.deepstream import DsNvSurfaceBufferGenerator, get_nvbufsurface_info
    ```
    By the time `savant_rs/__init__.py` imports your file, the native `.so` has
    already registered `savant_rs.deepstream` in `sys.modules`, so this resolves

@@ -1,6 +1,6 @@
 //! Heterogeneous batched NvBufSurface (zero-copy, nvstreammux2-style).
 //!
-//! [`HeterogeneousBatch`] assembles individual NvBufSurface buffers of arbitrary
+//! [`DsNvNonUniformSurfaceBuffer`] assembles individual NvBufSurface buffers of arbitrary
 //! dimensions and formats into a single synthetic batched descriptor — no
 //! GPU memory is allocated or copied.
 
@@ -26,35 +26,37 @@ extern "C" {
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     HeterogeneousBatch, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+///     DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen_1080p = NvBufSurfaceGenerator::new(
+/// let gen_1080p = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
-/// let gen_720p = NvBufSurfaceGenerator::new(
+/// let gen_720p = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 1280, 720, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
 /// let buf_1080p = gen_1080p.acquire_surface(Some(1)).unwrap();
 /// let buf_720p = gen_720p.acquire_surface(Some(2)).unwrap();
 ///
-/// let mut batch = HeterogeneousBatch::new(8, 0).unwrap();
+/// let mut batch = DsNvNonUniformSurfaceBuffer::new(8, 0).unwrap();
 /// batch.add(&buf_1080p, Some(1)).unwrap();
 /// batch.add(&buf_720p, Some(2)).unwrap();
-/// let buffer = batch.finalize();
+/// batch.finalize().unwrap();
+/// let buffer = batch.as_gst_buffer().unwrap();
 /// ```
-pub struct HeterogeneousBatch {
+pub struct DsNvNonUniformSurfaceBuffer {
     buffer: gst::Buffer,
     ids: Vec<Option<SavantIdMetaKind>>,
     max_batch_size: u32,
     num_filled: u32,
     gpu_id: u32,
+    finalized: bool,
 }
 
-impl HeterogeneousBatch {
+impl DsNvNonUniformSurfaceBuffer {
     /// Create a new heterogeneous batch with capacity for `max_batch_size` slots.
     ///
     /// Allocates a single GstBuffer whose system memory contains an
@@ -93,6 +95,7 @@ impl HeterogeneousBatch {
             max_batch_size,
             num_filled: 0,
             gpu_id,
+            finalized: false,
         })
     }
 
@@ -108,6 +111,9 @@ impl HeterogeneousBatch {
     /// * `id` - Optional frame ID. If `None` and the source carries a
     ///   [`SavantIdMeta`], the first `Frame(id)` is auto-propagated.
     pub fn add(&mut self, src_buf: &gst::Buffer, id: Option<i64>) -> Result<(), NvBufSurfaceError> {
+        if self.finalized {
+            return Err(NvBufSurfaceError::AlreadyFinalized);
+        }
         if self.num_filled >= self.max_batch_size {
             return Err(NvBufSurfaceError::BatchOverflow {
                 max: self.max_batch_size,
@@ -160,10 +166,15 @@ impl HeterogeneousBatch {
     /// Return `(dataPtr, pitch, width, height)` for the given slot.
     ///
     /// Width and height are included because they can differ per slot.
+    ///
+    /// Available only after [`finalize`](Self::finalize) has been called.
     pub fn slot_ptr(
         &self,
         index: u32,
     ) -> Result<(*mut std::ffi::c_void, u32, u32, u32), NvBufSurfaceError> {
+        if !self.finalized {
+            return Err(NvBufSurfaceError::NotFinalized);
+        }
         if index >= self.num_filled {
             return Err(NvBufSurfaceError::SlotOutOfBounds {
                 index,
@@ -199,29 +210,60 @@ impl HeterogeneousBatch {
     /// Delegates to [`extract_slot_view`](super::extract_slot_view).
     /// See that function's documentation for details on lifetime,
     /// timestamps, and ID propagation.
+    ///
+    /// Available only after [`finalize`](Self::finalize) has been called.
     pub fn extract_slot_view(&self, slot_index: u32) -> Result<gst::Buffer, NvBufSurfaceError> {
+        if !self.finalized {
+            return Err(NvBufSurfaceError::NotFinalized);
+        }
         super::extract_slot_view(&self.buffer, slot_index)
     }
 
-    /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor,
-    /// attach [`SavantIdMeta`], and return the owned GstBuffer.
+    /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor and
+    /// attach [`SavantIdMeta`]. Non-consuming; call
+    /// [`as_gst_buffer`](Self::as_gst_buffer) afterward to access the buffer.
     ///
     /// Source buffers are automatically kept alive via `GstParentBufferMeta`.
-    pub fn finalize(mut self) -> gst::Buffer {
+    pub fn finalize(&mut self) -> Result<(), NvBufSurfaceError> {
+        if self.finalized {
+            return Err(NvBufSurfaceError::AlreadyFinalized);
+        }
         {
             let buf_ref = self.buffer.make_mut();
-            let mut map = buf_ref.map_writable().expect("finalize: map failed");
+            let mut map = buf_ref
+                .map_writable()
+                .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
             let data = map.as_mut_slice();
             let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
             surf.numFilled = self.num_filled;
         }
 
-        let ids: Vec<SavantIdMetaKind> = self.ids.into_iter().flatten().collect();
+        let ids: Vec<SavantIdMetaKind> = self.ids.drain(..).flatten().collect();
         if !ids.is_empty() {
             let buf_ref = self.buffer.make_mut();
             SavantIdMeta::replace(buf_ref, ids);
         }
 
-        self.buffer
+        self.finalized = true;
+        Ok(())
+    }
+
+    /// Whether the batch has been finalized.
+    pub fn is_finalized(&self) -> bool {
+        self.finalized
+    }
+
+    /// Return a reference-counted copy of the underlying `gst::Buffer`.
+    ///
+    /// The returned buffer shares the same system memory (zero-copy) with
+    /// the internal buffer and inherits all `GstParentBufferMeta` entries
+    /// that keep source GPU buffers alive.
+    ///
+    /// Available only after [`finalize`](Self::finalize) has been called.
+    pub fn as_gst_buffer(&self) -> Result<gst::Buffer, NvBufSurfaceError> {
+        if !self.finalized {
+            return Err(NvBufSurfaceError::NotFinalized);
+        }
+        Ok(self.buffer.clone())
     }
 }

@@ -23,7 +23,7 @@ if not hasattr(_mod, "PicassoEngine"):
     )
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "NvBufSurfaceGenerator"):
+if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
     pytest.skip(
         "savant_rs.deepstream not compiled (deepstream feature disabled)",
         allow_module_level=True,
@@ -46,7 +46,7 @@ if not _ds_runtime_available():
 
 from savant_rs.deepstream import (
     MemType,
-    NvBufSurfaceGenerator,
+    DsNvSurfaceBufferGenerator,
     TransformConfig,
     VideoFormat,
     init_cuda,
@@ -139,7 +139,7 @@ def make_frame(source_id: str) -> VideoFrame:
     )
 
 
-def make_nvmm_buffer(gen: NvBufSurfaceGenerator, frame_id: int) -> int:
+def make_nvmm_buffer(gen: DsNvSurfaceBufferGenerator, frame_id: int) -> int:
     """Acquire a GPU buffer with PTS + duration stamped (mirrors Rust benchmark)."""
     return gen.acquire_surface(
         id=frame_id,
@@ -254,7 +254,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(NUM_FRAMES):
             frame = make_frame("src-0")
@@ -293,7 +293,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -336,7 +336,7 @@ class TestPicassoPipelineEncode:
             engine.set_source_spec(sid, build_source_spec(use_render=False))
 
         gens = {
-            sid: NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+            sid: DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
             for sid in source_results
         }
 
@@ -377,7 +377,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=False))
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(3):
             frame = make_frame("src-0")
@@ -411,7 +411,7 @@ class TestPicassoPipelineEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec(use_render=True))
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(10):
             frame = make_frame("src-0")
@@ -456,7 +456,7 @@ class TestPicassoPipelineBypass:
         spec = SourceSpec(codec=CodecSpec.bypass())
         engine.set_source_spec("src-0", spec)
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -492,7 +492,7 @@ class TestPicassoPipelineDrop:
         spec = SourceSpec(codec=CodecSpec.drop_frames())
         engine.set_source_spec("src-0", spec)
 
-        gen = NvBufSurfaceGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")

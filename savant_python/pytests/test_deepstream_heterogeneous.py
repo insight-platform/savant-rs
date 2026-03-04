@@ -1,4 +1,4 @@
-"""Tests for HeterogeneousBatch (zero-copy, nvstreammux2-style) — require CUDA/DeepStream runtime."""
+"""Tests for DsNvNonUniformSurfaceBuffer (zero-copy, nvstreammux2-style) — require CUDA/DeepStream runtime."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import resource
 import pytest
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "HeterogeneousBatch"):
+if not hasattr(_ds, "DsNvNonUniformSurfaceBuffer"):
     pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
 ds = _ds
 
@@ -17,7 +17,7 @@ def _ds_runtime_available() -> bool:
     """Check if DeepStream + CUDA runtime is actually available."""
     try:
         ds.init_cuda(0)
-        gen = ds.NvBufSurfaceGenerator("RGBA", 64, 64, pool_size=1)
+        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
         _ = gen.acquire_surface()
         return True
     except Exception:
@@ -30,22 +30,22 @@ skip_no_runtime = pytest.mark.skipif(
 )
 
 
-def _make_gen(fmt: str, w: int, h: int) -> "ds.NvBufSurfaceGenerator":
-    return ds.NvBufSurfaceGenerator(fmt, w, h, pool_size=4)
+def _make_gen(fmt: str, w: int, h: int) -> "ds.DsNvSurfaceBufferGenerator":
+    return ds.DsNvSurfaceBufferGenerator(fmt, w, h, pool_size=4)
 
 
 @skip_no_runtime
 class TestHeterogeneousCreate:
     def test_create_with_defaults(self):
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         assert batch is not None
 
     def test_create_batch_size_1(self):
-        batch = ds.HeterogeneousBatch(1)
+        batch = ds.DsNvNonUniformSurfaceBuffer(1)
         assert batch.max_batch_size == 1
 
     def test_properties(self):
-        batch = ds.HeterogeneousBatch(4, gpu_id=0)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4, gpu_id=0)
         assert batch.max_batch_size == 4
         assert batch.num_filled == 0
         assert batch.gpu_id == 0
@@ -55,7 +55,7 @@ class TestHeterogeneousCreate:
 class TestHeterogeneousAdd:
     def test_add_single(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         buf = gen.acquire_surface(id=1)
         batch.add(buf, id=1)
         assert batch.num_filled == 1
@@ -64,7 +64,7 @@ class TestHeterogeneousAdd:
         gen_small = _make_gen("RGBA", 320, 240)
         gen_1080p = _make_gen("RGBA", 1920, 1080)
         gen_720p = _make_gen("RGBA", 1280, 720)
-        batch = ds.HeterogeneousBatch(8)
+        batch = ds.DsNvNonUniformSurfaceBuffer(8)
         batch.add(gen_small.acquire_surface(), id=1)
         batch.add(gen_1080p.acquire_surface(), id=2)
         batch.add(gen_720p.acquire_surface(), id=3)
@@ -73,21 +73,21 @@ class TestHeterogeneousAdd:
     def test_add_different_formats(self):
         gen_rgba = _make_gen("RGBA", 640, 480)
         gen_nv12 = _make_gen("NV12", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen_rgba.acquire_surface(), id=1)
         batch.add(gen_nv12.acquire_surface(), id=2)
         assert batch.num_filled == 2
 
     def test_add_exceeds_capacity_raises(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(2)
+        batch = ds.DsNvNonUniformSurfaceBuffer(2)
         batch.add(gen.acquire_surface(), id=1)
         batch.add(gen.acquire_surface(), id=2)
         with pytest.raises(RuntimeError, match="overflow|Batch"):
             batch.add(gen.acquire_surface(), id=3)
 
     def test_add_null_raises(self):
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         with pytest.raises(ValueError, match="null"):
             batch.add(0, id=1)
 
@@ -97,9 +97,10 @@ class TestHeterogeneousSlotPtr:
     def test_returns_4_tuple(self):
         gen_small = _make_gen("RGBA", 320, 240)
         gen_1080p = _make_gen("RGBA", 1920, 1080)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen_small.acquire_surface(), id=1)
         batch.add(gen_1080p.acquire_surface(), id=2)
+        batch.finalize()
         result = batch.slot_ptr(0)
         assert isinstance(result, tuple)
         assert len(result) == 4
@@ -107,9 +108,10 @@ class TestHeterogeneousSlotPtr:
     def test_dimensions_match_source(self):
         gen_small = _make_gen("RGBA", 320, 240)
         gen_1080p = _make_gen("RGBA", 1920, 1080)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen_small.acquire_surface(), id=1)
         batch.add(gen_1080p.acquire_surface(), id=2)
+        batch.finalize()
         data_ptr0, pitch0, w0, h0 = batch.slot_ptr(0)
         data_ptr1, pitch1, w1, h1 = batch.slot_ptr(1)
         assert w0 == 320
@@ -122,8 +124,9 @@ class TestHeterogeneousSlotPtr:
 
     def test_slot_ptr_out_of_bounds_raises(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen.acquire_surface(), id=1)
+        batch.finalize()
         # index 0 is valid (1 filled), index 1 is out of bounds
         _ = batch.slot_ptr(0)
         with pytest.raises(RuntimeError, match="bounds|Slot"):
@@ -136,18 +139,20 @@ class TestHeterogeneousSlotPtr:
 class TestHeterogeneousFinalize:
     def test_finalize_returns_nonzero(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen.acquire_surface(id=1), id=1)
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
 
     def test_ids_propagated(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         for frame_id in [10, 20, 30]:
             buf = gen.acquire_surface(id=frame_id)
             batch.add(buf, id=frame_id)
-        result = batch.finalize()
+        batch.finalize()
+        result = batch.as_gst_buffer()
         meta = ds.get_savant_id_meta(result)
         meta_ids = [v for _kind, v in meta if _kind == "frame"]
         for frame_id in [10, 20, 30]:
@@ -156,27 +161,29 @@ class TestHeterogeneousFinalize:
     def test_auto_propagate_ids(self):
         gen = _make_gen("RGBA", 640, 480)
         buf = gen.acquire_surface(id=42)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(buf, id=None)
-        result = batch.finalize()
+        batch.finalize()
+        result = batch.as_gst_buffer()
         meta = ds.get_savant_id_meta(result)
         ids = [v for _kind, v in meta if _kind == "frame"]
         assert 42 in ids
 
     def test_finalize_empty(self):
-        batch = ds.HeterogeneousBatch(4)
-        buf = batch.finalize()
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
         meta = ds.get_savant_id_meta(buf)
         assert meta == []
 
     def test_finalize_twice_raises(self):
         gen = _make_gen("RGBA", 640, 480)
-        batch = ds.HeterogeneousBatch(4)
+        batch = ds.DsNvNonUniformSurfaceBuffer(4)
         batch.add(gen.acquire_surface(), id=1)
-        _ = batch.finalize()
+        batch.finalize()
         with pytest.raises(RuntimeError, match="finalized"):
-            _ = batch.finalize()
+            batch.finalize()
 
 
 # ── Memory-leak smoke tests ─────────────────────────────────────────────
@@ -207,10 +214,11 @@ class TestHeterogeneousMemoryLeak:
 
         for _ in range(_WARMUP_ITERATIONS):
             srcs = [gen.acquire_surface(id=j) for j in range(4)]
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             for j, s in enumerate(srcs):
                 batch.add(s, id=j)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, srcs, s, j
 
         gc.collect()
@@ -219,10 +227,11 @@ class TestHeterogeneousMemoryLeak:
 
         for i in range(_LEAK_ITERATIONS):
             srcs = [gen.acquire_surface(id=j) for j in range(4)]
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             for j, s in enumerate(srcs):
                 batch.add(s, id=j)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, srcs, s, j
 
         gc.collect()
@@ -246,10 +255,11 @@ class TestHeterogeneousMemoryLeak:
         for _ in range(_WARMUP_ITERATIONS):
             s1 = gen_small.acquire_surface(id=1)
             s2 = gen_large.acquire_surface(id=2)
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             batch.add(s1, id=1)
             batch.add(s2, id=2)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, s1, s2
 
         gc.collect()
@@ -259,10 +269,11 @@ class TestHeterogeneousMemoryLeak:
         for i in range(_LEAK_ITERATIONS):
             s1 = gen_small.acquire_surface(id=i)
             s2 = gen_large.acquire_surface(id=i + 1000)
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             batch.add(s1, id=i)
             batch.add(s2, id=i + 1000)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, s1, s2
 
         gc.collect()
@@ -284,7 +295,7 @@ class TestHeterogeneousMemoryLeak:
 
         for _ in range(_WARMUP_ITERATIONS):
             src = gen.acquire_surface(id=1)
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             batch.add(src, id=1)
             del batch, src
 
@@ -294,7 +305,7 @@ class TestHeterogeneousMemoryLeak:
 
         for i in range(_LEAK_ITERATIONS):
             src = gen.acquire_surface(id=i)
-            batch = ds.HeterogeneousBatch(4)
+            batch = ds.DsNvNonUniformSurfaceBuffer(4)
             batch.add(src, id=i)
             del batch, src
 

@@ -72,7 +72,7 @@ fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> Vide
     frame
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
+fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -136,7 +136,7 @@ fn encode_attribute_gate_drops_frames_without_attr() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -210,7 +210,7 @@ fn render_attribute_gate_skips_rendering_without_attr() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -290,7 +290,7 @@ fn both_gates_active() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -396,7 +396,7 @@ fn no_gates_all_frames_pass() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

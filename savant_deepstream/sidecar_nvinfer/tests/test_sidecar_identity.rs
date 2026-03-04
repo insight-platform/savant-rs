@@ -3,8 +3,8 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    BatchedNvBufSurfaceGenerator, NvBufSurfaceGenerator, NvBufSurfaceMemType, TransformConfig,
-    VideoFormat,
+    DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
+    TransformConfig, VideoFormat,
 };
 use sidecar_nvinfer::{attach_batch_meta, DataType, SidecarConfig, SidecarNvInfer};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ extern "C" {
 fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
 
-    let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 12, 12)
+    let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, 12, 12)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(4)
@@ -25,7 +25,7 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
         .build()
         .expect("src generator");
 
-    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -44,7 +44,8 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
-    batch.finalize()
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
 }
 
 /// Build a batch where every source surface is memset to `fill_byte`.
@@ -65,7 +66,7 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
     common::init();
 
     let num_frames = fill_bytes.len() as u32;
-    let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 12, 12)
+    let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, 12, 12)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(num_frames.max(4))
@@ -73,7 +74,7 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
         .build()
         .expect("src generator");
 
-    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -99,7 +100,9 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
         .iter()
         .map(|&b| 3.0 * 12.0 * 12.0 * (b as f64))
         .collect();
-    (batch.finalize(), expected_sums)
+    batch.finalize().unwrap();
+    let buf = batch.as_gst_buffer().unwrap();
+    (buf, expected_sums)
 }
 
 fn identity_sidecar() -> Option<SidecarNvInfer> {
@@ -240,7 +243,7 @@ fn test_element_ids_preserved() {
     // user-supplied IDs propagate, not just frame indices.
     let ids_to_send: Vec<i64> = vec![42, -7, 1000, 0];
 
-    let src_gen = NvBufSurfaceGenerator::builder(VideoFormat::RGBA, 12, 12)
+    let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, 12, 12)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(4)
@@ -248,7 +251,7 @@ fn test_element_ids_preserved() {
         .build()
         .expect("src generator");
 
-    let batched_gen = BatchedNvBufSurfaceGenerator::new(
+    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -265,7 +268,8 @@ fn test_element_ids_preserved() {
         let src = src_gen.acquire_surface(Some(id)).unwrap();
         batch.fill_slot(&src, None, Some(id)).unwrap();
     }
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     let output = sidecar.infer_sync(buffer, 99).expect("infer_sync");
 

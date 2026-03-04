@@ -1,16 +1,16 @@
 //! Integration tests for NvBufSurfTransform via the high-level
-//! `NvBufSurfaceGenerator::transform()` API.
+//! `DsNvSurfaceBufferGenerator::transform()` API.
 
 mod common;
 
 use deepstream_nvbufsurface::{
-    ComputeMode, Interpolation, NvBufSurfaceGenerator, NvBufSurfaceMemType, Padding, Rect,
+    ComputeMode, DsNvSurfaceBufferGenerator, Interpolation, NvBufSurfaceMemType, Padding, Rect,
     SavantIdMeta, TransformConfig, VideoFormat,
 };
 
 /// Helper: create a generator with the given format and dimensions.
-fn make_gen(format: VideoFormat, w: u32, h: u32) -> NvBufSurfaceGenerator {
-    NvBufSurfaceGenerator::builder(format, w, h)
+fn make_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerator {
+    DsNvSurfaceBufferGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(2)

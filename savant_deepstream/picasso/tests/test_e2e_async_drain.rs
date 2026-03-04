@@ -58,8 +58,8 @@ fn jpeg_spec() -> SourceSpec {
     }
 }
 
-fn make_generator() -> NvBufSurfaceGenerator {
-    NvBufSurfaceGenerator::new(
+fn make_generator() -> DsNvSurfaceBufferGenerator {
+    DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

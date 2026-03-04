@@ -21,10 +21,10 @@ __all__ = [
     "DsNvBufSurfaceGstBuffer",
     "SurfaceView",
     "TransformConfig",
-    "NvBufSurfaceGenerator",
-    "BatchedNvBufSurfaceGenerator",
-    "BatchedSurface",
-    "HeterogeneousBatch",
+    "DsNvSurfaceBufferGenerator",
+    "DsNvUniformSurfaceBufferGenerator",
+    "DsNvUniformSurfaceBuffer",
+    "DsNvNonUniformSurfaceBuffer",
     "set_num_filled",
     "SkiaContext",
     "SkiaCanvas",
@@ -210,8 +210,8 @@ class DsNvBufSurfaceGstBuffer:
     is called when the guard is garbage-collected or explicitly consumed
     via :meth:`take`.
 
-    Obtain instances from :meth:`NvBufSurfaceGenerator.acquire_surface`,
-    :meth:`BatchedSurface.finalize`, :meth:`HeterogeneousBatch.finalize`,
+    Obtain instances from :meth:`DsNvSurfaceBufferGenerator.acquire_surface`,
+    :meth:`DsNvUniformSurfaceBuffer.finalize`, :meth:`DsNvNonUniformSurfaceBuffer.finalize`,
     etc.  Pass them directly to any API that accepts
     ``Union[DsNvBufSurfaceGstBuffer, int]``.
     """
@@ -384,9 +384,9 @@ class TransformConfig:
     ) -> None: ...
     def __repr__(self) -> str: ...
 
-# ── NvBufSurfaceGenerator ───────────────────────────────────────────────
+# ── DsNvSurfaceBufferGenerator ───────────────────────────────────────────
 
-class NvBufSurfaceGenerator:
+class DsNvSurfaceBufferGenerator:
     """GPU buffer pool for allocating NVMM surfaces.
 
     Args:
@@ -501,9 +501,9 @@ class NvBufSurfaceGenerator:
         """Create a new NvBufSurface and attach it to the given buffer."""
         ...
 
-# ── BatchedNvBufSurfaceGenerator ─────────────────────────────────────────
+# ── DsNvUniformSurfaceBufferGenerator ────────────────────────────────────
 
-class BatchedNvBufSurfaceGenerator:
+class DsNvUniformSurfaceBufferGenerator:
     """Homogeneous batched NvBufSurface buffer generator.
 
     Produces buffers whose ``surfaceList`` is an array of independently
@@ -548,12 +548,12 @@ class BatchedNvBufSurfaceGenerator:
     def gpu_id(self) -> int: ...
     @property
     def max_batch_size(self) -> int: ...
-    def acquire_batched_surface(self, config: TransformConfig) -> BatchedSurface:
-        """Acquire a ``BatchedSurface`` from the pool, ready for slot filling.
+    def acquire_batched_surface(self, config: TransformConfig) -> DsNvUniformSurfaceBuffer:
+        """Acquire a ``DsNvUniformSurfaceBuffer`` from the pool, ready for slot filling.
 
         Args:
             config: Scaling / letterboxing configuration applied to every
-                :meth:`~BatchedSurface.fill_slot` call on the returned
+                :meth:`~DsNvUniformSurfaceBuffer.fill_slot` call on the returned
                 surface.
 
         Returns:
@@ -564,15 +564,15 @@ class BatchedNvBufSurfaceGenerator:
         """
         ...
 
-# ── BatchedSurface ───────────────────────────────────────────────────────
+# ── DsNvUniformSurfaceBuffer ──────────────────────────────────────────────
 
-class BatchedSurface:
+class DsNvUniformSurfaceBuffer:
     """Pool-allocated batched NvBufSurface with per-slot fill tracking.
 
     Obtained from
-    :meth:`BatchedNvBufSurfaceGenerator.acquire_batched_surface`.
+    :meth:`DsNvUniformSurfaceBufferGenerator.acquire_batched_surface`.
     Fill individual slots with :meth:`fill_slot`, then call
-    :meth:`finalize` to obtain the final ``GstBuffer*`` pointer.
+    :meth:`finalize`, then :meth:`as_gst_buffer` to access the buffer.
     """
 
     @property
@@ -586,12 +586,8 @@ class BatchedSurface:
         ...
 
     @property
-    def buffer_ptr(self) -> int:
-        """Raw ``GstBuffer*`` pointer of the underlying buffer.
-
-        Raises:
-            RuntimeError: If the surface has been finalized.
-        """
+    def is_finalized(self) -> bool:
+        """Whether the batch has been finalized."""
         ...
 
     def slot_ptr(self, index: int) -> Tuple[int, int]:
@@ -626,7 +622,7 @@ class BatchedSurface:
         Args:
             src_buf: ``GstBuffer`` guard or raw ``GstBuffer*`` pointer of the
                 source NVMM surface (as returned by
-                :meth:`NvBufSurfaceGenerator.acquire_surface`).
+                :meth:`DsNvSurfaceBufferGenerator.acquire_surface`).
             src_rect: Optional crop rectangle applied to the source before
                 scaling.  When ``None`` the full source frame is used.
                 Coordinates are ``(top, left, width, height)`` in pixels.
@@ -641,25 +637,42 @@ class BatchedSurface:
         """
         ...
 
-    def finalize(self) -> DsNvBufSurfaceGstBuffer:
-        """Finalize the batch and return the buffer guard.
+    def finalize(self) -> None:
+        """Finalize the batch (non-consuming).
 
         Writes ``SavantIdMeta`` with the collected frame IDs and sets
-        ``numFilled`` on the underlying ``NvBufSurface``.  After this
-        call the ``BatchedSurface`` is consumed — further method calls
-        will raise ``RuntimeError``.
-
-        Returns:
-            Guard owning the finalized batched ``GstBuffer``.
+        ``numFilled`` on the underlying ``NvBufSurface``.  Call
+        :meth:`as_gst_buffer` afterward to access the buffer.
 
         Raises:
             RuntimeError: If already finalized.
         """
         ...
 
-# ── HeterogeneousBatch ───────────────────────────────────────────────────
+    def as_gst_buffer(self) -> DsNvBufSurfaceGstBuffer:
+        """Return the underlying GstBuffer guard. Available only after finalize.
 
-class HeterogeneousBatch:
+        Returns:
+            Guard for the finalized batched buffer.
+
+        Raises:
+            RuntimeError: If not yet finalized.
+        """
+        ...
+
+    def extract_slot_view(self, slot_index: int) -> DsNvBufSurfaceGstBuffer:
+        """Create a zero-copy single-frame view of one filled slot.
+
+        Available only after finalize.
+
+        Raises:
+            RuntimeError: If not yet finalized or slot index out of bounds.
+        """
+        ...
+
+# ── DsNvNonUniformSurfaceBuffer ───────────────────────────────────────────
+
+class DsNvNonUniformSurfaceBuffer:
     """Zero-copy heterogeneous batch (nvstreammux2-style).
 
     Assembles individual NvBufSurface buffers of arbitrary dimensions
@@ -687,6 +700,11 @@ class HeterogeneousBatch:
     @property
     def gpu_id(self) -> int:
         """GPU device ID this batch is bound to."""
+        ...
+
+    @property
+    def is_finalized(self) -> bool:
+        """Whether the batch has been finalized."""
         ...
 
     def add(self, src_buf: Union[DsNvBufSurfaceGstBuffer, int], id: Optional[int] = None) -> None:
@@ -724,19 +742,36 @@ class HeterogeneousBatch:
         """
         ...
 
-    def finalize(self) -> DsNvBufSurfaceGstBuffer:
-        """Finalize the batch and return the buffer guard.
+    def finalize(self) -> None:
+        """Finalize the batch (non-consuming).
 
         Writes ``SavantIdMeta`` with the collected frame IDs and
-        assembles the heterogeneous ``NvBufSurface``.  After this call
-        the ``HeterogeneousBatch`` is consumed — further method calls
-        will raise ``RuntimeError``.
-
-        Returns:
-            Guard owning the finalized batch ``GstBuffer``.
+        assembles the heterogeneous ``NvBufSurface``.  Call
+        :meth:`as_gst_buffer` afterward to access the buffer.
 
         Raises:
             RuntimeError: If already finalized.
+        """
+        ...
+
+    def as_gst_buffer(self) -> DsNvBufSurfaceGstBuffer:
+        """Return the underlying GstBuffer guard. Available only after finalize.
+
+        Returns:
+            Guard for the finalized batch buffer.
+
+        Raises:
+            RuntimeError: If not yet finalized.
+        """
+        ...
+
+    def extract_slot_view(self, slot_index: int) -> DsNvBufSurfaceGstBuffer:
+        """Create a zero-copy single-frame view of one filled slot.
+
+        Available only after finalize.
+
+        Raises:
+            RuntimeError: If not yet finalized or slot index out of bounds.
         """
         ...
 
@@ -994,7 +1029,7 @@ def nvbuf_as_gpu_mat(
     ...
 
 def from_gpumat(
-    gen: NvBufSurfaceGenerator,
+    gen: DsNvSurfaceBufferGenerator,
     gpumat: cv2.cuda.GpuMat,
     *,
     interpolation: int = ...,

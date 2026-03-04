@@ -26,12 +26,12 @@ use std::any::Any;
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     NvBufSurfaceGenerator, NvBufSurfaceMemType, SurfaceView, VideoFormat,
+///     DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, SurfaceView, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = NvBufSurfaceGenerator::new(
+/// let gen = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 /// let buf = gen.acquire_surface(None).unwrap();
@@ -266,7 +266,7 @@ impl SurfaceView {
     /// The underlying GStreamer buffer containing the NvBufSurface descriptor.
     ///
     /// Use this to pass the view to APIs that expect `&gst::Buffer` (e.g.
-    /// `NvBufSurfaceGenerator::transform`).
+    /// `DsNvSurfaceBufferGenerator::transform`).
     pub fn buffer(&self) -> &gst::Buffer {
         &self.buffer
     }

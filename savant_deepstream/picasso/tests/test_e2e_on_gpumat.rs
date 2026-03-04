@@ -88,7 +88,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
     };
     engine.set_source_spec("gpumat", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -164,7 +164,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     };
     engine.set_source_spec("gpumat-off", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

@@ -82,7 +82,7 @@ fn add_objects(frame: &VideoFrameProxy) {
     }
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> gstreamer::Buffer {
+fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> gstreamer::Buffer {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -149,9 +149,9 @@ fn main() {
             .unwrap();
     }
 
-    let generators: Vec<NvBufSurfaceGenerator> = (0..num_src)
+    let generators: Vec<DsNvSurfaceBufferGenerator> = (0..num_src)
         .map(|_| {
-            NvBufSurfaceGenerator::new(
+            DsNvSurfaceBufferGenerator::new(
                 VideoFormat::RGBA,
                 WIDTH,
                 HEIGHT,

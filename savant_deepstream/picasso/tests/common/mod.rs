@@ -160,7 +160,7 @@ impl OnEviction for TerminateEviction {
 
 #[cfg(test)]
 pub fn make_gpu_buffer(
-    gen: &deepstream_encoders::NvBufSurfaceGenerator,
+    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
     idx: u64,
     _dur_ns: u64,
 ) -> gstreamer::Buffer {
@@ -170,7 +170,7 @@ pub fn make_gpu_buffer(
 /// Creates a SurfaceView from a GPU buffer (requires CUDA + NvBufSurface).
 #[cfg(test)]
 pub fn make_gpu_surface_view(
-    gen: &deepstream_encoders::NvBufSurfaceGenerator,
+    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
     idx: u64,
     dur_ns: u64,
 ) -> deepstream_nvbufsurface::SurfaceView {

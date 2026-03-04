@@ -118,7 +118,7 @@ fn e2e_mixed_codecs() {
     };
     engine.set_source_spec("cam-encode", enc_spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

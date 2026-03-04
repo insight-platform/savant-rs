@@ -13,13 +13,13 @@
 //! `nvvideoconvert` using the CUDA legacy default stream (stream 0).
 //!
 //! The user acquires NvBufSurface buffers from the embedded
-//! [`NvBufSurfaceGenerator`], renders content into them, and then submits
+//! [`DsNvSurfaceBufferGenerator`], renders content into them, and then submits
 //! them to the encoder. Encoded frames are collected from the appsink.
 
 use crate::error::EncoderError;
 use crate::{Codec, EncodedFrame, EncoderConfig, VideoFormat};
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, create_cuda_stream, destroy_cuda_stream, NvBufSurfaceGenerator,
+    bridge_savant_id_meta, create_cuda_stream, destroy_cuda_stream, DsNvSurfaceBufferGenerator,
     TransformConfig,
 };
 use gstreamer as gst;
@@ -46,14 +46,14 @@ type PtsMap = HashMap<u64, (u128, Option<u64>)>;
 /// GPU-accelerated video encoder.
 ///
 /// Encapsulates a DeepStream encoding pipeline with an
-/// [`NvBufSurfaceGenerator`] for buffer management. The encoder validates
+/// [`DsNvSurfaceBufferGenerator`] for buffer management. The encoder validates
 /// that B-frames are never enabled and that PTS values are monotonically
 /// increasing.
 ///
 /// # Lifecycle
 ///
 /// 1. Create with [`NvEncoder::new`].
-/// 2. Access the [`NvBufSurfaceGenerator`] via [`generator()`](Self::generator)
+/// 2. Access the [`DsNvSurfaceBufferGenerator`] via [`generator()`](Self::generator)
 ///    to acquire NVMM buffers for rendering.
 /// 3. Submit filled buffers with [`submit_frame`](Self::submit_frame).
 /// 4. Pull encoded frames with [`pull_encoded`](Self::pull_encoded).
@@ -67,7 +67,7 @@ pub struct NvEncoder {
     /// AppSink for pulling encoded frames.
     appsink: gst_app::AppSink,
     /// The NvBufSurface buffer generator for user-facing format (e.g. RGBA).
-    generator: NvBufSurfaceGenerator,
+    generator: DsNvSurfaceBufferGenerator,
     /// Codec used by this encoder.
     codec: Codec,
     /// Last **input** PTS — used to reject non-monotonic submissions.
@@ -90,7 +90,7 @@ pub struct NvEncoder {
 /// bypassing `nvvideoconvert` to avoid CUDA default-stream serialization.
 struct ConvertContext {
     /// Generator for encoder-native format buffers (NV12 or I420).
-    native_generator: NvBufSurfaceGenerator,
+    native_generator: DsNvSurfaceBufferGenerator,
     /// Dedicated non-blocking CUDA stream (`cudaStreamNonBlocking`).
     cuda_stream: *mut std::ffi::c_void,
 }
@@ -181,13 +181,14 @@ impl NvEncoder {
         // while hardware is still reading from it.
         const POOL_SIZE: u32 = 1;
 
-        let generator = NvBufSurfaceGenerator::builder(config.format, config.width, config.height)
-            .fps(config.fps_num, config.fps_den)
-            .gpu_id(config.gpu_id)
-            .mem_type(config.mem_type)
-            .min_buffers(POOL_SIZE)
-            .max_buffers(POOL_SIZE)
-            .build()?;
+        let generator =
+            DsNvSurfaceBufferGenerator::builder(config.format, config.width, config.height)
+                .fps(config.fps_num, config.fps_den)
+                .gpu_id(config.gpu_id)
+                .mem_type(config.mem_type)
+                .min_buffers(POOL_SIZE)
+                .max_buffers(POOL_SIZE)
+                .build()?;
 
         // When the user format differs from the encoder-native format, set up
         // a ConvertContext with a second generator + non-blocking CUDA stream.
@@ -198,7 +199,7 @@ impl NvEncoder {
             None
         } else if needs_convert {
             let native_generator =
-                NvBufSurfaceGenerator::builder(native_format, config.width, config.height)
+                DsNvSurfaceBufferGenerator::builder(native_format, config.width, config.height)
                     .fps(config.fps_num, config.fps_den)
                     .gpu_id(config.gpu_id)
                     .mem_type(config.mem_type)
@@ -355,11 +356,11 @@ impl NvEncoder {
         })
     }
 
-    /// Access the internal [`NvBufSurfaceGenerator`].
+    /// Access the internal [`DsNvSurfaceBufferGenerator`].
     ///
     /// Use this to acquire NVMM buffers for rendering before submitting
     /// them to the encoder.
-    pub fn generator(&self) -> &NvBufSurfaceGenerator {
+    pub fn generator(&self) -> &DsNvSurfaceBufferGenerator {
         &self.generator
     }
 

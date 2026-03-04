@@ -3,7 +3,9 @@
 //!
 //! Run with: `cargo test -p nvidia_gpu_utils --test test_nvbufsurface_mem -- --nocapture`
 
-use deepstream_nvbufsurface::{cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+use deepstream_nvbufsurface::{
+    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+};
 use nvidia_gpu_utils::gpu_mem_used_mib;
 use serial_test::serial;
 
@@ -16,7 +18,7 @@ fn gpu_mem_reflects_surface_allocation() {
     let before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib should succeed");
 
     // Allocate several large surfaces (10x 1920x1080 RGBA ≈ 80 MiB)
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         1920,
         1080,
@@ -25,7 +27,7 @@ fn gpu_mem_reflects_surface_allocation() {
         0,
         NvBufSurfaceMemType::Default,
     )
-    .expect("Failed to create NvBufSurfaceGenerator");
+    .expect("Failed to create DsNvSurfaceBufferGenerator");
 
     let buffers: Vec<_> = (0..10)
         .map(|i| {

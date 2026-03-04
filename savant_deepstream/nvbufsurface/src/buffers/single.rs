@@ -1,6 +1,6 @@
 //! Single-frame NvBufSurface buffer generator.
 //!
-//! [`NvBufSurfaceGenerator`] creates GStreamer buffers with NvBufSurface memory
+//! [`DsNvSurfaceBufferGenerator`] creates GStreamer buffers with NvBufSurface memory
 //! allocated via DeepStream's buffer pool mechanism (batchSize=1).
 
 use crate::{
@@ -17,7 +17,7 @@ use log::debug;
 ///
 /// Creates a DeepStream buffer pool and provides methods to allocate
 /// NvBufSurface memory and attach it to GStreamer buffers. This is the
-/// Rust equivalent of the C++ `NvBufSurfaceGenerator` class.
+/// Rust equivalent of the C++ `DsNvSurfaceBufferGenerator` class.
 ///
 /// The generator maintains an internal buffer pool that is configured
 /// with the specified video caps, GPU ID, and memory type. Buffers are
@@ -28,18 +28,18 @@ use log::debug;
 /// # Example
 ///
 /// ```rust,no_run
-/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+/// use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = NvBufSurfaceGenerator::new(
+/// let gen = DsNvSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 640, 480, 30, 1,
 ///     0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
 /// let buffer = gen.acquire_surface(None).unwrap();
 /// ```
-pub struct NvBufSurfaceGenerator {
+pub struct DsNvSurfaceBufferGenerator {
     pool: gst::BufferPool,
     format: VideoFormat,
     width: u32,
@@ -49,19 +49,19 @@ pub struct NvBufSurfaceGenerator {
     gpu_id: u32,
 }
 
-/// Builder for [`NvBufSurfaceGenerator`] with advanced pool configuration.
+/// Builder for [`DsNvSurfaceBufferGenerator`] with advanced pool configuration.
 ///
 /// Provides fine-grained control over the buffer pool. For simple use cases,
-/// prefer [`NvBufSurfaceGenerator::new()`] instead.
+/// prefer [`DsNvSurfaceBufferGenerator::new()`] instead.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+/// use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = NvBufSurfaceGenerator::builder(VideoFormat::NV12, 640, 480)
+/// let gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::NV12, 640, 480)
 ///     .fps(30, 1)
 ///     .gpu_id(0)
 ///     .mem_type(NvBufSurfaceMemType::CudaDevice)
@@ -70,7 +70,7 @@ pub struct NvBufSurfaceGenerator {
 ///     .build()
 ///     .unwrap();
 /// ```
-pub struct NvBufSurfaceGeneratorBuilder {
+pub struct DsNvSurfaceBufferGeneratorBuilder {
     format: VideoFormat,
     width: u32,
     height: u32,
@@ -82,7 +82,7 @@ pub struct NvBufSurfaceGeneratorBuilder {
     max_buffers: u32,
 }
 
-impl NvBufSurfaceGeneratorBuilder {
+impl DsNvSurfaceBufferGeneratorBuilder {
     /// Set the framerate (numerator / denominator).
     pub fn fps(mut self, num: i32, den: i32) -> Self {
         self.fps_num = num;
@@ -114,13 +114,13 @@ impl NvBufSurfaceGeneratorBuilder {
         self
     }
 
-    /// Build the [`NvBufSurfaceGenerator`].
+    /// Build the [`DsNvSurfaceBufferGenerator`].
     ///
     /// # Errors
     ///
     /// Returns an error if the buffer pool cannot be created, configured,
     /// or activated.
-    pub fn build(self) -> Result<NvBufSurfaceGenerator, NvBufSurfaceError> {
+    pub fn build(self) -> Result<DsNvSurfaceBufferGenerator, NvBufSurfaceError> {
         let format_str = self.format.gst_name();
         let caps = gst::Caps::builder("video/x-raw")
             .field("format", format_str)
@@ -129,7 +129,7 @@ impl NvBufSurfaceGeneratorBuilder {
             .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
             .build();
 
-        NvBufSurfaceGenerator::create_from_parts(
+        DsNvSurfaceBufferGenerator::create_from_parts(
             &caps,
             self.format,
             self.width,
@@ -144,8 +144,8 @@ impl NvBufSurfaceGeneratorBuilder {
     }
 }
 
-impl NvBufSurfaceGenerator {
-    /// Create a new NvBufSurfaceGenerator with simple parameters.
+impl DsNvSurfaceBufferGenerator {
+    /// Create a new DsNvSurfaceBufferGenerator with simple parameters.
     ///
     /// This is the primary constructor. It builds the required GStreamer caps
     /// internally, so you only need to specify the video format, dimensions,
@@ -187,7 +187,7 @@ impl NvBufSurfaceGenerator {
         )
     }
 
-    /// Create a new NvBufSurfaceGenerator from pre-built GStreamer caps.
+    /// Create a new DsNvSurfaceBufferGenerator from pre-built GStreamer caps.
     ///
     /// This is the advanced constructor for cases where you already have a
     /// `gst::Caps` instance. The caps must contain `format`, `width`, `height`,
@@ -255,8 +255,12 @@ impl NvBufSurfaceGenerator {
     ///
     /// The builder requires `format`, `width`, and `height`. All other
     /// parameters have sensible defaults.
-    pub fn builder(format: VideoFormat, width: u32, height: u32) -> NvBufSurfaceGeneratorBuilder {
-        NvBufSurfaceGeneratorBuilder {
+    pub fn builder(
+        format: VideoFormat,
+        width: u32,
+        height: u32,
+    ) -> DsNvSurfaceBufferGeneratorBuilder {
+        DsNvSurfaceBufferGeneratorBuilder {
             format,
             width,
             height,
@@ -284,7 +288,7 @@ impl NvBufSurfaceGenerator {
         min_buffers: u32,
         max_buffers: u32,
     ) -> Result<Self, NvBufSurfaceError> {
-        debug!("Creating NvBufSurfaceGenerator");
+        debug!("Creating DsNvSurfaceBufferGenerator");
 
         // Create DeepStream buffer pool
         let raw_pool = unsafe { ffi::gst_nvds_buffer_pool_new() };
@@ -344,7 +348,7 @@ impl NvBufSurfaceGenerator {
         pool.set_active(true)
             .map_err(|e| NvBufSurfaceError::PoolActivationFailed(e.to_string()))?;
 
-        debug!("NvBufSurfaceGenerator created successfully");
+        debug!("DsNvSurfaceBufferGenerator created successfully");
         Ok(Self {
             pool,
             format,
@@ -364,10 +368,10 @@ impl NvBufSurfaceGenerator {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use deepstream_nvbufsurface::{NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat};
+    /// # use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
     /// # use gstreamer::prelude::*;
     /// # gstreamer::init().unwrap();
-    /// let gen = NvBufSurfaceGenerator::new(
+    /// let gen = DsNvSurfaceBufferGenerator::new(
     ///     VideoFormat::NV12, 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
     /// ).unwrap();
     ///
@@ -871,12 +875,12 @@ impl NvBufSurfaceGenerator {
     }
 }
 
-impl Drop for NvBufSurfaceGenerator {
+impl Drop for DsNvSurfaceBufferGenerator {
     fn drop(&mut self) {
-        debug!("Destroying NvBufSurfaceGenerator");
+        debug!("Destroying DsNvSurfaceBufferGenerator");
         if let Err(e) = self.pool.set_active(false) {
             log::warn!("Failed to deactivate buffer pool on drop: {}", e);
         }
-        debug!("NvBufSurfaceGenerator destroyed");
+        debug!("DsNvSurfaceBufferGenerator destroyed");
     }
 }

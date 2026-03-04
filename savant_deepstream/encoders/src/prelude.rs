@@ -19,7 +19,7 @@ pub use savant_gstreamer::Codec;
 
 // NvBufSurface utilities (re-exported from deepstream_nvbufsurface)
 pub use deepstream_nvbufsurface::{
-    cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 };
 
 // Encoder properties — aggregate enum and all per-codec/platform structs

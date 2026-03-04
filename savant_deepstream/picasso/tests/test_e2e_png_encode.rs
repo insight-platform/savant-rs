@@ -123,7 +123,7 @@ fn render_png_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("png", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,

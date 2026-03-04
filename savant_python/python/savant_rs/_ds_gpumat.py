@@ -28,7 +28,7 @@ import cv2
 
 from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer,
-    NvBufSurfaceGenerator,
+    DsNvSurfaceBufferGenerator,
     get_nvbufsurface_info,
 )
 
@@ -173,7 +173,7 @@ def nvbuf_as_gpu_mat(
 
 
 def from_gpumat(
-    gen: NvBufSurfaceGenerator,
+    gen: DsNvSurfaceBufferGenerator,
     gpumat: cv2.cuda.GpuMat,
     *,
     interpolation: int = cv2.INTER_LINEAR,

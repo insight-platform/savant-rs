@@ -122,7 +122,7 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 ## GPU Affinity
 - `EncoderConfig.gpu_id` (default: 0) is the single source of truth per source
 - Propagates to: NvEncoder generators, SkiaRenderer, buffer pools
-- `NvBufSurfaceGenerator.gpu_id()` exposes the stored GPU ID
+- `DsNvSurfaceBufferGenerator.gpu_id()` exposes the stored GPU ID
 - `deepstream_nvbufsurface::buffer_gpu_id(buf)` extracts GPU ID from an NvBufSurface-backed buffer
 - `process_encode` checks buffer GPU vs encoder GPU at entry; returns `PicassoError::GpuMismatch` on mismatch
 - Check is fail-open: if `buffer_gpu_id` can't extract (e.g., non-NVMM stub buffer in tests), proceeds silently

@@ -73,7 +73,7 @@ fn e2e_frame_metadata_preservation() {
     };
     engine.set_source_spec("meta", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

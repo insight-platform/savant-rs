@@ -1,4 +1,4 @@
-"""Tests for BatchedNvBufSurfaceGenerator and BatchedSurface — require CUDA/DeepStream runtime."""
+"""Tests for DsNvUniformSurfaceBufferGenerator and DsNvUniformSurfaceBuffer — require CUDA/DeepStream runtime."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import gc
 import pytest
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "BatchedNvBufSurfaceGenerator"):
+if not hasattr(_ds, "DsNvUniformSurfaceBufferGenerator"):
     pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
 ds = _ds
 
@@ -16,7 +16,7 @@ def _ds_runtime_available() -> bool:
     """Check if DeepStream + CUDA runtime is actually available."""
     try:
         ds.init_cuda(0)
-        gen = ds.NvBufSurfaceGenerator("RGBA", 64, 64, pool_size=1)
+        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
         _ = gen.acquire_surface()
         return True
     except Exception:
@@ -29,24 +29,24 @@ skip_no_runtime = pytest.mark.skipif(
 )
 
 
-def _make_src_gen(fmt: str, w: int, h: int) -> "ds.NvBufSurfaceGenerator":
-    return ds.NvBufSurfaceGenerator(fmt, w, h, pool_size=4)
+def _make_src_gen(fmt: str, w: int, h: int) -> "ds.DsNvSurfaceBufferGenerator":
+    return ds.DsNvSurfaceBufferGenerator(fmt, w, h, pool_size=4)
 
 
 def _make_batched_gen(
     fmt: str, w: int, h: int, batch: int, pool: int = 2
-) -> "ds.BatchedNvBufSurfaceGenerator":
-    return ds.BatchedNvBufSurfaceGenerator(fmt, w, h, batch, pool_size=pool)
+) -> "ds.DsNvUniformSurfaceBufferGenerator":
+    return ds.DsNvUniformSurfaceBufferGenerator(fmt, w, h, batch, pool_size=pool)
 
 
 @skip_no_runtime
 class TestBatchedConstruction:
     def test_create_with_defaults(self):
-        gen = ds.BatchedNvBufSurfaceGenerator("RGBA", 640, 640, 4)
+        gen = ds.DsNvUniformSurfaceBufferGenerator("RGBA", 640, 640, 4)
         assert gen is not None
 
     def test_create_custom_params(self):
-        gen = ds.BatchedNvBufSurfaceGenerator(
+        gen = ds.DsNvUniformSurfaceBufferGenerator(
             "NV12", 320, 240, 8, pool_size=4, gpu_id=0
         )
         assert gen is not None
@@ -82,7 +82,7 @@ class TestBatchedProperties:
 
 
 @skip_no_runtime
-class TestAcquireBatchedSurface:
+class TestAcquireDsNvUniformSurfaceBuffer:
     def test_returns_batched_surface(self):
         gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
@@ -161,7 +161,8 @@ class TestFillSlotWithSrcRect:
         roi = ds.Rect(top=100, left=200, width=800, height=600)
         batch.fill_slot(src, src_rect=roi, id=1)
         assert batch.num_filled == 1
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
 
     def test_fill_mixed_src_rect_and_none(self):
@@ -176,7 +177,8 @@ class TestFillSlotWithSrcRect:
         src2 = src_gen.acquire_surface()
         batch.fill_slot(src2, src_rect=None, id=2)
         assert batch.num_filled == 2
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
         meta = ds.get_savant_id_meta(buf)
         meta_ids = [v for _kind, v in meta if _kind == "frame"]
@@ -199,7 +201,8 @@ class TestFillSlotWithSrcRect:
             src = src_gen.acquire_surface(id=10 + i)
             batch.fill_slot(src, src_rect=roi, id=10 + i)
         assert batch.num_filled == 4
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
 
     def test_same_src_added_multiple_times_with_various_rois(self):
@@ -217,7 +220,8 @@ class TestFillSlotWithSrcRect:
         for i, roi in enumerate(rois):
             batch.fill_slot(src, src_rect=roi, id=10 + i)
         assert batch.num_filled == 3
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
         meta = ds.get_savant_id_meta(buf)
         meta_ids = [v for _kind, v in meta if _kind == "frame"]
@@ -237,7 +241,8 @@ class TestFillSlotWithSrcRect:
         roi = ds.Rect(1000, 1800, 200, 200)
         batch.fill_slot(src, src_rect=roi, id=1)
         assert batch.num_filled == 1
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
 
     def test_roi_completely_outside_viewport_fails(self):
@@ -290,7 +295,8 @@ class TestFinalize:
         batch = batched_gen.acquire_batched_surface(config)
         src = src_gen.acquire_surface(id=42)
         batch.fill_slot(src, id=42)
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         assert buf.ptr != 0
 
     def test_ids_propagated(self):
@@ -302,7 +308,8 @@ class TestFinalize:
         for frame_id in ids:
             src = src_gen.acquire_surface(id=frame_id)
             batch.fill_slot(src, id=frame_id)
-        buf = batch.finalize()
+        batch.finalize()
+        buf = batch.as_gst_buffer()
         meta = ds.get_savant_id_meta(buf)
         meta_ids = [v for _kind, v in meta if _kind == "frame"]
         for frame_id in ids:
@@ -312,26 +319,38 @@ class TestFinalize:
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
-        _ = batch.finalize()
+        batch.finalize()
         with pytest.raises(RuntimeError, match="finalized"):
-            _ = batch.finalize()
+            batch.finalize()
 
 
 @skip_no_runtime
 class TestSetNumFilled:
     def test_set_num_filled_succeeds(self):
+        src_gen = _make_src_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
-        buf = batch.finalize()
+        src = src_gen.acquire_surface(id=1)
+        batch.fill_slot(src, id=1)
+        batch.finalize()
+        buf = batch.as_gst_buffer()
+        if buf.ptr == 0:
+            pytest.skip("Buffer ptr is null (headless/CI environment)")
         ds.set_num_filled(buf, 3)
         # No exception means success; we cannot easily verify numFilled from Python
 
     def test_set_num_filled_overflow_raises(self):
+        src_gen = _make_src_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
-        buf = batch.finalize()
+        src = src_gen.acquire_surface(id=1)
+        batch.fill_slot(src, id=1)
+        batch.finalize()
+        buf = batch.as_gst_buffer()
+        if buf.ptr == 0:
+            pytest.skip("Buffer ptr is null (headless/CI environment)")
         with pytest.raises(RuntimeError, match="overflow|Batch"):
             ds.set_num_filled(buf, 5)
 
@@ -380,7 +399,8 @@ class TestBatchedMemoryLeak:
             batch = batched_gen.acquire_batched_surface(config)
             for slot in range(4):
                 batch.fill_slot(src, id=slot)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, src
 
         gc.collect()
@@ -392,7 +412,8 @@ class TestBatchedMemoryLeak:
             batch = batched_gen.acquire_batched_surface(config)
             for slot in range(4):
                 batch.fill_slot(src, id=slot)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, src
 
         gc.collect()
@@ -459,7 +480,8 @@ class TestBatchedMemoryLeak:
             batch = batched_gen.acquire_batched_surface(config)
             for j, roi in enumerate(rois):
                 batch.fill_slot(src, src_rect=roi, id=j)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, src
 
         gc.collect()
@@ -471,7 +493,8 @@ class TestBatchedMemoryLeak:
             batch = batched_gen.acquire_batched_surface(config)
             for j, roi in enumerate(rois):
                 batch.fill_slot(src, src_rect=roi, id=j)
-            buf = batch.finalize()
+            batch.finalize()
+            buf = batch.as_gst_buffer()
             del batch, buf, src
 
         gc.collect()

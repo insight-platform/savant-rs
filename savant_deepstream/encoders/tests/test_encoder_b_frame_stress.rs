@@ -16,7 +16,7 @@
 //!
 //! Decoding and encoding are done **frame-by-frame** in lockstep.  Each
 //! decoded NVMM buffer is immediately copied into the encoder's pool via
-//! [`NvBufSurfaceGenerator::transform()`] and then **dropped** so the
+//! [`DsNvSurfaceBufferGenerator::transform()`] and then **dropped** so the
 //! decoder's output buffer pool is not exhausted (`nvv4l2decoder` typically
 //! has only 4-8 output buffers).  Encoded output is pulled after every
 //! submit to keep the encoder's internal pipeline (pool size = 1) flowing.

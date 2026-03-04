@@ -13,7 +13,7 @@
 //!   than the previous frame's PTS. The encoder raises an error on
 //!   reordering.
 //! - **Integrated buffer management**: The encoder owns an
-//!   [`NvBufSurfaceGenerator`](deepstream_nvbufsurface::NvBufSurfaceGenerator)
+//!   [`DsNvSurfaceBufferGenerator`](deepstream_nvbufsurface::DsNvSurfaceBufferGenerator)
 //!   that provides NVMM GPU buffers for zero-copy rendering.
 //! - **Typed encoder properties**: Codec and platform-specific property
 //!   structs replace untyped string key-value pairs.  See the
@@ -59,7 +59,7 @@ pub use error::EncoderError;
 
 // Re-export commonly used items from deepstream_nvbufsurface.
 pub use deepstream_nvbufsurface::{
-    cuda_init, NvBufSurfaceGenerator, NvBufSurfaceMemType, VideoFormat,
+    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 };
 
 // Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.

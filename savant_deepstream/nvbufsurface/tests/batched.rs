@@ -1,15 +1,15 @@
-//! Integration tests for [`BatchedNvBufSurfaceGenerator`] and [`BatchedSurface`].
+//! Integration tests for [`DsNvUniformSurfaceBufferGenerator`] and [`DsNvUniformSurfaceBuffer`].
 
 mod common;
 
 use deepstream_nvbufsurface::{
-    extract_nvbufsurface, set_num_filled, BatchedNvBufSurfaceGenerator, NvBufSurfaceGenerator,
-    NvBufSurfaceMemType, Padding, Rect, SavantIdMeta, SavantIdMetaKind, TransformConfig,
-    VideoFormat,
+    extract_nvbufsurface, set_num_filled, DsNvSurfaceBufferGenerator,
+    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, Padding, Rect, SavantIdMeta,
+    SavantIdMetaKind, TransformConfig, VideoFormat,
 };
 
-fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> NvBufSurfaceGenerator {
-    NvBufSurfaceGenerator::builder(format, w, h)
+fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerator {
+    DsNvSurfaceBufferGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(4)
@@ -24,12 +24,20 @@ fn make_batched_gen(
     h: u32,
     batch: u32,
     pool: u32,
-) -> BatchedNvBufSurfaceGenerator {
-    BatchedNvBufSurfaceGenerator::new(format, w, h, batch, pool, 0, NvBufSurfaceMemType::Default)
-        .expect("failed to build batched generator")
+) -> DsNvUniformSurfaceBufferGenerator {
+    DsNvUniformSurfaceBufferGenerator::new(
+        format,
+        w,
+        h,
+        batch,
+        pool,
+        0,
+        NvBufSurfaceMemType::Default,
+    )
+    .expect("failed to build batched generator")
 }
 
-// ─── Unit: BatchedNvBufSurfaceGenerator construction ─────────────────────────
+// ─── Unit: DsNvUniformSurfaceBufferGenerator construction ─────────────────────────
 
 #[test]
 fn test_create_batched_generator() {
@@ -40,7 +48,7 @@ fn test_create_batched_generator() {
 #[test]
 fn test_batched_generator_builder() {
     common::init();
-    let _gen = BatchedNvBufSurfaceGenerator::builder(VideoFormat::RGBA, 640, 640, 4)
+    let _gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, 640, 640, 4)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
@@ -58,20 +66,22 @@ fn test_batched_generator_batch_size_1() {
     assert_eq!(batch.max_batch_size(), 1);
 }
 
-// ─── Unit: BatchedSurface acquisition and slot access ────────────────────────
+// ─── Unit: DsNvUniformSurfaceBuffer acquisition and slot access ────────────────────────
 
 #[test]
 fn test_acquire_batched_surface() {
     common::init();
     let gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
     let config = TransformConfig::default();
-    let batch = gen.acquire_batched_surface(config).unwrap();
+    let mut batch = gen.acquire_batched_surface(config).unwrap();
 
     assert_eq!(batch.max_batch_size(), 4);
     assert_eq!(batch.num_filled(), 0);
 
-    let surf_ptr =
-        unsafe { extract_nvbufsurface(batch.buffer().as_ref()).expect("extract should work") };
+    batch.finalize().unwrap();
+    let surf_ptr = unsafe {
+        extract_nvbufsurface(batch.as_gst_buffer().unwrap().as_ref()).expect("extract should work")
+    };
     let surface = unsafe { &*surf_ptr };
     assert_eq!(surface.batchSize, 4);
     assert_eq!(surface.numFilled, 0);
@@ -132,7 +142,8 @@ fn test_fill_all_slots() {
     }
 
     assert_eq!(batch.num_filled(), 4);
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 4);
@@ -165,7 +176,8 @@ fn test_fill_partial_batch() {
         batch.fill_slot(&src, None, Some(id)).unwrap();
     }
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 3);
@@ -186,7 +198,8 @@ fn test_fill_single_slot() {
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(42)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
 
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 1);
@@ -216,7 +229,8 @@ fn test_fill_with_src_roi() {
     };
     batch.fill_slot(&src, Some(&roi), Some(1)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     assert!(buffer.size() > 0);
 }
 
@@ -232,7 +246,8 @@ fn test_fill_with_no_roi() {
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(1)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     assert!(buffer.size() > 0);
 }
 
@@ -251,7 +266,8 @@ fn test_fill_different_source_resolutions() {
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 3);
 }
@@ -268,7 +284,8 @@ fn test_fill_nv12_to_rgba() {
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(1)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     assert!(buffer.size() > 0);
 }
 
@@ -299,9 +316,10 @@ fn test_finalize_empty_batch() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
 
     let config = TransformConfig::default();
-    let batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
     assert_eq!(unsafe { (*surf_ptr).numFilled }, 0);
 
@@ -322,14 +340,16 @@ fn test_fill_reuse_after_finalize() {
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(1)).unwrap();
-    let _buf1 = batch.finalize();
+    batch.finalize().unwrap();
+    let _buf1 = batch.as_gst_buffer().unwrap();
 
     // Second batch from the same generator
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(2)).unwrap();
-    let buf2 = batch.finalize();
+    batch.finalize().unwrap();
+    let buf2 = batch.as_gst_buffer().unwrap();
 
     let meta = buf2.meta::<SavantIdMeta>().unwrap();
     assert_eq!(meta.ids(), &[SavantIdMetaKind::Frame(2)]);
@@ -351,7 +371,8 @@ fn test_explicit_ids_in_order() {
         batch.fill_slot(&src, None, Some(id)).unwrap();
     }
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let meta = buffer.meta::<SavantIdMeta>().unwrap();
     assert_eq!(
         meta.ids(),
@@ -375,7 +396,8 @@ fn test_auto_propagate_id_from_source() {
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
     batch.fill_slot(&src, None, None).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let meta = buffer.meta::<SavantIdMeta>().unwrap();
     assert_eq!(meta.ids(), &[SavantIdMetaKind::Frame(42)]);
 }
@@ -401,7 +423,8 @@ fn test_mixed_explicit_and_none_ids() {
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(3)).unwrap();
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     let meta = buffer.meta::<SavantIdMeta>().unwrap();
     assert_eq!(
         meta.ids(),
@@ -423,7 +446,8 @@ fn test_no_ids_at_all() {
         batch.fill_slot(&src, None, None).unwrap();
     }
 
-    let buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let buffer = batch.as_gst_buffer().unwrap();
     assert!(
         buffer.meta::<SavantIdMeta>().is_none(),
         "no IDs provided → no SavantIdMeta"
@@ -438,10 +462,11 @@ fn test_set_num_filled_standalone() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
 
     let config = TransformConfig::default();
-    let batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
+    batch.finalize().unwrap();
     // Manually set num_filled via the standalone function
-    let mut buffer = batch.finalize();
+    let mut buffer = batch.as_gst_buffer().unwrap();
     set_num_filled(buffer.make_mut(), 3).expect("set_num_filled should succeed");
 
     let surf_ptr = unsafe { extract_nvbufsurface(buffer.as_ref()).unwrap() };
@@ -454,9 +479,10 @@ fn test_set_num_filled_overflow() {
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
 
     let config = TransformConfig::default();
-    let batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
-    let mut buffer = batch.finalize();
+    batch.finalize().unwrap();
+    let mut buffer = batch.as_gst_buffer().unwrap();
     let result = set_num_filled(buffer.make_mut(), 5);
     assert!(
         result.is_err(),
