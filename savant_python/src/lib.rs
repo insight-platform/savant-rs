@@ -85,14 +85,14 @@ pub fn gstreamer(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pymodule(gil_used = false)]
 pub fn deepstream(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "deepstream")]
-    savant_core_py::deepstream::register_classes(m)?;
+    savant_core_py::deepstream::register_classes(_m)?;
     Ok(())
 }
 
 #[pymodule(gil_used = false)]
 pub fn picasso(_py: Python, _m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "deepstream")]
-    savant_core_py::picasso::register_classes(m)?;
+    savant_core_py::picasso::register_classes(_m)?;
     Ok(())
 }
 
