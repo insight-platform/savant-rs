@@ -36,6 +36,8 @@ __all__ = [
     "set_buffer_pts",
     "set_buffer_duration",
     "release_buffer",
+    "GpuMatCudaArray",
+    "make_gpu_mat",
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
@@ -926,6 +928,26 @@ class SkiaCanvas:
         ...
 
 # ── GpuMat helpers ──────────────────────────────────────────────────────
+
+
+class GpuMatCudaArray:
+    """Exposes ``__cuda_array_interface__`` (v3) for a ``cv2.cuda.GpuMat``.
+
+    OpenCV's ``GpuMat`` does not implement the protocol natively; this
+    wrapper bridges it to consumers like Picasso ``send_frame``.
+
+    Only ``CV_8UC1`` (GRAY8) and ``CV_8UC4`` (RGBA) mats are supported.
+    """
+
+    __slots__ = ("_mat", "__cuda_array_interface__")
+
+    def __init__(self, mat: cv2.cuda.GpuMat) -> None: ...
+
+
+def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
+    """Allocate a zero-initialised ``cv2.cuda.GpuMat`` of the given size."""
+    ...
+
 
 @contextmanager
 def nvgstbuf_as_gpu_mat(

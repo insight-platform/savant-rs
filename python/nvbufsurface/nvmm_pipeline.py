@@ -42,9 +42,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from savant_rs.deepstream import VideoFormat  # noqa: E402
+from savant_rs.deepstream import (  # noqa: E402
+    GpuMatCudaArray,
+    VideoFormat,
+    make_gpu_mat,
+)
 
-from common import GpuMatCudaArray, PicassoSession, add_common_args, make_gpu_mat
+from common import PicassoSession, add_common_args
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +69,7 @@ def main() -> None:
     i = 0
     while i < session.limit and session.is_running:
         mat = make_gpu_mat(args.width, args.height)
-        mat.setTo((20, 20, 28, 255))
+        # mat.setTo((20, 20, 28, 255))
         cuda_frame = GpuMatCudaArray(mat)
 
         pts_ns = i * session.frame_duration_ns

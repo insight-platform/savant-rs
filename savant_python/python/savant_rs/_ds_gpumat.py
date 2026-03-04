@@ -12,6 +12,11 @@ Two context managers for different call sites:
 - :func:`nvbuf_as_gpu_mat` — takes raw CUDA params ``(data_ptr, pitch,
   width, height)`` directly.  Use inside the ``on_gpumat`` callback which
   already provides these values.
+
+- :class:`GpuMatCudaArray` — exposes ``__cuda_array_interface__`` (v3) for a
+  ``cv2.cuda.GpuMat``, bridging it to consumers like Picasso ``send_frame``.
+
+- :func:`make_gpu_mat` — allocates a zero-initialised ``GpuMat``.
 """
 
 from __future__ import annotations
@@ -22,6 +27,71 @@ from typing import Generator, Union
 import cv2
 
 from savant_rs.deepstream import GstBuffer, NvBufSurfaceGenerator, get_nvbufsurface_info
+
+
+# ---------------------------------------------------------------------------
+# GpuMat ↔ __cuda_array_interface__ wrapper
+# ---------------------------------------------------------------------------
+
+
+class GpuMatCudaArray:
+    """Exposes ``__cuda_array_interface__`` (v3) for a ``cv2.cuda.GpuMat``.
+
+    OpenCV's ``GpuMat`` does not implement the protocol natively, so this
+    thin wrapper bridges it to any consumer that expects the interface
+    (CuPy, ``SurfaceView.from_cuda_array``, Picasso ``send_frame``, etc.).
+
+    Only ``CV_8UC1`` (GRAY8) and ``CV_8UC4`` (RGBA) mats are supported.
+
+    The wrapper keeps a reference to the source mat so the underlying
+    device memory stays alive for as long as this object exists.
+    """
+
+    __slots__ = ("_mat", "__cuda_array_interface__")
+
+    def __init__(self, mat: cv2.cuda.GpuMat) -> None:
+        depth = mat.depth()
+        if depth != cv2.CV_8U:
+            raise ValueError(
+                f"unsupported GpuMat depth {depth}; only CV_8U is supported"
+            )
+        channels = mat.channels()
+        if channels not in (1, 4):
+            raise ValueError(
+                f"unsupported channel count {channels}; expected 1 (GRAY8) or 4 (RGBA)"
+            )
+
+        cols, rows = mat.size()
+        self._mat = mat
+        shape: tuple[int, ...] = (
+            (rows, cols, channels) if channels > 1 else (rows, cols)
+        )
+        strides: tuple[int, ...] = (
+            (mat.step, channels, 1) if channels > 1 else (mat.step, 1)
+        )
+        self.__cuda_array_interface__ = {
+            "shape": shape,
+            "typestr": "|u1",
+            "descr": [("", "|u1")],
+            "data": (mat.cudaPtr(), False),
+            "strides": strides,
+            "version": 3,
+        }
+
+
+def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
+    """Allocate a ``cv2.cuda.GpuMat`` of the given size.
+
+    Returns:
+        A zero-initialised ``GpuMat`` with ``CV_8UC<channels>`` type.
+    """
+    cv_type = {1: cv2.CV_8UC1, 4: cv2.CV_8UC4}[channels]
+    return cv2.cuda.GpuMat(height, width, cv_type)
+
+
+# ---------------------------------------------------------------------------
+# NvBufSurface ↔ GpuMat context managers
+# ---------------------------------------------------------------------------
 
 _RGBA_CV_TYPE = cv2.CV_8UC4
 

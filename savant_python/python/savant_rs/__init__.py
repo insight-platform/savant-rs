@@ -17,11 +17,15 @@ _ds = _sys.modules.get("savant_rs.deepstream")
 if _ds is not None:
     try:
         from savant_rs._ds_gpumat import (
+            GpuMatCudaArray,
             from_gpumat,
+            make_gpu_mat,
             nvbuf_as_gpu_mat,
             nvgstbuf_as_gpu_mat,
         )
 
+        _ds.GpuMatCudaArray = GpuMatCudaArray
+        _ds.make_gpu_mat = make_gpu_mat
         _ds.nvgstbuf_as_gpu_mat = nvgstbuf_as_gpu_mat
         _ds.nvbuf_as_gpu_mat = nvbuf_as_gpu_mat
         _ds.from_gpumat = from_gpumat

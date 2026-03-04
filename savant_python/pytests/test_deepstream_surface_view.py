@@ -50,38 +50,8 @@ skip_no_cv2_cuda = pytest.mark.skipif(
 skip_no_cupy = pytest.mark.skipif(not _has_cupy(), reason="CuPy not available")
 
 
-# ---------------------------------------------------------------------------
-# GpuMatCudaArray wrapper (mirrors python/nvbufsurface/common.py)
-# ---------------------------------------------------------------------------
-
-
-class GpuMatCudaArray:
-    """Provides ``__cuda_array_interface__`` for ``cv2.cuda.GpuMat``."""
-
-    __slots__ = ("_mat", "__cuda_array_interface__")
-
-    def __init__(self, mat):
-        import cv2
-
-        depth = mat.depth()
-        if depth != cv2.CV_8U:
-            raise ValueError(f"unsupported depth {depth}")
-        channels = mat.channels()
-        if channels not in (1, 4):
-            raise ValueError(f"unsupported channels {channels}")
-
-        cols, rows = mat.size()
-        self._mat = mat
-        shape = (rows, cols, channels) if channels > 1 else (rows, cols)
-        strides = (mat.step, channels, 1) if channels > 1 else (mat.step, 1)
-        self.__cuda_array_interface__ = {
-            "shape": shape,
-            "typestr": "|u1",
-            "descr": [("", "|u1")],
-            "data": (mat.cudaPtr(), False),
-            "strides": strides,
-            "version": 3,
-        }
+# GpuMatCudaArray is injected from savant_rs._ds_gpumat into savant_rs.deepstream
+# Use ds.GpuMatCudaArray in tests; skip_no_cv2_cuda ensures cv2 is available for injection.
 
 
 # ===========================================================================
@@ -143,7 +113,7 @@ class TestSurfaceViewFromGpuMat:
 
         mat = cv2.cuda.GpuMat(480, 640, cv2.CV_8UC4)
         mat.setTo((10, 20, 30, 255))
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
 
         view = ds.SurfaceView.from_cuda_array(wrapper, gpu_id=0)
         assert view.width == 640
@@ -156,7 +126,7 @@ class TestSurfaceViewFromGpuMat:
         import cv2
 
         mat = cv2.cuda.GpuMat(100, 200, cv2.CV_8UC1)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
 
         view = ds.SurfaceView.from_cuda_array(wrapper, gpu_id=0)
         assert view.width == 200
@@ -168,7 +138,7 @@ class TestSurfaceViewFromGpuMat:
         import cv2
 
         mat = cv2.cuda.GpuMat(240, 320, cv2.CV_8UC4)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
         view = ds.SurfaceView.from_cuda_array(wrapper, gpu_id=0)
 
         iface = view.__cuda_array_interface__
@@ -181,7 +151,7 @@ class TestSurfaceViewFromGpuMat:
 
         mat = cv2.cuda.GpuMat(100, 100, cv2.CV_8UC3)
         with pytest.raises(ValueError, match="unsupported channel"):
-            GpuMatCudaArray(mat)
+            ds.GpuMatCudaArray(mat)
 
 
 # ===========================================================================
@@ -256,7 +226,7 @@ class TestGpuMatCudaArrayWrapper:
         import cv2
 
         mat = cv2.cuda.GpuMat(480, 640, cv2.CV_8UC4)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
         iface = wrapper.__cuda_array_interface__
         assert iface["shape"] == (480, 640, 4)
         assert iface["typestr"] == "|u1"
@@ -266,7 +236,7 @@ class TestGpuMatCudaArrayWrapper:
         import cv2
 
         mat = cv2.cuda.GpuMat(100, 200, cv2.CV_8UC1)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
         iface = wrapper.__cuda_array_interface__
         assert iface["shape"] == (100, 200)
 
@@ -274,7 +244,7 @@ class TestGpuMatCudaArrayWrapper:
         import cv2
 
         mat = cv2.cuda.GpuMat(240, 320, cv2.CV_8UC4)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
         iface = wrapper.__cuda_array_interface__
         row_stride, pixel_stride, channel_stride = iface["strides"]
         assert row_stride == mat.step
@@ -285,7 +255,7 @@ class TestGpuMatCudaArrayWrapper:
         import cv2
 
         mat = cv2.cuda.GpuMat(64, 64, cv2.CV_8UC4)
-        wrapper = GpuMatCudaArray(mat)
+        wrapper = ds.GpuMatCudaArray(mat)
         data_ptr, readonly = wrapper.__cuda_array_interface__["data"]
         assert data_ptr == mat.cudaPtr()
         assert readonly is False
@@ -295,4 +265,4 @@ class TestGpuMatCudaArrayWrapper:
 
         mat = cv2.cuda.GpuMat(64, 64, cv2.CV_32FC4)
         with pytest.raises(ValueError, match="unsupported.*depth"):
-            GpuMatCudaArray(mat)
+            ds.GpuMatCudaArray(mat)
