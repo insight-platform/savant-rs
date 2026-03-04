@@ -143,11 +143,8 @@ impl SidecarNvInfer {
                     log::error!("appsink pull_sample error: {:?}", e);
                     gst::FlowError::Error
                 })?;
-                let batch_id = sample
-                    .buffer()
-                    .and_then(|b| b.pts())
-                    .map(|t| t.nseconds())
-                    .unwrap_or(0);
+                let batch_id_opt = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
+                let batch_id = batch_id_opt.unwrap_or(0);
 
                 let output = extract_batch_output(sample, batch_id).map_err(|e| {
                     log::error!("extract_batch_output error: {:?}", e);
@@ -155,15 +152,24 @@ impl SidecarNvInfer {
                 })?;
 
                 // If infer_sync is waiting for this batch_id, deliver there;
-                // otherwise invoke the user callback.  The sync_tx lock is
-                // released before the callback runs so that concurrent
-                // infer_sync callers (or a callback that itself calls
-                // infer_sync) never deadlock on the non-reentrant Mutex.
-                let sync_sender = delivery_clone.sync_tx.lock().unwrap().remove(&batch_id);
+                // otherwise invoke the user callback.  Only attempt sync delivery
+                // when PTS survived the round-trip (batch_id_opt.is_some()), so we
+                // have a reliable batch_id.  When PTS is None we cannot know which
+                // sync waiter (if any) owns this result, so we fall back to the
+                // user callback to avoid misdelivery.
+                let sync_sender =
+                    batch_id_opt.and_then(|id| delivery_clone.sync_tx.lock().unwrap().remove(&id));
                 if let Some(tx) = sync_sender {
                     let _ = tx.send(output);
-                } else if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
-                    cb(output);
+                } else {
+                    if batch_id_opt.is_none() {
+                        log::warn!(
+                            "Buffer PTS is None; cannot determine batch_id, routing to callback"
+                        );
+                    }
+                    if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
+                        cb(output);
+                    }
                 }
                 Ok(gst::FlowSuccess::Ok)
             })
@@ -190,7 +196,15 @@ impl SidecarNvInfer {
     }
 
     /// Submit a batched buffer for inference. batch_id is user-chosen.
+    ///
+    /// `batch_id` must not be `u64::MAX` because that value maps to
+    /// `GST_CLOCK_TIME_NONE` and cannot survive a PTS round-trip.
     pub fn submit(&self, mut batch: gst::Buffer, batch_id: u64) -> Result<()> {
+        if batch_id == u64::MAX {
+            return Err(SidecarError::PipelineError(
+                "batch_id must not be u64::MAX (reserved as GST_CLOCK_TIME_NONE)".into(),
+            ));
+        }
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
         attach_batch_meta(
             batch
@@ -217,18 +231,34 @@ impl SidecarNvInfer {
     /// Synchronous inference (ignores callback, returns output directly).
     pub fn infer_sync(&self, batch: gst::Buffer, batch_id: u64) -> Result<BatchInferenceOutput> {
         let (tx, rx) = mpsc::channel();
-        self.delivery.sync_tx.lock().unwrap().insert(batch_id, tx);
+        {
+            let mut sync_map = self.delivery.sync_tx.lock().unwrap();
+            if sync_map.contains_key(&batch_id) {
+                return Err(SidecarError::PipelineError(format!(
+                    "batch_id {} is already in use by another infer_sync caller",
+                    batch_id
+                )));
+            }
+            sync_map.insert(batch_id, tx);
+        }
         if let Err(e) = self.submit(batch, batch_id) {
             self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
             return Err(e);
         }
         match rx.recv_timeout(std::time::Duration::from_secs(30)) {
             Ok(output) => Ok(output),
-            Err(e) => {
+            Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
                 Err(SidecarError::PipelineError(format!(
-                    "infer_sync timeout: {:?}",
-                    e
+                    "infer_sync timed out after 30s for batch_id {}",
+                    batch_id
+                )))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
+                Err(SidecarError::PipelineError(format!(
+                    "infer_sync channel disconnected for batch_id {}",
+                    batch_id
                 )))
             }
         }

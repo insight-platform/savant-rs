@@ -292,9 +292,8 @@ impl BatchedNvBufSurfaceGenerator {
                 NvBufSurfaceError::BufferAcquisitionFailed(format!("Failed to map buffer: {:?}", e))
             })?;
             let data = map.as_mut_slice();
-            if data.len() >= 12 {
-                data[8..12].copy_from_slice(&0u32.to_ne_bytes());
-            }
+            let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
+            surf.numFilled = 0;
         }
 
         Ok(BatchedSurface {
@@ -452,7 +451,8 @@ impl BatchedSurface {
             let buf_ref = self.buffer.make_mut();
             let mut map = buf_ref.map_writable().expect("finalize: map failed");
             let data = map.as_mut_slice();
-            data[8..12].copy_from_slice(&self.num_filled.to_ne_bytes());
+            let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
+            surf.numFilled = self.num_filled;
         }
 
         let ids: Vec<SavantIdMetaKind> = self.ids.into_iter().flatten().collect();
@@ -493,12 +493,12 @@ pub fn set_num_filled(buffer: &mut gst::BufferRef, count: u32) -> Result<(), NvB
             "Buffer too small for NvBufSurface".into(),
         ));
     }
-    let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
+    let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
     if count > surf.batchSize {
         return Err(NvBufSurfaceError::BatchOverflow {
             max: surf.batchSize,
         });
     }
-    data[8..12].copy_from_slice(&count.to_ne_bytes());
+    surf.numFilled = count;
     Ok(())
 }

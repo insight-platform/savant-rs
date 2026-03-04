@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """NVMM encoding pipeline example using the Picasso engine.
 
-Pushes NVMM frames through the Picasso rendering/encoding pipeline as
-fast as possible, printing throughput statistics every second.  Optionally
-muxes the encoded bitstream into an MP4 container via a minimal GStreamer
-pipeline.
+Allocates ``cv2.cuda.GpuMat`` frames, fills them with a solid colour,
+and submits them to Picasso via ``__cuda_array_interface__``.  This
+demonstrates the zero-copy path where plain CUDA memory (no
+NvBufSurface) is handed directly to the encoder.
 
 The Picasso engine handles all encoding internals (encoder creation,
 format conversion, PTS validation).  The sample only needs to:
 
 1. Configure and create a :class:`PicassoSession`.
-2. Acquire GPU buffers, submit them to the engine.
+2. Allocate a ``GpuMat``, draw into it, wrap with
+   :class:`GpuMatCudaArray`, and submit.
 3. (Encoded frames are delivered asynchronously via callback and
    optionally pushed into the muxer.)
 
@@ -43,7 +44,7 @@ import sys
 
 from savant_rs.deepstream import VideoFormat  # noqa: E402
 
-from common import PicassoSession, add_common_args
+from common import GpuMatCudaArray, PicassoSession, add_common_args, make_gpu_mat
 
 
 # ---------------------------------------------------------------------------
@@ -53,21 +54,25 @@ from common import PicassoSession, add_common_args
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="NVMM encoding pipeline (Picasso engine)"
+        description="NVMM encoding pipeline (Picasso engine, GpuMat source)"
     )
     add_common_args(parser)
     args = parser.parse_args()
 
-    session = PicassoSession(args, video_format=VideoFormat.RGBA)
+    session = PicassoSession(args, video_format=VideoFormat.RGBA, use_generator=False)
+
+    mat = make_gpu_mat(args.width, args.height)
 
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
+        mat.setTo((20, 20, 28, 255))
+        cuda_frame = GpuMatCudaArray(mat)
+
         pts_ns = i * session.frame_duration_ns
         try:
-            view = session.acquire_surface_view(frame_id=i)
             session.submit(
-                view,
+                cuda_frame,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

@@ -14,6 +14,7 @@ import threading
 import time
 from typing import Any, Callable
 
+import cv2
 import gi
 
 gi.require_version("Gst", "1.0")
@@ -142,6 +143,66 @@ def build_encoder_properties(
 
 
 # ---------------------------------------------------------------------------
+# GpuMat ↔ __cuda_array_interface__ wrapper
+# ---------------------------------------------------------------------------
+
+
+class GpuMatCudaArray:
+    """Exposes ``__cuda_array_interface__`` (v3) for a ``cv2.cuda.GpuMat``.
+
+    OpenCV's ``GpuMat`` does not implement the protocol natively, so this
+    thin wrapper bridges it to any consumer that expects the interface
+    (CuPy, ``SurfaceView.from_cuda_array``, Picasso ``send_frame``, etc.).
+
+    Only ``CV_8UC1`` (GRAY8) and ``CV_8UC4`` (RGBA) mats are supported.
+
+    The wrapper keeps a reference to the source mat so the underlying
+    device memory stays alive for as long as this object exists.
+    """
+
+    __slots__ = ("_mat", "__cuda_array_interface__")
+
+    def __init__(self, mat: cv2.cuda.GpuMat) -> None:
+        depth = mat.depth()
+        if depth != cv2.CV_8U:
+            raise ValueError(
+                f"unsupported GpuMat depth {depth}; only CV_8U is supported"
+            )
+        channels = mat.channels()
+        if channels not in (1, 4):
+            raise ValueError(
+                f"unsupported channel count {channels}; expected 1 (GRAY8) or 4 (RGBA)"
+            )
+
+        cols, rows = mat.size()
+        self._mat = mat
+        shape: tuple[int, ...] = (
+            (rows, cols, channels) if channels > 1 else (rows, cols)
+        )
+        strides: tuple[int, ...] = (
+            (mat.step, channels, 1) if channels > 1 else (mat.step, 1)
+        )
+        self.__cuda_array_interface__ = {
+            "shape": shape,
+            "typestr": "|u1",
+            "descr": [("", "|u1")],
+            "data": (mat.cudaPtr(), False),
+            "strides": strides,
+            "version": 3,
+        }
+
+
+def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
+    """Allocate a ``cv2.cuda.GpuMat`` of the given size.
+
+    Returns:
+        A zero-initialised ``GpuMat`` with ``CV_8UC<channels>`` type.
+    """
+    cv_type = {1: cv2.CV_8UC1, 4: cv2.CV_8UC4}[channels]
+    return cv2.cuda.GpuMat(height, width, cv_type)
+
+
+# ---------------------------------------------------------------------------
 # Common CLI arguments
 # ---------------------------------------------------------------------------
 
@@ -211,14 +272,28 @@ class PicassoSession:
     The corresponding ``use_on_gpumat`` / ``use_on_render`` flags on the
     ``SourceSpec`` are set automatically when a callback is provided.
 
-    Usage::
+    Usage with NvBufSurface buffers::
 
         session = PicassoSession(args, video_format=VideoFormat.RGBA,
                                  on_gpumat=my_draw_callback)
 
         while session.is_running and i < session.limit:
-            buf = session.acquire_surface(frame_id=i)  # GstBuffer guard
-            session.submit(buf, pts_ns=pts_ns,
+            view = session.acquire_surface_view(frame_id=i)
+            session.submit(view, pts_ns=pts_ns,
+                           duration_ns=session.frame_duration_ns)
+            i += 1
+
+        session.shutdown()
+
+    Usage with ``cv2.cuda.GpuMat`` via ``__cuda_array_interface__``::
+
+        session = PicassoSession(args, video_format=VideoFormat.RGBA,
+                                 use_generator=False)
+        mat = make_gpu_mat(args.width, args.height)
+
+        while session.is_running and i < session.limit:
+            mat.setTo((0, 0, 0, 255))  # draw content
+            session.submit(GpuMatCudaArray(mat), pts_ns=...,
                            duration_ns=session.frame_duration_ns)
             i += 1
 
@@ -233,6 +308,7 @@ class PicassoSession:
         on_gpumat: Callable[..., Any] | None = None,
         on_render: Callable[..., Any] | None = None,
         draw: object | None = None,
+        use_generator: bool = True,
     ) -> None:
         # -- GStreamer + CUDA init (idempotent) --------------------------------
         init_gst_and_cuda(args.gpu_id)
@@ -265,9 +341,11 @@ class PicassoSession:
         print(f"Encoder properties: {enc_props}")
 
         # -- NvBufSurface generator for buffer acquisition ---------------------
-        self._generator = NvBufSurfaceGenerator(
-            video_format, self._width, self._height, self._fps, 1, args.gpu_id
-        )
+        self._generator: NvBufSurfaceGenerator | None = None
+        if use_generator:
+            self._generator = NvBufSurfaceGenerator(
+                video_format, self._width, self._height, self._fps, 1, args.gpu_id
+            )
 
         # -- Ctrl-C handler ----------------------------------------------------
         self._running = True
@@ -359,10 +437,12 @@ class PicassoSession:
         perform GPU operations on the buffer (e.g. ``nvgstbuf_as_gpu_mat``,
         ``nvbuf_as_gpu_mat``) before submitting it to the engine.
 
-        For the simplest acquire-and-submit workflow, prefer
-        :meth:`acquire_surface_view` which returns a ``SurfaceView``
-        ready for :meth:`send_frame`.
+        Requires ``use_generator=True`` (the default).
         """
+        if self._generator is None:
+            raise RuntimeError(
+                "NvBufSurfaceGenerator was not created (use_generator=False)"
+            )
         return self._generator.acquire_surface(id=frame_id)
 
     def acquire_surface_view(self, *, frame_id: int) -> SurfaceView:
@@ -371,8 +451,10 @@ class PicassoSession:
         The returned ``SurfaceView`` caches surface parameters (data
         pointer, pitch, width, height, GPU ID) and can be passed directly
         to :meth:`send_frame` or :meth:`submit`.
+
+        Requires ``use_generator=True`` (the default).
         """
-        buf = self._generator.acquire_surface(id=frame_id)
+        buf = self.acquire_surface(frame_id=frame_id)
         return SurfaceView.from_buffer(buf, 0)
 
     def make_frame(
@@ -399,11 +481,14 @@ class PicassoSession:
             frame.duration = duration_ns
         return frame
 
-    def send_frame(self, frame: VideoFrame, buf: SurfaceView | GstBuffer | int) -> None:
+    def send_frame(
+        self, frame: VideoFrame, buf: SurfaceView | GstBuffer | int | Any
+    ) -> None:
         """Submit a pre-built :class:`VideoFrame` to the Picasso engine.
 
-        *buf* may be a ``SurfaceView`` (preferred), a ``GstBuffer`` guard,
-        or a raw ``GstBuffer*`` pointer as ``int`` (legacy).
+        *buf* may be a ``SurfaceView``, a ``GstBuffer`` guard,
+        a raw ``GstBuffer*`` pointer as ``int``, or any object exposing
+        ``__cuda_array_interface__`` (e.g. ``GpuMatCudaArray``).
         """
         self._engine.send_frame(SOURCE_ID, frame, buf)
         with self._lock:
@@ -411,7 +496,7 @@ class PicassoSession:
 
     def submit(
         self,
-        buf: SurfaceView | GstBuffer | int,
+        buf: SurfaceView | GstBuffer | int | Any,
         *,
         pts_ns: int,
         duration_ns: int | None = None,

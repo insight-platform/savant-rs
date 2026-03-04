@@ -7,6 +7,26 @@ use glib::translate::from_glib_none;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
 
+/// Extracts the GPU device ID from a CuPy array or PyTorch CUDA tensor.
+///
+/// CuPy exposes `obj.device.id`; PyTorch exposes `obj.device.index`.
+/// Returns 0 if the device cannot be determined.
+fn extract_cuda_gpu_id(obj: &Bound<'_, PyAny>) -> u32 {
+    if let Ok(device) = obj.getattr("device") {
+        // CuPy: device.id
+        if let Ok(id) = device.getattr("id").and_then(|v| v.extract::<u32>()) {
+            return id;
+        }
+        // PyTorch: device.index
+        if let Ok(idx) = device.getattr("index") {
+            if let Ok(id) = idx.extract::<u32>() {
+                return id;
+            }
+        }
+    }
+    0
+}
+
 /// The main entry point for the Picasso frame-processing pipeline.
 ///
 /// Manages per-source worker threads, a watchdog for idle-source eviction,
@@ -105,7 +125,8 @@ impl PyPicassoEngine {
                     .map_err(to_py_err)
             })
         } else if buf.hasattr("__cuda_array_interface__")? {
-            let mut py_sv = PySurfaceView::from_cuda_iface(py, buf.clone(), 0)?;
+            let gpu_id = extract_cuda_gpu_id(buf);
+            let mut py_sv = PySurfaceView::from_cuda_iface(py, buf.clone(), gpu_id)?;
             let view = py_sv.take()?;
             py.detach(|| {
                 engine

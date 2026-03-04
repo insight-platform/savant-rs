@@ -63,32 +63,39 @@ unsafe impl Sync for SurfaceView {}
 
 /// Map an `NvBufSurfaceColorFormat` raw value to the number of interleaved
 /// channels in the primary plane.  Returns `None` for multi-plane formats
-/// (NV12, NV21, I420) which are not representable as a single array.
+/// (NV12, NV21, I420, YUV444, etc.) which are not representable as a
+/// single contiguous array.
 fn color_format_channels(color_format: u32) -> Option<u32> {
-    // NvBufSurfaceColorFormat values (from nvbufsurface.h):
-    //   0  = NVBUF_COLOR_FORMAT_INVALID
-    //   1  = NVBUF_COLOR_FORMAT_GRAY8
-    //   2  = NVBUF_COLOR_FORMAT_YUV420  (I420)
-    //   3  = NVBUF_COLOR_FORMAT_YVU420  (YV12)
-    //   4  = NVBUF_COLOR_FORMAT_YUV420_ER
-    //   5  = NVBUF_COLOR_FORMAT_YVU420_ER
-    //   6  = NVBUF_COLOR_FORMAT_NV12
-    //   7  = NVBUF_COLOR_FORMAT_NV12_ER
-    //   8  = NVBUF_COLOR_FORMAT_NV21
-    //   9  = NVBUF_COLOR_FORMAT_NV21_ER
-    //   10 = NVBUF_COLOR_FORMAT_UYVY
-    //   11 = NVBUF_COLOR_FORMAT_UYVY_ER
-    //   12 = NVBUF_COLOR_FORMAT_YUYV
-    //   13 = NVBUF_COLOR_FORMAT_YUYV_ER
-    //   19 = NVBUF_COLOR_FORMAT_RGBA
-    //   20 = NVBUF_COLOR_FORMAT_BGRx
+    // NvBufSurfaceColorFormat values (from nvbufsurface.h / bindgen output):
     match color_format {
-        1 => Some(1),       // GRAY8
-        10 | 11 => Some(2), // UYVY / UYVY_ER
-        12 | 13 => Some(2), // YUYV / YUYV_ER
-        19 => Some(4),      // RGBA
-        20 => Some(4),      // BGRx
-        _ => None,          // multi-plane or unknown
+        // 1 channel — GRAY8, GRAY8_ER, A32
+        1 | 88 => Some(1), // GRAY8, GRAY8_ER
+        68 => Some(1),     // A32 (single-channel alpha)
+
+        // 2 channels — packed YUV 4:2:2 variants
+        10 | 11 => Some(2), // UYVY, UYVY_ER
+        12 | 13 => Some(2), // VYUY, VYUY_ER
+        14 | 15 => Some(2), // YUYV, YUYV_ER
+        16 | 17 => Some(2), // YVYU, YVYU_ER
+        89..=91 => Some(2), // UYVY_709, UYVY_709_ER, UYVY_2020
+
+        // 3 channels — interleaved RGB/BGR
+        27 => Some(3), // RGB
+        28 => Some(3), // BGR
+        42 => Some(3), // R8_G8_B8
+        43 => Some(3), // B8_G8_R8
+
+        // 4 channels — interleaved RGBA/BGRA/ARGB/ABGR/RGBx/BGRx/xRGB/xBGR
+        19 => Some(4), // RGBA
+        20 => Some(4), // BGRA
+        21 => Some(4), // ARGB
+        22 => Some(4), // ABGR
+        23 => Some(4), // RGBx
+        24 => Some(4), // BGRx
+        25 => Some(4), // xRGB
+        26 => Some(4), // xBGR
+
+        _ => None, // multi-plane or unknown
     }
 }
 
@@ -370,7 +377,7 @@ mod tests {
     #[test]
     fn test_from_cuda_ptr_with_keepalive() {
         gst::init().unwrap();
-        let keepalive: Box<dyn std::any::Any + Send> = Box::new(String::from("alive"));
+        let keepalive: Box<dyn std::any::Any + Send + Sync> = Box::new(String::from("alive"));
         let view =
             SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, Some(keepalive))
                 .unwrap();
@@ -409,9 +416,15 @@ mod tests {
     #[test]
     fn test_color_format_channels() {
         assert_eq!(color_format_channels(1), Some(1)); // GRAY8
+        assert_eq!(color_format_channels(88), Some(1)); // GRAY8_ER
+        assert_eq!(color_format_channels(68), Some(1)); // A32
         assert_eq!(color_format_channels(19), Some(4)); // RGBA
-        assert_eq!(color_format_channels(20), Some(4)); // BGRx
+        assert_eq!(color_format_channels(20), Some(4)); // BGRA
+        assert_eq!(color_format_channels(24), Some(4)); // BGRx
+        assert_eq!(color_format_channels(27), Some(3)); // RGB
+        assert_eq!(color_format_channels(28), Some(3)); // BGR
         assert_eq!(color_format_channels(10), Some(2)); // UYVY
+        assert_eq!(color_format_channels(14), Some(2)); // YUYV
         assert_eq!(color_format_channels(6), None); // NV12
         assert_eq!(color_format_channels(2), None); // I420
         assert_eq!(color_format_channels(0), None); // INVALID
