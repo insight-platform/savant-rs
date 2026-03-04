@@ -335,8 +335,6 @@ class TestSetNumFilled:
         batch.fill_slot(src, id=1)
         batch.finalize()
         buf = batch.as_gst_buffer()
-        if buf.ptr == 0:
-            pytest.skip("Buffer ptr is null (headless/CI environment)")
         ds.set_num_filled(buf, 3)
         # No exception means success; we cannot easily verify numFilled from Python
 
@@ -349,8 +347,6 @@ class TestSetNumFilled:
         batch.fill_slot(src, id=1)
         batch.finalize()
         buf = batch.as_gst_buffer()
-        if buf.ptr == 0:
-            pytest.skip("Buffer ptr is null (headless/CI environment)")
         with pytest.raises(RuntimeError, match="overflow|Batch"):
             ds.set_num_filled(buf, 5)
 
