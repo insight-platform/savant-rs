@@ -24,7 +24,7 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 |---|---|---|
 | `set_source_spec` | `(source_id: str, spec: SourceSpec) → None` | Creates/replaces worker. ⚠ RuntimeError if shut down |
 | `remove_source_spec` | `(source_id: str) → None` | Stops worker. ⚠ RuntimeError if shut down |
-| `send_frame` | `(source_id: str, frame: VideoFrame, buf: Union[GstBuffer, int], src_rect: Optional[Rect]=None) → None` | GPU. `buf` is a `GstBuffer` RAII guard or raw `int` pointer. Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf is null |
+| `send_frame` | `(source_id: str, frame: VideoFrame, buf: Union[SurfaceView, GstBuffer, int, Any], src_rect: Optional[Rect]=None) → None` | GPU. `buf` dispatch order: **PySurfaceView** → `__cuda_array_interface__` object (e.g. CuPy) → GstBuffer/int (legacy). Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf is null |
 | `send_eos` | `(source_id: str) → None` | Signals end-of-stream. ⚠ RuntimeError if shut down |
 | `shutdown` | `() → None` | Idempotent. Releases GIL during join. |
 
@@ -260,3 +260,37 @@ Received in `on_bypass_frame` callback.
 |---|---|
 | `source_id` | str (getter) |
 | `frame` | VideoFrame (getter) |
+
+---
+
+## SurfaceView
+Unified GPU surface descriptor. Wraps either an NvBufSurface slot or a raw
+CUDA pointer (e.g. from CuPy). Preferred `buf` argument for `send_frame`.
+
+Module: `savant_rs.deepstream`
+
+### Factory Methods
+| Method | Signature | Notes |
+|---|---|---|
+| `from_buffer` | `(buf: Union[GstBuffer, int], batch_id: int) → SurfaceView` | Extract slot `batch_id` from an NvBufSurface-backed GstBuffer (RAII guard or raw `int` pointer) |
+| `from_cuda_array` | `(obj: Any) → SurfaceView` | Create from any object exposing `__cuda_array_interface__` (e.g. CuPy ndarray). Must be contiguous RGBA `uint8` on GPU. |
+
+### Properties (read-only)
+| Prop | Type | Notes |
+|---|---|---|
+| `data_ptr` | int | CUDA device pointer |
+| `pitch` | int | Row stride in bytes |
+| `width` | int | Width in pixels |
+| `height` | int | Height in pixels |
+| `gpu_id` | int | CUDA device ordinal |
+| `channels` | int | Number of channels (e.g. 4 for RGBA) |
+| `color_format` | VideoFormat | Pixel format enum |
+
+### `__cuda_array_interface__`
+`SurfaceView` exposes `__cuda_array_interface__` (v3), so it can be consumed
+by CuPy, Numba, or any library that supports the protocol:
+```python
+import cupy as cp
+view = SurfaceView.from_buffer(buf, 0)
+arr = cp.asarray(view)   # zero-copy GPU array (H, W, C) uint8
+```

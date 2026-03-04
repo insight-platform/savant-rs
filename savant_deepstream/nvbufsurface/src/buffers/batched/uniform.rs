@@ -468,6 +468,15 @@ impl BatchedSurface {
     pub fn buffer(&self) -> &gst::Buffer {
         &self.buffer
     }
+
+    /// Create a zero-copy single-frame view of one filled slot.
+    ///
+    /// Delegates to [`extract_slot_view`](super::extract_slot_view).
+    /// See that function's documentation for details on lifetime,
+    /// timestamps, and ID propagation.
+    pub fn extract_slot_view(&self, slot_index: u32) -> Result<gst::Buffer, NvBufSurfaceError> {
+        super::extract_slot_view(&self.buffer, slot_index)
+    }
 }
 
 /// Set `numFilled` on a batched NvBufSurface GstBuffer.

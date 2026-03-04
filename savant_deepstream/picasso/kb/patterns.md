@@ -4,12 +4,14 @@
 
 ### NOGPU Tests (bypass, drop, worker, engine, geometry)
 - Require `gstreamer::init().unwrap()` at start
-- Use `gstreamer::Buffer::new()` as stub buffer
+- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (no GPU surface data)
+- Helper: `make_surface_view()` in `tests/common/mod.rs`
 - Cover: Drop, Bypass codec specs, EOS, shutdown, spec hot-swap, idle eviction, geometry transforms
 
 ### GPU Tests (encode, conditional, render, full pipeline)
 - Require `gstreamer::init()` + `cuda_init(0)`
-- Use `NvBufSurfaceGenerator` for real GPU buffers
+- Use `NvBufSurfaceGenerator` for real GPU buffers, then `SurfaceView::from_buffer(&buf, 0).unwrap()`
+- Helper: `make_gpu_surface_view(&gen, idx, dur_ns)` in `tests/common/mod.rs`
 - Cover: full encode pipeline, Skia rendering, conditional gates, on_render/on_gpumat callbacks
 
 ---
@@ -52,7 +54,15 @@ fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 }
 ```
 
-### Make GStreamer Buffer (NOGPU)
+### Make SurfaceView (NOGPU)
+```rust
+fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
+    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+}
+```
+Wraps a plain `gst::Buffer::new()` — surface params are zeroed, suitable for Drop/Bypass paths.
+
+### Make GStreamer Buffer (NOGPU, internal helper)
 ```rust
 fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::init().unwrap();
@@ -60,11 +70,23 @@ fn make_gst_buffer() -> gstreamer::Buffer {
 }
 ```
 
-### Make GPU Buffer
+### Make GPU SurfaceView
+```rust
+fn make_gpu_surface_view(
+    gen: &NvBufSurfaceGenerator,
+    idx: u64,
+    dur_ns: u64,
+) -> deepstream_nvbufsurface::SurfaceView {
+    let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+}
+```
+Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests.
+
+### Make GPU Buffer (internal helper)
 ```rust
 fn make_gpu_buffer(gen: &NvBufSurfaceGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
     let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    // pts/duration are applied from the frame; buffer can be acquired without stamping.
     buf
 }
 ```
@@ -172,8 +194,8 @@ fn engine_bypass_multi_source() {
     engine.set_source_spec("src-b", spec).unwrap();
 
     for _ in 0..3 {
-        engine.send_frame("src-a", make_frame("src-a"), make_gst_buffer()).unwrap();
-        engine.send_frame("src-b", make_frame("src-b"), make_gst_buffer()).unwrap();
+        engine.send_frame("src-a", make_frame("src-a"), make_surface_view(), None).unwrap();
+        engine.send_frame("src-b", make_frame("src-b"), make_surface_view(), None).unwrap();
     }
 
     std::thread::sleep(Duration::from_millis(300));
@@ -192,7 +214,7 @@ fn engine_shutdown_rejects_new_frames() {
         Callbacks::default(),
     );
     engine.shutdown();
-    let result = engine.send_frame("x", make_frame("x"), make_gst_buffer());
+    let result = engine.send_frame("x", make_frame("x"), make_surface_view(), None);
     assert!(result.is_err());
 }
 ```
@@ -214,7 +236,7 @@ fn engine_eos_sends_sentinel() {
         GeneralSpec { idle_timeout_secs: 60 }, callbacks,
     );
     engine.set_source_spec("s", SourceSpec { codec: CodecSpec::Bypass, ..Default::default() }).unwrap();
-    engine.send_frame("s", make_frame("s"), make_gst_buffer()).unwrap();
+    engine.send_frame("s", make_frame("s"), make_surface_view(), None).unwrap();
     engine.send_eos("s").unwrap();
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(eos_count.load(Ordering::SeqCst), 1);
@@ -237,7 +259,7 @@ fn engine_spec_hot_swap() {
     // Start with Drop — no bypass callbacks
     engine.set_source_spec("s", SourceSpec { codec: CodecSpec::Drop, ..Default::default() }).unwrap();
     for _ in 0..3 {
-        engine.send_frame("s", make_frame("s"), make_gst_buffer()).unwrap();
+        engine.send_frame("s", make_frame("s"), make_surface_view(), None).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 0);
@@ -246,7 +268,7 @@ fn engine_spec_hot_swap() {
     engine.set_source_spec("s", SourceSpec { codec: CodecSpec::Bypass, ..Default::default() }).unwrap();
     std::thread::sleep(Duration::from_millis(100));
     for _ in 0..3 {
-        engine.send_frame("s", make_frame("s"), make_gst_buffer()).unwrap();
+        engine.send_frame("s", make_frame("s"), make_surface_view(), None).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 3);
@@ -270,7 +292,7 @@ fn worker_bypass_fires_callback() {
     let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60));
 
     for _ in 0..5 {
-        worker.send(WorkerMessage::Frame(make_frame("test"), make_gst_buffer(), None)).unwrap();
+        worker.send(WorkerMessage::Frame(make_frame("test"), make_surface_view(), None)).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 5);
@@ -327,8 +349,8 @@ fn encode_pipeline_basic() {
         let mut fm = frame.clone();
         fm.set_pts((i * DUR) as i64).unwrap();
         fm.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("src", frame, buf).unwrap();
+        let view = make_gpu_surface_view(&gen, i, DUR);
+        engine.send_frame("src", frame, view, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_secs(2));
@@ -391,8 +413,8 @@ fn e2e_async_drain_delivers_independently() {
         let mut frame = make_frame_sized("s", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen, i, DUR);
-        engine.send_frame("s", frame, buf).unwrap();
+        let view = make_gpu_surface_view(&gen, i, DUR);
+        engine.send_frame("s", frame, view, None).unwrap();
     }
 
     // Do NOT send more frames — only wait for the drain thread to deliver.

@@ -129,7 +129,7 @@ pub(crate) fn process_encode(
         target_h = generator.height();
 
         let encoder_gpu = generator.gpu_id();
-        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.buffer.as_ref()) {
+        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.view.buffer().as_ref()) {
             if buf_gpu != encoder_gpu {
                 return Err(PicassoError::GpuMismatch {
                     source_id: source_id.to_string(),
@@ -144,7 +144,7 @@ pub(crate) fn process_encode(
         if need_ptr {
             let result = generator
                 .transform_with_ptr(
-                    &input.buffer,
+                    input.view.buffer(),
                     transform_config,
                     Some(input.frame_id as i64),
                     src_rect,
@@ -156,7 +156,7 @@ pub(crate) fn process_encode(
         } else {
             let buf = generator
                 .transform(
-                    &input.buffer,
+                    input.view.buffer(),
                     transform_config,
                     Some(input.frame_id as i64),
                     src_rect,

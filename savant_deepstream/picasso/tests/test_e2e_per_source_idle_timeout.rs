@@ -47,14 +47,14 @@ fn e2e_per_source_idle_timeout() {
     worker_fast
         .send(WorkerMessage::Frame(
             make_frame("fast"),
-            make_gst_buffer(),
+            make_surface_view(),
             None,
         ))
         .unwrap();
     worker_slow
         .send(WorkerMessage::Frame(
             make_frame("slow"),
-            make_gst_buffer(),
+            make_surface_view(),
             None,
         ))
         .unwrap();

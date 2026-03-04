@@ -97,7 +97,7 @@ impl WorkerState {
     fn process_frame(
         &mut self,
         frame: VideoFrameProxy,
-        mut buffer: gstreamer::Buffer,
+        mut view: deepstream_nvbufsurface::SurfaceView,
         src_rect: Option<deepstream_nvbufsurface::Rect>,
     ) {
         if let Some((ns, name)) = &self.spec.conditional.encode_attribute {
@@ -108,7 +108,7 @@ impl WorkerState {
         }
 
         {
-            let buf_ref = buffer.make_mut();
+            let buf_ref = view.buffer_mut().make_mut();
             crate::pipeline::apply_frame_timestamps_to_buffer(&frame, buf_ref);
         }
 
@@ -116,7 +116,7 @@ impl WorkerState {
         let frame_id = self.frame_counter;
         let input = FrameInput {
             frame,
-            buffer,
+            view,
             frame_id,
         };
 
@@ -126,7 +126,7 @@ impl WorkerState {
                 return;
             }
             CodecSpec::Bypass => {
-                bypass::process_bypass(&self.source_id, input.frame, input.buffer, &self.callbacks);
+                bypass::process_bypass(&self.source_id, input.frame, input.view, &self.callbacks);
                 return;
             }
             CodecSpec::Encode { .. } => {}
@@ -277,8 +277,8 @@ fn worker_loop(
 
     loop {
         match rx.recv_timeout(idle_timeout) {
-            Ok(WorkerMessage::Frame(frame, buffer, src_rect)) => {
-                state.process_frame(frame, buffer, src_rect);
+            Ok(WorkerMessage::Frame(frame, view, src_rect)) => {
+                state.process_frame(frame, view, src_rect);
             }
             Ok(WorkerMessage::Eos) => {
                 info!("EOS received: source={source_id}");

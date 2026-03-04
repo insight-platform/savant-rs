@@ -56,23 +56,24 @@ Main thread
 
 ## Timestamp Source
 pts, dts, time_base, and duration are taken from the [`VideoFrameProxy`], not from the
-[`gst::Buffer`]. At pipeline entry, `apply_frame_timestamps_to_buffer` copies these
-values from the frame onto the buffer so downstream consumers see correct metadata.
+[`gst::Buffer`]. At pipeline entry, `apply_frame_timestamps_to_buffer` is called on
+`view.buffer_mut().make_mut()` to copy these values from the frame onto the buffer so
+downstream consumers see correct metadata.
 
 ## Data Flow (Encode Path)
 ```
-send_frame(source_id, VideoFrameProxy, gst::Buffer, src_rect: Option<Rect>)
-  → WorkerMessage::Frame(proxy, buf, src_rect) via crossbeam channel
+send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
+  → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam channel
   → worker_loop receives
-  → apply_frame_timestamps_to_buffer(frame, buf)
+  → apply_frame_timestamps_to_buffer(frame, view.buffer_mut().make_mut())
   → WorkerState::process_frame
     → check encode_attribute gate (skip if missing)
     → match CodecSpec::Encode
       → ensure_encoder (lazy NvEncoder + DrainHandle creation)
       → process_encode:
          1. Lock encoder, get generator
-         2. GPU affinity check (buffer_gpu_id vs generator.gpu_id → GpuMismatch)
-         3. GPU transform (generator.transform / transform_with_ptr)
+         2. GPU affinity check (view.gpu_id() vs generator.gpu_id → GpuMismatch)
+         3. GPU transform via view.buffer() (generator.transform / transform_with_ptr)
          4. Unlock encoder
          5. rewrite_frame_transformations (coordinate mapping)
          6. (if render) resolve draw specs per object
@@ -98,7 +99,7 @@ is false, `render_opts` is `None`, and process_encode skips the entire Skia path
 Frame → process_bypass:
   1. set_transcoding_method(Copy)
   2. transform_backward (revert bboxes to initial coordinates)
-  3. fire on_bypass_frame(BypassOutput { source_id, frame, buffer })
+  3. fire on_bypass_frame(BypassOutput { source_id, frame, view })
 ```
 
 ## Data Flow (Drop Path)

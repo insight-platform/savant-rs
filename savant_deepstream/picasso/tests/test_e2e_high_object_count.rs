@@ -105,7 +105,7 @@ fn e2e_high_object_count() {
     );
 
     let start = Instant::now();
-    let buf = make_gpu_buffer(&gen, 0, DUR);
+    let buf = make_gpu_surface_view(&gen, 0, DUR);
     engine.send_frame("many", frame, buf, None).unwrap();
     engine.send_eos("many").unwrap();
 

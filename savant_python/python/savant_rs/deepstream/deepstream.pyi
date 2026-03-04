@@ -6,7 +6,7 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Generator, List, Optional, Tuple, Union, final
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union, final
 
 import cv2
 import skia
@@ -19,6 +19,7 @@ __all__ = [
     "MemType",
     "Rect",
     "GstBuffer",
+    "SurfaceView",
     "TransformConfig",
     "NvBufSurfaceGenerator",
     "BatchedNvBufSurfaceGenerator",
@@ -257,6 +258,107 @@ class GstBuffer:
     def __repr__(self) -> str: ...
     def __bool__(self) -> bool:
         """``True`` if the guard still owns a buffer, ``False`` if consumed."""
+        ...
+
+# ── SurfaceView ─────────────────────────────────────────────────────────
+
+@final
+class SurfaceView:
+    """Zero-copy view of a single GPU surface.
+
+    Wraps an NvBufSurface-backed buffer or arbitrary CUDA memory with
+    cached surface parameters.  Implements ``__cuda_array_interface__``
+    for single-plane formats (RGBA, BGRx, GRAY8).
+
+    Construction:
+
+    - ``SurfaceView.from_buffer(buf, slot_index)`` — from a ``GstBuffer``.
+    - ``SurfaceView.from_cuda_array(obj)`` — from any object with
+      ``__cuda_array_interface__`` (CuPy array, PyTorch CUDA tensor, etc.).
+    """
+
+    @staticmethod
+    def from_buffer(buf: Union[GstBuffer, int], slot_index: int = 0) -> SurfaceView:
+        """Create a view from an NvBufSurface-backed buffer.
+
+        Args:
+            buf: Source buffer (``GstBuffer`` guard or raw pointer ``int``).
+            slot_index: Zero-based slot index (default 0).
+
+        Raises:
+            ValueError: If *buf* is null or *slot_index* is out of bounds.
+            RuntimeError: If the buffer is not a valid NvBufSurface or uses
+                a multi-plane format (NV12, I420, etc.).
+        """
+        ...
+
+    @staticmethod
+    def from_cuda_array(obj: Any, gpu_id: int = 0) -> SurfaceView:
+        """Create a view from any ``__cuda_array_interface__`` object.
+
+        Supported shapes: ``(H, W, C)`` or ``(H, W)`` (grayscale).
+        C must be 1 (GRAY8) or 4 (RGBA). dtype must be ``uint8``.
+
+        The source object is kept alive for the lifetime of this view.
+
+        Args:
+            obj: CuPy array, PyTorch CUDA tensor, or any object with
+                ``__cuda_array_interface__``.
+            gpu_id: CUDA device ID (default 0).
+
+        Raises:
+            TypeError: If *obj* has no ``__cuda_array_interface__``.
+            ValueError: If shape, dtype, or strides are unsupported.
+        """
+        ...
+
+    @property
+    def data_ptr(self) -> int:
+        """CUDA data pointer to the first pixel."""
+        ...
+
+    @property
+    def pitch(self) -> int:
+        """Row stride in bytes."""
+        ...
+
+    @property
+    def width(self) -> int:
+        """Surface width in pixels."""
+        ...
+
+    @property
+    def height(self) -> int:
+        """Surface height in pixels."""
+        ...
+
+    @property
+    def gpu_id(self) -> int:
+        """GPU device ID."""
+        ...
+
+    @property
+    def channels(self) -> int:
+        """Number of interleaved channels per pixel."""
+        ...
+
+    @property
+    def color_format(self) -> int:
+        """Raw ``NvBufSurfaceColorFormat`` value."""
+        ...
+
+    @property
+    def __cuda_array_interface__(self) -> Dict[str, Any]:
+        """CUDA array interface descriptor (v3).
+
+        Allows CuPy, PyTorch, and other CUDA-aware libraries to access
+        the surface data without copies.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+    def __bool__(self) -> bool:
+        """``True`` if the view has not been consumed."""
         ...
 
 # ── TransformConfig ─────────────────────────────────────────────────────

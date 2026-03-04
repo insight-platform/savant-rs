@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import resource
 
 import pytest
 
@@ -355,8 +354,15 @@ def _gpu_mem_used_mb() -> int:
 
 
 def _cpu_rss_kb() -> int:
-    """Current process RSS in KB (Linux)."""
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    """Current process RSS in KB (Linux), read from /proc/self/status."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1])
+    except Exception:
+        pass
+    return 0
 
 
 @skip_no_runtime

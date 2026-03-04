@@ -31,6 +31,10 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
+fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
+    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+}
+
 struct CountingBypassCb {
     count: Arc<AtomicUsize>,
 }
@@ -84,8 +88,10 @@ fn worker_drop_spec_discards_frames() {
     );
 
     let frame = make_frame("test-drop");
-    let buf = make_gst_buffer();
-    worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+    let view = make_surface_view();
+    worker
+        .send(WorkerMessage::Frame(frame, view, None))
+        .unwrap();
 
     std::thread::sleep(Duration::from_millis(100));
     assert!(worker.is_alive());
@@ -119,8 +125,10 @@ fn worker_bypass_fires_callback() {
 
     for _ in 0..5 {
         let frame = make_frame("test-bypass");
-        let buf = make_gst_buffer();
-        worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+        let view = make_surface_view();
+        worker
+            .send(WorkerMessage::Frame(frame, view, None))
+            .unwrap();
     }
 
     std::thread::sleep(Duration::from_millis(200));
@@ -212,8 +220,10 @@ fn worker_spec_update() {
 
     // Send a frame with Drop spec — shouldn't fire bypass
     let frame = make_frame("test-update");
-    let buf = make_gst_buffer();
-    worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+    let view = make_surface_view();
+    worker
+        .send(WorkerMessage::Frame(frame, view, None))
+        .unwrap();
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 0);
 
@@ -230,8 +240,10 @@ fn worker_spec_update() {
     // Now send frames — should fire bypass
     for _ in 0..3 {
         let frame = make_frame("test-update");
-        let buf = make_gst_buffer();
-        worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+        let view = make_surface_view();
+        worker
+            .send(WorkerMessage::Frame(frame, view, None))
+            .unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 3);

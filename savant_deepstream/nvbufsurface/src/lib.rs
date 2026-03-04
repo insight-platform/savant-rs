@@ -29,6 +29,9 @@ pub mod ffi;
 pub mod transform;
 
 pub mod buffers;
+pub mod surface_view;
+
+pub use surface_view::SurfaceView;
 
 #[cfg(feature = "skia")]
 pub mod egl_context;

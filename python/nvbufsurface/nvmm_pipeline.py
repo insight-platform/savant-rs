@@ -24,13 +24,13 @@ Usage::
     python nvmm_pipeline.py --width 1920 --height 1080
 
     # 300 frames of RGBA -> H.264 at 8 Mbps to an MP4 file
-    python nvmm_pipeline.py --format RGBA --codec h264 --bitrate 8000000 --num-frames 300 --output /tmp/test.mp4
+    python nvmm_pipeline.py --codec h264 --bitrate 8000000 --num-frames 300 --output /tmp/test.mp4
 
-    # 600 frames of NV12 -> H.265, no container
+    # 600 frames of RGBA -> H.265, no container
     python nvmm_pipeline.py --num-frames 600
 
-    # 100 frames of JPEG at quality 95, discarded
-    python nvmm_pipeline.py --format I420 --codec jpeg --quality 95 --num-frames 100
+    # 100 frames of RGBA -> JPEG at quality 95, discarded
+    python nvmm_pipeline.py --codec jpeg --quality 95 --num-frames 100
 
     # 300 frames of AV1 to an MP4 file
     python nvmm_pipeline.py --codec av1 --num-frames 300 --output /tmp/av1_test.mp4
@@ -56,22 +56,18 @@ def main() -> None:
         description="NVMM encoding pipeline (Picasso engine)"
     )
     add_common_args(parser)
-    parser.add_argument(
-        "--format", type=str, default="NV12", help="Video format (NV12, RGBA, ...)"
-    )
     args = parser.parse_args()
 
-    video_format = VideoFormat.from_name(args.format)
-    session = PicassoSession(args, video_format=video_format)
+    session = PicassoSession(args, video_format=VideoFormat.RGBA)
 
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
         pts_ns = i * session.frame_duration_ns
         try:
-            buf = session.acquire_surface(frame_id=i)
+            view = session.acquire_surface_view(frame_id=i)
             session.submit(
-                buf,
+                view,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

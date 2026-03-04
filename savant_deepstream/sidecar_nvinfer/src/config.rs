@@ -1,15 +1,31 @@
 //! Configuration for the sidecar inference pipeline.
+//!
+//! Keys use dotted notation `section.key` to specify config sections. Keys with
+//! the same section are grouped under `[section]`. If the section is `property`
+//! or the key has no dot, it is treated as `[property]` (the main nvinfer config).
 
 use crate::error::{Result, SidecarError};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+/// Parse a key into (section, key). Bare keys go to "property".
+fn parse_section_key(k: &str) -> (&str, &str) {
+    if let Some(dot) = k.find('.') {
+        (&k[..dot], &k[dot + 1..])
+    } else {
+        ("property", k)
+    }
+}
+
 /// Configuration for the sidecar inference pipeline.
 #[derive(Debug, Clone)]
 pub struct SidecarConfig {
-    /// NvInfer [property] section keys. Mandatory keys `process-mode` and
-    /// `output-tensor-meta` are auto-injected if missing and validated if present.
+    /// NvInfer config keys. Use dotted notation `section.key` for per-class
+    /// sections (e.g. `class-attrs-0.nms-iou-threshold`). Bare keys go to
+    /// `[property]`. Mandatory `process-mode` and `output-tensor-meta` are
+    /// auto-injected in `[property]` if missing.
     pub nvinfer_properties: HashMap<String, String>,
     /// Additional GStreamer element properties (e.g. "unique-id" -> "1").
     pub element_properties: HashMap<String, String>,
@@ -67,12 +83,19 @@ impl SidecarConfig {
         self
     }
 
-    /// Validate mandatory keys, inject if missing, and write [property] section
-    /// to a temporary file. Caller must keep the returned file alive.
+    /// Validate mandatory keys, inject if missing, and write config to a
+    /// temporary file. Caller must keep the returned file alive.
+    ///
+    /// Keys with dotted notation `section.key` are grouped under `[section]`.
+    /// Bare keys go to `[property]`.
     pub fn validate_and_materialize(&self) -> Result<NamedTempFile> {
         let mut props = self.nvinfer_properties.clone();
 
-        match props.get("process-mode") {
+        fn get_prop<'a>(p: &'a HashMap<String, String>, k: &str) -> Option<&'a String> {
+            p.get(k).or_else(|| p.get(&format!("property.{}", k)))
+        }
+
+        match get_prop(&props, "process-mode") {
             Some(v) if v.trim() == "1" => {}
             Some(other) => {
                 return Err(SidecarError::InvalidConfig(format!(
@@ -85,7 +108,7 @@ impl SidecarConfig {
             }
         }
 
-        match props.get("output-tensor-meta") {
+        match get_prop(&props, "output-tensor-meta") {
             Some(v) if v.trim() == "1" => {}
             Some(other) => {
                 return Err(SidecarError::InvalidConfig(format!(
@@ -98,12 +121,30 @@ impl SidecarConfig {
             }
         }
 
-        let mut lines = vec!["[property]".to_string()];
-        let mut keys: Vec<_> = props.keys().collect();
-        keys.sort();
-        for k in keys {
-            let v = props.get(k).unwrap();
-            lines.push(format!("{}={}", k, v));
+        // Group by section: section -> BTreeMap<key, value>
+        let mut by_section: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+        for (full_key, value) in &props {
+            let (section, key) = parse_section_key(full_key);
+            by_section
+                .entry(section.to_string())
+                .or_default()
+                .insert(key.to_string(), value.clone());
+        }
+
+        // Emit [property] first, then other sections alphabetically.
+        let mut lines = Vec::new();
+        let mut section_order: Vec<_> = by_section.keys().collect();
+        section_order.sort_by(|a, b| match (a.as_str(), b.as_str()) {
+            ("property", _) => std::cmp::Ordering::Less,
+            (_, "property") => std::cmp::Ordering::Greater,
+            _ => a.cmp(b),
+        });
+        for section in section_order {
+            lines.push(format!("[{}]", section));
+            let keys = by_section.get(section).unwrap();
+            for (key, value) in keys {
+                lines.push(format!("{}={}", key, value));
+            }
         }
         let content = lines.join("\n");
 

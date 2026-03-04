@@ -37,7 +37,7 @@ pub struct PicassoEngine { /* private */ }
 | `new` | `(general: GeneralSpec, callbacks: Callbacks) → Self` | Spawns watchdog thread |
 | `set_source_spec` | `(&self, source_id: &str, spec: SourceSpec) → Result<(), PicassoError>` | Creates worker on first call; sends UpdateSpec if worker exists |
 | `remove_source_spec` | `(&self, source_id: &str)` | Sends Shutdown to worker, removes from map |
-| `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, buf: gstreamer::Buffer, src_rect: Option<Rect>) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown. `src_rect` is optional per-frame crop. |
+| `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown. `src_rect` is optional per-frame crop. `SurfaceView` from `deepstream_nvbufsurface`. |
 | `send_eos` | `(&self, source_id: &str) → Result<(), PicassoError>` | No-op if source not found |
 | `shutdown` | `(&mut self)` | Drains all workers, joins watchdog. Idempotent via flag. |
 
@@ -205,7 +205,7 @@ pub enum EncodedOutput {
 pub struct BypassOutput {
     pub source_id: String,
     pub frame: VideoFrameProxy,
-    pub buffer: gstreamer::Buffer,
+    pub view: SurfaceView,
 }
 ```
 
@@ -215,7 +215,7 @@ pub struct BypassOutput {
 
 ```rust
 pub enum WorkerMessage {
-    Frame(VideoFrameProxy, gstreamer::Buffer),
+    Frame(VideoFrameProxy, SurfaceView, Option<Rect>),
     Eos,
     UpdateSpec(Box<SourceSpec>),
     Shutdown,
@@ -270,6 +270,32 @@ Path: `picasso::transform::compute_letterbox_params`
 ---
 
 ## GPU Utilities (from deepstream_nvbufsurface)
+
+### SurfaceView
+```rust
+pub struct SurfaceView { /* private */ }
+```
+Zero-copy view of a single GPU surface with cached parameters. Wraps a refcounted `gst::Buffer` containing an NvBufSurface descriptor.
+
+| Constructor | Signature | Notes |
+|---|---|---|
+| `wrap` | `(buf: gst::Buffer) → Self` | Plain wrapper, surface params zeroed. For Drop/Bypass paths and NOGPU tests. |
+| `from_buffer` | `(buf: &gst::Buffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Extract view from NvBufSurface-backed buffer. Supports batched buffers. |
+| `from_cuda_ptr` | `(data_ptr, pitch, width, height, gpu_id, channels, color_format, keepalive) → Result<Self, NvBufSurfaceError>` | Wrap arbitrary CUDA device memory with synthetic descriptor. |
+
+| Accessor | Signature |
+|---|---|
+| `buffer` | `(&self) → &gst::Buffer` |
+| `buffer_mut` | `(&mut self) → &mut gst::Buffer` |
+| `data_ptr` | `(&self) → *mut c_void` |
+| `pitch` | `(&self) → u32` |
+| `width` | `(&self) → u32` |
+| `height` | `(&self) → u32` |
+| `gpu_id` | `(&self) → u32` |
+| `channels` | `(&self) → u32` |
+| `color_format` | `(&self) → u32` |
+
+Path: `deepstream_nvbufsurface::SurfaceView`
 
 ### buffer_gpu_id
 ```rust

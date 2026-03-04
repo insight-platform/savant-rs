@@ -147,7 +147,7 @@ fn e2e_on_object_draw_spec() {
         .add_object(obj_ignored, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_buffer(&gen, 0, DUR);
+    let buf = make_gpu_surface_view(&gen, 0, DUR);
     engine.send_frame("obj-draw", frame, buf, None).unwrap();
     engine.send_eos("obj-draw").unwrap();
 

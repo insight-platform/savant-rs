@@ -42,7 +42,7 @@ import sys
 
 import cv2
 
-from savant_rs.deepstream import VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
+from savant_rs.deepstream import SurfaceView, VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
 
 from common import PicassoSession, add_common_args
 
@@ -184,10 +184,11 @@ def main() -> None:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
+        view = SurfaceView.from_buffer(buf, 0)
         pts_ns = i * session.frame_duration_ns
         try:
             session.submit(
-                buf,
+                view,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

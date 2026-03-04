@@ -142,7 +142,8 @@ fn render_png_encoded() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("png", frame, buf, None).unwrap();
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    engine.send_frame("png", frame, view, None).unwrap();
     engine.send_eos("png").unwrap();
 
     let guard = png_capture.data.lock().unwrap();

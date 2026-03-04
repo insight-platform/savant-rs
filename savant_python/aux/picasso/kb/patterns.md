@@ -66,8 +66,10 @@ from savant_rs.picasso import (
 engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
 # 2. Set source spec(s)
 engine.set_source_spec("src-0", spec)
-# 3. Send frames (GPU only) — buf is a GstBuffer RAII guard
-engine.send_frame("src-0", frame, buf)
+# 3. Send frames (GPU only) — buf is SurfaceView, GstBuffer, int, or __cuda_array_interface__ object
+engine.send_frame("src-0", frame, surface_view)   # preferred: SurfaceView
+engine.send_frame("src-0", frame, cupy_array)      # __cuda_array_interface__ object
+engine.send_frame("src-0", frame, buf)             # legacy: GstBuffer or int
 # 4. Send EOS when done
 engine.send_eos("src-0")
 # 5. Wait for async processing
@@ -111,7 +113,7 @@ def make_frame(source_id: str, width=1280, height=720) -> VideoFrame:
     )
 ```
 
-### Make GPU Buffer
+### Make GPU Buffer + SurfaceView (preferred)
 ```python
 FPS = 30
 FRAME_DURATION_NS = 1_000_000_000 // FPS
@@ -121,6 +123,19 @@ buf = gen.acquire_surface(id=frame_idx)  # returns GstBuffer (RAII guard, auto-u
 # pts/duration are taken from the VideoFrame; set them before send_frame:
 frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
+
+# Preferred: wrap as SurfaceView before sending
+surface_view = SurfaceView.from_buffer(buf, 0)  # slot 0 in the NvBufSurface batch
+engine.send_frame("src-0", frame, surface_view)
+
+# From CuPy array (contiguous RGBA uint8 on GPU):
+import cupy as cp
+cuda_frame = cp.zeros((HEIGHT, WIDTH, 4), dtype=cp.uint8)
+surface_view = SurfaceView.from_cuda_array(cuda_frame)
+engine.send_frame("src-0", frame, surface_view)
+
+# Legacy: pass GstBuffer or int pointer directly (still works)
+engine.send_frame("src-0", frame, buf)
 # buf.ptr gives raw int pointer; buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
 ```
 
@@ -221,7 +236,8 @@ class TestEncode:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf)
+            sv = SurfaceView.from_buffer(buf, 0)  # preferred
+            engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
         time.sleep(3)
@@ -259,7 +275,8 @@ class TestBypass:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf)
+            sv = SurfaceView.from_buffer(buf, 0)
+            engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
         time.sleep(3)
@@ -288,7 +305,8 @@ class TestDrop:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            engine.send_frame("src-0", frame, buf)
+            sv = SurfaceView.from_buffer(buf, 0)
+            engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
         time.sleep(1)
@@ -521,7 +539,8 @@ obj = VideoObject(id=0, namespace="detector", label="person",
                   attributes=[], confidence=0.95,
                   track_id=None, track_box=None)
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-engine.send_frame("src-0", frame, buf)
+sv = SurfaceView.from_buffer(buf, 0)
+engine.send_frame("src-0", frame, sv)
 
 # 3. SourceSpec wiring
 spec = SourceSpec(

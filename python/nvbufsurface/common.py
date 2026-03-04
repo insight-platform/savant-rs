@@ -23,6 +23,7 @@ from gi.repository import Gst  # noqa: E402
 from savant_rs.deepstream import (  # noqa: E402
     GstBuffer,
     NvBufSurfaceGenerator,
+    SurfaceView,
     TransformConfig,
     VideoFormat,
     gpu_mem_used_mib,
@@ -352,8 +353,27 @@ class PicassoSession:
         return self._running
 
     def acquire_surface(self, *, frame_id: int) -> GstBuffer:
-        """Acquire an NvBufSurface GPU buffer from the internal pool."""
+        """Acquire an NvBufSurface GPU buffer from the internal pool.
+
+        Returns a raw ``GstBuffer`` guard.  Use this when you need to
+        perform GPU operations on the buffer (e.g. ``nvgstbuf_as_gpu_mat``,
+        ``nvbuf_as_gpu_mat``) before submitting it to the engine.
+
+        For the simplest acquire-and-submit workflow, prefer
+        :meth:`acquire_surface_view` which returns a ``SurfaceView``
+        ready for :meth:`send_frame`.
+        """
         return self._generator.acquire_surface(id=frame_id)
+
+    def acquire_surface_view(self, *, frame_id: int) -> SurfaceView:
+        """Acquire an NvBufSurface GPU buffer wrapped in a ``SurfaceView``.
+
+        The returned ``SurfaceView`` caches surface parameters (data
+        pointer, pitch, width, height, GPU ID) and can be passed directly
+        to :meth:`send_frame` or :meth:`submit`.
+        """
+        buf = self._generator.acquire_surface(id=frame_id)
+        return SurfaceView.from_buffer(buf, 0)
 
     def make_frame(
         self,
@@ -379,15 +399,19 @@ class PicassoSession:
             frame.duration = duration_ns
         return frame
 
-    def send_frame(self, frame: VideoFrame, buf: GstBuffer | int) -> None:
-        """Submit a pre-built :class:`VideoFrame` to the Picasso engine."""
+    def send_frame(self, frame: VideoFrame, buf: SurfaceView | GstBuffer | int) -> None:
+        """Submit a pre-built :class:`VideoFrame` to the Picasso engine.
+
+        *buf* may be a ``SurfaceView`` (preferred), a ``GstBuffer`` guard,
+        or a raw ``GstBuffer*`` pointer as ``int`` (legacy).
+        """
         self._engine.send_frame(SOURCE_ID, frame, buf)
         with self._lock:
             self._frame_count += 1
 
     def submit(
         self,
-        buf: GstBuffer | int,
+        buf: SurfaceView | GstBuffer | int,
         *,
         pts_ns: int,
         duration_ns: int | None = None,

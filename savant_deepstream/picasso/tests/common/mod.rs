@@ -68,6 +68,11 @@ pub fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
+/// Creates a SurfaceView wrapping a plain GStreamer buffer (stub for NOGPU tests).
+pub fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
+    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+}
+
 /// Creates a frame with PTS, duration, and a persistent attribute.
 pub fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> VideoFrameProxy {
     let frame = make_frame(source_id);
@@ -160,6 +165,17 @@ pub fn make_gpu_buffer(
     _dur_ns: u64,
 ) -> gstreamer::Buffer {
     gen.acquire_surface(Some(idx as i64)).unwrap()
+}
+
+/// Creates a SurfaceView from a GPU buffer (requires CUDA + NvBufSurface).
+#[cfg(test)]
+pub fn make_gpu_surface_view(
+    gen: &deepstream_encoders::NvBufSurfaceGenerator,
+    idx: u64,
+    dur_ns: u64,
+) -> deepstream_nvbufsurface::SurfaceView {
+    let buf = make_gpu_buffer(gen, idx, dur_ns);
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
 #[cfg(test)]

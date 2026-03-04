@@ -112,6 +112,14 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("operate-on-class-ids".into(), "0".into());
     m.insert("gie-unique-id".into(), "1".into());
     m.insert("network-type".into(), "100".into());
+    // Per-class sections via dotted notation
+    m.insert(
+        "class-attrs-all.pre-cluster-threshold".into(),
+        "10000000000.0".into(),
+    );
+    m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
+    m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
+    m.insert("class-attrs-0.detected-min-h".into(), "64".into());
     m
 }
 

@@ -18,7 +18,7 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -206,8 +206,9 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
     for i in 0..WARMUP_FRAMES {
         let frame = make_frame_with_objects("bench", i as i64, 0);
         let buf = make_gpu_buffer(&gen, i as i64);
+        let view = SurfaceView::from_buffer(&buf, 0).unwrap();
         engine
-            .send_frame("bench", frame, buf, None)
+            .send_frame("bench", frame, view, None)
             .unwrap_or_else(|e| panic!("send_frame failed: {}", e));
         rx.recv().expect("warm-up recv failed");
     }
@@ -231,8 +232,9 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
                 frame_counter.set(idx + 1);
                 let frame = make_frame_with_objects("bench", idx, num_objects);
                 let buf = make_gpu_buffer(&gen, idx);
+                let view = SurfaceView::from_buffer(&buf, 0).unwrap();
                 engine
-                    .send_frame("bench", frame, buf, None)
+                    .send_frame("bench", frame, view, None)
                     .expect("send_frame failed");
                 rx.recv().expect("encoded recv failed");
             });

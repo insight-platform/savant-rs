@@ -14,6 +14,7 @@
 //! ```
 
 use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::SurfaceView;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -243,7 +244,8 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -265,7 +267,8 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }
     }

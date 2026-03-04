@@ -194,6 +194,15 @@ impl HeterogeneousBatch {
         self.gpu_id
     }
 
+    /// Create a zero-copy single-frame view of one filled slot.
+    ///
+    /// Delegates to [`extract_slot_view`](super::extract_slot_view).
+    /// See that function's documentation for details on lifetime,
+    /// timestamps, and ID propagation.
+    pub fn extract_slot_view(&self, slot_index: u32) -> Result<gst::Buffer, NvBufSurfaceError> {
+        super::extract_slot_view(&self.buffer, slot_index)
+    }
+
     /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor,
     /// attach [`SavantIdMeta`], and return the owned GstBuffer.
     ///

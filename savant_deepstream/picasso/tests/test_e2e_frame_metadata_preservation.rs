@@ -124,7 +124,7 @@ fn e2e_frame_metadata_preservation() {
         .add_object(obj_person, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_buffer(&gen, 0, DUR);
+    let buf = make_gpu_surface_view(&gen, 0, DUR);
     let frame_uuid = frame.get_uuid();
     let frame_pts = frame.get_pts();
     engine.send_frame("meta", frame, buf, None).unwrap();

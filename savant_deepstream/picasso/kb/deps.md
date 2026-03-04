@@ -31,13 +31,17 @@ use deepstream_encoders::prelude::*;
 
 ### deepstream_nvbufsurface (transform config, GPU utilities)
 ```rust
-use deepstream_nvbufsurface::{Padding, Rect, TransformConfig, buffer_gpu_id};
+use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
 // TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
 // TransformConfig implements Default (Symmetric, Bilinear, Default compute)
 // NvBufSurfaceGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
+// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed
+// SurfaceView::from_buffer(&buf, slot_index) — extract from NvBufSurface-backed buffer
+// SurfaceView::from_cuda_ptr(...) — wrap arbitrary CUDA device memory
+// SurfaceView accessors: buffer(), buffer_mut(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
 ```
 
 ### savant_core (frames, objects, geometry)
@@ -86,6 +90,8 @@ VideoFrameProxy::new(
 ```rust
 gstreamer::init().unwrap();
 let buf = gstreamer::Buffer::new();
+// Wrap as SurfaceView for Picasso APIs:
+let view = SurfaceView::wrap(buf);
 ```
 
 ### NvBufSurfaceGenerator (GPU)
@@ -94,12 +100,13 @@ let gen = NvBufSurfaceGenerator::new(
     VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
 ).unwrap();
 assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter
-let mut buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
+let buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
+let view = SurfaceView::from_buffer(&buf, 0).unwrap();
 // ⚠ pts/dts/duration are taken from the VideoFrame; do not assume they are in the buffer.
 // Set them on the frame before send_frame:
 frame.set_pts((idx * dur_ns) as i64).unwrap();
 frame.set_duration(Some(dur_ns as i64)).unwrap();
-// The pipeline applies frame timestamps to the buffer at entry.
+// The pipeline applies frame timestamps to view.buffer_mut().make_mut() at entry.
 ```
 
 ### EncoderConfig

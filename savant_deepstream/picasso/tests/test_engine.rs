@@ -28,6 +28,10 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
+fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
+    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+}
+
 struct CountingBypassCb {
     count: Arc<AtomicUsize>,
 }
@@ -67,8 +71,8 @@ fn engine_auto_creates_worker() {
     let mut engine = PicassoEngine::new(general, callbacks);
 
     let frame = make_frame("auto-create");
-    let buf = make_gst_buffer();
-    engine.send_frame("auto-create", frame, buf, None).unwrap();
+    let view = make_surface_view();
+    engine.send_frame("auto-create", frame, view, None).unwrap();
 
     std::thread::sleep(Duration::from_millis(100));
     engine.shutdown();
@@ -99,12 +103,12 @@ fn engine_bypass_multi_source() {
 
     for _ in 0..3 {
         let frame_a = make_frame("src-a");
-        let buf_a = make_gst_buffer();
-        engine.send_frame("src-a", frame_a, buf_a, None).unwrap();
+        let view_a = make_surface_view();
+        engine.send_frame("src-a", frame_a, view_a, None).unwrap();
 
         let frame_b = make_frame("src-b");
-        let buf_b = make_gst_buffer();
-        engine.send_frame("src-b", frame_b, buf_b, None).unwrap();
+        let view_b = make_surface_view();
+        engine.send_frame("src-b", frame_b, view_b, None).unwrap();
     }
 
     std::thread::sleep(Duration::from_millis(300));
@@ -137,8 +141,8 @@ fn engine_eos_sends_sentinel() {
     engine.set_source_spec("eos-test", spec).unwrap();
 
     let frame = make_frame("eos-test");
-    let buf = make_gst_buffer();
-    engine.send_frame("eos-test", frame, buf, None).unwrap();
+    let view = make_surface_view();
+    engine.send_frame("eos-test", frame, view, None).unwrap();
 
     engine.send_eos("eos-test").unwrap();
 
@@ -179,8 +183,8 @@ fn engine_shutdown_rejects_new_frames() {
     engine.shutdown();
 
     let frame = make_frame("rejected");
-    let buf = make_gst_buffer();
-    let result = engine.send_frame("rejected", frame, buf, None);
+    let view = make_surface_view();
+    let result = engine.send_frame("rejected", frame, view, None);
     assert!(result.is_err());
 }
 
@@ -209,8 +213,8 @@ fn engine_spec_hot_swap() {
     // Send frames in Drop mode — no bypass callbacks
     for _ in 0..3 {
         let frame = make_frame("swap-test");
-        let buf = make_gst_buffer();
-        engine.send_frame("swap-test", frame, buf, None).unwrap();
+        let view = make_surface_view();
+        engine.send_frame("swap-test", frame, view, None).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 0);
@@ -226,8 +230,8 @@ fn engine_spec_hot_swap() {
     // Now frames should trigger bypass callback
     for _ in 0..3 {
         let frame = make_frame("swap-test");
-        let buf = make_gst_buffer();
-        engine.send_frame("swap-test", frame, buf, None).unwrap();
+        let view = make_surface_view();
+        engine.send_frame("swap-test", frame, view, None).unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 3);

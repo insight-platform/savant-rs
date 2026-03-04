@@ -72,14 +72,14 @@ fn make_frame_with_attr(source_id: &str, idx: u64, ns: &str, name: &str) -> Vide
     frame
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> gstreamer::Buffer {
+fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
         buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
     }
-    buf
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
 struct EncodedCounter(Arc<AtomicUsize>);

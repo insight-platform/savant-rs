@@ -100,7 +100,7 @@ impl PyBypassOutput {
 
 impl PyBypassOutput {
     pub(crate) fn from_rust(output: BypassOutput) -> Self {
-        // `output.buffer` (gst::Buffer) is dropped here, returning it to the pool.
+        // `output.view` (SurfaceView) is dropped here, returning its buffer to the pool.
         Self {
             source_id: output.source_id,
             frame: output.frame,

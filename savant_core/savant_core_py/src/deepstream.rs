@@ -613,6 +613,295 @@ pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
     Ok(raw)
 }
 
+// ─── SurfaceView ────────────────────────────────────────────────────────
+
+/// Zero-copy view of a single GPU surface.
+///
+/// Wraps an NvBufSurface-backed buffer or arbitrary CUDA memory with cached
+/// surface parameters.  Implements ``__cuda_array_interface__`` for
+/// single-plane formats (RGBA, BGRx, GRAY8) so the surface can be consumed
+/// by CuPy, PyTorch, and other CUDA-aware libraries.
+///
+/// Construction:
+///
+/// - ``SurfaceView.from_buffer(buf, slot_index)`` — from a ``GstBuffer``.
+/// - ``SurfaceView.from_cuda_array(obj)`` — from any object exposing
+///   ``__cuda_array_interface__`` (CuPy array, PyTorch CUDA tensor, etc.).
+#[pyclass(name = "SurfaceView", module = "savant_rs.deepstream")]
+pub struct PySurfaceView {
+    inner: Option<deepstream_nvbufsurface::SurfaceView>,
+}
+
+impl PySurfaceView {
+    pub fn new(view: deepstream_nvbufsurface::SurfaceView) -> Self {
+        Self { inner: Some(view) }
+    }
+
+    /// Consume the inner SurfaceView (e.g. for passing to Picasso).
+    pub fn take(&mut self) -> PyResult<deepstream_nvbufsurface::SurfaceView> {
+        self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
+        })
+    }
+
+    fn inner_ref(&self) -> PyResult<&deepstream_nvbufsurface::SurfaceView> {
+        self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
+        })
+    }
+
+    /// Create a SurfaceView from a `__cuda_array_interface__` object.
+    /// Callable from Rust code (e.g. Picasso `send_frame` dispatch).
+    pub(crate) fn from_cuda_iface(
+        py: Python<'_>,
+        obj: Bound<'_, PyAny>,
+        gpu_id: u32,
+    ) -> PyResult<Self> {
+        let iface = obj.getattr("__cuda_array_interface__").map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "object does not expose __cuda_array_interface__",
+            )
+        })?;
+
+        let shape: Vec<u64> = iface.get_item("shape")?.extract()?;
+        let typestr: String = iface.get_item("typestr")?.extract()?;
+        let data_tuple: (usize, bool) = iface.get_item("data")?.extract()?;
+        let data_ptr = data_tuple.0;
+
+        if data_ptr == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "data pointer is null",
+            ));
+        }
+        if typestr != "|u1" && typestr != "<u1" {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "unsupported dtype '{}'; only uint8 ('|u1' / '<u1') is supported",
+                typestr
+            )));
+        }
+
+        let (height, width, channels) = match shape.len() {
+            2 => (shape[0] as u32, shape[1] as u32, 1u32),
+            3 => (shape[0] as u32, shape[1] as u32, shape[2] as u32),
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unsupported shape {:?}; expected (H, W) or (H, W, C)",
+                    shape
+                )));
+            }
+        };
+
+        let color_format: u32 = match channels {
+            1 => 1,  // NVBUF_COLOR_FORMAT_GRAY8
+            4 => 19, // NVBUF_COLOR_FORMAT_RGBA
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "unsupported channel count {}; expected 1 (GRAY8) or 4 (RGBA)",
+                    channels
+                )));
+            }
+        };
+
+        let pitch = if let Ok(strides_obj) = iface.get_item("strides") {
+            if !strides_obj.is_none() {
+                let strides: Vec<u64> = strides_obj.extract()?;
+                strides[0] as u32
+            } else {
+                width * channels
+            }
+        } else {
+            width * channels
+        };
+
+        let keepalive: pyo3::Py<PyAny> = obj.unbind();
+        let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(keepalive);
+
+        py.detach(|| {
+            let _ = gst::init();
+            let view = deepstream_nvbufsurface::SurfaceView::from_cuda_ptr(
+                data_ptr as *mut std::ffi::c_void,
+                pitch,
+                width,
+                height,
+                gpu_id,
+                channels,
+                color_format,
+                Some(boxed),
+            )
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Ok(PySurfaceView::new(view))
+        })
+    }
+}
+
+#[pymethods]
+impl PySurfaceView {
+    /// Create a view from an NvBufSurface-backed buffer.
+    ///
+    /// Args:
+    ///     buf (GstBuffer | int): Source buffer.
+    ///     slot_index (int): Zero-based slot index (default 0).
+    ///
+    /// Raises:
+    ///     ValueError: If ``buf`` is null or ``slot_index`` is out of bounds.
+    ///     RuntimeError: If the buffer is not a valid NvBufSurface or uses
+    ///         a multi-plane format (NV12, I420, etc.).
+    #[staticmethod]
+    #[pyo3(signature = (buf, slot_index=0))]
+    fn from_buffer(py: Python<'_>, buf: &Bound<'_, PyAny>, slot_index: u32) -> PyResult<Self> {
+        let is_guard = buf.extract::<PyRef<'_, PyGstBuffer>>().is_ok();
+        let buf_ptr = extract_buf_ptr(buf)?;
+
+        py.detach(|| {
+            let _ = gst::init();
+            let gst_buf = unsafe {
+                if is_guard {
+                    from_glib_none(buf_ptr as *const gst::ffi::GstBuffer)
+                } else {
+                    gst::Buffer::from_glib_full(buf_ptr as *mut gst::ffi::GstBuffer)
+                }
+            };
+            let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&gst_buf, slot_index)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            Ok(PySurfaceView::new(view))
+        })
+    }
+
+    /// Create a view from any object exposing ``__cuda_array_interface__``.
+    ///
+    /// Supported shapes:
+    ///
+    /// - ``(H, W, C)`` — interleaved: C must be 1 (GRAY8) or 4 (RGBA).
+    /// - ``(H, W)``    — grayscale (GRAY8).
+    ///
+    /// The source object is kept alive for the lifetime of this view.
+    ///
+    /// Args:
+    ///     obj: A CuPy array, PyTorch CUDA tensor, or any object with
+    ///         ``__cuda_array_interface__``.
+    ///     gpu_id (int): CUDA device ID (default 0).
+    ///
+    /// Raises:
+    ///     TypeError: If *obj* has no ``__cuda_array_interface__``.
+    ///     ValueError: If shape, dtype, or strides are unsupported.
+    #[staticmethod]
+    #[pyo3(signature = (obj, gpu_id=0))]
+    fn from_cuda_array(py: Python<'_>, obj: Bound<'_, PyAny>, gpu_id: u32) -> PyResult<Self> {
+        Self::from_cuda_iface(py, obj, gpu_id)
+    }
+
+    /// CUDA data pointer to the first pixel.
+    #[getter]
+    fn data_ptr(&self) -> PyResult<usize> {
+        Ok(self.inner_ref()?.data_ptr() as usize)
+    }
+
+    /// Row stride in bytes.
+    #[getter]
+    fn pitch(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.pitch())
+    }
+
+    /// Surface width in pixels.
+    #[getter]
+    fn width(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.width())
+    }
+
+    /// Surface height in pixels.
+    #[getter]
+    fn height(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.height())
+    }
+
+    /// GPU device ID.
+    #[getter]
+    fn gpu_id(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.gpu_id())
+    }
+
+    /// Number of interleaved channels per pixel.
+    #[getter]
+    fn channels(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.channels())
+    }
+
+    /// Raw ``NvBufSurfaceColorFormat`` value.
+    #[getter]
+    fn color_format(&self) -> PyResult<u32> {
+        Ok(self.inner_ref()?.color_format())
+    }
+
+    /// The ``__cuda_array_interface__`` descriptor (v3).
+    ///
+    /// Exposes the GPU surface as a CUDA array so that CuPy, PyTorch, and
+    /// other CUDA-aware libraries can access the data without copies.
+    ///
+    /// Only available for single-plane formats (RGBA, BGRx, GRAY8).
+    #[getter]
+    fn __cuda_array_interface__<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
+        let view = self.inner_ref()?;
+        let dict = pyo3::types::PyDict::new(py);
+
+        let channels = view.channels();
+        let height = view.height();
+        let width = view.width();
+
+        let shape = if channels == 1 {
+            (height as u64, width as u64)
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()
+        } else {
+            (height as u64, width as u64, channels as u64)
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()
+        };
+
+        let strides = if channels == 1 {
+            (view.pitch() as u64, 1u64)
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()
+        } else {
+            (view.pitch() as u64, channels as u64, 1u64)
+                .into_pyobject(py)?
+                .into_any()
+                .unbind()
+        };
+
+        dict.set_item("shape", shape)?;
+        dict.set_item("typestr", "|u1")?;
+        dict.set_item("descr", vec![("", "|u1")])?;
+        dict.set_item("data", (view.data_ptr() as usize, false))?;
+        dict.set_item("strides", strides)?;
+        dict.set_item("version", 3)?;
+
+        Ok(dict)
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            Some(v) => format!(
+                "SurfaceView({}x{}, ch={}, gpu={})",
+                v.width(),
+                v.height(),
+                v.channels(),
+                v.gpu_id()
+            ),
+            None => "SurfaceView(<consumed>)".to_string(),
+        }
+    }
+
+    fn __bool__(&self) -> bool {
+        self.inner.is_some()
+    }
+}
+
 // ─── NvBufSurfaceGenerator ──────────────────────────────────────────────
 
 /// Python wrapper for NvBufSurfaceGenerator.
@@ -1472,6 +1761,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRect>()?;
     m.add_class::<PyTransformConfig>()?;
     m.add_class::<PyGstBuffer>()?;
+    m.add_class::<PySurfaceView>()?;
     m.add_class::<PyNvBufSurfaceGenerator>()?;
     m.add_class::<PyBatchedNvBufSurfaceGenerator>()?;
     m.add_class::<PyBatchedSurface>()?;

@@ -66,7 +66,7 @@ fn e2e_eviction_keep_for_then_terminate() {
         .send_frame(
             "evict-test",
             make_frame("evict-test"),
-            make_gst_buffer(),
+            make_surface_view(),
             None,
         )
         .unwrap();

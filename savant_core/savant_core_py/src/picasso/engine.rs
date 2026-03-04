@@ -2,7 +2,7 @@ use super::callbacks::PyCallbacks;
 use super::error::to_py_err;
 use super::spec::general::PyGeneralSpec;
 use super::spec::source::PySourceSpec;
-use crate::deepstream::{PyGstBuffer, PyRect};
+use crate::deepstream::{PyGstBuffer, PyRect, PySurfaceView};
 use glib::translate::from_glib_none;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
@@ -60,15 +60,24 @@ impl PyPicassoEngine {
 
     /// Submit a video frame for processing.
     ///
+    /// Accepts one of:
+    ///
+    /// - ``SurfaceView`` — the preferred input type.
+    /// - Any object with ``__cuda_array_interface__`` (CuPy array,
+    ///   PyTorch CUDA tensor) — automatically wrapped in a ``SurfaceView``.
+    /// - ``GstBuffer`` or raw ``int`` pointer (legacy API) — the buffer is
+    ///   wrapped with ``SurfaceView.wrap`` (no surface parameter extraction).
+    ///
     /// Args:
     ///     source_id (str): Source identifier.
     ///     frame (VideoFrame): Frame metadata.
-    ///     buf (GstBuffer | int): Buffer — either a ``GstBuffer`` RAII guard
-    ///         or a raw ``GstBuffer*`` pointer as ``int``.
+    ///     buf: Surface data (``SurfaceView``, ``__cuda_array_interface__``
+    ///         object, ``GstBuffer``, or ``int``).
     ///     src_rect (Rect | None): Optional per-frame source crop.
     ///
     /// Raises:
     ///     RuntimeError: If the engine is shut down.
+    ///     TypeError: If ``buf`` is not a supported type.
     ///     ValueError: If ``buf`` is null.
     #[pyo3(signature = (source_id, frame, buf, src_rect=None))]
     fn send_frame(
@@ -84,26 +93,43 @@ impl PyPicassoEngine {
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
 
-        let is_guard = buf.extract::<PyRef<'_, PyGstBuffer>>().is_ok();
-        let buf_ptr = crate::deepstream::extract_buf_ptr(buf)?;
-
         let frame_proxy = frame.0.clone();
         let src_rect_rust = src_rect.map(|r| r.into_rust());
-        py.detach(|| {
-            let _ = gstreamer::init();
-            let gst_buf = unsafe {
-                if is_guard {
-                    // GstBuffer guard keeps its own ref; borrow by adding a ref.
-                    from_glib_none(buf_ptr as *const gstreamer::ffi::GstBuffer)
-                } else {
-                    // Raw int: caller transfers ownership (legacy API).
-                    gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
-                }
-            };
-            engine
-                .send_frame(source_id, frame_proxy, gst_buf, src_rect_rust)
-                .map_err(to_py_err)
-        })
+
+        // Dispatch: PySurfaceView → __cuda_array_interface__ → GstBuffer/int
+        if let Ok(mut sv) = buf.extract::<PyRefMut<'_, PySurfaceView>>() {
+            let view = sv.take()?;
+            py.detach(|| {
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        } else if buf.hasattr("__cuda_array_interface__")? {
+            let mut py_sv = PySurfaceView::from_cuda_iface(py, buf.clone(), 0)?;
+            let view = py_sv.take()?;
+            py.detach(|| {
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        } else {
+            let is_guard = buf.extract::<PyRef<'_, PyGstBuffer>>().is_ok();
+            let buf_ptr = crate::deepstream::extract_buf_ptr(buf)?;
+            py.detach(|| {
+                let _ = gstreamer::init();
+                let gst_buf = unsafe {
+                    if is_guard {
+                        from_glib_none(buf_ptr as *const gstreamer::ffi::GstBuffer)
+                    } else {
+                        gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
+                    }
+                };
+                let view = deepstream_nvbufsurface::SurfaceView::wrap(gst_buf);
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        }
     }
 
     /// Send an end-of-stream signal to a specific source.

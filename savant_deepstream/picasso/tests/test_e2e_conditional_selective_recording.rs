@@ -122,7 +122,7 @@ fn e2e_conditional_selective_recording() {
             frame
         };
 
-    let buf_a = make_gpu_buffer(&gen, 0, DUR);
+    let buf_a = make_gpu_surface_view(&gen, 0, DUR);
     engine
         .send_frame(
             "cond",
@@ -132,7 +132,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_b = make_gpu_buffer(&gen, 1, DUR);
+    let buf_b = make_gpu_surface_view(&gen, 1, DUR);
     engine
         .send_frame(
             "cond",
@@ -142,7 +142,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_c = make_gpu_buffer(&gen, 2, DUR);
+    let buf_c = make_gpu_surface_view(&gen, 2, DUR);
     engine
         .send_frame(
             "cond",
@@ -152,7 +152,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_d = make_gpu_buffer(&gen, 3, DUR);
+    let buf_d = make_gpu_surface_view(&gen, 3, DUR);
     engine
         .send_frame(
             "cond",

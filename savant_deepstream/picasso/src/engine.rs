@@ -104,7 +104,7 @@ impl PicassoEngine {
         &self,
         source_id: &str,
         frame: savant_core::primitives::frame::VideoFrameProxy,
-        buf: gstreamer::Buffer,
+        view: deepstream_nvbufsurface::SurfaceView,
         src_rect: Option<deepstream_nvbufsurface::Rect>,
     ) -> Result<(), PicassoError> {
         if self.shutdown_flag.load(Ordering::Relaxed) {
@@ -123,7 +123,7 @@ impl PicassoEngine {
         });
 
         worker
-            .send(WorkerMessage::Frame(frame, buf, src_rect))
+            .send(WorkerMessage::Frame(frame, view, src_rect))
             .map_err(|_| PicassoError::ChannelDisconnected(source_id.to_string()))?;
 
         Ok(())

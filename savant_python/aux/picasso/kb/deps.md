@@ -25,6 +25,7 @@ from savant_rs.picasso import (
 ```python
 from savant_rs.deepstream import (
     GstBuffer,            # RAII guard wrapping a GStreamer buffer (auto-unrefs on GC)
+    SurfaceView,          # unified GPU surface descriptor (preferred buf for send_frame)
     MemType,              # memory type enum
     NvBufSurfaceGenerator,# GPU buffer pool
     TransformConfig,      # transform config for CodecSpec.encode()

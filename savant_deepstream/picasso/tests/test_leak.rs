@@ -59,7 +59,10 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Buffer {
+fn make_nvmm_buffer(
+    gen: &NvBufSurfaceGenerator,
+    frame_id: i64,
+) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -68,7 +71,7 @@ fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Bu
         ));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
-    buf
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
 fn encoder_config(w: u32, h: u32) -> EncoderConfig {
@@ -127,7 +130,7 @@ fn leak_worker_lifecycle_churn() {
         );
         w.send(WorkerMessage::Frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ))
         .unwrap();
@@ -151,7 +154,7 @@ fn leak_worker_lifecycle_churn() {
         for j in 0..10 {
             let _ = w.send(WorkerMessage::Frame(
                 make_frame(&source, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             ));
             if j == 9 {
@@ -203,7 +206,7 @@ fn leak_sustained_bypass_frames() {
     for _ in 0..100 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -216,7 +219,7 @@ fn leak_sustained_bypass_frames() {
     for _ in 0..5_000 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -266,7 +269,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
@@ -286,7 +289,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
