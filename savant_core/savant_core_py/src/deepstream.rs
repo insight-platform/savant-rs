@@ -705,6 +705,11 @@ impl PySurfaceView {
         let pitch = if let Ok(strides_obj) = iface.get_item("strides") {
             if !strides_obj.is_none() {
                 let strides: Vec<u64> = strides_obj.extract()?;
+                if strides.is_empty() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "strides must be non-empty when present",
+                    ));
+                }
                 strides[0] as u32
             } else {
                 width * channels

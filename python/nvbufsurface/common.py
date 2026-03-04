@@ -289,9 +289,9 @@ class PicassoSession:
 
         session = PicassoSession(args, video_format=VideoFormat.RGBA,
                                  use_generator=False)
-        mat = make_gpu_mat(args.width, args.height)
 
         while session.is_running and i < session.limit:
+            mat = make_gpu_mat(args.width, args.height)
             mat.setTo((0, 0, 0, 255))  # draw content
             session.submit(GpuMatCudaArray(mat), pts_ns=...,
                            duration_ns=session.frame_duration_ns)
