@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional, Union, final
 
 from savant_rs.deepstream import (
-    GstBuffer,
+    DsNvBufSurfaceGstBuffer,
     MemType,
     Rect,
     SurfaceView,
@@ -652,7 +652,7 @@ class PicassoEngine:
         self,
         source_id: str,
         frame: VideoFrame,
-        buf: Union[SurfaceView, GstBuffer, int, Any],
+        buf: Union[SurfaceView, DsNvBufSurfaceGstBuffer, int, Any],
         src_rect: Optional[Rect] = None,
     ) -> None:
         """Submit a video frame for processing.
@@ -662,13 +662,13 @@ class PicassoEngine:
         - ``SurfaceView`` — the preferred input type.
         - Any object with ``__cuda_array_interface__`` (CuPy array,
           PyTorch CUDA tensor) — automatically wrapped in a ``SurfaceView``.
-        - ``GstBuffer`` or raw ``int`` pointer (legacy API).
+        - ``DsNvBufSurfaceGstBuffer`` or raw ``int`` pointer (legacy API).
 
         Args:
             source_id: Source identifier.
             frame: The ``VideoFrame`` proxy.
             buf: Surface data — ``SurfaceView``, ``__cuda_array_interface__``
-                object, ``GstBuffer``, or raw ``int`` pointer.
+                object, ``DsNvBufSurfaceGstBuffer``, or raw ``int`` pointer.
             src_rect: Optional source crop rectangle (top, left, width, height).
         """
         ...

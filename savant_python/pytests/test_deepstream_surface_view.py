@@ -91,6 +91,13 @@ class TestSurfaceViewFromBuffer:
         assert view2.channels == 4
         assert view2.data_ptr == view.data_ptr
 
+    def test_cuda_array_interface_hasattr(self):
+        """SurfaceView must expose __cuda_array_interface__ for external consumers."""
+        gen = ds.NvBufSurfaceGenerator("RGBA", 64, 64, pool_size=1)
+        buf = gen.acquire_surface()
+        view = ds.SurfaceView.from_buffer(buf, 0)
+        assert hasattr(view, "__cuda_array_interface__")
+
     def test_gray8_shape(self):
         gen = ds.NvBufSurfaceGenerator("GRAY8", 256, 128, pool_size=1)
         buf = gen.acquire_surface()
@@ -213,6 +220,17 @@ class TestSurfaceViewFromCuPy:
         arr = cp.zeros((100, 100, 3), dtype=cp.uint8)
         with pytest.raises(ValueError, match="unsupported channel"):
             ds.SurfaceView.from_cuda_array(arr, gpu_id=0)
+
+    def test_surface_view_consumable_by_cupy_asarray(self):
+        """SurfaceView (from buffer) must be consumable by CuPy as external consumer."""
+        import cupy as cp
+
+        gen = ds.NvBufSurfaceGenerator("RGBA", 48, 32, pool_size=1)
+        buf = gen.acquire_surface()
+        view = ds.SurfaceView.from_buffer(buf, 0)
+        arr = cp.asarray(view)
+        assert arr.shape == (32, 48, 4)
+        assert arr.dtype == cp.uint8
 
 
 # ===========================================================================

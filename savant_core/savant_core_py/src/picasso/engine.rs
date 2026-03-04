@@ -2,7 +2,7 @@ use super::callbacks::PyCallbacks;
 use super::error::to_py_err;
 use super::spec::general::PyGeneralSpec;
 use super::spec::source::PySourceSpec;
-use crate::deepstream::{PyGstBuffer, PyRect, PySurfaceView};
+use crate::deepstream::{PyDsNvBufSurfaceGstBuffer, PyRect, PySurfaceView};
 use glib::translate::from_glib_none;
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
@@ -136,7 +136,7 @@ impl PyPicassoEngine {
         } else {
             // TODO: reconside if getting a first surface view from a buffer is worth it 
             //      instead of erroring out here
-            let is_guard = buf.extract::<PyRef<'_, PyGstBuffer>>().is_ok();
+            let is_guard = buf.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>().is_ok();
             let buf_ptr = crate::deepstream::extract_buf_ptr(buf)?;
             py.detach(|| {
                 let _ = gstreamer::init();

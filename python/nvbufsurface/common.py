@@ -14,7 +14,6 @@ import threading
 import time
 from typing import Any, Callable
 
-import cv2
 import gi
 
 gi.require_version("Gst", "1.0")
@@ -22,7 +21,7 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from savant_rs.deepstream import (  # noqa: E402
-    GstBuffer,
+    DsNvBufSurfaceGstBuffer,
     NvBufSurfaceGenerator,
     SurfaceView,
     TransformConfig,
@@ -372,10 +371,10 @@ class PicassoSession:
         """``False`` after Ctrl-C or an encoder callback error."""
         return self._running
 
-    def acquire_surface(self, *, frame_id: int) -> GstBuffer:
+    def acquire_surface(self, *, frame_id: int) -> DsNvBufSurfaceGstBuffer:
         """Acquire an NvBufSurface GPU buffer from the internal pool.
 
-        Returns a raw ``GstBuffer`` guard.  Use this when you need to
+        Returns a raw ``DsNvBufSurfaceGstBuffer`` guard.  Use this when you need to
         perform GPU operations on the buffer (e.g. ``nvgstbuf_as_gpu_mat``,
         ``nvbuf_as_gpu_mat``) before submitting it to the engine.
 
@@ -428,7 +427,7 @@ class PicassoSession:
     ) -> None:
         """Submit a pre-built :class:`VideoFrame` to the Picasso engine.
 
-        *buf* may be a ``SurfaceView``, a ``GstBuffer`` guard,
+        *buf* may be a ``SurfaceView``, a ``DsNvBufSurfaceGstBuffer`` guard,
         a raw ``GstBuffer*`` pointer as ``int``, or any object exposing
         ``__cuda_array_interface__`` (e.g. ``savant_rs.deepstream.GpuMatCudaArray``).
         """
@@ -438,7 +437,7 @@ class PicassoSession:
 
     def submit(
         self,
-        buf: SurfaceView | GstBuffer | int | Any,
+        buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any,
         *,
         pts_ns: int,
         duration_ns: int | None = None,

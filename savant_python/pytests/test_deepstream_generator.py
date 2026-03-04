@@ -55,10 +55,10 @@ class TestNvmmCaps:
 
 @skip_no_runtime
 class TestAcquireSurface:
-    def test_acquire_returns_gstbuffer(self):
+    def test_acquire_returns_ds_nvbufsurface_gstbuffer(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=4)
         buf = gen.acquire_surface()
-        assert isinstance(buf, ds.GstBuffer)
+        assert isinstance(buf, ds.DsNvBufSurfaceGstBuffer)
         assert buf.ptr != 0
 
     def test_acquire_with_id(self):
@@ -78,7 +78,7 @@ class TestAcquireSurfaceWithPtr:
     def test_all_nonzero(self):
         gen = ds.NvBufSurfaceGenerator("RGBA", 640, 480, pool_size=4)
         buf, data_ptr, pitch = gen.acquire_surface_with_ptr()
-        assert isinstance(buf, ds.GstBuffer)
+        assert isinstance(buf, ds.DsNvBufSurfaceGstBuffer)
         assert buf.ptr != 0
         assert data_ptr != 0
         assert pitch > 0

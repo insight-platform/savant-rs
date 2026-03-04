@@ -18,7 +18,7 @@ __all__ = [
     "VideoFormat",
     "MemType",
     "Rect",
-    "GstBuffer",
+    "DsNvBufSurfaceGstBuffer",
     "SurfaceView",
     "TransformConfig",
     "NvBufSurfaceGenerator",
@@ -200,10 +200,10 @@ class Rect:
     def __init__(self, top: int, left: int, width: int, height: int) -> None: ...
     def __repr__(self) -> str: ...
 
-# ── GstBuffer ───────────────────────────────────────────────────────────
+# ── DsNvBufSurfaceGstBuffer ───────────────────────────────────────────────
 
 @final
-class GstBuffer:
+class DsNvBufSurfaceGstBuffer:
     """RAII guard owning a ``GstBuffer*`` reference.
 
     Prevents leaking GStreamer buffers by ensuring ``gst_buffer_unref``
@@ -213,11 +213,11 @@ class GstBuffer:
     Obtain instances from :meth:`NvBufSurfaceGenerator.acquire_surface`,
     :meth:`BatchedSurface.finalize`, :meth:`HeterogeneousBatch.finalize`,
     etc.  Pass them directly to any API that accepts
-    ``Union[GstBuffer, int]``.
+    ``Union[DsNvBufSurfaceGstBuffer, int]``.
     """
 
     @staticmethod
-    def from_ptr(ptr: int, add_ref: bool = True) -> GstBuffer:
+    def from_ptr(ptr: int, add_ref: bool = True) -> DsNvBufSurfaceGstBuffer:
         """Wrap a raw ``GstBuffer*`` pointer into a guard.
 
         Args:
@@ -280,11 +280,11 @@ class SurfaceView:
     """
 
     @staticmethod
-    def from_buffer(buf: Union[GstBuffer, int], slot_index: int = 0) -> SurfaceView:
+    def from_buffer(buf: Union[DsNvBufSurfaceGstBuffer, int], slot_index: int = 0) -> SurfaceView:
         """Create a view from an NvBufSurface-backed buffer.
 
         Args:
-            buf: Source buffer (``GstBuffer`` guard or raw pointer ``int``).
+            buf: Source buffer (``DsNvBufSurfaceGstBuffer`` guard or raw pointer ``int``).
             slot_index: Zero-based slot index (default 0).
 
         Raises:
@@ -421,7 +421,7 @@ class NvBufSurfaceGenerator:
     def height(self) -> int: ...
     @property
     def format(self) -> VideoFormat: ...
-    def acquire_surface(self, id: Optional[int] = None) -> GstBuffer:
+    def acquire_surface(self, id: Optional[int] = None) -> DsNvBufSurfaceGstBuffer:
         """Acquire a new NvBufSurface buffer from the pool.
 
         Returns:
@@ -434,7 +434,7 @@ class NvBufSurfaceGenerator:
         pts_ns: int,
         duration_ns: int,
         id: Optional[int] = None,
-    ) -> GstBuffer:
+    ) -> DsNvBufSurfaceGstBuffer:
         """Acquire a buffer and stamp PTS and duration on it.
 
         Args:
@@ -450,17 +450,17 @@ class NvBufSurfaceGenerator:
     def acquire_surface_with_ptr(
         self,
         id: Optional[int] = None,
-    ) -> Tuple[GstBuffer, int, int]:
+    ) -> Tuple[DsNvBufSurfaceGstBuffer, int, int]:
         """Acquire a buffer and return ``(guard, data_ptr, pitch)``."""
         ...
 
     def transform(
         self,
-        src_buf: Union[GstBuffer, int],
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: TransformConfig,
         id: Optional[int] = None,
         src_rect: Optional[Rect] = None,
-    ) -> GstBuffer:
+    ) -> DsNvBufSurfaceGstBuffer:
         """Transform (scale + letterbox) a source buffer into a new destination.
 
         Returns:
@@ -470,11 +470,11 @@ class NvBufSurfaceGenerator:
 
     def transform_with_ptr(
         self,
-        src_buf: Union[GstBuffer, int],
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: TransformConfig,
         id: Optional[int] = None,
         src_rect: Optional[Rect] = None,
-    ) -> Tuple[GstBuffer, int, int]:
+    ) -> Tuple[DsNvBufSurfaceGstBuffer, int, int]:
         """Like :meth:`transform` but also returns ``(guard, data_ptr, pitch)``."""
         ...
 
@@ -495,7 +495,7 @@ class NvBufSurfaceGenerator:
 
     def create_surface(
         self,
-        gst_buffer_dest: Union[GstBuffer, int],
+        gst_buffer_dest: Union[DsNvBufSurfaceGstBuffer, int],
         id: Optional[int] = None,
     ) -> None:
         """Create a new NvBufSurface and attach it to the given buffer."""
@@ -612,7 +612,7 @@ class BatchedSurface:
 
     def fill_slot(
         self,
-        src_buf: Union[GstBuffer, int],
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
         src_rect: Optional[Rect] = None,
         id: Optional[int] = None,
     ) -> None:
@@ -641,7 +641,7 @@ class BatchedSurface:
         """
         ...
 
-    def finalize(self) -> GstBuffer:
+    def finalize(self) -> DsNvBufSurfaceGstBuffer:
         """Finalize the batch and return the buffer guard.
 
         Writes ``SavantIdMeta`` with the collected frame IDs and sets
@@ -689,7 +689,7 @@ class HeterogeneousBatch:
         """GPU device ID this batch is bound to."""
         ...
 
-    def add(self, src_buf: Union[GstBuffer, int], id: Optional[int] = None) -> None:
+    def add(self, src_buf: Union[DsNvBufSurfaceGstBuffer, int], id: Optional[int] = None) -> None:
         """Add a source buffer to the batch (zero-copy).
 
         The source buffer's ``NvBufSurface`` is appended to the batch
@@ -724,7 +724,7 @@ class HeterogeneousBatch:
         """
         ...
 
-    def finalize(self) -> GstBuffer:
+    def finalize(self) -> DsNvBufSurfaceGstBuffer:
         """Finalize the batch and return the buffer guard.
 
         Writes ``SavantIdMeta`` with the collected frame IDs and
@@ -747,7 +747,7 @@ class SkiaContext:
 
     def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
     @staticmethod
-    def from_nvbuf(buf: Union[GstBuffer, int], gpu_id: int = 0) -> SkiaContext:
+    def from_nvbuf(buf: Union[DsNvBufSurfaceGstBuffer, int], gpu_id: int = 0) -> SkiaContext:
         """Create a SkiaContext from an existing NvBufSurface buffer."""
         ...
 
@@ -759,7 +759,7 @@ class SkiaContext:
     def height(self) -> int: ...
     def render_to_nvbuf(
         self,
-        buf: Union[GstBuffer, int],
+        buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: Optional[TransformConfig] = None,
     ) -> None:
         """Render Skia content onto an NvBufSurface buffer."""
@@ -793,7 +793,7 @@ def bridge_savant_id_meta(element_ptr: int) -> None:
     """Bridge Savant ID metadata across a GStreamer element."""
     ...
 
-def get_savant_id_meta(buf: Union[GstBuffer, int]) -> List[Tuple[str, int]]:
+def get_savant_id_meta(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> List[Tuple[str, int]]:
     """Read Savant ID metadata from a GstBuffer.
 
     Returns:
@@ -801,7 +801,7 @@ def get_savant_id_meta(buf: Union[GstBuffer, int]) -> List[Tuple[str, int]]:
     """
     ...
 
-def get_nvbufsurface_info(buf: Union[GstBuffer, int]) -> Tuple[int, int, int, int]:
+def get_nvbufsurface_info(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> Tuple[int, int, int, int]:
     """Get NvBufSurface info from a GstBuffer.
 
     Returns:
@@ -809,7 +809,7 @@ def get_nvbufsurface_info(buf: Union[GstBuffer, int]) -> Tuple[int, int, int, in
     """
     ...
 
-def set_buffer_pts(buf: Union[GstBuffer, int], pts_ns: int) -> None:
+def set_buffer_pts(buf: Union[DsNvBufSurfaceGstBuffer, int], pts_ns: int) -> None:
     """Set the presentation timestamp on a GstBuffer.
 
     Args:
@@ -818,7 +818,7 @@ def set_buffer_pts(buf: Union[GstBuffer, int], pts_ns: int) -> None:
     """
     ...
 
-def set_num_filled(buf: Union[GstBuffer, int], count: int) -> None:
+def set_num_filled(buf: Union[DsNvBufSurfaceGstBuffer, int], count: int) -> None:
     """Set numFilled on a batched NvBufSurface GstBuffer.
 
     Args:
@@ -827,7 +827,7 @@ def set_num_filled(buf: Union[GstBuffer, int], count: int) -> None:
     """
     ...
 
-def set_buffer_duration(buf: Union[GstBuffer, int], duration_ns: int) -> None:
+def set_buffer_duration(buf: Union[DsNvBufSurfaceGstBuffer, int], duration_ns: int) -> None:
     """Set the duration on a GstBuffer.
 
     Args:
@@ -951,7 +951,7 @@ def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
 
 @contextmanager
 def nvgstbuf_as_gpu_mat(
-    buf: Union[GstBuffer, int],
+    buf: Union[DsNvBufSurfaceGstBuffer, int],
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
 
@@ -999,7 +999,7 @@ def from_gpumat(
     *,
     interpolation: int = ...,
     id: Optional[int] = None,
-) -> GstBuffer:
+) -> DsNvBufSurfaceGstBuffer:
     """Acquire a buffer from the pool and fill it from a ``GpuMat``.
 
     If the source ``GpuMat`` dimensions differ from the generator's
