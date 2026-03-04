@@ -145,7 +145,8 @@ impl PyPicassoEngine {
                         gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
                     }
                 };
-                let view = deepstream_nvbufsurface::SurfaceView::wrap(gst_buf);
+                let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&gst_buf, 0)
+                    .unwrap_or_else(|_| deepstream_nvbufsurface::SurfaceView::wrap(gst_buf));
                 engine
                     .send_frame(source_id, frame_proxy, view, src_rect_rust)
                     .map_err(to_py_err)

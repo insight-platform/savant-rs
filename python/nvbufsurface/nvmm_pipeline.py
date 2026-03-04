@@ -10,7 +10,7 @@ The Picasso engine handles all encoding internals (encoder creation,
 format conversion, PTS validation).  The sample only needs to:
 
 1. Configure and create a :class:`PicassoSession`.
-2. Allocate a ``GpuMat``, draw into it, wrap with
+2. For each frame, allocate a ``GpuMat``, draw into it, wrap with
    :class:`GpuMatCudaArray`, and submit.
 3. (Encoded frames are delivered asynchronously via callback and
    optionally pushed into the muxer.)
@@ -61,11 +61,10 @@ def main() -> None:
 
     session = PicassoSession(args, video_format=VideoFormat.RGBA, use_generator=False)
 
-    mat = make_gpu_mat(args.width, args.height)
-
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
+        mat = make_gpu_mat(args.width, args.height)
         mat.setTo((20, 20, 28, 255))
         cuda_frame = GpuMatCudaArray(mat)
 
