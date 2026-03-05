@@ -51,7 +51,8 @@ pub struct PicassoEngine { /* private */ }
 ```rust
 #[derive(Debug, Clone)]
 pub struct GeneralSpec {
-    pub idle_timeout_secs: u64,  // DEF: 30
+    pub name: String,             // DEF: "" — used internally for logging and future extensibility
+    pub idle_timeout_secs: u64,   // DEF: 30
 }
 ```
 Implements `Default`.

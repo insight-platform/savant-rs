@@ -422,6 +422,7 @@ impl NvEncoder {
         let push_buffer = if let Some(ctx) = &self.convert_ctx {
             let transform_config = TransformConfig {
                 padding: deepstream_nvbufsurface::Padding::None,
+                dst_padding: None,
                 interpolation: deepstream_nvbufsurface::Interpolation::Nearest,
                 compute_mode: deepstream_nvbufsurface::ComputeMode::Default,
                 cuda_stream: ctx.cuda_stream,

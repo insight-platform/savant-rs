@@ -67,6 +67,7 @@ fn engine_auto_creates_worker() {
     let callbacks = Callbacks::default();
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -91,6 +92,7 @@ fn engine_bypass_multi_source() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -131,6 +133,7 @@ fn engine_eos_sends_sentinel() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -159,6 +162,7 @@ fn engine_remove_source() {
     let callbacks = Callbacks::default();
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -178,6 +182,7 @@ fn engine_shutdown_rejects_new_frames() {
     let callbacks = Callbacks::default();
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
     engine.shutdown();
@@ -201,6 +206,7 @@ fn engine_spec_hot_swap() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 60,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 

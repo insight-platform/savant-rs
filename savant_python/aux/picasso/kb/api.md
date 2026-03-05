@@ -36,10 +36,11 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 
 ## GeneralSpec
 ```
-SIG: __init__(idle_timeout_secs: int = 30) → None
+SIG: __init__(name: str = "", idle_timeout_secs: int = 30) → None
 ```
+- `name`: get/set, str. Optional instance name for logging and future extensibility. DEF: ""
 - `idle_timeout_secs`: get/set, u64. DEF: 30
-- repr: `"GeneralSpec(idle_timeout_secs=N)"`
+- repr: `"GeneralSpec(name=..., idle_timeout_secs=N)"`
 
 ---
 

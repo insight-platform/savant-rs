@@ -13,6 +13,7 @@ import skia
 
 __all__ = [
     "Padding",
+    "DstPadding",
     "Interpolation",
     "ComputeMode",
     "VideoFormat",
@@ -88,6 +89,30 @@ class Interpolation:
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+
+
+@final
+class DstPadding:
+    """Optional per-side destination padding for letterboxing.
+
+    When set in ``TransformConfig.dst_padding``, reduces the effective
+    destination area before the letterbox rect is computed.
+    """
+
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    def __init__(
+        self,
+        left: int = 0,
+        top: int = 0,
+        right: int = 0,
+        bottom: int = 0,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
 
 @final
 class ComputeMode:
@@ -373,12 +398,14 @@ class TransformConfig:
     """
 
     padding: Padding
+    dst_padding: Optional[DstPadding]
     interpolation: Interpolation
     compute_mode: ComputeMode
 
     def __init__(
         self,
         padding: Padding = ...,
+        dst_padding: Optional[DstPadding] = None,
         interpolation: Interpolation = ...,
         compute_mode: ComputeMode = ...,
     ) -> None: ...

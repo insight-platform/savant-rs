@@ -39,6 +39,7 @@ fn e2e_encode_eos_reencode() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

@@ -22,6 +22,9 @@ fn parse_section_key(k: &str) -> (&str, &str) {
 /// Configuration for the sidecar inference pipeline.
 #[derive(Debug, Clone)]
 pub struct SidecarConfig {
+    /// Optional name for this sidecar instance, used internally for logging and
+    /// future extensibility.
+    pub name: String,
     /// NvInfer config keys. Use dotted notation `section.key` for per-class
     /// sections (e.g. `class-attrs-0.nms-iou-threshold`). Bare keys go to
     /// `[property]`. Mandatory `process-mode` and `output-tensor-meta` are
@@ -55,6 +58,7 @@ impl SidecarConfig {
         input_height: u32,
     ) -> Self {
         Self {
+            name: String::new(),
             nvinfer_properties,
             element_properties: HashMap::new(),
             gpu_id: 0,
@@ -80,6 +84,12 @@ impl SidecarConfig {
     /// Set queue depth (max-size-buffers). 0 = no queue.
     pub fn queue_depth(mut self, queue_depth: u32) -> Self {
         self.queue_depth = queue_depth;
+        self
+    }
+
+    /// Set the instance name for logging and future extensibility.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
         self
     }
 

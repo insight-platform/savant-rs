@@ -7,7 +7,7 @@ use deepstream_nvbufsurface::transform::{self, Rect};
 use deepstream_nvbufsurface::{
     bridge_savant_id_meta, cuda_init, set_num_filled, ComputeMode, DsNvNonUniformSurfaceBuffer,
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBuffer, DsNvUniformSurfaceBufferGenerator,
-    Interpolation, NvBufSurfaceMemType, Padding, TransformConfig,
+    DstPadding, Interpolation, NvBufSurfaceMemType, Padding, TransformConfig,
 };
 use glib::translate::from_glib_none;
 use gstreamer as gst;
@@ -434,6 +434,69 @@ impl PyRect {
     }
 }
 
+// ─── DstPadding ──────────────────────────────────────────────────────────
+
+/// Optional per-side destination padding for letterboxing.
+///
+/// When set in ``TransformConfig.dst_padding``, reduces the effective
+/// destination area before the letterbox rect is computed.
+#[pyclass(from_py_object, name = "DstPadding", module = "savant_rs.deepstream")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PyDstPadding {
+    #[pyo3(get, set)]
+    pub left: u32,
+    #[pyo3(get, set)]
+    pub top: u32,
+    #[pyo3(get, set)]
+    pub right: u32,
+    #[pyo3(get, set)]
+    pub bottom: u32,
+}
+
+#[pymethods]
+impl PyDstPadding {
+    #[new]
+    #[pyo3(signature = (left = 0, top = 0, right = 0, bottom = 0))]
+    fn new(left: u32, top: u32, right: u32, bottom: u32) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "DstPadding(left={}, top={}, right={}, bottom={})",
+            self.left, self.top, self.right, self.bottom
+        )
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    fn __hash__(&self) -> u64 {
+        let mut h = self.left as u64;
+        h = h.wrapping_mul(31).wrapping_add(self.top as u64);
+        h = h.wrapping_mul(31).wrapping_add(self.right as u64);
+        h = h.wrapping_mul(31).wrapping_add(self.bottom as u64);
+        h
+    }
+}
+
+impl From<PyDstPadding> for DstPadding {
+    fn from(p: PyDstPadding) -> Self {
+        DstPadding {
+            left: p.left,
+            top: p.top,
+            right: p.right,
+            bottom: p.bottom,
+        }
+    }
+}
+
 // ─── TransformConfig ────────────────────────────────────────────────────
 
 /// Configuration for a transform (scale / letterbox) operation.
@@ -450,6 +513,8 @@ pub struct PyTransformConfig {
     #[pyo3(get, set)]
     pub padding: PyPadding,
     #[pyo3(get, set)]
+    pub dst_padding: Option<PyDstPadding>,
+    #[pyo3(get, set)]
     pub interpolation: PyInterpolation,
     #[pyo3(get, set)]
     pub compute_mode: PyComputeMode,
@@ -460,16 +525,19 @@ impl PyTransformConfig {
     #[new]
     #[pyo3(signature = (
         padding = PyPadding::Symmetric,
+        dst_padding = None,
         interpolation = PyInterpolation::Bilinear,
         compute_mode = PyComputeMode::Default,
     ))]
     fn new(
         padding: PyPadding,
+        dst_padding: Option<PyDstPadding>,
         interpolation: PyInterpolation,
         compute_mode: PyComputeMode,
     ) -> Self {
         Self {
             padding,
+            dst_padding,
             interpolation,
             compute_mode,
         }
@@ -477,8 +545,8 @@ impl PyTransformConfig {
 
     fn __repr__(&self) -> String {
         format!(
-            "TransformConfig(padding={:?}, interpolation={:?}, compute_mode={:?})",
-            self.padding, self.interpolation, self.compute_mode,
+            "TransformConfig(padding={:?}, dst_padding={:?}, interpolation={:?}, compute_mode={:?})",
+            self.padding, self.dst_padding, self.interpolation, self.compute_mode,
         )
     }
 }
@@ -487,6 +555,7 @@ impl PyTransformConfig {
     fn to_rust(&self) -> TransformConfig {
         TransformConfig {
             padding: self.padding.into(),
+            dst_padding: self.dst_padding.map(Into::into),
             interpolation: self.interpolation.into(),
             compute_mode: self.compute_mode.into(),
             cuda_stream: std::ptr::null_mut(),
@@ -1861,6 +1930,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyVideoFormat>()?;
     m.add_class::<PyMemType>()?;
     m.add_class::<PyRect>()?;
+    m.add_class::<PyDstPadding>()?;
     m.add_class::<PyTransformConfig>()?;
     m.add_class::<PyDsNvBufSurfaceGstBuffer>()?;
     m.add_class::<PySurfaceView>()?;

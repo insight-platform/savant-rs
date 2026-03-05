@@ -29,6 +29,13 @@ impl PicassoEngine {
     ///
     /// Spawns the watchdog thread immediately.
     pub fn new(general: GeneralSpec, callbacks: Callbacks) -> Self {
+        let name_display = if general.name.is_empty() {
+            "picasso".to_string()
+        } else {
+            general.name.clone()
+        };
+        info!("PicassoEngine initializing (name={})", name_display);
+
         let callbacks = Arc::new(callbacks);
         let workers: Arc<Mutex<HashMap<String, SourceWorker>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -41,8 +48,8 @@ impl PicassoEngine {
             watchdog::spawn_watchdog(workers.clone(), scan_interval, watchdog_signal.clone());
 
         info!(
-            "PicassoEngine created (idle_timeout={}s)",
-            general.idle_timeout_secs
+            "PicassoEngine initialized (name={}, idle_timeout={}s)",
+            name_display, general.idle_timeout_secs
         );
 
         Self {

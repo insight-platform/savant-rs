@@ -111,6 +111,19 @@ impl ComputeMode {
     }
 }
 
+/// Optional per-side destination padding for letterboxing.
+///
+/// When specified in [`TransformConfig::dst_padding`], reduces the effective
+/// destination area before the letterbox rect is computed. The scaled image
+/// is placed within the inset region; padding areas are filled with black.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DstPadding {
+    pub left: u32,
+    pub top: u32,
+    pub right: u32,
+    pub bottom: u32,
+}
+
 /// A rectangle in pixel coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -136,6 +149,9 @@ impl Rect {
 pub struct TransformConfig {
     /// Padding mode for letterboxing.
     pub padding: Padding,
+    /// Optional per-side destination padding. When set, constrains the area
+    /// available for the scaled image; padding regions are filled with black.
+    pub dst_padding: Option<DstPadding>,
     /// Interpolation method.
     pub interpolation: Interpolation,
     /// Compute backend.
@@ -159,6 +175,7 @@ impl Default for TransformConfig {
     fn default() -> Self {
         Self {
             padding: Padding::default(),
+            dst_padding: None,
             interpolation: Interpolation::default(),
             compute_mode: ComputeMode::default(),
             cuda_stream: std::ptr::null_mut(),
@@ -214,6 +231,8 @@ pub enum TransformError {
     SetSessionFailed(i32),
     #[error("Invalid buffer: {0}")]
     InvalidBuffer(&'static str),
+    #[error("Invalid dst_padding: {0}")]
+    InvalidDstPadding(&'static str),
     #[error("CUDA error: {0}")]
     CudaError(i32),
 }
@@ -222,51 +241,64 @@ pub enum TransformError {
 ///
 /// Given source dimensions and destination dimensions, compute the largest
 /// rectangle within the destination that preserves the source aspect ratio,
-/// positioned according to `padding`.
+/// positioned according to `padding`. When `dst_padding` is set, the letterbox
+/// is computed within the inset area `(effective_w, effective_h)` and the
+/// result is offset by `(pad_left, pad_top)`.
 pub(crate) fn compute_letterbox_rect(
     src_w: u32,
     src_h: u32,
     dst_w: u32,
     dst_h: u32,
     padding: Padding,
+    dst_padding: Option<DstPadding>,
 ) -> Rect {
+    let (eff_w, eff_h, offset_left, offset_top) = match dst_padding {
+        Some(p) => (
+            dst_w.saturating_sub(p.left).saturating_sub(p.right),
+            dst_h.saturating_sub(p.top).saturating_sub(p.bottom),
+            p.left,
+            p.top,
+        ),
+        None => (dst_w, dst_h, 0, 0),
+    };
+
     if padding == Padding::None {
         return Rect {
-            top: 0,
-            left: 0,
-            width: dst_w,
-            height: dst_h,
+            top: offset_top,
+            left: offset_left,
+            width: eff_w,
+            height: eff_h,
         };
     }
 
     let src_aspect = src_w as f64 / src_h as f64;
-    let dst_aspect = dst_w as f64 / dst_h as f64;
+    let dst_aspect = eff_w as f64 / eff_h as f64;
 
     let (scale_w, scale_h) = if src_aspect > dst_aspect {
         // Source is wider -- fit width, letterbox top/bottom
-        let w = dst_w;
-        let h = (dst_w as f64 / src_aspect).round() as u32;
+        let w = eff_w;
+        let h = (eff_w as f64 / src_aspect).round() as u32;
         (w, h)
     } else {
         // Source is taller -- fit height, pillarbox left/right
-        let h = dst_h;
-        let w = (dst_h as f64 * src_aspect).round() as u32;
+        let h = eff_h;
+        let w = (eff_h as f64 * src_aspect).round() as u32;
         (w, h)
     };
 
     let (top, left) = match padding {
         Padding::RightBottom => (0, 0),
         Padding::Symmetric => {
-            let top = (dst_h.saturating_sub(scale_h)) / 2;
-            let left = (dst_w.saturating_sub(scale_w)) / 2;
+            let top = (eff_h.saturating_sub(scale_h)) / 2;
+            let left = (eff_w.saturating_sub(scale_w)) / 2;
             (top, left)
         }
         Padding::None => unreachable!(),
     };
 
     Rect {
-        top,
-        left,
+        top: offset_top + top,
+        left: offset_left + left,
         width: scale_w,
         height: scale_h,
     }
@@ -318,6 +350,20 @@ pub(crate) unsafe fn do_transform(
     let effective_src_w = src_rect_ffi.width;
     let effective_src_h = src_rect_ffi.height;
 
+    // Validate dst_padding if present
+    if let Some(ref p) = config.dst_padding {
+        if p.left.saturating_add(p.right) >= dst_w {
+            return Err(TransformError::InvalidDstPadding(
+                "pad_left + pad_right must be less than destination width",
+            ));
+        }
+        if p.top.saturating_add(p.bottom) >= dst_h {
+            return Err(TransformError::InvalidDstPadding(
+                "pad_top + pad_bottom must be less than destination height",
+            ));
+        }
+    }
+
     // Compute destination rect with letterboxing
     let dst_letterbox = compute_letterbox_rect(
         effective_src_w,
@@ -325,12 +371,15 @@ pub(crate) unsafe fn do_transform(
         dst_w,
         dst_h,
         config.padding,
+        config.dst_padding,
     );
 
-    // If using padding, clear the destination surface to black first
-    if config.padding != Padding::None
-        && (dst_letterbox.width != dst_w || dst_letterbox.height != dst_h)
-    {
+    // If the letterbox doesn't fill the full destination, clear to black first
+    let fills_dst = dst_letterbox.left == 0
+        && dst_letterbox.top == 0
+        && dst_letterbox.width == dst_w
+        && dst_letterbox.height == dst_h;
+    if !fills_dst {
         let dst_surface = &*dst.surfaceList;
         let data_ptr = dst_surface.dataPtr;
         let pitch = dst_surface.pitch as usize;
@@ -452,5 +501,68 @@ impl Padding {
             "symmetric" => Some(Padding::Symmetric),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_letterbox_rect_symmetric_no_dst_padding() {
+        let r = compute_letterbox_rect(800, 600, 800, 800, Padding::Symmetric, None);
+        assert_eq!(r.top, 100);
+        assert_eq!(r.left, 0);
+        assert_eq!(r.width, 800);
+        assert_eq!(r.height, 600);
+    }
+
+    #[test]
+    fn compute_letterbox_rect_symmetric_with_dst_padding() {
+        let dst_pad = DstPadding {
+            left: 10,
+            top: 20,
+            right: 10,
+            bottom: 20,
+        };
+        let r = compute_letterbox_rect(800, 600, 840, 660, Padding::Symmetric, Some(dst_pad));
+        // Effective area 820x620, source 800x600 (aspect 1.333) -> fit width, scale_h=615
+        // Symmetric: top offset = (620-615)/2 = 2, so top = 20+2 = 22
+        assert_eq!(r.top, 22);
+        assert_eq!(r.left, 10);
+        assert_eq!(r.width, 820);
+        assert_eq!(r.height, 615);
+    }
+
+    #[test]
+    fn compute_letterbox_rect_right_bottom_with_dst_padding() {
+        let dst_pad = DstPadding {
+            left: 5,
+            top: 5,
+            right: 5,
+            bottom: 5,
+        };
+        let r = compute_letterbox_rect(1920, 1080, 650, 650, Padding::RightBottom, Some(dst_pad));
+        // Effective 640x640, source wider -> fit width, letterbox top/bottom
+        // scale_w=640, scale_h=360
+        assert_eq!(r.left, 5);
+        assert_eq!(r.top, 5);
+        assert_eq!(r.width, 640);
+        assert_eq!(r.height, 360);
+    }
+
+    #[test]
+    fn compute_letterbox_rect_none_with_dst_padding() {
+        let dst_pad = DstPadding {
+            left: 10,
+            top: 20,
+            right: 10,
+            bottom: 20,
+        };
+        let r = compute_letterbox_rect(800, 600, 820, 640, Padding::None, Some(dst_pad));
+        assert_eq!(r.left, 10);
+        assert_eq!(r.top, 20);
+        assert_eq!(r.width, 800);
+        assert_eq!(r.height, 600);
     }
 }

@@ -32,6 +32,7 @@ fn e2e_sustained_multi_source_eos_interleave() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 60,
+            ..Default::default()
         },
         callbacks,
     );

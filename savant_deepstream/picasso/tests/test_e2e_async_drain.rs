@@ -43,6 +43,7 @@ fn setup_engine(enc_count: &Arc<AtomicUsize>, eos_count: &Arc<AtomicUsize>) -> P
     PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     )

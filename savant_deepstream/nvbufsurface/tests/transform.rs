@@ -4,8 +4,8 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    ComputeMode, DsNvSurfaceBufferGenerator, Interpolation, NvBufSurfaceMemType, Padding, Rect,
-    SavantIdMeta, TransformConfig, VideoFormat,
+    ComputeMode, DsNvSurfaceBufferGenerator, DstPadding, Interpolation, NvBufSurfaceMemType,
+    Padding, Rect, SavantIdMeta, TransformConfig, VideoFormat,
 };
 
 /// Helper: create a generator with the given format and dimensions.
@@ -246,6 +246,31 @@ fn transform_gpu_compute_mode() {
         padding: Padding::Symmetric,
         interpolation: Interpolation::Bilinear,
         compute_mode: ComputeMode::Gpu,
+        ..Default::default()
+    };
+    let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();
+    assert!(dst_buf.size() > 0);
+}
+
+// ─── DstPadding ─────────────────────────────────────────────────────────────
+
+#[test]
+fn transform_with_dst_padding() {
+    common::init();
+
+    let src_gen = make_gen(VideoFormat::RGBA, 1920, 1080);
+    let dst_gen = make_gen(VideoFormat::RGBA, 660, 660);
+
+    let src_buf = src_gen.acquire_surface(None).unwrap();
+    let config = TransformConfig {
+        padding: Padding::Symmetric,
+        dst_padding: Some(DstPadding {
+            left: 10,
+            top: 10,
+            right: 10,
+            bottom: 10,
+        }),
+        interpolation: Interpolation::Bilinear,
         ..Default::default()
     };
     let dst_buf = dst_gen.transform(&src_buf, &config, None, None).unwrap();

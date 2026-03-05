@@ -48,6 +48,7 @@ fn e2e_eviction_keep_for_then_terminate() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 1,
+            ..Default::default()
         },
         callbacks,
     );

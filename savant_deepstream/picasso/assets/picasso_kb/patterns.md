@@ -185,7 +185,10 @@ fn engine_bypass_multi_source() {
         ..Default::default()
     };
     let mut engine = PicassoEngine::new(
-        GeneralSpec { idle_timeout_secs: 60 },
+        GeneralSpec {
+            idle_timeout_secs: 60,
+            ..Default::default()
+        },
         callbacks,
     );
 
@@ -210,7 +213,10 @@ fn engine_bypass_multi_source() {
 fn engine_shutdown_rejects_new_frames() {
     gstreamer::init().unwrap();
     let mut engine = PicassoEngine::new(
-        GeneralSpec { idle_timeout_secs: 60 },
+        GeneralSpec {
+            idle_timeout_secs: 60,
+            ..Default::default()
+        },
         Callbacks::default(),
     );
     engine.shutdown();
@@ -233,7 +239,10 @@ fn engine_eos_sends_sentinel() {
         ..Default::default()
     };
     let mut engine = PicassoEngine::new(
-        GeneralSpec { idle_timeout_secs: 60 }, callbacks,
+        GeneralSpec {
+            idle_timeout_secs: 60,
+            ..Default::default()
+        }, callbacks,
     );
     engine.set_source_spec("s", SourceSpec { codec: CodecSpec::Bypass, ..Default::default() }).unwrap();
     engine.send_frame("s", make_frame("s"), make_surface_view(), None).unwrap();
@@ -254,7 +263,13 @@ fn engine_spec_hot_swap() {
         on_bypass_frame: Some(Arc::new(CountingBypassCb { count: bypass_count.clone() })),
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(GeneralSpec { idle_timeout_secs: 60 }, callbacks);
+    let mut engine = PicassoEngine::new(
+        GeneralSpec {
+            idle_timeout_secs: 60,
+            ..Default::default()
+        },
+        callbacks,
+    );
 
     // Start with Drop — no bypass callbacks
     engine.set_source_spec("s", SourceSpec { codec: CodecSpec::Drop, ..Default::default() }).unwrap();
@@ -318,7 +333,13 @@ fn encode_pipeline_basic() {
         on_encoded_frame: Some(Arc::new(EncodedCounter(enc_count.clone()))),
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(GeneralSpec { idle_timeout_secs: 300 }, callbacks);
+    let mut engine = PicassoEngine::new(
+        GeneralSpec {
+            idle_timeout_secs: 300,
+            ..Default::default()
+        },
+        callbacks,
+    );
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -404,7 +425,13 @@ fn e2e_async_drain_delivers_independently() {
         })),
         ..Default::default()
     };
-    let mut engine = PicassoEngine::new(GeneralSpec { idle_timeout_secs: 300 }, callbacks);
+    let mut engine = PicassoEngine::new(
+        GeneralSpec {
+            idle_timeout_secs: 300,
+            ..Default::default()
+        },
+        callbacks,
+    );
     engine.set_source_spec("s", jpeg_spec()).unwrap();
     let gen = make_generator();
 

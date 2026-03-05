@@ -1,6 +1,9 @@
 /// Global defaults for the Picasso engine.
 #[derive(Debug, Clone)]
 pub struct GeneralSpec {
+    /// Optional name for this engine instance, used internally for logging and
+    /// future extensibility.
+    pub name: String,
     /// Default idle timeout in seconds before a source is considered for
     /// eviction. Individual sources can override this via
     /// [`super::source::SourceSpec::idle_timeout_secs`].
@@ -10,6 +13,7 @@ pub struct GeneralSpec {
 impl Default for GeneralSpec {
     fn default() -> Self {
         Self {
+            name: String::new(),
             idle_timeout_secs: 30,
         }
     }
@@ -33,6 +37,7 @@ mod tests {
     #[test]
     fn default_general_spec() {
         let s = GeneralSpec::default();
+        assert!(s.name.is_empty());
         assert_eq!(s.idle_timeout_secs, 30);
     }
 

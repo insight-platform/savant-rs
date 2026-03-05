@@ -186,6 +186,7 @@ Low-level helper for manual slot filling via `slot_ptr`.
 #[derive(Debug, Clone)]
 pub struct TransformConfig {
     pub padding: Padding,                  // DEF: Symmetric
+    pub dst_padding: Option<DstPadding>,   // DEF: None
     pub interpolation: Interpolation,      // DEF: Bilinear
     pub compute_mode: ComputeMode,         // DEF: Default
     pub cuda_stream: *mut c_void,          // DEF: null (legacy default stream)
@@ -193,6 +194,25 @@ pub struct TransformConfig {
 ```
 
 Implements `Default`, `Send`, `Sync`, `Clone` (not `Copy`).
+
+---
+
+## DstPadding
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DstPadding {
+    pub left: u32,
+    pub top: u32,
+    pub right: u32,
+    pub bottom: u32,
+}
+```
+
+Optional per-side destination padding. When set in `TransformConfig::dst_padding`,
+reduces the effective destination area before the letterbox rect is computed.
+Padding regions are filled with black. Validation: `pad_left + pad_right < dst_w`
+and `pad_top + pad_bottom < dst_h`.
 
 ---
 

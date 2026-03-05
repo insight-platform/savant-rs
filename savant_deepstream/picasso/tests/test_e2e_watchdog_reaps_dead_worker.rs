@@ -28,6 +28,7 @@ fn e2e_watchdog_reaps_dead_worker() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 1,
+            ..Default::default()
         },
         callbacks,
     );

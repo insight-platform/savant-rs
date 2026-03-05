@@ -64,6 +64,7 @@ fn e2e_hot_swap_encode_params() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

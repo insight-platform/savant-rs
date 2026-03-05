@@ -207,6 +207,19 @@ pub struct CropRect {
     pub height: u64,
 }
 
+/// Optional per-side destination inset for letterboxing.
+///
+/// When set in [`ScaleSpec::dst_inset`], reduces the effective destination
+/// area before the letterbox is computed. Padding values in the resulting
+/// `LetterBox` transformation include this inset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DstInset {
+    pub left: u64,
+    pub top: u64,
+    pub right: u64,
+    pub bottom: u64,
+}
+
 /// Describes how a source frame is cropped and scaled into a destination
 /// rectangle.
 ///
@@ -260,6 +273,9 @@ pub struct ScaleSpec {
     /// Optional crop within the source frame.  Must lie entirely within the
     /// source dimensions and have non-zero width/height.
     pub crop: Option<CropRect>,
+    /// Optional per-side destination inset. When set, the letterbox is computed
+    /// within the inset area; padding values include this offset.
+    pub dst_inset: Option<DstInset>,
 }
 
 impl ScaleSpec {
@@ -311,8 +327,14 @@ impl ScaleSpec {
             (src_w, src_h)
         };
 
-        let (pad_l, pad_t, pad_r, pad_b) =
-            compute_letterbox_padding(lb_src_w, lb_src_h, dst_w, dst_h, self.letterbox);
+        let (pad_l, pad_t, pad_r, pad_b) = compute_letterbox_padding(
+            lb_src_w,
+            lb_src_h,
+            dst_w,
+            dst_h,
+            self.letterbox,
+            self.dst_inset,
+        );
         out.push(VideoFrameTransformation::LetterBox(
             dst_w, dst_h, pad_l, pad_t, pad_r, pad_b,
         ));
@@ -321,8 +343,8 @@ impl ScaleSpec {
     }
 }
 
-/// Compute the letterbox padding given a source size, destination size, and
-/// placement variant.
+/// Compute the letterbox padding given a source size, destination size,
+/// placement variant, and optional destination inset.
 ///
 /// Returns `(pad_left, pad_top, pad_right, pad_bottom)`.
 fn compute_letterbox_padding(
@@ -331,35 +353,55 @@ fn compute_letterbox_padding(
     dst_w: u64,
     dst_h: u64,
     kind: LetterBoxKind,
+    dst_inset: Option<DstInset>,
 ) -> (u64, u64, u64, u64) {
     if kind == LetterBoxKind::Stretch {
         return (0, 0, 0, 0);
     }
 
-    let src_aspect = src_w as f64 / src_h as f64;
-    let dst_aspect = dst_w as f64 / dst_h as f64;
-
-    let (scaled_w, scaled_h) = if src_aspect > dst_aspect {
-        (dst_w, (dst_w as f64 / src_aspect).round() as u64)
-    } else {
-        ((dst_h as f64 * src_aspect).round() as u64, dst_h)
+    let (eff_w, eff_h, inset_l, inset_t, inset_r, inset_b) = match dst_inset {
+        Some(i) => (
+            dst_w.saturating_sub(i.left).saturating_sub(i.right),
+            dst_h.saturating_sub(i.top).saturating_sub(i.bottom),
+            i.left,
+            i.top,
+            i.right,
+            i.bottom,
+        ),
+        None => (dst_w, dst_h, 0, 0, 0, 0),
     };
 
-    match kind {
+    let src_aspect = src_w as f64 / src_h as f64;
+    let dst_aspect = eff_w as f64 / eff_h as f64;
+
+    let (scaled_w, scaled_h) = if src_aspect > dst_aspect {
+        (eff_w, (eff_w as f64 / src_aspect).round() as u64)
+    } else {
+        ((eff_h as f64 * src_aspect).round() as u64, eff_h)
+    };
+
+    let (pad_l, pad_t, pad_r, pad_b) = match kind {
         LetterBoxKind::Symmetric => {
-            let pad_l = (dst_w - scaled_w) / 2;
-            let pad_t = (dst_h - scaled_h) / 2;
-            let pad_r = dst_w - scaled_w - pad_l;
-            let pad_b = dst_h - scaled_h - pad_t;
+            let pad_l = (eff_w - scaled_w) / 2;
+            let pad_t = (eff_h - scaled_h) / 2;
+            let pad_r = eff_w - scaled_w - pad_l;
+            let pad_b = eff_h - scaled_h - pad_t;
             (pad_l, pad_t, pad_r, pad_b)
         }
         LetterBoxKind::RightBottom => {
-            let pad_r = dst_w - scaled_w;
-            let pad_b = dst_h - scaled_h;
+            let pad_r = eff_w - scaled_w;
+            let pad_b = eff_h - scaled_h;
             (0, 0, pad_r, pad_b)
         }
         LetterBoxKind::Stretch => unreachable!(),
-    }
+    };
+
+    (
+        inset_l + pad_l,
+        inset_t + pad_t,
+        inset_r + pad_r,
+        inset_b + pad_b,
+    )
 }
 
 #[cfg(test)]
@@ -654,6 +696,7 @@ mod tests {
                 dest_height: dh,
                 letterbox: lb,
                 crop,
+                dst_inset: None,
             }
         }
 

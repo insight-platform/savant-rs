@@ -96,6 +96,7 @@ impl PyCodecSpec {
 fn py_transform_to_rust(t: &PyTransformConfig) -> TransformConfig {
     TransformConfig {
         padding: t.padding.into(),
+        dst_padding: t.dst_padding.map(Into::into),
         interpolation: t.interpolation.into(),
         compute_mode: t.compute_mode.into(),
         cuda_stream: std::ptr::null_mut(),

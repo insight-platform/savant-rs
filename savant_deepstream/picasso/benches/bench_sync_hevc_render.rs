@@ -164,6 +164,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

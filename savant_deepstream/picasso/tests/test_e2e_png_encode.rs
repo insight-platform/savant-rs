@@ -97,6 +97,7 @@ fn render_png_encoded() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 

@@ -11,7 +11,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
-use log::debug;
+use log::info;
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -43,6 +43,13 @@ pub struct SidecarNvInfer {
 impl SidecarNvInfer {
     /// Create a new sidecar inference engine.
     pub fn new(config: SidecarConfig, callback: InferCallback) -> Result<Self> {
+        let name_display = if config.name.is_empty() {
+            "sidecar_nvinfer"
+        } else {
+            config.name.as_str()
+        };
+        info!("SidecarNvInfer initializing (name={})", name_display);
+
         let _ = gst::init();
 
         let config_file = config.validate_and_materialize()?;
@@ -180,9 +187,9 @@ impl SidecarNvInfer {
             .set_state(gst::State::Playing)
             .map_err(|e| SidecarError::PipelineError(format!("Failed to start pipeline: {}", e)))?;
 
-        debug!(
-            "SidecarNvInfer pipeline built: queue_depth={}",
-            config.queue_depth
+        info!(
+            "SidecarNvInfer initialized (name={}, queue_depth={})",
+            name_display, config.queue_depth
         );
 
         Ok(Self {

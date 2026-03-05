@@ -212,6 +212,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -414,6 +415,7 @@ fn letterbox_crop_two_sources_one_engine() {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 

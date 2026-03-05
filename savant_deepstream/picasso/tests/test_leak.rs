@@ -258,6 +258,7 @@ fn leak_engine_multi_source_churn() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 120,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -501,6 +502,7 @@ fn leak_engine_gpu_encode_sustained() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 120,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 

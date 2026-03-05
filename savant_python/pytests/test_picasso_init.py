@@ -48,6 +48,15 @@ class TestGeneralSpec:
         assert "45" in repr(spec)
         assert "GeneralSpec" in repr(spec)
 
+    def test_name_default(self) -> None:
+        spec = GeneralSpec()
+        assert spec.name == ""
+
+    def test_name_custom(self) -> None:
+        spec = GeneralSpec(name="my-engine", idle_timeout_secs=60)
+        assert spec.name == "my-engine"
+        assert spec.idle_timeout_secs == 60
+
 
 # ─── Callbacks ──────────────────────────────────────────────────────────────
 
@@ -225,6 +234,13 @@ class TestPicassoEngineInit:
 
         general = GeneralSpec()
         callbacks = Callbacks(on_eviction=on_eviction)
+        engine = PicassoEngine(general, callbacks)
+        assert engine is not None
+        engine.shutdown()
+
+    def test_engine_with_name(self) -> None:
+        general = GeneralSpec(name="test-engine", idle_timeout_secs=60)
+        callbacks = Callbacks()
         engine = PicassoEngine(general, callbacks)
         assert engine is not None
         engine.shutdown()

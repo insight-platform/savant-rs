@@ -60,6 +60,7 @@ fn e2e_frame_metadata_preservation() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

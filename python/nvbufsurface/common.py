@@ -200,6 +200,9 @@ class PicassoSession:
     rendering, and encoding asynchronously.  Encoded output is pushed to
     an optional MP4 muxer via the ``on_encoded_frame`` callback.
 
+    Optional *name* is passed to ``GeneralSpec`` for engine identification
+    in logs and future extensibility.
+
     Optional *on_gpumat* / *on_render* callbacks enable custom GPU drawing
     inside the Picasso worker thread:
 
@@ -250,6 +253,7 @@ class PicassoSession:
         on_render: Callable[..., Any] | None = None,
         draw: object | None = None,
         use_generator: bool = True,
+        name: str = "",
     ) -> None:
         # -- GStreamer + CUDA init (idempotent) --------------------------------
         init_gst_and_cuda(args.gpu_id)
@@ -344,7 +348,9 @@ class PicassoSession:
         )
 
         # -- Picasso engine ----------------------------------------------------
-        self._engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
+        self._engine = PicassoEngine(
+            GeneralSpec(name=name, idle_timeout_secs=300), callbacks
+        )
         source_spec = SourceSpec(
             codec=CodecSpec.encode(TransformConfig(), enc_cfg),
             draw=draw,

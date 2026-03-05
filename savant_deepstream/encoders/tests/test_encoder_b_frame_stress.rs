@@ -160,6 +160,7 @@ fn decode_and_reencode(
 
     let transform_cfg = TransformConfig {
         padding: Padding::None,
+        dst_padding: None,
         interpolation: Interpolation::Nearest,
         compute_mode: ComputeMode::Default,
         cuda_stream: std::ptr::null_mut(),

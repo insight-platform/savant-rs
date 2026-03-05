@@ -6,7 +6,7 @@ use crate::skia::context::DrawContext;
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{Padding, Rect, SkiaRenderer, TransformConfig};
 use log::{debug, error, warn};
-use savant_core::geometry::{CropRect, LetterBoxKind, ScaleSpec};
+use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTransformation,
 };
@@ -302,6 +302,12 @@ pub fn rewrite_frame_transformations(
             top: r.top as u64,
             width: r.width as u64,
             height: r.height as u64,
+        }),
+        dst_inset: config.dst_padding.map(|p| DstInset {
+            left: p.left as u64,
+            top: p.top as u64,
+            right: p.right as u64,
+            bottom: p.bottom as u64,
         }),
     };
 

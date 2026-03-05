@@ -217,6 +217,7 @@ fn render_cpu() -> Vec<u8> {
         DST_W as u64,
         DST_H as u64,
         Padding::Symmetric,
+        None,
     );
     fm.add_transformation(VideoFrameTransformation::LetterBox(ow, oh, pl, pt, pr, pb));
     fm.transform_forward().unwrap();
@@ -299,6 +300,7 @@ fn render_gpu() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -425,6 +427,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 

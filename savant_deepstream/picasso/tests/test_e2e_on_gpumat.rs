@@ -74,6 +74,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -150,6 +151,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

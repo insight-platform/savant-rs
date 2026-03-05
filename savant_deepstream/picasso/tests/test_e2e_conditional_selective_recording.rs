@@ -55,6 +55,7 @@ fn e2e_conditional_selective_recording() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

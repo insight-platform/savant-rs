@@ -82,6 +82,7 @@ fn e2e_mixed_codecs() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );

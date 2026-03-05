@@ -450,9 +450,10 @@ class EncoderConfig:
 class GeneralSpec:
     """Global defaults for the Picasso engine."""
 
+    name: str
     idle_timeout_secs: int
 
-    def __init__(self, idle_timeout_secs: int = 30) -> None: ...
+    def __init__(self, name: str = "", idle_timeout_secs: int = 30) -> None: ...
     def __repr__(self) -> str: ...
 
 class EvictionDecision:

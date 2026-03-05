@@ -15,6 +15,10 @@ class TestTransformConfigDefaults:
         cfg = ds.TransformConfig()
         assert cfg.padding == ds.Padding.SYMMETRIC
 
+    def test_default_dst_padding(self):
+        cfg = ds.TransformConfig()
+        assert cfg.dst_padding is None
+
     def test_default_interpolation(self):
         cfg = ds.TransformConfig()
         assert cfg.interpolation == ds.Interpolation.BILINEAR
@@ -37,10 +41,39 @@ class TestRect:
         assert "Rect" in repr(r)
 
 
+class TestDstPadding:
+    def test_dst_padding_construction(self):
+        p = ds.DstPadding(10, 20, 30, 40)
+        assert p.left == 10
+        assert p.top == 20
+        assert p.right == 30
+        assert p.bottom == 40
+
+    def test_dst_padding_defaults(self):
+        p = ds.DstPadding()
+        assert p.left == 0
+        assert p.top == 0
+        assert p.right == 0
+        assert p.bottom == 0
+
+    def test_dst_padding_repr(self):
+        p = ds.DstPadding(1, 2, 3, 4)
+        assert "DstPadding" in repr(p)
+
+
 class TestTransformConfigCustom:
     def test_set_padding(self):
         cfg = ds.TransformConfig(padding=ds.Padding.RIGHT_BOTTOM)
         assert cfg.padding == ds.Padding.RIGHT_BOTTOM
+
+    def test_set_dst_padding(self):
+        p = ds.DstPadding(5, 10, 5, 10)
+        cfg = ds.TransformConfig(dst_padding=p)
+        assert cfg.dst_padding is not None
+        assert cfg.dst_padding.left == 5
+        assert cfg.dst_padding.top == 10
+        assert cfg.dst_padding.right == 5
+        assert cfg.dst_padding.bottom == 10
 
     def test_set_interpolation(self):
         cfg = ds.TransformConfig(interpolation=ds.Interpolation.NEAREST)
@@ -51,12 +84,15 @@ class TestTransformConfigCustom:
         assert cfg.compute_mode == ds.ComputeMode.GPU
 
     def test_all_fields(self):
+        p = ds.DstPadding(1, 2, 3, 4)
         cfg = ds.TransformConfig(
             padding=ds.Padding.NONE,
+            dst_padding=p,
             interpolation=ds.Interpolation.ALGO3,
             compute_mode=ds.ComputeMode.GPU,
         )
         assert cfg.padding == ds.Padding.NONE
+        assert cfg.dst_padding == p
         assert cfg.interpolation == ds.Interpolation.ALGO3
         assert cfg.compute_mode == ds.ComputeMode.GPU
 
@@ -66,6 +102,12 @@ class TestTransformConfigMutable:
         cfg = ds.TransformConfig()
         cfg.padding = ds.Padding.NONE
         assert cfg.padding == ds.Padding.NONE
+
+    def test_set_dst_padding_after_init(self):
+        cfg = ds.TransformConfig()
+        cfg.dst_padding = ds.DstPadding(1, 2, 3, 4)
+        assert cfg.dst_padding is not None
+        assert cfg.dst_padding.left == 1
 
 
 class TestTransformConfigRepr:
