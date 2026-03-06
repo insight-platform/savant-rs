@@ -207,6 +207,11 @@ pub struct CropRect {
     pub height: u64,
 }
 
+/// Minimum effective dimension (width or height) after applying
+/// [`DstInset`]. Prevents division-by-zero and degenerate transforms
+/// when the inset nearly fills the destination.
+pub const MIN_EFFECTIVE_DIM: u64 = 16;
+
 /// Optional per-side destination inset for letterboxing.
 ///
 /// When set in [`ScaleSpec::dst_inset`], reduces the effective destination
@@ -296,6 +301,17 @@ impl ScaleSpec {
         }
         if dst_w == 0 || dst_h == 0 {
             bail!("destination dimensions must be > 0, got {dst_w}x{dst_h}");
+        }
+
+        if let Some(i) = self.dst_inset {
+            let eff_w = dst_w.saturating_sub(i.left).saturating_sub(i.right);
+            let eff_h = dst_h.saturating_sub(i.top).saturating_sub(i.bottom);
+            if eff_w < MIN_EFFECTIVE_DIM || eff_h < MIN_EFFECTIVE_DIM {
+                bail!(
+                    "effective dimensions after dst_inset must be >= {MIN_EFFECTIVE_DIM}x{MIN_EFFECTIVE_DIM}, \
+                     got {eff_w}x{eff_h}"
+                );
+            }
         }
 
         let mut out = Vec::with_capacity(2);
@@ -726,6 +742,47 @@ mod tests {
         fn zero_dest_height() {
             let r = spec(1920, 1080, 800, 0, LetterBoxKind::Stretch, None).to_transformations();
             assert!(r.is_err());
+        }
+
+        #[test]
+        fn dst_inset_too_large_width() {
+            let mut s = spec(1920, 1080, 100, 100, LetterBoxKind::Symmetric, None);
+            s.dst_inset = Some(DstInset {
+                left: 50,
+                top: 0,
+                right: 50,
+                bottom: 0,
+            });
+            let r = s.to_transformations();
+            assert!(r.is_err());
+            assert!(r.unwrap_err().to_string().contains("16x16"));
+        }
+
+        #[test]
+        fn dst_inset_too_large_height() {
+            let mut s = spec(1920, 1080, 100, 100, LetterBoxKind::Symmetric, None);
+            s.dst_inset = Some(DstInset {
+                left: 0,
+                top: 90,
+                right: 0,
+                bottom: 5,
+            });
+            let r = s.to_transformations();
+            assert!(r.is_err());
+            assert!(r.unwrap_err().to_string().contains("16x16"));
+        }
+
+        #[test]
+        fn dst_inset_exactly_at_minimum() {
+            let mut s = spec(1920, 1080, 100, 100, LetterBoxKind::Symmetric, None);
+            s.dst_inset = Some(DstInset {
+                left: 42,
+                top: 42,
+                right: 42,
+                bottom: 42,
+            });
+            let r = s.to_transformations();
+            assert!(r.is_ok());
         }
 
         #[test]

@@ -1,4 +1,4 @@
-//! Benchmarks for SidecarNvInfer with identity, age_gender, and yolo11m-seg models,
+//! Benchmarks for NvInfer with identity, age_gender, and yolo11m-seg models,
 //! using both **uniform** (all frames same resolution) and **non-uniform**
 //! (heterogeneous frame resolutions) batched surfaces.
 //!
@@ -11,7 +11,7 @@ use deepstream_nvbufsurface::{
     DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
     NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
-use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
+use nvinfer::{NvInfer, NvInferConfig};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -229,6 +229,8 @@ fn make_nonuniform_batch(
 // Benchmark driver
 // ---------------------------------------------------------------------------
 
+const FILL_COUNTS: &[u32] = &[1, 4, 8, 16];
+
 fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: BatchMode) {
     if !spec.onnx_path.exists() {
         eprintln!(
@@ -252,20 +254,24 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
                 .into(),
         );
 
-        let config = SidecarConfig::new(props, "RGBA", spec.width, spec.height);
-        let sidecar =
-            SidecarNvInfer::new(config, Box::new(|_| {})).expect("create sidecar for bench");
+        let config = NvInferConfig::new(props, "RGBA", spec.width, spec.height);
+        let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
 
         let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
-        let _ = sidecar.infer_sync(warm, 0);
+        let _ = engine.infer_sync(warm, 0);
 
-        group.bench_with_input(BenchmarkId::new("batch", bs), &bs, |b, &bs| {
-            b.iter(|| {
-                let batch = make_batch(mode, spec.format, spec.width, spec.height, bs);
-                let out = sidecar.infer_sync(batch, 0).expect("infer_sync");
-                std::hint::black_box(out);
-            })
-        });
+        let fills: Vec<u32> = FILL_COUNTS.iter().copied().filter(|&f| f <= bs).collect();
+
+        for &fill in &fills {
+            let id = format!("bs{}/fill{}", bs, fill);
+            group.bench_with_input(BenchmarkId::new(&id, fill), &fill, |b, &fill| {
+                b.iter(|| {
+                    let batch = make_batch(mode, spec.format, spec.width, spec.height, fill);
+                    let out = engine.infer_sync(batch, 0).expect("infer_sync");
+                    std::hint::black_box(out);
+                })
+            });
+        }
     }
 
     group.finish();

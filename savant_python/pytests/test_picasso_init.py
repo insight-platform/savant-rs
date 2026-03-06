@@ -50,7 +50,7 @@ class TestGeneralSpec:
 
     def test_name_default(self) -> None:
         spec = GeneralSpec()
-        assert spec.name == ""
+        assert spec.name == "picasso"
 
     def test_name_custom(self) -> None:
         spec = GeneralSpec(name="my-engine", idle_timeout_secs=60)

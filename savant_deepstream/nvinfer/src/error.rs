@@ -1,10 +1,10 @@
-//! Error types for the sidecar inference pipeline.
+//! Error types for the NvInfer pipeline.
 
 use thiserror::Error;
 
-/// Error type for sidecar nvinfer operations.
+/// Error type for NvInfer operations.
 #[derive(Debug, Error)]
-pub enum SidecarError {
+pub enum NvInferError {
     #[error("Pipeline error: {0}")]
     PipelineError(String),
 
@@ -27,5 +27,5 @@ pub enum SidecarError {
     NullPointer(String),
 }
 
-/// Result type for sidecar operations.
-pub type Result<T> = std::result::Result<T, SidecarError>;
+/// Result type for NvInfer operations.
+pub type Result<T> = std::result::Result<T, NvInferError>;

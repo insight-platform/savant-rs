@@ -264,9 +264,12 @@ Appends GPU operations (crop + letterbox) to frame's transformation chain and ca
 ```rust
 pub fn compute_letterbox_params(
     src_w: u64, src_h: u64, dst_w: u64, dst_h: u64, padding: Padding,
-) → (outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)
+    dst_padding: Option<DstPadding>,
+) → anyhow::Result<(outer_w, outer_h, pad_left, pad_top, pad_right, pad_bottom)>
 ```
 Path: `picasso::transform::compute_letterbox_params`
+
+Returns `Err` if `dst_padding` reduces the effective width or height below `MIN_EFFECTIVE_DIM` (16 px).
 
 ---
 

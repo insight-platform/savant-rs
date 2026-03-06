@@ -24,13 +24,15 @@ pub struct PicassoEngine {
     watchdog: Option<std::thread::JoinHandle<()>>,
 }
 
+const DEFAULT_PICASSO_NAME: &str = "picasso";
+
 impl PicassoEngine {
     /// Create a new engine with the given global defaults and callbacks.
     ///
     /// Spawns the watchdog thread immediately.
     pub fn new(general: GeneralSpec, callbacks: Callbacks) -> Self {
         let name_display = if general.name.is_empty() {
-            "picasso".to_string()
+            DEFAULT_PICASSO_NAME.to_string()
         } else {
             general.name.clone()
         };

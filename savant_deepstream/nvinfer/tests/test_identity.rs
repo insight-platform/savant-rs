@@ -1,4 +1,4 @@
-//! Integration tests for SidecarNvInfer with the identity model.
+//! Integration tests for NvInfer with the identity model.
 
 mod common;
 
@@ -6,7 +6,7 @@ use deepstream_nvbufsurface::{
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
     TransformConfig, VideoFormat,
 };
-use sidecar_nvinfer::{attach_batch_meta, DataType, SidecarConfig, SidecarNvInfer};
+use nvinfer::{attach_batch_meta, DataType, NvInfer, NvInferConfig};
 use std::collections::HashMap;
 
 #[link(name = "cuda")]
@@ -105,7 +105,7 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
     (buf, expected_sums)
 }
 
-fn identity_sidecar() -> Option<SidecarNvInfer> {
+fn identity_engine() -> Option<NvInfer> {
     use std::path::Path;
     let onnx = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/identity.onnx");
     if !onnx.exists() {
@@ -113,13 +113,13 @@ fn identity_sidecar() -> Option<SidecarNvInfer> {
         return None;
     }
     let props = common::identity_properties();
-    let config = SidecarConfig::new(props, "RGBA", 12, 12);
+    let config = NvInferConfig::new(props, "RGBA", 12, 12);
     let callback = Box::new(|_| {});
-    Some(SidecarNvInfer::new(config, callback).expect("create sidecar"))
+    Some(NvInfer::new(config, callback).expect("create NvInfer"))
 }
 
 /// Sum all f32 values in a host tensor slice.
-fn tensor_f32_sum(tensor: &sidecar_nvinfer::TensorView) -> f64 {
+fn tensor_f32_sum(tensor: &nvinfer::TensorView) -> f64 {
     let slice: &[f32] = unsafe { tensor.as_slice() };
     slice.iter().map(|&v| v as f64).sum()
 }
@@ -135,13 +135,13 @@ fn test_attach_batch_meta() {
 #[test]
 fn test_sync_single_frame() {
     common::init();
-    let sidecar = match identity_sidecar() {
+    let engine = match identity_engine() {
         Some(s) => s,
         None => return,
     };
 
     let (batch, expected_sum) = make_identity_batch_known(1, 128);
-    let output = sidecar.infer_sync(batch, 1).expect("infer_sync");
+    let output = engine.infer_sync(batch, 1).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 1);
     assert_eq!(output.num_elements(), 1);
@@ -177,13 +177,13 @@ fn test_sync_single_frame() {
 #[test]
 fn test_sync_uniform_batch() {
     common::init();
-    let sidecar = match identity_sidecar() {
+    let engine = match identity_engine() {
         Some(s) => s,
         None => return,
     };
 
     let (batch, expected_sum) = make_identity_batch_known(4, 200);
-    let output = sidecar.infer_sync(batch, 42).expect("infer_sync");
+    let output = engine.infer_sync(batch, 42).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 42);
     assert_eq!(output.num_elements(), 4);
@@ -209,14 +209,14 @@ fn test_sync_uniform_batch() {
 #[test]
 fn test_identity_different_fill_values() {
     common::init();
-    let sidecar = match identity_sidecar() {
+    let engine = match identity_engine() {
         Some(s) => s,
         None => return,
     };
 
     let fills: Vec<u8> = vec![64, 128, 200];
     let (batch, expected_sums) = make_identity_batch_per_frame(&fills);
-    let output = sidecar.infer_sync(batch, 7).expect("infer_sync");
+    let output = engine.infer_sync(batch, 7).expect("infer_sync");
 
     assert_eq!(output.num_elements(), fills.len());
     for (i, (elem, &expected_sum)) in output.elements().iter().zip(&expected_sums).enumerate() {
@@ -234,7 +234,7 @@ fn test_identity_different_fill_values() {
 #[test]
 fn test_element_ids_preserved() {
     common::init();
-    let sidecar = match identity_sidecar() {
+    let engine = match identity_engine() {
         Some(s) => s,
         None => return,
     };
@@ -271,7 +271,7 @@ fn test_element_ids_preserved() {
     batch.finalize().unwrap();
     let buffer = batch.as_gst_buffer().unwrap();
 
-    let output = sidecar.infer_sync(buffer, 99).expect("infer_sync");
+    let output = engine.infer_sync(buffer, 99).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 99);
     assert_eq!(output.num_elements(), ids_to_send.len());
@@ -299,15 +299,15 @@ fn test_async_callback() {
     let received_clone = received.clone();
 
     let props = common::identity_properties();
-    let config = SidecarConfig::new(props, "RGBA", 12, 12).queue_depth(2);
-    let callback = Box::new(move |output: sidecar_nvinfer::BatchInferenceOutput| {
+    let config = NvInferConfig::new(props, "RGBA", 12, 12).queue_depth(2);
+    let callback = Box::new(move |output: nvinfer::BatchInferenceOutput| {
         received_clone.store(output.batch_id(), Ordering::SeqCst);
     });
-    let sidecar = SidecarNvInfer::new(config, callback).expect("create sidecar");
+    let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
     for batch_id in 1..=3u64 {
         let batch = make_identity_batch(1);
-        sidecar.submit(batch, batch_id).expect("submit");
+        engine.submit(batch, batch_id).expect("submit");
     }
 
     std::thread::sleep(std::time::Duration::from_secs(5));
@@ -318,7 +318,7 @@ fn test_async_callback() {
 }
 
 fn expect_new_fails_with(props: HashMap<String, String>, expected_substring: &str) {
-    match SidecarNvInfer::new(SidecarConfig::new(props, "RGBA", 12, 12), Box::new(|_| {})) {
+    match NvInfer::new(NvInferConfig::new(props, "RGBA", 12, 12), Box::new(|_| {})) {
         Err(e) => {
             let msg = format!("{e}");
             assert!(
@@ -326,7 +326,7 @@ fn expect_new_fails_with(props: HashMap<String, String>, expected_substring: &st
                 "error should mention '{expected_substring}', got: {msg}"
             );
         }
-        Ok(_) => panic!("expected SidecarNvInfer::new to fail for '{expected_substring}'"),
+        Ok(_) => panic!("expected NvInfer::new to fail for '{expected_substring}'"),
     }
 }
 

@@ -1,6 +1,7 @@
 //! Output types for batch inference results.
 
-use crate::nvinfer_types::{DataType, InferDims};
+use crate::nvinfer_types::DataType;
+use deepstream::InferDims;
 use std::ffi::c_void;
 
 /// Zero-copy view into a single output tensor.

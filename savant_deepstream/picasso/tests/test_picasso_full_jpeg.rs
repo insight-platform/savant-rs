@@ -218,7 +218,8 @@ fn render_cpu() -> Vec<u8> {
         DST_H as u64,
         Padding::Symmetric,
         None,
-    );
+    )
+    .expect("compute_letterbox_params");
     fm.add_transformation(VideoFrameTransformation::LetterBox(ow, oh, pl, pt, pr, pb));
     fm.transform_forward().unwrap();
 

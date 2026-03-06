@@ -43,7 +43,7 @@ pub use skia_renderer::SkiaRenderer;
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,
-    TransformError,
+    TransformError, MIN_EFFECTIVE_DIM,
 };
 
 // Re-export so downstream crates (benches, examples) can use these directly.

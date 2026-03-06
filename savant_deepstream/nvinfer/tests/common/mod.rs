@@ -1,4 +1,4 @@
-//! Shared test utilities for sidecar_nvinfer integration tests.
+//! Shared test utilities for nvinfer integration tests.
 
 use deepstream_nvbufsurface::cuda_init;
 use gstreamer as gst;

@@ -1,4 +1,4 @@
-//! Memory leak smoke tests for SidecarNvInfer.
+//! Memory leak smoke tests for NvInfer.
 
 mod common;
 
@@ -7,8 +7,8 @@ use deepstream_nvbufsurface::{
     TransformConfig, VideoFormat,
 };
 use nvidia_gpu_utils::gpu_mem_used_mib;
+use nvinfer::{NvInfer, NvInferConfig};
 use serial_test::serial;
-use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
 
 fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
@@ -58,16 +58,16 @@ fn test_memory_no_leak() {
     let before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
 
     let props = common::identity_properties();
-    let config = SidecarConfig::new(props, "RGBA", 12, 12);
+    let config = NvInferConfig::new(props, "RGBA", 12, 12);
     let callback = Box::new(|_| {});
-    let sidecar = SidecarNvInfer::new(config, callback).expect("create sidecar");
+    let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
     for i in 0..20 {
         let batch = make_identity_batch(2);
-        let _ = sidecar.infer_sync(batch, i);
+        let _ = engine.infer_sync(batch, i);
     }
 
-    drop(sidecar);
+    drop(engine);
 
     let after = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
     assert!(

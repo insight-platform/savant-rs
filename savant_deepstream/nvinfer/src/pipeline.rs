@@ -1,11 +1,11 @@
-//! Sidecar inference pipeline implementation.
+//! NvInfer pipeline implementation.
 
 use crate::batch_meta_builder::attach_batch_meta;
-use crate::config::SidecarConfig;
-use crate::error::{Result, SidecarError};
-use crate::nvinfer_types::{DataType, InferDims, InferTensorMeta};
+use crate::config::NvInferConfig;
+use crate::error::{NvInferError, Result};
+use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
-use deepstream::BatchMeta;
+use deepstream::{BatchMeta, InferDims, InferTensorMeta};
 use deepstream_nvbufsurface::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind};
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -13,6 +13,7 @@ use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
 use log::info;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
@@ -28,27 +29,43 @@ struct SampleDelivery {
     sync_tx: Mutex<HashMap<u64, mpsc::Sender<BatchInferenceOutput>>>,
 }
 
-/// The sidecar inference engine.
-pub struct SidecarNvInfer {
+/// The NvInfer inference engine.
+pub struct NvInfer {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
     #[allow(dead_code)] // Kept alive for callbacks; pipeline owns the element
     appsink: gst_app::AppSink,
-    _config: SidecarConfig,
+    _config: NvInferConfig,
     #[allow(dead_code)] // Kept alive so temp config file persists
     _config_file: NamedTempFile,
     delivery: Arc<SampleDelivery>,
 }
 
-impl SidecarNvInfer {
-    /// Create a new sidecar inference engine.
-    pub fn new(config: SidecarConfig, callback: InferCallback) -> Result<Self> {
+impl NvInfer {
+    /// Create a new NvInfer inference engine.
+    pub fn new(config: NvInferConfig, callback: InferCallback) -> Result<Self> {
+        let name_owned;
         let name_display = if config.name.is_empty() {
-            "sidecar_nvinfer"
+            let model_path = config
+                .nvinfer_properties
+                .get("model-engine-file")
+                .or_else(|| config.nvinfer_properties.get("onnx-file"))
+                .or_else(|| config.nvinfer_properties.get("tlt-encoded-model"));
+            let base = model_path
+                .map(|p| {
+                    Path::new(p)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .unwrap_or_else(|| "unknown".into());
+            name_owned = format!("nvinfer-{}-{}", config.gpu_id, base);
+            name_owned.as_str()
         } else {
             config.name.as_str()
         };
-        info!("SidecarNvInfer initializing (name={})", name_display);
+        info!("NvInfer initializing (name={})", name_display);
 
         let _ = gst::init();
 
@@ -60,12 +77,12 @@ impl SidecarNvInfer {
         let appsrc = gst::ElementFactory::make("appsrc")
             .name("src")
             .build()
-            .map_err(|_| SidecarError::ElementCreationFailed("appsrc".into()))?;
+            .map_err(|_| NvInferError::ElementCreationFailed("appsrc".into()))?;
 
         let appsink = gst::ElementFactory::make("appsink")
             .name("sink")
             .build()
-            .map_err(|_| SidecarError::ElementCreationFailed("appsink".into()))?;
+            .map_err(|_| NvInferError::ElementCreationFailed("appsink".into()))?;
 
         // Build appsrc caps from config input dimensions.
         let appsrc_caps = gst::Caps::builder("video/x-raw")
@@ -87,7 +104,7 @@ impl SidecarNvInfer {
         let nvinfer = gst::ElementFactory::make("nvinfer")
             .name("nvinfer")
             .build()
-            .map_err(|_| SidecarError::ElementCreationFailed("nvinfer".into()))?;
+            .map_err(|_| NvInferError::ElementCreationFailed("nvinfer".into()))?;
 
         // Set config file path.
         nvinfer.set_property_from_str("config-file-path", &config_path);
@@ -104,7 +121,7 @@ impl SidecarNvInfer {
             let queue = gst::ElementFactory::make("queue")
                 .name("queue")
                 .build()
-                .map_err(|_| SidecarError::ElementCreationFailed("queue".into()))?;
+                .map_err(|_| NvInferError::ElementCreationFailed("queue".into()))?;
             queue.set_property("max-size-buffers", config.queue_depth);
             queue.set_property("max-size-bytes", 0u32);
             queue.set_property("max-size-time", 0u64);
@@ -124,20 +141,20 @@ impl SidecarNvInfer {
 
         for elem in &elements {
             pipeline.add(elem).map_err(|e| {
-                SidecarError::PipelineError(format!("Failed to add element: {}", e))
+                NvInferError::PipelineError(format!("Failed to add element: {}", e))
             })?;
         }
 
         gst::Element::link_many(elements.iter())
-            .map_err(|_| SidecarError::LinkFailed("appsrc->[queue]->nvinfer->appsink".into()))?;
+            .map_err(|_| NvInferError::LinkFailed("appsrc->[queue]->nvinfer->appsink".into()))?;
 
         let appsrc_typed: gst_app::AppSrc = appsrc
             .dynamic_cast::<gst_app::AppSrc>()
-            .map_err(|_| SidecarError::ElementCreationFailed("appsrc cast failed".into()))?;
+            .map_err(|_| NvInferError::ElementCreationFailed("appsrc cast failed".into()))?;
 
         let appsink_typed: gst_app::AppSink = appsink
             .dynamic_cast::<gst_app::AppSink>()
-            .map_err(|_| SidecarError::ElementCreationFailed("appsink cast failed".into()))?;
+            .map_err(|_| NvInferError::ElementCreationFailed("appsink cast failed".into()))?;
 
         let delivery = Arc::new(SampleDelivery {
             callback: Mutex::new(Some(callback)),
@@ -185,10 +202,10 @@ impl SidecarNvInfer {
 
         pipeline
             .set_state(gst::State::Playing)
-            .map_err(|e| SidecarError::PipelineError(format!("Failed to start pipeline: {}", e)))?;
+            .map_err(|e| NvInferError::PipelineError(format!("Failed to start pipeline: {}", e)))?;
 
         info!(
-            "SidecarNvInfer initialized (name={}, queue_depth={})",
+            "NvInfer initialized (name={}, queue_depth={})",
             name_display, config.queue_depth
         );
 
@@ -208,7 +225,7 @@ impl SidecarNvInfer {
     /// `GST_CLOCK_TIME_NONE` and cannot survive a PTS round-trip.
     pub fn submit(&self, mut batch: gst::Buffer, batch_id: u64) -> Result<()> {
         if batch_id == u64::MAX {
-            return Err(SidecarError::PipelineError(
+            return Err(NvInferError::PipelineError(
                 "batch_id must not be u64::MAX (reserved as GST_CLOCK_TIME_NONE)".into(),
             ));
         }
@@ -216,7 +233,7 @@ impl SidecarNvInfer {
         attach_batch_meta(
             batch
                 .get_mut()
-                .ok_or_else(|| SidecarError::PipelineError("Buffer is not writable".into()))?,
+                .ok_or_else(|| NvInferError::PipelineError("Buffer is not writable".into()))?,
             num_filled,
             max_batch_size,
         )?;
@@ -224,13 +241,13 @@ impl SidecarNvInfer {
         {
             let buf_ref = batch
                 .get_mut()
-                .ok_or_else(|| SidecarError::PipelineError("Buffer not writable".into()))?;
+                .ok_or_else(|| NvInferError::PipelineError("Buffer not writable".into()))?;
             buf_ref.set_pts(gst::ClockTime::from_nseconds(batch_id));
         }
 
         self.appsrc
             .push_buffer(batch)
-            .map_err(|e| SidecarError::PipelineError(format!("appsrc push failed: {:?}", e)))?;
+            .map_err(|e| NvInferError::PipelineError(format!("appsrc push failed: {:?}", e)))?;
 
         Ok(())
     }
@@ -241,7 +258,7 @@ impl SidecarNvInfer {
         {
             let mut sync_map = self.delivery.sync_tx.lock().unwrap();
             if sync_map.contains_key(&batch_id) {
-                return Err(SidecarError::PipelineError(format!(
+                return Err(NvInferError::PipelineError(format!(
                     "batch_id {} is already in use by another infer_sync caller",
                     batch_id
                 )));
@@ -256,14 +273,14 @@ impl SidecarNvInfer {
             Ok(output) => Ok(output),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
-                Err(SidecarError::PipelineError(format!(
+                Err(NvInferError::PipelineError(format!(
                     "infer_sync timed out after 30s for batch_id {}",
                     batch_id
                 )))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
-                Err(SidecarError::PipelineError(format!(
+                Err(NvInferError::PipelineError(format!(
                     "infer_sync channel disconnected for batch_id {}",
                     batch_id
                 )))
@@ -277,20 +294,20 @@ impl SidecarNvInfer {
         let bus = self
             .pipeline
             .bus()
-            .ok_or_else(|| SidecarError::PipelineError("Pipeline has no bus".into()))?;
+            .ok_or_else(|| NvInferError::PipelineError("Pipeline has no bus".into()))?;
         let _ = bus.timed_pop_filtered(
             gst::ClockTime::from_seconds(10),
             &[gst::MessageType::Eos, gst::MessageType::Error],
         );
         self.pipeline
             .set_state(gst::State::Null)
-            .map_err(|e| SidecarError::PipelineError(format!("set_state Null failed: {:?}", e)))?;
+            .map_err(|e| NvInferError::PipelineError(format!("set_state Null failed: {:?}", e)))?;
         Ok(())
     }
 
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
         if element.find_property(key).is_none() {
-            return Err(SidecarError::InvalidProperty(format!(
+            return Err(NvInferError::InvalidProperty(format!(
                 "property '{}' not found",
                 key
             )));
@@ -302,13 +319,13 @@ impl SidecarNvInfer {
             elem.set_property_from_str(&k, &v);
         }))
         .map_err(|_| {
-            SidecarError::InvalidProperty(format!("failed to set '{}' = '{}'", key, value))
+            NvInferError::InvalidProperty(format!("failed to set '{}' = '{}'", key, value))
         })?;
         Ok(())
     }
 }
 
-impl Drop for SidecarNvInfer {
+impl Drop for NvInfer {
     fn drop(&mut self) {
         let _ = self.appsrc.end_of_stream();
         let _ = self.pipeline.set_state(gst::State::Null);
@@ -324,10 +341,10 @@ impl Drop for SidecarNvInfer {
 fn read_surface_header(buffer: &gst::Buffer) -> Result<(u32, u32)> {
     let map = buffer
         .map_readable()
-        .map_err(|e| SidecarError::BatchMetaFailed(format!("map_readable failed: {:?}", e)))?;
+        .map_err(|e| NvInferError::BatchMetaFailed(format!("map_readable failed: {:?}", e)))?;
     let data = map.as_slice();
     if data.len() < 12 {
-        return Err(SidecarError::BatchMetaFailed(
+        return Err(NvInferError::BatchMetaFailed(
             "Buffer too small for NvBufSurface".into(),
         ));
     }
@@ -345,11 +362,11 @@ fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
 fn extract_batch_output(sample: gst::Sample, batch_id: u64) -> Result<BatchInferenceOutput> {
     let buffer = sample
         .buffer()
-        .ok_or_else(|| SidecarError::PipelineError("Sample has no buffer".into()))?;
+        .ok_or_else(|| NvInferError::PipelineError("Sample has no buffer".into()))?;
 
     let batch_meta = unsafe {
         BatchMeta::from_gst_buffer(buffer.as_ptr() as *mut _).map_err(|e| {
-            SidecarError::PipelineError(format!("BatchMeta::from_gst_buffer: {:?}", e))
+            NvInferError::PipelineError(format!("BatchMeta::from_gst_buffer: {:?}", e))
         })?
     };
 
@@ -369,7 +386,7 @@ fn extract_batch_output(sample: gst::Sample, batch_id: u64) -> Result<BatchInfer
             }
             let raw_ptr = user_meta.user_meta_data();
             let tensor_meta = unsafe {
-                InferTensorMeta::from_raw(raw_ptr as *mut deepstream_sys::NvDsInferTensorMeta)
+                InferTensorMeta::from_raw(raw_ptr as *mut deepstream_sys::NvDsInferTensorMeta).ok()
             };
             if let Some(tm) = tensor_meta {
                 let layer_names = tm.layer_names();
@@ -382,7 +399,11 @@ fn extract_batch_output(sample: gst::Sample, batch_id: u64) -> Result<BatchInfer
                         dimensions: vec![],
                         num_elements: 0,
                     });
-                    let data_type = layer_types.get(j).copied().unwrap_or(DataType::Float);
+                    let data_type: DataType = layer_types
+                        .get(j)
+                        .copied()
+                        .map(DataType::from)
+                        .unwrap_or(DataType::Float);
                     let byte_length = dims.num_elements as usize * data_type.element_size();
                     let host_ptr = host_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());
                     let device_ptr = dev_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());

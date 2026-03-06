@@ -7,6 +7,11 @@
 use crate::ffi;
 use crate::ffi::transform_ffi;
 
+/// Minimum effective dimension (width or height) after applying
+/// [`DstPadding`]. Prevents division-by-zero and degenerate transforms
+/// when the padding nearly fills the destination surface.
+pub const MIN_EFFECTIVE_DIM: u32 = 16;
+
 /// Padding mode for letterboxing when source and destination have different
 /// aspect ratios.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -352,14 +357,16 @@ pub(crate) unsafe fn do_transform(
 
     // Validate dst_padding if present
     if let Some(ref p) = config.dst_padding {
-        if p.left.saturating_add(p.right) >= dst_w {
+        let eff_w = dst_w.saturating_sub(p.left).saturating_sub(p.right);
+        let eff_h = dst_h.saturating_sub(p.top).saturating_sub(p.bottom);
+        if eff_w < MIN_EFFECTIVE_DIM {
             return Err(TransformError::InvalidDstPadding(
-                "pad_left + pad_right must be less than destination width",
+                "effective width after dst_padding must be >= 16 px",
             ));
         }
-        if p.top.saturating_add(p.bottom) >= dst_h {
+        if eff_h < MIN_EFFECTIVE_DIM {
             return Err(TransformError::InvalidDstPadding(
-                "pad_top + pad_bottom must be less than destination height",
+                "effective height after dst_padding must be >= 16 px",
             ));
         }
     }

@@ -1,6 +1,6 @@
 //! Safe NvDsBatchMeta creation and attachment to gst::Buffer.
 
-use crate::error::{Result, SidecarError};
+use crate::error::{NvInferError, Result};
 use deepstream_sys::{
     gst_buffer_add_nvds_meta, nvds_acquire_frame_meta_from_pool, nvds_add_frame_meta_to_batch,
     nvds_batch_meta_copy_func, nvds_batch_meta_release_func, nvds_create_batch_meta, GstBuffer,
@@ -25,7 +25,7 @@ pub fn attach_batch_meta(
     max_batch_size: u32,
 ) -> Result<()> {
     if num_frames == 0 || num_frames > max_batch_size {
-        return Err(SidecarError::BatchMetaFailed(format!(
+        return Err(NvInferError::BatchMetaFailed(format!(
             "num_frames {} must be in 1..={}",
             num_frames, max_batch_size
         )));
@@ -33,14 +33,14 @@ pub fn attach_batch_meta(
 
     let batch_meta = unsafe { nvds_create_batch_meta(max_batch_size) };
     if batch_meta.is_null() {
-        return Err(SidecarError::NullPointer("nvds_create_batch_meta".into()));
+        return Err(NvInferError::NullPointer("nvds_create_batch_meta".into()));
     }
 
     // Populate frame metas for each batch element.
     for i in 0..num_frames {
         let frame_meta = unsafe { nvds_acquire_frame_meta_from_pool(batch_meta) };
         if frame_meta.is_null() {
-            return Err(SidecarError::NullPointer(
+            return Err(NvInferError::NullPointer(
                 "nvds_acquire_frame_meta_from_pool".into(),
             ));
         }
@@ -69,7 +69,7 @@ pub fn attach_batch_meta(
     };
 
     if added.is_null() {
-        return Err(SidecarError::BatchMetaFailed(
+        return Err(NvInferError::BatchMetaFailed(
             "gst_buffer_add_nvds_meta failed".into(),
         ));
     }

@@ -1,4 +1,4 @@
-//! Integration tests for SidecarNvInfer with the age_gender model (multi-output).
+//! Integration tests for NvInfer with the age_gender model (multi-output).
 
 mod common;
 
@@ -6,7 +6,7 @@ use deepstream_nvbufsurface::{
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
     TransformConfig, VideoFormat,
 };
-use sidecar_nvinfer::{SidecarConfig, SidecarNvInfer};
+use nvinfer::{NvInfer, NvInferConfig};
 
 fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
@@ -54,12 +54,12 @@ fn test_multi_output_layer_names() {
     }
 
     let props = common::age_gender_properties();
-    let config = SidecarConfig::new(props, "RGBA", 112, 112);
+    let config = NvInferConfig::new(props, "RGBA", 112, 112);
     let callback = Box::new(|_| {});
-    let sidecar = SidecarNvInfer::new(config, callback).expect("create sidecar");
+    let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
     let batch = make_age_gender_batch(1);
-    let output = sidecar.infer_sync(batch, 1).expect("infer_sync");
+    let output = engine.infer_sync(batch, 1).expect("infer_sync");
 
     assert_eq!(output.num_elements(), 1);
     let elem = &output.elements()[0];

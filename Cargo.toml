@@ -19,11 +19,10 @@ members = [
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
-    "savant_deepstream/nvinfer",
     "savant_deepstream/nvbufsurface",
     "savant_deepstream/encoders",
     "savant_deepstream/nvidia_gpu_utils",
-    "savant_deepstream/sidecar_nvinfer",
+    "savant_deepstream/nvinfer",
     "savant_deepstream/picasso",
     # picasso_py bindings migrated to savant_core_py::picasso (deepstream feature)
 ]

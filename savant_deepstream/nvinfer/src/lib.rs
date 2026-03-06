@@ -1,25 +1,20 @@
-pub mod infer_context;
-pub mod infer_tensor_meta;
+//! GStreamer pipeline wrapper for DeepStream nvinfer inference.
+//!
+//! Builds `appsrc ! queue ! nvinfer ! appsink` (or without queue when depth=0),
+//! accepts batched NvBufSurface buffers with IDs, and invokes a callback when
+//! inference completes with per-element output tensors by name.
 
-// Re-export main types for convenience
-pub use infer_context::{
-    BatchInput, BatchOutput, Context, DataType, InferContextInitParams, InferFormat,
-    InferNetworkMode, InferTensorOrder, LayerInfo, LogLevel, NetworkInfo, NetworkType,
-};
-pub use infer_tensor_meta::{InferDims, InferTensorMeta};
+pub mod batch_meta_builder;
+pub mod config;
+pub mod error;
+pub mod nvinfer_types;
+pub mod output;
+pub mod pipeline;
 
-/// Error type for DeepStream nvinfer operations
-#[derive(Debug, thiserror::Error)]
-pub enum NvInferError {
-    #[error("Invalid operation: {0}")]
-    InvalidOperation(String),
-    #[error("Null pointer error in {0}")]
-    NullPointer(String),
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("String conversion error: {0}")]
-    StringConversion(#[from] std::ffi::NulError),
-}
-
-/// Result type for DeepStream nvinfer operations
-pub type Result<T> = std::result::Result<T, NvInferError>;
+pub use batch_meta_builder::attach_batch_meta;
+pub use config::NvInferConfig;
+pub use deepstream::{InferDims, InferTensorMeta};
+pub use error::{NvInferError, Result};
+pub use nvinfer_types::DataType;
+pub use output::{BatchInferenceOutput, ElementOutput, TensorView};
+pub use pipeline::NvInfer;

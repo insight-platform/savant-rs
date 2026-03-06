@@ -350,7 +350,7 @@ SAVANT_FEATURES=deepstream make release install && make sp-pytest
 
 ⚠ Do **not** run `cargo test --features deepstream` on the entire workspace —
 the `savant_rs` Python extension crate has linking issues in test mode.
-Always test individual crates: `-p deepstream_nvbufsurface`, `-p sidecar_nvinfer`.
+Always test individual crates: `-p deepstream_nvbufsurface`, `-p nvinfer`.
 
 ---
 

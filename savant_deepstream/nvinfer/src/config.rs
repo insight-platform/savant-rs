@@ -1,10 +1,10 @@
-//! Configuration for the sidecar inference pipeline.
+//! Configuration for the NvInfer pipeline.
 //!
 //! Keys use dotted notation `section.key` to specify config sections. Keys with
 //! the same section are grouped under `[section]`. If the section is `property`
 //! or the key has no dot, it is treated as `[property]` (the main nvinfer config).
 
-use crate::error::{Result, SidecarError};
+use crate::error::{NvInferError, Result};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
@@ -19,10 +19,10 @@ fn parse_section_key(k: &str) -> (&str, &str) {
     }
 }
 
-/// Configuration for the sidecar inference pipeline.
+/// Configuration for the NvInfer pipeline.
 #[derive(Debug, Clone)]
-pub struct SidecarConfig {
-    /// Optional name for this sidecar instance, used internally for logging and
+pub struct NvInferConfig {
+    /// Optional name for this instance, used internally for logging and
     /// future extensibility.
     pub name: String,
     /// NvInfer config keys. Use dotted notation `section.key` for per-class
@@ -45,7 +45,7 @@ pub struct SidecarConfig {
     pub input_height: u32,
 }
 
-impl SidecarConfig {
+impl NvInferConfig {
     /// Create a new config with nvinfer properties map and input dimensions.
     ///
     /// `nvinfer_properties` covers the [property] section. Use absolute paths
@@ -108,8 +108,8 @@ impl SidecarConfig {
         match get_prop(&props, "process-mode") {
             Some(v) if v.trim() == "1" => {}
             Some(other) => {
-                return Err(SidecarError::InvalidConfig(format!(
-                    "process-mode={} but sidecar requires process-mode=1 (primary)",
+                return Err(NvInferError::InvalidConfig(format!(
+                    "process-mode={} but NvInfer requires process-mode=1 (primary)",
                     other
                 )));
             }
@@ -121,8 +121,8 @@ impl SidecarConfig {
         match get_prop(&props, "output-tensor-meta") {
             Some(v) if v.trim() == "1" => {}
             Some(other) => {
-                return Err(SidecarError::InvalidConfig(format!(
-                    "output-tensor-meta={} but sidecar requires output-tensor-meta=1",
+                return Err(NvInferError::InvalidConfig(format!(
+                    "output-tensor-meta={} but NvInfer requires output-tensor-meta=1",
                     other
                 )));
             }
@@ -159,11 +159,11 @@ impl SidecarConfig {
         let content = lines.join("\n");
 
         let mut tmp = NamedTempFile::new()
-            .map_err(|e| SidecarError::InvalidConfig(format!("temp file: {}", e)))?;
+            .map_err(|e| NvInferError::InvalidConfig(format!("temp file: {}", e)))?;
         tmp.write_all(content.as_bytes())
-            .map_err(|e| SidecarError::InvalidConfig(format!("write config: {}", e)))?;
+            .map_err(|e| NvInferError::InvalidConfig(format!("write config: {}", e)))?;
         tmp.flush()
-            .map_err(|e| SidecarError::InvalidConfig(format!("flush config: {}", e)))?;
+            .map_err(|e| NvInferError::InvalidConfig(format!("flush config: {}", e)))?;
 
         Ok(tmp)
     }

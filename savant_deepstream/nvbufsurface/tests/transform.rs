@@ -277,6 +277,56 @@ fn transform_with_dst_padding() {
     assert!(dst_buf.size() > 0);
 }
 
+// ─── DstPadding validation ──────────────────────────────────────────────────
+
+#[test]
+fn transform_rejects_dst_padding_too_wide() {
+    common::init();
+
+    let src_gen = make_gen(VideoFormat::RGBA, 640, 480);
+    let dst_gen = make_gen(VideoFormat::RGBA, 100, 100);
+
+    let src_buf = src_gen.acquire_surface(None).unwrap();
+    let config = TransformConfig {
+        padding: Padding::Symmetric,
+        dst_padding: Some(DstPadding {
+            left: 50,
+            top: 0,
+            right: 50,
+            bottom: 0,
+        }),
+        ..Default::default()
+    };
+    let result = dst_gen.transform(&src_buf, &config, None, None);
+    assert!(result.is_err());
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("effective width"), "got: {msg}");
+}
+
+#[test]
+fn transform_rejects_dst_padding_too_tall() {
+    common::init();
+
+    let src_gen = make_gen(VideoFormat::RGBA, 640, 480);
+    let dst_gen = make_gen(VideoFormat::RGBA, 100, 100);
+
+    let src_buf = src_gen.acquire_surface(None).unwrap();
+    let config = TransformConfig {
+        padding: Padding::Symmetric,
+        dst_padding: Some(DstPadding {
+            left: 0,
+            top: 45,
+            right: 0,
+            bottom: 45,
+        }),
+        ..Default::default()
+    };
+    let result = dst_gen.transform(&src_buf, &config, None, None);
+    assert!(result.is_err());
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("effective height"), "got: {msg}");
+}
+
 // ─── Upscale ────────────────────────────────────────────────────────────────
 
 #[test]

@@ -129,20 +129,16 @@ impl UserMeta {
         !self.user_meta_data().is_null()
     }
 
-    /// Get inference tensor metadata if this user metadata contains it
+    /// Get inference tensor metadata if this user metadata contains it.
     ///
-    /// This method checks if the metadata type is `NVDSINFER_TENSOR_OUTPUT_META`
-    /// and if so, returns the data as `InferTensorMeta`.
-    ///
-    /// # Returns
-    /// * `Option<deepstream_nvinfer::InferTensorMeta>` - The inference tensor metadata if available, None otherwise
-    pub fn as_infer_tensor_meta(&self) -> Option<deepstream_nvinfer::InferTensorMeta> {
+    /// Checks whether the metadata type is `NVDSINFER_TENSOR_OUTPUT_META`
+    /// and, if so, returns the data as [`InferTensorMeta`](crate::InferTensorMeta).
+    pub fn as_infer_tensor_meta(&self) -> Option<crate::InferTensorMeta> {
         if self.meta_type() == deepstream_sys::NvDsMetaType_NVDSINFER_TENSOR_OUTPUT_META {
             let data_ptr = self.user_meta_data();
             if !data_ptr.is_null() {
-                // Safety: We've verified the type and data pointer is not null
                 unsafe {
-                    deepstream_nvinfer::InferTensorMeta::from_raw(
+                    crate::InferTensorMeta::from_raw(
                         data_ptr as *mut deepstream_sys::NvDsInferTensorMeta,
                     )
                     .ok()
