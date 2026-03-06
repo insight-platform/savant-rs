@@ -258,7 +258,7 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
 
         let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
-        let _ = engine.infer_sync(warm, 0);
+        let _ = engine.infer_sync(warm, 0, None);
 
         let fills: Vec<u32> = FILL_COUNTS.iter().copied().filter(|&f| f <= bs).collect();
 
@@ -267,7 +267,7 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
             group.bench_with_input(BenchmarkId::new(&id, fill), &fill, |b, &fill| {
                 b.iter(|| {
                     let batch = make_batch(mode, spec.format, spec.width, spec.height, fill);
-                    let out = engine.infer_sync(batch, 0).expect("infer_sync");
+                    let out = engine.infer_sync(batch, 0, None).expect("infer_sync");
                     std::hint::black_box(out);
                 })
             });

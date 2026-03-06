@@ -5,6 +5,7 @@
 //! or the key has no dot, it is treated as `[property]` (the main nvinfer config).
 
 use crate::error::{NvInferError, Result};
+use crate::meta_clear_policy::MetaClearPolicy;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
@@ -43,6 +44,9 @@ pub struct NvInferConfig {
     pub input_width: u32,
     /// Input height for appsrc caps. Must match model input.
     pub input_height: u32,
+    /// When and whether to clear `NvDsObjectMeta` entries from the batch
+    /// buffer. Defaults to [`MetaClearPolicy::Before`].
+    pub meta_clear_policy: MetaClearPolicy,
 }
 
 impl NvInferConfig {
@@ -66,6 +70,7 @@ impl NvInferConfig {
             input_format: input_format.into(),
             input_width,
             input_height,
+            meta_clear_policy: MetaClearPolicy::default(),
         }
     }
 
@@ -93,6 +98,12 @@ impl NvInferConfig {
         self
     }
 
+    /// Set the metadata clearing policy.
+    pub fn meta_clear_policy(mut self, policy: MetaClearPolicy) -> Self {
+        self.meta_clear_policy = policy;
+        self
+    }
+
     /// Validate mandatory keys, inject if missing, and write config to a
     /// temporary file. Caller must keep the returned file alive.
     ///
@@ -106,15 +117,15 @@ impl NvInferConfig {
         }
 
         match get_prop(&props, "process-mode") {
-            Some(v) if v.trim() == "1" => {}
+            Some(v) if v.trim() == "2" => {}
             Some(other) => {
                 return Err(NvInferError::InvalidConfig(format!(
-                    "process-mode={} but NvInfer requires process-mode=1 (primary)",
+                    "process-mode={} but NvInfer requires process-mode=2 (secondary/object)",
                     other
                 )));
             }
             None => {
-                props.insert("process-mode".into(), "1".into());
+                props.insert("process-mode".into(), "2".into());
             }
         }
 

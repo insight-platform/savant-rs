@@ -18,7 +18,7 @@ const SUPPORTED_DATA_TYPES: [NvDsInferDataType; 4] = [
 ];
 
 /// Tensor dimensions and total element count.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct InferDims {
     /// Shape along each axis.
     pub dimensions: Vec<u32>,

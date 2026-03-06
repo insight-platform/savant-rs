@@ -1,7 +1,9 @@
 //! Output types for batch inference results.
 
+use crate::batch_meta_builder::clear_all_frame_objects;
 use crate::nvinfer_types::DataType;
 use deepstream::InferDims;
+use deepstream_sys::GstBuffer;
 use std::ffi::c_void;
 
 /// Zero-copy view into a single output tensor.
@@ -10,6 +12,11 @@ use std::ffi::c_void;
 /// # Safety
 /// Safe to send between threads when transferred with the owning `BatchInferenceOutput`;
 /// the pointers remain valid until the output is dropped.
+///
+/// **Important**: if the owning `BatchInferenceOutput` was created with
+/// [`MetaClearPolicy::After`] or [`MetaClearPolicy::Both`], dropping the
+/// `BatchInferenceOutput` will release object metadata and invalidate these
+/// pointers.  Consume all `TensorView`s before dropping the owning output.
 #[derive(Debug)]
 pub struct TensorView {
     /// Output layer name.
@@ -41,21 +48,36 @@ impl TensorView {
     }
 }
 
-/// Per-element inference output.
+/// Per-element inference output for one ROI in one frame.
 #[derive(Debug)]
 pub struct ElementOutput {
-    /// User-provided ID from SavantIdMeta (if present).
-    pub id: Option<i64>,
+    /// User-provided frame ID from [`SavantIdMeta`] (if present).
+    pub frame_id: Option<i64>,
+    /// ROI identifier from [`crate::roi::Roi::id`].
+    ///
+    /// `None` when no explicit ROIs were supplied and the full frame was used.
+    pub roi_id: Option<i64>,
     /// Output tensors by layer name.
     pub tensors: Vec<TensorView>,
 }
 
 /// Owns the output gst::Sample (and thus the buffer); tensor views borrow from it.
-#[derive(Debug)]
+///
+/// When constructed with [`MetaClearPolicy::After`] or
+/// [`MetaClearPolicy::Both`], dropping this value calls
+/// `nvds_clear_obj_meta_list` on every frame, returning all
+/// `NvDsObjectMeta` entries to the DeepStream pool.  This invalidates the
+/// raw pointers inside any [`TensorView`]s still alive, so all `TensorView`s
+/// should be consumed before dropping `BatchInferenceOutput`.
 pub struct BatchInferenceOutput {
     batch_id: u64,
-    _sample: gstreamer::Sample,
     elements: Vec<ElementOutput>,
+    /// When `true`, clear all frame object metas when this value is dropped.
+    clear_on_drop: bool,
+    /// Holds the GStreamer sample (and thus the buffer) alive.
+    /// **Must be declared last** so that it is still valid when `Drop::drop`
+    /// runs and clears the object metas.
+    _sample: gstreamer::Sample,
 }
 
 // Safe to send: ownership transfer; pointers valid until BatchInferenceOutput is dropped.
@@ -69,11 +91,13 @@ impl BatchInferenceOutput {
         batch_id: u64,
         sample: gstreamer::Sample,
         elements: Vec<ElementOutput>,
+        clear_on_drop: bool,
     ) -> Self {
         Self {
             batch_id,
-            _sample: sample,
             elements,
+            clear_on_drop,
+            _sample: sample,
         }
     }
 
@@ -90,5 +114,29 @@ impl BatchInferenceOutput {
     /// Number of elements in the batch.
     pub fn num_elements(&self) -> usize {
         self.elements.len()
+    }
+}
+
+impl Drop for BatchInferenceOutput {
+    fn drop(&mut self) {
+        if self.clear_on_drop {
+            if let Some(buffer) = self._sample.buffer() {
+                // _sample is still alive here (fields drop after this fn returns,
+                // in declaration order; _sample is last).
+                unsafe {
+                    clear_all_frame_objects(buffer.as_ptr() as *mut GstBuffer);
+                }
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for BatchInferenceOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchInferenceOutput")
+            .field("batch_id", &self.batch_id)
+            .field("num_elements", &self.elements.len())
+            .field("clear_on_drop", &self.clear_on_drop)
+            .finish()
     }
 }

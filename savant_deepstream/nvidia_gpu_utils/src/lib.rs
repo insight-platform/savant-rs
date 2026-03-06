@@ -1,9 +1,9 @@
-//! Platform-aware GPU memory monitoring utilities.
+//! Platform-aware GPU and process memory monitoring utilities.
 //!
 //! - **dGPU (x86_64)**: Uses NVML to query GPU device memory.
 //! - **Jetson (aarch64)**: Reads `/proc/meminfo` for unified memory (RAM used).
+//! - **Process RSS**: Reads `/proc/self/status` `VmRSS` (works on any Linux).
 
-#[cfg(target_arch = "aarch64")]
 use std::io;
 use thiserror::Error;
 
@@ -15,14 +15,12 @@ pub enum GpuUtilsError {
     #[error("NVML error: {0}")]
     Nvml(#[from] nvml_wrapper::error::NvmlError),
 
-    /// I/O error reading /proc/meminfo (Jetson only).
-    #[cfg(target_arch = "aarch64")]
-    #[error("Failed to read /proc/meminfo: {0}")]
+    /// I/O error reading a `/proc` file.
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
 
-    /// Failed to parse /proc/meminfo.
-    #[cfg(target_arch = "aarch64")]
-    #[error("Failed to parse /proc/meminfo: {0}")]
+    /// Failed to parse a `/proc` file.
+    #[error("Parse error: {0}")]
     Parse(String),
 
     /// Platform not supported.
@@ -58,6 +56,7 @@ pub fn gpu_mem_used_mib(gpu_id: u32) -> Result<u64, GpuUtilsError> {
 
     #[cfg(target_arch = "aarch64")]
     {
+        let _ = gpu_id;
         gpu_mem_used_mib_meminfo()
     }
 
@@ -66,6 +65,42 @@ pub fn gpu_mem_used_mib(gpu_id: u32) -> Result<u64, GpuUtilsError> {
         let _ = gpu_id;
         Err(GpuUtilsError::UnsupportedPlatform)
     }
+}
+
+/// Returns the current process RSS (Resident Set Size) in MiB.
+///
+/// Reads `VmRSS` from `/proc/self/status`.  Works on any Linux system
+/// (dGPU, Jetson, CI) and measures **CPU** memory used by the calling
+/// process.
+///
+/// # Errors
+///
+/// Returns an error if `/proc/self/status` cannot be read or parsed.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let rss = nvidia_gpu_utils::process_rss_mib()?;
+/// println!("Process RSS: {} MiB", rss);
+/// # Ok(())
+/// # }
+/// ```
+pub fn process_rss_mib() -> Result<u64, GpuUtilsError> {
+    let status = std::fs::read_to_string("/proc/self/status")?;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmRSS:") {
+            let kb: u64 = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| GpuUtilsError::Parse("VmRSS value not parseable".into()))?;
+            return Ok(kb / 1024);
+        }
+    }
+    Err(GpuUtilsError::Parse(
+        "VmRSS not found in /proc/self/status".into(),
+    ))
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -118,9 +153,14 @@ mod tests {
                 mib
             ),
             Err(e) => {
-                // NVML/meminfo may be unavailable in CI or non-GPU environments
                 eprintln!("gpu_mem_used_mib(0) failed (expected in CI): {}", e);
             }
         }
+    }
+
+    #[test]
+    fn test_process_rss_mib_returns_positive() {
+        let rss = process_rss_mib().expect("process_rss_mib should work on Linux");
+        assert!(rss > 0, "Expected positive RSS, got {}", rss);
     }
 }

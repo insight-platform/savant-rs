@@ -1,10 +1,12 @@
 //! NvInfer pipeline implementation.
 
-use crate::batch_meta_builder::attach_batch_meta;
+use crate::batch_meta_builder::{attach_batch_meta_with_rois, FULL_FRAME_SENTINEL};
 use crate::config::NvInferConfig;
 use crate::error::{NvInferError, Result};
+use crate::meta_clear_policy::MetaClearPolicy;
 use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
+use crate::roi::Roi;
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
 use deepstream_nvbufsurface::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind};
 use gstreamer as gst;
@@ -30,6 +32,12 @@ struct SampleDelivery {
 }
 
 /// The NvInfer inference engine.
+///
+/// Operates in secondary mode (`process-mode=2`): each submitted buffer must
+/// carry [`NvDsObjectMeta`] entries (one per ROI) so that `Gst-nvinfer` crops
+/// and processes each region independently.  [`submit`](NvInfer::submit) and
+/// [`infer_sync`](NvInfer::infer_sync) accept an optional per-slot ROI map
+/// and attach the metadata automatically.
 pub struct NvInfer {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
@@ -39,6 +47,12 @@ pub struct NvInfer {
     #[allow(dead_code)] // Kept alive so temp config file persists
     _config_file: NamedTempFile,
     delivery: Arc<SampleDelivery>,
+    /// Model input width (used for full-frame ROI fallback).
+    input_width: u32,
+    /// Model input height (used for full-frame ROI fallback).
+    input_height: u32,
+    /// When and whether to clear object metas.
+    policy: MetaClearPolicy,
 }
 
 impl NvInfer {
@@ -71,6 +85,10 @@ impl NvInfer {
 
         let config_file = config.validate_and_materialize()?;
         let config_path = config_file.path().to_string_lossy().to_string();
+
+        let input_width = config.input_width;
+        let input_height = config.input_height;
+        let policy = config.meta_clear_policy;
 
         let pipeline = gst::Pipeline::new();
 
@@ -170,7 +188,7 @@ impl NvInfer {
                 let batch_id_opt = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
                 let batch_id = batch_id_opt.unwrap_or(0);
 
-                let output = extract_batch_output(sample, batch_id).map_err(|e| {
+                let output = extract_batch_output(sample, batch_id, policy).map_err(|e| {
                     log::error!("extract_batch_output error: {:?}", e);
                     gst::FlowError::Error
                 })?;
@@ -216,27 +234,50 @@ impl NvInfer {
             _config: config,
             _config_file: config_file,
             delivery,
+            input_width,
+            input_height,
+            policy,
         })
     }
 
-    /// Submit a batched buffer for inference. batch_id is user-chosen.
+    /// Submit a batched buffer for inference.
     ///
-    /// `batch_id` must not be `u64::MAX` because that value maps to
-    /// `GST_CLOCK_TIME_NONE` and cannot survive a PTS round-trip.
-    pub fn submit(&self, mut batch: gst::Buffer, batch_id: u64) -> Result<()> {
+    /// `batch_id` is user-chosen and must not be `u64::MAX` (that value maps to
+    /// `GST_CLOCK_TIME_NONE` and cannot survive a PTS round-trip).
+    ///
+    /// `rois` is an optional per-slot map of ROI lists.  Key = slot index
+    /// `0..(num_filled-1)`.  If `None` or a slot has no entry, a full-frame
+    /// sentinel object is attached for that slot so that `Gst-nvinfer` still
+    /// receives a region to process.
+    ///
+    /// Any existing object metas on the buffer's batch meta are cleared before
+    /// the new ROI objects are written (see [`attach_batch_meta_with_rois`]).
+    pub fn submit(
+        &self,
+        mut batch: gst::Buffer,
+        batch_id: u64,
+        rois: Option<&HashMap<u32, Vec<Roi>>>,
+    ) -> Result<()> {
         if batch_id == u64::MAX {
             return Err(NvInferError::PipelineError(
                 "batch_id must not be u64::MAX (reserved as GST_CLOCK_TIME_NONE)".into(),
             ));
         }
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
-        attach_batch_meta(
-            batch
+        {
+            let buf_ref = batch
                 .get_mut()
-                .ok_or_else(|| NvInferError::PipelineError("Buffer is not writable".into()))?,
-            num_filled,
-            max_batch_size,
-        )?;
+                .ok_or_else(|| NvInferError::PipelineError("Buffer is not writable".into()))?;
+            attach_batch_meta_with_rois(
+                buf_ref,
+                num_filled,
+                max_batch_size,
+                self.policy,
+                rois,
+                self.input_width,
+                self.input_height,
+            )?;
+        }
 
         {
             let buf_ref = batch
@@ -252,20 +293,26 @@ impl NvInfer {
         Ok(())
     }
 
-    /// Synchronous inference (ignores callback, returns output directly).
-    pub fn infer_sync(&self, batch: gst::Buffer, batch_id: u64) -> Result<BatchInferenceOutput> {
+    /// Synchronous inference – blocks until results arrive (up to 30 s).
+    ///
+    /// Parameters are the same as [`submit`](NvInfer::submit).
+    pub fn infer_sync(
+        &self,
+        batch: gst::Buffer,
+        batch_id: u64,
+        rois: Option<&HashMap<u32, Vec<Roi>>>,
+    ) -> Result<BatchInferenceOutput> {
         let (tx, rx) = mpsc::channel();
         {
             let mut sync_map = self.delivery.sync_tx.lock().unwrap();
             if sync_map.contains_key(&batch_id) {
                 return Err(NvInferError::PipelineError(format!(
-                    "batch_id {} is already in use by another infer_sync caller",
-                    batch_id
+                    "batch_id {batch_id} is already in use by another infer_sync caller"
                 )));
             }
             sync_map.insert(batch_id, tx);
         }
-        if let Err(e) = self.submit(batch, batch_id) {
+        if let Err(e) = self.submit(batch, batch_id, rois) {
             self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
             return Err(e);
         }
@@ -274,15 +321,13 @@ impl NvInfer {
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
                 Err(NvInferError::PipelineError(format!(
-                    "infer_sync timed out after 30s for batch_id {}",
-                    batch_id
+                    "infer_sync timed out after 30s for batch_id {batch_id}"
                 )))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
                 Err(NvInferError::PipelineError(format!(
-                    "infer_sync channel disconnected for batch_id {}",
-                    batch_id
+                    "infer_sync channel disconnected for batch_id {batch_id}"
                 )))
             }
         }
@@ -308,8 +353,7 @@ impl NvInfer {
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {
         if element.find_property(key).is_none() {
             return Err(NvInferError::InvalidProperty(format!(
-                "property '{}' not found",
-                key
+                "property '{key}' not found"
             )));
         }
         let elem = element.clone();
@@ -318,9 +362,7 @@ impl NvInfer {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             elem.set_property_from_str(&k, &v);
         }))
-        .map_err(|_| {
-            NvInferError::InvalidProperty(format!("failed to set '{}' = '{}'", key, value))
-        })?;
+        .map_err(|_| NvInferError::InvalidProperty(format!("failed to set '{key}' = '{value}'")))?;
         Ok(())
     }
 }
@@ -359,7 +401,23 @@ fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
     }
 }
 
-fn extract_batch_output(sample: gst::Sample, batch_id: u64) -> Result<BatchInferenceOutput> {
+/// Extract inference outputs from a completed sample.
+///
+/// In secondary mode (`process-mode=2`), `Gst-nvinfer` attaches tensor outputs
+/// to each `NvDsObjectMeta`'s `obj_user_meta_list`.  This function iterates:
+///
+/// ```text
+/// batch_meta → frames → frame.objects() → object.user_meta() → tensor
+/// ```
+///
+/// `frame_id` is taken from [`SavantIdMeta`] (indexed by frame position).
+/// `roi_id` is the `object_id` cast to `i64`; `None` when the object carries
+/// the full-frame sentinel (`unique_component_id == FULL_FRAME_SENTINEL`).
+fn extract_batch_output(
+    sample: gst::Sample,
+    batch_id: u64,
+    policy: MetaClearPolicy,
+) -> Result<BatchInferenceOutput> {
     let buffer = sample
         .buffer()
         .ok_or_else(|| NvInferError::PipelineError("Sample has no buffer".into()))?;
@@ -376,50 +434,72 @@ fn extract_batch_output(sample: gst::Sample, batch_id: u64) -> Result<BatchInfer
         .unwrap_or_default();
 
     let frames = batch_meta.frames();
-    let mut elements = Vec::with_capacity(frames.len());
-    for (i, frame) in frames.into_iter().enumerate() {
-        let id = ids.get(i).copied();
-        let mut tensors = Vec::new();
-        for user_meta in frame.user_meta() {
-            if user_meta.meta_type() != deepstream_sys::NvDsMetaType_NVDSINFER_TENSOR_OUTPUT_META {
-                continue;
-            }
-            let raw_ptr = user_meta.user_meta_data();
-            let tensor_meta = unsafe {
-                InferTensorMeta::from_raw(raw_ptr as *mut deepstream_sys::NvDsInferTensorMeta).ok()
+    let mut elements: Vec<ElementOutput> = Vec::new();
+
+    for (frame_idx, frame) in frames.into_iter().enumerate() {
+        let frame_id = ids.get(frame_idx).copied();
+
+        for obj in frame.objects() {
+            let roi_id = if obj.unique_component_id() == FULL_FRAME_SENTINEL {
+                None
+            } else {
+                Some(obj.object_id() as i64)
             };
-            if let Some(tm) = tensor_meta {
-                let layer_names = tm.layer_names();
-                let layer_dims = tm.layer_dimensions();
-                let layer_types = tm.layer_data_types();
-                let host_ptrs = tm.out_buf_ptrs_host();
-                let dev_ptrs = tm.out_buf_ptrs_dev();
-                for (j, name) in layer_names.iter().enumerate() {
-                    let dims = layer_dims.get(j).cloned().unwrap_or(InferDims {
-                        dimensions: vec![],
-                        num_elements: 0,
-                    });
-                    let data_type: DataType = layer_types
-                        .get(j)
-                        .copied()
-                        .map(DataType::from)
-                        .unwrap_or(DataType::Float);
-                    let byte_length = dims.num_elements as usize * data_type.element_size();
-                    let host_ptr = host_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());
-                    let device_ptr = dev_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());
-                    tensors.push(TensorView {
-                        name: name.clone(),
-                        dims,
-                        data_type,
-                        host_ptr: host_ptr as *const _,
-                        device_ptr: device_ptr as *const _,
-                        byte_length,
-                    });
+
+            let mut tensors = Vec::new();
+            for user_meta in obj.user_meta() {
+                if user_meta.meta_type()
+                    != deepstream_sys::NvDsMetaType_NVDSINFER_TENSOR_OUTPUT_META
+                {
+                    continue;
+                }
+                let raw_ptr = user_meta.user_meta_data();
+                if let Some(tm) = unsafe {
+                    InferTensorMeta::from_raw(raw_ptr as *mut deepstream_sys::NvDsInferTensorMeta)
+                        .ok()
+                } {
+                    let layer_names = tm.layer_names();
+                    let layer_dims = tm.layer_dimensions();
+                    let layer_types = tm.layer_data_types();
+                    let host_ptrs = tm.out_buf_ptrs_host();
+                    let dev_ptrs = tm.out_buf_ptrs_dev();
+                    for (j, name) in layer_names.iter().enumerate() {
+                        let dims = layer_dims.get(j).cloned().unwrap_or(InferDims {
+                            dimensions: vec![],
+                            num_elements: 0,
+                        });
+                        let data_type: DataType = layer_types
+                            .get(j)
+                            .copied()
+                            .map(DataType::from)
+                            .unwrap_or(DataType::Float);
+                        let byte_length = dims.num_elements as usize * data_type.element_size();
+                        let host_ptr = host_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());
+                        let device_ptr = dev_ptrs.get(j).copied().unwrap_or(std::ptr::null_mut());
+                        tensors.push(TensorView {
+                            name: name.clone(),
+                            dims,
+                            data_type,
+                            host_ptr: host_ptr as *const _,
+                            device_ptr: device_ptr as *const _,
+                            byte_length,
+                        });
+                    }
                 }
             }
+
+            elements.push(ElementOutput {
+                frame_id,
+                roi_id,
+                tensors,
+            });
         }
-        elements.push(ElementOutput { id, tensors });
     }
 
-    Ok(BatchInferenceOutput::new(batch_id, sample, elements))
+    Ok(BatchInferenceOutput::new(
+        batch_id,
+        sample,
+        elements,
+        policy.clear_after(),
+    ))
 }

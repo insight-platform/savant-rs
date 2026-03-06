@@ -6,7 +6,9 @@ use deepstream_nvbufsurface::{
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
     TransformConfig, VideoFormat,
 };
-use nvinfer::{attach_batch_meta, DataType, NvInfer, NvInferConfig};
+use nvinfer::{
+    attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Rect, Roi,
+};
 use std::collections::HashMap;
 
 #[link(name = "cuda")]
@@ -129,7 +131,7 @@ fn test_attach_batch_meta() {
     common::init();
     let mut buffer = make_identity_batch(2);
     let buf_ref = buffer.get_mut().expect("buffer writable");
-    attach_batch_meta(buf_ref, 2, 16).unwrap();
+    attach_batch_meta_with_rois(buf_ref, 2, 16, MetaClearPolicy::Before, None, 12, 12).unwrap();
 }
 
 #[test]
@@ -141,7 +143,7 @@ fn test_sync_single_frame() {
     };
 
     let (batch, expected_sum) = make_identity_batch_known(1, 128);
-    let output = engine.infer_sync(batch, 1).expect("infer_sync");
+    let output = engine.infer_sync(batch, 1, None).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 1);
     assert_eq!(output.num_elements(), 1);
@@ -183,7 +185,7 @@ fn test_sync_uniform_batch() {
     };
 
     let (batch, expected_sum) = make_identity_batch_known(4, 200);
-    let output = engine.infer_sync(batch, 42).expect("infer_sync");
+    let output = engine.infer_sync(batch, 42, None).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 42);
     assert_eq!(output.num_elements(), 4);
@@ -216,7 +218,7 @@ fn test_identity_different_fill_values() {
 
     let fills: Vec<u8> = vec![64, 128, 200];
     let (batch, expected_sums) = make_identity_batch_per_frame(&fills);
-    let output = engine.infer_sync(batch, 7).expect("infer_sync");
+    let output = engine.infer_sync(batch, 7, None).expect("infer_sync");
 
     assert_eq!(output.num_elements(), fills.len());
     for (i, (elem, &expected_sum)) in output.elements().iter().zip(&expected_sums).enumerate() {
@@ -271,11 +273,11 @@ fn test_element_ids_preserved() {
     batch.finalize().unwrap();
     let buffer = batch.as_gst_buffer().unwrap();
 
-    let output = engine.infer_sync(buffer, 99).expect("infer_sync");
+    let output = engine.infer_sync(buffer, 99, None).expect("infer_sync");
 
     assert_eq!(output.batch_id(), 99);
     assert_eq!(output.num_elements(), ids_to_send.len());
-    let received_ids: Vec<Option<i64>> = output.elements().iter().map(|e| e.id).collect();
+    let received_ids: Vec<Option<i64>> = output.elements().iter().map(|e| e.frame_id).collect();
     assert_eq!(
         received_ids,
         ids_to_send.iter().map(|&id| Some(id)).collect::<Vec<_>>(),
@@ -307,7 +309,7 @@ fn test_async_callback() {
 
     for batch_id in 1..=3u64 {
         let batch = make_identity_batch(1);
-        engine.submit(batch, batch_id).expect("submit");
+        engine.submit(batch, batch_id, None).expect("submit");
     }
 
     std::thread::sleep(std::time::Duration::from_secs(5));
@@ -335,7 +337,8 @@ fn test_config_rejects_wrong_process_mode() {
     common::init();
 
     let mut props = common::identity_properties();
-    props.insert("process-mode".into(), "2".into());
+    // process-mode=1 (primary) is not allowed; NvInfer requires mode=2 (secondary).
+    props.insert("process-mode".into(), "1".into());
     props.insert("output-tensor-meta".into(), "1".into());
     expect_new_fails_with(props, "process-mode");
 }
@@ -345,7 +348,7 @@ fn test_config_rejects_wrong_output_tensor_meta_value() {
     common::init();
 
     let mut props = common::identity_properties();
-    props.insert("process-mode".into(), "1".into());
+    props.insert("process-mode".into(), "2".into());
     props.insert("output-tensor-meta".into(), "2".into());
     expect_new_fails_with(props, "output-tensor-meta");
 }
@@ -355,7 +358,73 @@ fn test_config_rejects_disabled_output_tensor_meta() {
     common::init();
 
     let mut props = common::identity_properties();
-    props.insert("process-mode".into(), "1".into());
+    props.insert("process-mode".into(), "2".into());
     props.insert("output-tensor-meta".into(), "0".into());
     expect_new_fails_with(props, "output-tensor-meta");
+}
+
+/// Two ROIs with identical geometry on one frame must produce identical tensor
+/// outputs – the identity model should return the same values regardless of
+/// which ROI ID is assigned.
+#[test]
+fn test_two_rois_same_rect_same_output() {
+    common::init();
+    let engine = match identity_engine() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let (batch, _) = make_identity_batch_known(1, 100);
+    let full_rect = Rect {
+        left: 0,
+        top: 0,
+        width: 12,
+        height: 12,
+    };
+    let rois: HashMap<u32, Vec<Roi>> = [(
+        0,
+        vec![
+            Roi {
+                id: 10,
+                rect: full_rect.clone(),
+            },
+            Roi {
+                id: 20,
+                rect: full_rect,
+            },
+        ],
+    )]
+    .into();
+
+    let output = engine
+        .infer_sync(batch, 55, Some(&rois))
+        .expect("infer_sync");
+
+    // Both ROIs should produce one ElementOutput each.
+    assert_eq!(
+        output.num_elements(),
+        2,
+        "expected one output per ROI, got {}",
+        output.num_elements()
+    );
+
+    let elems = output.elements();
+    assert_eq!(elems[0].roi_id, Some(10), "first roi_id mismatch");
+    assert_eq!(elems[1].roi_id, Some(20), "second roi_id mismatch");
+
+    // Both share the same frame_id.
+    assert_eq!(elems[0].frame_id, elems[1].frame_id);
+
+    // Tensors from the same input region must be identical.
+    assert_eq!(
+        elems[0].tensors.len(),
+        elems[1].tensors.len(),
+        "tensor count must match"
+    );
+    for (t0, t1) in elems[0].tensors.iter().zip(elems[1].tensors.iter()) {
+        assert_eq!(t0.dims, t1.dims, "tensor dims must match");
+        let s0: &[f32] = unsafe { t0.as_slice() };
+        let s1: &[f32] = unsafe { t1.as_slice() };
+        assert_eq!(s0, s1, "tensor values for same-rect ROIs must be identical");
+    }
 }

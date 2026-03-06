@@ -1,7 +1,20 @@
 use crate::{DeepStreamError, FrameMeta, Result};
 use deepstream_sys::{GstBuffer, NvDsBatchMeta};
 use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
+
+/// Force-initialise the private tag quark inside `libnvdsgst_meta.so`.
+///
+/// See [`nvinfer::batch_meta_builder::ensure_nvds_meta_api_registered`] for
+/// the full explanation.  Any code path that calls
+/// `gst_buffer_get_nvds_batch_meta` must call this first to avoid
+/// `gst_meta_api_type_has_tag: assertion 'tag != 0' failed`.
+fn ensure_nvds_meta_api_registered() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        unsafe { deepstream_sys::nvds_meta_api_get_type() };
+    });
+}
 
 struct BatchMetaLock(*mut NvDsBatchMeta);
 
@@ -43,6 +56,7 @@ impl BatchMeta {
     /// This is the primary way to obtain batch metadata from a GStreamer buffer
     /// that contains DeepStream metadata.
     pub unsafe fn from_gst_buffer(buffer: *mut GstBuffer) -> Result<Self> {
+        ensure_nvds_meta_api_registered();
         unsafe {
             let raw = deepstream_sys::gst_buffer_get_nvds_batch_meta(buffer);
             if raw.is_null() {

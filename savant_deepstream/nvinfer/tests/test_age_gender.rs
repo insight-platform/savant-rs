@@ -59,7 +59,7 @@ fn test_multi_output_layer_names() {
     let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
     let batch = make_age_gender_batch(1);
-    let output = engine.infer_sync(batch, 1).expect("infer_sync");
+    let output = engine.infer_sync(batch, 1, None).expect("infer_sync");
 
     assert_eq!(output.num_elements(), 1);
     let elem = &output.elements()[0];
