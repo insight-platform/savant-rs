@@ -28,6 +28,7 @@ cudarc = { version = "0.17", features = ["cuda-12020"] }
 criterion = { workspace = true }
 env_logger = "0.11"
 nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
+rand = "0.9"
 serial_test = { workspace = true }
 
 [[bench]]

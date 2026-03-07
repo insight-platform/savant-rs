@@ -723,3 +723,44 @@ fn test_mixed_uniform_nonuniform_sequential() {
         );
     }
 }
+
+/// Regression test: `NvInferConfig::new_flexible` with `rois=None` must
+/// still produce correct inference output. Previously, the flexible config
+/// set `input_width=0, input_height=0`, which caused a 0x0 sentinel ROI
+/// to be attached. nvinfer silently skipped inference on the zero-area
+/// object, returning incorrect (often zero) tensor values.
+#[test]
+fn test_flexible_engine_no_rois_runs_inference() {
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let fill_byte: u8 = 42;
+    let (buffer, expected_sum) = make_identity_batch_known(2, fill_byte);
+    assert!(
+        expected_sum > 0.0,
+        "precondition: expected_sum must be nonzero"
+    );
+
+    let output = engine
+        .infer_sync(buffer, 99, None)
+        .expect("infer_sync with flexible engine and no ROIs");
+
+    assert_eq!(output.batch_id(), 99);
+    assert_eq!(
+        output.num_elements(),
+        2,
+        "flexible engine with no ROIs must still produce one element per frame"
+    );
+
+    for (i, elem) in output.elements().iter().enumerate() {
+        assert!(!elem.tensors.is_empty(), "element {i} must have tensors");
+        let actual_sum = tensor_f32_sum(&elem.tensors[0]);
+        let rel = (actual_sum - expected_sum).abs() / expected_sum;
+        assert!(
+            rel < 0.01,
+            "element {i}: expected_sum={expected_sum}, actual_sum={actual_sum}, rel_err={rel}"
+        );
+    }
+}

@@ -8,6 +8,7 @@ use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
 use crate::roi::Roi;
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
+use deepstream_nvbufsurface::Rect;
 use deepstream_nvbufsurface::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind};
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -267,6 +268,39 @@ impl NvInfer {
             ));
         }
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
+
+        // When using flexible config (input_width/height = 0) with no
+        // explicit ROIs, read per-slot dimensions from the NvBufSurface
+        // and synthesize full-frame ROIs. Without this, the sentinel ROI
+        // would be 0x0 and nvinfer would silently skip inference.
+        let synthetic_rois;
+        let effective_rois = if rois.is_none()
+            && self.input_width == 0
+            && self.input_height == 0
+            && num_filled > 0
+        {
+            let dims = read_slot_dimensions(&batch, num_filled)?;
+            let mut map = HashMap::with_capacity(dims.len());
+            for (slot, &(w, h)) in dims.iter().enumerate() {
+                map.insert(
+                    slot as u32,
+                    vec![Roi {
+                        id: 0,
+                        rect: Rect {
+                            left: 0,
+                            top: 0,
+                            width: w,
+                            height: h,
+                        },
+                    }],
+                );
+            }
+            synthetic_rois = map;
+            Some(&synthetic_rois)
+        } else {
+            rois
+        };
+
         {
             let buf_ref = batch
                 .get_mut()
@@ -276,7 +310,7 @@ impl NvInfer {
                 num_filled,
                 max_batch_size,
                 self.policy,
-                rois,
+                effective_rois,
                 self.input_width,
                 self.input_height,
             )?;
@@ -396,6 +430,35 @@ fn read_surface_header(buffer: &gst::Buffer) -> Result<(u32, u32)> {
     let batch_size = u32::from_ne_bytes([data[4], data[5], data[6], data[7]]);
     let num_filled = u32::from_ne_bytes([data[8], data[9], data[10], data[11]]);
     Ok((num_filled, batch_size))
+}
+
+/// Read per-slot (width, height) from the NvBufSurface surfaceList.
+///
+/// Uses the FFI `NvBufSurface` / `NvBufSurfaceParams` layout to extract
+/// each filled slot's dimensions without going through the full
+/// `SurfaceView` machinery.
+fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u32, u32)>> {
+    use deepstream_nvbufsurface::ffi;
+
+    let map = buffer
+        .map_readable()
+        .map_err(|e| NvInferError::BatchMetaFailed(format!("map_readable failed: {:?}", e)))?;
+    let data = map.as_slice();
+
+    let surface_size = std::mem::size_of::<ffi::NvBufSurface>();
+    if data.len() < surface_size {
+        return Err(NvInferError::BatchMetaFailed(
+            "Buffer too small for NvBufSurface".into(),
+        ));
+    }
+
+    let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
+    let mut dims = Vec::with_capacity(num_filled as usize);
+    for i in 0..num_filled {
+        let params = unsafe { &*surf.surfaceList.add(i as usize) };
+        dims.push((params.width, params.height));
+    }
+    Ok(dims)
 }
 
 fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {

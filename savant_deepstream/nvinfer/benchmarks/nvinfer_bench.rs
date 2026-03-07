@@ -12,9 +12,12 @@ use deepstream_nvbufsurface::{
     NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use nvinfer::{NvInfer, NvInferConfig};
+use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Once;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Condvar, Mutex, Once};
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Initialisation
@@ -120,6 +123,39 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
     m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
     m.insert("class-attrs-0.detected-min-h".into(), "64".into());
+    m
+}
+
+fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert(
+        "onnx-file".into(),
+        dir.join("yolo11n.onnx").to_string_lossy().into(),
+    );
+    m.insert("network-mode".into(), "2".into());
+    m.insert("workspace-size".into(), "6144".into());
+    m.insert("infer-dims".into(), "3;640;640".into());
+    m.insert("maintain-aspect-ratio".into(), "1".into());
+    m.insert("symmetric-padding".into(), "1".into());
+    m.insert("net-scale-factor".into(), "0.003921569790691137".into());
+    m.insert("offsets".into(), "0.0;0.0;0.0".into());
+    m.insert("model-color-format".into(), "0".into());
+    m.insert("output-blob-names".into(), "output0".into());
+    m.insert("num-detected-classes".into(), "80".into());
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("secondary-reinfer-interval".into(), "0".into());
+    m.insert("operate-on-gie-id".into(), "0".into());
+    m.insert("operate-on-class-ids".into(), "0".into());
+    m.insert("gie-unique-id".into(), "1".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert(
+        "class-attrs-all.pre-cluster-threshold".into(),
+        "10000000000.0".into(),
+    );
+    m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
+    m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
+    m.insert("class-attrs-0.detected-min-w".into(), "30".into());
+    m.insert("class-attrs-0.detected-min-h".into(), "30".into());
     m
 }
 
@@ -230,6 +266,7 @@ fn make_nonuniform_batch(
 // ---------------------------------------------------------------------------
 
 const FILL_COUNTS: &[u32] = &[1, 4, 8, 16];
+const BATCHES_PER_ITER: u32 = 100;
 
 fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: BatchMode) {
     if !spec.onnx_path.exists() {
@@ -243,6 +280,9 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
     let dir = assets_dir();
     let group_name = format!("{}/{}", spec.group_name, mode);
     let mut group = c.benchmark_group(&group_name);
+    group
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(30));
 
     for &bs in batch_sizes {
         let mut props = spec.base_properties.clone();
@@ -261,15 +301,27 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         let _ = engine.infer_sync(warm, 0, None);
 
         let fills: Vec<u32> = FILL_COUNTS.iter().copied().filter(|&f| f <= bs).collect();
+        let n = BATCHES_PER_ITER;
 
         for &fill in &fills {
-            let id = format!("bs{}/fill{}", bs, fill);
+            let id = format!("bs{}/fill{}/x{}", bs, fill, n);
             group.bench_with_input(BenchmarkId::new(&id, fill), &fill, |b, &fill| {
-                b.iter(|| {
-                    let batch = make_batch(mode, spec.format, spec.width, spec.height, fill);
-                    let out = engine.infer_sync(batch, 0, None).expect("infer_sync");
-                    std::hint::black_box(out);
-                })
+                b.iter_batched(
+                    || {
+                        (0..n)
+                            .map(|_| make_batch(mode, spec.format, spec.width, spec.height, fill))
+                            .collect::<Vec<_>>()
+                    },
+                    |batches| {
+                        for (i, batch) in batches.into_iter().enumerate() {
+                            let out = engine
+                                .infer_sync(batch, i as u64, None)
+                                .expect("infer_sync");
+                            std::hint::black_box(out);
+                        }
+                    },
+                    criterion::BatchSize::LargeInput,
+                )
             });
         }
     }
@@ -313,9 +365,18 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             height: 640,
             group_name: "yolo11m_seg".into(),
         },
+        ModelSpec {
+            onnx_path: dir.join("yolo11n.onnx"),
+            onnx_stem: "yolo11n.onnx".into(),
+            base_properties: yolo11n_base_properties(&dir),
+            format: VideoFormat::RGBA,
+            width: 640,
+            height: 640,
+            group_name: "yolo11n".into(),
+        },
     ];
 
-    let batch_sizes: &[&[u32]] = &[&[1, 4, 16], &[1, 4, 16], &[1, 4, 8]];
+    let batch_sizes: &[&[u32]] = &[&[1], &[1, 4, 16], &[1], &[1]];
     let modes = [BatchMode::Uniform, BatchMode::NonUniform];
 
     for mode in modes {
@@ -325,5 +386,211 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Random non-uniform batch benchmark (age-gender model, iter_batched,
+// varying queue depths)
+// ---------------------------------------------------------------------------
+
+const RANDOM_NONUNIFORM_BATCHES_PER_ITER: u32 = BATCHES_PER_ITER;
+const RANDOM_NONUNIFORM_FRAMES: u32 = 4;
+const RANDOM_SIZE_MIN: u32 = 64;
+const RANDOM_SIZE_MAX_INCL: u32 = 256;
+const RANDOM_SIZE_STEP: u32 = 4;
+const QUEUE_DEPTHS: &[u32] = &[1, 8, 16, 32];
+
+fn make_random_nonuniform_batch(rng: &mut impl Rng) -> gstreamer::Buffer {
+    let n = RANDOM_NONUNIFORM_FRAMES;
+    let steps = (RANDOM_SIZE_MAX_INCL - RANDOM_SIZE_MIN) / RANDOM_SIZE_STEP + 1;
+
+    let mut src_bufs = Vec::with_capacity(n as usize);
+    for i in 0..n {
+        let w = RANDOM_SIZE_MIN + rng.random_range(0..steps) * RANDOM_SIZE_STEP;
+        let h = RANDOM_SIZE_MIN + rng.random_range(0..steps) * RANDOM_SIZE_STEP;
+
+        let gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, w, h)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator for random nonuniform slot");
+        src_bufs.push(gen.acquire_surface(Some(i as i64)).unwrap());
+    }
+
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(n, 0).unwrap();
+    for (i, buf) in src_bufs.iter().enumerate() {
+        batch.add(buf, Some(i as i64)).unwrap();
+    }
+
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
+}
+
+fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
+    init();
+    let dir = assets_dir();
+    let onnx_path = dir.join("age_gender_mobilenet_v2_dynBatch.onnx");
+    if !onnx_path.exists() {
+        eprintln!(
+            "Skipping random_nonuniform_age_gender benchmark: ONNX not found at {:?}",
+            onnx_path
+        );
+        return;
+    }
+
+    let n = RANDOM_NONUNIFORM_BATCHES_PER_ITER;
+    let mut group = c.benchmark_group("age_gender/random_nonuniform");
+    group
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(30));
+
+    for &q in QUEUE_DEPTHS {
+        let done_count = Arc::new(AtomicU32::new(0));
+        let notify = Arc::new((Mutex::new(()), Condvar::new()));
+
+        let cb_done = Arc::clone(&done_count);
+        let cb_notify = Arc::clone(&notify);
+        let callback = Box::new(move |_output| {
+            cb_done.fetch_add(1, Ordering::Release);
+            let (lock, cvar) = &*cb_notify;
+            let _guard = lock.lock().unwrap();
+            cvar.notify_one();
+        });
+
+        let mut props = age_gender_base_properties(&dir);
+        props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
+        props.insert(
+            "model-engine-file".into(),
+            dir.join(format!(
+                "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
+                RANDOM_NONUNIFORM_FRAMES
+            ))
+            .to_string_lossy()
+            .into(),
+        );
+
+        let config = NvInferConfig::new(props, "RGBA", 112, 112).queue_depth(q);
+        let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
+
+        // Warmup with one batch.
+        let mut rng = rand::rng();
+        done_count.store(0, Ordering::Release);
+        let warmup = make_random_nonuniform_batch(&mut rng);
+        engine.submit(warmup, 0, None).expect("warmup submit");
+        {
+            let (lock, cvar) = &*notify;
+            let mut guard = lock.lock().unwrap();
+            while done_count.load(Ordering::Acquire) < 1 {
+                guard = cvar.wait(guard).unwrap();
+            }
+        }
+
+        let id = format!("x{}_bs{}_q{}", n, RANDOM_NONUNIFORM_FRAMES, q);
+        group.bench_function(BenchmarkId::new(&id, q), |b| {
+            b.iter_batched(
+                || {
+                    let mut rng = rand::rng();
+                    (0..n)
+                        .map(|_| make_random_nonuniform_batch(&mut rng))
+                        .collect::<Vec<_>>()
+                },
+                |batches| {
+                    done_count.store(0, Ordering::Release);
+
+                    for (i, batch) in batches.into_iter().enumerate() {
+                        engine.submit(batch, (i + 1) as u64, None).expect("submit");
+                    }
+
+                    let (lock, cvar) = &*notify;
+                    let mut guard = lock.lock().unwrap();
+                    while done_count.load(Ordering::Acquire) < n {
+                        guard = cvar.wait(guard).unwrap();
+                    }
+                },
+                criterion::BatchSize::LargeInput,
+            )
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
+    init();
+    let dir = assets_dir();
+    let onnx_path = dir.join("age_gender_mobilenet_v2_dynBatch.onnx");
+    if !onnx_path.exists() {
+        eprintln!(
+            "Skipping random_nonuniform_age_gender_sync benchmark: ONNX not found at {:?}",
+            onnx_path
+        );
+        return;
+    }
+
+    let n = RANDOM_NONUNIFORM_BATCHES_PER_ITER;
+    let mut group = c.benchmark_group("age_gender/random_nonuniform_sync");
+    group
+        .sample_size(10)
+        .measurement_time(Duration::from_secs(30));
+
+    let mut props = age_gender_base_properties(&dir);
+    props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
+    props.insert(
+        "model-engine-file".into(),
+        dir.join(format!(
+            "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
+            RANDOM_NONUNIFORM_FRAMES
+        ))
+        .to_string_lossy()
+        .into(),
+    );
+
+    let config = NvInferConfig::new(props, "RGBA", 112, 112);
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for sync bench");
+
+    // Warmup.
+    let mut rng = rand::rng();
+    let warmup = make_random_nonuniform_batch(&mut rng);
+    let _ = engine.infer_sync(warmup, 0, None);
+
+    let id = format!("x{}_bs{}_sync", n, RANDOM_NONUNIFORM_FRAMES);
+    group.bench_function(BenchmarkId::new(&id, 0), |b| {
+        b.iter_batched(
+            || {
+                let mut rng = rand::rng();
+                (0..n)
+                    .map(|_| make_random_nonuniform_batch(&mut rng))
+                    .collect::<Vec<_>>()
+            },
+            |batches| {
+                for (i, batch) in batches.into_iter().enumerate() {
+                    let out = engine
+                        .infer_sync(batch, (i + 1) as u64, None)
+                        .expect("infer_sync");
+                    std::hint::black_box(out);
+                }
+            },
+            criterion::BatchSize::LargeInput,
+        )
+    });
+
+    group.finish();
+}
+
 criterion_group!(benches, bench_sync_batch_sizes);
-criterion_main!(benches);
+
+criterion_group!(
+    bench_random_nonuniform_async,
+    bench_random_nonuniform_age_gender
+);
+
+criterion_group!(
+    bench_random_nonuniform_sync,
+    bench_random_nonuniform_frame_size_age_gender_sync
+);
+
+criterion_main!(
+    benches,
+    bench_random_nonuniform_async,
+    bench_random_nonuniform_sync
+);
