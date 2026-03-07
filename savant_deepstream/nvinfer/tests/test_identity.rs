@@ -3,8 +3,8 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
-    TransformConfig, VideoFormat,
+    DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
+    NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use nvinfer::{
     attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Rect, Roi,
@@ -107,17 +107,83 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
     (buf, expected_sums)
 }
 
+fn has_identity_onnx() -> bool {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("assets/identity.onnx")
+        .exists()
+}
+
 fn identity_engine() -> Option<NvInfer> {
-    use std::path::Path;
-    let onnx = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/identity.onnx");
-    if !onnx.exists() {
-        eprintln!("Skipping: identity.onnx not found at {:?}", onnx);
+    if !has_identity_onnx() {
+        eprintln!("Skipping: identity.onnx not found");
         return None;
     }
     let props = common::identity_properties();
     let config = NvInferConfig::new(props, "RGBA", 12, 12);
-    let callback = Box::new(|_| {});
-    Some(NvInfer::new(config, callback).expect("create NvInfer"))
+    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer"))
+}
+
+fn identity_engine_flexible() -> Option<NvInfer> {
+    if !has_identity_onnx() {
+        eprintln!("Skipping: identity.onnx not found");
+        return None;
+    }
+    let props = common::identity_properties();
+    let config = NvInferConfig::new_flexible(props, "RGBA");
+    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)"))
+}
+
+/// Build a non-uniform batch from per-frame specs `(width, height, fill_byte, frame_id)`.
+///
+/// Each frame is a separate GPU surface filled with a constant byte.
+/// The returned buffer is writable (the intermediate `DsNvNonUniformSurfaceBuffer`
+/// is dropped before the buffer is returned).
+fn make_nonuniform_identity_batch(frames: &[(u32, u32, u8, i64)]) -> gstreamer::Buffer {
+    common::init();
+    let mut batch =
+        DsNvNonUniformSurfaceBuffer::new(frames.len() as u32, 0).expect("create non-uniform batch");
+
+    for &(w, h, fill, id) in frames {
+        let gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, w, h)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator");
+
+        let (src, data_ptr, pitch) = gen.acquire_surface_with_ptr(Some(id)).unwrap();
+        let fill_size = (pitch * h) as usize;
+        let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill, fill_size) };
+        assert_eq!(ret, 0, "cuMemsetD8_v2 failed with code {}", ret);
+
+        batch.add(&src, Some(id)).unwrap();
+    }
+
+    batch.finalize().unwrap();
+    batch.as_gst_buffer().unwrap()
+}
+
+/// Build full-frame ROIs for a non-uniform batch.
+///
+/// `slots` is `&[(width, height, &[roi_id])]`. Returns a map keyed by slot index.
+fn full_frame_rois(slots: &[(u32, u32, &[i64])]) -> HashMap<u32, Vec<Roi>> {
+    slots
+        .iter()
+        .enumerate()
+        .map(|(slot, &(w, h, ids))| {
+            let rect = Rect {
+                left: 0,
+                top: 0,
+                width: w,
+                height: h,
+            };
+            (
+                slot as u32,
+                ids.iter().map(|&id| Roi { id, rect }).collect(),
+            )
+        })
+        .collect()
 }
 
 /// Sum all f32 values in a host tensor slice.
@@ -426,5 +492,234 @@ fn test_two_rois_same_rect_same_output() {
         let s0: &[f32] = unsafe { t0.as_slice() };
         let s1: &[f32] = unsafe { t1.as_slice() };
         assert_eq!(s0, s1, "tensor values for same-rect ROIs must be identical");
+    }
+}
+
+/// Non-uniform batch (two frames of different spatial dimensions) with two
+/// full-frame ROIs on each frame.  Validates element count, ID propagation,
+/// per-ROI tensor correctness, and cross-frame distinctness.
+#[test]
+fn test_nonuniform_batch_two_rois_each() {
+    common::init();
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let frames: &[(u32, u32, u8, i64)] = &[(24, 24, 80, 10), (36, 36, 200, 20)];
+    let buffer = make_nonuniform_identity_batch(frames);
+
+    let rois = full_frame_rois(&[(24, 24, &[100, 101]), (36, 36, &[200, 201])]);
+
+    let output = engine
+        .infer_sync(buffer, 77, Some(&rois))
+        .expect("infer_sync");
+
+    assert_eq!(output.batch_id(), 77, "batch_id must survive round-trip");
+    assert_eq!(
+        output.num_elements(),
+        4,
+        "expected 2 frames x 2 ROIs = 4 elements, got {}",
+        output.num_elements()
+    );
+
+    let elems = output.elements();
+    let roi_ids_per_frame: &[&[i64]] = &[&[100, 101], &[200, 201]];
+
+    for (i, (&(w, h, fill, fid), roi_ids)) in frames.iter().zip(roi_ids_per_frame).enumerate() {
+        let _ = (w, h); // used only in ROI construction
+        let e0 = &elems[i * 2];
+        let e1 = &elems[i * 2 + 1];
+
+        assert_eq!(e0.frame_id, Some(fid), "frame {i} elem 0: frame_id");
+        assert_eq!(e1.frame_id, Some(fid), "frame {i} elem 1: frame_id");
+        assert_eq!(e0.roi_id, Some(roi_ids[0]), "frame {i} elem 0: roi_id");
+        assert_eq!(e1.roi_id, Some(roi_ids[1]), "frame {i} elem 1: roi_id");
+
+        // Both ROIs cover the full frame with uniform fill, so tensors must match.
+        for (t0, t1) in e0.tensors.iter().zip(e1.tensors.iter()) {
+            let s0: &[f32] = unsafe { t0.as_slice() };
+            let s1: &[f32] = unsafe { t1.as_slice() };
+            assert_eq!(
+                s0, s1,
+                "frame {i}: same-rect ROIs must produce identical tensors"
+            );
+        }
+
+        let expected_sum = 3.0 * 12.0 * 12.0 * (fill as f64);
+        let actual_sum = tensor_f32_sum(&e0.tensors[0]);
+        let rel_err = (actual_sum - expected_sum).abs() / expected_sum;
+        assert!(
+            rel_err < 0.01,
+            "frame {i} (fill={fill}): expected={expected_sum}, actual={actual_sum}, \
+             rel_err={rel_err:.6}"
+        );
+    }
+
+    let sum_f0 = tensor_f32_sum(&elems[0].tensors[0]);
+    let sum_f1 = tensor_f32_sum(&elems[2].tensors[0]);
+    assert!(
+        (sum_f0 - sum_f1).abs() > 1.0,
+        "different fill bytes must yield distinguishable sums: f0={sum_f0}, f1={sum_f1}"
+    );
+}
+
+/// Non-uniform batch with unequal ROI counts per frame: frame 0 has 1 ROI,
+/// frame 1 has 3.  Validates correct element ordering and frame/ROI ID
+/// propagation when the mapping is non-rectangular.
+#[test]
+fn test_nonuniform_batch_unequal_roi_counts() {
+    common::init();
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let frames: &[(u32, u32, u8, i64)] = &[(24, 24, 100, 1), (36, 36, 180, 2)];
+    let buffer = make_nonuniform_identity_batch(frames);
+
+    let rois = full_frame_rois(&[(24, 24, &[10]), (36, 36, &[20, 21, 22])]);
+
+    let output = engine
+        .infer_sync(buffer, 88, Some(&rois))
+        .expect("infer_sync");
+
+    assert_eq!(output.batch_id(), 88);
+    assert_eq!(
+        output.num_elements(),
+        4,
+        "expected 1 + 3 = 4 elements, got {}",
+        output.num_elements()
+    );
+
+    let elems = output.elements();
+
+    // Frame 0: 1 element.
+    assert_eq!(elems[0].frame_id, Some(1), "elem 0: frame_id");
+    assert_eq!(elems[0].roi_id, Some(10), "elem 0: roi_id");
+
+    // Frame 1: 3 elements.
+    for (j, &expected_roi) in [20i64, 21, 22].iter().enumerate() {
+        let idx = 1 + j;
+        assert_eq!(elems[idx].frame_id, Some(2), "elem {idx}: frame_id");
+        assert_eq!(elems[idx].roi_id, Some(expected_roi), "elem {idx}: roi_id");
+    }
+
+    // Tensor sums: all ROIs on the same frame should produce the same sum.
+    let expected_sum_f0 = 3.0 * 12.0 * 12.0 * 100.0;
+    let expected_sum_f1 = 3.0 * 12.0 * 12.0 * 180.0;
+
+    let sum_0 = tensor_f32_sum(&elems[0].tensors[0]);
+    let rel_0 = (sum_0 - expected_sum_f0).abs() / expected_sum_f0;
+    assert!(
+        rel_0 < 0.01,
+        "frame 0: expected={expected_sum_f0}, actual={sum_0}"
+    );
+
+    for j in 0..3 {
+        let sum_j = tensor_f32_sum(&elems[1 + j].tensors[0]);
+        let rel_j = (sum_j - expected_sum_f1).abs() / expected_sum_f1;
+        assert!(
+            rel_j < 0.01,
+            "frame 1 roi {j}: expected={expected_sum_f1}, actual={sum_j}"
+        );
+    }
+
+    // All three ROIs on frame 1 share the same full-frame rect and fill,
+    // so their tensors must be byte-identical.
+    let s_ref: &[f32] = unsafe { elems[1].tensors[0].as_slice() };
+    for j in 1..3 {
+        let s_j: &[f32] = unsafe { elems[1 + j].tensors[0].as_slice() };
+        assert_eq!(s_ref, s_j, "frame 1: ROI 0 vs ROI {j} tensors must match");
+    }
+}
+
+/// Interleave uniform and non-uniform batches through the same flexible
+/// engine.  Verifies the pipeline handles both `DsNvUniformSurfaceBuffer`
+/// and `DsNvNonUniformSurfaceBuffer` without renegotiating or leaking state.
+#[test]
+fn test_mixed_uniform_nonuniform_sequential() {
+    common::init();
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    // --- Batch 1: non-uniform 24x24 + 36x36, 1 ROI each ---
+    {
+        let frames: &[(u32, u32, u8, i64)] = &[(24, 24, 50, 1), (36, 36, 150, 2)];
+        let buffer = make_nonuniform_identity_batch(frames);
+        let rois = full_frame_rois(&[(24, 24, &[10]), (36, 36, &[20])]);
+        let output = engine
+            .infer_sync(buffer, 1, Some(&rois))
+            .expect("batch 1 infer_sync");
+        assert_eq!(output.batch_id(), 1);
+        assert_eq!(output.num_elements(), 2);
+        for (i, &fill) in [50u8, 150].iter().enumerate() {
+            let expected_sum = 3.0 * 12.0 * 12.0 * (fill as f64);
+            let actual_sum = tensor_f32_sum(&output.elements()[i].tensors[0]);
+            let rel = (actual_sum - expected_sum).abs() / expected_sum;
+            assert!(
+                rel < 0.01,
+                "batch 1 elem {i}: expected={expected_sum}, actual={actual_sum}"
+            );
+        }
+    }
+
+    // --- Batch 2: uniform 2x 12x12 (fill=100), 1 ROI each ---
+    {
+        let (buffer, expected_sum) = make_identity_batch_known(2, 100);
+        let rois = full_frame_rois(&[(12, 12, &[30]), (12, 12, &[31])]);
+        let output = engine
+            .infer_sync(buffer, 2, Some(&rois))
+            .expect("batch 2 infer_sync");
+        assert_eq!(output.batch_id(), 2);
+        assert_eq!(output.num_elements(), 2);
+        for (i, elem) in output.elements().iter().enumerate() {
+            let actual_sum = tensor_f32_sum(&elem.tensors[0]);
+            let rel = (actual_sum - expected_sum).abs() / expected_sum;
+            assert!(
+                rel < 0.01,
+                "batch 2 elem {i}: expected={expected_sum}, actual={actual_sum}"
+            );
+        }
+    }
+
+    // --- Batch 3: non-uniform 48x48 + 12x12, 1 ROI each ---
+    {
+        let frames: &[(u32, u32, u8, i64)] = &[(48, 48, 200, 5), (12, 12, 80, 6)];
+        let buffer = make_nonuniform_identity_batch(frames);
+        let rois = full_frame_rois(&[(48, 48, &[50]), (12, 12, &[60])]);
+        let output = engine
+            .infer_sync(buffer, 3, Some(&rois))
+            .expect("batch 3 infer_sync");
+        assert_eq!(output.batch_id(), 3);
+        assert_eq!(output.num_elements(), 2);
+        for (i, &fill) in [200u8, 80].iter().enumerate() {
+            let expected_sum = 3.0 * 12.0 * 12.0 * (fill as f64);
+            let actual_sum = tensor_f32_sum(&output.elements()[i].tensors[0]);
+            let rel = (actual_sum - expected_sum).abs() / expected_sum;
+            assert!(
+                rel < 0.01,
+                "batch 3 elem {i}: expected={expected_sum}, actual={actual_sum}"
+            );
+        }
+    }
+
+    // --- Batch 4: uniform 1x 12x12 (fill=255), 1 ROI ---
+    {
+        let (buffer, expected_sum) = make_identity_batch_known(1, 255);
+        let rois = full_frame_rois(&[(12, 12, &[70])]);
+        let output = engine
+            .infer_sync(buffer, 4, Some(&rois))
+            .expect("batch 4 infer_sync");
+        assert_eq!(output.batch_id(), 4);
+        assert_eq!(output.num_elements(), 1);
+        let actual_sum = tensor_f32_sum(&output.elements()[0].tensors[0]);
+        let rel = (actual_sum - expected_sum).abs() / expected_sum;
+        assert!(
+            rel < 0.01,
+            "batch 4: expected={expected_sum}, actual={actual_sum}"
+        );
     }
 }

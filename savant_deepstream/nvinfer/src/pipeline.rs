@@ -86,8 +86,8 @@ impl NvInfer {
         let config_file = config.validate_and_materialize()?;
         let config_path = config_file.path().to_string_lossy().to_string();
 
-        let input_width = config.input_width;
-        let input_height = config.input_height;
+        let input_width = config.input_width.unwrap_or(0);
+        let input_height = config.input_height.unwrap_or(0);
         let policy = config.meta_clear_policy;
 
         let pipeline = gst::Pipeline::new();
@@ -102,13 +102,16 @@ impl NvInfer {
             .build()
             .map_err(|_| NvInferError::ElementCreationFailed("appsink".into()))?;
 
-        // Build appsrc caps from config input dimensions.
-        let appsrc_caps = gst::Caps::builder("video/x-raw")
+        let mut caps_builder = gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
-            .field("format", config.input_format.as_str())
-            .field("width", config.input_width as i32)
-            .field("height", config.input_height as i32)
-            .build();
+            .field("format", config.input_format.as_str());
+        if let Some(w) = config.input_width {
+            caps_builder = caps_builder.field("width", w as i32);
+        }
+        if let Some(h) = config.input_height {
+            caps_builder = caps_builder.field("height", h as i32);
+        }
+        let appsrc_caps = caps_builder.build();
         let appsrc_elem: &gst::Element = appsrc.upcast_ref();
         appsrc_elem.set_property("caps", &appsrc_caps);
         appsrc_elem.set_property_from_str("format", "time");

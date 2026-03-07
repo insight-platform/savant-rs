@@ -40,17 +40,22 @@ pub struct NvInferConfig {
     pub queue_depth: u32,
     /// Input format for appsrc caps (e.g. "RGBA"). Must match model input.
     pub input_format: String,
-    /// Input width for appsrc caps. Must match model input.
-    pub input_width: u32,
-    /// Input height for appsrc caps. Must match model input.
-    pub input_height: u32,
+    /// Input width for appsrc caps.  `Some(w)` constrains the caps to a
+    /// fixed width; `None` leaves the width unconstrained (required for
+    /// non-uniform / heterogeneous batches).
+    pub input_width: Option<u32>,
+    /// Input height for appsrc caps.  Same semantics as [`input_width`].
+    pub input_height: Option<u32>,
     /// When and whether to clear `NvDsObjectMeta` entries from the batch
     /// buffer. Defaults to [`MetaClearPolicy::Before`].
     pub meta_clear_policy: MetaClearPolicy,
 }
 
 impl NvInferConfig {
-    /// Create a new config with nvinfer properties map and input dimensions.
+    /// Create a new config with nvinfer properties map and fixed input
+    /// dimensions.  The width and height are embedded into the appsrc caps
+    /// and used as the full-frame ROI fallback when no explicit ROIs are
+    /// supplied.
     ///
     /// `nvinfer_properties` covers the [property] section. Use absolute paths
     /// for `onnx-file` and `model-engine-file`. Mandatory keys `process-mode`
@@ -68,8 +73,31 @@ impl NvInferConfig {
             gpu_id: 0,
             queue_depth: 0,
             input_format: input_format.into(),
-            input_width,
-            input_height,
+            input_width: Some(input_width),
+            input_height: Some(input_height),
+            meta_clear_policy: MetaClearPolicy::default(),
+        }
+    }
+
+    /// Create a config without fixed input dimensions.
+    ///
+    /// The appsrc caps will not constrain width/height, which is required
+    /// for non-uniform (heterogeneous) batches where each frame may have a
+    /// different resolution.  Callers **must** provide explicit ROIs for
+    /// every slot because the full-frame fallback has no dimensions to use.
+    pub fn new_flexible(
+        nvinfer_properties: HashMap<String, String>,
+        input_format: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: String::new(),
+            nvinfer_properties,
+            element_properties: HashMap::new(),
+            gpu_id: 0,
+            queue_depth: 0,
+            input_format: input_format.into(),
+            input_width: None,
+            input_height: None,
             meta_clear_policy: MetaClearPolicy::default(),
         }
     }
