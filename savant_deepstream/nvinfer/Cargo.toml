@@ -24,11 +24,16 @@ log = { workspace = true }
 tempfile = "3"
 
 [dev-dependencies]
+candle-core = "0.9"
 cudarc = { version = "0.17", features = ["cuda-12020"] }
+half = "2.5"
 criterion = { workspace = true }
 env_logger = "0.11"
+image = "0.25"
 nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
 rand = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true }
 serial_test = { workspace = true }
 
 [[bench]]
