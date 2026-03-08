@@ -245,6 +245,7 @@ pub struct DstInset {
 ///     dest_height: 800,
 ///     letterbox: LetterBoxKind::Symmetric,
 ///     crop: None,
+///     dst_inset: None,
 /// };
 /// let chain = spec.to_transformations().unwrap();
 /// assert_eq!(chain.len(), 1);
@@ -258,6 +259,7 @@ pub struct DstInset {
 ///     dest_height: 600,
 ///     letterbox: LetterBoxKind::Stretch,
 ///     crop: Some(CropRect { left: 100, top: 50, width: 800, height: 600 }),
+///     dst_inset: None,
 /// };
 /// let chain = spec.to_transformations().unwrap();
 /// assert_eq!(chain.len(), 2);
@@ -372,7 +374,10 @@ fn compute_letterbox_padding(
     dst_inset: Option<DstInset>,
 ) -> (u64, u64, u64, u64) {
     if kind == LetterBoxKind::Stretch {
-        return (0, 0, 0, 0);
+        return match dst_inset {
+            Some(i) => (i.left, i.top, i.right, i.bottom),
+            None => (0, 0, 0, 0),
+        };
     }
 
     let (eff_w, eff_h, inset_l, inset_t, inset_r, inset_b) = match dst_inset {
@@ -390,10 +395,14 @@ fn compute_letterbox_padding(
     let src_aspect = src_w as f64 / src_h as f64;
     let dst_aspect = eff_w as f64 / eff_h as f64;
 
+    // Clamp after rounding to guard against floating-point overshoot that
+    // would cause u64 underflow in the subsequent subtraction.
     let (scaled_w, scaled_h) = if src_aspect > dst_aspect {
-        (eff_w, (eff_w as f64 / src_aspect).round() as u64)
+        let sh = (eff_w as f64 / src_aspect).round() as u64;
+        (eff_w, sh.min(eff_h))
     } else {
-        ((eff_h as f64 * src_aspect).round() as u64, eff_h)
+        let sw = (eff_h as f64 * src_aspect).round() as u64;
+        (sw.min(eff_w), eff_h)
     };
 
     let (pad_l, pad_t, pad_r, pad_b) = match kind {
@@ -781,8 +790,46 @@ mod tests {
                 right: 42,
                 bottom: 42,
             });
-            let r = s.to_transformations();
-            assert!(r.is_ok());
+            let r = s.to_transformations().unwrap();
+            // Effective area is 16×16.  1920:1080 fits by width → scaled 16×9.
+            // Symmetric vertical padding: top = (16-9)/2 = 3, bottom = 4.
+            match r.as_slice() {
+                [VideoFrameTransformation::LetterBox(100, 100, pad_l, pad_t, pad_r, pad_b)] => {
+                    assert_eq!(*pad_l, 42); // inset only, no horizontal padding
+                    assert_eq!(*pad_r, 42);
+                    assert_eq!(*pad_t, 42 + 3); // inset + symmetric top
+                    assert_eq!(*pad_b, 42 + 4); // inset + symmetric bottom
+                    let inner_w = 100 - pad_l - pad_r;
+                    let inner_h = 100 - pad_t - pad_b;
+                    assert!(inner_w > 0 && inner_h > 0, "inner dims must be positive");
+                }
+                other => panic!("unexpected transformations: {other:?}"),
+            }
+        }
+
+        #[test]
+        fn dst_inset_exactly_at_minimum_non_square_source() {
+            // Verify no underflow with various aspect ratios at minimum effective size.
+            for (sw, sh) in [(1920, 1080), (1080, 1920), (100, 100), (17, 16), (16, 17)] {
+                let mut s = spec(sw, sh, 100, 100, LetterBoxKind::Symmetric, None);
+                s.dst_inset = Some(DstInset {
+                    left: 42,
+                    top: 42,
+                    right: 42,
+                    bottom: 42,
+                });
+                let r = s.to_transformations().unwrap();
+                match r.as_slice() {
+                    [VideoFrameTransformation::LetterBox(100, 100, pl, pt, pr, pb)] => {
+                        assert!(
+                            pl + pr <= 100 && pt + pb <= 100,
+                            "padding exceeds destination for {sw}×{sh}: \
+                             l={pl} t={pt} r={pr} b={pb}"
+                        );
+                    }
+                    other => panic!("unexpected for {sw}×{sh}: {other:?}"),
+                }
+            }
         }
 
         #[test]
@@ -903,6 +950,23 @@ mod tests {
             assert_eq!(
                 chain[0],
                 VideoFrameTransformation::LetterBox(800, 600, 0, 0, 0, 0)
+            );
+        }
+
+        #[test]
+        fn no_crop_stretch_with_dst_inset() {
+            let mut s = spec(1920, 1080, 800, 600, LetterBoxKind::Stretch, None);
+            s.dst_inset = Some(DstInset {
+                left: 10,
+                top: 20,
+                right: 30,
+                bottom: 40,
+            });
+            let chain = s.to_transformations().unwrap();
+            assert_eq!(chain.len(), 1);
+            assert_eq!(
+                chain[0],
+                VideoFrameTransformation::LetterBox(800, 600, 10, 20, 30, 40)
             );
         }
 
