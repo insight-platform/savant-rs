@@ -22,7 +22,7 @@ RUSTFLAGS=" -C target-cpu=x86-64-v3 -C opt-level=3" maturin build --release -o d
 Install Wheel:
 
 ```bash
-pip3 install --force-reinstall dist/savant_primitives-0.1.2-cp38-cp38-manylinux2014_x86_64.whl
+pip3 install --force-reinstall dist/savant_primitives-0.1.2-cp310-cp310-manylinux2014_x86_64.whl
 ```
 
 ## License
