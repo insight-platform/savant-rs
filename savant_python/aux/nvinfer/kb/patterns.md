@@ -3,13 +3,14 @@
 ## Test file header
 
 ```python
+import ctypes
 import json
 import os
 import random
 import threading
 from typing import Dict, List, Tuple
 
-import cv2
+import cupy
 import numpy as np
 import pytest
 
@@ -26,6 +27,7 @@ try:
         Rect,
         TransformConfig,
         init_cuda,
+        nvbuf_as_gpu_mat,
     )
     HAS_DS = True
 except ImportError:
@@ -85,7 +87,9 @@ def test_e2e():
 
         for elem in output.elements:
             for tensor in elem.tensors:
-                arr = tensor.as_numpy()
+                arr = tensor_to_numpy(tensor)       # CPU, zero-copy
+                arr_gpu = tensor_to_cupy(tensor).get()  # GPU -> CPU
+                np.testing.assert_array_equal(arr, arr_gpu)
                 # ... decode + validate ...
     finally:
         engine.shutdown()
@@ -198,6 +202,36 @@ def place_non_overlapping(
                 raise RuntimeError(f"Failed to place face {len(placements)} without overlap")
     return placements
 ```
+
+## Zero-copy tensor access
+
+`TensorView` exposes `host_ptr` (CPU) and `device_ptr` (GPU) as plain
+integer addresses plus `numpy_dtype` and `byte_length`.  Use `ctypes` for
+NumPy (CPU, zero-copy) and `cupy.cuda.UnownedMemory` for CuPy (GPU,
+zero-copy).
+
+```python
+import ctypes
+import cupy
+
+def tensor_to_numpy(tv) -> np.ndarray:
+    """Zero-copy NumPy view of a TensorView's host memory."""
+    if tv.host_ptr == 0 or tv.byte_length == 0:
+        return np.empty(0, dtype=tv.numpy_dtype)
+    buf = (ctypes.c_char * tv.byte_length).from_address(tv.host_ptr)
+    return np.frombuffer(buf, dtype=tv.numpy_dtype)
+
+def tensor_to_cupy(tv) -> cupy.ndarray:
+    """Zero-copy CuPy view of a TensorView's device memory."""
+    if tv.device_ptr == 0 or tv.byte_length == 0:
+        return cupy.empty(0, dtype=tv.numpy_dtype)
+    mem = cupy.cuda.UnownedMemory(tv.device_ptr, tv.byte_length, owner=tv)
+    ptr = cupy.cuda.MemoryPointer(mem, 0)
+    return cupy.ndarray(tv.dims.num_elements, dtype=tv.numpy_dtype, memptr=ptr)
+```
+
+The caller must keep the `BatchInferenceOutput` (or child `TensorView`)
+alive while the array is in use — this is the standard zero-copy contract.
 
 ## Helper: decode_age / decode_gender
 

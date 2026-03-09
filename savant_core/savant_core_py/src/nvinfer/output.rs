@@ -5,10 +5,10 @@
 //! (`ElementOutput`, `TensorView`) can share the lifetime.
 
 use super::enums::PyDataType;
-use nvinfer::{BatchInferenceOutput, DataType};
+use nvinfer::BatchInferenceOutput;
 use parking_lot::Mutex;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyBytes, PyList};
+use pyo3::types::PyList;
 use std::sync::Arc;
 
 type SharedOutput = Arc<Mutex<Option<BatchInferenceOutput>>>;
@@ -45,17 +45,21 @@ impl PyInferDims {
 
 /// Zero-copy view into a single output tensor.
 ///
-/// Valid while the parent ``BatchInferenceOutput`` is alive.  Call
-/// ``as_bytes()`` or ``as_numpy()`` to copy data out.
+/// Exposes ``host_ptr`` and ``device_ptr`` as plain integer addresses so
+/// that Python callers can construct framework-native tensors (NumPy, CuPy,
+/// PyTorch) without any data copy on the Rust side.
+///
+/// Valid while the parent ``BatchInferenceOutput`` is alive.
 #[pyclass(name = "TensorView", module = "savant_rs.nvinfer")]
 pub struct PyTensorView {
+    #[allow(dead_code)]
     shared: SharedOutput,
-    element_idx: usize,
-    tensor_idx: usize,
-    cached_name: String,
-    cached_dims: PyInferDims,
-    cached_data_type: PyDataType,
-    cached_byte_length: usize,
+    name: String,
+    dims: PyInferDims,
+    data_type: PyDataType,
+    byte_length: usize,
+    host_ptr: usize,
+    device_ptr: usize,
 }
 
 #[pymethods]
@@ -63,106 +67,61 @@ impl PyTensorView {
     /// Output layer name.
     #[getter]
     fn name(&self) -> &str {
-        &self.cached_name
+        &self.name
     }
 
     /// Tensor dimensions.
     #[getter]
     fn dims(&self) -> PyInferDims {
-        self.cached_dims.clone()
+        self.dims.clone()
     }
 
     /// Data type of tensor elements.
     #[getter]
     fn data_type(&self) -> PyDataType {
-        self.cached_data_type
+        self.data_type
     }
 
     /// Byte length of the tensor.
     #[getter]
     fn byte_length(&self) -> usize {
-        self.cached_byte_length
+        self.byte_length
     }
 
-    /// Copy host-side tensor data as raw bytes.
-    ///
-    /// Returns:
-    ///     bytes: Raw tensor data copied from host memory.
-    ///
-    /// Raises:
-    ///     RuntimeError: If the parent ``BatchInferenceOutput`` has been
-    ///         dropped or the host pointer is null.
-    fn as_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
-        let guard = self.shared.lock();
-        let output = guard.as_ref().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err(
-                "BatchInferenceOutput has been released; tensor data is no longer valid",
-            )
-        })?;
-        let tensor = &output.elements()[self.element_idx].tensors[self.tensor_idx];
-        if tensor.host_ptr.is_null() || tensor.byte_length == 0 {
-            return Ok(PyBytes::new(py, &[]));
-        }
-        let data =
-            unsafe { std::slice::from_raw_parts(tensor.host_ptr as *const u8, tensor.byte_length) };
-        Ok(PyBytes::new(py, data))
+    /// Host (CPU) memory address of the tensor data, or 0 if unavailable.
+    #[getter]
+    fn host_ptr(&self) -> usize {
+        self.host_ptr
     }
 
-    /// Copy host-side tensor data as a numpy array.
-    ///
-    /// The dtype is inferred from ``data_type``: FLOAT -> float32,
-    /// HALF -> float16, INT8 -> int8, INT32 -> int32.
-    ///
-    /// Returns:
-    ///     numpy.ndarray: 1-D numpy array with the tensor data.
-    ///
-    /// Raises:
-    ///     RuntimeError: If the parent ``BatchInferenceOutput`` has been
-    ///         dropped, the host pointer is null, or numpy is not available.
-    fn as_numpy(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let guard = self.shared.lock();
-        let output = guard.as_ref().ok_or_else(|| {
-            pyo3::exceptions::PyRuntimeError::new_err(
-                "BatchInferenceOutput has been released; tensor data is no longer valid",
-            )
-        })?;
-        let tensor = &output.elements()[self.element_idx].tensors[self.tensor_idx];
-        if tensor.host_ptr.is_null() || tensor.byte_length == 0 {
-            let np = py.import("numpy")?;
-            let empty = np.call_method1("array", (Vec::<f32>::new(),))?;
-            return Ok(empty.unbind());
+    /// Device (GPU) memory address of the tensor data, or 0 if unavailable.
+    #[getter]
+    fn device_ptr(&self) -> usize {
+        self.device_ptr
+    }
+
+    /// NumPy-compatible dtype string (``"float32"``, ``"float16"``,
+    /// ``"int8"``, ``"int32"``).
+    #[getter]
+    fn numpy_dtype(&self) -> &'static str {
+        match self.data_type {
+            PyDataType::Float => "float32",
+            PyDataType::Half => "float16",
+            PyDataType::Int8 => "int8",
+            PyDataType::Int32 => "int32",
         }
-
-        let np = py.import("numpy")?;
-        let (dtype_str, elem_count) = match tensor.data_type {
-            DataType::Float => ("float32", tensor.byte_length / 4),
-            DataType::Half => ("float16", tensor.byte_length / 2),
-            DataType::Int8 => ("int8", tensor.byte_length),
-            DataType::Int32 => ("int32", tensor.byte_length / 4),
-        };
-
-        let raw =
-            unsafe { std::slice::from_raw_parts(tensor.host_ptr as *const u8, tensor.byte_length) };
-        let py_bytes = PyBytes::new(py, raw);
-
-        let frombuffer = np.getattr("frombuffer")?;
-        let dtype = np.getattr("dtype")?.call1((dtype_str,))?;
-        let arr = frombuffer.call(
-            (),
-            Some(&[("buffer", py_bytes.as_any()), ("dtype", &dtype)].into_py_dict(py)?),
-        )?;
-
-        let _ = elem_count;
-        Ok(arr.unbind())
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "TensorView(name={:?}, dims={:?}, data_type={}, byte_length={})",
-            self.cached_name,
-            self.cached_dims.dims,
-            self.cached_data_type.repr_str(),
-            self.cached_byte_length,
+            "TensorView(name={:?}, dims={:?}, data_type={}, byte_length={}, \
+             host_ptr=0x{:x}, device_ptr=0x{:x})",
+            self.name,
+            self.dims.dims,
+            self.data_type.repr_str(),
+            self.byte_length,
+            self.host_ptr,
+            self.device_ptr,
         )
     }
 }
@@ -172,9 +131,9 @@ impl PyTensorView {
 pub struct PyElementOutput {
     shared: SharedOutput,
     element_idx: usize,
-    cached_frame_id: Option<i64>,
-    cached_roi_id: Option<i64>,
-    cached_num_tensors: usize,
+    frame_id: Option<i64>,
+    roi_id: Option<i64>,
+    num_tensors: usize,
 }
 
 #[pymethods]
@@ -182,14 +141,14 @@ impl PyElementOutput {
     /// User-provided frame ID (if present).
     #[getter]
     fn frame_id(&self) -> Option<i64> {
-        self.cached_frame_id
+        self.frame_id
     }
 
     /// ROI identifier from ``Roi.id``.  ``None`` when no explicit ROIs were
     /// supplied and the full frame was used.
     #[getter]
     fn roi_id(&self) -> Option<i64> {
-        self.cached_roi_id
+        self.roi_id
     }
 
     /// Output tensors for this element.
@@ -201,18 +160,18 @@ impl PyElementOutput {
         })?;
         let elem = &output.elements()[self.element_idx];
         let list = PyList::empty(py);
-        for (tidx, tv) in elem.tensors.iter().enumerate() {
+        for tv in elem.tensors.iter() {
             let py_tv = PyTensorView {
                 shared: self.shared.clone(),
-                element_idx: self.element_idx,
-                tensor_idx: tidx,
-                cached_name: tv.name.clone(),
-                cached_dims: PyInferDims {
+                name: tv.name.clone(),
+                dims: PyInferDims {
                     dims: tv.dims.dimensions.clone(),
                     num_elements: tv.dims.num_elements,
                 },
-                cached_data_type: tv.data_type.into(),
-                cached_byte_length: tv.byte_length,
+                data_type: tv.data_type.into(),
+                byte_length: tv.byte_length,
+                host_ptr: tv.host_ptr as usize,
+                device_ptr: tv.device_ptr as usize,
             };
             let obj = Py::new(py, py_tv)?;
             list.append(obj)?;
@@ -223,7 +182,7 @@ impl PyElementOutput {
     fn __repr__(&self) -> String {
         format!(
             "ElementOutput(frame_id={:?}, roi_id={:?}, num_tensors={})",
-            self.cached_frame_id, self.cached_roi_id, self.cached_num_tensors,
+            self.frame_id, self.roi_id, self.num_tensors,
         )
     }
 }
@@ -235,8 +194,8 @@ impl PyElementOutput {
 #[pyclass(name = "BatchInferenceOutput", module = "savant_rs.nvinfer")]
 pub struct PyBatchInferenceOutput {
     shared: SharedOutput,
-    cached_batch_id: u64,
-    cached_num_elements: usize,
+    batch_id: u64,
+    num_elements: usize,
 }
 
 impl PyBatchInferenceOutput {
@@ -246,8 +205,8 @@ impl PyBatchInferenceOutput {
         let num_elements = output.num_elements();
         Self {
             shared: Arc::new(Mutex::new(Some(output))),
-            cached_batch_id: batch_id,
-            cached_num_elements: num_elements,
+            batch_id,
+            num_elements,
         }
     }
 }
@@ -257,13 +216,13 @@ impl PyBatchInferenceOutput {
     /// User-provided batch ID.
     #[getter]
     fn batch_id(&self) -> u64 {
-        self.cached_batch_id
+        self.batch_id
     }
 
     /// Number of elements in the batch.
     #[getter]
     fn num_elements(&self) -> usize {
-        self.cached_num_elements
+        self.num_elements
     }
 
     /// Per-element outputs (one per ROI per frame).
@@ -278,9 +237,9 @@ impl PyBatchInferenceOutput {
             let py_elem = PyElementOutput {
                 shared: self.shared.clone(),
                 element_idx: eidx,
-                cached_frame_id: elem.frame_id,
-                cached_roi_id: elem.roi_id,
-                cached_num_tensors: elem.tensors.len(),
+                frame_id: elem.frame_id,
+                roi_id: elem.roi_id,
+                num_tensors: elem.tensors.len(),
             };
             let obj = Py::new(py, py_elem)?;
             list.append(obj)?;
@@ -291,7 +250,7 @@ impl PyBatchInferenceOutput {
     fn __repr__(&self) -> String {
         format!(
             "BatchInferenceOutput(batch_id={}, num_elements={})",
-            self.cached_batch_id, self.cached_num_elements,
+            self.batch_id, self.num_elements,
         )
     }
 }

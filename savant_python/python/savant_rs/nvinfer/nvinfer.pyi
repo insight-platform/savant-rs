@@ -5,7 +5,7 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Union, final
+from typing import Callable, Dict, List, Optional, Union, final
 
 from savant_rs.deepstream import DsNvBufSurfaceGstBuffer, Rect
 
@@ -184,8 +184,11 @@ class InferDims:
 class TensorView:
     """Zero-copy view into a single output tensor.
 
-    Valid while the parent ``BatchInferenceOutput`` is alive.  Call
-    ``as_bytes()`` or ``as_numpy()`` to copy data out.
+    Exposes ``host_ptr`` and ``device_ptr`` as plain integer addresses so
+    that Python callers can construct framework-native tensors (NumPy via
+    ``ctypes``, CuPy, PyTorch) without any data copy on the Rust side.
+
+    Valid while the parent ``BatchInferenceOutput`` is alive.
     """
 
     @property
@@ -208,16 +211,20 @@ class TensorView:
         """Byte length of the tensor."""
         ...
 
-    def as_bytes(self) -> bytes:
-        """Copy host-side tensor data as raw bytes."""
+    @property
+    def host_ptr(self) -> int:
+        """Host (CPU) memory address of the tensor data, or 0 if unavailable."""
         ...
 
-    def as_numpy(self) -> Any:
-        """Copy host-side tensor data as a numpy array.
+    @property
+    def device_ptr(self) -> int:
+        """Device (GPU) memory address of the tensor data, or 0 if unavailable."""
+        ...
 
-        The dtype is inferred from ``data_type``: FLOAT -> float32,
-        HALF -> float16, INT8 -> int8, INT32 -> int32.
-        """
+    @property
+    def numpy_dtype(self) -> str:
+        """NumPy-compatible dtype string (``"float32"``, ``"float16"``,
+        ``"int8"``, ``"int32"``)."""
         ...
 
     def __repr__(self) -> str: ...

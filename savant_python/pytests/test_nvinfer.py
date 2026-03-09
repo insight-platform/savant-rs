@@ -1,11 +1,13 @@
 """E2E tests for savant_rs.nvinfer — uniform and nonuniform batching."""
 
+import ctypes
 import json
 import os
 import random
 import threading
 from typing import Dict, List, Tuple
 
+import cupy
 import numpy as np
 import pytest
 
@@ -143,6 +145,23 @@ def decode_gender(tensor_data: np.ndarray) -> str:
     return "male" if idx == 0 else "female"
 
 
+def tensor_to_numpy(tv) -> np.ndarray:
+    """Zero-copy NumPy view of a TensorView's host memory."""
+    if tv.host_ptr == 0 or tv.byte_length == 0:
+        return np.empty(0, dtype=tv.numpy_dtype)
+    buf = (ctypes.c_char * tv.byte_length).from_address(tv.host_ptr)
+    return np.frombuffer(buf, dtype=tv.numpy_dtype)
+
+
+def tensor_to_cupy(tv) -> cupy.ndarray:
+    """Zero-copy CuPy view of a TensorView's device memory."""
+    if tv.device_ptr == 0 or tv.byte_length == 0:
+        return cupy.empty(0, dtype=tv.numpy_dtype)
+    mem = cupy.cuda.UnownedMemory(tv.device_ptr, tv.byte_length, owner=tv)
+    ptr = cupy.cuda.MemoryPointer(mem, 0)
+    return cupy.ndarray(tv.dims.num_elements, dtype=tv.numpy_dtype, memptr=ptr)
+
+
 # ── Tests ─────────────────────────────────────────────────────────────────
 
 
@@ -244,8 +263,18 @@ def test_age_gender_e2e_real_images():
             assert age_tensor is not None, f"{fname}: missing 'age' tensor"
             assert gender_tensor is not None, f"{fname}: missing 'gender' tensor"
 
-            trt_age = decode_age(age_tensor.as_numpy())
-            trt_gender = decode_gender(gender_tensor.as_numpy())
+            age_np = tensor_to_numpy(age_tensor)
+            gender_np = tensor_to_numpy(gender_tensor)
+
+            age_cp = tensor_to_cupy(age_tensor).get()
+            gender_cp = tensor_to_cupy(gender_tensor).get()
+            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
+            )
+
+            trt_age = decode_age(age_np)
+            trt_gender = decode_gender(gender_np)
 
             age_diff = abs(trt_age - expected["age"])
             print(
@@ -369,8 +398,18 @@ def test_age_gender_e2e_nonuniform_callback():
             assert age_tensor is not None, f"{fname}: missing 'age' tensor"
             assert gender_tensor is not None, f"{fname}: missing 'gender' tensor"
 
-            trt_age = decode_age(age_tensor.as_numpy())
-            trt_gender = decode_gender(gender_tensor.as_numpy())
+            age_np = tensor_to_numpy(age_tensor)
+            gender_np = tensor_to_numpy(gender_tensor)
+
+            age_cp = tensor_to_cupy(age_tensor).get()
+            gender_cp = tensor_to_cupy(gender_tensor).get()
+            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
+            )
+
+            trt_age = decode_age(age_np)
+            trt_gender = decode_gender(gender_np)
 
             age_diff = abs(trt_age - expected["age"])
             print(
