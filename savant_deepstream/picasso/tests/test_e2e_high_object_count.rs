@@ -50,6 +50,7 @@ fn e2e_high_object_count() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -64,7 +65,7 @@ fn e2e_high_object_count() {
     };
     engine.set_source_spec("many", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -105,7 +106,7 @@ fn e2e_high_object_count() {
     );
 
     let start = Instant::now();
-    let buf = make_gpu_buffer(&gen, 0, DUR);
+    let buf = make_gpu_surface_view(&gen, 0, DUR);
     engine.send_frame("many", frame, buf, None).unwrap();
     engine.send_eos("many").unwrap();
 

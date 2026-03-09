@@ -11,6 +11,8 @@ pub mod logging;
 pub mod match_query;
 pub mod metrics;
 #[cfg(feature = "deepstream")]
+pub mod nvinfer;
+#[cfg(feature = "deepstream")]
 pub mod picasso;
 pub mod pipeline;
 /// # Basic objects

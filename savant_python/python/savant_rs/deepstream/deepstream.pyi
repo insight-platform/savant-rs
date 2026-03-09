@@ -6,28 +6,39 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Generator, List, Optional, Tuple, Union, final
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union, final
 
 import cv2
 import skia
 
 __all__ = [
     "Padding",
+    "DstPadding",
     "Interpolation",
     "ComputeMode",
     "VideoFormat",
     "MemType",
     "Rect",
+    "DsNvBufSurfaceGstBuffer",
+    "SurfaceView",
     "TransformConfig",
-    "NvBufSurfaceGenerator",
+    "DsNvSurfaceBufferGenerator",
+    "DsNvUniformSurfaceBufferGenerator",
+    "DsNvUniformSurfaceBuffer",
+    "DsNvNonUniformSurfaceBuffer",
+    "set_num_filled",
     "SkiaContext",
     "SkiaCanvas",
     "init_cuda",
+    "gpu_mem_used_mib",
     "bridge_savant_id_meta",
     "get_savant_id_meta",
     "get_nvbufsurface_info",
     "set_buffer_pts",
     "set_buffer_duration",
+    "release_buffer",
+    "GpuMatCudaArray",
+    "make_gpu_mat",
     "nvgstbuf_as_gpu_mat",
     "nvbuf_as_gpu_mat",
     "from_gpumat",
@@ -78,6 +89,30 @@ class Interpolation:
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+
+
+@final
+class DstPadding:
+    """Optional per-side destination padding for letterboxing.
+
+    When set in ``TransformConfig.dst_padding``, reduces the effective
+    destination area before the letterbox rect is computed.
+    """
+
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    def __init__(
+        self,
+        left: int = 0,
+        top: int = 0,
+        right: int = 0,
+        bottom: int = 0,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
 
 @final
 class ComputeMode:
@@ -190,6 +225,169 @@ class Rect:
     def __init__(self, top: int, left: int, width: int, height: int) -> None: ...
     def __repr__(self) -> str: ...
 
+# ── DsNvBufSurfaceGstBuffer ───────────────────────────────────────────────
+
+@final
+class DsNvBufSurfaceGstBuffer:
+    """RAII guard owning a ``GstBuffer*`` reference.
+
+    Prevents leaking GStreamer buffers by ensuring ``gst_buffer_unref``
+    is called when the guard is garbage-collected or explicitly consumed
+    via :meth:`take`.
+
+    Obtain instances from :meth:`DsNvSurfaceBufferGenerator.acquire_surface`,
+    :meth:`DsNvUniformSurfaceBuffer.finalize`, :meth:`DsNvNonUniformSurfaceBuffer.finalize`,
+    etc.  Pass them directly to any API that accepts
+    ``Union[DsNvBufSurfaceGstBuffer, int]``.
+    """
+
+    @staticmethod
+    def from_ptr(ptr: int, add_ref: bool = True) -> DsNvBufSurfaceGstBuffer:
+        """Wrap a raw ``GstBuffer*`` pointer into a guard.
+
+        Args:
+            ptr: Raw ``GstBuffer*`` pointer address (must be non-zero).
+            add_ref: If ``True`` (default), ``gst_mini_object_ref`` is
+                called so the guard owns an additional reference.  Set to
+                ``False`` when the caller is transferring ownership.
+
+        Returns:
+            A new guard owning the buffer reference.
+
+        Raises:
+            ValueError: If *ptr* is 0 (null).
+        """
+        ...
+
+    @property
+    def ptr(self) -> int:
+        """Raw ``GstBuffer*`` pointer address.
+
+        Raises:
+            RuntimeError: If the guard has been consumed via :meth:`take`.
+        """
+        ...
+
+    def take(self) -> int:
+        """Transfer ownership out of the guard and return the raw pointer.
+
+        After this call the guard is empty (``bool(guard)`` is ``False``)
+        and will **not** unref the buffer on destruction.
+
+        Returns:
+            Raw ``GstBuffer*`` pointer address.
+
+        Raises:
+            RuntimeError: If already consumed.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+    def __bool__(self) -> bool:
+        """``True`` if the guard still owns a buffer, ``False`` if consumed."""
+        ...
+
+# ── SurfaceView ─────────────────────────────────────────────────────────
+
+@final
+class SurfaceView:
+    """Zero-copy view of a single GPU surface.
+
+    Wraps an NvBufSurface-backed buffer or arbitrary CUDA memory with
+    cached surface parameters.  Implements ``__cuda_array_interface__``
+    for single-plane formats (RGBA, BGRx, GRAY8).
+
+    Construction:
+
+    - ``SurfaceView.from_buffer(buf, slot_index)`` — from a ``GstBuffer``.
+    - ``SurfaceView.from_cuda_array(obj)`` — from any object with
+      ``__cuda_array_interface__`` (CuPy array, PyTorch CUDA tensor, etc.).
+    """
+
+    @staticmethod
+    def from_buffer(buf: Union[DsNvBufSurfaceGstBuffer, int], slot_index: int = 0) -> SurfaceView:
+        """Create a view from an NvBufSurface-backed buffer.
+
+        Args:
+            buf: Source buffer (``DsNvBufSurfaceGstBuffer`` guard or raw pointer ``int``).
+            slot_index: Zero-based slot index (default 0).
+
+        Raises:
+            ValueError: If *buf* is null or *slot_index* is out of bounds.
+            RuntimeError: If the buffer is not a valid NvBufSurface or uses
+                a multi-plane format (NV12, I420, etc.).
+        """
+        ...
+
+    @staticmethod
+    def from_cuda_array(obj: Any, gpu_id: int = 0) -> SurfaceView:
+        """Create a view from any ``__cuda_array_interface__`` object.
+
+        Supported shapes: ``(H, W, C)`` or ``(H, W)`` (grayscale).
+        C must be 1 (GRAY8) or 4 (RGBA). dtype must be ``uint8``.
+
+        The source object is kept alive for the lifetime of this view.
+
+        Args:
+            obj: CuPy array, PyTorch CUDA tensor, or any object with
+                ``__cuda_array_interface__``.
+            gpu_id: CUDA device ID (default 0).
+
+        Raises:
+            TypeError: If *obj* has no ``__cuda_array_interface__``.
+            ValueError: If shape, dtype, or strides are unsupported.
+        """
+        ...
+
+    @property
+    def data_ptr(self) -> int:
+        """CUDA data pointer to the first pixel."""
+        ...
+
+    @property
+    def pitch(self) -> int:
+        """Row stride in bytes."""
+        ...
+
+    @property
+    def width(self) -> int:
+        """Surface width in pixels."""
+        ...
+
+    @property
+    def height(self) -> int:
+        """Surface height in pixels."""
+        ...
+
+    @property
+    def gpu_id(self) -> int:
+        """GPU device ID."""
+        ...
+
+    @property
+    def channels(self) -> int:
+        """Number of interleaved channels per pixel."""
+        ...
+
+    @property
+    def color_format(self) -> int:
+        """Raw ``NvBufSurfaceColorFormat`` value."""
+        ...
+
+    @property
+    def __cuda_array_interface__(self) -> Dict[str, Any]:
+        """CUDA array interface descriptor (v3).
+
+        Allows CuPy, PyTorch, and other CUDA-aware libraries to access
+        the surface data without copies.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+    def __bool__(self) -> bool:
+        """``True`` if the view has not been consumed."""
+        ...
+
 # ── TransformConfig ─────────────────────────────────────────────────────
 
 class TransformConfig:
@@ -200,20 +398,22 @@ class TransformConfig:
     """
 
     padding: Padding
+    dst_padding: Optional[DstPadding]
     interpolation: Interpolation
     compute_mode: ComputeMode
 
     def __init__(
         self,
         padding: Padding = ...,
+        dst_padding: Optional[DstPadding] = None,
         interpolation: Interpolation = ...,
         compute_mode: ComputeMode = ...,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
-# ── NvBufSurfaceGenerator ───────────────────────────────────────────────
+# ── DsNvSurfaceBufferGenerator ───────────────────────────────────────────
 
-class NvBufSurfaceGenerator:
+class DsNvSurfaceBufferGenerator:
     """GPU buffer pool for allocating NVMM surfaces.
 
     Args:
@@ -248,11 +448,11 @@ class NvBufSurfaceGenerator:
     def height(self) -> int: ...
     @property
     def format(self) -> VideoFormat: ...
-    def acquire_surface(self, id: Optional[int] = None) -> int:
+    def acquire_surface(self, id: Optional[int] = None) -> DsNvBufSurfaceGstBuffer:
         """Acquire a new NvBufSurface buffer from the pool.
 
         Returns:
-            Raw pointer address of the GstBuffer.
+            Guard owning the newly acquired ``GstBuffer``.
         """
         ...
 
@@ -261,7 +461,7 @@ class NvBufSurfaceGenerator:
         pts_ns: int,
         duration_ns: int,
         id: Optional[int] = None,
-    ) -> int:
+    ) -> DsNvBufSurfaceGstBuffer:
         """Acquire a buffer and stamp PTS and duration on it.
 
         Args:
@@ -270,39 +470,39 @@ class NvBufSurfaceGenerator:
             id: Optional buffer ID / frame index.
 
         Returns:
-            Raw pointer address of the GstBuffer.
+            Guard owning the newly acquired ``GstBuffer``.
         """
         ...
 
     def acquire_surface_with_ptr(
         self,
         id: Optional[int] = None,
-    ) -> Tuple[int, int, int]:
-        """Acquire a buffer and return ``(gst_buffer_ptr, data_ptr, pitch)``."""
+    ) -> Tuple[DsNvBufSurfaceGstBuffer, int, int]:
+        """Acquire a buffer and return ``(guard, data_ptr, pitch)``."""
         ...
 
     def transform(
         self,
-        src_buf_ptr: int,
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: TransformConfig,
         id: Optional[int] = None,
         src_rect: Optional[Rect] = None,
-    ) -> int:
+    ) -> DsNvBufSurfaceGstBuffer:
         """Transform (scale + letterbox) a source buffer into a new destination.
 
         Returns:
-            Raw pointer address of the destination GstBuffer.
+            Guard owning the destination ``GstBuffer``.
         """
         ...
 
     def transform_with_ptr(
         self,
-        src_buf_ptr: int,
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: TransformConfig,
         id: Optional[int] = None,
         src_rect: Optional[Rect] = None,
-    ) -> Tuple[int, int, int]:
-        """Like :meth:`transform` but also returns ``(buf_ptr, data_ptr, pitch)``."""
+    ) -> Tuple[DsNvBufSurfaceGstBuffer, int, int]:
+        """Like :meth:`transform` but also returns ``(guard, data_ptr, pitch)``."""
         ...
 
     def push_to_appsrc(
@@ -322,10 +522,284 @@ class NvBufSurfaceGenerator:
 
     def create_surface(
         self,
-        gst_buffer_dest: int,
+        gst_buffer_dest: Union[DsNvBufSurfaceGstBuffer, int],
         id: Optional[int] = None,
     ) -> None:
         """Create a new NvBufSurface and attach it to the given buffer."""
+        ...
+
+# ── DsNvUniformSurfaceBufferGenerator ────────────────────────────────────
+
+class DsNvUniformSurfaceBufferGenerator:
+    """Homogeneous batched NvBufSurface buffer generator.
+
+    Produces buffers whose ``surfaceList`` is an array of independently
+    fillable GPU surfaces, all sharing the same pixel format and
+    dimensions.
+
+    Args:
+        format: Pixel format (``VideoFormat`` enum or string name,
+            e.g. ``"RGBA"``).
+        width: Slot width in pixels.
+        height: Slot height in pixels.
+        max_batch_size: Maximum number of slots per batch.
+        pool_size: Number of pre-allocated batched buffers (default 2).
+        fps_num: Framerate numerator (default 30).
+        fps_den: Framerate denominator (default 1).
+        gpu_id: GPU device ID (default 0).
+        mem_type: Memory type (default ``MemType.DEFAULT``).
+
+    Raises:
+        RuntimeError: If pool creation fails.
+    """
+
+    def __init__(
+        self,
+        format: Union[VideoFormat, str],
+        width: int,
+        height: int,
+        max_batch_size: int,
+        pool_size: int = 2,
+        fps_num: int = 30,
+        fps_den: int = 1,
+        gpu_id: int = 0,
+        mem_type: Union[MemType, int, None] = None,
+    ) -> None: ...
+    @property
+    def width(self) -> int: ...
+    @property
+    def height(self) -> int: ...
+    @property
+    def format(self) -> VideoFormat: ...
+    @property
+    def gpu_id(self) -> int: ...
+    @property
+    def max_batch_size(self) -> int: ...
+    def acquire_batched_surface(self, config: TransformConfig) -> DsNvUniformSurfaceBuffer:
+        """Acquire a ``DsNvUniformSurfaceBuffer`` from the pool, ready for slot filling.
+
+        Args:
+            config: Scaling / letterboxing configuration applied to every
+                :meth:`~DsNvUniformSurfaceBuffer.fill_slot` call on the returned
+                surface.
+
+        Returns:
+            A fresh batched surface with ``num_filled == 0``.
+
+        Raises:
+            RuntimeError: If the pool is exhausted.
+        """
+        ...
+
+# ── DsNvUniformSurfaceBuffer ──────────────────────────────────────────────
+
+class DsNvUniformSurfaceBuffer:
+    """Pool-allocated batched NvBufSurface with per-slot fill tracking.
+
+    Obtained from
+    :meth:`DsNvUniformSurfaceBufferGenerator.acquire_batched_surface`.
+    Fill individual slots with :meth:`fill_slot`, then call
+    :meth:`finalize`, then :meth:`as_gst_buffer` to access the buffer.
+    """
+
+    @property
+    def num_filled(self) -> int:
+        """Number of slots filled so far."""
+        ...
+
+    @property
+    def max_batch_size(self) -> int:
+        """Maximum number of slots in this batch."""
+        ...
+
+    @property
+    def is_finalized(self) -> bool:
+        """Whether the batch has been finalized."""
+        ...
+
+    def slot_ptr(self, index: int) -> Tuple[int, int]:
+        """Return ``(data_ptr, pitch)`` for a slot by index.
+
+        Args:
+            index: Zero-based slot index (``0 .. max_batch_size - 1``).
+
+        Returns:
+            ``(data_ptr, pitch)`` — CUDA device pointer and row stride
+            in bytes.
+
+        Raises:
+            RuntimeError: If the surface is finalized or *index* is out
+                of bounds.
+        """
+        ...
+
+    def fill_slot(
+        self,
+        src_buf: Union[DsNvBufSurfaceGstBuffer, int],
+        src_rect: Optional[Rect] = None,
+        id: Optional[int] = None,
+    ) -> None:
+        """Transform a source buffer into the next available batch slot.
+
+        The source surface is scaled (with optional letterboxing) into the
+        destination slot according to the ``TransformConfig`` that was passed
+        to ``acquire_batched_surface``.  The same source buffer may be used
+        for several slots with different *src_rect* regions.
+
+        Args:
+            src_buf: ``GstBuffer`` guard or raw ``GstBuffer*`` pointer of the
+                source NVMM surface (as returned by
+                :meth:`DsNvSurfaceBufferGenerator.acquire_surface`).
+            src_rect: Optional crop rectangle applied to the source before
+                scaling.  When ``None`` the full source frame is used.
+                Coordinates are ``(top, left, width, height)`` in pixels.
+            id: Optional frame identifier stored in ``SavantIdMeta``.
+                When ``None``, the id is inherited from the source
+                buffer's existing ``SavantIdMeta`` (if any).
+
+        Raises:
+            ValueError: If the buffer pointer is 0 (null).
+            RuntimeError: If the batch is already finalized, the batch
+                is full, or the GPU transform fails.
+        """
+        ...
+
+    def finalize(self) -> None:
+        """Finalize the batch (non-consuming).
+
+        Writes ``SavantIdMeta`` with the collected frame IDs and sets
+        ``numFilled`` on the underlying ``NvBufSurface``.  Call
+        :meth:`as_gst_buffer` afterward to access the buffer.
+
+        Raises:
+            RuntimeError: If already finalized.
+        """
+        ...
+
+    def as_gst_buffer(self) -> DsNvBufSurfaceGstBuffer:
+        """Return the underlying GstBuffer guard. Available only after finalize.
+
+        Returns:
+            Guard for the finalized batched buffer.
+
+        Raises:
+            RuntimeError: If not yet finalized.
+        """
+        ...
+
+    def extract_slot_view(self, slot_index: int) -> DsNvBufSurfaceGstBuffer:
+        """Create a zero-copy single-frame view of one filled slot.
+
+        Available only after finalize.
+
+        Raises:
+            RuntimeError: If not yet finalized or slot index out of bounds.
+        """
+        ...
+
+# ── DsNvNonUniformSurfaceBuffer ───────────────────────────────────────────
+
+class DsNvNonUniformSurfaceBuffer:
+    """Zero-copy heterogeneous batch (nvstreammux2-style).
+
+    Assembles individual NvBufSurface buffers of arbitrary dimensions
+    and pixel formats into a single batched ``GstBuffer``.
+
+    Args:
+        max_batch_size: Maximum number of surfaces in the batch.
+        gpu_id: GPU device ID (default 0).
+
+    Raises:
+        RuntimeError: If batch creation fails.
+    """
+
+    def __init__(self, max_batch_size: int, gpu_id: int = 0) -> None: ...
+    @property
+    def num_filled(self) -> int:
+        """Number of surfaces added so far."""
+        ...
+
+    @property
+    def max_batch_size(self) -> int:
+        """Maximum number of surfaces in this batch."""
+        ...
+
+    @property
+    def gpu_id(self) -> int:
+        """GPU device ID this batch is bound to."""
+        ...
+
+    @property
+    def is_finalized(self) -> bool:
+        """Whether the batch has been finalized."""
+        ...
+
+    def add(self, src_buf: Union[DsNvBufSurfaceGstBuffer, int], id: Optional[int] = None) -> None:
+        """Add a source buffer to the batch (zero-copy).
+
+        The source buffer's ``NvBufSurface`` is appended to the batch
+        without copying pixel data.
+
+        Args:
+            src_buf: ``GstBuffer`` guard or raw ``GstBuffer*`` pointer
+                of the source NVMM surface.
+            id: Optional frame identifier stored in ``SavantIdMeta``.
+                When ``None``, the id is inherited from the source
+                buffer's existing ``SavantIdMeta`` (if any).
+
+        Raises:
+            ValueError: If the buffer pointer is 0 (null).
+            RuntimeError: If the batch is already finalized or full.
+        """
+        ...
+
+    def slot_ptr(self, index: int) -> Tuple[int, int, int, int]:
+        """Return ``(data_ptr, pitch, width, height)`` for a slot by index.
+
+        Args:
+            index: Zero-based slot index (``0 .. num_filled - 1``).
+
+        Returns:
+            ``(data_ptr, pitch, width, height)`` — CUDA device pointer,
+            row stride, and the slot's native dimensions in pixels.
+
+        Raises:
+            RuntimeError: If the batch is finalized or *index* is out
+                of bounds.
+        """
+        ...
+
+    def finalize(self) -> None:
+        """Finalize the batch (non-consuming).
+
+        Writes ``SavantIdMeta`` with the collected frame IDs and
+        assembles the heterogeneous ``NvBufSurface``.  Call
+        :meth:`as_gst_buffer` afterward to access the buffer.
+
+        Raises:
+            RuntimeError: If already finalized.
+        """
+        ...
+
+    def as_gst_buffer(self) -> DsNvBufSurfaceGstBuffer:
+        """Return the underlying GstBuffer guard. Available only after finalize.
+
+        Returns:
+            Guard for the finalized batch buffer.
+
+        Raises:
+            RuntimeError: If not yet finalized.
+        """
+        ...
+
+    def extract_slot_view(self, slot_index: int) -> DsNvBufSurfaceGstBuffer:
+        """Create a zero-copy single-frame view of one filled slot.
+
+        Available only after finalize.
+
+        Raises:
+            RuntimeError: If not yet finalized or slot index out of bounds.
+        """
         ...
 
 # ── SkiaContext ──────────────────────────────────────────────────────────
@@ -335,7 +809,7 @@ class SkiaContext:
 
     def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
     @staticmethod
-    def from_nvbuf(buf_ptr: int, gpu_id: int = 0) -> SkiaContext:
+    def from_nvbuf(buf: Union[DsNvBufSurfaceGstBuffer, int], gpu_id: int = 0) -> SkiaContext:
         """Create a SkiaContext from an existing NvBufSurface buffer."""
         ...
 
@@ -347,7 +821,7 @@ class SkiaContext:
     def height(self) -> int: ...
     def render_to_nvbuf(
         self,
-        buf_ptr: int,
+        buf: Union[DsNvBufSurfaceGstBuffer, int],
         config: Optional[TransformConfig] = None,
     ) -> None:
         """Render Skia content onto an NvBufSurface buffer."""
@@ -363,11 +837,25 @@ def init_cuda(gpu_id: int = 0) -> None:
     """
     ...
 
+def gpu_mem_used_mib(gpu_id: int = 0) -> int:
+    """Return GPU memory currently used, in MiB.
+
+    - dGPU (x86_64): Uses NVML to query device gpu_id.
+    - Jetson (aarch64): Reads /proc/meminfo (unified memory).
+
+    Args:
+        gpu_id: GPU device ID (default 0).
+
+    Returns:
+        GPU memory used in MiB.
+    """
+    ...
+
 def bridge_savant_id_meta(element_ptr: int) -> None:
     """Bridge Savant ID metadata across a GStreamer element."""
     ...
 
-def get_savant_id_meta(buffer_ptr: int) -> List[Tuple[str, int]]:
+def get_savant_id_meta(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> List[Tuple[str, int]]:
     """Read Savant ID metadata from a GstBuffer.
 
     Returns:
@@ -375,29 +863,55 @@ def get_savant_id_meta(buffer_ptr: int) -> List[Tuple[str, int]]:
     """
     ...
 
-def get_nvbufsurface_info(buffer_ptr: int) -> Tuple[int, int, int, int]:
+def get_nvbufsurface_info(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> Tuple[int, int, int, int]:
     """Get NvBufSurface info from a GstBuffer.
 
     Returns:
-        ``(data_ptr, width, height, pitch)``.
+        ``(data_ptr, pitch, width, height)``.
     """
     ...
 
-def set_buffer_pts(buf_ptr: int, pts_ns: int) -> None:
-    """Set the presentation timestamp on a raw GstBuffer pointer.
+def set_buffer_pts(buf: Union[DsNvBufSurfaceGstBuffer, int], pts_ns: int) -> None:
+    """Set the presentation timestamp on a GstBuffer.
 
     Args:
-        buf_ptr: Raw GstBuffer pointer address.
+        buf: ``GstBuffer`` guard or raw pointer address.
         pts_ns: Presentation timestamp in nanoseconds.
     """
     ...
 
-def set_buffer_duration(buf_ptr: int, duration_ns: int) -> None:
-    """Set the duration on a raw GstBuffer pointer.
+def set_num_filled(buf: Union[DsNvBufSurfaceGstBuffer, int], count: int) -> None:
+    """Set numFilled on a batched NvBufSurface GstBuffer.
 
     Args:
-        buf_ptr: Raw GstBuffer pointer address.
+        buf: ``GstBuffer`` guard or raw pointer to a batched NvBufSurface.
+        count: Number of filled slots.
+    """
+    ...
+
+def set_buffer_duration(buf: Union[DsNvBufSurfaceGstBuffer, int], duration_ns: int) -> None:
+    """Set the duration on a GstBuffer.
+
+    Args:
+        buf: ``GstBuffer`` guard or raw pointer address.
         duration_ns: Duration in nanoseconds.
+    """
+    ...
+
+def release_buffer(buf_ptr: int) -> None:
+    """Release (unref) a raw ``GstBuffer*`` pointer.
+
+    Call this to free a buffer obtained from ``acquire_surface``,
+    ``acquire_surface_with_params``, ``acquire_surface_with_ptr``,
+    ``transform``, ``transform_with_ptr``, or ``finalize`` when the
+    buffer is no longer needed and is not being passed into a GStreamer
+    pipeline.
+
+    Args:
+        buf_ptr: Raw ``GstBuffer*`` pointer to release.
+
+    Raises:
+        ValueError: If *buf_ptr* is 0 (null).
     """
     ...
 
@@ -477,9 +991,29 @@ class SkiaCanvas:
 
 # ── GpuMat helpers ──────────────────────────────────────────────────────
 
+
+class GpuMatCudaArray:
+    """Exposes ``__cuda_array_interface__`` (v3) for a ``cv2.cuda.GpuMat``.
+
+    OpenCV's ``GpuMat`` does not implement the protocol natively; this
+    wrapper bridges it to consumers like Picasso ``send_frame``.
+
+    Only ``CV_8UC1`` (GRAY8) and ``CV_8UC4`` (RGBA) mats are supported.
+    """
+
+    __slots__ = ("_mat", "__cuda_array_interface__")
+
+    def __init__(self, mat: cv2.cuda.GpuMat) -> None: ...
+
+
+def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
+    """Allocate a zero-initialised ``cv2.cuda.GpuMat`` of the given size."""
+    ...
+
+
 @contextmanager
 def nvgstbuf_as_gpu_mat(
-    buf_ptr: int,
+    buf: Union[DsNvBufSurfaceGstBuffer, int],
 ) -> Generator[tuple[cv2.cuda.GpuMat, cv2.cuda.Stream], None, None]:
     """Expose an NvBufSurface ``GstBuffer`` as an OpenCV CUDA ``GpuMat``.
 
@@ -489,7 +1023,7 @@ def nvgstbuf_as_gpu_mat(
     stream is synchronised (``waitForCompletion``).
 
     Args:
-        buf_ptr: Raw ``GstBuffer*`` pointer address.
+        buf: ``GstBuffer`` guard or raw ``GstBuffer*`` pointer address.
 
     Yields:
         ``(gpumat, stream)`` -- the ``GpuMat`` is ``CV_8UC4`` with the
@@ -522,12 +1056,12 @@ def nvbuf_as_gpu_mat(
     ...
 
 def from_gpumat(
-    gen: NvBufSurfaceGenerator,
+    gen: DsNvSurfaceBufferGenerator,
     gpumat: cv2.cuda.GpuMat,
     *,
     interpolation: int = ...,
     id: Optional[int] = None,
-) -> int:
+) -> DsNvBufSurfaceGstBuffer:
     """Acquire a buffer from the pool and fill it from a ``GpuMat``.
 
     If the source ``GpuMat`` dimensions differ from the generator's
@@ -544,6 +1078,6 @@ def from_gpumat(
         id: Optional frame identifier for ``SavantIdMeta``.
 
     Returns:
-        Raw ``GstBuffer*`` pointer address of the newly acquired buffer.
+        Guard owning the newly acquired ``GstBuffer``.
     """
     ...

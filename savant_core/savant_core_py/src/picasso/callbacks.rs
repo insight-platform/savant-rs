@@ -108,13 +108,22 @@ impl OnGpuMat for PyOnGpuMat {
         pitch: u32,
         width: u32,
         height: u32,
+        cuda_stream: usize,
     ) {
         Python::attach(|py| {
             let py_frame = crate::primitives::frame::VideoFrame(frame.clone());
-            if let Err(e) = self
-                .0
-                .call1(py, (source_id, py_frame, data_ptr, pitch, width, height))
-            {
+            if let Err(e) = self.0.call1(
+                py,
+                (
+                    source_id,
+                    py_frame,
+                    data_ptr,
+                    pitch,
+                    width,
+                    height,
+                    cuda_stream,
+                ),
+            ) {
                 log::error!("on_gpumat callback error: {e}");
             }
         });

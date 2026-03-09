@@ -1,9 +1,80 @@
-use picasso::prelude::SourceSpec;
+use picasso::prelude::{CallbackInvocationOrder, SourceSpec};
 use pyo3::prelude::*;
 
 use super::codec::PyCodecSpec;
 use super::conditional::PyConditionalSpec;
 use super::draw::PyObjectDrawSpec;
+
+/// Controls when the `on_gpumat` callback fires relative to Skia rendering.
+#[pyclass(
+    from_py_object,
+    name = "CallbackInvocationOrder",
+    module = "savant_rs.picasso",
+    eq,
+    hash,
+    frozen
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum PyCallbackInvocationOrder {
+    /// Skia render → `on_gpumat` (default).
+    #[pyo3(name = "SkiaGpuMat")]
+    #[default]
+    SkiaGpuMat,
+    /// `on_gpumat` → Skia render.
+    #[pyo3(name = "GpuMatSkia")]
+    GpuMatSkia,
+    /// `on_gpumat` → Skia render → `on_gpumat`.
+    #[pyo3(name = "GpuMatSkiaGpuMat")]
+    GpuMatSkiaGpuMat,
+}
+
+#[pymethods]
+impl PyCallbackInvocationOrder {
+    /// Create from string name.
+    #[staticmethod]
+    fn from_name(name: &str) -> PyResult<Self> {
+        match name {
+            "SkiaGpuMat" => Ok(Self::SkiaGpuMat),
+            "GpuMatSkia" => Ok(Self::GpuMatSkia),
+            "GpuMatSkiaGpuMat" => Ok(Self::GpuMatSkiaGpuMat),
+            _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Unknown CallbackInvocationOrder: {name}"
+            ))),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match self {
+            Self::SkiaGpuMat => "CallbackInvocationOrder.SkiaGpuMat".to_string(),
+            Self::GpuMatSkia => "CallbackInvocationOrder.GpuMatSkia".to_string(),
+            Self::GpuMatSkiaGpuMat => "CallbackInvocationOrder.GpuMatSkiaGpuMat".to_string(),
+        }
+    }
+}
+
+impl From<PyCallbackInvocationOrder> for CallbackInvocationOrder {
+    fn from(val: PyCallbackInvocationOrder) -> Self {
+        match val {
+            PyCallbackInvocationOrder::SkiaGpuMat => CallbackInvocationOrder::SkiaGpuMat,
+            PyCallbackInvocationOrder::GpuMatSkia => CallbackInvocationOrder::GpuMatSkia,
+            PyCallbackInvocationOrder::GpuMatSkiaGpuMat => {
+                CallbackInvocationOrder::GpuMatSkiaGpuMat
+            }
+        }
+    }
+}
+
+impl From<CallbackInvocationOrder> for PyCallbackInvocationOrder {
+    fn from(val: CallbackInvocationOrder) -> Self {
+        match val {
+            CallbackInvocationOrder::SkiaGpuMat => PyCallbackInvocationOrder::SkiaGpuMat,
+            CallbackInvocationOrder::GpuMatSkia => PyCallbackInvocationOrder::GpuMatSkia,
+            CallbackInvocationOrder::GpuMatSkiaGpuMat => {
+                PyCallbackInvocationOrder::GpuMatSkiaGpuMat
+            }
+        }
+    }
+}
 
 /// Complete per-source configuration combining all spec facets.
 #[pyclass(from_py_object, name = "SourceSpec", module = "savant_rs.picasso")]
@@ -20,6 +91,8 @@ pub struct PySourceSpec {
     pub use_on_render: bool,
     #[pyo3(get, set)]
     pub use_on_gpumat: bool,
+    #[pyo3(get, set)]
+    pub callback_order: PyCallbackInvocationOrder,
 }
 
 #[pymethods]
@@ -33,6 +106,7 @@ impl PySourceSpec {
         idle_timeout_secs = None,
         use_on_render = false,
         use_on_gpumat = false,
+        callback_order = PyCallbackInvocationOrder::SkiaGpuMat,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -43,6 +117,7 @@ impl PySourceSpec {
         idle_timeout_secs: Option<u64>,
         use_on_render: bool,
         use_on_gpumat: bool,
+        callback_order: PyCallbackInvocationOrder,
     ) -> Self {
         Self {
             codec: codec.unwrap_or_else(PyCodecSpec::default_drop),
@@ -52,6 +127,7 @@ impl PySourceSpec {
             idle_timeout_secs,
             use_on_render,
             use_on_gpumat,
+            callback_order,
         }
     }
 
@@ -92,7 +168,7 @@ impl PySourceSpec {
         format!(
             "SourceSpec(codec={:?}, conditional={:?}, draw={:?}, \
              font_family={:?}, idle_timeout_secs={:?}, \
-             use_on_render={}, use_on_gpumat={})",
+             use_on_render={}, use_on_gpumat={}, callback_order={:?})",
             self.codec,
             self.conditional,
             self.draw,
@@ -100,6 +176,7 @@ impl PySourceSpec {
             self.idle_timeout_secs,
             self.use_on_render,
             self.use_on_gpumat,
+            self.callback_order,
         )
     }
 }
@@ -114,6 +191,7 @@ impl PySourceSpec {
             idle_timeout_secs: self.idle_timeout_secs,
             use_on_render: self.use_on_render,
             use_on_gpumat: self.use_on_gpumat,
+            callback_order: self.callback_order.into(),
         }
     }
 }

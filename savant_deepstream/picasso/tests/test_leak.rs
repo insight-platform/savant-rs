@@ -38,12 +38,7 @@ fn rss_kb() -> u64 {
 }
 
 fn gpu_mem_mib() -> u64 {
-    let out = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
-        .output()
-        .expect("nvidia-smi not found");
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.trim().parse::<u64>().unwrap()
+    nvidia_gpu_utils::gpu_mem_used_mib(0).expect("gpu_mem_used_mib failed")
 }
 
 fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
@@ -64,7 +59,10 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Buffer {
+fn make_nvmm_buffer(
+    gen: &DsNvSurfaceBufferGenerator,
+    frame_id: i64,
+) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -73,7 +71,7 @@ fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Bu
         ));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
-    buf
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
 fn encoder_config(w: u32, h: u32) -> EncoderConfig {
@@ -129,10 +127,11 @@ fn leak_worker_lifecycle_churn() {
             bypass_spec(),
             callbacks.clone(),
             Duration::from_secs(60),
+            16,
         );
         w.send(WorkerMessage::Frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ))
         .unwrap();
@@ -152,11 +151,12 @@ fn leak_worker_lifecycle_churn() {
             bypass_spec(),
             callbacks.clone(),
             Duration::from_secs(60),
+            16,
         );
         for j in 0..10 {
             let _ = w.send(WorkerMessage::Frame(
                 make_frame(&source, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             ));
             if j == 9 {
@@ -202,13 +202,14 @@ fn leak_sustained_bypass_frames() {
         bypass_spec(),
         callbacks,
         Duration::from_secs(120),
+        16,
     );
 
     // Warm-up
     for _ in 0..100 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -221,7 +222,7 @@ fn leak_sustained_bypass_frames() {
     for _ in 0..5_000 {
         let _ = worker.send(WorkerMessage::Frame(
             make_frame("sustained-bypass", 640, 480),
-            gstreamer::Buffer::new(),
+            deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
             None,
         ));
     }
@@ -260,6 +261,7 @@ fn leak_engine_multi_source_churn() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 120,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -271,7 +273,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
@@ -291,7 +293,7 @@ fn leak_engine_multi_source_churn() {
             let _ = engine.send_frame(
                 &src,
                 make_frame(&src, 320, 240),
-                gstreamer::Buffer::new(),
+                deepstream_nvbufsurface::SurfaceView::wrap(gstreamer::Buffer::new()),
                 None,
             );
         }
@@ -439,7 +441,7 @@ fn leak_gpu_surface_acquire_release() {
     gstreamer::init().unwrap();
     cuda_init(0).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::NV12,
         320,
         240,
@@ -503,6 +505,7 @@ fn leak_engine_gpu_encode_sustained() {
     };
     let general = GeneralSpec {
         idle_timeout_secs: 120,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -519,7 +522,7 @@ fn leak_engine_gpu_encode_sustained() {
 
     // We need real NVMM buffers for the encoder path.
     // Create a generator to produce them.
-    let src_gen = NvBufSurfaceGenerator::new(
+    let src_gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::NV12,
         640,
         480,

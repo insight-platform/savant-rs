@@ -217,7 +217,9 @@ fn render_cpu() -> Vec<u8> {
         DST_W as u64,
         DST_H as u64,
         Padding::Symmetric,
-    );
+        None,
+    )
+    .expect("compute_letterbox_params");
     fm.add_transformation(VideoFrameTransformation::LetterBox(ow, oh, pl, pt, pr, pb));
     fm.transform_forward().unwrap();
 
@@ -299,6 +301,7 @@ fn render_gpu() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -329,7 +332,7 @@ fn render_gpu() -> Vec<u8> {
     };
     engine.set_source_spec("gpu", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -348,7 +351,8 @@ fn render_gpu() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("gpu", frame, buf, None).unwrap();
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    engine.send_frame("gpu", frame, view, None).unwrap();
 
     // Wait for the OnRender capture (timeout 10 s)
     let guard = capture.pixels.lock().unwrap();
@@ -424,6 +428,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -448,7 +453,7 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("gpu-jpeg", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -467,7 +472,8 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("gpu-jpeg", frame, buf, None).unwrap();
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    engine.send_frame("gpu-jpeg", frame, view, None).unwrap();
 
     // EOS triggers encoder flush which produces the pending JPEG frame.
     engine.send_eos("gpu-jpeg").unwrap();

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """NVMM encoding pipeline example using the Picasso engine.
 
-Pushes NVMM frames through the Picasso rendering/encoding pipeline as
-fast as possible, printing throughput statistics every second.  Optionally
-muxes the encoded bitstream into an MP4 container via a minimal GStreamer
-pipeline.
+Allocates ``cv2.cuda.GpuMat`` frames, fills them with a solid colour,
+and submits them to Picasso via ``__cuda_array_interface__``.  This
+demonstrates the zero-copy path where plain CUDA memory (no
+NvBufSurface) is handed directly to the encoder.
 
 The Picasso engine handles all encoding internals (encoder creation,
 format conversion, PTS validation).  The sample only needs to:
 
 1. Configure and create a :class:`PicassoSession`.
-2. Acquire GPU buffers, submit them to the engine.
+2. For each frame, allocate a ``GpuMat``, draw into it, wrap with
+   :class:`GpuMatCudaArray`, and submit.
 3. (Encoded frames are delivered asynchronously via callback and
    optionally pushed into the muxer.)
 
@@ -24,13 +25,13 @@ Usage::
     python nvmm_pipeline.py --width 1920 --height 1080
 
     # 300 frames of RGBA -> H.264 at 8 Mbps to an MP4 file
-    python nvmm_pipeline.py --format RGBA --codec h264 --bitrate 8000000 --num-frames 300 --output /tmp/test.mp4
+    python nvmm_pipeline.py --codec h264 --bitrate 8000000 --num-frames 300 --output /tmp/test.mp4
 
-    # 600 frames of NV12 -> H.265, no container
+    # 600 frames of RGBA -> H.265, no container
     python nvmm_pipeline.py --num-frames 600
 
-    # 100 frames of JPEG at quality 95, discarded
-    python nvmm_pipeline.py --format I420 --codec jpeg --quality 95 --num-frames 100
+    # 100 frames of RGBA -> JPEG at quality 95, discarded
+    python nvmm_pipeline.py --codec jpeg --quality 95 --num-frames 100
 
     # 300 frames of AV1 to an MP4 file
     python nvmm_pipeline.py --codec av1 --num-frames 300 --output /tmp/av1_test.mp4
@@ -41,7 +42,11 @@ from __future__ import annotations
 import argparse
 import sys
 
-from savant_rs.deepstream import VideoFormat  # noqa: E402
+from savant_rs.deepstream import (  # noqa: E402
+    GpuMatCudaArray,
+    VideoFormat,
+    make_gpu_mat,
+)
 
 from common import PicassoSession, add_common_args
 
@@ -53,25 +58,24 @@ from common import PicassoSession, add_common_args
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="NVMM encoding pipeline (Picasso engine)"
+        description="NVMM encoding pipeline (Picasso engine, GpuMat source)"
     )
     add_common_args(parser)
-    parser.add_argument(
-        "--format", type=str, default="NV12", help="Video format (NV12, RGBA, ...)"
-    )
     args = parser.parse_args()
 
-    video_format = VideoFormat.from_name(args.format)
-    session = PicassoSession(args, video_format=video_format)
+    session = PicassoSession(args, video_format=VideoFormat.RGBA, use_generator=False)
 
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
+        mat = make_gpu_mat(args.width, args.height)
+        mat.setTo((i % 255, i % 255, i % 255, 255))
+        cuda_frame = GpuMatCudaArray(mat)
+
         pts_ns = i * session.frame_duration_ns
         try:
-            buf_ptr = session.acquire_surface(frame_id=i)
             session.submit(
-                buf_ptr,
+                cuda_frame,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

@@ -7,7 +7,7 @@
 | `set_source_spec` | After `shutdown()` | `RuntimeError("engine is shut down")` |
 | `remove_source_spec` | After `shutdown()` | `RuntimeError("engine is shut down")` |
 | `send_frame` | After `shutdown()` | `RuntimeError("engine is shut down")` |
-| `send_frame` | `buf_ptr == 0` | `ValueError("buf_ptr is null")` |
+| `send_frame` | `buf` is null (empty `DsNvBufSurfaceGstBuffer` or `int(0)`) | `ValueError("buf_ptr is null")` |
 | `send_eos` | After `shutdown()` | `RuntimeError("engine is shut down")` |
 | `shutdown` | Multiple calls | No error (idempotent) |
 

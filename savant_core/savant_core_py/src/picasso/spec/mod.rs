@@ -8,4 +8,4 @@ pub use codec::PyCodecSpec;
 pub use conditional::PyConditionalSpec;
 pub use draw::PyObjectDrawSpec;
 pub use general::{PyEvictionDecision, PyGeneralSpec};
-pub use source::PySourceSpec;
+pub use source::{PyCallbackInvocationOrder, PySourceSpec};

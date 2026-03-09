@@ -175,8 +175,10 @@ impl ObjectMeta {
                 return Ok(None);
             }
 
-            let c_str = CStr::from_bytes_with_nul(std::mem::transmute::<&[i8], &[u8]>(
-                &label_array[..=len],
+            let slice = &label_array[..=len];
+            let c_str = CStr::from_bytes_with_nul(std::slice::from_raw_parts(
+                slice.as_ptr() as *const u8,
+                slice.len(),
             ))
             .map_err(|e| DeepStreamError::ConversionError(format!("Invalid C string: {}", e)))?;
             let label = c_str.to_str()?.to_string();
@@ -193,7 +195,7 @@ impl ObjectMeta {
             let label_array = &mut (*self.raw).obj_label;
             let copy_len = bytes.len().min(label_array.len());
             let target_slice =
-                std::mem::transmute::<&mut [i8], &mut [u8]>(&mut label_array[..copy_len]);
+                std::slice::from_raw_parts_mut(label_array.as_mut_ptr() as *mut u8, copy_len);
             target_slice.copy_from_slice(&bytes[..copy_len]);
 
             // Fill remaining bytes with null

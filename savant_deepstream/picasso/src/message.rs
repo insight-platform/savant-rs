@@ -1,13 +1,12 @@
 use crate::spec::SourceSpec;
-use deepstream_nvbufsurface::Rect;
-use gstreamer as gst;
+use deepstream_nvbufsurface::{Rect, SurfaceView};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
 
 /// Messages sent from the engine to per-source worker threads.
 pub enum WorkerMessage {
     /// A new video frame to process.
-    Frame(VideoFrameProxy, gst::Buffer, Option<Rect>),
+    Frame(VideoFrameProxy, SurfaceView, Option<Rect>),
     /// End-of-stream signal.
     Eos,
     /// Hot-swap the source spec.
@@ -33,5 +32,5 @@ pub enum EncodedOutput {
 pub struct BypassOutput {
     pub source_id: String,
     pub frame: VideoFrameProxy,
-    pub buffer: gst::Buffer,
+    pub view: SurfaceView,
 }

@@ -8,4 +8,4 @@ pub use codec::CodecSpec;
 pub use conditional::ConditionalSpec;
 pub use draw::ObjectDrawSpec;
 pub use general::{EvictionDecision, GeneralSpec};
-pub use source::SourceSpec;
+pub use source::{CallbackInvocationOrder, SourceSpec};

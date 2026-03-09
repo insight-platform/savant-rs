@@ -21,9 +21,12 @@ gi.require_version("GstApp", "1.0")
 from gi.repository import Gst  # noqa: E402
 
 from savant_rs.deepstream import (  # noqa: E402
-    NvBufSurfaceGenerator,
+    DsNvBufSurfaceGstBuffer,
+    DsNvSurfaceBufferGenerator,
+    SurfaceView,
     TransformConfig,
     VideoFormat,
+    gpu_mem_used_mib,
     init_cuda,
 )
 from savant_rs.gstreamer import Codec, Mp4Muxer  # noqa: E402
@@ -71,6 +74,14 @@ def rss_kb() -> int:
     except Exception:
         pass
     return 0
+
+
+def gpu_mem_mib(gpu_id: int = 0) -> int | None:
+    """Return GPU memory used in MiB, or None if unavailable."""
+    try:
+        return gpu_mem_used_mib(gpu_id)
+    except Exception:
+        return None
 
 
 def resolve_codec(name: str) -> Codec:
@@ -189,25 +200,45 @@ class PicassoSession:
     rendering, and encoding asynchronously.  Encoded output is pushed to
     an optional MP4 muxer via the ``on_encoded_frame`` callback.
 
+    Optional *name* is passed to ``GeneralSpec`` for engine identification
+    in logs and future extensibility.
+
     Optional *on_gpumat* / *on_render* callbacks enable custom GPU drawing
     inside the Picasso worker thread:
 
-    - ``on_gpumat(source_id, frame, data_ptr, pitch, width, height)`` —
-      raw CUDA pointer for OpenCV CUDA drawing.
+    - ``on_gpumat(source_id, frame, data_ptr, pitch, width, height, cuda_stream)`` —
+      raw CUDA pointer for OpenCV CUDA drawing; *cuda_stream* is the worker's
+      CUDA stream (int) for enqueueing GPU operations.
     - ``on_render(source_id, fbo_id, width, height, frame)`` —
       OpenGL FBO for Skia / GL drawing.
 
     The corresponding ``use_on_gpumat`` / ``use_on_render`` flags on the
     ``SourceSpec`` are set automatically when a callback is provided.
 
-    Usage::
+    Usage with NvBufSurface buffers::
 
         session = PicassoSession(args, video_format=VideoFormat.RGBA,
                                  on_gpumat=my_draw_callback)
 
         while session.is_running and i < session.limit:
-            buf = session.acquire_surface(frame_id=i)
-            session.submit(buf, frame_id=i, pts_ns=pts_ns,
+            view = session.acquire_surface_view(frame_id=i)
+            session.submit(view, pts_ns=pts_ns,
+                           duration_ns=session.frame_duration_ns)
+            i += 1
+
+        session.shutdown()
+
+    Usage with ``cv2.cuda.GpuMat`` via ``__cuda_array_interface__``::
+
+        from savant_rs.deepstream import GpuMatCudaArray, make_gpu_mat
+
+        session = PicassoSession(args, video_format=VideoFormat.RGBA,
+                                 use_generator=False)
+
+        while session.is_running and i < session.limit:
+            mat = make_gpu_mat(args.width, args.height)
+            mat.setTo((0, 0, 0, 255))  # draw content
+            session.submit(GpuMatCudaArray(mat), pts_ns=...,
                            duration_ns=session.frame_duration_ns)
             i += 1
 
@@ -222,6 +253,8 @@ class PicassoSession:
         on_gpumat: Callable[..., Any] | None = None,
         on_render: Callable[..., Any] | None = None,
         draw: object | None = None,
+        use_generator: bool = True,
+        name: str = "",
     ) -> None:
         # -- GStreamer + CUDA init (idempotent) --------------------------------
         init_gst_and_cuda(args.gpu_id)
@@ -254,9 +287,11 @@ class PicassoSession:
         print(f"Encoder properties: {enc_props}")
 
         # -- NvBufSurface generator for buffer acquisition ---------------------
-        self._generator = NvBufSurfaceGenerator(
-            video_format, self._width, self._height, self._fps, 1, args.gpu_id
-        )
+        self._generator: DsNvSurfaceBufferGenerator | None = None
+        if use_generator:
+            self._generator = DsNvSurfaceBufferGenerator(
+                video_format, self._width, self._height, self._fps, 1, args.gpu_id
+            )
 
         # -- Ctrl-C handler ----------------------------------------------------
         self._running = True
@@ -272,6 +307,7 @@ class PicassoSession:
         self._encoded_count = 0
         self._encoded_bytes = 0
         self._eos_event = threading.Event()
+        self._gpu_id = args.gpu_id
 
         # -- Optional MP4 muxer (direct use from callback) ---------------------
         self._muxer: Mp4Muxer | None = None
@@ -313,7 +349,9 @@ class PicassoSession:
         )
 
         # -- Picasso engine ----------------------------------------------------
-        self._engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
+        self._engine = PicassoEngine(
+            GeneralSpec(name=name, idle_timeout_secs=300), callbacks
+        )
         source_spec = SourceSpec(
             codec=CodecSpec.encode(TransformConfig(), enc_cfg),
             draw=draw,
@@ -340,9 +378,32 @@ class PicassoSession:
         """``False`` after Ctrl-C or an encoder callback error."""
         return self._running
 
-    def acquire_surface(self, *, frame_id: int) -> int:
-        """Acquire an NvBufSurface GPU buffer from the internal pool."""
+    def acquire_surface(self, *, frame_id: int) -> DsNvBufSurfaceGstBuffer:
+        """Acquire an NvBufSurface GPU buffer from the internal pool.
+
+        Returns a raw ``DsNvBufSurfaceGstBuffer`` guard.  Use this when you need to
+        perform GPU operations on the buffer (e.g. ``nvgstbuf_as_gpu_mat``,
+        ``nvbuf_as_gpu_mat``) before submitting it to the engine.
+
+        Requires ``use_generator=True`` (the default).
+        """
+        if self._generator is None:
+            raise RuntimeError(
+                "DsNvSurfaceBufferGenerator was not created (use_generator=False)"
+            )
         return self._generator.acquire_surface(id=frame_id)
+
+    def acquire_surface_view(self, *, frame_id: int) -> SurfaceView:
+        """Acquire an NvBufSurface GPU buffer wrapped in a ``SurfaceView``.
+
+        The returned ``SurfaceView`` caches surface parameters (data
+        pointer, pitch, width, height, GPU ID) and can be passed directly
+        to :meth:`send_frame` or :meth:`submit`.
+
+        Requires ``use_generator=True`` (the default).
+        """
+        buf = self.acquire_surface(frame_id=frame_id)
+        return SurfaceView.from_buffer(buf, 0)
 
     def make_frame(
         self,
@@ -368,22 +429,29 @@ class PicassoSession:
             frame.duration = duration_ns
         return frame
 
-    def send_frame(self, frame: VideoFrame, buf_ptr: int) -> None:
-        """Submit a pre-built :class:`VideoFrame` to the Picasso engine."""
-        self._engine.send_frame(SOURCE_ID, frame, buf_ptr)
+    def send_frame(
+        self, frame: VideoFrame, buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any
+    ) -> None:
+        """Submit a pre-built :class:`VideoFrame` to the Picasso engine.
+
+        *buf* may be a ``SurfaceView``, a ``DsNvBufSurfaceGstBuffer`` guard,
+        a raw ``GstBuffer*`` pointer as ``int``, or any object exposing
+        ``__cuda_array_interface__`` (e.g. ``savant_rs.deepstream.GpuMatCudaArray``).
+        """
+        self._engine.send_frame(SOURCE_ID, frame, buf)
         with self._lock:
             self._frame_count += 1
 
     def submit(
         self,
-        buf_ptr: int,
+        buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any,
         *,
         pts_ns: int,
         duration_ns: int | None = None,
     ) -> None:
         """Shorthand: create a :class:`VideoFrame` and submit it."""
         frame = self.make_frame(pts_ns=pts_ns, duration_ns=duration_ns)
-        self.send_frame(frame, buf_ptr)
+        self.send_frame(frame, buf)
 
     def shutdown(self) -> None:
         """Send EOS, wait for encoder drain, finalise muxer, print totals."""
@@ -426,10 +494,12 @@ class PicassoSession:
             delta = count - last_count
             fps = delta / elapsed if elapsed > 0 else 0.0
             rss = rss_kb()
+            gpu_mib = gpu_mem_mib(self._gpu_id)
+            gpu_str = f"{gpu_mib} MiB" if gpu_mib is not None else "N/A"
             print(
                 f"submitted: {count:>8}  |  encoded: {enc:>8}  |  "
                 f"fps: {fps:>8.1f}  |  bitstream: {ebytes // 1024} KB  |  "
-                f"RSS: {rss // 1024} MB"
+                f"RSS: {rss // 1024} MB  |  GPU: {gpu_str}"
             )
             last_count = count
             last_time = now

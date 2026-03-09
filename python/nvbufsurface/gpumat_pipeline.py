@@ -42,7 +42,7 @@ import sys
 
 import cv2
 
-from savant_rs.deepstream import VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
+from savant_rs.deepstream import SurfaceView, VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
 
 from common import PicassoSession, add_common_args
 
@@ -153,7 +153,11 @@ class GpuMatRenderer:
         pitch: int,
         width: int,
         height: int,
+        cuda_stream: int,
     ) -> None:
+        # cuda_stream is the worker's CUDA stream; nvbuf_as_gpu_mat creates its
+        # own cv2.cuda.Stream for OpenCV ops — use cuda_stream if integrating
+        # with raw CUDA APIs.
         with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (gpumat, stream):
             draw_frame(gpumat, stream, self._rect, self._frame_idx)
         self._frame_idx += 1
@@ -179,15 +183,16 @@ def main() -> None:
     i = 0
     while i < session.limit and session.is_running:
         try:
-            buf_ptr = session.acquire_surface(frame_id=i)
+            buf = session.acquire_surface(frame_id=i)
         except Exception as e:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
+        view = SurfaceView.from_buffer(buf, 0)
         pts_ns = i * session.frame_duration_ns
         try:
             session.submit(
-                buf_ptr,
+                view,
                 pts_ns=pts_ns,
                 duration_ns=session.frame_duration_ns,
             )

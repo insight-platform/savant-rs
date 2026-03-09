@@ -43,6 +43,7 @@ fn setup_engine(enc_count: &Arc<AtomicUsize>, eos_count: &Arc<AtomicUsize>) -> P
     PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     )
@@ -58,8 +59,8 @@ fn jpeg_spec() -> SourceSpec {
     }
 }
 
-fn make_generator() -> NvBufSurfaceGenerator {
-    NvBufSurfaceGenerator::new(
+fn make_generator() -> DsNvSurfaceBufferGenerator {
+    DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -91,7 +92,7 @@ fn e2e_async_drain_delivers_independently() {
     let n = 10u64;
     for i in 0..n {
         let frame = make_numbered_frame("drain", i);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("drain", frame, buf, None).unwrap();
     }
 
@@ -151,7 +152,7 @@ fn e2e_draw_spec_hot_swap_preserves_drain() {
     for i in 0..phase1 {
         let frame = make_numbered_frame("swap", i);
         add_object(&frame, 100.0, 100.0, 50.0, 30.0);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("swap", frame, buf, None).unwrap();
     }
 
@@ -181,7 +182,7 @@ fn e2e_draw_spec_hot_swap_preserves_drain() {
     let total = phase1 + phase2;
     for i in phase1..total {
         let frame = make_numbered_frame("swap", i);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("swap", frame, buf, None).unwrap();
     }
 
@@ -218,7 +219,7 @@ fn e2e_sustained_throughput_no_frame_loss() {
     let n = 100u64;
     for i in 0..n {
         let frame = make_numbered_frame("burst", i);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("burst", frame, buf, None).unwrap();
     }
     engine.send_eos("burst").unwrap();
@@ -260,7 +261,7 @@ fn e2e_eos_flushes_all_in_flight() {
     let n = 30u64;
     for i in 0..n {
         let frame = make_numbered_frame("flush", i);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("flush", frame, buf, None).unwrap();
     }
 

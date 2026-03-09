@@ -1,0 +1,42 @@
+[package]
+name = "nvinfer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "GStreamer pipeline wrapper for DeepStream nvinfer: appsrc -> queue -> nvinfer -> appsink with callback-driven batch inference"
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+glib = { workspace = true }
+deepstream = { path = "../deepstream" }
+deepstream-sys = { path = "../deepstream-sys" }
+deepstream_nvbufsurface = { path = "../nvbufsurface" }
+thiserror = { workspace = true }
+log = { workspace = true }
+tempfile = "3"
+
+[dev-dependencies]
+candle-core = "0.9"
+cudarc = { version = "0.17", features = ["cuda-12020"] }
+half = "2.5"
+criterion = { workspace = true }
+env_logger = "0.11"
+image = "0.25"
+nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
+rand = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+
+[[bench]]
+name = "nvinfer_bench"
+path = "benchmarks/nvinfer_bench.rs"
+harness = false

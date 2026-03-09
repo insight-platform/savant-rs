@@ -18,6 +18,7 @@ if not hasattr(ds, "PicassoEngine"):
     )
 
 from savant_rs.picasso import (
+    CallbackInvocationOrder,
     Callbacks,
     CodecSpec,
     ConditionalSpec,
@@ -47,6 +48,32 @@ class TestGeneralSpec:
         spec = GeneralSpec(idle_timeout_secs=45)
         assert "45" in repr(spec)
         assert "GeneralSpec" in repr(spec)
+
+    def test_name_default(self) -> None:
+        spec = GeneralSpec()
+        assert spec.name == "picasso"
+
+    def test_name_custom(self) -> None:
+        spec = GeneralSpec(name="my-engine", idle_timeout_secs=60)
+        assert spec.name == "my-engine"
+        assert spec.idle_timeout_secs == 60
+
+    def test_inflight_queue_size_default(self) -> None:
+        spec = GeneralSpec()
+        assert spec.inflight_queue_size == 8
+
+    def test_inflight_queue_size_custom(self) -> None:
+        spec = GeneralSpec(inflight_queue_size=32)
+        assert spec.inflight_queue_size == 32
+
+    def test_inflight_queue_size_in_repr(self) -> None:
+        spec = GeneralSpec(inflight_queue_size=4)
+        assert "4" in repr(spec)
+
+    def test_inflight_queue_size_mutable(self) -> None:
+        spec = GeneralSpec()
+        spec.inflight_queue_size = 16
+        assert spec.inflight_queue_size == 16
 
 
 # ─── Callbacks ──────────────────────────────────────────────────────────────
@@ -157,6 +184,7 @@ class TestSourceSpec:
         assert spec.idle_timeout_secs is None
         assert spec.use_on_render is False
         assert spec.use_on_gpumat is False
+        assert spec.callback_order == CallbackInvocationOrder.SkiaGpuMat
         assert spec.codec.is_drop is True
 
     def test_with_drop_codec(self) -> None:
@@ -187,6 +215,37 @@ class TestSourceSpec:
     def test_use_on_gpumat(self) -> None:
         spec = SourceSpec(use_on_gpumat=True)
         assert spec.use_on_gpumat is True
+
+    def test_callback_order_default(self) -> None:
+        spec = SourceSpec()
+        assert spec.callback_order == CallbackInvocationOrder.SkiaGpuMat
+
+    def test_callback_order_gpu_mat_skia(self) -> None:
+        spec = SourceSpec(callback_order=CallbackInvocationOrder.GpuMatSkia)
+        assert spec.callback_order == CallbackInvocationOrder.GpuMatSkia
+
+    def test_callback_order_gpu_mat_skia_gpu_mat(self) -> None:
+        spec = SourceSpec(callback_order=CallbackInvocationOrder.GpuMatSkiaGpuMat)
+        assert spec.callback_order == CallbackInvocationOrder.GpuMatSkiaGpuMat
+
+    def test_callback_invocation_order_from_name(self) -> None:
+        assert (
+            CallbackInvocationOrder.from_name("SkiaGpuMat")
+            == CallbackInvocationOrder.SkiaGpuMat
+        )
+        assert (
+            CallbackInvocationOrder.from_name("GpuMatSkia")
+            == CallbackInvocationOrder.GpuMatSkia
+        )
+        assert (
+            CallbackInvocationOrder.from_name("GpuMatSkiaGpuMat")
+            == CallbackInvocationOrder.GpuMatSkiaGpuMat
+        )
+        with pytest.raises(ValueError, match="Unknown CallbackInvocationOrder"):
+            CallbackInvocationOrder.from_name("Invalid")
+
+    def test_callback_invocation_order_repr(self) -> None:
+        assert "SkiaGpuMat" in repr(CallbackInvocationOrder.SkiaGpuMat)
 
 
 # ─── PicassoEngine ────────────────────────────────────────────────────────
@@ -225,6 +284,13 @@ class TestPicassoEngineInit:
 
         general = GeneralSpec()
         callbacks = Callbacks(on_eviction=on_eviction)
+        engine = PicassoEngine(general, callbacks)
+        assert engine is not None
+        engine.shutdown()
+
+    def test_engine_with_name(self) -> None:
+        general = GeneralSpec(name="test-engine", idle_timeout_secs=60)
+        callbacks = Callbacks()
         engine = PicassoEngine(general, callbacks)
         assert engine is not None
         engine.shutdown()

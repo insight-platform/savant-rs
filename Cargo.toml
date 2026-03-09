@@ -19,9 +19,10 @@ members = [
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
-    "savant_deepstream/deepstream_nvinfer",
-    "savant_deepstream/deepstream_nvbufsurface",
-    "savant_deepstream/deepstream_encoders",
+    "savant_deepstream/nvbufsurface",
+    "savant_deepstream/encoders",
+    "savant_deepstream/nvidia_gpu_utils",
+    "savant_deepstream/nvinfer",
     "savant_deepstream/picasso",
     # picasso_py bindings migrated to savant_core_py::picasso (deepstream feature)
 ]
@@ -151,7 +152,8 @@ savant_core_py = { path = "savant_core/savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
 savant_rs = { path = "savant_python" }
 savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer" }
-deepstream_nvbufsurface = { path = "savant_deepstream/deepstream_nvbufsurface" }
+deepstream_nvbufsurface = { path = "savant_deepstream/nvbufsurface" }
+nvidia_gpu_utils = { path = "savant_deepstream/nvidia_gpu_utils" }
 savant_services_common = { path = "services/common" }
 
 serde = { version = "1.0", features = ["derive"] }

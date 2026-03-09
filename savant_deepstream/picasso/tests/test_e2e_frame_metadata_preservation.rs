@@ -60,6 +60,7 @@ fn e2e_frame_metadata_preservation() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -73,7 +74,7 @@ fn e2e_frame_metadata_preservation() {
     };
     engine.set_source_spec("meta", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -124,7 +125,7 @@ fn e2e_frame_metadata_preservation() {
         .add_object(obj_person, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_buffer(&gen, 0, DUR);
+    let buf = make_gpu_surface_view(&gen, 0, DUR);
     let frame_uuid = frame.get_uuid();
     let frame_pts = frame.get_pts();
     engine.send_frame("meta", frame, buf, None).unwrap();

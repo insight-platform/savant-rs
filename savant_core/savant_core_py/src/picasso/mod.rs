@@ -22,6 +22,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<spec::PyObjectDrawSpec>()?;
     m.add_class::<spec::PyCodecSpec>()?;
     m.add_class::<spec::PySourceSpec>()?;
+    m.add_class::<spec::PyCallbackInvocationOrder>()?;
 
     m.add_class::<message::PyEncodedOutput>()?;
     m.add_class::<message::PyBypassOutput>()?;

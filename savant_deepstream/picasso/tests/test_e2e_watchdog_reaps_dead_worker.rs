@@ -28,6 +28,7 @@ fn e2e_watchdog_reaps_dead_worker() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 1,
+            ..Default::default()
         },
         callbacks,
     );
@@ -46,7 +47,7 @@ fn e2e_watchdog_reaps_dead_worker() {
         .send_frame(
             "reap-test",
             make_frame("reap-test"),
-            make_gst_buffer(),
+            make_surface_view(),
             None,
         )
         .unwrap();
@@ -67,7 +68,7 @@ fn e2e_watchdog_reaps_dead_worker() {
         .send_frame(
             "reap-test",
             make_frame("reap-test"),
-            make_gst_buffer(),
+            make_surface_view(),
             None,
         )
         .expect("second send_frame should succeed after watchdog reaps dead worker");

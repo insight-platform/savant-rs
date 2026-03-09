@@ -5,9 +5,16 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Union, final
+from typing import Any, Callable, ClassVar, Optional, Union, final
 
-from savant_rs.deepstream import MemType, Rect, TransformConfig, VideoFormat
+from savant_rs.deepstream import (
+    DsNvBufSurfaceGstBuffer,
+    MemType,
+    Rect,
+    SurfaceView,
+    TransformConfig,
+    VideoFormat,
+)
 from savant_rs.draw_spec import ObjectDraw
 from savant_rs.gstreamer import Codec
 from savant_rs.primitives import EndOfStream, VideoFrame
@@ -33,6 +40,7 @@ __all__ = [
     "EncoderConfig",
     # spec
     "GeneralSpec",
+    "CallbackInvocationOrder",
     "EvictionDecision",
     "ConditionalSpec",
     "ObjectDrawSpec",
@@ -443,9 +451,38 @@ class EncoderConfig:
 class GeneralSpec:
     """Global defaults for the Picasso engine."""
 
+    name: str
     idle_timeout_secs: int
+    inflight_queue_size: int
 
-    def __init__(self, idle_timeout_secs: int = 30) -> None: ...
+    def __init__(
+        self,
+        name: str = "picasso",
+        idle_timeout_secs: int = 30,
+        inflight_queue_size: int = 8,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class CallbackInvocationOrder:
+    """Controls when the ``on_gpumat`` callback fires relative to Skia rendering."""
+
+    SkiaGpuMat: ClassVar[CallbackInvocationOrder]
+    """Skia render then ``on_gpumat`` (default)."""
+
+    GpuMatSkia: ClassVar[CallbackInvocationOrder]
+    """``on_gpumat`` then Skia render."""
+
+    GpuMatSkiaGpuMat: ClassVar[CallbackInvocationOrder]
+    """``on_gpumat`` before **and** after Skia render."""
+
+    @staticmethod
+    def from_name(name: str) -> CallbackInvocationOrder:
+        """Create from string name (``SkiaGpuMat``, ``GpuMatSkia``, ``GpuMatSkiaGpuMat``)."""
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
 class EvictionDecision:
@@ -534,6 +571,7 @@ class SourceSpec:
     idle_timeout_secs: Optional[int]
     use_on_render: bool
     use_on_gpumat: bool
+    callback_order: CallbackInvocationOrder
 
     def __init__(
         self,
@@ -544,6 +582,7 @@ class SourceSpec:
         idle_timeout_secs: Optional[int] = None,
         use_on_render: bool = False,
         use_on_gpumat: bool = False,
+        callback_order: CallbackInvocationOrder = ...,
     ) -> None: ...
     @property
     def codec(self) -> CodecSpec: ...
@@ -609,7 +648,7 @@ class Callbacks:
     on_bypass_frame: Optional[Callable[[BypassOutput], Any]]
     on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]]
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]]
-    on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int], Any]]
+    on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int, int], Any]]
     on_eviction: Optional[Callable[[str], EvictionDecision]]
 
     def __init__(
@@ -619,7 +658,7 @@ class Callbacks:
         on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]] = None,
         on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]] = None,
         on_gpumat: Optional[
-            Callable[[str, VideoFrame, int, int, int, int], Any]
+            Callable[[str, VideoFrame, int, int, int, int, int], Any]
         ] = None,
         on_eviction: Optional[Callable[[str], EvictionDecision]] = None,
     ) -> None: ...
@@ -645,15 +684,23 @@ class PicassoEngine:
         self,
         source_id: str,
         frame: VideoFrame,
-        buf_ptr: int,
+        buf: Union[SurfaceView, DsNvBufSurfaceGstBuffer, int, Any],
         src_rect: Optional[Rect] = None,
     ) -> None:
         """Submit a video frame for processing.
 
+        Accepts one of:
+
+        - ``SurfaceView`` — the preferred input type.
+        - Any object with ``__cuda_array_interface__`` (CuPy array,
+          PyTorch CUDA tensor) — automatically wrapped in a ``SurfaceView``.
+        - ``DsNvBufSurfaceGstBuffer`` or raw ``int`` pointer (legacy API).
+
         Args:
             source_id: Source identifier.
             frame: The ``VideoFrame`` proxy.
-            buf_ptr: Raw pointer to the ``GstBuffer``.
+            buf: Surface data — ``SurfaceView``, ``__cuda_array_interface__``
+                object, ``DsNvBufSurfaceGstBuffer``, or raw ``int`` pointer.
             src_rect: Optional source crop rectangle (top, left, width, height).
         """
         ...

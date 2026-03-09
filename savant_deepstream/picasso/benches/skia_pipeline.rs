@@ -19,7 +19,7 @@
 //! ```
 
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -429,7 +429,7 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn make_nvmm_buffer(gen: &NvBufSurfaceGenerator, frame_id: i64) -> gstreamer::Buffer {
+fn make_nvmm_buffer(gen: &DsNvSurfaceBufferGenerator, frame_id: i64) -> gstreamer::Buffer {
     let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -578,6 +578,7 @@ fn main() {
     // -- Engine -----------------------------------------------------------
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -593,9 +594,9 @@ fn main() {
     );
 
     // -- One NvBufSurface generator per source ----------------------------
-    let generators: Vec<NvBufSurfaceGenerator> = (0..num_src)
+    let generators: Vec<DsNvSurfaceBufferGenerator> = (0..num_src)
         .map(|_| {
-            NvBufSurfaceGenerator::new(
+            DsNvSurfaceBufferGenerator::new(
                 VideoFormat::RGBA,
                 WIDTH,
                 HEIGHT,
@@ -618,7 +619,8 @@ fn main() {
             let frame = make_frame(sid, WIDTH as i64, HEIGHT as i64);
             add_objects_to_frame(&frame, i as u64);
             let buf = make_nvmm_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
         }
         std::thread::sleep(std::time::Duration::from_millis(35));
     }
@@ -643,7 +645,8 @@ fn main() {
             frame_mut.set_pts((i * FRAME_DURATION_NS) as i64).unwrap();
             add_objects_to_frame(&frame, i);
             let buf = make_nvmm_buffer(&generators[s], frame_id);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }
 
@@ -708,10 +711,5 @@ fn rss_kb() -> u64 {
 }
 
 fn gpu_mem_mib() -> u64 {
-    std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
-        .unwrap_or(0)
+    nvidia_gpu_utils::gpu_mem_used_mib(0).unwrap_or(0)
 }

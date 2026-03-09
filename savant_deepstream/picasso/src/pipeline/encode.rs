@@ -3,10 +3,12 @@ use crate::error::PicassoError;
 use crate::message::EncodedOutput;
 use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
+use crate::spec::source::CallbackInvocationOrder;
 use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::ffi;
 use deepstream_nvbufsurface::{Padding, Rect, SkiaRenderer, TransformConfig};
 use log::{debug, error, warn};
-use savant_core::geometry::{CropRect, LetterBoxKind, ScaleSpec};
+use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTransformation,
 };
@@ -98,6 +100,115 @@ pub(crate) struct RenderOpts<'a> {
     pub(crate) draw_ctx: &'a mut DrawContext,
 }
 
+/// Fire the `on_gpumat` callback and synchronise the worker CUDA stream.
+#[allow(clippy::too_many_arguments)]
+fn fire_on_gpumat(
+    source_id: &str,
+    callbacks: &Callbacks,
+    frame: &savant_core::primitives::frame::VideoFrameProxy,
+    data_ptr: usize,
+    pitch: u32,
+    width: u32,
+    height: u32,
+    cuda_stream: usize,
+    cuda_stream_ptr: *mut std::ffi::c_void,
+) {
+    if let Some(cb) = &callbacks.on_gpumat {
+        cb.call(
+            source_id,
+            frame,
+            data_ptr,
+            pitch,
+            width,
+            height,
+            cuda_stream,
+        );
+    }
+    if !cuda_stream_ptr.is_null() {
+        unsafe {
+            ffi::cudaStreamSynchronize(cuda_stream_ptr);
+        }
+    }
+}
+
+/// Execute the Skia rendering pipeline: resolve draw specs, create/load
+/// the SkiaRenderer, draw objects, optionally fire `on_render`, and
+/// write back to the destination NvBufSurface.
+#[allow(clippy::too_many_arguments)]
+fn do_skia_render(
+    source_id: &str,
+    input: &FrameInput,
+    dst_buf: &mut gstreamer::Buffer,
+    data_ptr: *mut std::ffi::c_void,
+    pitch: u32,
+    target_w: u32,
+    target_h: u32,
+    render: &mut RenderOpts<'_>,
+    callbacks: &Callbacks,
+) -> Result<(), PicassoError> {
+    let objects = input.frame.get_all_objects();
+    let resolved: Vec<_> = objects
+        .iter()
+        .filter_map(|obj| {
+            let ns = obj.get_namespace();
+            let label = obj.get_label();
+            let static_spec = render.draw_spec.lookup(&ns, &label);
+            let cb_draw = callbacks
+                .on_object_draw_spec
+                .as_ref()
+                .and_then(|cb| cb.call(source_id, obj, static_spec));
+            let from_callback = cb_draw.is_some();
+            let draw = cb_draw.or_else(|| static_spec.cloned());
+            draw.map(|d| {
+                let templates = if from_callback {
+                    render.draw_ctx.resolve_templates_ephemeral(&ns, &label, &d)
+                } else {
+                    render.draw_ctx.resolve_templates(&ns, &label, &d).cloned()
+                };
+                (obj, d, templates)
+            })
+        })
+        .collect();
+
+    let _egl = SKIA_EGL_LOCK.lock();
+
+    let skia = match render.renderer {
+        Some(r) => {
+            r.load_from_nvbuf(data_ptr, pitch)
+                .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+            r
+        }
+        None => {
+            let r = SkiaRenderer::from_nvbuf(target_w, target_h, render.gpu_id, data_ptr, pitch)
+                .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+            *render.renderer = Some(r);
+            render.renderer.as_mut().unwrap()
+        }
+    };
+
+    for (obj, d, templates) in &resolved {
+        crate::skia::object::draw_object(
+            skia.canvas(),
+            obj,
+            d,
+            templates.as_ref(),
+            render.draw_ctx,
+        );
+    }
+
+    if render.use_on_render {
+        if let Some(cb) = &callbacks.on_render {
+            cb.call(source_id, skia, &input.frame);
+        }
+    }
+
+    let buf_ref = dst_buf.make_mut();
+    skia.render_to_nvbuf(buf_ref, None)
+        .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+
+    Ok(())
+}
+
 /// Unified encode pipeline:
 ///
 /// GPU-transform → (optional Skia render) → optional on_gpumat → encode.
@@ -118,6 +229,8 @@ pub(crate) fn process_encode(
     render: Option<&mut RenderOpts<'_>>,
     pending_frames: &SharedPendingFrames,
     src_rect: Option<&Rect>,
+    callback_order: CallbackInvocationOrder,
+    cuda_stream_ptr: *mut std::ffi::c_void,
 ) -> Result<(), PicassoError> {
     let (target_w, target_h, need_ptr);
     let (mut dst_buf, data_ptr, pitch);
@@ -129,7 +242,7 @@ pub(crate) fn process_encode(
         target_h = generator.height();
 
         let encoder_gpu = generator.gpu_id();
-        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.buffer.as_ref()) {
+        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.view.buffer().as_ref()) {
             if buf_gpu != encoder_gpu {
                 return Err(PicassoError::GpuMismatch {
                     source_id: source_id.to_string(),
@@ -144,7 +257,7 @@ pub(crate) fn process_encode(
         if need_ptr {
             let result = generator
                 .transform_with_ptr(
-                    &input.buffer,
+                    input.view.buffer(),
                     transform_config,
                     Some(input.frame_id as i64),
                     src_rect,
@@ -156,7 +269,7 @@ pub(crate) fn process_encode(
         } else {
             let buf = generator
                 .transform(
-                    &input.buffer,
+                    input.view.buffer(),
                     transform_config,
                     Some(input.frame_id as i64),
                     src_rect,
@@ -170,82 +283,62 @@ pub(crate) fn process_encode(
 
     rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config, src_rect)?;
 
-    if let Some(render) = render {
-        let objects = input.frame.get_all_objects();
-        let resolved: Vec<_> = objects
-            .iter()
-            .filter_map(|obj| {
-                let ns = obj.get_namespace();
-                let label = obj.get_label();
-                let static_spec = render.draw_spec.lookup(&ns, &label);
-                let cb_draw = callbacks
-                    .on_object_draw_spec
-                    .as_ref()
-                    .and_then(|cb| cb.call(source_id, obj, static_spec));
-                let from_callback = cb_draw.is_some();
-                let draw = cb_draw.or_else(|| static_spec.cloned());
-                draw.map(|d| {
-                    let templates = if from_callback {
-                        render.draw_ctx.resolve_templates_ephemeral(&ns, &label, &d)
-                    } else {
-                        render.draw_ctx.resolve_templates(&ns, &label, &d).cloned()
-                    };
-                    (obj, d, templates)
-                })
-            })
-            .collect();
+    let gpumat_active = use_on_gpumat && !data_ptr.is_null();
+    let cuda_stream_val = cuda_stream_ptr as usize;
 
-        let _egl = SKIA_EGL_LOCK.lock();
-
-        let skia = match render.renderer {
-            Some(r) => {
-                r.load_from_nvbuf(data_ptr, pitch)
-                    .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
-                r
-            }
-            None => {
-                let r =
-                    SkiaRenderer::from_nvbuf(target_w, target_h, render.gpu_id, data_ptr, pitch)
-                        .map_err(|e| {
-                            PicassoError::Renderer(source_id.to_string(), e.to_string())
-                        })?;
-                *render.renderer = Some(r);
-                render.renderer.as_mut().unwrap()
-            }
-        };
-
-        for (obj, d, templates) in &resolved {
-            crate::skia::object::draw_object(
-                skia.canvas(),
-                obj,
-                d,
-                templates.as_ref(),
-                render.draw_ctx,
-            );
-        }
-
-        if render.use_on_render {
-            if let Some(cb) = &callbacks.on_render {
-                cb.call(source_id, skia, &input.frame);
-            }
-        }
-
-        let buf_ref = dst_buf.make_mut();
-        skia.render_to_nvbuf(buf_ref, None)
-            .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+    // --- GpuMatSkia / GpuMatSkiaGpuMat: fire on_gpumat BEFORE Skia ---
+    if gpumat_active
+        && matches!(
+            callback_order,
+            CallbackInvocationOrder::GpuMatSkia | CallbackInvocationOrder::GpuMatSkiaGpuMat
+        )
+    {
+        fire_on_gpumat(
+            source_id,
+            callbacks,
+            &input.frame,
+            data_ptr as usize,
+            pitch,
+            target_w,
+            target_h,
+            cuda_stream_val,
+            cuda_stream_ptr,
+        );
     }
 
-    if use_on_gpumat && !data_ptr.is_null() {
-        if let Some(cb) = &callbacks.on_gpumat {
-            cb.call(
-                source_id,
-                &input.frame,
-                data_ptr as usize,
-                pitch,
-                target_w,
-                target_h,
-            );
-        }
+    // --- Skia rendering (unchanged logic) ---
+    if let Some(render) = render {
+        do_skia_render(
+            source_id,
+            &input,
+            &mut dst_buf,
+            data_ptr,
+            pitch,
+            target_w,
+            target_h,
+            render,
+            callbacks,
+        )?;
+    }
+
+    // --- SkiaGpuMat / GpuMatSkiaGpuMat: fire on_gpumat AFTER Skia ---
+    if gpumat_active
+        && matches!(
+            callback_order,
+            CallbackInvocationOrder::SkiaGpuMat | CallbackInvocationOrder::GpuMatSkiaGpuMat
+        )
+    {
+        fire_on_gpumat(
+            source_id,
+            callbacks,
+            &input.frame,
+            data_ptr as usize,
+            pitch,
+            target_w,
+            target_h,
+            cuda_stream_val,
+            cuda_stream_ptr,
+        );
     }
 
     let pts = input.frame.get_pts().max(0) as u64;
@@ -302,6 +395,12 @@ pub fn rewrite_frame_transformations(
             top: r.top as u64,
             width: r.width as u64,
             height: r.height as u64,
+        }),
+        dst_inset: config.dst_padding.map(|p| DstInset {
+            left: p.left as u64,
+            top: p.top as u64,
+            right: p.right as u64,
+            bottom: p.bottom as u64,
         }),
     };
 

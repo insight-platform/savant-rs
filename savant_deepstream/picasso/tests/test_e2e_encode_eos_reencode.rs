@@ -39,6 +39,7 @@ fn e2e_encode_eos_reencode() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -52,7 +53,7 @@ fn e2e_encode_eos_reencode() {
     };
     engine.set_source_spec("reconnect", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -68,7 +69,7 @@ fn e2e_encode_eos_reencode() {
         let mut frame = make_frame_sized("reconnect", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();
@@ -84,7 +85,7 @@ fn e2e_encode_eos_reencode() {
         let mut frame = make_frame_sized("reconnect", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("reconnect", frame, buf, None).unwrap();
     }
     engine.send_eos("reconnect").unwrap();

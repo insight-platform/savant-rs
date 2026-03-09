@@ -70,6 +70,11 @@ LD_LIBRARY_PATH="${RUST_STD_DIR}:${PROJECT_DIR}/target/${MODE}:${PROJECT_DIR}/ta
 if [ -n "${CARGO_TARGET_DIR:-}" ]; then
     LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${CARGO_TARGET_DIR}/${MODE}:${CARGO_TARGET_DIR}/${MODE}/deps"
 fi
+# DeepStream runtime libraries (nvinfer, nvdsgst_meta, nvds_meta, etc.)
+DS_LIB_DIR="/opt/nvidia/deepstream/deepstream/lib"
+if [ -d "$DS_LIB_DIR" ]; then
+    LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${DS_LIB_DIR}"
+fi
 export LD_LIBRARY_PATH
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 
@@ -158,6 +163,8 @@ if command -v auditwheel >/dev/null 2>&1; then
             --exclude 'libcudart*.so*' \
             --exclude 'libnvdsbufferpool*.so*' \
             --exclude 'libnvbufsurftransform*.so*' \
+            --exclude 'libnvdsgst_meta*.so*' \
+            --exclude 'libnvds_meta*.so*' \
             --exclude 'libEGL*.so*' \
             --exclude 'libGL*.so*'
         rm -f "$whl"

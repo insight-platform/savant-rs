@@ -1,6 +1,6 @@
 use crate::callbacks::Callbacks;
 use crate::message::BypassOutput;
-use gstreamer as gst;
+use deepstream_nvbufsurface::SurfaceView;
 use log::{debug, error};
 use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameTranscodingMethod};
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub(crate) fn process_bypass(
     source_id: &str,
     mut frame: VideoFrameProxy,
-    buffer: gst::Buffer,
+    view: SurfaceView,
     callbacks: &Arc<Callbacks>,
 ) {
     frame.set_transcoding_method(VideoFrameTranscodingMethod::Copy);
@@ -26,7 +26,7 @@ pub(crate) fn process_bypass(
         cb.call(BypassOutput {
             source_id: source_id.to_string(),
             frame,
-            buffer,
+            view,
         });
     }
 }
