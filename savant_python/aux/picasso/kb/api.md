@@ -36,11 +36,12 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 
 ## GeneralSpec
 ```
-SIG: __init__(name: str = "", idle_timeout_secs: int = 30) → None
+SIG: __init__(name: str = "picasso", idle_timeout_secs: int = 30, inflight_queue_size: int = 8) → None
 ```
-- `name`: get/set, str. Optional instance name for logging and future extensibility. DEF: ""
+- `name`: get/set, str. Optional instance name for logging and future extensibility. DEF: "picasso"
 - `idle_timeout_secs`: get/set, u64. DEF: 30
-- repr: `"GeneralSpec(name=..., idle_timeout_secs=N)"`
+- `inflight_queue_size`: get/set, int. Capacity of the per-worker message queue. Controls how many frames can be buffered between `send_frame` and the worker consuming them. Larger values absorb bursts but increase memory/latency. DEF: 8
+- repr: `"GeneralSpec(name=..., idle_timeout_secs=N, inflight_queue_size=N)"`
 
 ---
 

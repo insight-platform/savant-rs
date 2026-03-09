@@ -50,8 +50,8 @@ impl PicassoEngine {
             watchdog::spawn_watchdog(workers.clone(), scan_interval, watchdog_signal.clone());
 
         info!(
-            "PicassoEngine initialized (name={}, idle_timeout={}s)",
-            name_display, general.idle_timeout_secs
+            "PicassoEngine initialized (name={}, idle_timeout={}s, queue_size={})",
+            name_display, general.idle_timeout_secs, general.inflight_queue_size
         );
 
         Self {
@@ -88,6 +88,7 @@ impl PicassoEngine {
                 spec,
                 self.callbacks.clone(),
                 idle_timeout,
+                self.default_spec.inflight_queue_size,
             );
             workers.insert(source_id.to_string(), worker);
         }
@@ -128,6 +129,7 @@ impl PicassoEngine {
                 SourceSpec::default(),
                 self.callbacks.clone(),
                 idle_timeout,
+                self.default_spec.inflight_queue_size,
             )
         });
 

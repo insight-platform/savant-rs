@@ -304,7 +304,7 @@ fn worker_bypass_fires_callback() {
         ..Default::default()
     });
     let spec = SourceSpec { codec: CodecSpec::Bypass, ..Default::default() };
-    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60));
+    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60), 8);
 
     for _ in 0..5 {
         worker.send(WorkerMessage::Frame(make_frame("test"), make_surface_view(), None)).unwrap();

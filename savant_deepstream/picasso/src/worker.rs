@@ -34,8 +34,9 @@ impl SourceWorker {
         spec: SourceSpec,
         callbacks: Arc<Callbacks>,
         idle_timeout: Duration,
+        queue_size: usize,
     ) -> Self {
-        let (tx, rx) = crossbeam::channel::bounded::<WorkerMessage>(16);
+        let (tx, rx) = crossbeam::channel::bounded::<WorkerMessage>(queue_size);
         let alive = Arc::new(AtomicBool::new(true));
         let al = alive.clone();
 

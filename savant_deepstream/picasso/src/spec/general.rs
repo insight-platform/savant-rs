@@ -8,13 +8,23 @@ pub struct GeneralSpec {
     /// eviction. Individual sources can override this via
     /// [`super::source::SourceSpec::idle_timeout_secs`].
     pub idle_timeout_secs: u64,
+    /// Capacity of the per-worker inflight message queue.
+    ///
+    /// This controls how many frames can be buffered between the engine's
+    /// `send_frame` call and the worker thread consuming them.  A larger
+    /// value absorbs bursts but increases memory usage and latency.
+    pub inflight_queue_size: usize,
 }
+
+/// Default inflight queue capacity for per-source worker channels.
+pub const DEFAULT_INFLIGHT_QUEUE_SIZE: usize = 8;
 
 impl Default for GeneralSpec {
     fn default() -> Self {
         Self {
             name: String::new(),
             idle_timeout_secs: 30,
+            inflight_queue_size: DEFAULT_INFLIGHT_QUEUE_SIZE,
         }
     }
 }
@@ -39,6 +49,7 @@ mod tests {
         let s = GeneralSpec::default();
         assert!(s.name.is_empty());
         assert_eq!(s.idle_timeout_secs, 30);
+        assert_eq!(s.inflight_queue_size, DEFAULT_INFLIGHT_QUEUE_SIZE);
     }
 
     #[test]

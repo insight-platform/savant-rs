@@ -57,6 +57,23 @@ class TestGeneralSpec:
         assert spec.name == "my-engine"
         assert spec.idle_timeout_secs == 60
 
+    def test_inflight_queue_size_default(self) -> None:
+        spec = GeneralSpec()
+        assert spec.inflight_queue_size == 8
+
+    def test_inflight_queue_size_custom(self) -> None:
+        spec = GeneralSpec(inflight_queue_size=32)
+        assert spec.inflight_queue_size == 32
+
+    def test_inflight_queue_size_in_repr(self) -> None:
+        spec = GeneralSpec(inflight_queue_size=4)
+        assert "4" in repr(spec)
+
+    def test_inflight_queue_size_mutable(self) -> None:
+        spec = GeneralSpec()
+        spec.inflight_queue_size = 16
+        assert spec.inflight_queue_size == 16
+
 
 # ─── Callbacks ──────────────────────────────────────────────────────────────
 

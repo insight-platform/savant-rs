@@ -13,23 +13,27 @@ pub struct PyGeneralSpec {
     /// eviction.
     #[pyo3(get, set)]
     pub idle_timeout_secs: u64,
+    /// Capacity of the per-worker inflight message queue.
+    #[pyo3(get, set)]
+    pub inflight_queue_size: usize,
 }
 
 #[pymethods]
 impl PyGeneralSpec {
     #[new]
-    #[pyo3(signature = (name = "picasso", idle_timeout_secs = 30))]
-    fn new(name: &str, idle_timeout_secs: u64) -> Self {
+    #[pyo3(signature = (name = "picasso", idle_timeout_secs = 30, inflight_queue_size = 8))]
+    fn new(name: &str, idle_timeout_secs: u64, inflight_queue_size: usize) -> Self {
         Self {
             name: name.to_string(),
             idle_timeout_secs,
+            inflight_queue_size,
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "GeneralSpec(name={:?}, idle_timeout_secs={})",
-            self.name, self.idle_timeout_secs
+            "GeneralSpec(name={:?}, idle_timeout_secs={}, inflight_queue_size={})",
+            self.name, self.idle_timeout_secs, self.inflight_queue_size
         )
     }
 }
@@ -39,6 +43,7 @@ impl PyGeneralSpec {
         GeneralSpec {
             name: self.name.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            inflight_queue_size: self.inflight_queue_size,
         }
     }
 }

@@ -51,11 +51,12 @@ pub struct PicassoEngine { /* private */ }
 ```rust
 #[derive(Debug, Clone)]
 pub struct GeneralSpec {
-    pub name: String,             // DEF: "" — used internally for logging and future extensibility
-    pub idle_timeout_secs: u64,   // DEF: 30
+    pub name: String,                // DEF: "" — used internally for logging and future extensibility
+    pub idle_timeout_secs: u64,      // DEF: 30
+    pub inflight_queue_size: usize,  // DEF: 8 — capacity of the per-worker crossbeam bounded channel
 }
 ```
-Implements `Default`.
+Implements `Default`. `DEFAULT_INFLIGHT_QUEUE_SIZE` constant = 8.
 
 ---
 
@@ -234,7 +235,7 @@ pub struct SourceWorker { /* private */ }
 
 | Method | Signature |
 |---|---|
-| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration) → Self` |
+| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize) → Self` |
 | `send` | `(&self, msg: WorkerMessage) → Result<(), SendError<WorkerMessage>>` |
 | `is_alive` | `(&self) → bool` |
 

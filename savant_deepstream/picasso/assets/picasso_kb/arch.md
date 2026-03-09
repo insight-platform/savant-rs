@@ -63,7 +63,7 @@ downstream consumers see correct metadata.
 ## Data Flow (Encode Path)
 ```
 send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
-  → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam channel
+  → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam bounded channel (capacity = GeneralSpec.inflight_queue_size, default 8)
   → worker_loop receives
   → apply_frame_timestamps_to_buffer(frame, view.buffer_mut().make_mut())
   → WorkerState::process_frame

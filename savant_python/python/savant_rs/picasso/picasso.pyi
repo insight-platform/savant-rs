@@ -452,8 +452,14 @@ class GeneralSpec:
 
     name: str
     idle_timeout_secs: int
+    inflight_queue_size: int
 
-    def __init__(self, name: str = "", idle_timeout_secs: int = 30) -> None: ...
+    def __init__(
+        self,
+        name: str = "picasso",
+        idle_timeout_secs: int = 30,
+        inflight_queue_size: int = 8,
+    ) -> None: ...
     def __repr__(self) -> str: ...
 
 class EvictionDecision:
