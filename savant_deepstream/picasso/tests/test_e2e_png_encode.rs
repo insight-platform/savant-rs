@@ -97,6 +97,7 @@ fn render_png_encoded() -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -123,7 +124,7 @@ fn render_png_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("png", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -142,7 +143,8 @@ fn render_png_encoded() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    engine.send_frame("png", frame, buf, None).unwrap();
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    engine.send_frame("png", frame, view, None).unwrap();
     engine.send_eos("png").unwrap();
 
     let guard = png_capture.data.lock().unwrap();

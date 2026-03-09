@@ -21,5 +21,6 @@ pub use crate::message::{BypassOutput, EncodedOutput};
 
 // Specifications
 pub use crate::spec::{
-    CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec,
+    CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
+    ObjectDrawSpec, SourceSpec,
 };

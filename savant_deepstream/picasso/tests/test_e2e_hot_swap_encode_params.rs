@@ -64,6 +64,7 @@ fn e2e_hot_swap_encode_params() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -77,7 +78,7 @@ fn e2e_hot_swap_encode_params() {
     };
     engine.set_source_spec("swap", spec1).unwrap();
 
-    let gen1 = NvBufSurfaceGenerator::new(
+    let gen1 = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W1,
         H1,
@@ -92,7 +93,7 @@ fn e2e_hot_swap_encode_params() {
         let mut frame = make_frame_sized("swap", W1 as i64, H1 as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen1, i, DUR);
+        let buf = make_gpu_surface_view(&gen1, i, DUR);
         engine.send_frame("swap", frame, buf, None).unwrap();
     }
     std::thread::sleep(Duration::from_secs(2));
@@ -106,7 +107,7 @@ fn e2e_hot_swap_encode_params() {
     };
     engine.set_source_spec("swap", spec2).unwrap();
 
-    let gen2 = NvBufSurfaceGenerator::new(
+    let gen2 = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W2,
         H2,
@@ -121,7 +122,7 @@ fn e2e_hot_swap_encode_params() {
         let mut frame = make_frame_sized("swap", W2 as i64, H2 as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen2, i, DUR);
+        let buf = make_gpu_surface_view(&gen2, i, DUR);
         engine.send_frame("swap", frame, buf, None).unwrap();
     }
     engine.send_eos("swap").unwrap();

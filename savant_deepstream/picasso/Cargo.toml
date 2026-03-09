@@ -17,8 +17,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 savant_core = { path = "../../savant_core/savant_core" }
-deepstream_encoders = { path = "../deepstream_encoders" }
-deepstream_nvbufsurface = { path = "../deepstream_nvbufsurface", features = ["skia"] }
+deepstream_encoders = { path = "../encoders" }
+deepstream_nvbufsurface = { path = "../nvbufsurface", features = ["skia"] }
 gstreamer = { workspace = true }
 skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"] }
 crossbeam = { workspace = true }
@@ -29,6 +29,7 @@ log = { workspace = true }
 
 [dev-dependencies]
 env_logger = "0.11"
+nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
 imagehash = "0.3"

@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y \
     # Protobuf compiler (for prost/tonic codegen)
     protobuf-compiler \
     # Graphics / font libs
+    libva-dev \
     libgl-dev \
     libegl-dev \
     libfontconfig-dev \

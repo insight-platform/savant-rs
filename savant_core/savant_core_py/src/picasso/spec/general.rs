@@ -5,29 +5,45 @@ use pyo3::prelude::*;
 #[pyclass(from_py_object, name = "GeneralSpec", module = "savant_rs.picasso")]
 #[derive(Debug, Clone)]
 pub struct PyGeneralSpec {
+    /// Optional name for this engine instance, used internally for logging and
+    /// future extensibility.
+    #[pyo3(get, set)]
+    pub name: String,
     /// Default idle timeout in seconds before a source is considered for
     /// eviction.
     #[pyo3(get, set)]
     pub idle_timeout_secs: u64,
+    /// Capacity of the per-worker inflight message queue.
+    #[pyo3(get, set)]
+    pub inflight_queue_size: usize,
 }
 
 #[pymethods]
 impl PyGeneralSpec {
     #[new]
-    #[pyo3(signature = (idle_timeout_secs = 30))]
-    fn new(idle_timeout_secs: u64) -> Self {
-        Self { idle_timeout_secs }
+    #[pyo3(signature = (name = "picasso", idle_timeout_secs = 30, inflight_queue_size = 8))]
+    fn new(name: &str, idle_timeout_secs: u64, inflight_queue_size: usize) -> Self {
+        Self {
+            name: name.to_string(),
+            idle_timeout_secs,
+            inflight_queue_size,
+        }
     }
 
     fn __repr__(&self) -> String {
-        format!("GeneralSpec(idle_timeout_secs={})", self.idle_timeout_secs)
+        format!(
+            "GeneralSpec(name={:?}, idle_timeout_secs={}, inflight_queue_size={})",
+            self.name, self.idle_timeout_secs, self.inflight_queue_size
+        )
     }
 }
 
 impl PyGeneralSpec {
     pub(crate) fn to_rust(&self) -> GeneralSpec {
         GeneralSpec {
+            name: self.name.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            inflight_queue_size: self.inflight_queue_size,
         }
     }
 }

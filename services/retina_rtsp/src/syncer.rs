@@ -104,7 +104,7 @@ impl Syncer {
                     duration,
                     second_frame.get_pts()
                 );
-                frame.set_duration(Some(duration));
+                let _ = frame.set_duration(Some(duration));
                 Some((frame, data))
             }
             Ordering::Greater => {

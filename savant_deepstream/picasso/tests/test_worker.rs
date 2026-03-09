@@ -31,6 +31,10 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
+fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
+    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+}
+
 struct CountingBypassCb {
     count: Arc<AtomicUsize>,
 }
@@ -81,11 +85,14 @@ fn worker_drop_spec_discards_frames() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     let frame = make_frame("test-drop");
-    let buf = make_gst_buffer();
-    worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+    let view = make_surface_view();
+    worker
+        .send(WorkerMessage::Frame(frame, view, None))
+        .unwrap();
 
     std::thread::sleep(Duration::from_millis(100));
     assert!(worker.is_alive());
@@ -115,12 +122,15 @@ fn worker_bypass_fires_callback() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     for _ in 0..5 {
         let frame = make_frame("test-bypass");
-        let buf = make_gst_buffer();
-        worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+        let view = make_surface_view();
+        worker
+            .send(WorkerMessage::Frame(frame, view, None))
+            .unwrap();
     }
 
     std::thread::sleep(Duration::from_millis(200));
@@ -152,6 +162,7 @@ fn worker_eos_fires_sentinel_for_bypass() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     worker.send(WorkerMessage::Eos).unwrap();
@@ -178,6 +189,7 @@ fn worker_idle_timeout_terminates() {
         spec,
         callbacks,
         Duration::from_millis(200),
+        16,
     );
 
     std::thread::sleep(Duration::from_millis(500));
@@ -208,12 +220,15 @@ fn worker_spec_update() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     // Send a frame with Drop spec — shouldn't fire bypass
     let frame = make_frame("test-update");
-    let buf = make_gst_buffer();
-    worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+    let view = make_surface_view();
+    worker
+        .send(WorkerMessage::Frame(frame, view, None))
+        .unwrap();
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 0);
 
@@ -230,8 +245,10 @@ fn worker_spec_update() {
     // Now send frames — should fire bypass
     for _ in 0..3 {
         let frame = make_frame("test-update");
-        let buf = make_gst_buffer();
-        worker.send(WorkerMessage::Frame(frame, buf, None)).unwrap();
+        let view = make_surface_view();
+        worker
+            .send(WorkerMessage::Frame(frame, view, None))
+            .unwrap();
     }
     std::thread::sleep(Duration::from_millis(200));
     assert_eq!(bypass_count.load(Ordering::SeqCst), 3);

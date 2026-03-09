@@ -42,7 +42,13 @@ pub trait OnObjectDrawSpec: Send + Sync + 'static {
 }
 
 /// Called with the CUDA pointer of the destination buffer after transform.
+///
+/// `cuda_stream` is the non-blocking CUDA stream handle owned by the
+/// Picasso worker (as a `usize` pointer).  Callers may enqueue GPU work
+/// on this stream; the worker will synchronise the stream before
+/// proceeding to the next pipeline stage.
 pub trait OnGpuMat: Send + Sync + 'static {
+    #[allow(clippy::too_many_arguments)]
     fn call(
         &self,
         source_id: &str,
@@ -51,6 +57,7 @@ pub trait OnGpuMat: Send + Sync + 'static {
         pitch: u32,
         width: u32,
         height: u32,
+        cuda_stream: usize,
     );
 }
 

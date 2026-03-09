@@ -2,9 +2,29 @@ use super::callbacks::PyCallbacks;
 use super::error::to_py_err;
 use super::spec::general::PyGeneralSpec;
 use super::spec::source::PySourceSpec;
-use crate::deepstream::PyRect;
+use crate::deepstream::{PyRect, PySurfaceView};
 use picasso::prelude::PicassoEngine;
 use pyo3::prelude::*;
+
+/// Extracts the GPU device ID from a CuPy array or PyTorch CUDA tensor.
+///
+/// CuPy exposes `obj.device.id`; PyTorch exposes `obj.device.index`.
+/// Returns 0 if the device cannot be determined.
+fn extract_cuda_gpu_id(obj: &Bound<'_, PyAny>) -> u32 {
+    if let Ok(device) = obj.getattr("device") {
+        // CuPy: device.id
+        if let Ok(id) = device.getattr("id").and_then(|v| v.extract::<u32>()) {
+            return id;
+        }
+        // PyTorch: device.index
+        if let Ok(idx) = device.getattr("index") {
+            if let Ok(id) = idx.extract::<u32>() {
+                return id;
+            }
+        }
+    }
+    0
+}
 
 /// The main entry point for the Picasso frame-processing pipeline.
 ///
@@ -59,39 +79,69 @@ impl PyPicassoEngine {
 
     /// Submit a video frame for processing.
     ///
-    /// ``buf_ptr`` is the raw pointer to the ``GstBuffer`` (obtain via
-    /// ``hash(buffer)`` in PyGObject).
-    #[pyo3(signature = (source_id, frame, buf_ptr, src_rect=None))]
+    /// Accepts one of:
+    ///
+    /// - ``SurfaceView`` — the preferred input type.
+    /// - Any object with ``__cuda_array_interface__`` (CuPy array,
+    ///   PyTorch CUDA tensor) — automatically wrapped in a ``SurfaceView``.
+    /// - ``GstBuffer`` or raw ``int`` pointer (legacy API) — the buffer is
+    ///   wrapped with ``SurfaceView.wrap`` (no surface parameter extraction).
+    ///
+    /// Args:
+    ///     source_id (str): Source identifier.
+    ///     frame (VideoFrame): Frame metadata.
+    ///     buf: Surface data (``SurfaceView``, ``__cuda_array_interface__``
+    ///         object, ``GstBuffer``, or ``int``).
+    ///     src_rect (Rect | None): Optional per-frame source crop.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the engine is shut down.
+    ///     TypeError: If ``buf`` is not a supported type.
+    ///     ValueError: If ``buf`` is null.
+    #[pyo3(signature = (source_id, frame, buf, src_rect=None))]
     fn send_frame(
         &self,
         py: Python<'_>,
         source_id: &str,
         frame: &crate::primitives::frame::VideoFrame,
-        buf_ptr: usize,
+        buf: &Bound<'_, PyAny>,
         src_rect: Option<&PyRect>,
     ) -> PyResult<()> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("engine is shut down"))?;
-        if buf_ptr == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
-        }
+
         let frame_proxy = frame.0.clone();
         let src_rect_rust = src_rect.map(|r| r.into_rust());
-        py.detach(|| {
-            let _ = gstreamer::init();
-            // `from_glib_full`: the caller owns the pointer (obtained via
-            // `into_glib_ptr` in acquire_surface), so we take ownership
-            // without incrementing the refcount.  This ensures the buffer
-            // is returned to the pool when the worker drops it.
-            let buf = unsafe {
-                gstreamer::Buffer::from_glib_full(buf_ptr as *mut gstreamer::ffi::GstBuffer)
-            };
-            engine
-                .send_frame(source_id, frame_proxy, buf, src_rect_rust)
-                .map_err(to_py_err)
-        })
+
+        // Dispatch: PySurfaceView → __cuda_array_interface__ → GstBuffer/int
+        if let Ok(mut sv) = buf.extract::<PyRefMut<'_, PySurfaceView>>() {
+            let view = sv.take()?;
+            py.detach(|| {
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        } else if buf.hasattr("__cuda_array_interface__")? {
+            let gpu_id = extract_cuda_gpu_id(buf);
+            let mut py_sv = PySurfaceView::from_cuda_iface(py, buf.clone(), gpu_id)?;
+            let view = py_sv.take()?;
+            py.detach(|| {
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        } else {
+            let gst_buf = crate::deepstream::extract_gst_buffer(buf)?;
+            py.detach(|| {
+                let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&gst_buf, 0)
+                    .unwrap_or_else(|_| deepstream_nvbufsurface::SurfaceView::wrap(gst_buf));
+                engine
+                    .send_frame(source_id, frame_proxy, view, src_rect_rust)
+                    .map_err(to_py_err)
+            })
+        }
     }
 
     /// Send an end-of-stream signal to a specific source.

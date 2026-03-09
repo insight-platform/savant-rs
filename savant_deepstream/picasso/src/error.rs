@@ -26,6 +26,12 @@ pub enum PicassoError {
         encoder_gpu: u32,
     },
 
+    #[error("TransformConfig.cuda_stream must be null; Picasso manages its own CUDA streams")]
+    ExternalCudaStream,
+
+    #[error("Failed to create worker CUDA stream: {0}")]
+    CudaStreamCreationFailed(String),
+
     #[error("Engine is shut down")]
     Shutdown,
 }

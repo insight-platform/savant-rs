@@ -1,7 +1,7 @@
 use crate::callbacks::Callbacks;
 use crate::error::PicassoError;
 use crate::message::WorkerMessage;
-use crate::spec::{GeneralSpec, SourceSpec};
+use crate::spec::{CodecSpec, GeneralSpec, SourceSpec};
 use crate::watchdog::{self, WatchdogSignal};
 use crate::worker::SourceWorker;
 use log::{debug, info};
@@ -24,11 +24,20 @@ pub struct PicassoEngine {
     watchdog: Option<std::thread::JoinHandle<()>>,
 }
 
+const DEFAULT_PICASSO_NAME: &str = "picasso";
+
 impl PicassoEngine {
     /// Create a new engine with the given global defaults and callbacks.
     ///
     /// Spawns the watchdog thread immediately.
     pub fn new(general: GeneralSpec, callbacks: Callbacks) -> Self {
+        let name_display = if general.name.is_empty() {
+            DEFAULT_PICASSO_NAME.to_string()
+        } else {
+            general.name.clone()
+        };
+        info!("PicassoEngine initializing (name={})", name_display);
+
         let callbacks = Arc::new(callbacks);
         let workers: Arc<Mutex<HashMap<String, SourceWorker>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -41,8 +50,8 @@ impl PicassoEngine {
             watchdog::spawn_watchdog(workers.clone(), scan_interval, watchdog_signal.clone());
 
         info!(
-            "PicassoEngine created (idle_timeout={}s)",
-            general.idle_timeout_secs
+            "PicassoEngine initialized (name={}, idle_timeout={}s, queue_size={})",
+            name_display, general.idle_timeout_secs, general.inflight_queue_size
         );
 
         Self {
@@ -64,6 +73,12 @@ impl PicassoEngine {
             return Err(PicassoError::Shutdown);
         }
 
+        if let CodecSpec::Encode { ref transform, .. } = spec.codec {
+            if !transform.cuda_stream.is_null() {
+                return Err(PicassoError::ExternalCudaStream);
+            }
+        }
+
         let mut workers = self.workers.lock();
         if let Some(worker) = workers.get(source_id) {
             worker
@@ -79,6 +94,7 @@ impl PicassoEngine {
                 spec,
                 self.callbacks.clone(),
                 idle_timeout,
+                self.default_spec.inflight_queue_size,
             );
             workers.insert(source_id.to_string(), worker);
         }
@@ -104,7 +120,7 @@ impl PicassoEngine {
         &self,
         source_id: &str,
         frame: savant_core::primitives::frame::VideoFrameProxy,
-        buf: gstreamer::Buffer,
+        view: deepstream_nvbufsurface::SurfaceView,
         src_rect: Option<deepstream_nvbufsurface::Rect>,
     ) -> Result<(), PicassoError> {
         if self.shutdown_flag.load(Ordering::Relaxed) {
@@ -119,11 +135,12 @@ impl PicassoEngine {
                 SourceSpec::default(),
                 self.callbacks.clone(),
                 idle_timeout,
+                self.default_spec.inflight_queue_size,
             )
         });
 
         worker
-            .send(WorkerMessage::Frame(frame, buf, src_rect))
+            .send(WorkerMessage::Frame(frame, view, src_rect))
             .map_err(|_| PicassoError::ChannelDisconnected(source_id.to_string()))?;
 
         Ok(())

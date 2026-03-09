@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "NvBufSurfaceGenerator"):
+if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
     pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
 ds = _ds
 
@@ -13,7 +13,7 @@ ds = _ds
 def _ds_runtime_available() -> bool:
     try:
         ds.init_cuda(0)
-        gen = ds.NvBufSurfaceGenerator("RGBA", 64, 64, pool_size=1)
+        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
         _ = gen.acquire_surface()
         return True
     except Exception:
@@ -26,8 +26,8 @@ skip_no_runtime = pytest.mark.skipif(
 )
 
 
-def _make_gen(fmt: str, w: int, h: int) -> "ds.NvBufSurfaceGenerator":
-    return ds.NvBufSurfaceGenerator(fmt, w, h, pool_size=2)
+def _make_gen(fmt: str, w: int, h: int) -> "ds.DsNvSurfaceBufferGenerator":
+    return ds.DsNvSurfaceBufferGenerator(fmt, w, h, pool_size=2)
 
 
 @skip_no_runtime

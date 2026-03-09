@@ -32,6 +32,7 @@ fn e2e_sustained_multi_source_eos_interleave() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 60,
+            ..Default::default()
         },
         callbacks,
     );
@@ -47,7 +48,7 @@ fn e2e_sustained_multi_source_eos_interleave() {
     for _ in 0..10 {
         for src in &["s1", "s2", "s3", "s4"] {
             engine
-                .send_frame(src, make_frame(src), make_gst_buffer(), None)
+                .send_frame(src, make_frame(src), make_surface_view(), None)
                 .unwrap();
         }
     }
@@ -57,7 +58,7 @@ fn e2e_sustained_multi_source_eos_interleave() {
     for _ in 0..5 {
         for src in &["s2", "s3", "s4"] {
             engine
-                .send_frame(src, make_frame(src), make_gst_buffer(), None)
+                .send_frame(src, make_frame(src), make_surface_view(), None)
                 .unwrap();
         }
     }
@@ -66,7 +67,7 @@ fn e2e_sustained_multi_source_eos_interleave() {
     for _ in 0..5 {
         for src in &["s3", "s4"] {
             engine
-                .send_frame(src, make_frame(src), make_gst_buffer(), None)
+                .send_frame(src, make_frame(src), make_surface_view(), None)
                 .unwrap();
         }
     }

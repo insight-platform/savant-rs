@@ -13,6 +13,7 @@
 //! ```
 
 use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::SurfaceView;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -81,7 +82,7 @@ fn add_objects(frame: &VideoFrameProxy) {
     }
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> gstreamer::Buffer {
+fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> gstreamer::Buffer {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
@@ -132,6 +133,7 @@ fn main() {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -148,9 +150,9 @@ fn main() {
             .unwrap();
     }
 
-    let generators: Vec<NvBufSurfaceGenerator> = (0..num_src)
+    let generators: Vec<DsNvSurfaceBufferGenerator> = (0..num_src)
         .map(|_| {
-            NvBufSurfaceGenerator::new(
+            DsNvSurfaceBufferGenerator::new(
                 VideoFormat::RGBA,
                 WIDTH,
                 HEIGHT,
@@ -169,7 +171,8 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -183,7 +186,8 @@ fn main() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
             let buf = make_buffer(&generators[s], i);
-            engine.send_frame(sid, frame, buf, None).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }
     }

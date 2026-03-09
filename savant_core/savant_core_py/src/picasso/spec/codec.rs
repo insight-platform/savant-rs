@@ -1,5 +1,4 @@
 use crate::deepstream::PyTransformConfig;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::CodecSpec;
 use pyo3::prelude::*;
 
@@ -41,7 +40,7 @@ impl PyCodecSpec {
     /// overlays, then encode.
     #[staticmethod]
     fn encode(transform: &PyTransformConfig, encoder: &PyEncoderConfig) -> Self {
-        let transform_cfg = py_transform_to_rust(transform);
+        let transform_cfg = transform.to_rust();
         Self {
             inner: CodecSpec::Encode {
                 transform: transform_cfg,
@@ -90,14 +89,5 @@ impl PyCodecSpec {
         Self {
             inner: CodecSpec::Drop,
         }
-    }
-}
-
-fn py_transform_to_rust(t: &PyTransformConfig) -> TransformConfig {
-    TransformConfig {
-        padding: t.padding.into(),
-        interpolation: t.interpolation.into(),
-        compute_mode: t.compute_mode.into(),
-        cuda_stream: std::ptr::null_mut(),
     }
 }

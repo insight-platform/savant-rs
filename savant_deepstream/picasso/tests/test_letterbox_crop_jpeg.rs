@@ -212,6 +212,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -233,7 +234,7 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
     };
     engine.set_source_spec(source_id, spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -252,8 +253,9 @@ fn render_gpu_jpeg(source_id: &str, padding: Padding) -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
     engine
-        .send_frame(source_id, frame, buf, Some(crop_rect()))
+        .send_frame(source_id, frame, view, Some(crop_rect()))
         .unwrap();
     engine.send_eos(source_id).unwrap();
 
@@ -413,6 +415,7 @@ fn letterbox_crop_two_sources_one_engine() {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -441,7 +444,7 @@ fn letterbox_crop_two_sources_one_engine() {
         .set_source_spec("dual-str", make_spec(Padding::None))
         .unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         SRC_W,
         SRC_H,
@@ -460,8 +463,9 @@ fn letterbox_crop_two_sources_one_engine() {
             buf_ref.set_pts(gstreamer::ClockTime::ZERO);
             buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
         }
+        let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
         engine
-            .send_frame(src, frame, buf, Some(crop_rect()))
+            .send_frame(src, frame, view, Some(crop_rect()))
             .unwrap();
         engine.send_eos(src).unwrap();
     }

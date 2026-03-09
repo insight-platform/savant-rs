@@ -40,7 +40,12 @@ from dataclasses import dataclass
 
 import skia
 
-from savant_rs.deepstream import SkiaCanvas, VideoFormat, nvgstbuf_as_gpu_mat  # noqa: E402
+from savant_rs.deepstream import (
+    SkiaCanvas,
+    SurfaceView,
+    VideoFormat,
+    nvgstbuf_as_gpu_mat,
+)  # noqa: E402
 from savant_rs.draw_spec import (  # noqa: E402
     BoundingBoxDraw,
     ColorDraw,
@@ -340,20 +345,21 @@ def main() -> None:
     i = 0
     while i < session.limit and session.is_running:
         try:
-            buf_ptr = session.acquire_surface(frame_id=i)
+            buf = session.acquire_surface(frame_id=i)
         except Exception as e:
             print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
             break
 
-        with nvgstbuf_as_gpu_mat(buf_ptr) as (mat, stream):
+        with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
             mat.setTo((18, 20, 28, 255), stream=stream)
 
+        view = SurfaceView.from_buffer(buf, 0)
         pts_ns = i * session.frame_duration_ns
         frame = session.make_frame(pts_ns=pts_ns, duration_ns=session.frame_duration_ns)
         add_objects(frame, scene_w, float(h), i)
 
         try:
-            session.send_frame(frame, buf_ptr)
+            session.send_frame(frame, view)
             i += 1
         except Exception as e:
             print(f"Submit failed at frame {i}: {e}", file=sys.stderr)

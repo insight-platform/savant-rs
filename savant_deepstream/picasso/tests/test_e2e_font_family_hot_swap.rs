@@ -47,6 +47,7 @@ fn e2e_font_family_hot_swap() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -63,7 +64,7 @@ fn e2e_font_family_hot_swap() {
     };
     engine.set_source_spec("font", spec1).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -79,7 +80,7 @@ fn e2e_font_family_hot_swap() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         add_object(&frame, 100.0, 100.0, 50.0, 30.0);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("font", frame, buf, None).unwrap();
     }
     std::thread::sleep(Duration::from_secs(1));
@@ -100,7 +101,7 @@ fn e2e_font_family_hot_swap() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         add_object(&frame, 200.0, 200.0, 60.0, 40.0);
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine.send_frame("font", frame, buf, None).unwrap();
     }
     engine.send_eos("font").unwrap();

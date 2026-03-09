@@ -17,5 +17,6 @@ pub use message::{BypassOutput, EncodedOutput};
 pub use pipeline::encode::rewrite_frame_transformations;
 pub use savant_core::primitives::eos::EndOfStream;
 pub use spec::{
-    CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec,
+    CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
+    ObjectDrawSpec, SourceSpec,
 };

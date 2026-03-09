@@ -82,6 +82,7 @@ fn e2e_mixed_codecs() {
     let mut engine = PicassoEngine::new(
         GeneralSpec {
             idle_timeout_secs: 300,
+            ..Default::default()
         },
         callbacks,
     );
@@ -118,7 +119,7 @@ fn e2e_mixed_codecs() {
     };
     engine.set_source_spec("cam-encode", enc_spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -133,20 +134,20 @@ fn e2e_mixed_codecs() {
         // Drop: stub buffer
         let frame_drop = make_frame("cam-drop");
         engine
-            .send_frame("cam-drop", frame_drop, make_gst_buffer(), None)
+            .send_frame("cam-drop", frame_drop, make_surface_view(), None)
             .unwrap();
 
         // Bypass: stub buffer
         let frame_bypass = make_frame("cam-bypass");
         engine
-            .send_frame("cam-bypass", frame_bypass, make_gst_buffer(), None)
+            .send_frame("cam-bypass", frame_bypass, make_surface_view(), None)
             .unwrap();
 
         // Encode: GPU buffer
         let mut frame_enc = make_frame_sized("cam-encode", W as i64, H as i64);
         frame_enc.set_pts((i * DUR) as i64).unwrap();
         frame_enc.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_buffer(&gen, i, DUR);
+        let buf = make_gpu_surface_view(&gen, i, DUR);
         engine
             .send_frame("cam-encode", frame_enc, buf, None)
             .unwrap();

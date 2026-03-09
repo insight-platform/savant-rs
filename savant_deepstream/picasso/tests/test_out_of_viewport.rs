@@ -104,14 +104,14 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     frame
 }
 
-fn make_buffer(gen: &NvBufSurfaceGenerator, idx: u64) -> gstreamer::Buffer {
+fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
     let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
     {
         let buf_ref = buf.make_mut();
         buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
     }
-    buf
+    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
 struct EncodedCounter(Arc<AtomicUsize>);
@@ -189,6 +189,7 @@ fn out_of_viewport_objects_do_not_crash() {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -205,7 +206,7 @@ fn out_of_viewport_objects_do_not_crash() {
     };
     engine.set_source_spec("oob", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -268,6 +269,7 @@ fn all_oob_objects_on_single_frame() {
 
     let general = GeneralSpec {
         idle_timeout_secs: 300,
+        ..Default::default()
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
@@ -284,7 +286,7 @@ fn all_oob_objects_on_single_frame() {
     };
     engine.set_source_spec("oob-all", spec).unwrap();
 
-    let gen = NvBufSurfaceGenerator::new(
+    let gen = DsNvSurfaceBufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
