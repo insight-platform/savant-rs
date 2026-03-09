@@ -37,6 +37,11 @@ fn assets_dir() -> PathBuf {
 
 /// Place `count` non-overlapping `w x h` rectangles on a `fw x fh` canvas.
 /// Returns `(left, top)` for each placement. Panics if placement fails.
+/// `gstnvinfer.cpp` applies `GST_ROUND_UP_2` to crop coordinates, shifting
+/// odd left/top by 1 pixel and misaligning the crop window.  Snapping
+/// placements to even pixels avoids this.
+const ALIGN: u32 = 2;
+
 fn place_non_overlapping(
     rng: &mut SmallRng,
     fw: u32,
@@ -46,12 +51,12 @@ fn place_non_overlapping(
     count: usize,
 ) -> Vec<(u32, u32)> {
     let mut placed: Vec<(u32, u32)> = Vec::with_capacity(count);
-    let max_x = fw - w;
-    let max_y = fh - h;
+    let max_x = (fw - w) / ALIGN;
+    let max_y = (fh - h) / ALIGN;
     for _ in 0..count {
         for attempt in 0..10_000 {
-            let x = rng.random_range(0..=max_x);
-            let y = rng.random_range(0..=max_y);
+            let x = rng.random_range(0..=max_x) * ALIGN;
+            let y = rng.random_range(0..=max_y) * ALIGN;
             let overlaps = placed
                 .iter()
                 .any(|&(px, py)| x < px + w && x + w > px && y < py + h && y + h > py);
@@ -386,4 +391,131 @@ fn test_age_gender_e2e_real_images() {
         pass_count += 1;
     }
     eprintln!("\n  All {pass_count}/{num_faces} faces passed age/gender validation.");
+}
+
+/// Run inference with two different random seeds (different placements, both
+/// even-aligned) and verify that per-face TRT ages are bit-identical.
+#[test]
+fn test_age_gender_placement_independence() {
+    common::init();
+
+    let assets = assets_dir();
+    let gt_path = assets.join("age_gender/ground_truth.json");
+    if !gt_path.exists() {
+        eprintln!("Skipping: ground_truth.json not found");
+        return;
+    }
+    let engine = match age_gender_engine_1080p() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let gt_text = std::fs::read_to_string(&gt_path).expect("read ground_truth.json");
+    let gt: HashMap<String, GroundTruth> =
+        serde_json::from_str(&gt_text).expect("parse ground_truth.json");
+    let images = load_face_images(&assets.join("age_gender"));
+    let num_faces = images.len();
+
+    let run = |seed: u64, batch_id: u64| -> Vec<f32> {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let placements =
+            place_non_overlapping(&mut rng, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
+
+        let stride = FRAME_W as usize * 4;
+        let mut canvas = vec![0u8; stride * FRAME_H as usize];
+        for ((_, rgba), &(x, y)) in images.iter().zip(&placements) {
+            for row in 0..FACE_SZ as usize {
+                let dst_off = (y as usize + row) * stride + x as usize * 4;
+                let src_off = row * FACE_SZ as usize * 4;
+                canvas[dst_off..dst_off + FACE_SZ as usize * 4]
+                    .copy_from_slice(&rgba[src_off..src_off + FACE_SZ as usize * 4]);
+            }
+        }
+
+        let src_gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, FRAME_W, FRAME_H)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator");
+
+        let (src_buf, data_ptr, pitch) = src_gen.acquire_surface_with_ptr(Some(0)).unwrap();
+        unsafe {
+            cuMemsetD8_v2(data_ptr as u64, 0, (pitch * FRAME_H) as usize);
+        }
+        for row in 0..FRAME_H {
+            let gpu_dst = data_ptr as u64 + row as u64 * pitch as u64;
+            let cpu_src = &canvas[row as usize * stride..(row as usize + 1) * stride];
+            let ret = unsafe { cuMemcpyHtoD_v2(gpu_dst, cpu_src.as_ptr(), stride) };
+            assert_eq!(ret, 0);
+        }
+
+        let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+            VideoFormat::RGBA,
+            FRAME_W,
+            FRAME_H,
+            32,
+            2,
+            0,
+            NvBufSurfaceMemType::Default,
+        )
+        .expect("batched generator");
+        let config = TransformConfig::default();
+        let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+        batch.fill_slot(&src_buf, None, Some(0)).unwrap();
+        batch.finalize().unwrap();
+        let gst_buffer = batch.as_gst_buffer().unwrap();
+
+        let roi_vec: Vec<Roi> = placements
+            .iter()
+            .enumerate()
+            .map(|(i, &(x, y))| Roi {
+                id: i as i64,
+                rect: Rect {
+                    left: x,
+                    top: y,
+                    width: FACE_SZ,
+                    height: FACE_SZ,
+                },
+            })
+            .collect();
+        let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
+
+        let output = engine
+            .infer_sync(gst_buffer, batch_id, Some(&rois))
+            .expect("infer_sync");
+
+        output
+            .elements()
+            .iter()
+            .map(|elem| {
+                let age_tensor = elem.tensors.iter().find(|t| t.name == "age").unwrap();
+                decode_age(age_tensor).unwrap()
+            })
+            .collect()
+    };
+
+    let ages_seed42 = run(42, 1);
+    let ages_seed99 = run(99, 2);
+
+    eprintln!(
+        "\n  {:>16}  {:>7}  {:>7}  {:>7}  {:>6}",
+        "file", "GT", "s=42", "s=99", "delta"
+    );
+    eprintln!("  {}", "-".repeat(58));
+    for (i, (fname, _)) in images.iter().enumerate() {
+        let g = gt[fname].age;
+        let a1 = ages_seed42[i];
+        let a2 = ages_seed99[i];
+        let delta = (a1 - a2).abs();
+        eprintln!(
+            "  {fname:>16}  {g:7.2}  {a1:7.2}  {a2:7.2}  {delta:6.4}",
+        );
+        assert!(
+            delta < 1e-4,
+            "{fname}: ages differ between seeds (s42={a1:.4}, s99={a2:.4}, delta={delta:.6})"
+        );
+    }
+    eprintln!("\n  All {num_faces} faces: bit-identical across seeds.");
 }

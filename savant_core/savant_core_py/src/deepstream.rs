@@ -595,6 +595,17 @@ impl PyDsNvBufSurfaceGstBuffer {
                 )
             })
     }
+
+    /// Take exclusive ownership of the inner `gst::Buffer`, leaving the
+    /// guard empty.  Returns `Err` if already consumed.
+    pub(crate) fn take_buffer(&mut self) -> PyResult<gst::Buffer> {
+        self.inner.take().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "DsNvBufSurfaceGstBuffer has already been consumed via take(); \
+                 create a new one with as_gst_buffer() or from_ptr()",
+            )
+        })
+    }
 }
 
 #[pymethods]

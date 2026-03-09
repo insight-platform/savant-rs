@@ -1,0 +1,393 @@
+"""E2E tests for savant_rs.nvinfer — uniform and nonuniform batching."""
+
+import json
+import os
+import random
+import threading
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pytest
+
+try:
+    from savant_rs.nvinfer import (
+        NvInfer,
+        NvInferConfig,
+        Roi,
+    )
+    from savant_rs.deepstream import (
+        DsNvNonUniformSurfaceBuffer,
+        DsNvSurfaceBufferGenerator,
+        DsNvUniformSurfaceBufferGenerator,
+        Rect,
+        TransformConfig,
+        init_cuda,
+        nvbuf_as_gpu_mat,
+    )
+
+    HAS_DS = True
+except ImportError:
+    HAS_DS = False
+
+pytestmark = pytest.mark.skipif(not HAS_DS, reason="DeepStream runtime not available")
+
+ASSETS_DIR = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    "savant_deepstream",
+    "nvinfer",
+    "assets",
+)
+
+FRAME_W = 1920
+FRAME_H = 1080
+FACE_SZ = 112
+AGE_TOLERANCE = 15.0
+
+
+def _has_assets() -> bool:
+    return os.path.isdir(os.path.join(ASSETS_DIR, "age_gender"))
+
+
+def _has_model() -> bool:
+    return os.path.isfile(
+        os.path.join(ASSETS_DIR, "age_gender_mobilenet_v2_dynBatch.onnx")
+    )
+
+
+def age_gender_properties() -> Dict[str, str]:
+    d = ASSETS_DIR
+    return {
+        "gpu-id": "0",
+        "gie-unique-id": "2",
+        "net-scale-factor": "0.007843137254902",
+        "offsets": "127.5;127.5;127.5",
+        "onnx-file": os.path.join(d, "age_gender_mobilenet_v2_dynBatch.onnx"),
+        "model-engine-file": os.path.join(
+            d,
+            "age_gender_mobilenet_v2_dynBatch.onnx_b32_gpu0_fp16.engine",
+        ),
+        "batch-size": "32",
+        "network-mode": "2",
+        "network-type": "100",
+        "infer-dims": "3;112;112",
+        "model-color-format": "0",
+    }
+
+
+def load_face_images() -> List[Tuple[str, np.ndarray]]:
+    from PIL import Image
+
+    images_dir = os.path.join(ASSETS_DIR, "age_gender")
+    entries = sorted(
+        f
+        for f in os.listdir(images_dir)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+    )
+    result = []
+    for fname in entries:
+        img = Image.open(os.path.join(images_dir, fname)).convert("RGBA")
+        arr = np.array(img)
+        assert arr.shape[:2] == (FACE_SZ, FACE_SZ), f"{fname}: unexpected size"
+        result.append((fname, arr))
+    return result
+
+
+ALIGN = 2
+
+
+def place_non_overlapping(
+    faces: List[np.ndarray],
+    canvas_w: int,
+    canvas_h: int,
+    rng: random.Random,
+) -> List[Tuple[int, int, int, int]]:
+    """Return (left, top, width, height) for each face, snapped to ALIGN-pixel grid.
+
+    gstnvinfer.cpp applies GST_ROUND_UP_2 to crop_rect_params left/top,
+    shifting odd coordinates by 1 pixel and misaligning the crop window.
+    Snapping placements to even pixels avoids this.
+    """
+    placements: List[Tuple[int, int, int, int]] = []
+    for face in faces:
+        fh, fw = face.shape[:2]
+        max_x = (canvas_w - fw) // ALIGN
+        max_y = (canvas_h - fh) // ALIGN
+        for attempt in range(10_000):
+            x = rng.randint(0, max_x) * ALIGN
+            y = rng.randint(0, max_y) * ALIGN
+            overlaps = any(
+                x < px + pw and x + fw > px and y < py + ph and y + fh > py
+                for px, py, pw, ph in placements
+            )
+            if not overlaps:
+                placements.append((x, y, fw, fh))
+                break
+            if attempt == 9_999:
+                raise RuntimeError(
+                    f"Failed to place face {len(placements)} without overlap"
+                )
+    return placements
+
+
+def decode_age(tensor_data: np.ndarray) -> float:
+    """Expected-value decoding: model already outputs softmax probabilities."""
+    probs = tensor_data.astype(np.float32)
+    return float(np.dot(probs, np.arange(101)))
+
+
+def decode_gender(tensor_data: np.ndarray) -> str:
+    data = tensor_data.astype(np.float32)
+    idx = int(np.argmax(data))
+    return "male" if idx == 0 else "female"
+
+
+# ── Tests ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(
+    not _has_assets() or not _has_model(), reason="Model assets missing"
+)
+def test_age_gender_e2e_real_images():
+    """Mirror of test_age_gender.rs::test_age_gender_e2e_real_images."""
+    init_cuda(0)
+
+    gt_path = os.path.join(ASSETS_DIR, "age_gender", "ground_truth.json")
+    if not os.path.isfile(gt_path):
+        pytest.skip("ground_truth.json not found (run generate_age_gender_gt.py)")
+
+    with open(gt_path) as f:
+        gt: Dict = json.load(f)
+
+    images = load_face_images()
+    num_faces = len(images)
+    assert num_faces > 0, "no face images found"
+    for fname, _ in images:
+        assert fname in gt, f"no GT entry for {fname}"
+
+    rng = random.Random(42)
+    placements = place_non_overlapping(
+        [arr for _, arr in images], FRAME_W, FRAME_H, rng
+    )
+
+    # Build CPU composite canvas (RGBA, 1920x1080)
+    canvas = np.zeros((FRAME_H, FRAME_W, 4), dtype=np.uint8)
+    for (_, rgba), (x, y, fw, fh) in zip(images, placements):
+        canvas[y : y + fh, x : x + fw] = rgba
+
+    # Upload canvas to GPU surface
+    src_gen = DsNvSurfaceBufferGenerator(
+        format="RGBA",
+        width=FRAME_W,
+        height=FRAME_H,
+        gpu_id=0,
+        pool_size=1,
+    )
+    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+        gpu_mat.upload(np.ascontiguousarray(canvas), stream)
+
+    # Create batched surface with one 1920x1080 slot
+    batched_gen = DsNvUniformSurfaceBufferGenerator(
+        format="RGBA",
+        width=FRAME_W,
+        height=FRAME_H,
+        max_batch_size=32,
+        pool_size=2,
+        gpu_id=0,
+    )
+    config = TransformConfig()
+    batch = batched_gen.acquire_batched_surface(config)
+    batch.fill_slot(src_buf, id=0)
+    batch.finalize()
+    gst_buffer = batch.as_gst_buffer()
+
+    # Build ROIs
+    rois: Dict[int, list] = {
+        0: [
+            Roi(i, Rect(top=y, left=x, width=fw, height=fh))
+            for i, (x, y, fw, fh) in enumerate(placements)
+        ]
+    }
+
+    # Engine
+    props = age_gender_properties()
+    nvinfer_config = NvInferConfig(
+        nvinfer_properties=props,
+        input_format="RGBA",
+        input_width=FRAME_W,
+        input_height=FRAME_H,
+    )
+    engine = NvInfer(nvinfer_config, callback=lambda _output: None)
+
+    try:
+        output = engine.infer_sync(batch=gst_buffer, batch_id=1, rois=rois)
+
+        assert output.batch_id == 1
+        assert output.num_elements == num_faces, (
+            f"expected {num_faces} elements, got {output.num_elements}"
+        )
+
+        pass_count = 0
+        for i, elem in enumerate(output.elements):
+            fname = images[i][0]
+            expected = gt[fname]
+
+            assert elem.roi_id == i, f"{fname}: roi_id mismatch"
+            assert len(elem.tensors) >= 2, (
+                f"{fname}: expected >= 2 output tensors, got {len(elem.tensors)}"
+            )
+
+            age_tensor = next((t for t in elem.tensors if t.name == "age"), None)
+            gender_tensor = next((t for t in elem.tensors if t.name == "gender"), None)
+            assert age_tensor is not None, f"{fname}: missing 'age' tensor"
+            assert gender_tensor is not None, f"{fname}: missing 'gender' tensor"
+
+            trt_age = decode_age(age_tensor.as_numpy())
+            trt_gender = decode_gender(gender_tensor.as_numpy())
+
+            age_diff = abs(trt_age - expected["age"])
+            print(
+                f"  {fname}: TRT age={trt_age:.1f} gender={trt_gender}  |  "
+                f"GT age={expected['age']:.1f} gender={expected['gender']}  |  "
+                f"age_diff={age_diff:.1f}"
+            )
+
+            assert age_diff < AGE_TOLERANCE, (
+                f"{fname}: age diff {age_diff:.1f} exceeds tolerance {AGE_TOLERANCE} "
+                f"(TRT={trt_age:.2f}, GT={expected['age']:.2f})"
+            )
+            assert trt_gender == expected["gender"], (
+                f"{fname}: gender mismatch (TRT={trt_gender}, GT={expected['gender']})"
+            )
+            pass_count += 1
+
+        print(f"\n  All {pass_count}/{num_faces} faces passed age/gender validation.")
+    finally:
+        engine.shutdown()
+
+
+@pytest.mark.skipif(
+    not _has_assets() or not _has_model(), reason="Model assets missing"
+)
+def test_age_gender_e2e_nonuniform_callback():
+    """Nonuniform batch with async submit + callback API."""
+    init_cuda(0)
+
+    gt_path = os.path.join(ASSETS_DIR, "age_gender", "ground_truth.json")
+    if not os.path.isfile(gt_path):
+        pytest.skip("ground_truth.json not found (run generate_age_gender_gt.py)")
+
+    with open(gt_path) as f:
+        gt: Dict = json.load(f)
+
+    images = load_face_images()
+    num_faces = len(images)
+    assert num_faces > 0, "no face images found"
+    for fname, _ in images:
+        assert fname in gt, f"no GT entry for {fname}"
+
+    rng = random.Random(42)
+    placements = place_non_overlapping(
+        [arr for _, arr in images], FRAME_W, FRAME_H, rng
+    )
+
+    # Build CPU composite canvas (RGBA, 1920x1080) — same as uniform test
+    canvas = np.zeros((FRAME_H, FRAME_W, 4), dtype=np.uint8)
+    for (_, rgba), (x, y, fw, fh) in zip(images, placements):
+        canvas[y : y + fh, x : x + fw] = rgba
+
+    # Upload canvas to GPU surface
+    src_gen = DsNvSurfaceBufferGenerator(
+        format="RGBA",
+        width=FRAME_W,
+        height=FRAME_H,
+        gpu_id=0,
+        pool_size=1,
+    )
+    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+        gpu_mat.upload(np.ascontiguousarray(canvas), stream)
+
+    # Assemble batch via DsNvNonUniformSurfaceBuffer (zero-copy add)
+    batch = DsNvNonUniformSurfaceBuffer(max_batch_size=32, gpu_id=0)
+    batch.add(src_buf, id=0)
+    batch.finalize()
+    gst_buffer = batch.as_gst_buffer()
+    del batch, src_buf, src_gen
+
+    # Build ROIs
+    rois: Dict[int, list] = {
+        0: [
+            Roi(i, Rect(top=y, left=x, width=fw, height=fh))
+            for i, (x, y, fw, fh) in enumerate(placements)
+        ]
+    }
+
+    # Callback captures the output; event signals completion
+    result_holder: List = []
+    done = threading.Event()
+
+    def on_output(output):
+        result_holder.append(output)
+        done.set()
+
+    props = age_gender_properties()
+    nvinfer_config = NvInferConfig(
+        nvinfer_properties=props,
+        input_format="RGBA",
+        input_width=FRAME_W,
+        input_height=FRAME_H,
+    )
+    engine = NvInfer(nvinfer_config, callback=on_output)
+
+    try:
+        engine.submit(batch=gst_buffer, batch_id=3, rois=rois)
+
+        assert done.wait(timeout=30), "callback not invoked within 30 s"
+        assert len(result_holder) == 1, f"expected 1 callback, got {len(result_holder)}"
+        output = result_holder[0]
+
+        assert output.batch_id == 3
+        assert output.num_elements == num_faces, (
+            f"expected {num_faces} elements, got {output.num_elements}"
+        )
+
+        pass_count = 0
+        for i, elem in enumerate(output.elements):
+            fname = images[i][0]
+            expected = gt[fname]
+
+            assert elem.roi_id == i, f"{fname}: roi_id mismatch"
+            assert len(elem.tensors) >= 2, (
+                f"{fname}: expected >= 2 output tensors, got {len(elem.tensors)}"
+            )
+
+            age_tensor = next((t for t in elem.tensors if t.name == "age"), None)
+            gender_tensor = next((t for t in elem.tensors if t.name == "gender"), None)
+            assert age_tensor is not None, f"{fname}: missing 'age' tensor"
+            assert gender_tensor is not None, f"{fname}: missing 'gender' tensor"
+
+            trt_age = decode_age(age_tensor.as_numpy())
+            trt_gender = decode_gender(gender_tensor.as_numpy())
+
+            age_diff = abs(trt_age - expected["age"])
+            print(
+                f"  {fname}: TRT age={trt_age:.1f} gender={trt_gender}  |  "
+                f"GT age={expected['age']:.1f} gender={expected['gender']}  |  "
+                f"age_diff={age_diff:.1f}"
+            )
+
+            assert age_diff < AGE_TOLERANCE, (
+                f"{fname}: age diff {age_diff:.1f} exceeds tolerance {AGE_TOLERANCE} "
+                f"(TRT={trt_age:.2f}, GT={expected['age']:.2f})"
+            )
+            assert trt_gender == expected["gender"], (
+                f"{fname}: gender mismatch (TRT={trt_gender}, GT={expected['gender']})"
+            )
+            pass_count += 1
+
+        print(f"\n  All {pass_count}/{num_faces} faces passed age/gender validation.")
+    finally:
+        engine.shutdown()
