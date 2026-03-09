@@ -85,6 +85,7 @@ fn worker_drop_spec_discards_frames() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     let frame = make_frame("test-drop");
@@ -121,6 +122,7 @@ fn worker_bypass_fires_callback() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     for _ in 0..5 {
@@ -160,6 +162,7 @@ fn worker_eos_fires_sentinel_for_bypass() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     worker.send(WorkerMessage::Eos).unwrap();
@@ -186,6 +189,7 @@ fn worker_idle_timeout_terminates() {
         spec,
         callbacks,
         Duration::from_millis(200),
+        16,
     );
 
     std::thread::sleep(Duration::from_millis(500));
@@ -216,6 +220,7 @@ fn worker_spec_update() {
         spec,
         callbacks,
         Duration::from_secs(60),
+        16,
     );
 
     // Send a frame with Drop spec — shouldn't fire bypass

@@ -127,6 +127,7 @@ fn leak_worker_lifecycle_churn() {
             bypass_spec(),
             callbacks.clone(),
             Duration::from_secs(60),
+            16,
         );
         w.send(WorkerMessage::Frame(
             make_frame(&format!("warmup-{i}"), 320, 240),
@@ -150,6 +151,7 @@ fn leak_worker_lifecycle_churn() {
             bypass_spec(),
             callbacks.clone(),
             Duration::from_secs(60),
+            16,
         );
         for j in 0..10 {
             let _ = w.send(WorkerMessage::Frame(
@@ -200,6 +202,7 @@ fn leak_sustained_bypass_frames() {
         bypass_spec(),
         callbacks,
         Duration::from_secs(120),
+        16,
     );
 
     // Warm-up

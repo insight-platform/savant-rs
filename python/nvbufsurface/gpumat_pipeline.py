@@ -153,7 +153,11 @@ class GpuMatRenderer:
         pitch: int,
         width: int,
         height: int,
+        cuda_stream: int,
     ) -> None:
+        # cuda_stream is the worker's CUDA stream; nvbuf_as_gpu_mat creates its
+        # own cv2.cuda.Stream for OpenCV ops — use cuda_stream if integrating
+        # with raw CUDA APIs.
         with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (gpumat, stream):
             draw_frame(gpumat, stream, self._rect, self._frame_idx)
         self._frame_idx += 1

@@ -76,12 +76,11 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
          3. GPU transform via view.buffer() (generator.transform / transform_with_ptr)
          4. Unlock encoder
          5. rewrite_frame_transformations (coordinate mapping)
-         6. (if render) resolve draw specs per object
-         7. (if render) SkiaRenderer.load_from_nvbuf / from_nvbuf
-         8. (if render) draw objects on Skia canvas
-         9. (if render + use_on_render) fire on_render callback
-        10. (if render) render_to_nvbuf (Skia → GPU surface)
-        11. (if use_on_gpumat) fire on_gpumat callback
+         6. Skia + on_gpumat order per CallbackInvocationOrder:
+            - SkiaGpuMat: Skia (draw specs, load_from_nvbuf, draw, on_render, render_to_nvbuf) then on_gpumat
+            - GpuMatSkia: on_gpumat then Skia
+            - GpuMatSkiaGpuMat: on_gpumat → Skia → on_gpumat
+            (each on_gpumat receives worker's cuda_stream; cudaStreamSynchronize after each)
         12. Lock encoder, submit_frame
         13. Insert into pending_frames (only after successful submit)
         14. Drain thread pulls output independently

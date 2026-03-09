@@ -206,8 +206,9 @@ class PicassoSession:
     Optional *on_gpumat* / *on_render* callbacks enable custom GPU drawing
     inside the Picasso worker thread:
 
-    - ``on_gpumat(source_id, frame, data_ptr, pitch, width, height)`` —
-      raw CUDA pointer for OpenCV CUDA drawing.
+    - ``on_gpumat(source_id, frame, data_ptr, pitch, width, height, cuda_stream)`` —
+      raw CUDA pointer for OpenCV CUDA drawing; *cuda_stream* is the worker's
+      CUDA stream (int) for enqueueing GPU operations.
     - ``on_render(source_id, fbo_id, width, height, frame)`` —
       OpenGL FBO for Skia / GL drawing.
 

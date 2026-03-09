@@ -819,9 +819,10 @@ class TestOnGpuMat:
             pitch: int,
             width: int,
             height: int,
+            cuda_stream: int,
         ) -> None:
             with lock:
-                gpumat_calls.append((source_id, data_ptr, pitch, width, height))
+                gpumat_calls.append((source_id, data_ptr, pitch, width, height, cuda_stream))
 
         callbacks = Callbacks(on_gpumat=on_gpumat)
         spec = build_source_spec(use_gpumat=True)
@@ -843,11 +844,12 @@ class TestOnGpuMat:
         engine.shutdown()
 
         assert len(gpumat_calls) >= 3
-        for source_id, data_ptr, pitch, w, h in gpumat_calls:
+        for source_id, data_ptr, pitch, w, h, cuda_stream in gpumat_calls:
             assert source_id == "src-0"
             assert data_ptr != 0
             assert w == WIDTH
             assert h == HEIGHT
+            assert cuda_stream != 0, "cuda_stream should be non-zero"
 
     def test_on_gpumat_does_not_fire_when_disabled(self) -> None:
         """OnGpuMat does not fire when use_on_gpumat=False."""
@@ -863,6 +865,7 @@ class TestOnGpuMat:
             pitch: int,
             width: int,
             height: int,
+            cuda_stream: int,
         ) -> None:
             with lock:
                 gpumat_calls.append((source_id, data_ptr))

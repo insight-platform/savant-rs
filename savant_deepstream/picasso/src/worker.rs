@@ -6,7 +6,7 @@ use crate::skia::context::DrawContext;
 use crate::spec::{CodecSpec, SourceSpec};
 use crossbeam::channel::{Receiver, Sender};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::SkiaRenderer;
+use deepstream_nvbufsurface::{create_cuda_stream, destroy_cuda_stream, SkiaRenderer};
 use log::{debug, error, info, warn};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -92,7 +92,14 @@ struct WorkerState {
     pending_frames: SharedPendingFrames,
     /// Background thread that pulls encoded output from the encoder.
     drain_handle: Option<DrainHandle>,
+    /// Non-blocking CUDA stream owned by this worker, created alongside
+    /// the encoder and destroyed when the encoder is stopped.
+    cuda_stream: *mut std::ffi::c_void,
 }
+
+// Safety: cuda_stream is only used within the worker thread that created it
+// and the same GPU context. The raw pointer is never shared across threads.
+unsafe impl Send for WorkerState {}
 
 impl WorkerState {
     fn process_frame(
@@ -148,9 +155,12 @@ impl WorkerState {
         };
 
         let gpu_id = encoder_config.gpu_id;
-        let transform = transform.clone();
+        let mut transform = transform.clone();
         let encoder_config = encoder_config.clone();
         self.ensure_encoder(&encoder_config);
+
+        // Override the TransformConfig's CUDA stream with the worker's own stream.
+        transform.cuda_stream = self.cuda_stream;
 
         if let Some(enc) = &self.encoder {
             let mut render_opts = if should_render {
@@ -175,6 +185,8 @@ impl WorkerState {
                 render_opts.as_mut(),
                 &self.pending_frames,
                 src_rect.as_ref(),
+                self.spec.callback_order,
+                self.cuda_stream,
             ) {
                 error!("encode error: source={}, err={e}", self.source_id);
             }
@@ -186,6 +198,23 @@ impl WorkerState {
         if self.encoder.is_some() {
             return;
         }
+
+        if self.cuda_stream.is_null() {
+            match create_cuda_stream() {
+                Ok(stream) => {
+                    info!("CUDA stream created: source={}", self.source_id);
+                    self.cuda_stream = stream;
+                }
+                Err(e) => {
+                    error!(
+                        "CUDA stream creation failed: source={}, err={e}",
+                        self.source_id
+                    );
+                    return;
+                }
+            }
+        }
+
         match NvEncoder::new(config) {
             Ok(enc) => {
                 info!("encoder created: source={}", self.source_id);
@@ -217,6 +246,17 @@ impl WorkerState {
             let mut enc = shared_enc.lock();
             let mut pending = self.pending_frames.lock();
             drain_and_finish(&self.source_id, &mut enc, &self.callbacks, &mut pending);
+        }
+        if !self.cuda_stream.is_null() {
+            if let Err(e) = unsafe { destroy_cuda_stream(self.cuda_stream) } {
+                warn!(
+                    "Failed to destroy CUDA stream: source={}, err={e}",
+                    self.source_id
+                );
+            } else {
+                debug!("CUDA stream destroyed: source={}", self.source_id);
+            }
+            self.cuda_stream = std::ptr::null_mut();
         }
     }
 
@@ -272,6 +312,7 @@ fn worker_loop(
         draw_ctx,
         pending_frames: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         drain_handle: None,
+        cuda_stream: std::ptr::null_mut(),
     };
 
     info!("worker started: source={source_id}");

@@ -31,6 +31,7 @@ fn e2e_per_source_idle_timeout() {
         },
         callbacks.clone(),
         Duration::from_secs(1),
+        16,
     );
 
     let worker_slow = SourceWorker::spawn(
@@ -42,6 +43,7 @@ fn e2e_per_source_idle_timeout() {
         },
         callbacks.clone(),
         Duration::from_secs(60),
+        16,
     );
 
     worker_fast

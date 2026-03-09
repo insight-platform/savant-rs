@@ -18,6 +18,7 @@ if not hasattr(ds, "PicassoEngine"):
     )
 
 from savant_rs.picasso import (
+    CallbackInvocationOrder,
     Callbacks,
     CodecSpec,
     ConditionalSpec,
@@ -183,6 +184,7 @@ class TestSourceSpec:
         assert spec.idle_timeout_secs is None
         assert spec.use_on_render is False
         assert spec.use_on_gpumat is False
+        assert spec.callback_order == CallbackInvocationOrder.SkiaGpuMat
         assert spec.codec.is_drop is True
 
     def test_with_drop_codec(self) -> None:
@@ -213,6 +215,37 @@ class TestSourceSpec:
     def test_use_on_gpumat(self) -> None:
         spec = SourceSpec(use_on_gpumat=True)
         assert spec.use_on_gpumat is True
+
+    def test_callback_order_default(self) -> None:
+        spec = SourceSpec()
+        assert spec.callback_order == CallbackInvocationOrder.SkiaGpuMat
+
+    def test_callback_order_gpu_mat_skia(self) -> None:
+        spec = SourceSpec(callback_order=CallbackInvocationOrder.GpuMatSkia)
+        assert spec.callback_order == CallbackInvocationOrder.GpuMatSkia
+
+    def test_callback_order_gpu_mat_skia_gpu_mat(self) -> None:
+        spec = SourceSpec(callback_order=CallbackInvocationOrder.GpuMatSkiaGpuMat)
+        assert spec.callback_order == CallbackInvocationOrder.GpuMatSkiaGpuMat
+
+    def test_callback_invocation_order_from_name(self) -> None:
+        assert (
+            CallbackInvocationOrder.from_name("SkiaGpuMat")
+            == CallbackInvocationOrder.SkiaGpuMat
+        )
+        assert (
+            CallbackInvocationOrder.from_name("GpuMatSkia")
+            == CallbackInvocationOrder.GpuMatSkia
+        )
+        assert (
+            CallbackInvocationOrder.from_name("GpuMatSkiaGpuMat")
+            == CallbackInvocationOrder.GpuMatSkiaGpuMat
+        )
+        with pytest.raises(ValueError, match="Unknown CallbackInvocationOrder"):
+            CallbackInvocationOrder.from_name("Invalid")
+
+    def test_callback_invocation_order_repr(self) -> None:
+        assert "SkiaGpuMat" in repr(CallbackInvocationOrder.SkiaGpuMat)
 
 
 # ─── PicassoEngine ────────────────────────────────────────────────────────

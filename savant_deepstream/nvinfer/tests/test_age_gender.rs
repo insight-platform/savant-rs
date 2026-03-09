@@ -509,9 +509,7 @@ fn test_age_gender_placement_independence() {
         let a1 = ages_seed42[i];
         let a2 = ages_seed99[i];
         let delta = (a1 - a2).abs();
-        eprintln!(
-            "  {fname:>16}  {g:7.2}  {a1:7.2}  {a2:7.2}  {delta:6.4}",
-        );
+        eprintln!("  {fname:>16}  {g:7.2}  {a1:7.2}  {a2:7.2}  {delta:6.4}",);
         assert!(
             delta < 1e-4,
             "{fname}: ages differ between seeds (s42={a1:.4}, s99={a2:.4}, delta={delta:.6})"

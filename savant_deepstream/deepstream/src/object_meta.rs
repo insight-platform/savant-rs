@@ -194,10 +194,8 @@ impl ObjectMeta {
         unsafe {
             let label_array = &mut (*self.raw).obj_label;
             let copy_len = bytes.len().min(label_array.len());
-            let target_slice = std::slice::from_raw_parts_mut(
-                label_array.as_mut_ptr() as *mut u8,
-                copy_len,
-            );
+            let target_slice =
+                std::slice::from_raw_parts_mut(label_array.as_mut_ptr() as *mut u8, copy_len);
             target_slice.copy_from_slice(&bytes[..copy_len]);
 
             // Fill remaining bytes with null

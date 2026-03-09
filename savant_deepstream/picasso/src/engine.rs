@@ -1,7 +1,7 @@
 use crate::callbacks::Callbacks;
 use crate::error::PicassoError;
 use crate::message::WorkerMessage;
-use crate::spec::{GeneralSpec, SourceSpec};
+use crate::spec::{CodecSpec, GeneralSpec, SourceSpec};
 use crate::watchdog::{self, WatchdogSignal};
 use crate::worker::SourceWorker;
 use log::{debug, info};
@@ -71,6 +71,12 @@ impl PicassoEngine {
     pub fn set_source_spec(&self, source_id: &str, spec: SourceSpec) -> Result<(), PicassoError> {
         if self.shutdown_flag.load(Ordering::Relaxed) {
             return Err(PicassoError::Shutdown);
+        }
+
+        if let CodecSpec::Encode { ref transform, .. } = spec.codec {
+            if !transform.cuda_stream.is_null() {
+                return Err(PicassoError::ExternalCudaStream);
+            }
         }
 
         let mut workers = self.workers.lock();
