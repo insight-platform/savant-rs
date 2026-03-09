@@ -7,11 +7,11 @@ import random
 import threading
 from typing import Dict, List, Tuple
 
-import cupy
-import numpy as np
 import pytest
 
 try:
+    import cupy
+    import numpy as np
     from savant_rs.nvinfer import (
         NvInfer,
         NvInferConfig,
