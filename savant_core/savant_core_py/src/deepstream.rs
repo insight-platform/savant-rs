@@ -552,7 +552,7 @@ impl PyTransformConfig {
 }
 
 impl PyTransformConfig {
-    fn to_rust(&self) -> TransformConfig {
+    pub(crate) fn to_rust(&self) -> TransformConfig {
         TransformConfig {
             padding: self.padding.into(),
             dst_padding: self.dst_padding.map(Into::into),
