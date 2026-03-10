@@ -11,6 +11,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+struct BypassCbWithEos {
+    frame_count: Arc<AtomicUsize>,
+    eos_count: Arc<AtomicUsize>,
+}
+
+impl OnBypassFrame for BypassCbWithEos {
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(_) => {
+                self.frame_count.fetch_add(1, Ordering::SeqCst);
+            }
+            OutputMessage::EndOfStream(_) => {
+                self.eos_count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+}
+
 #[test]
 fn e2e_sustained_multi_source_eos_interleave() {
     gstreamer::init().unwrap();
@@ -19,11 +37,8 @@ fn e2e_sustained_multi_source_eos_interleave() {
     let eos_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(CountingBypassCb {
-            count: bypass_count.clone(),
-        })),
-        on_encoded_frame: Some(Arc::new(CountingEncodedCb {
-            count: Arc::new(AtomicUsize::new(0)),
+        on_bypass_frame: Some(Arc::new(BypassCbWithEos {
+            frame_count: bypass_count.clone(),
             eos_count: eos_count.clone(),
         })),
         ..Default::default()

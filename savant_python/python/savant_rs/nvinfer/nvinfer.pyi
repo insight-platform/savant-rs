@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Union, final
 
-from savant_rs.deepstream import DsNvBufSurfaceGstBuffer, Rect
+from savant_rs.deepstream import DsNvBufSurfaceGstBuffer
+from savant_rs.primitives.geometry import RBBox
 
 __all__ = [
     "MetaClearPolicy",
@@ -76,10 +77,10 @@ class Roi:
 
     Args:
         id: Caller-defined identifier returned in ``ElementOutput.roi_id``.
-        rect: Bounding box in pixel coordinates.
+        bbox: Bounding box (center-based, optionally rotated).
     """
 
-    def __init__(self, id: int, rect: Rect) -> None: ...
+    def __init__(self, id: int, bbox: RBBox) -> None: ...
 
     @property
     def id(self) -> int:
@@ -87,8 +88,8 @@ class Roi:
         ...
 
     @property
-    def rect(self) -> Rect:
-        """Bounding box in pixel coordinates."""
+    def bbox(self) -> RBBox:
+        """Bounding box (center-based, optionally rotated)."""
         ...
 
     def __repr__(self) -> str: ...

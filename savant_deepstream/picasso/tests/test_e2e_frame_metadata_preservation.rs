@@ -41,8 +41,8 @@ fn e2e_frame_metadata_preservation() {
         captured: Arc<parking_lot::Mutex<Option<savant_core::primitives::frame::VideoFrameProxy>>>,
     }
     impl OnEncodedFrame for CaptureFrame {
-        fn call(&self, output: picasso::message::EncodedOutput) {
-            if let picasso::message::EncodedOutput::VideoFrame(frame) = output {
+        fn call(&self, output: picasso::message::OutputMessage) {
+            if let picasso::message::OutputMessage::VideoFrame(frame) = output {
                 self.count.fetch_add(1, Ordering::SeqCst);
                 *self.captured.lock() = Some(frame);
             }

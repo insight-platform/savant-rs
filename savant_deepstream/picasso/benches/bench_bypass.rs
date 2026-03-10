@@ -103,69 +103,72 @@ struct BypassSink {
 }
 
 impl OnBypassFrame for BypassSink {
-    fn call(&self, output: BypassOutput) {
-        self.count.fetch_add(1, Ordering::Relaxed);
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(frame) => {
+                self.count.fetch_add(1, Ordering::Relaxed);
 
-        let frame = &output.frame;
+                // Source ID must start with our prefix.
+                assert!(
+                    frame.get_source_id().starts_with("bypass-"),
+                    "unexpected source_id: {}",
+                    frame.get_source_id()
+                );
 
-        // Source ID must start with our prefix.
-        assert!(
-            output.source_id.starts_with("bypass-"),
-            "unexpected source_id: {}",
-            output.source_id
-        );
+                // Dimensions must match what we submitted.
+                assert_eq!(
+                    frame.get_width(),
+                    WIDTH as i64,
+                    "width mismatch on bypass output"
+                );
+                assert_eq!(
+                    frame.get_height(),
+                    HEIGHT as i64,
+                    "height mismatch on bypass output"
+                );
 
-        // Dimensions must match what we submitted.
-        assert_eq!(
-            frame.get_width(),
-            WIDTH as i64,
-            "width mismatch on bypass output"
-        );
-        assert_eq!(
-            frame.get_height(),
-            HEIGHT as i64,
-            "height mismatch on bypass output"
-        );
+                // Framerate preserved.
+                assert_eq!(
+                    frame.get_framerate(),
+                    "30/1",
+                    "framerate mismatch on bypass output"
+                );
 
-        // Framerate preserved.
-        assert_eq!(
-            frame.get_framerate(),
-            "30/1",
-            "framerate mismatch on bypass output"
-        );
+                // All objects must survive the round-trip.
+                let objects = frame.get_all_objects();
+                assert_eq!(
+                    objects.len(),
+                    NUM_BOXES,
+                    "object count mismatch: expected {NUM_BOXES}, got {}",
+                    objects.len()
+                );
 
-        // All objects must survive the round-trip.
-        let objects = frame.get_all_objects();
-        assert_eq!(
-            objects.len(),
-            NUM_BOXES,
-            "object count mismatch: expected {NUM_BOXES}, got {}",
-            objects.len()
-        );
+                // Every object must have a valid detection box.
+                for obj in &objects {
+                    let det = obj.get_detection_box();
+                    assert!(det.get_width() > 0.0, "detection box width must be > 0");
+                    assert!(det.get_height() > 0.0, "detection box height must be > 0");
+                    assert_eq!(obj.get_namespace(), "det");
+                    assert_eq!(obj.get_label(), "car");
+                }
 
-        // Every object must have a valid detection box.
-        for obj in &objects {
-            let det = obj.get_detection_box();
-            assert!(det.get_width() > 0.0, "detection box width must be > 0");
-            assert!(det.get_height() > 0.0, "detection box height must be > 0");
-            assert_eq!(obj.get_namespace(), "det");
-            assert_eq!(obj.get_label(), "car");
-        }
-
-        // InitialSize transformation must be the only remaining one.
-        let transforms = frame.get_transformations();
-        assert_eq!(
-            transforms.len(),
-            1,
-            "bypass should leave exactly 1 transformation (InitialSize), got {}",
-            transforms.len()
-        );
-        match &transforms[0] {
-            VideoFrameTransformation::InitialSize(w, h) => {
-                assert_eq!(*w, WIDTH as u64);
-                assert_eq!(*h, HEIGHT as u64);
+                // InitialSize transformation must be the only remaining one.
+                let transforms = frame.get_transformations();
+                assert_eq!(
+                    transforms.len(),
+                    1,
+                    "bypass should leave exactly 1 transformation (InitialSize), got {}",
+                    transforms.len()
+                );
+                match &transforms[0] {
+                    VideoFrameTransformation::InitialSize(w, h) => {
+                        assert_eq!(*w, WIDTH as u64);
+                        assert_eq!(*h, HEIGHT as u64);
+                    }
+                    other => panic!("expected InitialSize, got {other:?}"),
+                }
             }
-            other => panic!("expected InitialSize, got {other:?}"),
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -173,9 +176,9 @@ impl OnBypassFrame for BypassSink {
 /// Accepts the EOS sentinel but panics on any real encoded data.
 struct EosOnlyEncodedSink;
 impl OnEncodedFrame for EosOnlyEncodedSink {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         assert!(
-            matches!(output, EncodedOutput::EndOfStream(_)),
+            matches!(output, OutputMessage::EndOfStream(_)),
             "Bypass mode must only produce EOS sentinels, got a real encoded frame"
         );
     }

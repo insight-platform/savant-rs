@@ -13,7 +13,8 @@ use deepstream_nvbufsurface::{
     NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
-use nvinfer::{NvInfer, NvInferConfig, Rect, Roi};
+use nvinfer::{NvInfer, NvInferConfig, Roi};
+use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
 
@@ -162,15 +163,11 @@ fn stress_no_leak_with_rois() {
         None => return,
     };
 
-    use nvinfer::{Rect, Roi};
+    use nvinfer::Roi;
+    use savant_core::primitives::RBBox;
     use std::collections::HashMap;
 
-    let full_rect = Rect {
-        left: 0,
-        top: 0,
-        width: 12,
-        height: 12,
-    };
+    let full_bbox = RBBox::ltwh(0.0, 0.0, 12.0, 12.0).unwrap();
     let rois: HashMap<u32, Vec<Roi>> = (0..FRAMES_PER_BATCH)
         .map(|slot| {
             (
@@ -178,11 +175,11 @@ fn stress_no_leak_with_rois() {
                 vec![
                     Roi {
                         id: slot as i64 * 10,
-                        rect: full_rect.clone(),
+                        bbox: full_bbox.clone(),
                     },
                     Roi {
                         id: slot as i64 * 10 + 1,
-                        rect: full_rect.clone(),
+                        bbox: full_bbox.clone(),
                     },
                 ],
             )
@@ -282,22 +279,17 @@ fn make_nonuniform_batch_with_rois() -> (gstreamer::Buffer, HashMap<u32, Vec<Roi
         .iter()
         .enumerate()
         .map(|(slot, &(w, h, _, _))| {
-            let rect = Rect {
-                left: 0,
-                top: 0,
-                width: w,
-                height: h,
-            };
+            let bbox = RBBox::ltwh(0.0, 0.0, w as f32, h as f32).unwrap();
             (
                 slot as u32,
                 vec![
                     Roi {
                         id: slot as i64 * 10,
-                        rect,
+                        bbox: bbox.clone(),
                     },
                     Roi {
                         id: slot as i64 * 10 + 1,
-                        rect,
+                        bbox: bbox.clone(),
                     },
                 ],
             )

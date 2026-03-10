@@ -61,8 +61,8 @@ repr includes variant name and value.
 ## Callbacks
 ```
 SIG: __init__(
-    on_encoded_frame: Optional[Callable[[EncodedOutput], Any]] = None,
-    on_bypass_frame: Optional[Callable[[BypassOutput], Any]] = None,
+    on_encoded_frame: Optional[Callable[[OutputMessage], Any]] = None,
+    on_bypass_frame: Optional[Callable[[OutputMessage], Any]] = None,
     on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]] = None,
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]] = None,
     on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int], Any]] = None,
@@ -75,8 +75,8 @@ All 6 slots: get/set as properties. All Optional, DEF: None.
 ### Callback Signatures
 | Callback | Args | Return |
 |---|---|---|
-| `on_encoded_frame` | `(output: EncodedOutput)` | None |
-| `on_bypass_frame` | `(output: BypassOutput)` | None |
+| `on_encoded_frame` | `(output: OutputMessage)` | None |
+| `on_bypass_frame` | `(output: OutputMessage)` | None |
 | `on_render` | `(source_id: str, fbo_id: int, width: int, height: int, frame: VideoFrame)` | None |
 | `on_object_draw_spec` | `(source_id: str, object: BorrowedVideoObject, current_spec: Optional[ObjectDraw])` | `Optional[ObjectDraw]` |
 | `on_gpumat` | `(source_id: str, frame: VideoFrame, data_ptr: int, pitch: int, width: int, height: int)` | None |
@@ -231,7 +231,7 @@ Factory statics only:
 
 ---
 
-## EncodedOutput
+## OutputMessage
 Received in `on_encoded_frame` callback. Tagged union.
 
 | Prop/Method | Type | Notes |
@@ -255,13 +255,11 @@ if vf.content.is_internal():
 
 ---
 
-## BypassOutput
-Received in `on_bypass_frame` callback.
-
-| Prop | Type |
-|---|---|
-| `source_id` | str (getter) |
-| `frame` | VideoFrame (getter) |
+## on_bypass_frame and OutputMessage
+`on_bypass_frame` now receives `OutputMessage` (same shape as `on_encoded_frame`).
+Bypass frames are delivered as `OutputMessage.as_video_frame()`; EOS for bypass
+sources is delivered as `OutputMessage.as_eos()` through this callback (not
+`on_encoded_frame`).
 
 ---
 

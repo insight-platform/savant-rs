@@ -37,25 +37,12 @@ struct CountingBypassCb {
 }
 
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, _output: BypassOutput) {
-        self.count.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-struct CountingEncodedCb {
-    count: Arc<AtomicUsize>,
-    eos_count: Arc<AtomicUsize>,
-}
-
-impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => {
-                self.eos_count.fetch_add(1, Ordering::SeqCst);
-            }
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -124,10 +111,22 @@ fn engine_eos_sends_sentinel() {
     gstreamer::init().unwrap();
 
     let eos_count = Arc::new(AtomicUsize::new(0));
+    let eos_clone = eos_count.clone();
+
+    struct BypassEosCb {
+        eos_count: Arc<AtomicUsize>,
+    }
+    impl OnBypassFrame for BypassEosCb {
+        fn call(&self, output: OutputMessage) {
+            if matches!(output, OutputMessage::EndOfStream(_)) {
+                self.eos_count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
     let callbacks = Callbacks {
-        on_encoded_frame: Some(Arc::new(CountingEncodedCb {
-            count: Arc::new(AtomicUsize::new(0)),
-            eos_count: eos_count.clone(),
+        on_bypass_frame: Some(Arc::new(BypassEosCb {
+            eos_count: eos_clone,
         })),
         ..Default::default()
     };

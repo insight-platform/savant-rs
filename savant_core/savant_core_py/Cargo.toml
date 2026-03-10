@@ -37,7 +37,7 @@ deepstream_encoders = { path = "../../savant_deepstream/encoders", optional = tr
 nvidia_gpu_utils = { workspace = true, optional = true }
 nvinfer = { path = "../../savant_deepstream/nvinfer", optional = true }
 picasso = { path = "../../savant_deepstream/picasso", optional = true }
-skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"], optional = true }
+skia-safe = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus-client = { workspace = true }

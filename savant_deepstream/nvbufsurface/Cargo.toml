@@ -24,11 +24,7 @@ log = { workspace = true }
 savant_gstreamer = { workspace = true }
 
 # Skia rendering (optional)
-skia-safe = { version = "0.91", features = [
-    "gl",
-    "egl",
-    "textlayout",
-], optional = true }
+skia-safe = { workspace = true, optional = true }
 gl = { version = "0.14", optional = true }
 
 [build-dependencies]

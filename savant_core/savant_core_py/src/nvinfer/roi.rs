@@ -1,6 +1,6 @@
 //! PyO3 wrapper for nvinfer Roi.
 
-use crate::deepstream::PyRect;
+use crate::primitives::bbox::RBBox;
 use nvinfer::Roi;
 use pyo3::prelude::*;
 
@@ -8,54 +8,50 @@ use pyo3::prelude::*;
 ///
 /// Args:
 ///     id (int): Caller-defined identifier returned in ``ElementOutput.roi_id``.
-///     rect (Rect): Bounding box (top, left, width, height) in pixel coordinates.
+///     bbox (RBBox): Bounding box (center-based, optionally rotated).
 #[pyclass(name = "Roi", module = "savant_rs.nvinfer", skip_from_py_object)]
 #[derive(Debug, Clone)]
-pub struct PyRoi {
-    inner_id: i64,
-    inner_rect: PyRect,
-}
+pub struct PyRoi(Roi);
 
 #[pymethods]
 impl PyRoi {
     #[new]
-    #[pyo3(signature = (id, rect))]
-    fn new(id: i64, rect: PyRef<'_, PyRect>) -> Self {
-        Self {
-            inner_id: id,
-            inner_rect: *rect,
-        }
+    #[pyo3(signature = (id, bbox))]
+    fn new(id: i64, bbox: &RBBox) -> Self {
+        Self(Roi {
+            id,
+            bbox: bbox.0.clone(),
+        })
     }
 
     /// Caller-defined identifier.
     #[getter]
     fn id(&self) -> i64 {
-        self.inner_id
+        self.0.id
     }
 
-    /// Bounding box in pixel coordinates.
+    /// Bounding box (center-based, optionally rotated).
     #[getter]
-    fn rect(&self) -> PyRect {
-        self.inner_rect
+    fn bbox(&self) -> RBBox {
+        RBBox(self.0.bbox.clone())
     }
 
     fn __repr__(&self) -> String {
+        let b = &self.0.bbox;
         format!(
-            "Roi(id={}, rect=Rect(top={}, left={}, width={}, height={}))",
-            self.inner_id,
-            self.inner_rect.top,
-            self.inner_rect.left,
-            self.inner_rect.width,
-            self.inner_rect.height
+            "Roi(id={}, bbox=RBBox(xc={}, yc={}, w={}, h={}, angle={:?}))",
+            self.0.id,
+            b.get_xc(),
+            b.get_yc(),
+            b.get_width(),
+            b.get_height(),
+            b.get_angle(),
         )
     }
 }
 
 impl PyRoi {
     pub(crate) fn to_rust(&self) -> Roi {
-        Roi {
-            id: self.inner_id,
-            rect: self.inner_rect.into_rust(),
-        }
+        self.0.clone()
     }
 }

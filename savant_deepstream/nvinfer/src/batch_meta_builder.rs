@@ -28,6 +28,7 @@ use deepstream_sys::{
     nvds_create_batch_meta, nvds_meta_api_get_type, GstBuffer, GstNvDsMetaType_NVDS_BATCH_GST_META,
     NvDsBatchMeta, NvDsFrameMeta,
 };
+use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::Once;
@@ -221,6 +222,36 @@ fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
     }
 }
 
+/// Convert an [`RBBox`] to axis-aligned `(left, top, width, height)` suitable
+/// for `NvDsObjectMeta.rect_params`.
+///
+/// Always uses `get_wrapping_bbox` to obtain an axis-aligned envelope (avoids
+/// panics when `angle = Some(x)` with `x.abs() <= EPSILON` but `as_ltwh` would
+/// fail due to `as_ltrb`'s exact `!= 0.0` check). Both paths then clamp to
+/// `[0, max_w] × [0, max_h]`, ensuring `left + width <= max_w` and
+/// `top + height <= max_h` so nvinfer never receives rects outside the buffer.
+fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32, f32) {
+    // get_wrapping_bbox always returns axis-aligned (angle=None), so as_ltwh never fails
+    let (left, top, w, h) = bbox.get_wrapping_bbox().as_ltwh().unwrap();
+
+    if max_w > 0.0 && max_h > 0.0 {
+        let left_clamped = left.max(0.0);
+        let top_clamped = top.max(0.0);
+        let right_clamped = (left + w).min(max_w);
+        let bottom_clamped = (top + h).min(max_h);
+        let clamped_w = (right_clamped - left_clamped).max(1.0).min(max_w);
+        let clamped_h = (bottom_clamped - top_clamped).max(1.0).min(max_h);
+        // Ensure rect stays inside frame: left+width <= max_w, top+height <= max_h.
+        // When box is entirely past right/bottom, left_clamped/top_clamped can exceed
+        // max_w/max_h; shift left/top back so the rect fits.
+        let left_final = left_clamped.min(max_w - clamped_w).max(0.0);
+        let top_final = top_clamped.min(max_h - clamped_h).max(0.0);
+        (left_final, top_final, clamped_w, clamped_h)
+    } else {
+        (left, top, w, h)
+    }
+}
+
 /// Add `NvDsObjectMeta` entries for the given slot to `frame_ptr`.
 ///
 /// Uses explicit ROIs when present, or a single full-frame sentinel otherwise.
@@ -233,6 +264,8 @@ fn add_roi_objects(
     input_height: u32,
 ) {
     let slot_rois = rois.and_then(|r| r.get(&slot));
+    let max_w = input_width as f32;
+    let max_h = input_height as f32;
 
     if let Some(roi_list) = slot_rois.filter(|v| !v.is_empty()) {
         // Iterate in reverse because nvds_add_obj_meta_to_frame prepends
@@ -244,11 +277,12 @@ fn add_roi_objects(
                 log::error!("nvds_acquire_obj_meta_from_pool returned null for slot {slot}");
                 continue;
             }
+            let (left, top, width, height) = rbbox_to_rect_params(&roi.bbox, max_w, max_h);
             unsafe {
-                (*obj_meta).rect_params.left = roi.rect.left as f32;
-                (*obj_meta).rect_params.top = roi.rect.top as f32;
-                (*obj_meta).rect_params.width = roi.rect.width as f32;
-                (*obj_meta).rect_params.height = roi.rect.height as f32;
+                (*obj_meta).rect_params.left = left;
+                (*obj_meta).rect_params.top = top;
+                (*obj_meta).rect_params.width = width;
+                (*obj_meta).rect_params.height = height;
                 (*obj_meta).object_id = roi.id as u64;
                 (*obj_meta).unique_component_id = 0;
                 nvds_add_obj_meta_to_frame(frame_meta, obj_meta, ptr::null_mut());
@@ -354,12 +388,7 @@ mod tests {
     fn roi_42() -> Roi {
         Roi {
             id: 42,
-            rect: deepstream_nvbufsurface::Rect {
-                left: 0,
-                top: 0,
-                width: 64,
-                height: 64,
-            },
+            bbox: RBBox::ltwh(0.0, 0.0, 64.0, 64.0).unwrap(),
         }
     }
 
@@ -469,5 +498,213 @@ mod tests {
                 unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
             assert_eq!(after, 0, "all objects must be removed after clear");
         }
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_axis_aligned() {
+        let bbox = RBBox::new(50.0, 40.0, 20.0, 30.0, None);
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 25.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_axis_aligned_zero_angle() {
+        let bbox = RBBox::new(50.0, 40.0, 20.0, 30.0, Some(0.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 25.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_rotated_45() {
+        let bbox = RBBox::new(100.0, 100.0, 50.0, 50.0, Some(45.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 500.0, 500.0);
+        // 45-degree rotation of a 50x50 box: wrapping box ≈ 70.71 × 70.71
+        let diag = 50.0 * std::f32::consts::SQRT_2;
+        let half_diag = diag / 2.0;
+        // Must clamp to [0, 500], not [2, 498] — no rendering inset.
+        assert!(
+            (l - (100.0 - half_diag)).abs() < 1.0,
+            "left ≈ {}, got {l}",
+            100.0 - half_diag
+        );
+        assert!(
+            (t - (100.0 - half_diag)).abs() < 1.0,
+            "top ≈ {}, got {t}",
+            100.0 - half_diag
+        );
+        assert!((w - diag).abs() < 1.0, "wrapping width ≈ {diag}, got {w}");
+        assert!((h - diag).abs() < 1.0, "wrapping height ≈ {diag}, got {h}");
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_clamped_to_frame() {
+        let bbox = RBBox::new(5.0, 5.0, 20.0, 20.0, None);
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 15.0, 15.0);
+        assert!(l >= 0.0, "left must not be negative");
+        assert!(t >= 0.0, "top must not be negative");
+        assert!(l + w <= 15.0 + 0.01, "right edge must not exceed max_w");
+        assert!(t + h <= 15.0 + 0.01, "bottom edge must not exceed max_h");
+    }
+
+    /// Rotated box near the left/top edge: must clamp to 0, not to 2.
+    #[test]
+    fn rbbox_to_rect_params_rotated_near_origin_clamps_to_zero() {
+        // 50×50 box centered at (25,25) rotated 45°.
+        // Wrapping bbox: ~70.71×70.71 centered at (25,25).
+        // Left ≈ 25 − 35.35 ≈ −10.35, clamped to 0.
+        // Top  ≈ 25 − 35.35 ≈ −10.35, clamped to 0.
+        let bbox = RBBox::new(25.0, 25.0, 50.0, 50.0, Some(45.0));
+        let (l, t, _w, _h) = rbbox_to_rect_params(&bbox, 500.0, 500.0);
+        assert!(
+            l.abs() < 0.01,
+            "rotated box near origin: left must clamp to 0, got {l}"
+        );
+        assert!(
+            t.abs() < 0.01,
+            "rotated box near origin: top must clamp to 0, got {t}"
+        );
+    }
+
+    /// Rotated box near the right/bottom edge: must clamp to max_w/max_h,
+    /// not to max−2.
+    #[test]
+    fn rbbox_to_rect_params_rotated_near_far_edge_clamps_to_max() {
+        // 50×50 box centered at (475,475) rotated 45° in a 500×500 frame.
+        // Wrapping bbox: ~70.71×70.71 centered at (475,475).
+        // Right ≈ 475 + 35.35 ≈ 510.35, clamped to 500.
+        // Bottom ≈ 475 + 35.35 ≈ 510.35, clamped to 500.
+        let bbox = RBBox::new(475.0, 475.0, 50.0, 50.0, Some(45.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 500.0, 500.0);
+        let right = l + w;
+        let bottom = t + h;
+        assert!(
+            (right - 500.0).abs() < 0.01,
+            "rotated box near far edge: right must clamp to 500, got {right}"
+        );
+        assert!(
+            (bottom - 500.0).abs() < 0.01,
+            "rotated box near far edge: bottom must clamp to 500, got {bottom}"
+        );
+    }
+
+    /// Rotated and axis-aligned boxes at the same position must produce
+    /// consistent clamping (both use [0, max] bounds, no asymmetric inset).
+    #[test]
+    fn rbbox_to_rect_params_rotated_vs_axis_aligned_same_clamping() {
+        // Axis-aligned box touching left edge: left=0, w=40, in a 100×100 frame.
+        let aa = RBBox::ltwh(0.0, 0.0, 40.0, 40.0).unwrap();
+        let (l_aa, t_aa, w_aa, h_aa) = rbbox_to_rect_params(&aa, 100.0, 100.0);
+
+        // Same box but with angle=0.001 (just above EPSILON, triggers rotated path).
+        let rot = RBBox::new(20.0, 20.0, 40.0, 40.0, Some(0.001));
+        let (l_rot, t_rot, w_rot, h_rot) = rbbox_to_rect_params(&rot, 100.0, 100.0);
+
+        assert!(
+            (l_aa - l_rot).abs() < 1.0,
+            "left: axis-aligned={l_aa}, rotated={l_rot}"
+        );
+        assert!(
+            (t_aa - t_rot).abs() < 1.0,
+            "top: axis-aligned={t_aa}, rotated={t_rot}"
+        );
+        assert!(
+            (w_aa - w_rot).abs() < 1.0,
+            "width: axis-aligned={w_aa}, rotated={w_rot}"
+        );
+        assert!(
+            (h_aa - h_rot).abs() < 1.0,
+            "height: axis-aligned={h_aa}, rotated={h_rot}"
+        );
+    }
+
+    /// angle=Some(x) with x.abs() <= EPSILON: as_ltwh would fail (as_ltrb uses
+    /// exact != 0.0), but we use get_wrapping_bbox which always succeeds.
+    #[test]
+    fn rbbox_to_rect_params_some_zero_angle_no_panic() {
+        let bbox = RBBox::new(50.0, 50.0, 20.0, 20.0, Some(0.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 40.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 20.0).abs() < 0.01);
+    }
+
+    /// angle=Some(tiny): as_ltwh would bail, get_wrapping_bbox path must not panic.
+    #[test]
+    fn rbbox_to_rect_params_some_tiny_angle_no_panic() {
+        let bbox = RBBox::new(50.0, 50.0, 20.0, 20.0, Some(1e-7));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        // Wrapping of nearly-axis-aligned box ≈ same as box
+        assert!((l - 40.0).abs() < 1.0);
+        assert!((t - 40.0).abs() < 1.0);
+        assert!((w - 20.0).abs() < 1.0);
+        assert!((h - 20.0).abs() < 1.0);
+    }
+
+    /// Box entirely past right edge: must not produce left > max_w - width.
+    #[test]
+    fn rbbox_to_rect_params_box_past_right_edge_stays_in_frame() {
+        // Box center at (150, 50), w=100, in a 100-wide frame. Entirely outside.
+        let bbox = RBBox::ltwh(100.0, 0.0, 100.0, 50.0).unwrap();
+        let (l, _t, w, _h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(l + w <= 100.0 + 0.01, "left+width must not exceed max_w: l={l}, w={w}");
+        assert!(l >= 0.0);
+        assert!(l <= 100.0);
+    }
+
+    /// Box entirely past bottom edge: must not produce top > max_h - height.
+    #[test]
+    fn rbbox_to_rect_params_box_past_bottom_edge_stays_in_frame() {
+        let bbox = RBBox::ltwh(0.0, 80.0, 50.0, 50.0).unwrap();
+        let (_l, t, _w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(t + h <= 100.0 + 0.01, "top+height must not exceed max_h: t={t}, h={h}");
+        assert!(t >= 0.0);
+        assert!(t <= 100.0);
+    }
+
+    /// When visible region is sub-pixel, max(1.0) must not push right past max_w.
+    #[test]
+    fn rbbox_to_rect_params_min_width_does_not_exceed_max_w() {
+        // Box right edge at 99.5, left at 99.0 → visible width 0.5, clamped to 1.
+        // left_final must be min(99, 100-1)=99, so we get (99, ..., 1, ...).
+        let bbox = RBBox::ltwh(99.0, 0.0, 1.5, 50.0).unwrap();
+        let (l, _t, w, _h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(l + w <= 100.0 + 0.01);
+        assert!(l >= 0.0);
+    }
+
+    /// When left/top is negative and clamped to 0, width/height must reflect
+    /// the actual visible extent, not the original unclamped dimensions.
+    #[test]
+    fn rbbox_to_rect_params_negative_left_top_reduces_visible_size() {
+        // Box from left=-5 to right=15 (w=20), top=0 to bottom=10 (h=10).
+        // Visible: left clamped to 0, so visible region is 0..15 x 0..10.
+        // Width must be 15, not 20.
+        let bbox = RBBox::ltwh(-5.0, 0.0, 20.0, 10.0).unwrap();
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!((l - 0.0).abs() < 0.01, "left must be clamped to 0");
+        assert!((t - 0.0).abs() < 0.01, "top unchanged");
+        assert!(
+            (w - 15.0).abs() < 0.01,
+            "visible width must be 15 (0 to 15), not original 20"
+        );
+        assert!((h - 10.0).abs() < 0.01, "height unchanged");
+
+        // Box with negative top: top=-3, bottom=7 (h=10). Visible 0..10 x 0..7.
+        let bbox = RBBox::ltwh(0.0, -3.0, 10.0, 10.0).unwrap();
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!((l - 0.0).abs() < 0.01);
+        assert!((t - 0.0).abs() < 0.01, "top must be clamped to 0");
+        assert!((w - 10.0).abs() < 0.01);
+        assert!(
+            (h - 7.0).abs() < 0.01,
+            "visible height must be 7 (0 to 7), not original 10"
+        );
     }
 }

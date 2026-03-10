@@ -19,6 +19,7 @@ glib = { workspace = true }
 deepstream = { path = "../deepstream" }
 deepstream-sys = { path = "../deepstream-sys" }
 deepstream_nvbufsurface = { path = "../nvbufsurface" }
+savant_core = { path = "../../savant_core/savant_core" }
 thiserror = { workspace = true }
 log = { workspace = true }
 tempfile = "3"

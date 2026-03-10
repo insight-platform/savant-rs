@@ -160,6 +160,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
 serial_test = "3"
+skia-safe = { version = "0.93", features = ["gl", "egl", "textlayout"] }
 
 tempfile = "3"
 thiserror = "2"

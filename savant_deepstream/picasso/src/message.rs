@@ -17,20 +17,12 @@ pub enum WorkerMessage {
 
 /// Output produced by the encoding pipeline.
 ///
-/// For [`VideoFrame`](EncodedOutput::VideoFrame), the proxy carries all
+/// For [`VideoFrame`](OutputMessage::VideoFrame), the proxy carries all
 /// metadata (pts, dts, duration, keyframe, codec, framerate) and the
 /// encoded bitstream in [`VideoFrameContent::Internal`].
-pub enum EncodedOutput {
+pub enum OutputMessage {
     /// An encoded video frame with content stored in the proxy.
     VideoFrame(VideoFrameProxy),
     /// End-of-stream signal for a source.
     EndOfStream(EndOfStream),
-}
-
-/// Output for bypass mode — frame with bboxes transformed back to initial
-/// coordinates.
-pub struct BypassOutput {
-    pub source_id: String,
-    pub frame: VideoFrameProxy,
-    pub view: SurfaceView,
 }

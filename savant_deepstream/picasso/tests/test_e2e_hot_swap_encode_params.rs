@@ -37,12 +37,12 @@ fn e2e_hot_swap_encode_params() {
         eos_count: Arc<AtomicUsize>,
     }
     impl OnEncodedFrame for CaptureResolutions {
-        fn call(&self, output: picasso::message::EncodedOutput) {
+        fn call(&self, output: picasso::message::OutputMessage) {
             match output {
-                picasso::message::EncodedOutput::EndOfStream(_) => {
+                picasso::message::OutputMessage::EndOfStream(_) => {
                     self.eos_count.fetch_add(1, Ordering::SeqCst);
                 }
-                picasso::message::EncodedOutput::VideoFrame(frame) => {
+                picasso::message::OutputMessage::VideoFrame(frame) => {
                     self.count.fetch_add(1, Ordering::SeqCst);
                     let w = frame.get_width() as u32;
                     let h = frame.get_height() as u32;

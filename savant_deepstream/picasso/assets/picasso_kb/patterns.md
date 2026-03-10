@@ -127,8 +127,27 @@ struct CountingBypassCb {
     count: Arc<AtomicUsize>,
 }
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, _output: BypassOutput) {
-        self.count.fetch_add(1, Ordering::SeqCst);
+    fn call(&self, output: OutputMessage) {
+        match output {
+            OutputMessage::VideoFrame(_) => {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+            OutputMessage::EndOfStream(_) => {}
+        }
+    }
+}
+```
+
+For EOS counting on bypass sources (EOS flows through `on_bypass_frame`):
+```rust
+struct CountingBypassCbWithEos {
+    eos_count: Arc<AtomicUsize>,
+}
+impl OnBypassFrame for CountingBypassCbWithEos {
+    fn call(&self, output: OutputMessage) {
+        if let OutputMessage::EndOfStream(_) = output {
+            self.eos_count.fetch_add(1, Ordering::SeqCst);
+        }
     }
 }
 ```
@@ -140,10 +159,10 @@ struct CountingEncodedCb {
     eos_count: Arc<AtomicUsize>,
 }
 impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => { self.eos_count.fetch_add(1, Ordering::SeqCst); }
-            EncodedOutput::VideoFrame(_)  => { self.count.fetch_add(1, Ordering::SeqCst); }
+            OutputMessage::EndOfStream(_) => { self.eos_count.fetch_add(1, Ordering::SeqCst); }
+            OutputMessage::VideoFrame(_)  => { self.count.fetch_add(1, Ordering::SeqCst); }
         }
     }
 }
@@ -226,16 +245,15 @@ fn engine_shutdown_rejects_new_frames() {
 ```
 
 ### EOS Sentinel (NOGPU)
+Bypass EOS flows through `on_bypass_frame`; Drop EOS through `on_encoded_frame`.
+Example for bypass:
 ```rust
 #[test]
 fn engine_eos_sends_sentinel() {
     gstreamer::init().unwrap();
     let eos_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
-        on_encoded_frame: Some(Arc::new(CountingEncodedCb {
-            count: Arc::new(AtomicUsize::new(0)),
-            eos_count: eos_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(CountingBypassCbWithEos { eos_count: eos_count.clone() })),
         ..Default::default()
     };
     let mut engine = PicassoEngine::new(
@@ -252,6 +270,7 @@ fn engine_eos_sends_sentinel() {
     engine.shutdown();
 }
 ```
+For Drop sources, use `on_encoded_frame` with `CountingEncodedCb` instead.
 
 ### Spec Hot-Swap (NOGPU)
 ```rust
@@ -467,8 +486,8 @@ thread until someone calls `recv()`. Use a buffered channel + `try_send`:
 struct EncodedSignal(mpsc::SyncSender<()>);
 
 impl OnEncodedFrame for EncodedSignal {
-    fn call(&self, output: EncodedOutput) {
-        if let EncodedOutput::VideoFrame(_) = output {
+    fn call(&self, output: OutputMessage) {
+        if let OutputMessage::VideoFrame(_) = output {
             let _ = self.0.try_send(());  // never block the drain thread
         }
     }

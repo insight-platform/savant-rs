@@ -20,11 +20,11 @@ try:
         NvInferConfig,
         Roi,
     )
+    from savant_rs.primitives.geometry import RBBox
     from savant_rs.deepstream import (
         DsNvNonUniformSurfaceBuffer,
         DsNvSurfaceBufferGenerator,
         DsNvUniformSurfaceBufferGenerator,
-        Rect,
         TransformConfig,
         init_cuda,
         nvbuf_as_gpu_mat,
@@ -201,6 +201,19 @@ def place_non_overlapping(
             if attempt == 9_999:
                 raise RuntimeError(f"Failed to place face {len(placements)} without overlap")
     return placements
+```
+
+## Helper: build ROIs from placements
+
+Convert `(left, top, width, height)` placements to `Roi` with center-based `RBBox`:
+
+```python
+rois = {
+    0: [
+        Roi(i, RBBox(x + fw / 2.0, y + fh / 2.0, float(fw), float(fh)))
+        for i, (x, y, fw, fh) in enumerate(placements)
+    ]
+}
 ```
 
 ## Zero-copy tensor access

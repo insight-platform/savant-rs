@@ -16,7 +16,6 @@ pub mod roi;
 pub use batch_meta_builder::attach_batch_meta_with_rois;
 pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};
-pub use deepstream_nvbufsurface::Rect;
 pub use error::{NvInferError, Result};
 pub use meta_clear_policy::MetaClearPolicy;
 pub use nvinfer_types::DataType;

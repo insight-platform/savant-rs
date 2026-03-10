@@ -7,8 +7,9 @@ use deepstream_nvbufsurface::{
     NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use nvinfer::{
-    attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Rect, Roi,
+    attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Roi,
 };
+use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 
 #[link(name = "cuda")]
@@ -172,15 +173,15 @@ fn full_frame_rois(slots: &[(u32, u32, &[i64])]) -> HashMap<u32, Vec<Roi>> {
         .iter()
         .enumerate()
         .map(|(slot, &(w, h, ids))| {
-            let rect = Rect {
-                left: 0,
-                top: 0,
-                width: w,
-                height: h,
-            };
+            let bbox = RBBox::ltwh(0.0, 0.0, w as f32, h as f32).unwrap();
             (
                 slot as u32,
-                ids.iter().map(|&id| Roi { id, rect }).collect(),
+                ids.iter()
+                    .map(|&id| Roi {
+                        id,
+                        bbox: bbox.clone(),
+                    })
+                    .collect(),
             )
         })
         .collect()
@@ -441,22 +442,17 @@ fn test_two_rois_same_rect_same_output() {
     };
 
     let (batch, _) = make_identity_batch_known(1, 100);
-    let full_rect = Rect {
-        left: 0,
-        top: 0,
-        width: 12,
-        height: 12,
-    };
+    let full_bbox = RBBox::ltwh(0.0, 0.0, 12.0, 12.0).unwrap();
     let rois: HashMap<u32, Vec<Roi>> = [(
         0,
         vec![
             Roi {
                 id: 10,
-                rect: full_rect.clone(),
+                bbox: full_bbox.clone(),
             },
             Roi {
                 id: 20,
-                rect: full_rect,
+                bbox: full_bbox,
             },
         ],
     )]

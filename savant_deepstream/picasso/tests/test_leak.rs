@@ -87,14 +87,16 @@ fn bypass_spec() -> SourceSpec {
 
 struct SinkBypass(Arc<AtomicUsize>);
 impl OnBypassFrame for SinkBypass {
-    fn call(&self, _output: BypassOutput) {
-        self.0.fetch_add(1, Ordering::Relaxed);
+    fn call(&self, output: OutputMessage) {
+        if matches!(output, OutputMessage::VideoFrame(_)) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
 struct SinkEncoded(Arc<AtomicUsize>);
 impl OnEncodedFrame for SinkEncoded {
-    fn call(&self, _: EncodedOutput) {
+    fn call(&self, _: OutputMessage) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 }

@@ -373,8 +373,8 @@ struct BenchEncodedSink {
 }
 
 impl OnEncodedFrame for BenchEncodedSink {
-    fn call(&self, output: EncodedOutput) {
-        let EncodedOutput::VideoFrame(frame) = output else {
+    fn call(&self, output: OutputMessage) {
+        let OutputMessage::VideoFrame(frame) = output else {
             return;
         };
 

@@ -7,9 +7,10 @@ use deepstream_nvbufsurface::{
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
     TransformConfig, VideoFormat,
 };
-use nvinfer::{DataType, NvInfer, NvInferConfig, Rect, Roi};
+use nvinfer::{DataType, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use savant_core::primitives::RBBox;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -321,12 +322,7 @@ fn test_age_gender_e2e_real_images() {
         .enumerate()
         .map(|(i, &(x, y))| Roi {
             id: i as i64,
-            rect: Rect {
-                left: x,
-                top: y,
-                width: FACE_SZ,
-                height: FACE_SZ,
-            },
+            bbox: RBBox::ltwh(x as f32, y as f32, FACE_SZ as f32, FACE_SZ as f32).unwrap(),
         })
         .collect();
     let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
@@ -472,12 +468,7 @@ fn test_age_gender_placement_independence() {
             .enumerate()
             .map(|(i, &(x, y))| Roi {
                 id: i as i64,
-                rect: Rect {
-                    left: x,
-                    top: y,
-                    width: FACE_SZ,
-                    height: FACE_SZ,
-                },
+                bbox: RBBox::ltwh(x as f32, y as f32, FACE_SZ as f32, FACE_SZ as f32).unwrap(),
             })
             .collect();
         let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();

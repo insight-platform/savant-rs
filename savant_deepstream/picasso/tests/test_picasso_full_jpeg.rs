@@ -276,8 +276,8 @@ impl OnRender for PixelCapture {
 
 struct CountSink(Arc<AtomicUsize>);
 impl OnEncodedFrame for CountSink {
-    fn call(&self, output: EncodedOutput) {
-        if matches!(output, EncodedOutput::VideoFrame(_)) {
+    fn call(&self, output: OutputMessage) {
+        if matches!(output, OutputMessage::VideoFrame(_)) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -395,8 +395,8 @@ struct JpegCapture {
 }
 
 impl OnEncodedFrame for JpegCapture {
-    fn call(&self, output: EncodedOutput) {
-        let EncodedOutput::VideoFrame(frame) = output else {
+    fn call(&self, output: OutputMessage) {
+        let OutputMessage::VideoFrame(frame) = output else {
             return;
         };
         let mut guard = self.data.lock().unwrap();

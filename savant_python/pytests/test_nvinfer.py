@@ -21,11 +21,11 @@ try:
         DsNvNonUniformSurfaceBuffer,
         DsNvSurfaceBufferGenerator,
         DsNvUniformSurfaceBufferGenerator,
-        Rect,
         TransformConfig,
         init_cuda,
         nvbuf_as_gpu_mat,
     )
+    from savant_rs.primitives.geometry import RBBox
 
     HAS_DS = True
 except ImportError:
@@ -225,7 +225,7 @@ def test_age_gender_e2e_real_images():
     # Build ROIs
     rois: Dict[int, list] = {
         0: [
-            Roi(i, Rect(top=y, left=x, width=fw, height=fh))
+            Roi(i, RBBox.ltwh(float(x), float(y), float(fw), float(fh)))
             for i, (x, y, fw, fh) in enumerate(placements)
         ]
     }
@@ -349,7 +349,7 @@ def test_age_gender_e2e_nonuniform_callback():
     # Build ROIs
     rois: Dict[int, list] = {
         0: [
-            Roi(i, Rect(top=y, left=x, width=fw, height=fh))
+            Roi(i, RBBox.ltwh(float(x), float(y), float(fw), float(fh)))
             for i, (x, y, fw, fh) in enumerate(placements)
         ]
     }
