@@ -20,7 +20,7 @@ savant_core = { path = "../../savant_core/savant_core" }
 deepstream_encoders = { path = "../encoders" }
 deepstream_nvbufsurface = { path = "../nvbufsurface", features = ["skia"] }
 gstreamer = { workspace = true }
-skia-safe = { version = "0.91", features = ["gl", "egl", "textlayout"] }
+skia-safe = { workspace = true }
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
 anyhow = { workspace = true }
@@ -33,7 +33,10 @@ nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
 imagehash = "0.3"
-image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.24", default-features = false, features = [
+    "jpeg",
+    "png",
+] }
 criterion = { workspace = true }
 
 [[bench]]
