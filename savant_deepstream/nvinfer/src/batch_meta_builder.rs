@@ -225,27 +225,28 @@ fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
 /// Convert an [`RBBox`] to axis-aligned `(left, top, width, height)` suitable
 /// for `NvDsObjectMeta.rect_params`.
 ///
-/// For axis-aligned boxes the conversion is a straightforward center-to-ltwh.
-/// For rotated boxes `get_wrapping_bbox` produces the tight axis-aligned
-/// envelope; both paths then clamp to `[0, max_w] × [0, max_h]`.
+/// Always uses `get_wrapping_bbox` to obtain an axis-aligned envelope (avoids
+/// panics when `angle = Some(x)` with `x.abs() <= EPSILON` but `as_ltwh` would
+/// fail due to `as_ltrb`'s exact `!= 0.0` check). Both paths then clamp to
+/// `[0, max_w] × [0, max_h]`, ensuring `left + width <= max_w` and
+/// `top + height <= max_h` so nvinfer never receives rects outside the buffer.
 fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32, f32) {
-    let is_rotated = bbox.get_angle().is_some_and(|a| a.abs() > f32::EPSILON);
-
-    let (left, top, w, h) = if is_rotated {
-        // wrapping bbox is always axis-aligned, as_ltwh always succeeds
-        bbox.get_wrapping_bbox().as_ltwh().unwrap()
-    } else {
-        bbox.as_ltwh().unwrap()
-    };
+    // get_wrapping_bbox always returns axis-aligned (angle=None), so as_ltwh never fails
+    let (left, top, w, h) = bbox.get_wrapping_bbox().as_ltwh().unwrap();
 
     if max_w > 0.0 && max_h > 0.0 {
         let left_clamped = left.max(0.0);
         let top_clamped = top.max(0.0);
         let right_clamped = (left + w).min(max_w);
         let bottom_clamped = (top + h).min(max_h);
-        let clamped_w = (right_clamped - left_clamped).max(1.0);
-        let clamped_h = (bottom_clamped - top_clamped).max(1.0);
-        (left_clamped, top_clamped, clamped_w, clamped_h)
+        let clamped_w = (right_clamped - left_clamped).max(1.0).min(max_w);
+        let clamped_h = (bottom_clamped - top_clamped).max(1.0).min(max_h);
+        // Ensure rect stays inside frame: left+width <= max_w, top+height <= max_h.
+        // When box is entirely past right/bottom, left_clamped/top_clamped can exceed
+        // max_w/max_h; shift left/top back so the rect fits.
+        let left_final = left_clamped.min(max_w - clamped_w).max(0.0);
+        let top_final = top_clamped.min(max_h - clamped_h).max(0.0);
+        (left_final, top_final, clamped_w, clamped_h)
     } else {
         (left, top, w, h)
     }
@@ -620,6 +621,62 @@ mod tests {
             (h_aa - h_rot).abs() < 1.0,
             "height: axis-aligned={h_aa}, rotated={h_rot}"
         );
+    }
+
+    /// angle=Some(x) with x.abs() <= EPSILON: as_ltwh would fail (as_ltrb uses
+    /// exact != 0.0), but we use get_wrapping_bbox which always succeeds.
+    #[test]
+    fn rbbox_to_rect_params_some_zero_angle_no_panic() {
+        let bbox = RBBox::new(50.0, 50.0, 20.0, 20.0, Some(0.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 40.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 20.0).abs() < 0.01);
+    }
+
+    /// angle=Some(tiny): as_ltwh would bail, get_wrapping_bbox path must not panic.
+    #[test]
+    fn rbbox_to_rect_params_some_tiny_angle_no_panic() {
+        let bbox = RBBox::new(50.0, 50.0, 20.0, 20.0, Some(1e-7));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        // Wrapping of nearly-axis-aligned box ≈ same as box
+        assert!((l - 40.0).abs() < 1.0);
+        assert!((t - 40.0).abs() < 1.0);
+        assert!((w - 20.0).abs() < 1.0);
+        assert!((h - 20.0).abs() < 1.0);
+    }
+
+    /// Box entirely past right edge: must not produce left > max_w - width.
+    #[test]
+    fn rbbox_to_rect_params_box_past_right_edge_stays_in_frame() {
+        // Box center at (150, 50), w=100, in a 100-wide frame. Entirely outside.
+        let bbox = RBBox::ltwh(100.0, 0.0, 100.0, 50.0).unwrap();
+        let (l, _t, w, _h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(l + w <= 100.0 + 0.01, "left+width must not exceed max_w: l={l}, w={w}");
+        assert!(l >= 0.0);
+        assert!(l <= 100.0);
+    }
+
+    /// Box entirely past bottom edge: must not produce top > max_h - height.
+    #[test]
+    fn rbbox_to_rect_params_box_past_bottom_edge_stays_in_frame() {
+        let bbox = RBBox::ltwh(0.0, 80.0, 50.0, 50.0).unwrap();
+        let (_l, t, _w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(t + h <= 100.0 + 0.01, "top+height must not exceed max_h: t={t}, h={h}");
+        assert!(t >= 0.0);
+        assert!(t <= 100.0);
+    }
+
+    /// When visible region is sub-pixel, max(1.0) must not push right past max_w.
+    #[test]
+    fn rbbox_to_rect_params_min_width_does_not_exceed_max_w() {
+        // Box right edge at 99.5, left at 99.0 → visible width 0.5, clamped to 1.
+        // left_final must be min(99, 100-1)=99, so we get (99, ..., 1, ...).
+        let bbox = RBBox::ltwh(99.0, 0.0, 1.5, 50.0).unwrap();
+        let (l, _t, w, _h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!(l + w <= 100.0 + 0.01);
+        assert!(l >= 0.0);
     }
 
     /// When left/top is negative and clamped to 0, width/height must reflect
