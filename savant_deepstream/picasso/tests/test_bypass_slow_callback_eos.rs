@@ -18,13 +18,13 @@ struct SlowBypassCb {
 }
 
 impl OnBypassFrame for SlowBypassCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         std::thread::sleep(self.delay);
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.frame_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -38,12 +38,12 @@ struct BypassCountCb {
 }
 
 impl OnBypassFrame for BypassCountCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.frame_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
         }

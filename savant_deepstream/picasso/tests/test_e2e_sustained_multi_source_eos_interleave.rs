@@ -17,12 +17,12 @@ struct BypassCbWithEos {
 }
 
 impl OnBypassFrame for BypassCbWithEos {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.frame_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
         }

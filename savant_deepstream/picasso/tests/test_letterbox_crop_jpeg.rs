@@ -180,8 +180,8 @@ struct JpegCapture {
 }
 
 impl OnEncodedFrame for JpegCapture {
-    fn call(&self, output: EncodedOutput) {
-        let EncodedOutput::VideoFrame(frame) = output else {
+    fn call(&self, output: OutputMessage) {
+        let OutputMessage::VideoFrame(frame) = output else {
             return;
         };
         let mut guard = self.data.lock().unwrap();
@@ -375,8 +375,8 @@ struct MultiCapture {
 }
 
 impl OnEncodedFrame for MultiCapture {
-    fn call(&self, output: EncodedOutput) {
-        let EncodedOutput::VideoFrame(frame) = output else {
+    fn call(&self, output: OutputMessage) {
+        let OutputMessage::VideoFrame(frame) = output else {
             return;
         };
         let source_id = frame.get_source_id();

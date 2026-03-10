@@ -116,8 +116,8 @@ fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsu
 
 struct EncodedCounter(Arc<AtomicUsize>);
 impl OnEncodedFrame for EncodedCounter {
-    fn call(&self, output: EncodedOutput) {
-        if matches!(output, EncodedOutput::VideoFrame(_)) {
+    fn call(&self, output: OutputMessage) {
+        if matches!(output, OutputMessage::VideoFrame(_)) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
     }

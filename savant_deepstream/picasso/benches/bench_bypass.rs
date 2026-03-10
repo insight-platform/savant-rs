@@ -103,9 +103,9 @@ struct BypassSink {
 }
 
 impl OnBypassFrame for BypassSink {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(frame) => {
+            OutputMessage::VideoFrame(frame) => {
                 self.count.fetch_add(1, Ordering::Relaxed);
 
                 // Source ID must start with our prefix.
@@ -168,7 +168,7 @@ impl OnBypassFrame for BypassSink {
                     other => panic!("expected InitialSize, got {other:?}"),
                 }
             }
-            EncodedOutput::EndOfStream(_) => {}
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -176,9 +176,9 @@ impl OnBypassFrame for BypassSink {
 /// Accepts the EOS sentinel but panics on any real encoded data.
 struct EosOnlyEncodedSink;
 impl OnEncodedFrame for EosOnlyEncodedSink {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         assert!(
-            matches!(output, EncodedOutput::EndOfStream(_)),
+            matches!(output, OutputMessage::EndOfStream(_)),
             "Bypass mode must only produce EOS sentinels, got a real encoded frame"
         );
     }

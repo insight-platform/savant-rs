@@ -25,13 +25,13 @@ struct BypassCbWithSource {
 }
 
 impl OnBypassFrame for BypassCbWithSource {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(frame) => {
+            OutputMessage::VideoFrame(frame) => {
                 assert_eq!(frame.get_source_id(), self.expected_source);
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -46,12 +46,12 @@ struct EncodedCbWithSource {
 }
 
 impl OnEncodedFrame for EncodedCbWithSource {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::VideoFrame(frame) => {
+            OutputMessage::VideoFrame(frame) => {
                 assert_eq!(
                     frame.get_source_id(),
                     self.expected_source,

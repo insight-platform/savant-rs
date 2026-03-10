@@ -47,7 +47,7 @@ __all__ = [
     "CodecSpec",
     "SourceSpec",
     # messages
-    "EncodedOutput",
+    "OutputMessage",
     # callbacks & engine
     "Callbacks",
     "PicassoEngine",
@@ -601,7 +601,7 @@ class SourceSpec:
 # Output messages
 # ═══════════════════════════════════════════════════════════════════════════
 
-class EncodedOutput:
+class OutputMessage:
     """Output produced by the encoding pipeline."""
 
     @property
@@ -633,8 +633,8 @@ class EncodedOutput:
 class Callbacks:
     """Aggregate holder for all optional Python callbacks."""
 
-    on_encoded_frame: Optional[Callable[[EncodedOutput], Any]]
-    on_bypass_frame: Optional[Callable[[EncodedOutput], Any]]
+    on_encoded_frame: Optional[Callable[[OutputMessage], Any]]
+    on_bypass_frame: Optional[Callable[[OutputMessage], Any]]
     on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]]
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]]
     on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int, int], Any]]
@@ -642,8 +642,8 @@ class Callbacks:
 
     def __init__(
         self,
-        on_encoded_frame: Optional[Callable[[EncodedOutput], Any]] = None,
-        on_bypass_frame: Optional[Callable[[EncodedOutput], Any]] = None,
+        on_encoded_frame: Optional[Callable[[OutputMessage], Any]] = None,
+        on_bypass_frame: Optional[Callable[[OutputMessage], Any]] = None,
         on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]] = None,
         on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]] = None,
         on_gpumat: Optional[

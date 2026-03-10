@@ -40,12 +40,12 @@ struct CountingBypassCb {
 }
 
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {}
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -56,12 +56,12 @@ struct CountingEncodedCb {
 }
 
 impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
         }
@@ -155,8 +155,8 @@ fn worker_eos_fires_sentinel_for_bypass() {
         eos_count: Arc<AtomicUsize>,
     }
     impl OnBypassFrame for BypassEosCb {
-        fn call(&self, output: EncodedOutput) {
-            if matches!(output, EncodedOutput::EndOfStream(_)) {
+        fn call(&self, output: OutputMessage) {
+            if matches!(output, OutputMessage::EndOfStream(_)) {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
         }

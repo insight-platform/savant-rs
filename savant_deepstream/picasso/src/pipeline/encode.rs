@@ -1,6 +1,6 @@
 use crate::callbacks::{Callbacks, OnEncodedFrame};
 use crate::error::PicassoError;
-use crate::message::EncodedOutput;
+use crate::message::OutputMessage;
 use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
 use crate::spec::source::CallbackInvocationOrder;
@@ -516,5 +516,5 @@ pub(crate) fn fill_encoded_frame(
     frame.set_time_base(encoded.time_base).ok();
     frame.set_codec(Some(encoded.codec.name().to_string()));
     frame.set_keyframe(Some(encoded.keyframe));
-    cb.call(EncodedOutput::VideoFrame(frame));
+    cb.call(OutputMessage::VideoFrame(frame));
 }

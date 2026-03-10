@@ -17,7 +17,7 @@ pub use crate::engine::PicassoEngine;
 pub use crate::error::PicassoError;
 
 // Messages / output types
-pub use crate::message::EncodedOutput;
+pub use crate::message::OutputMessage;
 
 // Specifications
 pub use crate::spec::{

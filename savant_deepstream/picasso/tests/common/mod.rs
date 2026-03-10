@@ -121,12 +121,12 @@ pub struct CountingBypassCb {
 }
 
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {}
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -138,12 +138,12 @@ pub struct CountingEncodedCb {
 }
 
 impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => {
+            OutputMessage::EndOfStream(_) => {
                 self.eos_count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
         }

@@ -55,8 +55,8 @@ fn ensure_init() {
 struct EncodedSignal(mpsc::SyncSender<()>);
 
 impl OnEncodedFrame for EncodedSignal {
-    fn call(&self, output: EncodedOutput) {
-        if let EncodedOutput::VideoFrame(_) = output {
+    fn call(&self, output: OutputMessage) {
+        if let OutputMessage::VideoFrame(_) = output {
             let _ = self.0.try_send(());
         }
     }

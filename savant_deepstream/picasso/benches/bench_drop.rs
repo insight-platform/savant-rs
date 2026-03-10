@@ -95,9 +95,9 @@ fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> gstreamer::Buffer 
 /// Accepts the EOS sentinel but panics on any real encoded data.
 struct EosOnlyEncodedSink;
 impl OnEncodedFrame for EosOnlyEncodedSink {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         assert!(
-            matches!(output, EncodedOutput::EndOfStream(_)),
+            matches!(output, OutputMessage::EndOfStream(_)),
             "Drop mode must only produce EOS sentinels, got a real encoded frame"
         );
     }
@@ -106,7 +106,7 @@ impl OnEncodedFrame for EosOnlyEncodedSink {
 /// Panics on any bypass output — Drop mode must never produce bypass frames.
 struct NeverBypassSink;
 impl OnBypassFrame for NeverBypassSink {
-    fn call(&self, _output: EncodedOutput) {
+    fn call(&self, _output: OutputMessage) {
         panic!("on_bypass_frame must never fire for CodecSpec::Drop");
     }
 }

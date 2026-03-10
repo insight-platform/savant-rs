@@ -11,7 +11,7 @@
 | `send_eos` | After `shutdown()` | `RuntimeError("engine is shut down")` |
 | `shutdown` | Multiple calls | No error (idempotent) |
 
-## EncodedOutput
+## OutputMessage
 
 | Method | Condition | Exception |
 |---|---|---|

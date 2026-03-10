@@ -252,11 +252,13 @@ fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32,
         // axis-aligned: as_ltwh always succeeds for angle=None/0
         let (left, top, w, h) = bbox.as_ltwh().unwrap();
         if max_w > 0.0 && max_h > 0.0 {
-            let left = left.max(0.0);
-            let top = top.max(0.0);
-            let clamped_w = w.min(max_w - left);
-            let clamped_h = h.min(max_h - top);
-            (left, top, clamped_w, clamped_h)
+            let left_clamped = left.max(0.0);
+            let top_clamped = top.max(0.0);
+            let right_clamped = (left + w).min(max_w);
+            let bottom_clamped = (top + h).min(max_h);
+            let clamped_w = (right_clamped - left_clamped).max(1.0);
+            let clamped_h = (bottom_clamped - top_clamped).max(1.0);
+            (left_clamped, top_clamped, clamped_w, clamped_h)
         } else {
             (left, top, w, h)
         }
@@ -551,5 +553,34 @@ mod tests {
         assert!(t >= 0.0, "top must not be negative");
         assert!(l + w <= 15.0 + 0.01, "right edge must not exceed max_w");
         assert!(t + h <= 15.0 + 0.01, "bottom edge must not exceed max_h");
+    }
+
+    /// When left/top is negative and clamped to 0, width/height must reflect
+    /// the actual visible extent, not the original unclamped dimensions.
+    #[test]
+    fn rbbox_to_rect_params_negative_left_top_reduces_visible_size() {
+        // Box from left=-5 to right=15 (w=20), top=0 to bottom=10 (h=10).
+        // Visible: left clamped to 0, so visible region is 0..15 x 0..10.
+        // Width must be 15, not 20.
+        let bbox = RBBox::ltwh(-5.0, 0.0, 20.0, 10.0).unwrap();
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!((l - 0.0).abs() < 0.01, "left must be clamped to 0");
+        assert!((t - 0.0).abs() < 0.01, "top unchanged");
+        assert!(
+            (w - 15.0).abs() < 0.01,
+            "visible width must be 15 (0 to 15), not original 20"
+        );
+        assert!((h - 10.0).abs() < 0.01, "height unchanged");
+
+        // Box with negative top: top=-3, bottom=7 (h=10). Visible 0..10 x 0..7.
+        let bbox = RBBox::ltwh(0.0, -3.0, 10.0, 10.0).unwrap();
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
+        assert!((l - 0.0).abs() < 0.01);
+        assert!((t - 0.0).abs() < 0.01, "top must be clamped to 0");
+        assert!((w - 10.0).abs() < 0.01);
+        assert!(
+            (h - 7.0).abs() < 0.01,
+            "visible height must be 7 (0 to 7), not original 10"
+        );
     }
 }

@@ -1,5 +1,5 @@
 use crate::callbacks::Callbacks;
-use crate::message::EncodedOutput;
+use crate::message::OutputMessage;
 use deepstream_nvbufsurface::SurfaceView;
 use log::{debug, error};
 use savant_core::primitives::frame::{VideoFrameProxy, VideoFrameTranscodingMethod};
@@ -23,7 +23,7 @@ pub(crate) fn process_bypass(
     debug!("bypass: source={source_id}");
 
     if let Some(cb) = &callbacks.on_bypass_frame {
-        cb.call(EncodedOutput::VideoFrame(frame));
+        cb.call(OutputMessage::VideoFrame(frame));
     }
     // `view` (SurfaceView) is dropped here after the callback returns,
     // keeping the underlying GstBuffer alive during callback execution.

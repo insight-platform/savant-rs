@@ -127,12 +127,12 @@ struct CountingBypassCb {
     count: Arc<AtomicUsize>,
 }
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::VideoFrame(_) => {
+            OutputMessage::VideoFrame(_) => {
                 self.count.fetch_add(1, Ordering::SeqCst);
             }
-            EncodedOutput::EndOfStream(_) => {}
+            OutputMessage::EndOfStream(_) => {}
         }
     }
 }
@@ -144,8 +144,8 @@ struct CountingBypassCbWithEos {
     eos_count: Arc<AtomicUsize>,
 }
 impl OnBypassFrame for CountingBypassCbWithEos {
-    fn call(&self, output: EncodedOutput) {
-        if let EncodedOutput::EndOfStream(_) = output {
+    fn call(&self, output: OutputMessage) {
+        if let OutputMessage::EndOfStream(_) = output {
             self.eos_count.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -159,10 +159,10 @@ struct CountingEncodedCb {
     eos_count: Arc<AtomicUsize>,
 }
 impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: EncodedOutput) {
+    fn call(&self, output: OutputMessage) {
         match output {
-            EncodedOutput::EndOfStream(_) => { self.eos_count.fetch_add(1, Ordering::SeqCst); }
-            EncodedOutput::VideoFrame(_)  => { self.count.fetch_add(1, Ordering::SeqCst); }
+            OutputMessage::EndOfStream(_) => { self.eos_count.fetch_add(1, Ordering::SeqCst); }
+            OutputMessage::VideoFrame(_)  => { self.count.fetch_add(1, Ordering::SeqCst); }
         }
     }
 }
@@ -486,8 +486,8 @@ thread until someone calls `recv()`. Use a buffered channel + `try_send`:
 struct EncodedSignal(mpsc::SyncSender<()>);
 
 impl OnEncodedFrame for EncodedSignal {
-    fn call(&self, output: EncodedOutput) {
-        if let EncodedOutput::VideoFrame(_) = output {
+    fn call(&self, output: OutputMessage) {
+        if let OutputMessage::VideoFrame(_) = output {
             let _ = self.0.try_send(());  // never block the drain thread
         }
     }
