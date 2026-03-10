@@ -56,8 +56,9 @@ class Roi:
 
 `RBBox` is `savant_rs.primitives.geometry.RBBox(xc, yc, width, height, angle=None)`.
 When the angle is non-zero, the batch-meta builder computes the axis-aligned wrapping
-box (via `get_wrapping_bbox`) and clamps it to frame boundaries (via `get_visual_box`)
-before passing to DeepStream.
+box (via `get_wrapping_bbox`) and clamps it to `[0, max_w] × [0, max_h]` before
+passing to DeepStream. Both rotated and axis-aligned paths use the same clamping
+logic.
 
 ---
 

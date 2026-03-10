@@ -144,7 +144,7 @@ pub enum SkiaRendererError {
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     SkiaRenderer, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, cuda_init,
+///     SkiaRenderer, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat, cuda_init,
 /// };
 /// use skia_safe::Color;
 ///

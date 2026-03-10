@@ -50,24 +50,6 @@ impl OnBypassFrame for CountingBypassCb {
     }
 }
 
-struct CountingEncodedCb {
-    count: Arc<AtomicUsize>,
-    eos_count: Arc<AtomicUsize>,
-}
-
-impl OnEncodedFrame for CountingEncodedCb {
-    fn call(&self, output: OutputMessage) {
-        match output {
-            OutputMessage::EndOfStream(_) => {
-                self.eos_count.fetch_add(1, Ordering::SeqCst);
-            }
-            OutputMessage::VideoFrame(_) => {
-                self.count.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-    }
-}
-
 struct TerminateEviction;
 
 impl OnEviction for TerminateEviction {
