@@ -28,6 +28,8 @@ use deepstream_sys::{
     nvds_create_batch_meta, nvds_meta_api_get_type, GstBuffer, GstNvDsMetaType_NVDS_BATCH_GST_META,
     NvDsBatchMeta, NvDsFrameMeta,
 };
+use savant_core::draw::PaddingDraw;
+use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::Once;
@@ -221,6 +223,46 @@ fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
     }
 }
 
+/// Convert an [`RBBox`] to axis-aligned `(left, top, width, height)` suitable
+/// for `NvDsObjectMeta.rect_params`.
+///
+/// For axis-aligned boxes the conversion is a straightforward center-to-ltwh.
+/// For rotated boxes `get_wrapping_bbox` produces the tight axis-aligned
+/// wrapper and `get_visual_box` clamps it to `[0, max_w] x [0, max_h]`.
+fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32, f32) {
+    let is_rotated = bbox.get_angle().is_some_and(|a| a.abs() > f32::EPSILON);
+
+    if is_rotated {
+        let wrapping = bbox.get_wrapping_bbox();
+        if max_w > 0.0 && max_h > 0.0 {
+            let zero_padding = PaddingDraw::new(0, 0, 0, 0).unwrap();
+            match wrapping.get_visual_box(&zero_padding, 0, max_w, max_h) {
+                Ok(visual) => {
+                    // visual is axis-aligned (angle=None), as_ltwh always succeeds
+                    return visual.as_ltwh().unwrap();
+                }
+                Err(e) => {
+                    log::error!("get_visual_box failed for rotated ROI: {e}");
+                }
+            }
+        }
+        // wrapping is axis-aligned, as_ltwh always succeeds
+        wrapping.as_ltwh().unwrap()
+    } else {
+        // axis-aligned: as_ltwh always succeeds for angle=None/0
+        let (left, top, w, h) = bbox.as_ltwh().unwrap();
+        if max_w > 0.0 && max_h > 0.0 {
+            let left = left.max(0.0);
+            let top = top.max(0.0);
+            let clamped_w = w.min(max_w - left);
+            let clamped_h = h.min(max_h - top);
+            (left, top, clamped_w, clamped_h)
+        } else {
+            (left, top, w, h)
+        }
+    }
+}
+
 /// Add `NvDsObjectMeta` entries for the given slot to `frame_ptr`.
 ///
 /// Uses explicit ROIs when present, or a single full-frame sentinel otherwise.
@@ -233,6 +275,8 @@ fn add_roi_objects(
     input_height: u32,
 ) {
     let slot_rois = rois.and_then(|r| r.get(&slot));
+    let max_w = input_width as f32;
+    let max_h = input_height as f32;
 
     if let Some(roi_list) = slot_rois.filter(|v| !v.is_empty()) {
         // Iterate in reverse because nvds_add_obj_meta_to_frame prepends
@@ -244,11 +288,12 @@ fn add_roi_objects(
                 log::error!("nvds_acquire_obj_meta_from_pool returned null for slot {slot}");
                 continue;
             }
+            let (left, top, width, height) = rbbox_to_rect_params(&roi.bbox, max_w, max_h);
             unsafe {
-                (*obj_meta).rect_params.left = roi.rect.left as f32;
-                (*obj_meta).rect_params.top = roi.rect.top as f32;
-                (*obj_meta).rect_params.width = roi.rect.width as f32;
-                (*obj_meta).rect_params.height = roi.rect.height as f32;
+                (*obj_meta).rect_params.left = left;
+                (*obj_meta).rect_params.top = top;
+                (*obj_meta).rect_params.width = width;
+                (*obj_meta).rect_params.height = height;
                 (*obj_meta).object_id = roi.id as u64;
                 (*obj_meta).unique_component_id = 0;
                 nvds_add_obj_meta_to_frame(frame_meta, obj_meta, ptr::null_mut());
@@ -354,12 +399,7 @@ mod tests {
     fn roi_42() -> Roi {
         Roi {
             id: 42,
-            rect: deepstream_nvbufsurface::Rect {
-                left: 0,
-                top: 0,
-                width: 64,
-                height: 64,
-            },
+            bbox: RBBox::ltwh(0.0, 0.0, 64.0, 64.0).unwrap(),
         }
     }
 
@@ -469,5 +509,47 @@ mod tests {
                 unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
             assert_eq!(after, 0, "all objects must be removed after clear");
         }
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_axis_aligned() {
+        let bbox = RBBox::new(50.0, 40.0, 20.0, 30.0, None);
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 25.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_axis_aligned_zero_angle() {
+        let bbox = RBBox::new(50.0, 40.0, 20.0, 30.0, Some(0.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 200.0, 200.0);
+        assert!((l - 40.0).abs() < 0.01);
+        assert!((t - 25.0).abs() < 0.01);
+        assert!((w - 20.0).abs() < 0.01);
+        assert!((h - 30.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_rotated_45() {
+        let bbox = RBBox::new(100.0, 100.0, 50.0, 50.0, Some(45.0));
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 500.0, 500.0);
+        // 45-degree rotation of a 50x50 box produces a wrapping box of ~70.7x70.7
+        let diag = 50.0 * std::f32::consts::SQRT_2;
+        assert!(w > 50.0 && w <= diag + 2.0, "wrapping width={w}");
+        assert!(h > 50.0 && h <= diag + 2.0, "wrapping height={h}");
+        assert!(l >= 0.0);
+        assert!(t >= 0.0);
+    }
+
+    #[test]
+    fn rbbox_to_rect_params_clamped_to_frame() {
+        let bbox = RBBox::new(5.0, 5.0, 20.0, 20.0, None);
+        let (l, t, w, h) = rbbox_to_rect_params(&bbox, 15.0, 15.0);
+        assert!(l >= 0.0, "left must not be negative");
+        assert!(t >= 0.0, "top must not be negative");
+        assert!(l + w <= 15.0 + 0.01, "right edge must not exceed max_w");
+        assert!(t + h <= 15.0 + 0.01, "bottom edge must not exceed max_h");
     }
 }

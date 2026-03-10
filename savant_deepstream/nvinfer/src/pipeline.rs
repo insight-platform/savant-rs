@@ -8,13 +8,13 @@ use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
 use crate::roi::Roi;
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
-use deepstream_nvbufsurface::Rect;
 use deepstream_nvbufsurface::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
 use log::info;
+use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc;
@@ -286,12 +286,8 @@ impl NvInfer {
                     slot as u32,
                     vec![Roi {
                         id: 0,
-                        rect: Rect {
-                            left: 0,
-                            top: 0,
-                            width: w,
-                            height: h,
-                        },
+                        bbox: RBBox::ltwh(0.0, 0.0, w as f32, h as f32)
+                            .expect("non-zero surface dimensions"),
                     }],
                 );
             }
@@ -385,6 +381,16 @@ impl NvInfer {
             .set_state(gst::State::Null)
             .map_err(|e| NvInferError::PipelineError(format!("set_state Null failed: {:?}", e)))?;
         Ok(())
+    }
+
+    /// Model input width (0 for flexible config).
+    pub fn input_width(&self) -> u32 {
+        self.input_width
+    }
+
+    /// Model input height (0 for flexible config).
+    pub fn input_height(&self) -> u32 {
+        self.input_height
     }
 
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {

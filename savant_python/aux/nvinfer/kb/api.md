@@ -3,7 +3,7 @@
 ## Module: `savant_rs.nvinfer`
 
 All types live in `savant_rs.nvinfer`. External dependencies are in `savant_rs.deepstream`
-(see `deps.md`).
+and `savant_rs.primitives.geometry` (see `deps.md`).
 
 ---
 
@@ -41,20 +41,23 @@ class DataType:
 
 ## Roi
 
-Region of interest: identifier + bounding box.
+Region of interest: identifier + bounding box (center-based, optionally rotated).
 
 ```python
 class Roi:
-    def __init__(self, id: int, rect: Rect) -> None: ...
+    def __init__(self, id: int, bbox: RBBox) -> None: ...
 
     @property
     def id(self) -> int: ...        # read-only, int
 
     @property
-    def rect(self) -> Rect: ...     # read-only, savant_rs.deepstream.Rect
+    def bbox(self) -> RBBox: ...    # read-only, savant_rs.primitives.geometry.RBBox
 ```
 
-`Rect` is `savant_rs.deepstream.Rect(top, left, width, height)`.
+`RBBox` is `savant_rs.primitives.geometry.RBBox(xc, yc, width, height, angle=None)`.
+When the angle is non-zero, the batch-meta builder computes the axis-aligned wrapping
+box (via `get_wrapping_bbox`) and clamps it to frame boundaries (via `get_visual_box`)
+before passing to DeepStream.
 
 ---
 

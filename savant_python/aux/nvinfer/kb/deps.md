@@ -16,11 +16,18 @@ from savant_rs.nvinfer import (
 )
 ```
 
-## savant_rs.deepstream (buffer & rect types)
+## savant_rs.primitives.geometry (Roi bounding box)
+
+```python
+from savant_rs.primitives.geometry import (
+    RBBox,                             # Roi bounding box (center-based, optionally rotated)
+)
+```
+
+## savant_rs.deepstream (buffer types)
 
 ```python
 from savant_rs.deepstream import (
-    Rect,                              # Roi bounding box
     DsNvBufSurfaceGstBuffer,           # batched GPU buffer guard
     DsNvSurfaceBufferGenerator,        # single-surface generator
     DsNvUniformSurfaceBufferGenerator, # multi-surface batch generator

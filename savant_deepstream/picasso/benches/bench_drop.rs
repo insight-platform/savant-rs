@@ -106,7 +106,7 @@ impl OnEncodedFrame for EosOnlyEncodedSink {
 /// Panics on any bypass output — Drop mode must never produce bypass frames.
 struct NeverBypassSink;
 impl OnBypassFrame for NeverBypassSink {
-    fn call(&self, _output: BypassOutput) {
+    fn call(&self, _output: EncodedOutput) {
         panic!("on_bypass_frame must never fire for CodecSpec::Drop");
     }
 }

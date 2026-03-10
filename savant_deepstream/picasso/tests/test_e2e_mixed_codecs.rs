@@ -17,16 +17,24 @@ const W: u32 = 640;
 const H: u32 = 480;
 const DUR: u64 = 33_333_333;
 
-/// Bypass callback that counts and verifies source_id.
+/// Bypass callback that counts frames and EOS, and verifies source_id.
 struct BypassCbWithSource {
     count: Arc<AtomicUsize>,
+    eos_count: Arc<AtomicUsize>,
     expected_source: String,
 }
 
 impl OnBypassFrame for BypassCbWithSource {
-    fn call(&self, output: BypassOutput) {
-        assert_eq!(output.source_id, self.expected_source);
-        self.count.fetch_add(1, Ordering::SeqCst);
+    fn call(&self, output: EncodedOutput) {
+        match output {
+            EncodedOutput::VideoFrame(frame) => {
+                assert_eq!(frame.get_source_id(), self.expected_source);
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+            EncodedOutput::EndOfStream(_) => {
+                self.eos_count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
     }
 }
 
@@ -63,17 +71,19 @@ fn e2e_mixed_codecs() {
     cuda_init(0).unwrap();
 
     let bypass_count = Arc::new(AtomicUsize::new(0));
+    let bypass_eos_count = Arc::new(AtomicUsize::new(0));
     let enc_count = Arc::new(AtomicUsize::new(0));
-    let eos_count = Arc::new(AtomicUsize::new(0));
+    let enc_eos_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
         on_bypass_frame: Some(Arc::new(BypassCbWithSource {
             count: bypass_count.clone(),
+            eos_count: bypass_eos_count.clone(),
             expected_source: "cam-bypass".to_string(),
         })),
         on_encoded_frame: Some(Arc::new(EncodedCbWithSource {
             count: enc_count.clone(),
-            eos_count: eos_count.clone(),
+            eos_count: enc_eos_count.clone(),
             expected_source: "cam-encode".to_string(),
         })),
         ..Default::default()
@@ -166,5 +176,8 @@ fn e2e_mixed_codecs() {
         "expected >= 3 encoded frames, got {}",
         enc_count.load(Ordering::SeqCst)
     );
-    assert_eq!(eos_count.load(Ordering::SeqCst), 3);
+    // cam-bypass EOS goes through on_bypass_frame
+    assert_eq!(bypass_eos_count.load(Ordering::SeqCst), 1);
+    // cam-drop + cam-encode EOS go through on_encoded_frame
+    assert_eq!(enc_eos_count.load(Ordering::SeqCst), 2);
 }

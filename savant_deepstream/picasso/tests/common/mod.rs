@@ -121,8 +121,13 @@ pub struct CountingBypassCb {
 }
 
 impl OnBypassFrame for CountingBypassCb {
-    fn call(&self, _output: BypassOutput) {
-        self.count.fetch_add(1, Ordering::SeqCst);
+    fn call(&self, output: EncodedOutput) {
+        match output {
+            EncodedOutput::VideoFrame(_) => {
+                self.count.fetch_add(1, Ordering::SeqCst);
+            }
+            EncodedOutput::EndOfStream(_) => {}
+        }
     }
 }
 

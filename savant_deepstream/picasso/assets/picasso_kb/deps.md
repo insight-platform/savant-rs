@@ -7,7 +7,7 @@
 use picasso::prelude::*;
 // gives: Callbacks, On*Frame/Render/Eviction/GpuMat/ObjectDrawSpec traits,
 //        PicassoEngine, PicassoError,
-//        BypassOutput, EncodedOutput,
+//        EncodedOutput,
 //        CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec
 
 // For low-level worker tests:

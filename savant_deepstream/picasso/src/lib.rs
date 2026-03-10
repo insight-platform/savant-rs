@@ -13,7 +13,7 @@ pub mod worker;
 pub use callbacks::Callbacks;
 pub use engine::PicassoEngine;
 pub use error::PicassoError;
-pub use message::{BypassOutput, EncodedOutput};
+pub use message::EncodedOutput;
 pub use pipeline::encode::rewrite_frame_transformations;
 pub use savant_core::primitives::eos::EndOfStream;
 pub use spec::{

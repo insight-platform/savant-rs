@@ -974,14 +974,14 @@ class TestEvictionKeepFor:
                     return EvictionDecision.keep_for(1)
                 return EvictionDecision.terminate()
 
-        def on_encoded(output) -> None:
+        def on_bypass(output) -> None:
             if output.is_eos:
                 with lock:
                     eos_received.append(output.as_eos())
 
         callbacks = Callbacks(
             on_eviction=on_eviction,
-            on_encoded_frame=on_encoded,
+            on_bypass_frame=on_bypass,
         )
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=1), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
@@ -1113,11 +1113,14 @@ class TestSustainedMultiSourceEos:
         lock = threading.Lock()
 
         def on_bypass(output) -> None:
+            if not output.is_video_frame:
+                return
+            frame = output.as_video_frame()
             with lock:
-                sid = output.source_id
+                sid = frame.source_id
                 if sid not in source_results:
                     source_results[sid] = []
-                source_results[sid].append(output)
+                source_results[sid].append(frame)
 
         callbacks = Callbacks(on_bypass_frame=on_bypass)
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)

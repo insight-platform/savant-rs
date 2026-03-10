@@ -1,4 +1,4 @@
-use super::message::{PyBypassOutput, PyEncodedOutput};
+use super::message::PyEncodedOutput;
 use super::spec::general::PyEvictionDecision;
 use deepstream_nvbufsurface::SkiaRenderer;
 use picasso::prelude::*;
@@ -28,9 +28,9 @@ unsafe impl Send for PyOnBypassFrame {}
 unsafe impl Sync for PyOnBypassFrame {}
 
 impl OnBypassFrame for PyOnBypassFrame {
-    fn call(&self, output: BypassOutput) {
+    fn call(&self, output: EncodedOutput) {
         Python::attach(|py| {
-            let py_output = PyBypassOutput::from_rust(output);
+            let py_output = PyEncodedOutput::from_rust(output);
             if let Err(e) = self.0.call1(py, (py_output,)) {
                 log::error!("on_bypass_frame callback error: {e}");
             }

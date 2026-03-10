@@ -15,7 +15,7 @@ from savant_rs.picasso import (
     GeneralSpec, EvictionDecision, ConditionalSpec, ObjectDrawSpec,
     CodecSpec, SourceSpec,
     # Output messages
-    EncodedOutput, BypassOutput,
+    EncodedOutput,
     # Callbacks & engine
     Callbacks, PicassoEngine,
 )

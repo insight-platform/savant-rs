@@ -262,8 +262,11 @@ impl WorkerState {
 
     fn handle_eos(&mut self) {
         match &self.spec.codec {
-            CodecSpec::Drop | CodecSpec::Bypass => {
+            CodecSpec::Drop => {
                 fire_eos_sentinel(&self.source_id, &self.callbacks);
+            }
+            CodecSpec::Bypass => {
+                fire_bypass_eos_sentinel(&self.source_id, &self.callbacks);
             }
             CodecSpec::Encode { .. } => {
                 self.stop_encoder();
@@ -404,6 +407,12 @@ fn drain_and_finish(
 
 fn fire_eos_sentinel(source_id: &str, callbacks: &Arc<Callbacks>) {
     if let Some(cb) = &callbacks.on_encoded_frame {
+        cb.call(EncodedOutput::EndOfStream(EndOfStream::new(source_id)));
+    }
+}
+
+fn fire_bypass_eos_sentinel(source_id: &str, callbacks: &Arc<Callbacks>) {
+    if let Some(cb) = &callbacks.on_bypass_frame {
         cb.call(EncodedOutput::EndOfStream(EndOfStream::new(source_id)));
     }
 }

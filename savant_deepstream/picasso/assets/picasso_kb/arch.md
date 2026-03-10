@@ -12,7 +12,7 @@ picasso/src/
 │   ├── encode.rs     # GPU transform → Skia render → encode; DrainHandle for async drain
 │   └── bypass.rs     # Bypass mode: transform_backward + callback
 ├── callbacks.rs      # Callback traits + Callbacks aggregate
-├── message.rs        # WorkerMessage, EncodedOutput, BypassOutput
+├── message.rs        # WorkerMessage, EncodedOutput
 ├── error.rs          # PicassoError enum
 ├── spec.rs           # Sub-module declarations
 ├── spec/
@@ -98,7 +98,7 @@ is false, `render_opts` is `None`, and process_encode skips the entire Skia path
 Frame → process_bypass:
   1. set_transcoding_method(Copy)
   2. transform_backward (revert bboxes to initial coordinates)
-  3. fire on_bypass_frame(BypassOutput { source_id, frame, view })
+  3. fire on_bypass_frame(EncodedOutput::VideoFrame(frame))
 ```
 
 ## Data Flow (Drop Path)
@@ -107,7 +107,8 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 ```
 
 ## EOS Handling
-- Drop/Bypass: fire EOS sentinel via on_encoded_frame(EncodedOutput::EndOfStream)
+- Drop: fire EOS sentinel via on_encoded_frame(EncodedOutput::EndOfStream)
+- Bypass: fire EOS sentinel via on_bypass_frame(EncodedOutput::EndOfStream)
 - Encode: stop drain thread → drain_remaining → encoder.finish(5s timeout) → fire callbacks for remaining frames → EOS sentinel
 - After EOS, encoder + drain handle are set to None (re-created on next frame)
 

@@ -25,7 +25,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<spec::PyCallbackInvocationOrder>()?;
 
     m.add_class::<message::PyEncodedOutput>()?;
-    m.add_class::<message::PyBypassOutput>()?;
 
     m.add_class::<callbacks::PyCallbacks>()?;
 

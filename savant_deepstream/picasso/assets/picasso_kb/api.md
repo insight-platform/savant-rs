@@ -12,7 +12,7 @@ pub use crate::callbacks::{
 };
 pub use crate::engine::PicassoEngine;
 pub use crate::error::PicassoError;
-pub use crate::message::{BypassOutput, EncodedOutput};
+pub use crate::message::EncodedOutput;
 pub use crate::spec::{
     CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec,
 };
@@ -166,7 +166,7 @@ pub trait OnEncodedFrame {
 }
 
 pub trait OnBypassFrame {
-    fn call(&self, output: BypassOutput);
+    fn call(&self, output: EncodedOutput);
 }
 
 pub trait OnRender {
@@ -199,17 +199,8 @@ pub enum EncodedOutput {
 }
 ```
 
----
-
-## BypassOutput
-
-```rust
-pub struct BypassOutput {
-    pub source_id: String,
-    pub frame: VideoFrameProxy,
-    pub view: SurfaceView,
-}
-```
+Bypass frames are now wrapped in `EncodedOutput::VideoFrame`. EOS for bypass
+sources is delivered via `EncodedOutput::EndOfStream` through `on_bypass_frame`.
 
 ---
 

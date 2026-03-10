@@ -33,14 +33,25 @@ fn e2e_eviction_keep_for_then_terminate() {
 
     let eviction_count = Arc::new(AtomicUsize::new(0));
     let eos_count = Arc::new(AtomicUsize::new(0));
+    let eos_clone = eos_count.clone();
+
+    struct BypassEosCb {
+        eos_count: Arc<AtomicUsize>,
+    }
+    impl OnBypassFrame for BypassEosCb {
+        fn call(&self, output: EncodedOutput) {
+            if matches!(output, EncodedOutput::EndOfStream(_)) {
+                self.eos_count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
 
     let callbacks = Callbacks {
         on_eviction: Some(Arc::new(KeepForThenTerminate {
             call_count: eviction_count.clone(),
         })),
-        on_encoded_frame: Some(Arc::new(CountingEncodedCb {
-            count: Arc::new(AtomicUsize::new(0)),
-            eos_count: eos_count.clone(),
+        on_bypass_frame: Some(Arc::new(BypassEosCb {
+            eos_count: eos_clone,
         })),
         ..Default::default()
     };

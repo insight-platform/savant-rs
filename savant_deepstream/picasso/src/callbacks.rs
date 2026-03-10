@@ -1,4 +1,4 @@
-use crate::message::{BypassOutput, EncodedOutput};
+use crate::message::EncodedOutput;
 use crate::spec::EvictionDecision;
 use deepstream_nvbufsurface::SkiaRenderer;
 use savant_core::draw::ObjectDraw;
@@ -13,7 +13,7 @@ pub trait OnEncodedFrame: Send + Sync + 'static {
 
 /// Called in bypass mode with transformed bboxes.
 pub trait OnBypassFrame: Send + Sync + 'static {
-    fn call(&self, output: BypassOutput);
+    fn call(&self, output: EncodedOutput);
 }
 
 /// Called before Skia flush — allows custom drawing on the canvas.

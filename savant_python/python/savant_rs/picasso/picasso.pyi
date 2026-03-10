@@ -48,7 +48,6 @@ __all__ = [
     "SourceSpec",
     # messages
     "EncodedOutput",
-    "BypassOutput",
     # callbacks & engine
     "Callbacks",
     "PicassoEngine",
@@ -627,16 +626,6 @@ class EncodedOutput:
 
     def __repr__(self) -> str: ...
 
-class BypassOutput:
-    """Output for bypass mode — frame with bboxes transformed back to
-    initial coordinates.  The GstBuffer is dropped on the Rust side."""
-
-    @property
-    def source_id(self) -> str: ...
-    @property
-    def frame(self) -> VideoFrame: ...
-    def __repr__(self) -> str: ...
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Callbacks & Engine
 # ═══════════════════════════════════════════════════════════════════════════
@@ -645,7 +634,7 @@ class Callbacks:
     """Aggregate holder for all optional Python callbacks."""
 
     on_encoded_frame: Optional[Callable[[EncodedOutput], Any]]
-    on_bypass_frame: Optional[Callable[[BypassOutput], Any]]
+    on_bypass_frame: Optional[Callable[[EncodedOutput], Any]]
     on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]]
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]]
     on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int, int], Any]]
@@ -654,7 +643,7 @@ class Callbacks:
     def __init__(
         self,
         on_encoded_frame: Optional[Callable[[EncodedOutput], Any]] = None,
-        on_bypass_frame: Optional[Callable[[BypassOutput], Any]] = None,
+        on_bypass_frame: Optional[Callable[[EncodedOutput], Any]] = None,
         on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]] = None,
         on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]] = None,
         on_gpumat: Optional[

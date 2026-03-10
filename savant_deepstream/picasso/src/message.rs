@@ -26,11 +26,3 @@ pub enum EncodedOutput {
     /// End-of-stream signal for a source.
     EndOfStream(EndOfStream),
 }
-
-/// Output for bypass mode — frame with bboxes transformed back to initial
-/// coordinates.
-pub struct BypassOutput {
-    pub source_id: String,
-    pub frame: VideoFrameProxy,
-    pub view: SurfaceView,
-}

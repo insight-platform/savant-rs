@@ -469,10 +469,11 @@ class TestPicassoPipelineBypass:
         time.sleep(3)
         engine.shutdown()
 
-        assert len(bypass_results) > 0, "expected bypass output"
-        for out in bypass_results:
-            assert out.source_id == "src-0"
-            assert out.frame is not None
+        frames = [r for r in bypass_results if r.is_video_frame]
+        assert len(frames) > 0, "expected bypass output"
+        for out in frames:
+            frame = out.as_video_frame()
+            assert frame.source_id == "src-0"
 
 
 # ─── Drop pipeline test ───────────────────────────────────────────────
