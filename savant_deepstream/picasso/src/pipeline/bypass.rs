@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub(crate) fn process_bypass(
     source_id: &str,
     mut frame: VideoFrameProxy,
-    view: SurfaceView,
+    _view: SurfaceView,
     callbacks: &Arc<Callbacks>,
 ) {
     frame.set_transcoding_method(VideoFrameTranscodingMethod::Copy);
@@ -25,7 +25,6 @@ pub(crate) fn process_bypass(
     if let Some(cb) = &callbacks.on_bypass_frame {
         cb.call(OutputMessage::VideoFrame(frame));
     }
-    // `view` (SurfaceView) is dropped here after the callback returns,
-    // keeping the underlying GstBuffer alive during callback execution.
-    drop(view);
+    // `view` stays alive (not moved into the callback) until function exit,
+    // so the underlying GstBuffer remains valid for the callback's duration.
 }
