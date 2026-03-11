@@ -25,6 +25,11 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", cuda_lib);
     // Also add the generic lib64 fallback (symlink on many images)
     println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
+    // CUDA stubs for CI builds where the host GPU driver is absent
+    // (libcuda.so is normally injected from the host at runtime).
+    // Searched last so real libraries take precedence.
+    println!("cargo:rustc-link-search=native={}/stubs", cuda_lib);
+    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64/stubs");
     println!("cargo:rustc-link-lib=cudart");
     println!("cargo:rustc-link-lib=cuda");
 
