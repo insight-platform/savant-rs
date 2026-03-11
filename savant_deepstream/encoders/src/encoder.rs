@@ -144,6 +144,20 @@ impl NvEncoder {
             });
         }
 
+        // H.264, HEVC and AV1 require NVENC hardware.  Fail early with a
+        // clear error instead of letting the GStreamer element creation
+        // produce a cryptic message or hang.
+        let needs_nvenc = matches!(config.codec, Codec::H264 | Codec::Hevc | Codec::Av1);
+        if needs_nvenc {
+            let has_nvenc = nvidia_gpu_utils::has_nvenc(config.gpu_id).unwrap_or(false);
+            if !has_nvenc {
+                return Err(EncoderError::NvencNotAvailable {
+                    codec: config.codec.name().to_string(),
+                    gpu_id: config.gpu_id,
+                });
+            }
+        }
+
         // Determine the encoder and parser element names (unused for PNG).
         let (enc_name, parse_name, needs_convert) = match config.codec {
             Codec::H264 => (

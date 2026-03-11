@@ -7,6 +7,11 @@ pub enum EncoderError {
     #[error("Unsupported codec: {0}")]
     UnsupportedCodec(String),
 
+    /// The requested codec requires NVENC hardware that is not available
+    /// on this GPU (e.g. Orin Nano, or datacenter GPUs without NVENC).
+    #[error("NVENC hardware not available on GPU {gpu_id} (required for {codec})")]
+    NvencNotAvailable { codec: String, gpu_id: u32 },
+
     /// An encoder property is invalid or rejected.
     #[error("Invalid encoder property '{name}': {reason}")]
     InvalidProperty { name: String, reason: String },
