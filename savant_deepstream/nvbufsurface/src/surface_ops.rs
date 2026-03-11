@@ -61,6 +61,13 @@ pub unsafe fn upload_to_surface(
     let surf_ptr = extract_surf(buf)?;
     let params = &*(*surf_ptr).surfaceList;
 
+    if width > params.width || height > params.height {
+        return Err(NvBufSurfaceError::InvalidInput(format!(
+            "source dimensions {}x{} exceed surface dimensions {}x{}",
+            width, height, params.width, params.height
+        )));
+    }
+
     let bpp = color_format_channels(params.colorFormat).ok_or_else(|| {
         NvBufSurfaceError::InvalidInput(format!(
             "unsupported color format {} (multi-plane not supported)",
