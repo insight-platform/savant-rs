@@ -38,3 +38,4 @@ skia = ["dep:skia-safe", "dep:gl"]
 env_logger = "0.11"
 clap = { workspace = true }
 ctrlc = { workspace = true }
+nvidia_gpu_utils = { workspace = true }

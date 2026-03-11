@@ -309,6 +309,97 @@ pub(crate) fn compute_letterbox_rect(
     }
 }
 
+/// Clear the first surface in `dst_surf` to black (all zeros).
+///
+/// On dGPU (`x86_64`), uses `cudaMemset2DAsync` on the device pointer.
+/// On Jetson (`aarch64`), NVMM memory is not directly addressable by CUDA
+/// runtime calls, so the surface is mapped to CPU, zeroed, synced back, and
+/// unmapped — matching the pattern in [`crate::surface_ops`].
+///
+/// # Safety
+///
+/// `dst_surf` must point to a valid NvBufSurface with at least one allocated
+/// surface in its `surfaceList`.
+unsafe fn clear_surface_black(
+    dst_surf: *mut ffi::NvBufSurface,
+    dst_h: u32,
+    cuda_stream: *mut std::ffi::c_void,
+) -> Result<(), TransformError> {
+    #[cfg(target_arch = "aarch64")]
+    {
+        let _ = (dst_h, cuda_stream);
+        clear_surface_black_mapped(dst_surf)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let dst_surface = &*(*dst_surf).surfaceList;
+        let data_ptr = dst_surface.dataPtr;
+        let pitch = dst_surface.pitch as usize;
+        let bpp = crate::surface_view::color_format_channels(dst_surface.colorFormat).unwrap_or(4)
+            as usize;
+        let row_bytes = dst_surface.width as usize * bpp;
+
+        let ret = ffi::cudaMemset2DAsync(
+            data_ptr,
+            pitch,
+            0,
+            row_bytes.min(pitch),
+            dst_h as usize,
+            cuda_stream,
+        );
+        if ret != 0 {
+            return Err(TransformError::CudaError(ret));
+        }
+        let ret = ffi::cudaStreamSynchronize(cuda_stream);
+        if ret != 0 {
+            return Err(TransformError::CudaError(ret));
+        }
+        Ok(())
+    }
+}
+
+/// Jetson (aarch64): Map → zero all planes → SyncForDevice → UnMap.
+#[cfg(target_arch = "aarch64")]
+unsafe fn clear_surface_black_mapped(
+    dst_surf: *mut ffi::NvBufSurface,
+) -> Result<(), TransformError> {
+    let ret = ffi::NvBufSurfaceMap(
+        dst_surf,
+        0,
+        -1,
+        ffi::NvBufSurfaceMemMapFlags_NVBUF_MAP_READ_WRITE,
+    );
+    if ret != 0 {
+        return Err(TransformError::CudaError(ret));
+    }
+
+    let params = &*(*dst_surf).surfaceList;
+    let num_planes = params.planeParams.num_planes as usize;
+    for plane in 0..num_planes {
+        let mapped = params.mappedAddr.addr[plane] as *mut u8;
+        if mapped.is_null() {
+            let _ = ffi::NvBufSurfaceUnMap(dst_surf, 0, -1);
+            return Err(TransformError::InvalidBuffer(
+                "mapped address is null after NvBufSurfaceMap",
+            ));
+        }
+        let pitch = params.planeParams.pitch[plane] as usize;
+        let h = params.planeParams.height[plane] as usize;
+        std::ptr::write_bytes(mapped, 0, pitch * h);
+    }
+
+    let ret = ffi::NvBufSurfaceSyncForDevice(dst_surf, 0, -1);
+    if ret != 0 {
+        let _ = ffi::NvBufSurfaceUnMap(dst_surf, 0, -1);
+        return Err(TransformError::CudaError(ret));
+    }
+    let ret = ffi::NvBufSurfaceUnMap(dst_surf, 0, -1);
+    if ret != 0 {
+        return Err(TransformError::CudaError(ret));
+    }
+    Ok(())
+}
+
 /// Perform the actual NvBufSurfTransform call with optional letterboxing.
 ///
 /// # Safety
@@ -387,28 +478,7 @@ pub(crate) unsafe fn do_transform(
         && dst_letterbox.width == dst_w
         && dst_letterbox.height == dst_h;
     if !fills_dst {
-        let dst_surface = &*dst.surfaceList;
-        let data_ptr = dst_surface.dataPtr;
-        let pitch = dst_surface.pitch as usize;
-        let bpp = dst_surface.width as usize * 4; // Assume RGBA for clearing, width * bytes per pixel
-
-        // Clear the entire destination surface to black (0)
-        // Use pitch-based memset for the full surface
-        let ret = ffi::cudaMemset2DAsync(
-            data_ptr,
-            pitch,
-            0, // black
-            bpp.min(pitch),
-            dst_h as usize,
-            config.cuda_stream, // use the configured CUDA stream
-        );
-        if ret != 0 {
-            return Err(TransformError::CudaError(ret));
-        }
-        let ret = ffi::cudaStreamSynchronize(config.cuda_stream);
-        if ret != 0 {
-            return Err(TransformError::CudaError(ret));
-        }
+        clear_surface_black(dst_surf, dst_h, config.cuda_stream)?;
     }
 
     let mut dst_rect_ffi = dst_letterbox.to_ffi();

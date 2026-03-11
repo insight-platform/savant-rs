@@ -16,6 +16,7 @@ savant_deepstream/nvbufsurface/
 │   ├── transform.rs            # Padding, Interpolation, ComputeMode, Rect,
 │   │                           #   TransformConfig, TransformError,
 │   │                           #   extract_nvbufsurface, buffer_gpu_id,
+│   │                           #   clear_surface_black (platform-aware),
 │   │                           #   do_transform, do_transform_to_slot
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
 │   ├── surface_ops.rs          # memset_surface, upload_to_surface (platform-aware)
@@ -192,10 +193,10 @@ config. Always call `destroy_cuda_stream()` when done.
 ⚠ After each transform, `cudaStreamSynchronize` is called to prevent
 stale-data artifacts when source buffers are returned to pools.
 
-## Platform-Aware Memory Access (surface_ops)
+## Platform-Aware Memory Access
 
-`memset_surface` and `upload_to_surface` use different code paths depending on
-the target architecture:
+Multiple modules handle the Jetson vs dGPU memory difference via
+`cfg(target_arch = "aarch64")`:
 
 - **On Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
   (VIC-managed), which is **NOT** CUDA-addressable. Must use
@@ -203,9 +204,20 @@ the target architecture:
   `NvBufSurfaceUnMap`.
 
 - **On dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
-  `cuMemcpyHtoD_v2` work directly on the GPU memory.
+  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly on the GPU memory.
 
-The `surface_ops` module selects the path via `cfg(target_arch = "aarch64")`.
+### Modules with platform-aware paths
+
+| Module | Functions | Jetson path | dGPU path |
+|---|---|---|---|
+| `surface_ops` | `memset_surface`, `upload_to_surface` | `NvBufSurfaceMap` + CPU write | `cuMemsetD8_v2`, `cudaMemcpy2D` |
+| `transform` | `clear_surface_black` (letterbox padding) | `clear_surface_black_mapped`: Map → zero all planes → Sync → Unmap | `cudaMemset2DAsync` + `cudaStreamSynchronize` |
+
+The `clear_surface_black` function in `transform.rs` is called by `do_transform()`
+when the letterboxed image doesn't fill the entire destination surface. On Jetson,
+the mapped path (`clear_surface_black_mapped`) iterates all planes via
+`planeParams.num_planes` and uses `planeParams.pitch[plane]` /
+`planeParams.height[plane]` for correct multi-plane format support (NV12, I420).
 
 ---
 

@@ -146,22 +146,61 @@ cargo clippy --features deepstream --all-targets
 
 ---
 
-## 10. Jetson vs dGPU Memory Access (surface_ops)
+## 10. Jetson vs dGPU Memory Access
 
 - **Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
   (VIC-managed), which is **not** CUDA-addressable. Direct use of
-  `cuMemsetD8_v2` / `cuMemcpyHtoD_v2` would fail. Instead, use
+  `cuMemsetD8_v2` / `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` would fail
+  with CUDA error 1 (`cudaErrorInvalidValue`). Instead, use
   `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
   `NvBufSurfaceUnMap`.
 
 - **dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
-  `cuMemcpyHtoD_v2` work directly.
+  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly.
 
 - **nvinfer on Jetson:** `scaling-compute-hw=1` is needed in nvinfer config to
   avoid VIC limitations with small surfaces (< 16×16 pixels).
 
-- The `surface_ops` module (`memset_surface`, `upload_to_surface`) handles
-  this automatically via `cfg(target_arch = "aarch64")`.
+- This platform difference is handled via `cfg(target_arch = "aarch64")` in:
+  - `surface_ops` module (`memset_surface`, `upload_to_surface`)
+  - `transform.rs` (`clear_surface_black` / `clear_surface_black_mapped` for
+    letterbox padding)
+
+---
+
+## 12. nvjpegenc Requires nvvideoconvert on Jetson
+
+On Jetson, the NVJPG hardware engine requires surfaces to be "pinned" (registered)
+through its own mechanism. Surfaces allocated by the NvDS buffer pool
+(`gst_nvds_buffer_pool_new`) are **not** automatically registered, causing
+`NVJPGGetSurfPinHandle: Surface not registered` errors at runtime. The encoder
+silently fails and stops consuming buffers, which causes upstream `appsrc`
+to block on back-pressure — **hanging the pipeline indefinitely**.
+
+**Fix:** Insert `nvvideoconvert` with `disable-passthrough=true` before
+`nvjpegenc`. This forces surface re-allocation through nvvideoconvert's own
+pool, which creates surfaces compatible with the NVJPG engine. Without
+`disable-passthrough=true`, nvvideoconvert operates in passthrough mode when
+input/output caps match (same format, same resolution) and simply forwards
+the original buffer unmodified.
+
+⚠ This does NOT affect `nvv4l2h264enc` / `nvv4l2h265enc` — those V4L2-based
+encoders handle NvDS buffer pool surfaces directly.
+
+---
+
+## 13. NVENC Availability and Orin Nano
+
+- **Orin Nano (8GB and 4GB):** Does NOT have NVENC hardware encoding.
+  `nvidia_gpu_utils::has_nvenc(0)` returns `false`.
+- **Other Jetson models** (AGX Orin, Orin NX, Xavier, etc.): Have NVENC.
+- **Datacenter dGPUs** (H100, A100, A30, B200, etc.): No NVENC.
+  `has_nvenc()` uses NVML `encoder_capacity(H264)` to detect.
+
+Tests that use `nvv4l2h264enc` / `nvv4l2h265enc` must guard with
+`nvidia_gpu_utils::has_nvenc(0)` and skip (early return) when unavailable.
+Tests that use `nvjpegenc` must guard with
+`gst::ElementFactory::find("nvjpegenc")` (Jetson-only element).
 
 ---
 

@@ -13,6 +13,7 @@ Unit tests in `surface_view.rs` run without GPU using `gst::init()` only.
 env_logger = "0.11"
 clap = { workspace = true }
 ctrlc = { workspace = true }
+nvidia_gpu_utils = { workspace = true }   # has_nvenc(), jetson_model() for test guards
 ```
 
 ## Test File Location
@@ -363,6 +364,54 @@ SAVANT_FEATURES=deepstream make release install && make sp-pytest
 ⚠ Do **not** run `cargo test --features deepstream` on the entire workspace —
 the `savant_rs` Python extension crate has linking issues in test mode.
 Always test individual crates: `-p deepstream_nvbufsurface`, `-p nvinfer`.
+
+---
+
+## Hardware-Gated Test Pattern (bridge_meta.rs)
+
+Encoder bridge tests must check hardware availability at the start:
+
+```rust
+#[test]
+fn test_bridge_meta_nvv4l2h264enc() {
+    // NVENC guard: Orin Nano and datacenter GPUs lack NVENC
+    if !nvidia_gpu_utils::has_nvenc(0).unwrap_or(false) {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
+    run_pipeline_bridge_test(&EncoderTestConfig {
+        format: VideoFormat::NV12,
+        enc_name: "nvv4l2h264enc",
+        parser: Some("h264parse"),
+        pre_encoder: None,
+    }, 30);
+}
+
+#[test]
+fn test_bridge_meta_nvjpegenc() {
+    common::init();  // GStreamer must be init'd before ElementFactory::find
+    if gst::ElementFactory::find("nvjpegenc").is_none() {
+        eprintln!("nvjpegenc not available — skipping");
+        return;
+    }
+    run_pipeline_bridge_test(&EncoderTestConfig {
+        format: VideoFormat::I420,
+        enc_name: "nvjpegenc",
+        parser: Some("jpegparse"),
+        // On Jetson, nvjpegenc needs surfaces re-allocated by nvvideoconvert
+        pre_encoder: if cfg!(target_arch = "aarch64") {
+            Some("nvvideoconvert")
+        } else {
+            None
+        },
+    }, 30);
+}
+```
+
+When inserting `nvvideoconvert` as `pre_encoder`, set `disable-passthrough=true`
+on it — otherwise it passes through buffers when caps match, defeating the
+purpose. `SavantIdMeta` survives through `nvvideoconvert` because it has a
+proper `savant_id_meta_transform` function.
 
 ---
 
