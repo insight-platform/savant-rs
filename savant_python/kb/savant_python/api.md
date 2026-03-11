@@ -184,7 +184,7 @@ from savant_rs.deepstream import (
     DsNvUniformSurfaceBuffer, DsNvNonUniformSurfaceBuffer,
     Rect, Padding, Interpolation, ComputeMode, VideoFormat, MemType,
     TransformConfig, DstPadding,
-    init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel,
+    init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
 )
 ```
 

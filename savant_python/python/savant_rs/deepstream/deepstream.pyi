@@ -34,6 +34,7 @@ __all__ = [
     "gpu_mem_used_mib",
     "jetson_model",
     "is_jetson_kernel",
+    "has_nvenc",
     "bridge_savant_id_meta",
     "get_savant_id_meta",
     "get_nvbufsurface_info",
@@ -925,6 +926,22 @@ def is_jetson_kernel() -> bool:
     """Return True if the kernel is a Jetson (Tegra) kernel.
 
     Checks uname -r for the "tegra" suffix.
+    """
+    ...
+
+def has_nvenc(gpu_id: int = 0) -> bool:
+    """Return True if the GPU has NVENC hardware encoding support.
+
+    - Jetson: Orin Nano is the only Jetson without NVENC; all others have it.
+      Unknown models conservatively return False.
+    - dGPU (x86_64): Uses NVML encoder_capacity(H264) — returns False for
+      datacenter GPUs without NVENC (H100, A100, A30, etc.).
+
+    Args:
+        gpu_id: GPU device ID (default 0).
+
+    Returns:
+        True if NVENC is available.
     """
     ...
 

@@ -1868,6 +1868,28 @@ pub fn py_is_jetson_kernel() -> bool {
     nvidia_gpu_utils::is_jetson_kernel()
 }
 
+/// Returns ``True`` if the GPU has NVENC hardware encoding support.
+///
+/// - **Jetson**: Orin Nano is the only Jetson without NVENC; all others have it.
+///   ``Unknown`` models conservatively return ``False``.
+/// - **dGPU (x86_64)**: Uses NVML ``encoder_capacity(H264)`` — returns ``False``
+///   for datacenter GPUs without NVENC (H100, A100, A30, etc.).
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     bool: ``True`` if NVENC is available.
+///
+/// Raises:
+///     RuntimeError: If CUDA/NVML initialization fails.
+#[pyfunction]
+#[pyo3(name = "has_nvenc", signature = (gpu_id=0))]
+pub fn py_has_nvenc(gpu_id: u32) -> PyResult<bool> {
+    nvidia_gpu_utils::has_nvenc(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
 /// Install pad probes on an element to propagate ``SavantIdMeta``.
 ///
 /// Args:
@@ -2092,6 +2114,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(py_gpu_mem_used_mib, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_jetson_model, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_is_jetson_kernel, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_has_nvenc, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_bridge_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_nvbufsurface_info, m)?)?;

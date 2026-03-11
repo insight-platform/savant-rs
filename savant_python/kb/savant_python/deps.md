@@ -55,7 +55,7 @@ from savant_rs.gstreamer import FlowResult, InvocationReason, Codec, Mp4Muxer
 from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer, SurfaceView,
     DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
-    init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel,
+    init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
 )
 from savant_rs.nvinfer import NvInfer, NvInferConfig, Roi, ...
 from savant_rs.picasso import PicassoEngine, Callbacks, OutputMessage, ...

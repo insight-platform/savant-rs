@@ -1,10 +1,12 @@
 //! Platform-aware GPU and process memory monitoring utilities.
 //!
-//! - **dGPU (x86_64)**: Uses NVML to query GPU device memory.
+//! - **dGPU (x86_64)**: Uses NVML to query GPU device memory and NVENC capability.
 //! - **Jetson (aarch64)**: Reads `/proc/meminfo` for unified memory (RAM used).
 //! - **Process RSS**: Reads `/proc/self/status` `VmRSS` (works on any Linux).
 //! - **Jetson detection**: Uses CUDA SM count + `/proc/meminfo` MemTotal to identify
 //!   Jetson Orin/Xavier variants when running in a container (no device-tree access).
+//! - **NVENC detection**: [`has_nvenc`] checks hardware encoder availability — returns
+//!   `false` for Orin Nano and datacenter GPUs without NVENC (H100, A100, A30, etc.).
 
 use std::io;
 use thiserror::Error;
@@ -219,7 +221,7 @@ pub fn is_jetson_kernel() -> bool {
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map_or(false, |s| s.contains("tegra"))
+        .is_some_and(|s| s.contains("tegra"))
 }
 
 /// Returns (SM count, compute capability major, compute capability minor).
@@ -324,17 +326,17 @@ fn map_to_jetson(sm_count: i32, cc_major: i32, cc_minor: i32, mem_total_mib: u64
     if is_orin {
         match sm_count {
             16 if mem_total_mib >= 60_000 => JetsonModel::AgxOrin64GB,
-            12 if mem_total_mib >= 30_000 && mem_total_mib < 60_000 => JetsonModel::AgxOrin32GB,
-            8 if mem_total_mib >= 14_000 && mem_total_mib < 20_000 => JetsonModel::OrinNx16GB,
-            8 if mem_total_mib >= 7_000 && mem_total_mib < 10_000 => JetsonModel::OrinNano8GB,
-            6 if mem_total_mib >= 7_000 && mem_total_mib < 10_000 => JetsonModel::OrinNx8GB,
-            6 if mem_total_mib >= 3_500 && mem_total_mib < 5_500 => JetsonModel::OrinNano4GB,
+            12 if (30_000..60_000).contains(&mem_total_mib) => JetsonModel::AgxOrin32GB,
+            8 if (14_000..20_000).contains(&mem_total_mib) => JetsonModel::OrinNx16GB,
+            8 if (7_000..10_000).contains(&mem_total_mib) => JetsonModel::OrinNano8GB,
+            6 if (7_000..10_000).contains(&mem_total_mib) => JetsonModel::OrinNx8GB,
+            6 if (3_500..5_500).contains(&mem_total_mib) => JetsonModel::OrinNano4GB,
             _ => JetsonModel::Unknown,
         }
     } else if is_xavier {
         match sm_count {
-            8 if mem_total_mib >= 28_000 && mem_total_mib < 36_000 => JetsonModel::AgxXavier,
-            6 if mem_total_mib >= 7_000 && mem_total_mib < 10_000 => JetsonModel::XavierNx,
+            8 if (28_000..36_000).contains(&mem_total_mib) => JetsonModel::AgxXavier,
+            6 if (7_000..10_000).contains(&mem_total_mib) => JetsonModel::XavierNx,
             _ => JetsonModel::Unknown,
         }
     } else if is_pascal && sm_count == 2 {
@@ -343,6 +345,60 @@ fn map_to_jetson(sm_count: i32, cc_major: i32, cc_minor: i32, mem_total_mib: u64
         JetsonModel::Nano
     } else {
         JetsonModel::Unknown
+    }
+}
+
+/// Returns `true` if the GPU has NVENC hardware encoding support.
+///
+/// - **Jetson**: Orin Nano is the only Jetson without NVENC; all others have it.
+///   `Unknown` models conservatively return `false`.
+/// - **dGPU (x86_64)**: Uses NVML `encoder_capacity(H264)` — returns `false` for
+///   datacenter GPUs without NVENC (H100, A100, A30, B200, B300, GB200, etc.).
+///
+/// # Errors
+///
+/// Returns an error if CUDA/NVML initialization fails.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// if !nvidia_gpu_utils::has_nvenc(0)? {
+///     eprintln!("This GPU does not support NVENC hardware encoding");
+/// }
+/// # Ok(())
+/// # }
+/// ```
+pub fn has_nvenc(gpu_id: u32) -> Result<bool, GpuUtilsError> {
+    // Jetson path: Orin Nano has no NVENC; Unknown is treated as no-NVENC.
+    if let Some(model) = jetson_model(gpu_id)? {
+        return Ok(!matches!(
+            model,
+            JetsonModel::OrinNano8GB | JetsonModel::OrinNano4GB | JetsonModel::Unknown
+        ));
+    }
+
+    // dGPU path: query NVML encoder capacity.
+    #[cfg(target_arch = "x86_64")]
+    {
+        return has_nvenc_nvml(gpu_id);
+    }
+
+    // Fallback: if not Jetson and not x86_64, assume available.
+    #[cfg(not(target_arch = "x86_64"))]
+    Ok(true)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn has_nvenc_nvml(gpu_id: u32) -> Result<bool, GpuUtilsError> {
+    use nvml_wrapper::enum_wrappers::device::EncoderType;
+
+    let nvml = nvml_wrapper::Nvml::init()?;
+    let device = nvml.device_by_index(gpu_id)?;
+    match device.encoder_capacity(EncoderType::H264) {
+        Ok(cap) => Ok(cap > 0),
+        Err(nvml_wrapper::error::NvmlError::NotSupported) => Ok(false),
+        Err(e) => Err(GpuUtilsError::Nvml(e)),
     }
 }
 
@@ -418,5 +474,10 @@ mod tests {
         assert!(JetsonModel::OrinNano8GB.is_orin_nano());
         assert!(JetsonModel::OrinNano4GB.is_orin_nano());
         assert!(!JetsonModel::OrinNx8GB.is_orin_nano());
+    }
+
+    #[test]
+    fn test_has_nvenc_does_not_panic() {
+        let _ = has_nvenc(0);
     }
 }

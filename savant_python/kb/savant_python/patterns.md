@@ -85,6 +85,16 @@ if is_jetson_kernel():
         pass
 ```
 
+### NVENC capability detection
+```python
+from savant_rs.deepstream import has_nvenc
+
+if not has_nvenc():
+    # No hardware encoder — fall back to software or skip encoding.
+    # Returns False on: Orin Nano, H100, A100, A30, B200, B300, GB200, etc.
+    pass
+```
+
 ### Using gen_frame / gen_empty_frame
 ```python
 from savant_rs.utils import gen_frame, gen_empty_frame

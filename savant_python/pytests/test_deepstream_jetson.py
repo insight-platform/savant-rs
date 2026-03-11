@@ -1,4 +1,4 @@
-"""Tests for Jetson detection utilities (jetson_model, is_jetson_kernel)."""
+"""Tests for Jetson detection and NVENC utilities."""
 
 from __future__ import annotations
 
@@ -36,3 +36,24 @@ class TestJetsonModel:
             pytest.skip("CUDA not available")
         if result and "Orin Nano" in result:
             assert "8GB" in result or "4GB" in result
+
+
+class TestHasNvenc:
+    """has_nvenc() returns bool; requires CUDA/NVML."""
+
+    def test_returns_bool(self) -> None:
+        try:
+            result = ds.has_nvenc(0)
+        except Exception:
+            pytest.skip("CUDA/NVML not available")
+        assert isinstance(result, bool)
+
+    def test_consistent_with_jetson_model(self) -> None:
+        """On Orin Nano, has_nvenc must be False."""
+        try:
+            model = ds.jetson_model(0)
+            nvenc = ds.has_nvenc(0)
+        except Exception:
+            pytest.skip("CUDA/NVML not available")
+        if model and "Orin Nano" in model:
+            assert nvenc is False

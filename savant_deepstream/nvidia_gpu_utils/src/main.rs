@@ -8,15 +8,15 @@
 //! echo "Model: $NVIDIA_GPU_JETSON_MODEL"
 //!
 //! # Or query specific params with custom GPU
-//! eval $(nvidia_gpu_info -g 0 is_jetson is_orin_nano mem_total_mib)
-//! if [ "$NVIDIA_GPU_IS_ORIN_NANO" = "true" ]; then
-//!   echo "Running on Orin Nano, total mem: $NVIDIA_GPU_MEM_TOTAL_MIB MiB"
+//! eval $(nvidia_gpu_info -g 0 is_jetson is_orin_nano has_nvenc mem_total_mib)
+//! if [ "$NVIDIA_GPU_HAS_NVENC" = "false" ]; then
+//!   echo "No NVENC hardware encoder on this GPU"
 //! fi
 //! ```
 
 use clap::Parser;
 use nvidia_gpu_utils::{
-    gpu_mem_used_mib, is_jetson_kernel, jetson_model, mem_total_mib, process_rss_mib,
+    gpu_mem_used_mib, has_nvenc, is_jetson_kernel, jetson_model, mem_total_mib, process_rss_mib,
 };
 
 /// Query GPU and device info. Outputs shell-safe KEY='value' pairs.
@@ -33,7 +33,7 @@ struct Args {
     /// Parameters to output. If none given, prints all.
     ///
     /// Available: jetson_model, is_jetson, is_jetson_kernel, is_orin_nano,
-    /// gpu_mem_used_mib, mem_total_mib, process_rss_mib
+    /// has_nvenc, gpu_mem_used_mib, mem_total_mib, process_rss_mib
     #[arg(value_name = "PARAM")]
     params: Vec<String>,
 }
@@ -43,6 +43,7 @@ const ALL_PARAMS: &[&str] = &[
     "is_jetson",
     "is_jetson_kernel",
     "is_orin_nano",
+    "has_nvenc",
     "gpu_mem_used_mib",
     "mem_total_mib",
     "process_rss_mib",
@@ -87,6 +88,10 @@ fn print_param(param: &str, gpu_id: u32) -> Result<(), Box<dyn std::error::Error
                 .and_then(|m| m)
                 .is_some_and(|m| m.is_orin_nano());
             println!("NVIDIA_GPU_IS_ORIN_NANO='{}'", val);
+        }
+        "has_nvenc" => {
+            let val = has_nvenc(gpu_id)?;
+            println!("NVIDIA_GPU_HAS_NVENC='{}'", val);
         }
         "gpu_mem_used_mib" => {
             let val = gpu_mem_used_mib(gpu_id)?;
