@@ -4,18 +4,14 @@ mod common;
 
 use deepstream_nvbufsurface::{
     DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
-    NvBufSurfaceMemType, TransformConfig, VideoFormat,
+    NvBufSurfaceMemType, VideoFormat,
 };
 use nvinfer::{
     attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Roi,
 };
 use savant_core::primitives::RBBox;
+use serial_test::serial;
 use std::collections::HashMap;
-
-#[link(name = "cuda")]
-extern "C" {
-    fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
-}
 
 fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     common::init();
@@ -39,7 +35,7 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
+    let config = common::platform_transform_config();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
     for i in 0..num_frames {
@@ -88,14 +84,14 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (gstreamer::Buffer, Vec<f
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
+    let config = common::platform_transform_config();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
     for (i, &fill_byte) in fill_bytes.iter().enumerate() {
-        let (src, data_ptr, pitch) = src_gen.acquire_surface_with_ptr(Some(i as i64)).unwrap();
-        let fill_size = (pitch * 12) as usize;
-        let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill_byte, fill_size) };
-        assert_eq!(ret, 0, "cuMemsetD8_v2 failed with code {}", ret);
+        let src = src_gen.acquire_surface(Some(i as i64)).unwrap();
+        unsafe {
+            deepstream_nvbufsurface::memset_surface(&src, fill_byte).expect("memset_surface");
+        }
         batch.fill_slot(&src, None, Some(i as i64)).unwrap();
     }
 
@@ -153,10 +149,10 @@ fn make_nonuniform_identity_batch(frames: &[(u32, u32, u8, i64)]) -> gstreamer::
             .build()
             .expect("src generator");
 
-        let (src, data_ptr, pitch) = gen.acquire_surface_with_ptr(Some(id)).unwrap();
-        let fill_size = (pitch * h) as usize;
-        let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill, fill_size) };
-        assert_eq!(ret, 0, "cuMemsetD8_v2 failed with code {}", ret);
+        let src = gen.acquire_surface(Some(id)).unwrap();
+        unsafe {
+            deepstream_nvbufsurface::memset_surface(&src, fill).expect("memset_surface");
+        }
 
         batch.add(&src, Some(id)).unwrap();
     }
@@ -194,6 +190,7 @@ fn tensor_f32_sum(tensor: &nvinfer::TensorView) -> f64 {
 }
 
 #[test]
+#[serial]
 fn test_attach_batch_meta() {
     common::init();
     let mut buffer = make_identity_batch(2);
@@ -202,6 +199,7 @@ fn test_attach_batch_meta() {
 }
 
 #[test]
+#[serial]
 fn test_sync_single_frame() {
     common::init();
     let engine = match identity_engine() {
@@ -244,6 +242,7 @@ fn test_sync_single_frame() {
 }
 
 #[test]
+#[serial]
 fn test_sync_uniform_batch() {
     common::init();
     let engine = match identity_engine() {
@@ -276,6 +275,7 @@ fn test_sync_uniform_batch() {
 }
 
 #[test]
+#[serial]
 fn test_identity_different_fill_values() {
     common::init();
     let engine = match identity_engine() {
@@ -301,6 +301,7 @@ fn test_identity_different_fill_values() {
 }
 
 #[test]
+#[serial]
 fn test_element_ids_preserved() {
     common::init();
     let engine = match identity_engine() {
@@ -331,7 +332,7 @@ fn test_element_ids_preserved() {
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
+    let config = common::platform_transform_config();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
     for &id in &ids_to_send {
         let src = src_gen.acquire_surface(Some(id)).unwrap();
@@ -353,6 +354,7 @@ fn test_element_ids_preserved() {
 }
 
 #[test]
+#[serial]
 fn test_async_callback() {
     common::init();
 
@@ -400,6 +402,7 @@ fn expect_new_fails_with(props: HashMap<String, String>, expected_substring: &st
 }
 
 #[test]
+#[serial]
 fn test_config_rejects_wrong_process_mode() {
     common::init();
 
@@ -411,6 +414,7 @@ fn test_config_rejects_wrong_process_mode() {
 }
 
 #[test]
+#[serial]
 fn test_config_rejects_wrong_output_tensor_meta_value() {
     common::init();
 
@@ -421,6 +425,7 @@ fn test_config_rejects_wrong_output_tensor_meta_value() {
 }
 
 #[test]
+#[serial]
 fn test_config_rejects_disabled_output_tensor_meta() {
     common::init();
 
@@ -434,6 +439,7 @@ fn test_config_rejects_disabled_output_tensor_meta() {
 /// outputs – the identity model should return the same values regardless of
 /// which ROI ID is assigned.
 #[test]
+#[serial]
 fn test_two_rois_same_rect_same_output() {
     common::init();
     let engine = match identity_engine() {
@@ -495,6 +501,7 @@ fn test_two_rois_same_rect_same_output() {
 /// full-frame ROIs on each frame.  Validates element count, ID propagation,
 /// per-ROI tensor correctness, and cross-frame distinctness.
 #[test]
+#[serial]
 fn test_nonuniform_batch_two_rois_each() {
     common::init();
     let engine = match identity_engine_flexible() {
@@ -564,6 +571,7 @@ fn test_nonuniform_batch_two_rois_each() {
 /// frame 1 has 3.  Validates correct element ordering and frame/ROI ID
 /// propagation when the mapping is non-rectangular.
 #[test]
+#[serial]
 fn test_nonuniform_batch_unequal_roi_counts() {
     common::init();
     let engine = match identity_engine_flexible() {
@@ -634,6 +642,7 @@ fn test_nonuniform_batch_unequal_roi_counts() {
 /// engine.  Verifies the pipeline handles both `DsNvUniformSurfaceBuffer`
 /// and `DsNvNonUniformSurfaceBuffer` without renegotiating or leaking state.
 #[test]
+#[serial]
 fn test_mixed_uniform_nonuniform_sequential() {
     common::init();
     let engine = match identity_engine_flexible() {
@@ -726,6 +735,7 @@ fn test_mixed_uniform_nonuniform_sequential() {
 /// to be attached. nvinfer silently skipped inference on the zero-area
 /// object, returning incorrect (often zero) tensor values.
 #[test]
+#[serial]
 fn test_flexible_engine_no_rois_runs_inference() {
     let engine = match identity_engine_flexible() {
         Some(e) => e,

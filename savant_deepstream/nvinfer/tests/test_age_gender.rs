@@ -12,14 +12,9 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use savant_core::primitives::RBBox;
 use serde::Deserialize;
+use serial_test::serial;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-#[link(name = "cuda")]
-extern "C" {
-    fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
-    fn cuMemcpyHtoD_v2(dst: u64, src: *const u8, byte_count: usize) -> u32;
-}
 
 const FRAME_W: u32 = 1920;
 const FRAME_H: u32 = 1080;
@@ -138,6 +133,7 @@ fn make_age_gender_batch(num_frames: u32) -> gstreamer::Buffer {
 }
 
 #[test]
+#[serial]
 fn test_multi_output_layer_names() {
     common::init();
 
@@ -217,6 +213,7 @@ fn load_face_images(dir: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
+#[serial]
 fn test_age_gender_e2e_real_images() {
     common::init();
 
@@ -286,16 +283,10 @@ fn test_age_gender_e2e_real_images() {
         .build()
         .expect("1080p src generator");
 
-    let (src_buf, data_ptr, pitch) = src_gen.acquire_surface_with_ptr(Some(0)).unwrap();
-
+    let src_buf = src_gen.acquire_surface(Some(0)).unwrap();
     unsafe {
-        cuMemsetD8_v2(data_ptr as u64, 0, (pitch * FRAME_H) as usize);
-    }
-    for row in 0..FRAME_H {
-        let gpu_dst = data_ptr as u64 + row as u64 * pitch as u64;
-        let cpu_src = &canvas[row as usize * stride..(row as usize + 1) * stride];
-        let ret = unsafe { cuMemcpyHtoD_v2(gpu_dst, cpu_src.as_ptr(), stride) };
-        assert_eq!(ret, 0, "cuMemcpyHtoD_v2 failed for row {row} (code {ret})");
+        deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H)
+            .expect("upload_to_surface");
     }
 
     // ---- Create batched surface with one 1920x1080 slot -------------------
@@ -392,6 +383,7 @@ fn test_age_gender_e2e_real_images() {
 /// Run inference with two different random seeds (different placements, both
 /// even-aligned) and verify that per-face TRT ages are bit-identical.
 #[test]
+#[serial]
 fn test_age_gender_placement_independence() {
     common::init();
 
@@ -436,15 +428,10 @@ fn test_age_gender_placement_independence() {
             .build()
             .expect("src generator");
 
-        let (src_buf, data_ptr, pitch) = src_gen.acquire_surface_with_ptr(Some(0)).unwrap();
+        let src_buf = src_gen.acquire_surface(Some(0)).unwrap();
         unsafe {
-            cuMemsetD8_v2(data_ptr as u64, 0, (pitch * FRAME_H) as usize);
-        }
-        for row in 0..FRAME_H {
-            let gpu_dst = data_ptr as u64 + row as u64 * pitch as u64;
-            let cpu_src = &canvas[row as usize * stride..(row as usize + 1) * stride];
-            let ret = unsafe { cuMemcpyHtoD_v2(gpu_dst, cpu_src.as_ptr(), stride) };
-            assert_eq!(ret, 0);
+            deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H)
+                .expect("upload_to_surface");
         }
 
         let batched_gen = DsNvUniformSurfaceBufferGenerator::new(

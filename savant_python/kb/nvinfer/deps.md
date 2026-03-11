@@ -35,6 +35,12 @@ from savant_rs.deepstream import (
 )
 ```
 
+## Rust crate dependencies (savant_core_py)
+
+When built with the `deepstream` feature, `savant_core_py` adds `numpy = "0.28"` for
+GPU surface memory operations exposed to Python (`memset`, `upload`, `memset_slot`,
+`upload_slot`).
+
 ## Third-party
 
 | Package | Usage |

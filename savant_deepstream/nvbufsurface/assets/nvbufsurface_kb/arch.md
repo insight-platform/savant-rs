@@ -18,6 +18,7 @@ savant_deepstream/nvbufsurface/
 │   │                           #   extract_nvbufsurface, buffer_gpu_id,
 │   │                           #   do_transform, do_transform_to_slot
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
+│   ├── surface_ops.rs          # memset_surface, upload_to_surface (platform-aware)
 │   ├── buffers.rs              # re-exports single + batched
 │   ├── buffers/
 │   │   ├── single.rs           # DsNvSurfaceBufferGenerator + Builder (batchSize=1)
@@ -140,6 +141,12 @@ DsNvUniformSurfaceBuffer
 | Function | Purpose |
 |---|---|
 | `gst_nvds_buffer_pool_new()` | Create DeepStream buffer pool |
+| `NvBufSurfaceMap` | Map surface for CPU access (auto-generated via bindgen) |
+| `NvBufSurfaceUnMap` | Unmap surface after CPU access (auto-generated via bindgen) |
+| `NvBufSurfaceSyncForDevice` | Sync CPU writes to device (auto-generated via bindgen) |
+| `NvBufSurfaceSyncForCpu` | Sync device writes to CPU (auto-generated via bindgen) |
+| `cuMemsetD8_v2` | CUDA memset (manually declared) |
+| `cuMemcpyHtoD_v2` | CUDA host-to-device copy (manually declared) |
 | `cudaSetDevice(device)` | Set active CUDA device |
 | `cudaFree(ptr)` | Free CUDA memory / trigger lazy context init |
 | `cudaMemset2DAsync(...)` | Clear GPU surface to black for letterboxing |
@@ -184,6 +191,23 @@ config. Always call `destroy_cuda_stream()` when done.
 
 ⚠ After each transform, `cudaStreamSynchronize` is called to prevent
 stale-data artifacts when source buffers are returned to pools.
+
+## Platform-Aware Memory Access (surface_ops)
+
+`memset_surface` and `upload_to_surface` use different code paths depending on
+the target architecture:
+
+- **On Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
+  (VIC-managed), which is **NOT** CUDA-addressable. Must use
+  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
+  `NvBufSurfaceUnMap`.
+
+- **On dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
+  `cuMemcpyHtoD_v2` work directly on the GPU memory.
+
+The `surface_ops` module selects the path via `cfg(target_arch = "aarch64")`.
+
+---
 
 ## Features
 

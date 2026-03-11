@@ -55,6 +55,18 @@ fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerat
 }
 ```
 
+### memset_surface / upload_to_surface
+```rust
+// Fill surface with zeros
+unsafe { deepstream_nvbufsurface::memset_surface(&buf, 0x00).unwrap(); }
+
+// Upload RGBA pixel data
+let pixels: Vec<u8> = vec![0xFF; 640 * 480 * 4]; // white RGBA
+unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480).unwrap(); }
+```
+
+---
+
 ### Batched Generator Helper
 ```rust
 fn make_batched_gen(

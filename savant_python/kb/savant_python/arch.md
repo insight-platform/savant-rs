@@ -51,7 +51,7 @@ savant_python (savant_rs wheel)
            ├── picasso (frame processing engine)
            ├── deepstream_nvbufsurface (NvBufSurface wrappers)
            ├── deepstream_encoders (H264/H265/JPEG/PNG encoders)
-           ├── nvidia_gpu_utils (GPU memory queries)
+           ├── nvidia_gpu_utils (GPU memory queries, Jetson model detection)
            └── skia-safe (Skia rendering)
 ```
 

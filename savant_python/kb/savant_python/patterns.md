@@ -74,6 +74,17 @@ except ImportError:
 pytestmark = pytest.mark.skipif(not HAS_DS, reason="DeepStream not available")
 ```
 
+### Jetson model detection (container-friendly)
+```python
+from savant_rs.deepstream import jetson_model, is_jetson_kernel
+
+if is_jetson_kernel():
+    model = jetson_model()  # e.g. "Orin Nano 8GB" or None
+    if model and "Orin Nano" in model:
+        # Adjust batch size, resolution, etc. for Orin Nano
+        pass
+```
+
 ### Using gen_frame / gen_empty_frame
 ```python
 from savant_rs.utils import gen_frame, gen_empty_frame

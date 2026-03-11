@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union, final
 
 import cv2
+import numpy as np
 import skia
 
 __all__ = [
@@ -31,6 +32,8 @@ __all__ = [
     "SkiaCanvas",
     "init_cuda",
     "gpu_mem_used_mib",
+    "jetson_model",
+    "is_jetson_kernel",
     "bridge_savant_id_meta",
     "get_savant_id_meta",
     "get_nvbufsurface_info",
@@ -285,6 +288,30 @@ class DsNvBufSurfaceGstBuffer:
     def __repr__(self) -> str: ...
     def __bool__(self) -> bool:
         """``True`` if the guard still owns a buffer, ``False`` if consumed."""
+        ...
+
+    def memset(self, value: int) -> None:
+        """Fill the surface with a constant byte value.
+
+        Args:
+            value: Byte value (0–255) to fill every byte with.
+
+        Raises:
+            RuntimeError: If the buffer has been consumed or the GPU operation fails.
+        """
+        ...
+
+    def upload(self, data: np.ndarray) -> None:
+        """Upload pixel data from a NumPy array to the surface.
+
+        Args:
+            data: A 3-D ``uint8`` array with shape ``(height, width, channels)``
+                matching the surface dimensions and color format (e.g. 4 channels for RGBA).
+
+        Raises:
+            ValueError: If *data* has wrong shape, dtype, or dimensions.
+            RuntimeError: If the buffer has been consumed or the GPU operation fails.
+        """
         ...
 
 # ── SurfaceView ─────────────────────────────────────────────────────────
@@ -697,6 +724,34 @@ class DsNvUniformSurfaceBuffer:
         """
         ...
 
+    def memset_slot(self, index: int, value: int) -> None:
+        """Fill a slot's surface with a constant byte value.
+
+        Args:
+            index: Zero-based slot index.
+            value: Byte value (0–255).
+
+        Raises:
+            RuntimeError: If the batch is not finalized, *index* is out of
+                bounds, or the GPU operation fails.
+        """
+        ...
+
+    def upload_slot(self, index: int, data: np.ndarray) -> None:
+        """Upload pixel data from a NumPy array into a batch slot.
+
+        Args:
+            index: Zero-based slot index.
+            data: A 3-D ``uint8`` array with shape ``(height, width, channels)``
+                matching the slot dimensions.
+
+        Raises:
+            ValueError: If *data* has wrong shape, dtype, or dimensions.
+            RuntimeError: If the batch is not finalized, *index* is out of
+                bounds, or the GPU operation fails.
+        """
+        ...
+
 # ── DsNvNonUniformSurfaceBuffer ───────────────────────────────────────────
 
 class DsNvNonUniformSurfaceBuffer:
@@ -848,6 +903,28 @@ def gpu_mem_used_mib(gpu_id: int = 0) -> int:
 
     Returns:
         GPU memory used in MiB.
+    """
+    ...
+
+def jetson_model(gpu_id: int = 0) -> Optional[str]:
+    """Return the Jetson model name if running on a Jetson device, or None if not.
+
+    Uses CUDA SM count and /proc/meminfo MemTotal to identify the model.
+    Works inside containers where /proc/device-tree is typically not mounted.
+    Requires uname -r to contain "tegra" and a working CUDA.
+
+    Args:
+        gpu_id: GPU device ID (default 0).
+
+    Returns:
+        Model name (e.g. "Orin Nano 8GB") or None if not Jetson.
+    """
+    ...
+
+def is_jetson_kernel() -> bool:
+    """Return True if the kernel is a Jetson (Tegra) kernel.
+
+    Checks uname -r for the "tegra" suffix.
     """
     ...
 

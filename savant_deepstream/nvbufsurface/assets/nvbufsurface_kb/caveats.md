@@ -146,7 +146,26 @@ cargo clippy --features deepstream --all-targets
 
 ---
 
-## 10. `TransformConfig` Is Move-Only in Loops
+## 10. Jetson vs dGPU Memory Access (surface_ops)
+
+- **Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
+  (VIC-managed), which is **not** CUDA-addressable. Direct use of
+  `cuMemsetD8_v2` / `cuMemcpyHtoD_v2` would fail. Instead, use
+  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
+  `NvBufSurfaceUnMap`.
+
+- **dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
+  `cuMemcpyHtoD_v2` work directly.
+
+- **nvinfer on Jetson:** `scaling-compute-hw=1` is needed in nvinfer config to
+  avoid VIC limitations with small surfaces (< 16×16 pixels).
+
+- The `surface_ops` module (`memset_surface`, `upload_to_surface`) handles
+  this automatically via `cfg(target_arch = "aarch64")`.
+
+---
+
+## 11. `TransformConfig` Is Move-Only in Loops
 
 `TransformConfig` implements `Clone` but NOT `Copy`. In loops, create a
 fresh `TransformConfig::default()` per iteration or call `.clone()`:

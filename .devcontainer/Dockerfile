@@ -50,9 +50,7 @@ ARG REMOTE_USER
 ARG REMOTE_UID
 ARG REMOTE_GID
 
-RUN userdel -r ubuntu && \
-    groupadd -g ${REMOTE_GID} ${REMOTE_USER} && \
-    useradd -m -u ${REMOTE_UID} -g ${REMOTE_GID} -s /bin/bash ${REMOTE_USER} && \
+RUN --mount=type=bind,source=.devcontainer,target=/opt/scripts bash /opt/scripts/prepare-user.sh && \
     pip uninstall -y savant_rs
 
 ENV HOME=/home/${REMOTE_USER}

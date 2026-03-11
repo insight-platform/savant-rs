@@ -274,6 +274,41 @@ with nvbuf_as_gpu_mat(data_ptr, pitch, W, H) as (gpu_mat, stream):
     gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 ```
 
+## GPU memset via Python (preferred over raw ctypes)
+
+Instead of raw ctypes CUDA calls (`cuMemsetD8_v2`), use the surface buffer's
+`memset` method:
+
+```python
+buf = gen.acquire_surface()
+buf.memset(0)
+```
+
+## GPU upload via Python (preferred over nvbuf_as_gpu_mat)
+
+Instead of `nvbuf_as_gpu_mat` + OpenCV `GpuMat.upload`, use the surface buffer's
+`upload` method with a numpy array in `(H, W, C)` layout (e.g. RGBA):
+
+```python
+pixels = np.zeros((480, 640, 4), dtype=np.uint8)  # (H, W, C) RGBA
+buf = gen.acquire_surface()
+buf.upload(pixels)
+```
+
+## Batch slot operations (after finalize)
+
+For batched buffers, use `memset_slot` and `upload_slot` to fill or upload
+data into a specific slot by index:
+
+```python
+# Fill single slot with byte value
+batch.memset_slot(0, 0xFF)
+
+# Upload pixel data to slot
+pixels = np.zeros((480, 640, 4), dtype=np.uint8)  # (H, W, C) RGBA
+batch.upload_slot(0, pixels)
+```
+
 ## Uniform batching pattern
 
 ```python

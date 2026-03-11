@@ -8,8 +8,8 @@
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use deepstream_nvbufsurface::{
-    DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
-    NvBufSurfaceMemType, TransformConfig, VideoFormat,
+    ComputeMode, DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator,
+    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, TransformConfig, VideoFormat,
 };
 use nvinfer::{NvInfer, NvInferConfig};
 use rand::Rng;
@@ -42,6 +42,20 @@ fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
 }
 
+fn platform_transform_config() -> TransformConfig {
+    let mut config = TransformConfig::default();
+    if cfg!(target_arch = "aarch64") {
+        config.compute_mode = ComputeMode::Gpu;
+    }
+    config
+}
+
+fn inject_jetson_scaling(props: &mut HashMap<String, String>) {
+    if cfg!(target_arch = "aarch64") {
+        props.insert("scaling-compute-hw".into(), "1".into());
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Model specs
 // ---------------------------------------------------------------------------
@@ -71,6 +85,7 @@ fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("network-type".into(), "100".into());
     m.insert("infer-dims".into(), "3;12;12".into());
     m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
     m
 }
 
@@ -90,6 +105,7 @@ fn age_gender_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("network-type".into(), "100".into());
     m.insert("infer-dims".into(), "3;112;112".into());
     m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
     m
 }
 
@@ -115,7 +131,6 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("operate-on-class-ids".into(), "0".into());
     m.insert("gie-unique-id".into(), "1".into());
     m.insert("network-type".into(), "100".into());
-    // Per-class sections via dotted notation
     m.insert(
         "class-attrs-all.pre-cluster-threshold".into(),
         "10000000000.0".into(),
@@ -123,6 +138,7 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
     m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
     m.insert("class-attrs-0.detected-min-h".into(), "64".into());
+    inject_jetson_scaling(&mut m);
     m
 }
 
@@ -156,6 +172,7 @@ fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
     m.insert("class-attrs-0.detected-min-w".into(), "30".into());
     m.insert("class-attrs-0.detected-min-h".into(), "30".into());
+    inject_jetson_scaling(&mut m);
     m
 }
 
@@ -216,7 +233,7 @@ fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> g
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
+    let config = platform_transform_config();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
     for i in 0..batch_size {

@@ -13,6 +13,8 @@ Crate: `deepstream_nvbufsurface`
 | `create_cuda_stream` | `() → Result<*mut c_void, NvBufSurfaceError>` | Non-blocking CUDA stream |
 | `destroy_cuda_stream` | `unsafe (stream: *mut c_void) → Result<(), NvBufSurfaceError>` | Null is no-op |
 | `bridge_savant_id_meta` | `(element: &gst::Element)` | PTS-keyed meta bridge for encoders |
+| `memset_surface` | `unsafe (buf: &gst::Buffer, value: u8) → Result<(), NvBufSurfaceError>` | Fill the first surface in buf with a constant byte value. Platform-aware: uses CUDA driver API on dGPU, NvBufSurfaceMap on Jetson. |
+| `upload_to_surface` | `unsafe (buf: &gst::Buffer, data: &[u8], width: u32, height: u32) → Result<(), NvBufSurfaceError>` | Upload CPU pixel data to the first surface in buf. Row-by-row copy respecting GPU pitch. Platform-aware. |
 
 ### Enums
 | Enum | Variants |
@@ -31,6 +33,7 @@ pub use DsNvUniformSurfaceBufferGenerator, DsNvUniformSurfaceBufferGeneratorBuil
         DsNvUniformSurfaceBuffer, set_num_filled;  // from buffers/batched/uniform
 pub use DsNvNonUniformSurfaceBuffer;     // from buffers/batched/non_uniform
 pub use extract_slot_view;               // from buffers/batched/slot_view
+pub use memset_surface, upload_to_surface;  // from surface_ops
 ```
 
 ---

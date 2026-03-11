@@ -65,7 +65,7 @@ unsafe impl Sync for SurfaceView {}
 /// channels in the primary plane.  Returns `None` for multi-plane formats
 /// (NV12, NV21, I420, YUV444, etc.) which are not representable as a
 /// single contiguous array.
-fn color_format_channels(color_format: u32) -> Option<u32> {
+pub(crate) fn color_format_channels(color_format: u32) -> Option<u32> {
     // NvBufSurfaceColorFormat values (from nvbufsurface.h / bindgen output):
     match color_format {
         // 1 channel — GRAY8, GRAY8_ER, A32
