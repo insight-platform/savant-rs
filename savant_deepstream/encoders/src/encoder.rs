@@ -290,11 +290,28 @@ impl NvEncoder {
                 }
             })?;
         } else {
-            // Hardware encoders: appsrc -> encoder -> parser -> appsink
+            // Hardware encoders: appsrc [-> nvvideoconvert] -> encoder -> parser -> appsink
             let parse = gst::ElementFactory::make(parse_name)
                 .name("parse")
                 .build()
                 .map_err(|_| EncoderError::ElementCreationFailed(parse_name.into()))?;
+
+            // On Jetson, nvjpegenc requires surfaces pinned/registered by
+            // nvvideoconvert; NvDS pool surfaces from appsrc lack this
+            // registration and cause hangs ("Surface not registered").
+            #[cfg(target_arch = "aarch64")]
+            let pre_enc: Option<gst::Element> = if config.codec == Codec::Jpeg {
+                let conv = gst::ElementFactory::make("nvvideoconvert")
+                    .name("pre_enc_conv")
+                    .build()
+                    .map_err(|_| EncoderError::ElementCreationFailed("nvvideoconvert".into()))?;
+                conv.set_property("disable-passthrough", true);
+                Some(conv)
+            } else {
+                None
+            };
+            #[cfg(not(target_arch = "aarch64"))]
+            let pre_enc: Option<gst::Element> = None;
 
             // Bridge SavantIdMeta across the encoder element.
             bridge_savant_id_meta(&enc);
@@ -309,16 +326,21 @@ impl NvEncoder {
             // Forcibly disable B-frames on the encoder if the property exists.
             Self::force_disable_b_frames(&enc);
 
-            for elem in [&appsrc, &enc, &parse, &appsink] {
-                pipeline.add(elem).map_err(|e| {
+            // Build the element chain, inserting nvvideoconvert when present.
+            let mut all_elems: Vec<&gst::Element> = vec![&appsrc];
+            if let Some(ref conv) = pre_enc {
+                all_elems.push(conv);
+            }
+            all_elems.extend([&enc, &parse, &appsink]);
+
+            for elem in &all_elems {
+                pipeline.add(*elem).map_err(|e| {
                     EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
             }
-            gst::Element::link_many([&appsrc, &enc, &parse, &appsink]).map_err(|_| {
-                EncoderError::LinkFailed {
-                    from: "appsrc->enc->parse->appsink".to_string(),
-                    to: "".to_string(),
-                }
+            gst::Element::link_many(&all_elems).map_err(|_| EncoderError::LinkFailed {
+                from: "appsrc->enc->parse->appsink".to_string(),
+                to: "".to_string(),
             })?;
         }
 

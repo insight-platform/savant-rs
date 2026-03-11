@@ -1149,7 +1149,7 @@ impl Av1DgpuProps {
 /// # Example (Rust)
 ///
 /// ```rust
-/// use deepstream_encoders::properties::*;
+/// use deepstream_encoders::prelude::*;
 ///
 /// let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
 ///     bitrate: Some(8_000_000),

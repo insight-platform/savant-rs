@@ -1,6 +1,9 @@
 //! Integration tests for the NvEncoder.
 //!
-//! These tests require a GPU with NVENC support and DeepStream installed.
+//! Tests that require NVENC (H.264/HEVC/AV1) are skipped when the hardware
+//! is not available (e.g. Orin Nano).  General behaviour tests fall back to
+//! JPEG encoding via `nvjpegenc` when possible.
+//!
 //! Run with: `cargo test -p deepstream_encoders`
 
 use deepstream_encoders::prelude::*;
@@ -11,6 +14,39 @@ fn init() {
     let _ = env_logger::try_init();
     let _ = gstreamer::init();
     cuda_init(0).expect("CUDA init failed — is a GPU available?");
+}
+
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+fn has_nvjpegenc() -> bool {
+    let _ = gstreamer::init();
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+/// Returns an encoder config using the best available codec, or `None` if
+/// neither NVENC nor nvjpegenc is present.
+fn make_default_config(w: u32, h: u32) -> Option<EncoderConfig> {
+    if has_nvenc() {
+        Some(EncoderConfig::new(Codec::Hevc, w, h))
+    } else if has_nvjpegenc() {
+        Some(EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::I420))
+    } else {
+        None
+    }
+}
+
+/// Like [`make_default_config`] but with RGBA user format (tests format
+/// conversion path: RGBA -> NV12 for NVENC or RGBA -> I420 for JPEG).
+fn make_rgba_config(w: u32, h: u32) -> Option<EncoderConfig> {
+    if has_nvenc() {
+        Some(EncoderConfig::new(Codec::H264, w, h).format(VideoFormat::RGBA))
+    } else if has_nvjpegenc() {
+        Some(EncoderConfig::new(Codec::Jpeg, w, h).format(VideoFormat::RGBA))
+    } else {
+        None
+    }
 }
 
 // ─── Codec tests ─────────────────────────────────────────────────────────
@@ -100,6 +136,10 @@ fn test_config_with_typed_properties() {
 #[serial]
 fn test_encoder_creation_hevc() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_encoder_creation_hevc");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Hevc, 640, 480);
     let encoder = NvEncoder::new(&config);
     assert!(
@@ -113,6 +153,10 @@ fn test_encoder_creation_hevc() {
 #[serial]
 fn test_encoder_creation_h264() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_encoder_creation_h264");
+        return;
+    }
     let config = EncoderConfig::new(Codec::H264, 640, 480);
     let encoder = NvEncoder::new(&config);
     assert!(
@@ -126,6 +170,10 @@ fn test_encoder_creation_h264() {
 #[serial]
 fn test_encoder_creation_jpeg() {
     init();
+    if !has_nvjpegenc() {
+        eprintln!("nvjpegenc not available — skipping test_encoder_creation_jpeg");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Jpeg, 640, 480).format(VideoFormat::I420);
     let encoder = NvEncoder::new(&config);
     assert!(
@@ -139,6 +187,10 @@ fn test_encoder_creation_jpeg() {
 #[serial]
 fn test_encoder_creation_av1() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_encoder_creation_av1");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Av1, 640, 480);
     let encoder = NvEncoder::new(&config);
     assert!(
@@ -152,9 +204,13 @@ fn test_encoder_creation_av1() {
 #[serial]
 fn test_encoder_codec_getter() {
     init();
-    let config = EncoderConfig::new(Codec::H264, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_encoder_codec_getter");
+        return;
+    };
+    let expected_codec = config.codec;
     let encoder = NvEncoder::new(&config).unwrap();
-    assert_eq!(encoder.codec(), Codec::H264);
+    assert_eq!(encoder.codec(), expected_codec);
 }
 
 // ─── NvEncoder frame submission tests ────────────────────────────────────
@@ -163,12 +219,15 @@ fn test_encoder_codec_getter() {
 #[serial]
 fn test_submit_and_pull_frames() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_submit_and_pull_frames");
+        return;
+    };
+    let expected_codec = config.codec;
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let frame_duration_ns = 33_333_333u64; // ~30fps
 
-    // Submit a few frames.
     for i in 0..5u128 {
         let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
         let pts_ns = i as u64 * frame_duration_ns;
@@ -177,11 +236,8 @@ fn test_submit_and_pull_frames() {
             .unwrap();
     }
 
-    // Finish and collect remaining frames.
     let remaining = encoder.finish(Some(3000)).unwrap();
 
-    // We should have gotten at least some encoded frames.
-    // (Hardware encoders may buffer 1-2 frames.)
     assert!(
         !remaining.is_empty(),
         "Expected at least one encoded frame after finish()"
@@ -192,7 +248,7 @@ fn test_submit_and_pull_frames() {
             !frame.data.is_empty(),
             "Encoded frame data should not be empty"
         );
-        assert_eq!(frame.codec, Codec::Hevc);
+        assert_eq!(frame.codec, expected_codec);
     }
 }
 
@@ -200,7 +256,10 @@ fn test_submit_and_pull_frames() {
 #[serial]
 fn test_submit_rgba_with_conversion() {
     init();
-    let config = EncoderConfig::new(Codec::H264, 320, 240).format(VideoFormat::RGBA);
+    let Some(config) = make_rgba_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_submit_rgba_with_conversion");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3u128 {
@@ -214,7 +273,7 @@ fn test_submit_rgba_with_conversion() {
     let remaining = encoder.finish(Some(3000)).unwrap();
     assert!(
         !remaining.is_empty(),
-        "Expected encoded frames from RGBA->H264 pipeline"
+        "Expected encoded frames from RGBA conversion pipeline"
     );
 }
 
@@ -228,6 +287,10 @@ fn test_submit_rgba_with_conversion() {
 #[serial]
 fn test_av1_single_frame() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_av1_single_frame");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Av1, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
@@ -249,6 +312,10 @@ fn test_av1_single_frame() {
 #[serial]
 fn test_av1_multi_frame() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_av1_multi_frame");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Av1, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
@@ -261,7 +328,6 @@ fn test_av1_multi_frame() {
     }
 
     let frames = encoder.finish(Some(5000)).unwrap();
-    // At least some frames should have been encoded.
     assert!(
         frames.len() >= 5,
         "Expected at least 5 encoded AV1 frames, got {}",
@@ -273,6 +339,10 @@ fn test_av1_multi_frame() {
 #[serial]
 fn test_av1_with_rgba_conversion() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_av1_with_rgba_conversion");
+        return;
+    }
     let config = EncoderConfig::new(Codec::Av1, 320, 240).format(VideoFormat::RGBA);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
@@ -296,7 +366,10 @@ fn test_av1_with_rgba_conversion() {
 #[serial]
 fn test_pts_reordering_rejected() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_pts_reordering_rejected");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     // First frame at PTS=100
@@ -326,7 +399,10 @@ fn test_pts_reordering_rejected() {
 #[serial]
 fn test_pts_equal_rejected() {
     init();
-    let config = EncoderConfig::new(Codec::H264, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_pts_equal_rejected");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let buf1 = encoder.generator().acquire_surface(Some(0)).unwrap();
@@ -344,7 +420,10 @@ fn test_pts_equal_rejected() {
 #[serial]
 fn test_double_finish_returns_empty() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_double_finish_returns_empty");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
@@ -362,7 +441,10 @@ fn test_double_finish_returns_empty() {
 #[serial]
 fn test_submit_after_finish_fails() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_submit_after_finish_fails");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let _ = encoder.finish(Some(1000));
@@ -382,7 +464,10 @@ fn test_submit_after_finish_fails() {
 #[serial]
 fn test_encoder_drop_does_not_panic() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_encoder_drop_does_not_panic");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     // Submit a frame but don't call finish — drop should be safe.
@@ -398,13 +483,17 @@ fn test_encoder_drop_does_not_panic() {
 #[serial]
 fn test_generator_accessor() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 640, 480);
+    let Some(config) = make_default_config(640, 480) else {
+        eprintln!("No encoder available — skipping test_generator_accessor");
+        return;
+    };
+    let expected_format = config.format;
     let encoder = NvEncoder::new(&config).unwrap();
 
     let gen = encoder.generator();
     assert_eq!(gen.width(), 640);
     assert_eq!(gen.height(), 480);
-    assert_eq!(gen.format(), VideoFormat::NV12);
+    assert_eq!(gen.format(), expected_format);
 }
 
 // ─── Frame ID tracking test ─────────────────────────────────────────────
@@ -413,7 +502,10 @@ fn test_generator_accessor() {
 #[serial]
 fn test_frame_id_preserved() {
     init();
-    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let Some(config) = make_default_config(320, 240) else {
+        eprintln!("No encoder available — skipping test_frame_id_preserved");
+        return;
+    };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     let frame_ids: Vec<u128> = vec![100, 200, 300, 400, 500];
@@ -432,7 +524,6 @@ fn test_frame_id_preserved() {
 
     let remaining = encoder.finish(Some(3000)).unwrap();
 
-    // All returned frames should have frame_ids from our list.
     for frame in &remaining {
         assert!(
             frame_ids.contains(&frame.frame_id),

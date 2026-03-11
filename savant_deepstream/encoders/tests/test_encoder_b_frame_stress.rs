@@ -40,6 +40,10 @@ use gstreamer::prelude::*;
 use serial_test::serial;
 use std::path::{Path, PathBuf};
 
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────
 
 const VIDEO_URL: &str =
@@ -245,6 +249,10 @@ fn decode_and_reencode(
 #[serial]
 fn stress_h264_main_profile_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -262,6 +270,10 @@ fn stress_h264_main_profile_no_b_frames() {
 #[serial]
 fn stress_h264_high_profile_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -279,6 +291,10 @@ fn stress_h264_high_profile_no_b_frames() {
 #[serial]
 fn stress_h264_high_profile_vbr_p7_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -300,6 +316,10 @@ fn stress_h264_high_profile_vbr_p7_no_b_frames() {
 #[serial]
 fn stress_h264_high_profile_cbr_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -319,6 +339,10 @@ fn stress_h264_high_profile_cbr_no_b_frames() {
 #[serial]
 fn stress_h264_main_profile_cqp_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -337,6 +361,10 @@ fn stress_h264_main_profile_cqp_no_b_frames() {
 #[serial]
 fn stress_h264_baseline_profile_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -358,6 +386,10 @@ fn stress_h264_baseline_profile_no_b_frames() {
 #[serial]
 fn stress_hevc_main_profile_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -375,6 +407,10 @@ fn stress_hevc_main_profile_no_b_frames() {
 #[serial]
 fn stress_hevc_main_vbr_p7_hq_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -396,6 +432,10 @@ fn stress_hevc_main_vbr_p7_hq_no_b_frames() {
 #[serial]
 fn stress_hevc_main_cbr_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -415,6 +455,10 @@ fn stress_hevc_main_cbr_no_b_frames() {
 #[serial]
 fn stress_hevc_main_cqp_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -433,6 +477,10 @@ fn stress_hevc_main_cqp_no_b_frames() {
 #[serial]
 fn stress_hevc_main10_profile_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -455,6 +503,10 @@ fn stress_hevc_main10_profile_no_b_frames() {
 #[serial]
 fn stress_h264_high_temporal_aq_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -475,6 +527,10 @@ fn stress_h264_high_temporal_aq_no_b_frames() {
 #[serial]
 fn stress_h264_high_spatial_aq_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::H264Dgpu(H264DgpuProps {
@@ -501,6 +557,10 @@ fn stress_h264_high_spatial_aq_no_b_frames() {
 #[serial]
 fn stress_hevc_main_p4_low_latency_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -520,6 +580,10 @@ fn stress_hevc_main_p4_low_latency_no_b_frames() {
 #[serial]
 fn stress_hevc_main_p7_high_quality_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
@@ -545,6 +609,10 @@ fn stress_hevc_main_p7_high_quality_no_b_frames() {
 #[serial]
 fn stress_h264_default_props_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         EncoderConfig::new(Codec::H264, w, h).format(VideoFormat::NV12)
@@ -555,6 +623,10 @@ fn stress_h264_default_props_no_b_frames() {
 #[serial]
 fn stress_hevc_default_props_no_b_frames() {
     init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping");
+        return;
+    }
     let video = ensure_video();
     decode_and_reencode(&video, &|w, h| {
         EncoderConfig::new(Codec::Hevc, w, h).format(VideoFormat::NV12)
