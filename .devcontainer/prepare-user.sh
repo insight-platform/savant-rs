@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
-if id ubuntu &>/dev/null; then
-    userdel -r ubuntu
+existing_user=$(getent passwd "${REMOTE_UID}" | cut -d: -f1 || true)
+if [ -n "${existing_user}" ]; then
+    userdel -r "${existing_user}"
+fi
+
+existing_group=$(getent group "${REMOTE_GID}" | cut -d: -f1 || true)
+if [ -n "${existing_group}" ]; then
+    groupdel "${existing_group}"
 fi
 
 groupadd -g ${REMOTE_GID} ${REMOTE_USER}
