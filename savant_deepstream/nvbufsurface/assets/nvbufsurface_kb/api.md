@@ -14,7 +14,7 @@ Crate: `deepstream_nvbufsurface`
 | `destroy_cuda_stream` | `unsafe (stream: *mut c_void) → Result<(), NvBufSurfaceError>` | Null is no-op |
 | `bridge_savant_id_meta` | `(element: &gst::Element)` | PTS-keyed meta bridge for encoders |
 | `memset_surface` | `unsafe (buf: &gst::Buffer, value: u8) → Result<(), NvBufSurfaceError>` | Fill the first surface in buf with a constant byte value. Platform-aware: uses CUDA driver API on dGPU, NvBufSurfaceMap on Jetson. |
-| `upload_to_surface` | `unsafe (buf: &gst::Buffer, data: &[u8], width: u32, height: u32) → Result<(), NvBufSurfaceError>` | Upload CPU pixel data to the first surface in buf. Row-by-row copy respecting GPU pitch. Platform-aware. |
+| `upload_to_surface` | `unsafe (buf: &gst::Buffer, data: &[u8], width: u32, height: u32, channels: u32) → Result<(), NvBufSurfaceError>` | Upload CPU pixel data to the first surface in buf. Validates that `channels` matches the surface color format. Row-by-row copy respecting GPU pitch. Platform-aware. |
 
 ### Enums
 | Enum | Variants |

@@ -63,7 +63,7 @@ unsafe { deepstream_nvbufsurface::memset_surface(&buf, 0x00).unwrap(); }
 
 // Upload RGBA pixel data
 let pixels: Vec<u8> = vec![0xFF; 640 * 480 * 4]; // white RGBA
-unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480).unwrap(); }
+unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480, 4).unwrap(); }
 ```
 
 ---

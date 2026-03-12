@@ -44,8 +44,10 @@ pub unsafe fn memset_surface(buf: &gst::Buffer, value: u8) -> Result<(), NvBufSu
 /// Upload CPU pixel data to the first surface in `buf`.
 ///
 /// `data` is a tightly-packed row-major pixel buffer of dimensions
-/// `width × height` in the surface's color format (e.g. 4 bytes/pixel for
-/// RGBA).  Row-by-row copies respect the destination's GPU pitch.
+/// `width × height × channels` in the surface's color format (e.g. 4
+/// bytes/pixel for RGBA).  `channels` must match the surface's
+/// bytes-per-pixel; a mismatch is rejected with an error.  Row-by-row
+/// copies respect the destination's GPU pitch.
 ///
 /// # Safety
 ///
@@ -57,6 +59,7 @@ pub unsafe fn upload_to_surface(
     data: &[u8],
     width: u32,
     height: u32,
+    channels: u32,
 ) -> Result<(), NvBufSurfaceError> {
     let surf_ptr = extract_surf(buf)?;
     let params = &*(*surf_ptr).surfaceList;
@@ -76,6 +79,12 @@ pub unsafe fn upload_to_surface(
             params.colorFormat
         ))
     })?;
+    if channels != bpp {
+        return Err(NvBufSurfaceError::InvalidInput(format!(
+            "array has {} channels but surface color format expects {}",
+            channels, bpp
+        )));
+    }
     let src_stride = width as usize * bpp as usize;
     let required = src_stride * height as usize;
     if data.len() < required {
