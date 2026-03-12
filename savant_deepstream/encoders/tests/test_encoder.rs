@@ -533,3 +533,127 @@ fn test_frame_id_preserved() {
         );
     }
 }
+
+// ─── PNG encoder tests ──────────────────────────────────────────────────
+//
+// PNG uses a CPU-based pipeline (appsrc -> nvvideoconvert -> pngenc ->
+// appsink) and works on every platform — no NVENC or nvjpegenc required.
+
+#[test]
+#[serial]
+fn test_encoder_creation_png() {
+    init();
+    let config = EncoderConfig::new(Codec::Png, 640, 480).format(VideoFormat::RGBA);
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create PNG encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_png_requires_rgba() {
+    init();
+    let config = EncoderConfig::new(Codec::Png, 320, 240).format(VideoFormat::NV12);
+    match NvEncoder::new(&config) {
+        Err(EncoderError::InvalidProperty { name, .. }) => {
+            assert_eq!(name, "format");
+        }
+        Err(other) => panic!("Expected InvalidProperty, got {:?}", other),
+        Ok(_) => panic!("Expected error for PNG with NV12 format"),
+    }
+}
+
+#[test]
+#[serial]
+fn test_png_submit_and_pull_frames() {
+    init();
+    let config = EncoderConfig::new(Codec::Png, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one encoded PNG frame after finish()"
+    );
+
+    for frame in &remaining {
+        assert!(
+            !frame.data.is_empty(),
+            "Encoded PNG frame data should not be empty"
+        );
+        assert_eq!(frame.codec, Codec::Png);
+        assert!(frame.keyframe, "Every PNG frame must be a keyframe");
+    }
+}
+
+#[test]
+#[serial]
+fn test_png_with_compression_level() {
+    init();
+    let props = EncoderProperties::Png(PngProps {
+        compression_level: Some(1),
+    });
+    let config = EncoderConfig::new(Codec::Png, 320, 240)
+        .format(VideoFormat::RGBA)
+        .properties(props);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
+    encoder
+        .submit_frame(buffer, 0, 0, Some(33_333_333))
+        .unwrap();
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected at least one encoded PNG frame"
+    );
+    assert!(!frames[0].data.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_png_frame_id_preserved() {
+    init();
+    let config = EncoderConfig::new(Codec::Png, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_ids: Vec<u128> = vec![10, 20, 30];
+    let frame_duration_ns = 33_333_333u64;
+
+    for (i, &fid) in frame_ids.iter().enumerate() {
+        let buffer = encoder
+            .generator()
+            .acquire_surface(Some(fid as i64))
+            .unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+
+    for frame in &remaining {
+        assert!(
+            frame_ids.contains(&frame.frame_id),
+            "Unexpected frame_id {} not in {:?}",
+            frame.frame_id,
+            frame_ids,
+        );
+    }
+}
