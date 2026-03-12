@@ -146,7 +146,134 @@ cargo clippy --features deepstream --all-targets
 
 ---
 
-## 10. `TransformConfig` Is Move-Only in Loops
+## 10. Jetson vs dGPU Memory Access
+
+- **Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
+  (VIC-managed), which is **not** CUDA-addressable. Direct use of
+  `cuMemsetD8_v2` / `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` would fail
+  with CUDA error 1 (`cudaErrorInvalidValue`). Instead, use
+  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
+  `NvBufSurfaceUnMap`.
+
+- **dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
+  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly.
+
+- **nvinfer on Jetson:** `scaling-compute-hw=1` is needed in nvinfer config to
+  avoid VIC limitations with small surfaces (< 16×16 pixels).
+
+- This platform difference is handled via `cfg(target_arch = "aarch64")` in:
+  - `surface_ops` module (`memset_surface`, `upload_to_surface`)
+  - `transform.rs` (`clear_surface_black` / `clear_surface_black_mapped` for
+    letterbox padding)
+
+---
+
+## 12. nvjpegenc Requires nvvideoconvert on Jetson
+
+On Jetson, the NVJPG hardware engine requires surfaces to be "pinned" (registered)
+through its own mechanism. Surfaces allocated by the NvDS buffer pool
+(`gst_nvds_buffer_pool_new`) are **not** automatically registered, causing
+`NVJPGGetSurfPinHandle: Surface not registered` errors at runtime. The encoder
+silently fails and stops consuming buffers, which causes upstream `appsrc`
+to block on back-pressure — **hanging the pipeline indefinitely**.
+
+**Fix:** Insert `nvvideoconvert` with `disable-passthrough=true` before
+`nvjpegenc`. This forces surface re-allocation through nvvideoconvert's own
+pool, which creates surfaces compatible with the NVJPG engine. Without
+`disable-passthrough=true`, nvvideoconvert operates in passthrough mode when
+input/output caps match (same format, same resolution) and simply forwards
+the original buffer unmodified.
+
+⚠ This does NOT affect `nvv4l2h264enc` / `nvv4l2h265enc` — those V4L2-based
+encoders handle NvDS buffer pool surfaces directly.
+
+---
+
+## 13. NVENC Availability and Orin Nano
+
+- **Orin Nano (8GB and 4GB):** Does NOT have NVENC hardware encoding.
+  `nvidia_gpu_utils::has_nvenc(0)` returns `false`.
+- **Other Jetson models** (AGX Orin, Orin NX, Xavier, etc.): Have NVENC.
+- **Datacenter dGPUs** (H100, A100, A30, B200, etc.): No NVENC.
+  `has_nvenc()` uses NVML `encoder_capacity(H264)` to detect.
+
+Tests that use `nvv4l2h264enc` / `nvv4l2h265enc` must guard with
+`nvidia_gpu_utils::has_nvenc(0)` and skip (early return) when unavailable.
+Tests that use `nvjpegenc` must guard with
+`gst::ElementFactory::find("nvjpegenc")` (Jetson-only element).
+
+---
+
+## 14. upload_to_surface Takes 5 Arguments
+
+```rust
+pub unsafe fn upload_to_surface(
+    buf: &gst::Buffer,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    channels: u32,    // 4 for RGBA, 3 for RGB
+) → Result<(), NvBufSurfaceError>
+```
+
+The `channels` parameter was added for multi-format support. Commonly
+forgotten when calling from tests. Use `4` for RGBA, `3` for RGB.
+
+Platform-aware internally: uses CUDA driver API (`cuMemcpyHtoD_v2`) on dGPU,
+`NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` on Jetson.
+
+---
+
+## 15. nvvideoconvert compute-hw Property on Jetson
+
+On Jetson, the `nvvideoconvert` GStreamer element defaults to using the
+Video Image Compositor (VIC) for format conversion. VIC does **not**
+support certain conversions (e.g., NV12 → RGBA/RGB), causing:
+`RGB/BGR Format transformation is not supported by VIC`
+
+**Fix:** Set `compute-hw` to `"1"` on `nvvideoconvert` to force GPU-based
+processing instead of VIC:
+```rust
+#[cfg(target_arch = "aarch64")]
+nvconv.set_property_from_str("compute-hw", "1");
+```
+
+⚠ This property only exists on Jetson's `nvvideoconvert`. On dGPU, the
+element does not have this property (it always uses GPU).
+⚠ Only needed for raw pseudoencoders where `nvvideoconvert` handles
+NV12/I420 → RGBA/RGB. NVENC codecs bypass `nvvideoconvert` by using
+direct NvBufSurfTransform for format conversion.
+
+---
+
+## 16. Skia Renderer Jetson Map/Unmap for CUDA-GL Interop
+
+The Skia renderer (`skia_renderer.rs`) uses CUDA-GL interop to copy pixels
+between NvBufSurface and an OpenGL texture (via `cudaArray`). On **dGPU**,
+this is a direct GPU-to-GPU copy (`cudaMemcpyDeviceToDevice`). On **Jetson**
+(`SurfaceArray`, VIC-managed), `dataPtr` is not CUDA-addressable, so the
+same `cudaMemcpy2DToArray` / `cudaMemcpy2DFromArray` calls fail with
+CUDA error 1.
+
+**Fix:** Platform-aware paths via `cfg(target_arch = "aarch64")`:
+
+- **Load (NvBuf → GL texture):** `NvBufSurfaceMap` → `NvBufSurfaceSyncForCpu`
+  → `cudaMemcpy2DToArray(mappedAddr, ..., HostToDevice)` → `NvBufSurfaceUnMap`
+
+- **Write (GL texture → NvBuf):** `NvBufSurfaceMap` →
+  `cudaMemcpy2DFromArray(mappedAddr, ..., DeviceToHost)` →
+  `NvBufSurfaceSyncForDevice` → `NvBufSurfaceUnMap`
+
+API changes:
+- `load_from_nvbuf` and `from_nvbuf` now accept `&gst::BufferRef` (not
+  raw `data_ptr`/`pitch`) so the NvBufSurface can be mapped on Jetson.
+- `copy_gl_to_nvbuf` accepts `*mut ffi::NvBufSurface` internally.
+- `render_to_nvbuf_raw` is `#[cfg(not(target_arch = "aarch64"))]` (dGPU only,
+  no callers in production code).
+
+---
+
+## 11. `TransformConfig` Is Move-Only in Loops
 
 `TransformConfig` implements `Clone` but NOT `Copy`. In loops, create a
 fresh `TransformConfig::default()` per iteration or call `.clone()`:

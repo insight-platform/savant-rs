@@ -76,6 +76,9 @@ pub enum TransformError {
     #[error("Invalid buffer: {0}")]
     InvalidBuffer(&'static str),
 
+    #[error("Invalid dst_padding: {0}")]
+    InvalidDstPadding(&'static str),
+
     #[error("CUDA error: {0}")]
     CudaError(i32),
 }
@@ -87,8 +90,14 @@ pub enum TransformError {
 |---|---|
 | `TransformFailed` | `NvBufSurfTransform()` FFI call returns non-zero |
 | `SetSessionFailed` | `NvBufSurfTransformSetSessionParams()` returns non-zero |
-| `InvalidBuffer` | Buffer too small for NvBufSurface, null pointer, `dst_slot >= batchSize` |
-| `CudaError` | `cudaMemset2DAsync` or `cudaStreamSynchronize` fails |
+| `InvalidBuffer` | Buffer too small for NvBufSurface, null pointer, `dst_slot >= batchSize`, mapped address null after `NvBufSurfaceMap` |
+| `InvalidDstPadding` | `dst_padding` leaves effective width or height below 16 px |
+| `CudaError` | `cudaMemset2DAsync` or `cudaStreamSynchronize` fails (dGPU); `NvBufSurfaceMap`, `NvBufSurfaceSyncForDevice`, or `NvBufSurfaceUnMap` fails (Jetson) |
+
+⚠ On Jetson (aarch64), `CudaError(1)` from the clearing step means
+`cudaMemset2DAsync` was called on NVMM memory (not a CUDA device pointer).
+The `clear_surface_black` function in `transform.rs` handles this via
+`cfg(target_arch)` — Jetson uses the map/CPU-memset/sync/unmap path instead.
 
 ---
 

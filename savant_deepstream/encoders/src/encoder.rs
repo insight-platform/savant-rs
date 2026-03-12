@@ -25,6 +25,7 @@ use deepstream_nvbufsurface::{
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
 use log::debug;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -135,13 +136,29 @@ impl NvEncoder {
         }
 
         // PNG uses a CPU-based GStreamer pipeline (nvvideoconvert -> pngenc).
+        // Raw pseudoencoders download GPU frames to CPU memory.
         // Other codecs use NVIDIA hardware encoders.
         let is_png = config.codec == Codec::Png;
+        let is_raw = matches!(config.codec, Codec::RawRgba | Codec::RawRgb);
         if is_png && config.format != VideoFormat::RGBA {
             return Err(EncoderError::InvalidProperty {
                 name: "format".to_string(),
                 reason: "PNG encoder requires VideoFormat::RGBA".to_string(),
             });
+        }
+
+        // H.264, HEVC and AV1 require NVENC hardware.  Fail early with a
+        // clear error instead of letting the GStreamer element creation
+        // produce a cryptic message or hang.
+        let needs_nvenc = matches!(config.codec, Codec::H264 | Codec::Hevc | Codec::Av1);
+        if needs_nvenc {
+            let has_nvenc = nvidia_gpu_utils::has_nvenc(config.gpu_id).unwrap_or(false);
+            if !has_nvenc {
+                return Err(EncoderError::NvencNotAvailable {
+                    codec: config.codec.name().to_string(),
+                    gpu_id: config.gpu_id,
+                });
+            }
         }
 
         // Determine the encoder and parser element names (unused for PNG).
@@ -163,12 +180,16 @@ impl NvEncoder {
                 config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
             Codec::Png => ("pngenc", "identity", false),
+            Codec::RawRgba => ("identity", "identity", false),
+            Codec::RawRgb => ("identity", "identity", false),
         };
 
         // Determine encoder-native format.
         let native_format = match config.codec {
             Codec::Jpeg => VideoFormat::I420,
             Codec::Png => VideoFormat::RGBA,
+            Codec::RawRgba => VideoFormat::RGBA,
+            Codec::RawRgb => VideoFormat::RGBA,
             _ => VideoFormat::NV12,
         };
 
@@ -195,7 +216,8 @@ impl NvEncoder {
         // This replaces the `nvvideoconvert` GStreamer element, avoiding the
         // CUDA default-stream serialization bottleneck.
         // PNG uses nvvideoconvert in-pipeline (NVMM -> CPU for pngenc).
-        let convert_ctx = if is_png {
+        // Raw uses nvvideoconvert in-pipeline (NVMM -> CPU).
+        let convert_ctx = if is_png || is_raw {
             None
         } else if needs_convert {
             let native_generator =
@@ -258,14 +280,53 @@ impl NvEncoder {
         appsink_elem.set_property("sync", false);
         appsink_elem.set_property("emit-signals", false);
 
-        let enc = gst::ElementFactory::make(enc_name)
-            .name("enc")
-            .build()
-            .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?;
+        let enc = if is_raw {
+            None
+        } else {
+            Some(
+                gst::ElementFactory::make(enc_name)
+                    .name("enc")
+                    .build()
+                    .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?,
+            )
+        };
 
-        if is_png {
-            // PNG: appsrc (NVMM RGBA) -> nvvideoconvert -> pngenc -> appsink
-            // nvvideoconvert converts NVMM to system memory for pngenc (gst-plugins-good).
+        if is_raw {
+            let nvconv = gst::ElementFactory::make("nvvideoconvert")
+                .name("nvconv")
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed("nvvideoconvert".into()))?;
+
+            #[cfg(target_arch = "aarch64")]
+            nvconv.set_property_from_str("compute-hw", "1");
+
+            let raw_format = if config.codec == Codec::RawRgba {
+                "RGBA"
+            } else {
+                "RGB"
+            };
+            let caps = gst::Caps::builder("video/x-raw")
+                .field("format", raw_format)
+                .build();
+            let capsfilter = gst::ElementFactory::make("capsfilter")
+                .name("rawcaps")
+                .property("caps", &caps)
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed("capsfilter".into()))?;
+
+            for elem in [&appsrc, &nvconv, &capsfilter, &appsink] {
+                pipeline.add(elem).map_err(|e| {
+                    EncoderError::PipelineError(format!("Failed to add element: {}", e))
+                })?;
+            }
+            gst::Element::link_many([&appsrc, &nvconv, &capsfilter, &appsink]).map_err(|_| {
+                EncoderError::LinkFailed {
+                    from: "appsrc->nvvideoconvert->capsfilter->appsink".to_string(),
+                    to: "".to_string(),
+                }
+            })?;
+        } else if is_png {
+            let enc = enc.as_ref().unwrap();
             let nvconv = gst::ElementFactory::make("nvvideoconvert")
                 .name("nvconv")
                 .build()
@@ -274,59 +335,83 @@ impl NvEncoder {
             // Apply PNG encoder properties (compression-level etc.).
             if let Some(ref params) = config.encoder_params {
                 for (key, value) in params.to_gst_pairs() {
-                    Self::set_element_property(&enc, key, &value)?;
+                    Self::set_element_property(enc, key, &value)?;
                 }
             }
 
-            for elem in [&appsrc, &nvconv, &enc, &appsink] {
+            for elem in [&appsrc, &nvconv, enc, &appsink] {
                 pipeline.add(elem).map_err(|e| {
                     EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
             }
-            gst::Element::link_many([&appsrc, &nvconv, &enc, &appsink]).map_err(|_| {
+            gst::Element::link_many([&appsrc, &nvconv, enc, &appsink]).map_err(|_| {
                 EncoderError::LinkFailed {
                     from: "appsrc->nvvideoconvert->pngenc->appsink".to_string(),
                     to: "".to_string(),
                 }
             })?;
         } else {
-            // Hardware encoders: appsrc -> encoder -> parser -> appsink
+            let enc = enc.as_ref().unwrap();
+            // Hardware encoders: appsrc [-> nvvideoconvert] -> encoder -> parser -> appsink
             let parse = gst::ElementFactory::make(parse_name)
                 .name("parse")
                 .build()
                 .map_err(|_| EncoderError::ElementCreationFailed(parse_name.into()))?;
 
+            // On Jetson, nvjpegenc requires surfaces pinned/registered by
+            // nvvideoconvert; NvDS pool surfaces from appsrc lack this
+            // registration and cause hangs ("Surface not registered").
+            #[cfg(target_arch = "aarch64")]
+            let pre_enc: Option<gst::Element> = if config.codec == Codec::Jpeg {
+                let conv = gst::ElementFactory::make("nvvideoconvert")
+                    .name("pre_enc_conv")
+                    .build()
+                    .map_err(|_| EncoderError::ElementCreationFailed("nvvideoconvert".into()))?;
+                conv.set_property("disable-passthrough", true);
+                Some(conv)
+            } else {
+                None
+            };
+            #[cfg(not(target_arch = "aarch64"))]
+            let pre_enc: Option<gst::Element> = None;
+
             // Bridge SavantIdMeta across the encoder element.
-            bridge_savant_id_meta(&enc);
+            bridge_savant_id_meta(enc);
 
             // Apply typed encoder properties.
             if let Some(ref params) = config.encoder_params {
                 for (key, value) in params.to_gst_pairs() {
-                    Self::set_element_property(&enc, key, &value)?;
+                    Self::set_element_property(enc, key, &value)?;
                 }
             }
 
             // Forcibly disable B-frames on the encoder if the property exists.
-            Self::force_disable_b_frames(&enc);
+            Self::force_disable_b_frames(enc);
 
-            for elem in [&appsrc, &enc, &parse, &appsink] {
-                pipeline.add(elem).map_err(|e| {
+            // Build the element chain, inserting nvvideoconvert when present.
+            let mut all_elems: Vec<&gst::Element> = vec![&appsrc];
+            if let Some(ref conv) = pre_enc {
+                all_elems.push(conv);
+            }
+            all_elems.extend([enc, &parse, &appsink]);
+
+            for elem in &all_elems {
+                pipeline.add(*elem).map_err(|e| {
                     EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
             }
-            gst::Element::link_many([&appsrc, &enc, &parse, &appsink]).map_err(|_| {
-                EncoderError::LinkFailed {
-                    from: "appsrc->enc->parse->appsink".to_string(),
-                    to: "".to_string(),
-                }
+            gst::Element::link_many(&all_elems).map_err(|_| EncoderError::LinkFailed {
+                from: "appsrc->enc->parse->appsink".to_string(),
+                to: "".to_string(),
             })?;
         }
 
         debug!(
-            "NvEncoder pipeline built: codec={:?}, convert={}, png={}",
+            "NvEncoder pipeline built: codec={:?}, convert={}, png={}, raw={}",
             config.codec,
             convert_ctx.is_some(),
             is_png,
+            is_raw,
         );
 
         // Start the pipeline.
@@ -438,12 +523,15 @@ impl NvEncoder {
                     ))
                 })?;
 
-            // Set timestamps on the converted buffer.
+            // Set timestamps on the converted buffer.  Both PTS and DTS
+            // are set to prevent downstream elements (e.g. nvvideoconvert
+            // on Jetson) from re-generating timestamps.
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {
                     EncoderError::BufferAcquisitionFailed("Converted buffer is not writable".into())
                 })?;
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+                buf_ref.set_dts(gst::ClockTime::from_nseconds(pts_ns));
                 if let Some(dur) = duration_ns {
                     buf_ref.set_duration(gst::ClockTime::from_nseconds(dur));
                 }
@@ -456,6 +544,7 @@ impl NvEncoder {
                     EncoderError::BufferAcquisitionFailed("Buffer is not writable".into())
                 })?;
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+                buf_ref.set_dts(gst::ClockTime::from_nseconds(pts_ns));
                 if let Some(dur) = duration_ns {
                     buf_ref.set_duration(gst::ClockTime::from_nseconds(dur));
                 }
@@ -521,22 +610,38 @@ impl NvEncoder {
             .buffer()
             .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
 
-        let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-        let dts_ns = buffer.dts().map(|t| t.nseconds());
+        let buf_pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
+        let buf_dts_ns = buffer.dts().map(|t| t.nseconds());
         let duration_ns = buffer.duration().map(|t| t.nseconds());
 
-        // Look up frame_id from our PTS map.  A `Some` hit means this
-        // buffer corresponds to a user-submitted frame; `None` means it is
-        // a codec header (e.g. AV1 sequence header) injected by the encoder.
-        let pts_lookup = self.pts_map.lock().unwrap().remove(&pts_ns);
+        // Look up frame_id from our PTS map.  On Jetson the pre-encoder
+        // nvvideoconvert retimestamps buffers (changing PTS) but preserves
+        // the original PTS in DTS.  Try PTS first, fall back to DTS.
+        let (pts_lookup, original_pts) = {
+            let mut map = self.pts_map.lock().unwrap();
+            let by_pts = map.remove(&buf_pts_ns);
+            if by_pts.is_some() {
+                (by_pts, buf_pts_ns)
+            } else if let Some(dts) = buf_dts_ns {
+                let by_dts = map.remove(&dts);
+                (by_dts, dts)
+            } else {
+                (None, buf_pts_ns)
+            }
+        };
         let is_user_frame = pts_lookup.is_some();
         let (frame_id, orig_duration) = pts_lookup.unwrap_or((u128::MAX, duration_ns));
+        let pts_ns = original_pts;
 
         // --- Output ordering validation ---
         //
         // Checks only apply to user-submitted frames.  Codec header
         // buffers emitted by some encoders (AV1 in particular) may carry
         // stale or meaningless PTS/DTS values.
+        let is_intra_only = matches!(
+            self.codec,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+        );
 
         if is_user_frame {
             // 1. Output PTS must never go backwards.  Equal PTS is
@@ -554,30 +659,47 @@ impl NvEncoder {
             self.last_output_pts_ns = Some(pts_ns);
 
             // 2. DTS must not exceed PTS (would indicate B-frame reordering).
-            if let Some(dts) = dts_ns {
-                if dts > pts_ns {
-                    return Err(EncoderError::OutputDtsExceedsPts {
-                        frame_id,
-                        dts_ns: dts,
-                        pts_ns,
-                    });
+            //    Intra-only codecs (JPEG, PNG, Raw) can never produce
+            //    B-frames.  On Jetson the nvjpegenc pipeline may set DTS
+            //    from a later frame's PTS, so the check is skipped.
+            if !is_intra_only {
+                if let Some(dts) = buf_dts_ns {
+                    if dts > pts_ns {
+                        return Err(EncoderError::OutputDtsExceedsPts {
+                            frame_id,
+                            dts_ns: dts,
+                            pts_ns,
+                        });
+                    }
                 }
             }
         }
+
+        // For intra-only codecs, normalize DTS to equal PTS regardless
+        // of what the GStreamer pipeline reported.
+        let dts_ns = if is_intra_only {
+            Some(pts_ns)
+        } else {
+            buf_dts_ns
+        };
 
         // Use original duration if the encoder didn't set one.
         let final_duration = duration_ns.or(orig_duration);
 
         let keyframe = match self.codec {
-            Codec::Jpeg | Codec::Png => true,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb => true,
             _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
         };
 
         // Extract encoded data.
-        let map = buffer
-            .map_readable()
-            .map_err(|e| EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e)))?;
-        let data = map.as_slice().to_vec();
+        let data = if matches!(self.codec, Codec::RawRgba | Codec::RawRgb) {
+            Self::extract_raw_pixels(&sample, buffer)?
+        } else {
+            let map = buffer.map_readable().map_err(|e| {
+                EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e))
+            })?;
+            map.as_slice().to_vec()
+        };
 
         Ok(Some(EncodedFrame {
             frame_id,
@@ -709,6 +831,41 @@ impl NvEncoder {
                 value
             ),
         })
+    }
+
+    /// Extract tightly-packed pixel data from a raw video buffer,
+    /// stripping any stride padding added by the video subsystem.
+    fn extract_raw_pixels(
+        sample: &gst::Sample,
+        buffer: &gst::BufferRef,
+    ) -> Result<Vec<u8>, EncoderError> {
+        let caps = sample
+            .caps()
+            .ok_or_else(|| EncoderError::PipelineError("Raw sample has no caps".into()))?;
+        let video_info = gst_video::VideoInfo::from_caps(caps).map_err(|e| {
+            EncoderError::PipelineError(format!("Failed to parse video caps: {}", e))
+        })?;
+
+        let width = video_info.width() as usize;
+        let height = video_info.height() as usize;
+        let stride = video_info.stride()[0] as usize;
+        let bpp = video_info.format_info().pixel_stride()[0] as usize;
+        let row_bytes = width * bpp;
+
+        let map = buffer
+            .map_readable()
+            .map_err(|e| EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e)))?;
+        let src = map.as_slice();
+
+        if stride == row_bytes {
+            Ok(src[..row_bytes * height].to_vec())
+        } else {
+            let mut data = Vec::with_capacity(row_bytes * height);
+            for row in 0..height {
+                data.extend_from_slice(&src[row * stride..row * stride + row_bytes]);
+            }
+            Ok(data)
+        }
     }
 }
 

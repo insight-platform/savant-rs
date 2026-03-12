@@ -16,6 +16,7 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/lib/", ds_dir);
     println!("cargo:rustc-link-lib=nvdsbufferpool");
     println!("cargo:rustc-link-lib=nvbufsurftransform");
+    println!("cargo:rustc-link-lib=nvbufsurface");
 
     // Link against CUDA runtime (needed for cuda_init and transitively by nvdsbufferpool).
     // On aarch64 (Jetson), CUDA libs live under targets/aarch64-linux/lib;
@@ -24,7 +25,13 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", cuda_lib);
     // Also add the generic lib64 fallback (symlink on many images)
     println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64");
+    // CUDA stubs for CI builds where the host GPU driver is absent
+    // (libcuda.so is normally injected from the host at runtime).
+    // Searched last so real libraries take precedence.
+    println!("cargo:rustc-link-search=native={}/stubs", cuda_lib);
+    println!("cargo:rustc-link-search=native=/usr/local/cuda/lib64/stubs");
     println!("cargo:rustc-link-lib=cudart");
+    println!("cargo:rustc-link-lib=cuda");
 
     // When the `skia` feature is enabled, also link against EGL and GL
     // for CUDA-GL interop (headless rendering via EGL + Skia GL backend).
@@ -48,6 +55,10 @@ fn main() {
         .clang_arg(&clang_ds_include)
         .allowlist_type("NvBufSurface")
         .allowlist_type("NvBufSurfaceMemType")
+        .allowlist_function("NvBufSurfaceMap")
+        .allowlist_function("NvBufSurfaceUnMap")
+        .allowlist_function("NvBufSurfaceSyncForDevice")
+        .allowlist_function("NvBufSurfaceSyncForCpu")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate NvBufSurface bindings");

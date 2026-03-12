@@ -33,6 +33,13 @@ struct EncoderTestConfig {
     enc_name: &'static str,
     /// Optional parser element placed between encoder and appsink.
     parser: Option<&'static str>,
+    /// Optional converter element placed between appsrc and encoder.
+    ///
+    /// On Jetson, some encoders (e.g. `nvjpegenc`) require surfaces to be
+    /// re-created through `nvvideoconvert` so the hardware engine can
+    /// register/pin them. NvDS buffer pool surfaces pushed directly from
+    /// appsrc lack this registration and cause hangs.
+    pre_encoder: Option<&'static str>,
 }
 
 /// Run a full pipeline and assert that [`bridge_savant_id_meta`]
@@ -79,7 +86,17 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     sink_elem.set_property("sync", false);
     sink_elem.set_property("emit-signals", true);
 
-    // Build the element chain: appsrc → enc → [parser →] appsink
+    // Build the element chain: appsrc → [pre_encoder →] enc → [parser →] appsink
+    let pre_enc_elem = config.pre_encoder.map(|name| {
+        let elem = gst::ElementFactory::make(name)
+            .name("pre_enc")
+            .build()
+            .unwrap_or_else(|_| panic!("Failed to create {}", name));
+        if elem.has_property("disable-passthrough", None) {
+            elem.set_property("disable-passthrough", true);
+        }
+        elem
+    });
     let parser_elem = config.parser.map(|name| {
         gst::ElementFactory::make(name)
             .name("parse")
@@ -87,7 +104,11 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
             .unwrap_or_else(|_| panic!("Failed to create {}", name))
     });
 
-    let mut chain: Vec<&gst::Element> = vec![&appsrc_elem, &enc];
+    let mut chain: Vec<&gst::Element> = vec![&appsrc_elem];
+    if let Some(ref c) = pre_enc_elem {
+        chain.push(c);
+    }
+    chain.push(&enc);
     if let Some(ref p) = parser_elem {
         chain.push(p);
     }
@@ -184,11 +205,16 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
 
 #[test]
 fn test_bridge_meta_nvv4l2h265enc() {
+    if !nvidia_gpu_utils::has_nvenc(0).unwrap_or(false) {
+        eprintln!("NVENC not available on this GPU — skipping nvv4l2h265enc test");
+        return;
+    }
     run_pipeline_bridge_test(
         &EncoderTestConfig {
             format: VideoFormat::NV12,
             enc_name: "nvv4l2h265enc",
             parser: Some("h265parse"),
+            pre_encoder: None,
         },
         30,
     );
@@ -196,11 +222,16 @@ fn test_bridge_meta_nvv4l2h265enc() {
 
 #[test]
 fn test_bridge_meta_nvv4l2h264enc() {
+    if !nvidia_gpu_utils::has_nvenc(0).unwrap_or(false) {
+        eprintln!("NVENC not available on this GPU — skipping nvv4l2h264enc test");
+        return;
+    }
     run_pipeline_bridge_test(
         &EncoderTestConfig {
             format: VideoFormat::NV12,
             enc_name: "nvv4l2h264enc",
             parser: Some("h264parse"),
+            pre_encoder: None,
         },
         30,
     );
@@ -208,11 +239,23 @@ fn test_bridge_meta_nvv4l2h264enc() {
 
 #[test]
 fn test_bridge_meta_nvjpegenc() {
+    common::init();
+    if gst::ElementFactory::find("nvjpegenc").is_none() {
+        eprintln!("nvjpegenc not available — skipping");
+        return;
+    }
     run_pipeline_bridge_test(
         &EncoderTestConfig {
             format: VideoFormat::I420,
             enc_name: "nvjpegenc",
             parser: Some("jpegparse"),
+            // On Jetson, nvjpegenc requires surfaces pinned/registered by
+            // nvvideoconvert; NvDS pool surfaces from appsrc lack this.
+            pre_encoder: if cfg!(target_arch = "aarch64") {
+                Some("nvvideoconvert")
+            } else {
+                None
+            },
         },
         30,
     );

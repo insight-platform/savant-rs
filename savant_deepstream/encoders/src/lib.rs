@@ -1,8 +1,10 @@
-//! GPU-accelerated video encoders using DeepStream NvBufSurface.
+//! GPU-accelerated video encoders and raw frame downloaders using DeepStream
+//! NvBufSurface.
 //!
 //! This crate provides a high-level API for hardware-accelerated video
-//! encoding (H.264, HEVC/H.265, JPEG, AV1) backed by NVIDIA DeepStream's
-//! NvBufSurface buffer pool and NVENC/NVJPEG encoders.
+//! encoding (H.264, HEVC/H.265, JPEG, AV1) and raw GPU-to-CPU frame
+//! download (RGBA, RGB) backed by NVIDIA DeepStream's NvBufSurface buffer
+//! pool.
 //!
 //! # Design
 //!
@@ -179,14 +181,16 @@ pub struct EncodedFrame {
     pub dts_ns: Option<u64>,
     /// Duration in nanoseconds (if known).
     pub duration_ns: Option<u64>,
-    /// Encoded bitstream data.
+    /// Encoded bitstream data, or tightly-packed raw pixel data for
+    /// [`Codec::RawRgba`] / [`Codec::RawRgb`].
     pub data: Vec<u8>,
     /// Codec used to encode this frame.
     pub codec: Codec,
     /// `true` when this is an intra-coded (key) frame.
     ///
-    /// For JPEG every frame is a keyframe.  For H.264/H.265/AV1 this is
-    /// derived from the GStreamer buffer flags (`DELTA_UNIT` absent ⇒ key).
+    /// For JPEG and raw pseudoencoders every frame is a keyframe.
+    /// For H.264/H.265/AV1 this is derived from the GStreamer buffer flags
+    /// (`DELTA_UNIT` absent ⇒ key).
     pub keyframe: bool,
     /// Time base (numerator, denominator) for interpreting timestamps.
     ///

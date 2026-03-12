@@ -3,7 +3,7 @@ name = "deepstream_encoders"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "GPU-accelerated video encoders (H264, HEVC, JPEG, AV1) using DeepStream NvBufSurface"
+description = "GPU-accelerated video encoders (H264, HEVC, JPEG, AV1) and raw frame downloaders (RGBA, RGB) using DeepStream NvBufSurface"
 homepage.workspace = true
 repository.workspace = true
 readme.workspace = true
@@ -15,8 +15,10 @@ rust-version.workspace = true
 [dependencies]
 deepstream_nvbufsurface = { path = "../nvbufsurface" }
 savant_gstreamer = { path = "../../savant_gstreamer/savant_gstreamer", default-features = false }
+nvidia_gpu_utils = { workspace = true }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
+gstreamer-video = { workspace = true }
 glib = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
@@ -24,8 +26,8 @@ log = { workspace = true }
 [dev-dependencies]
 env_logger = "0.11"
 serial_test = { workspace = true }
-gstreamer-video = { workspace = true }
 criterion = { workspace = true }
+nvidia_gpu_utils = { workspace = true }
 
 [[bench]]
 name = "encoder_bench"

@@ -26,6 +26,7 @@
 //! ```
 
 pub mod ffi;
+pub mod surface_ops;
 pub mod transform;
 
 pub mod buffers;
@@ -40,6 +41,7 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
+pub use surface_ops::{memset_surface, upload_to_surface};
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,
@@ -96,6 +98,21 @@ pub enum NvBufSurfaceError {
 
     #[error("Batch has already been finalized; mutation is not allowed")]
     AlreadyFinalized,
+
+    #[error("NvBufSurfaceMap failed (code {0})")]
+    SurfaceMapFailed(i32),
+
+    #[error("NvBufSurfaceUnMap failed (code {0})")]
+    SurfaceUnmapFailed(i32),
+
+    #[error("NvBufSurfaceSyncForDevice failed (code {0})")]
+    SurfaceSyncFailed(i32),
+
+    #[error("CUDA driver API {function} failed (code {code})")]
+    CudaDriverError { function: &'static str, code: u32 },
+
+    #[error("{0}")]
+    InvalidInput(String),
 }
 
 /// NvBufSurface memory types.

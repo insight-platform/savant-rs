@@ -5,6 +5,10 @@ fn main() {
     pyo3_build_config::add_extension_module_link_args();
 
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+
+    println!("cargo:rerun-if-changed=src/");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+
     let config = cbindgen::Config {
         language: cbindgen::Language::C,
         ..Default::default()

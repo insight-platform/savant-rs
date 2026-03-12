@@ -16,8 +16,10 @@ savant_deepstream/nvbufsurface/
 │   ├── transform.rs            # Padding, Interpolation, ComputeMode, Rect,
 │   │                           #   TransformConfig, TransformError,
 │   │                           #   extract_nvbufsurface, buffer_gpu_id,
+│   │                           #   clear_surface_black (platform-aware),
 │   │                           #   do_transform, do_transform_to_slot
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
+│   ├── surface_ops.rs          # memset_surface, upload_to_surface (platform-aware)
 │   ├── buffers.rs              # re-exports single + batched
 │   ├── buffers/
 │   │   ├── single.rs           # DsNvSurfaceBufferGenerator + Builder (batchSize=1)
@@ -140,6 +142,12 @@ DsNvUniformSurfaceBuffer
 | Function | Purpose |
 |---|---|
 | `gst_nvds_buffer_pool_new()` | Create DeepStream buffer pool |
+| `NvBufSurfaceMap` | Map surface for CPU access (auto-generated via bindgen) |
+| `NvBufSurfaceUnMap` | Unmap surface after CPU access (auto-generated via bindgen) |
+| `NvBufSurfaceSyncForDevice` | Sync CPU writes to device (auto-generated via bindgen) |
+| `NvBufSurfaceSyncForCpu` | Sync device writes to CPU (auto-generated via bindgen) |
+| `cuMemsetD8_v2` | CUDA memset (manually declared) |
+| `cuMemcpyHtoD_v2` | CUDA host-to-device copy (manually declared) |
 | `cudaSetDevice(device)` | Set active CUDA device |
 | `cudaFree(ptr)` | Free CUDA memory / trigger lazy context init |
 | `cudaMemset2DAsync(...)` | Clear GPU surface to black for letterboxing |
@@ -184,6 +192,35 @@ config. Always call `destroy_cuda_stream()` when done.
 
 ⚠ After each transform, `cudaStreamSynchronize` is called to prevent
 stale-data artifacts when source buffers are returned to pools.
+
+## Platform-Aware Memory Access
+
+Multiple modules handle the Jetson vs dGPU memory difference via
+`cfg(target_arch = "aarch64")`:
+
+- **On Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
+  (VIC-managed), which is **NOT** CUDA-addressable. Must use
+  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
+  `NvBufSurfaceUnMap`.
+
+- **On dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
+  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly on the GPU memory.
+
+### Modules with platform-aware paths
+
+| Module | Functions | Jetson path | dGPU path |
+|---|---|---|---|
+| `surface_ops` | `memset_surface`, `upload_to_surface` | `NvBufSurfaceMap` + CPU write | `cuMemsetD8_v2`, `cudaMemcpy2D` |
+| `transform` | `clear_surface_black` (letterbox padding) | `clear_surface_black_mapped`: Map → zero all planes → Sync → Unmap | `cudaMemset2DAsync` + `cudaStreamSynchronize` |
+| `skia_renderer` | `load_from_nvbuf`, `copy_gl_to_nvbuf` | Map → SyncForCpu/SyncForDevice → `cudaMemcpy2D{To,From}Array` (H2D/D2H) → UnMap | `cudaMemcpy2D{To,From}Array` (D2D) directly on `dataPtr` |
+
+The `clear_surface_black` function in `transform.rs` is called by `do_transform()`
+when the letterboxed image doesn't fill the entire destination surface. On Jetson,
+the mapped path (`clear_surface_black_mapped`) iterates all planes via
+`planeParams.num_planes` and uses `planeParams.pitch[plane]` /
+`planeParams.height[plane]` for correct multi-plane format support (NV12, I420).
+
+---
 
 ## Features
 

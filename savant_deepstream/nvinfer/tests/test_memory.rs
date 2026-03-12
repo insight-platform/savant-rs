@@ -10,7 +10,7 @@ mod common;
 
 use deepstream_nvbufsurface::{
     DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
-    NvBufSurfaceMemType, TransformConfig, VideoFormat,
+    NvBufSurfaceMemType, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
 use nvinfer::{NvInfer, NvInferConfig, Roi};
@@ -18,16 +18,12 @@ use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
 
-#[link(name = "cuda")]
-extern "C" {
-    fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
-}
-
 const STRESS_ITERATIONS: u64 = 200;
 const FRAMES_PER_BATCH: u32 = 4;
 
 /// Maximum allowed GPU memory growth in MiB over the test run.
-const GPU_GROWTH_LIMIT_MIB: u64 = 32;
+/// Jetson GPU compute mode uses slightly more memory than VIC.
+const GPU_GROWTH_LIMIT_MIB: u64 = 48;
 /// Maximum allowed CPU RSS growth in MiB over the test run.
 const RSS_GROWTH_LIMIT_MIB: u64 = 64;
 
@@ -53,7 +49,7 @@ fn make_identity_batch(num_frames: u32) -> gstreamer::Buffer {
     )
     .expect("batched generator");
 
-    let config = TransformConfig::default();
+    let config = common::platform_transform_config();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
 
     for i in 0..num_frames {
@@ -263,10 +259,10 @@ fn make_nonuniform_batch_with_rois() -> (gstreamer::Buffer, HashMap<u32, Vec<Roi
                 .build()
                 .expect("src generator");
 
-            let (src, data_ptr, pitch) = gen.acquire_surface_with_ptr(Some(id)).unwrap();
-            let fill_size = (pitch * h) as usize;
-            let ret = unsafe { cuMemsetD8_v2(data_ptr as u64, fill, fill_size) };
-            assert_eq!(ret, 0, "cuMemsetD8_v2 failed");
+            let src = gen.acquire_surface(Some(id)).unwrap();
+            unsafe {
+                deepstream_nvbufsurface::memset_surface(&src, fill).expect("memset_surface");
+            }
 
             batch.add(&src, Some(id)).unwrap();
         }

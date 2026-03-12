@@ -9,6 +9,8 @@
 //! cargo test -p picasso --test test_leak -- --ignored --nocapture
 //! ```
 
+mod common;
+
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
 use picasso::message::WorkerMessage;
@@ -75,7 +77,7 @@ fn make_nvmm_buffer(
 }
 
 fn encoder_config(w: u32, h: u32) -> EncoderConfig {
-    EncoderConfig::new(Codec::H264, w, h)
+    common::make_default_encoder_config(w, h)
 }
 
 fn bypass_spec() -> SourceSpec {

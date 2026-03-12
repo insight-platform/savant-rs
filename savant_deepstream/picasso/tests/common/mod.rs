@@ -5,6 +5,7 @@
 
 #![allow(dead_code)] // Helpers used by various test files
 
+use deepstream_encoders::prelude::*;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -190,4 +191,89 @@ pub fn jpeg_encoder_config(w: u32, h: u32) -> deepstream_encoders::EncoderConfig
         .format(VideoFormat::RGBA)
         .fps(30, 1)
         .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(80) }))
+}
+
+// ---------------------------------------------------------------------------
+// Platform-aware encoder helpers
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+pub fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+#[allow(dead_code)]
+pub fn has_nvjpegenc() -> bool {
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+#[allow(dead_code)]
+pub fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+
+/// H264 encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn h264_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+/// HEVC encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn hevc_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::Hevc, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Hevc, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+/// Returns best available encoder config: NVENC H264 > JPEG > PNG.
+#[allow(dead_code)]
+pub fn make_default_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if has_nvenc() {
+        h264_encoder_config(w, h)
+    } else if has_nvjpegenc() {
+        EncoderConfig::new(Codec::Jpeg, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) }))
+    } else {
+        EncoderConfig::new(Codec::Png, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Png(PngProps {
+                compression_level: Some(1),
+            }))
+    }
 }

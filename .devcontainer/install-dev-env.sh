@@ -1,4 +1,5 @@
-#!/bin/sh -e
+#!/usr/bin/env bash
+set -e
 
 # ── Rust toolchain ────────────────────────────────────────────────────────────
 curl -o rustup.sh --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs

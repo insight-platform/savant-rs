@@ -2,18 +2,18 @@
     "name": "Savant Rust Container",
     "features": {},
     "build": {
-        "dockerfile": "Dockerfile",
+        "dockerfile": "../Dockerfile",
         "args": {
             "REMOTE_USER": "${localEnv:USER}",
             "REMOTE_UID": "${localEnv:REMOTE_UID:1000}",
             "REMOTE_GID": "${localEnv:REMOTE_GID:1000}"
         },
         "target": "devcontainer",
-        "context": ".."
+        "context": "../.."
     },
     "runArgs": [
-        "--gpus",
-        "all"
+        "--runtime",
+        "nvidia"
     ],
     "remoteUser": "${localEnv:USER}",
     "customizations": {

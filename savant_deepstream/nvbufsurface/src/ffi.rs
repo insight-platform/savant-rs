@@ -58,3 +58,28 @@ extern "C" {
     /// Destroy a CUDA stream.
     pub fn cudaStreamDestroy(stream: *mut std::ffi::c_void) -> i32;
 }
+
+// CUDA driver API functions for direct GPU memory access.
+extern "C" {
+    /// Fill GPU memory with a constant byte value.
+    pub fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
+
+    /// Pitched 2-D copy from host to device (or any combination).
+    ///
+    /// Copies a `width × height` byte region from `src` (pitch `spitch`) to
+    /// `dst` (pitch `dpitch`) in a single DMA transfer.
+    pub fn cudaMemcpy2D(
+        dst: *mut std::ffi::c_void,
+        dpitch: usize,
+        src: *const std::ffi::c_void,
+        spitch: usize,
+        width: usize,
+        height: usize,
+        kind: i32,
+    ) -> i32;
+}
+
+/// `cudaMemcpyKind` values from `<cuda_runtime_api.h>`.
+pub const CUDA_MEMCPY_HOST_TO_DEVICE: i32 = 1;
+pub const CUDA_MEMCPY_DEVICE_TO_HOST: i32 = 2;
+pub const CUDA_MEMCPY_DEVICE_TO_DEVICE: i32 = 3;

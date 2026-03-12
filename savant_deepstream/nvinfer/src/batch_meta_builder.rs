@@ -653,7 +653,10 @@ mod tests {
         // Box center at (150, 50), w=100, in a 100-wide frame. Entirely outside.
         let bbox = RBBox::ltwh(100.0, 0.0, 100.0, 50.0).unwrap();
         let (l, _t, w, _h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
-        assert!(l + w <= 100.0 + 0.01, "left+width must not exceed max_w: l={l}, w={w}");
+        assert!(
+            l + w <= 100.0 + 0.01,
+            "left+width must not exceed max_w: l={l}, w={w}"
+        );
         assert!(l >= 0.0);
         assert!(l <= 100.0);
     }
@@ -663,7 +666,10 @@ mod tests {
     fn rbbox_to_rect_params_box_past_bottom_edge_stays_in_frame() {
         let bbox = RBBox::ltwh(0.0, 80.0, 50.0, 50.0).unwrap();
         let (_l, t, _w, h) = rbbox_to_rect_params(&bbox, 100.0, 100.0);
-        assert!(t + h <= 100.0 + 0.01, "top+height must not exceed max_h: t={t}, h={h}");
+        assert!(
+            t + h <= 100.0 + 0.01,
+            "top+height must not exceed max_h: t={t}, h={h}"
+        );
         assert!(t >= 0.0);
         assert!(t <= 100.0);
     }

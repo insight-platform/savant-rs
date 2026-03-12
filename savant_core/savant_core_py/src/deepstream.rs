@@ -11,6 +11,7 @@ use deepstream_nvbufsurface::{
 };
 use glib::translate::from_glib_none;
 use gstreamer as gst;
+use numpy::PyReadonlyArray3;
 use pyo3::prelude::*;
 use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
 use savant_gstreamer::VideoFormat;
@@ -681,6 +682,57 @@ impl PyDsNvBufSurfaceGstBuffer {
 
     fn __bool__(&self) -> bool {
         self.inner.is_some()
+    }
+
+    /// Fill the surface with a constant byte value.
+    ///
+    /// Args:
+    ///     value (int): Byte value (0–255) to fill every byte with.
+    ///
+    /// Raises:
+    ///     RuntimeError: If the buffer has been consumed or the GPU operation fails.
+    fn memset(&self, py: Python<'_>, value: u8) -> PyResult<()> {
+        let buf = self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "DsNvBufSurfaceGstBuffer has already been consumed via take()",
+            )
+        })?;
+        py.detach(|| unsafe {
+            deepstream_nvbufsurface::memset_surface(buf, value)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Upload pixel data from a NumPy array to the surface.
+    ///
+    /// Args:
+    ///     data (numpy.ndarray): A 3-D ``uint8`` array with shape
+    ///         ``(height, width, channels)`` matching the surface dimensions
+    ///         and color format (e.g. 4 channels for RGBA).
+    ///
+    /// Raises:
+    ///     ValueError: If *data* has wrong shape, dtype, or dimensions.
+    ///     RuntimeError: If the buffer has been consumed or the GPU operation fails.
+    fn upload<'py>(&self, py: Python<'py>, data: PyReadonlyArray3<'py, u8>) -> PyResult<()> {
+        let buf = self.inner.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "DsNvBufSurfaceGstBuffer has already been consumed via take()",
+            )
+        })?;
+        let arr = data.as_array();
+        let shape = arr.shape();
+        let height = shape[0] as u32;
+        let width = shape[1] as u32;
+        let channels = shape[2] as u32;
+        let slice = data.as_slice().map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "array must be contiguous in memory: {e}"
+            ))
+        })?;
+        py.detach(|| unsafe {
+            deepstream_nvbufsurface::upload_to_surface(buf, slice, width, height, channels)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
     }
 }
 
@@ -1542,6 +1594,63 @@ impl PyDsNvUniformSurfaceBuffer {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(PyDsNvBufSurfaceGstBuffer::new(view))
     }
+
+    /// Fill a slot's surface with a constant byte value.
+    ///
+    /// Args:
+    ///     index (int): Zero-based slot index.
+    ///     value (int): Byte value (0–255).
+    ///
+    /// Raises:
+    ///     RuntimeError: If the batch is not finalized, *index* is out of
+    ///         bounds, or the GPU operation fails.
+    fn memset_slot(&self, py: Python<'_>, index: u32, value: u8) -> PyResult<()> {
+        let slot_buf = self
+            .inner
+            .extract_slot_view(index)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        py.detach(|| unsafe {
+            deepstream_nvbufsurface::memset_surface(&slot_buf, value)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
+
+    /// Upload pixel data from a NumPy array into a batch slot.
+    ///
+    /// Args:
+    ///     index (int): Zero-based slot index.
+    ///     data (numpy.ndarray): A 3-D ``uint8`` array with shape
+    ///         ``(height, width, channels)`` matching the slot dimensions.
+    ///
+    /// Raises:
+    ///     ValueError: If *data* has wrong shape, dtype, or dimensions.
+    ///     RuntimeError: If the batch is not finalized, *index* is out of
+    ///         bounds, or the GPU operation fails.
+    fn upload_slot<'py>(
+        &self,
+        py: Python<'py>,
+        index: u32,
+        data: PyReadonlyArray3<'py, u8>,
+    ) -> PyResult<()> {
+        let slot_buf = self
+            .inner
+            .extract_slot_view(index)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let arr = data.as_array();
+        let shape = arr.shape();
+        let height = shape[0] as u32;
+        let width = shape[1] as u32;
+        let channels = shape[2] as u32;
+        let slice = data.as_slice().map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "array must be contiguous in memory: {e}"
+            ))
+        })?;
+        py.detach(|| unsafe {
+            deepstream_nvbufsurface::upload_to_surface(&slot_buf, slice, width, height, channels)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        })
+    }
 }
 
 // ─── DsNvNonUniformSurfaceBuffer ─────────────────────────────────────────
@@ -1727,6 +1836,59 @@ pub fn py_init_cuda(gpu_id: u32) -> PyResult<()> {
 #[pyo3(name = "gpu_mem_used_mib", signature = (gpu_id=0))]
 pub fn py_gpu_mem_used_mib(gpu_id: u32) -> PyResult<u64> {
     nvidia_gpu_utils::gpu_mem_used_mib(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Returns the Jetson model name if running on a Jetson device, or ``None`` if not.
+///
+/// Uses CUDA SM count and /proc/meminfo MemTotal to identify the model.
+/// Works inside containers where /proc/device-tree is typically not mounted.
+/// Requires ``uname -r`` to contain "tegra" and a working CUDA.
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     str | None: Model name (e.g. "Orin Nano 8GB") or None if not Jetson.
+///
+/// Raises:
+///     RuntimeError: If CUDA or /proc/meminfo is unavailable.
+#[pyfunction]
+#[pyo3(name = "jetson_model", signature = (gpu_id=0))]
+pub fn py_jetson_model(gpu_id: u32) -> PyResult<Option<String>> {
+    nvidia_gpu_utils::jetson_model(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        .map(|opt| opt.map(|m| m.to_string()))
+}
+
+/// Returns ``True`` if the kernel is a Jetson (Tegra) kernel.
+///
+/// Checks ``uname -r`` for the "tegra" suffix.
+#[pyfunction]
+#[pyo3(name = "is_jetson_kernel")]
+pub fn py_is_jetson_kernel() -> bool {
+    nvidia_gpu_utils::is_jetson_kernel()
+}
+
+/// Returns ``True`` if the GPU has NVENC hardware encoding support.
+///
+/// - **Jetson**: Orin Nano is the only Jetson without NVENC; all others have it.
+///   ``Unknown`` models conservatively return ``False``.
+/// - **dGPU (x86_64)**: Uses NVML ``encoder_capacity(H264)`` — returns ``False``
+///   for datacenter GPUs without NVENC (H100, A100, A30, etc.).
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     bool: ``True`` if NVENC is available.
+///
+/// Raises:
+///     RuntimeError: If CUDA/NVML initialization fails.
+#[pyfunction]
+#[pyo3(name = "has_nvenc", signature = (gpu_id=0))]
+pub fn py_has_nvenc(gpu_id: u32) -> PyResult<bool> {
+    nvidia_gpu_utils::has_nvenc(gpu_id)
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
@@ -1952,6 +2114,9 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(py_set_num_filled, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_init_cuda, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_gpu_mem_used_mib, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_jetson_model, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_is_jetson_kernel, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(py_has_nvenc, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_bridge_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(py_get_nvbufsurface_info, m)?)?;

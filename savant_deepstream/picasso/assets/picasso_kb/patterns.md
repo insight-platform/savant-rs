@@ -336,6 +336,62 @@ fn worker_bypass_fires_callback() {
 
 ---
 
+## NVENC / Hardware Detection Helpers
+
+```rust
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+fn has_nvjpegenc() -> bool {
+    let _ = gstreamer::init();
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+```
+
+### Platform-Aware Encoder Config Builders
+
+```rust
+fn h264_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::H264, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
+fn make_default_encoder_config(w: u32, h: u32) -> Option<EncoderConfig> {
+    if has_nvenc() {
+        Some(h264_encoder_config(w, h))
+    } else if has_nvjpegenc() {
+        Some(EncoderConfig::new(Codec::Jpeg, w, h)
+            .format(VideoFormat::RGBA)
+            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) })))
+    } else {
+        Some(EncoderConfig::new(Codec::Png, w, h).format(VideoFormat::RGBA))
+    }
+}
+```
+
+⚠ Always use platform-aware builders in tests/benches. Hardcoding `H264DgpuProps` fails on Jetson even when NVENC is available.
+
+---
+
 ## GPU Encode Test Template
 ```rust
 #[test]
@@ -346,6 +402,9 @@ fn encode_pipeline_basic() {
     const W: u32 = 640;
     const H: u32 = 480;
     const DUR: u64 = 33_333_333;
+
+    let enc_config = make_default_encoder_config(W, H)
+        .expect("No encoder available — skipping");
 
     let enc_count = Arc::new(AtomicUsize::new(0));
     let callbacks = Callbacks {
@@ -363,18 +422,7 @@ fn encode_pipeline_basic() {
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
             transform: TransformConfig::default(),
-            encoder: Box::new(
-                EncoderConfig::new(Codec::H264, W, H)
-                    .format(VideoFormat::RGBA)
-                    .fps(30, 1)
-                    .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-                        bitrate: Some(2_000_000),
-                        preset: Some(DgpuPreset::P1),
-                        tuning_info: Some(TuningPreset::LowLatency),
-                        iframeinterval: Some(30),
-                        ..Default::default()
-                    })),
-            ),
+            encoder: Box::new(enc_config),
         },
         ..Default::default()
     };
@@ -385,7 +433,7 @@ fn encode_pipeline_basic() {
     ).unwrap();
 
     for i in 0..10u64 {
-        let frame = make_frame_sized("src", W, H);
+        let frame = make_frame_sized("src", W as i64, H as i64);
         let mut fm = frame.clone();
         fm.set_pts((i * DUR) as i64).unwrap();
         fm.set_duration(Some(DUR as i64)).unwrap();

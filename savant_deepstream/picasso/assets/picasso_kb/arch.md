@@ -133,6 +133,28 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - `pngenc` (gst-plugins-good) runs on CPU; nvvideoconvert converts NVMM to system memory
 - Requires `VideoFormat::RGBA`; `PngProps` supports `compression_level` (0–9)
 
+## Raw Pseudoencoders (RawRgba, RawRgb)
+- Uses GStreamer pipeline: appsrc (NVMM) → nvvideoconvert → capsfilter(video/x-raw) → appsink
+- Downloads GPU frames to CPU memory as tightly-packed RGBA or RGB pixel data
+- On Jetson (aarch64): `nvvideoconvert` gets `compute-hw=1` to bypass VIC limitations for NV12→RGB/RGBA conversion
+- Output `EncodedFrame.data` contains `width * height * bpp` bytes (4 for RGBA, 3 for RGB)
+- Every frame is marked as keyframe; stride padding is stripped automatically
+
+## Jetson / Platform-Specific Notes
+
+### Encoder Properties are Platform-Dependent
+The `nvv4l2h264enc` / `nvv4l2h265enc` elements have different property APIs on dGPU vs Jetson:
+- **dGPU:** `preset-id` (DgpuPreset P1–P7), `tuning-info-id` (TuningPreset)
+- **Jetson:** `preset-level` (JetsonPresetLevel), `maxperf-enable`
+
+Tests and benchmarks MUST use the correct property variant. Use `cfg!(target_arch = "aarch64")` to select.
+
+### NVENC Not Available on All Jetsons
+Orin Nano does NOT have NVENC. Tests must guard with `nvidia_gpu_utils::has_nvenc(0)` and fall back to JPEG or PNG.
+
+### nvjpegenc Jetson Surface Registration
+On Jetson, `nvjpegenc` needs `nvvideoconvert` with `disable-passthrough=true` before it to avoid "Surface not registered" hangs.
+
 ## Spec Hot-Swap
 - `set_source_spec` on existing worker → `WorkerMessage::UpdateSpec`
 - If codec changed (Drop↔Bypass↔Encode, or encode dimensions/codec differ): stop drain thread, flush encoder, drop renderer
@@ -156,6 +178,19 @@ This ensures per-object callback overrides do not affect other objects or future
 - `SKIA_EGL_LOCK`: process-global Mutex
 - Serializes all SkiaRenderer operations (EGL contexts on same GPU corrupt each other)
 - Held during: load_from_nvbuf, canvas draws, render_to_nvbuf
+
+## Skia Renderer Jetson Compatibility
+On Jetson, `NvBufSurfaceMemType::Default` is VIC-managed (`SurfaceArray`) and
+NOT directly CUDA-addressable. The Skia renderer's CUDA-GL interop paths
+(`load_from_nvbuf`, `copy_gl_to_nvbuf`) use `NvBufSurfaceMap` /
+`NvBufSurfaceSyncForCpu` / `NvBufSurfaceSyncForDevice` / `NvBufSurfaceUnMap`
+on aarch64, with `cudaMemcpyHostToDevice` / `DeviceToHost` through the
+CPU-mapped pointer. On dGPU, the copy is direct GPU-to-GPU (`DeviceToDevice`).
+
+API consequence: `load_from_nvbuf` and `from_nvbuf` accept `&gst::BufferRef`
+(not raw `data_ptr`/`pitch`) so the NvBufSurface can be mapped. The picasso
+caller (`do_skia_render` in `encode.rs`) passes `dst_buf.as_ref()` instead
+of the `(data_ptr, pitch)` tuple that was previously extracted separately.
 
 ## Key Invariants
 - Frame's transformation chain must start with exactly `[InitialSize(w, h)]` before `rewrite_frame_transformations`

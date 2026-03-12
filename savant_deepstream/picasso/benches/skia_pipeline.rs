@@ -21,6 +21,23 @@
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
+
+#[allow(dead_code)]
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn has_nvjpegenc() -> bool {
+    let _ = gstreamer::init();
+    gstreamer::ElementFactory::find("nvjpegenc").is_some()
+}
+
+#[allow(dead_code)]
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
 };
@@ -37,7 +54,11 @@ use std::time::Instant;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
-const NUM_FRAMES: u64 = 100_000;
+const NUM_FRAMES: u64 = if cfg!(not(target_arch = "aarch64")) {
+    100_000
+} else {
+    10_000
+};
 const NUM_BOXES: usize = 20;
 const FPS: i32 = 30;
 const FRAME_DURATION_NS: u64 = 1_000_000_000 / FPS as u64;
@@ -263,7 +284,8 @@ fn draw_scene_overlay(
     let bg1 = hsv_to_argb(hue_shift, 0.15, 0.10);
     let bg2 = hsv_to_argb(hue_shift + 40.0, 0.20, 0.18);
     let bg_colors: &[skia_safe::Color] = &[with_alpha(bg1, 0xFF), with_alpha(bg2, 0xFF)];
-    if let Some(shader) = skia_safe::Shader::linear_gradient(
+    #[allow(deprecated)]
+    let bg_shader = skia_safe::Shader::linear_gradient(
         (
             skia_safe::Point::new(0.0, 0.0),
             skia_safe::Point::new(width, height),
@@ -273,7 +295,8 @@ fn draw_scene_overlay(
         skia_safe::TileMode::Clamp,
         None,
         None,
-    ) {
+    );
+    if let Some(shader) = bg_shader {
         let mut bg_paint = skia_safe::Paint::default();
         bg_paint.set_shader(shader);
         canvas.draw_rect(skia_safe::Rect::from_wh(width, height), &bg_paint);
@@ -516,17 +539,35 @@ fn build_draw_spec() -> ObjectDrawSpec {
 }
 
 fn build_encoder_config() -> EncoderConfig {
-    let enc_props = EncoderProperties::H264Dgpu(H264DgpuProps {
-        bitrate: Some(4_000_000),
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        iframeinterval: Some(30),
-        ..Default::default()
-    });
-    EncoderConfig::new(Codec::H264, WIDTH, HEIGHT)
-        .format(VideoFormat::RGBA)
-        .fps(FPS, 1)
-        .properties(enc_props)
+    if has_nvenc() {
+        if is_jetson() {
+            EncoderConfig::new(Codec::H264, WIDTH, HEIGHT)
+                .format(VideoFormat::RGBA)
+                .fps(FPS, 1)
+                .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+                    preset_level: Some(JetsonPresetLevel::UltraFast),
+                    ..Default::default()
+                }))
+        } else {
+            EncoderConfig::new(Codec::H264, WIDTH, HEIGHT)
+                .format(VideoFormat::RGBA)
+                .fps(FPS, 1)
+                .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+                    bitrate: Some(4_000_000),
+                    preset: Some(DgpuPreset::P1),
+                    tuning_info: Some(TuningPreset::LowLatency),
+                    iframeinterval: Some(30),
+                    ..Default::default()
+                }))
+        }
+    } else if has_nvjpegenc() {
+        EncoderConfig::new(Codec::Jpeg, WIDTH, HEIGHT)
+            .format(VideoFormat::RGBA)
+            .fps(FPS, 1)
+            .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(85) }))
+    } else {
+        panic!("No encoder available (NVENC or nvjpegenc required)");
+    }
 }
 
 fn build_source_spec() -> SourceSpec {
@@ -550,6 +591,11 @@ fn build_source_spec() -> SourceSpec {
 fn main() {
     gstreamer::init().unwrap();
     cuda_init(0).unwrap();
+
+    if !has_nvenc() && !has_nvjpegenc() {
+        eprintln!("NVENC and nvjpegenc not available — cannot run benchmark");
+        std::process::exit(1);
+    }
 
     let num_src = num_sources();
     let total_frames = NUM_FRAMES * num_src as u64;

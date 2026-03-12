@@ -1,6 +1,7 @@
 //! Shared test utilities for nvinfer integration tests.
 
 use deepstream_nvbufsurface::cuda_init;
+use deepstream_nvbufsurface::{ComputeMode, TransformConfig};
 use gstreamer as gst;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -44,6 +45,7 @@ pub fn identity_properties() -> HashMap<String, String> {
     m.insert("network-type".into(), "100".into());
     m.insert("infer-dims".into(), "3;12;12".into());
     m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
     m
 }
 
@@ -73,5 +75,28 @@ pub fn age_gender_properties() -> HashMap<String, String> {
     m.insert("network-type".into(), "100".into());
     m.insert("infer-dims".into(), "3;112;112".into());
     m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
     m
+}
+
+/// On Jetson, force GPU compute for nvinfer's internal NvBufSurfTransform.
+/// VIC requires surfaces >= 16x16; GPU compute has no such restriction.
+fn inject_jetson_scaling(props: &mut HashMap<String, String>) {
+    if cfg!(target_arch = "aarch64") {
+        props.insert("scaling-compute-hw".into(), "1".into());
+    }
+}
+
+/// Returns a [`TransformConfig`] suitable for the current platform.
+///
+/// On Jetson (aarch64), uses GPU compute to avoid VIC limitations with small
+/// surfaces (VIC requires >= 16x16).  On dGPU the default backend is already
+/// GPU-based.
+#[allow(dead_code)]
+pub fn platform_transform_config() -> TransformConfig {
+    let mut config = TransformConfig::default();
+    if cfg!(target_arch = "aarch64") {
+        config.compute_mode = ComputeMode::Gpu;
+    }
+    config
 }
