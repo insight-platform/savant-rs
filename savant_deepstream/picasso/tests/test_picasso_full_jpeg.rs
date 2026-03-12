@@ -17,6 +17,8 @@
 //! inspection.  Perceptual hashes are compared; a small Hamming distance
 //! means the images are structurally equivalent.
 
+mod common;
+
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::{Padding, TransformConfig};
 use picasso::prelude::*;
@@ -305,16 +307,7 @@ fn render_gpu() -> Vec<u8> {
     };
     let mut engine = PicassoEngine::new(general, callbacks);
 
-    let enc_config = EncoderConfig::new(Codec::H264, DST_W, DST_H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-            bitrate: Some(4_000_000),
-            preset: Some(DgpuPreset::P1),
-            tuning_info: Some(TuningPreset::LowLatency),
-            iframeinterval: Some(30),
-            ..Default::default()
-        }));
+    let enc_config = common::h264_encoder_config(DST_W, DST_H);
 
     let spec = SourceSpec {
         codec: CodecSpec::Encode {
@@ -515,6 +508,12 @@ fn hamming_distance(a: &imagehash::Hash, b: &imagehash::Hash) -> usize {
 
 #[test]
 fn cpu_gpu_render_similarity() {
+    let _ = gstreamer::init();
+    let _ = cuda_init(0);
+    if !common::has_nvenc() {
+        eprintln!("NVENC not available — skipping H264 test");
+        return;
+    }
     let cpu_jpeg = render_cpu();
     let gpu_canvas_jpeg = render_gpu();
     let gpu_encoded_jpeg = render_gpu_jpeg_encoded();

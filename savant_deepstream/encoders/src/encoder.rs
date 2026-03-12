@@ -523,12 +523,15 @@ impl NvEncoder {
                     ))
                 })?;
 
-            // Set timestamps on the converted buffer.
+            // Set timestamps on the converted buffer.  Both PTS and DTS
+            // are set to prevent downstream elements (e.g. nvvideoconvert
+            // on Jetson) from re-generating timestamps.
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {
                     EncoderError::BufferAcquisitionFailed("Converted buffer is not writable".into())
                 })?;
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+                buf_ref.set_dts(gst::ClockTime::from_nseconds(pts_ns));
                 if let Some(dur) = duration_ns {
                     buf_ref.set_duration(gst::ClockTime::from_nseconds(dur));
                 }
@@ -541,6 +544,7 @@ impl NvEncoder {
                     EncoderError::BufferAcquisitionFailed("Buffer is not writable".into())
                 })?;
                 buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+                buf_ref.set_dts(gst::ClockTime::from_nseconds(pts_ns));
                 if let Some(dur) = duration_ns {
                     buf_ref.set_duration(gst::ClockTime::from_nseconds(dur));
                 }
@@ -606,22 +610,38 @@ impl NvEncoder {
             .buffer()
             .ok_or_else(|| EncoderError::PipelineError("Sample has no buffer".into()))?;
 
-        let pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
-        let dts_ns = buffer.dts().map(|t| t.nseconds());
+        let buf_pts_ns = buffer.pts().map(|t| t.nseconds()).unwrap_or(0);
+        let buf_dts_ns = buffer.dts().map(|t| t.nseconds());
         let duration_ns = buffer.duration().map(|t| t.nseconds());
 
-        // Look up frame_id from our PTS map.  A `Some` hit means this
-        // buffer corresponds to a user-submitted frame; `None` means it is
-        // a codec header (e.g. AV1 sequence header) injected by the encoder.
-        let pts_lookup = self.pts_map.lock().unwrap().remove(&pts_ns);
+        // Look up frame_id from our PTS map.  On Jetson the pre-encoder
+        // nvvideoconvert retimestamps buffers (changing PTS) but preserves
+        // the original PTS in DTS.  Try PTS first, fall back to DTS.
+        let (pts_lookup, original_pts) = {
+            let mut map = self.pts_map.lock().unwrap();
+            let by_pts = map.remove(&buf_pts_ns);
+            if by_pts.is_some() {
+                (by_pts, buf_pts_ns)
+            } else if let Some(dts) = buf_dts_ns {
+                let by_dts = map.remove(&dts);
+                (by_dts, dts)
+            } else {
+                (None, buf_pts_ns)
+            }
+        };
         let is_user_frame = pts_lookup.is_some();
         let (frame_id, orig_duration) = pts_lookup.unwrap_or((u128::MAX, duration_ns));
+        let pts_ns = original_pts;
 
         // --- Output ordering validation ---
         //
         // Checks only apply to user-submitted frames.  Codec header
         // buffers emitted by some encoders (AV1 in particular) may carry
         // stale or meaningless PTS/DTS values.
+        let is_intra_only = matches!(
+            self.codec,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+        );
 
         if is_user_frame {
             // 1. Output PTS must never go backwards.  Equal PTS is
@@ -639,16 +659,29 @@ impl NvEncoder {
             self.last_output_pts_ns = Some(pts_ns);
 
             // 2. DTS must not exceed PTS (would indicate B-frame reordering).
-            if let Some(dts) = dts_ns {
-                if dts > pts_ns {
-                    return Err(EncoderError::OutputDtsExceedsPts {
-                        frame_id,
-                        dts_ns: dts,
-                        pts_ns,
-                    });
+            //    Intra-only codecs (JPEG, PNG, Raw) can never produce
+            //    B-frames.  On Jetson the nvjpegenc pipeline may set DTS
+            //    from a later frame's PTS, so the check is skipped.
+            if !is_intra_only {
+                if let Some(dts) = buf_dts_ns {
+                    if dts > pts_ns {
+                        return Err(EncoderError::OutputDtsExceedsPts {
+                            frame_id,
+                            dts_ns: dts,
+                            pts_ns,
+                        });
+                    }
                 }
             }
         }
+
+        // For intra-only codecs, normalize DTS to equal PTS regardless
+        // of what the GStreamer pipeline reported.
+        let dts_ns = if is_intra_only {
+            Some(pts_ns)
+        } else {
+            buf_dts_ns
+        };
 
         // Use original duration if the encoder didn't set one.
         let final_duration = duration_ns.or(orig_duration);

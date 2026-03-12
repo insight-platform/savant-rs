@@ -33,6 +33,16 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::sync::Once;
 
+#[allow(dead_code)]
+fn has_nvenc() -> bool {
+    nvidia_gpu_utils::has_nvenc(0).unwrap_or(false)
+}
+
+#[allow(dead_code)]
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 const FPS: i32 = 30;
@@ -64,15 +74,24 @@ impl OnEncodedFrame for EncodedSignal {
 
 /// Builds HEVC encoder config for FullHD with low-latency tuning.
 fn hevc_low_latency_encoder_config() -> EncoderConfig {
-    let props = EncoderProperties::HevcDgpu(HevcDgpuProps {
-        preset: Some(DgpuPreset::P1),
-        tuning_info: Some(TuningPreset::LowLatency),
-        ..Default::default()
-    });
-    EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
-        .format(VideoFormat::RGBA)
-        .fps(FPS, 1)
-        .properties(props)
+    if is_jetson() {
+        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
+            .format(VideoFormat::RGBA)
+            .fps(FPS, 1)
+            .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Hevc, WIDTH, HEIGHT)
+            .format(VideoFormat::RGBA)
+            .fps(FPS, 1)
+            .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
 }
 
 /// Builds ObjectDrawSpec with bbox, dot, and label for the "det"/"obj" class.
@@ -149,6 +168,10 @@ fn make_gpu_buffer(gen: &DsNvSurfaceBufferGenerator, frame_idx: i64) -> gstreame
 
 fn bench_sync_hevc_render(c: &mut Criterion) {
     ensure_init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping HEVC benchmark");
+        return;
+    }
 
     let mut group = c.benchmark_group("hevc_fullhd_low_latency");
     group.sample_size(50);

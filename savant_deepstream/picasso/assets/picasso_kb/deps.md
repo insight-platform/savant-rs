@@ -22,10 +22,11 @@ use picasso::rewrite_frame_transformations;
 ```rust
 use deepstream_encoders::prelude::*;
 // gives: NvEncoder, EncoderError, EncodedFrame, EncoderConfig,
-//        Codec (H264, HEVC, JPEG, AV1, PNG),
+//        Codec (H264, Hevc, Jpeg, Av1, Png, RawRgba, RawRgb),
 //        cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
 //        EncoderProperties, H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
-//        JpegProps, PngProps, Av1DgpuProps, DgpuPreset, TuningPreset, H264Profile, HevcProfile,
+//        JpegProps, PngProps, Av1DgpuProps, RawProps,
+//        DgpuPreset, TuningPreset, H264Profile, HevcProfile,
 //        JetsonPresetLevel, Platform, RateControl
 ```
 
@@ -111,6 +112,7 @@ frame.set_duration(Some(dur_ns as i64)).unwrap();
 
 ### EncoderConfig
 ```rust
+// dGPU:
 EncoderConfig::new(Codec::H264, W, H)
     .format(VideoFormat::RGBA)
     .fps(30, 1)
@@ -122,9 +124,24 @@ EncoderConfig::new(Codec::H264, W, H)
         iframeinterval: Some(30),
         ..Default::default()
     }))
+
+// Jetson (aarch64):
+EncoderConfig::new(Codec::H264, W, H)
+    .format(VideoFormat::RGBA)
+    .fps(30, 1)
+    .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+        preset_level: Some(JetsonPresetLevel::UltraFast),
+        maxperf_enable: Some(true),
+        ..Default::default()
+    }))
+
+// Raw pseudoencoder (GPU→CPU, both platforms):
+EncoderConfig::new(Codec::RawRgba, W, H)
+    .format(VideoFormat::RGBA)
 ```
 ⚠ Builder returns `Self` by value (move semantics). Chain in one expression.
 ⚠ `gpu_id` must match the GPU where incoming NvBufSurface buffers are allocated; `process_encode` validates this at entry.
+⚠ **Platform-specific properties:** Use `H264DgpuProps`/`HevcDgpuProps` on dGPU, `H264JetsonProps`/`HevcJetsonProps` on Jetson. Using the wrong variant causes GStreamer property errors. Detect with `cfg!(target_arch = "aarch64")`.
 
 ### PNG encoder (CPU-based, GStreamer pngenc)
 ```rust

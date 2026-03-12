@@ -11,6 +11,8 @@
 //!    attribute go through the full render-and-encode path.  The `on_render`
 //!    callback fires only for those frames.
 
+mod common;
+
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
@@ -32,16 +34,7 @@ fn init() {
 }
 
 fn make_encoder_config() -> EncoderConfig {
-    EncoderConfig::new(Codec::H264, W, H)
-        .format(VideoFormat::RGBA)
-        .fps(30, 1)
-        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
-            bitrate: Some(2_000_000),
-            preset: Some(DgpuPreset::P1),
-            tuning_info: Some(TuningPreset::LowLatency),
-            iframeinterval: Some(30),
-            ..Default::default()
-        }))
+    common::make_default_encoder_config(W, H)
 }
 
 fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {

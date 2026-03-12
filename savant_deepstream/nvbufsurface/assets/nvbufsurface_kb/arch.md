@@ -212,6 +212,7 @@ Multiple modules handle the Jetson vs dGPU memory difference via
 |---|---|---|---|
 | `surface_ops` | `memset_surface`, `upload_to_surface` | `NvBufSurfaceMap` + CPU write | `cuMemsetD8_v2`, `cudaMemcpy2D` |
 | `transform` | `clear_surface_black` (letterbox padding) | `clear_surface_black_mapped`: Map → zero all planes → Sync → Unmap | `cudaMemset2DAsync` + `cudaStreamSynchronize` |
+| `skia_renderer` | `load_from_nvbuf`, `copy_gl_to_nvbuf` | Map → SyncForCpu/SyncForDevice → `cudaMemcpy2D{To,From}Array` (H2D/D2H) → UnMap | `cudaMemcpy2D{To,From}Array` (D2D) directly on `dataPtr` |
 
 The `clear_surface_black` function in `transform.rs` is called by `do_transform()`
 when the letterboxed image doesn't fill the entire destination surface. On Jetson,

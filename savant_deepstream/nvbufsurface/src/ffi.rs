@@ -68,7 +68,6 @@ extern "C" {
     ///
     /// Copies a `width × height` byte region from `src` (pitch `spitch`) to
     /// `dst` (pitch `dpitch`) in a single DMA transfer.
-    /// `kind`: 1 = `cudaMemcpyHostToDevice`.
     pub fn cudaMemcpy2D(
         dst: *mut std::ffi::c_void,
         dpitch: usize,
@@ -79,3 +78,8 @@ extern "C" {
         kind: i32,
     ) -> i32;
 }
+
+/// `cudaMemcpyKind` values from `<cuda_runtime_api.h>`.
+pub const CUDA_MEMCPY_HOST_TO_DEVICE: i32 = 1;
+pub const CUDA_MEMCPY_DEVICE_TO_HOST: i32 = 2;
+pub const CUDA_MEMCPY_DEVICE_TO_DEVICE: i32 = 3;

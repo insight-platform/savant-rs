@@ -111,7 +111,6 @@ pub unsafe fn upload_to_surface(
 
     #[cfg(not(target_arch = "aarch64"))]
     {
-        const CUDA_MEMCPY_HOST_TO_DEVICE: i32 = 1;
         let ret = ffi::cudaMemcpy2D(
             params.dataPtr,
             params.pitch as usize,
@@ -119,7 +118,7 @@ pub unsafe fn upload_to_surface(
             src_stride,
             src_stride,
             height as usize,
-            CUDA_MEMCPY_HOST_TO_DEVICE,
+            ffi::CUDA_MEMCPY_HOST_TO_DEVICE,
         );
         if ret != 0 {
             return Err(NvBufSurfaceError::CudaDriverError {

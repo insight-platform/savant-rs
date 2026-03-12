@@ -1,12 +1,15 @@
 //! E2E test: CUDA pointer access via OnGpuMat callback.
 //!
 //! Simulates a post-transform GPU processing step that accesses the raw
-//! CUDA buffer after GPU transform.
+//! CUDA buffer after GPU transform.  The callback performs a real
+//! `cudaMemcpy2D` read from the pointer to verify it is CUDA-addressable
+//! (not a VIC-managed handle on Jetson).
 
 mod common;
 
 use common::*;
 use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::ffi;
 use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use std::sync::atomic::AtomicUsize;
@@ -16,8 +19,10 @@ use std::time::Duration;
 const W: u32 = 640;
 const H: u32 = 480;
 const DUR: u64 = 33_333_333;
+const BPP: u32 = 4; // RGBA
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct GpuMatCall {
     source_id: String,
     data_ptr: usize,
@@ -25,8 +30,15 @@ struct GpuMatCall {
     width: u32,
     height: u32,
     cuda_stream: usize,
+    /// CUDA return code from a `cudaMemcpy2D` read of the first row.
+    /// 0 = success; anything else means the pointer was not CUDA-accessible.
+    cuda_read_rc: i32,
+    /// True when at least one byte in the copied row is non-zero.
+    has_nonzero_pixel: bool,
 }
 
+/// Callback that records metadata **and** performs a real CUDA memory read
+/// to prove the pointer is CUDA-addressable.
 struct GpuMatRecorder {
     calls: Arc<Mutex<Vec<GpuMatCall>>>,
 }
@@ -42,6 +54,26 @@ impl OnGpuMat for GpuMatRecorder {
         height: u32,
         cuda_stream: usize,
     ) {
+        let width_bytes = (width * BPP) as usize;
+        let mut host_row = vec![0u8; width_bytes];
+
+        // Synchronize the worker CUDA stream so the transform result is
+        // visible before we read.
+        let cuda_read_rc = unsafe {
+            ffi::cudaStreamSynchronize(cuda_stream as *mut std::ffi::c_void);
+            ffi::cudaMemcpy2D(
+                host_row.as_mut_ptr() as *mut std::ffi::c_void,
+                width_bytes,
+                data_ptr as *const std::ffi::c_void,
+                pitch as usize,
+                width_bytes,
+                1, // single row
+                ffi::CUDA_MEMCPY_DEVICE_TO_HOST,
+            )
+        };
+
+        let has_nonzero_pixel = host_row.iter().any(|&b| b != 0);
+
         self.calls.lock().unwrap().push(GpuMatCall {
             source_id: source_id.to_string(),
             data_ptr,
@@ -49,6 +81,8 @@ impl OnGpuMat for GpuMatRecorder {
             width,
             height,
             cuda_stream,
+            cuda_read_rc,
+            has_nonzero_pixel,
         });
     }
 }
@@ -121,13 +155,19 @@ fn e2e_on_gpumat_fires_when_enabled() {
         "expected >= 3 OnGpuMat calls, got {}",
         recorded.len()
     );
-    for call in recorded.iter() {
+    for (i, call) in recorded.iter().enumerate() {
         assert_eq!(call.source_id, "gpumat");
         assert!(call.data_ptr != 0, "data_ptr should be non-null");
         assert!(call.pitch > 0, "pitch should be positive");
         assert_eq!(call.width, W);
         assert_eq!(call.height, H);
         assert!(call.cuda_stream != 0, "cuda_stream should be non-null");
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "frame {i}: cudaMemcpy2D from data_ptr failed (rc={}); \
+             pointer is not CUDA-accessible",
+            call.cuda_read_rc
+        );
     }
 }
 
@@ -310,9 +350,14 @@ fn e2e_callback_order_gpumat_skia() {
         !recorded.is_empty(),
         "OnGpuMat should fire with GpuMatSkia order"
     );
-    for call in recorded.iter() {
+    for (i, call) in recorded.iter().enumerate() {
         assert_eq!(call.source_id, "order-test");
         assert!(call.cuda_stream != 0, "cuda_stream should be non-null");
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "frame {i}: cudaMemcpy2D from data_ptr failed (rc={})",
+            call.cuda_read_rc
+        );
     }
 }
 
@@ -390,4 +435,11 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
         num_frames * 2,
         recorded.len()
     );
+    for (i, call) in recorded.iter().enumerate() {
+        assert_eq!(
+            call.cuda_read_rc, 0,
+            "call {i}: cudaMemcpy2D from data_ptr failed (rc={})",
+            call.cuda_read_rc
+        );
+    }
 }

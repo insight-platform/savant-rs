@@ -204,6 +204,75 @@ Tests that use `nvjpegenc` must guard with
 
 ---
 
+## 14. upload_to_surface Takes 5 Arguments
+
+```rust
+pub unsafe fn upload_to_surface(
+    buf: &gst::Buffer,
+    data: &[u8],
+    width: u32,
+    height: u32,
+    channels: u32,    // 4 for RGBA, 3 for RGB
+) → Result<(), NvBufSurfaceError>
+```
+
+The `channels` parameter was added for multi-format support. Commonly
+forgotten when calling from tests. Use `4` for RGBA, `3` for RGB.
+
+Platform-aware internally: uses CUDA driver API (`cuMemcpyHtoD_v2`) on dGPU,
+`NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` on Jetson.
+
+---
+
+## 15. nvvideoconvert compute-hw Property on Jetson
+
+On Jetson, the `nvvideoconvert` GStreamer element defaults to using the
+Video Image Compositor (VIC) for format conversion. VIC does **not**
+support certain conversions (e.g., NV12 → RGBA/RGB), causing:
+`RGB/BGR Format transformation is not supported by VIC`
+
+**Fix:** Set `compute-hw` to `"1"` on `nvvideoconvert` to force GPU-based
+processing instead of VIC:
+```rust
+#[cfg(target_arch = "aarch64")]
+nvconv.set_property_from_str("compute-hw", "1");
+```
+
+⚠ This property only exists on Jetson's `nvvideoconvert`. On dGPU, the
+element does not have this property (it always uses GPU).
+⚠ Only needed for raw pseudoencoders where `nvvideoconvert` handles
+NV12/I420 → RGBA/RGB. NVENC codecs bypass `nvvideoconvert` by using
+direct NvBufSurfTransform for format conversion.
+
+---
+
+## 16. Skia Renderer Jetson Map/Unmap for CUDA-GL Interop
+
+The Skia renderer (`skia_renderer.rs`) uses CUDA-GL interop to copy pixels
+between NvBufSurface and an OpenGL texture (via `cudaArray`). On **dGPU**,
+this is a direct GPU-to-GPU copy (`cudaMemcpyDeviceToDevice`). On **Jetson**
+(`SurfaceArray`, VIC-managed), `dataPtr` is not CUDA-addressable, so the
+same `cudaMemcpy2DToArray` / `cudaMemcpy2DFromArray` calls fail with
+CUDA error 1.
+
+**Fix:** Platform-aware paths via `cfg(target_arch = "aarch64")`:
+
+- **Load (NvBuf → GL texture):** `NvBufSurfaceMap` → `NvBufSurfaceSyncForCpu`
+  → `cudaMemcpy2DToArray(mappedAddr, ..., HostToDevice)` → `NvBufSurfaceUnMap`
+
+- **Write (GL texture → NvBuf):** `NvBufSurfaceMap` →
+  `cudaMemcpy2DFromArray(mappedAddr, ..., DeviceToHost)` →
+  `NvBufSurfaceSyncForDevice` → `NvBufSurfaceUnMap`
+
+API changes:
+- `load_from_nvbuf` and `from_nvbuf` now accept `&gst::BufferRef` (not
+  raw `data_ptr`/`pitch`) so the NvBufSurface can be mapped on Jetson.
+- `copy_gl_to_nvbuf` accepts `*mut ffi::NvBufSurface` internally.
+- `render_to_nvbuf_raw` is `#[cfg(not(target_arch = "aarch64"))]` (dGPU only,
+  no callers in production code).
+
+---
+
 ## 11. `TransformConfig` Is Move-Only in Loops
 
 `TransformConfig` implements `Clone` but NOT `Copy`. In loops, create a

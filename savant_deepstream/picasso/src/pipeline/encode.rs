@@ -134,13 +134,10 @@ fn fire_on_gpumat(
 /// Execute the Skia rendering pipeline: resolve draw specs, create/load
 /// the SkiaRenderer, draw objects, optionally fire `on_render`, and
 /// write back to the destination NvBufSurface.
-#[allow(clippy::too_many_arguments)]
 fn do_skia_render(
     source_id: &str,
     input: &FrameInput,
     dst_buf: &mut gstreamer::Buffer,
-    data_ptr: *mut std::ffi::c_void,
-    pitch: u32,
     target_w: u32,
     target_h: u32,
     render: &mut RenderOpts<'_>,
@@ -174,12 +171,12 @@ fn do_skia_render(
 
     let skia = match render.renderer {
         Some(r) => {
-            r.load_from_nvbuf(data_ptr, pitch)
+            r.load_from_nvbuf(dst_buf.as_ref())
                 .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
             r
         }
         None => {
-            let r = SkiaRenderer::from_nvbuf(target_w, target_h, render.gpu_id, data_ptr, pitch)
+            let r = SkiaRenderer::from_nvbuf(target_w, target_h, render.gpu_id, dst_buf.as_ref())
                 .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
             *render.renderer = Some(r);
             render.renderer.as_mut().unwrap()
@@ -312,8 +309,6 @@ pub(crate) fn process_encode(
             source_id,
             &input,
             &mut dst_buf,
-            data_ptr,
-            pitch,
             target_w,
             target_h,
             render,

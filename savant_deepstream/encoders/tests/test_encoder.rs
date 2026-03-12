@@ -25,6 +25,10 @@ fn has_nvjpegenc() -> bool {
     gstreamer::ElementFactory::find("nvjpegenc").is_some()
 }
 
+fn is_jetson() -> bool {
+    cfg!(target_arch = "aarch64")
+}
+
 /// Returns an encoder config using the best available codec, or `None` if
 /// neither NVENC nor nvjpegenc is present.
 fn make_default_config(w: u32, h: u32) -> Option<EncoderConfig> {
@@ -59,6 +63,9 @@ fn test_codec_from_name() {
     assert_eq!(Codec::from_name("h265"), Some(Codec::Hevc));
     assert_eq!(Codec::from_name("jpeg"), Some(Codec::Jpeg));
     assert_eq!(Codec::from_name("av1"), Some(Codec::Av1));
+    assert_eq!(Codec::from_name("png"), Some(Codec::Png));
+    assert_eq!(Codec::from_name("raw_rgba"), Some(Codec::RawRgba));
+    assert_eq!(Codec::from_name("raw_rgb"), Some(Codec::RawRgb));
     assert_eq!(Codec::from_name("unknown"), None);
 }
 
@@ -68,6 +75,9 @@ fn test_codec_names() {
     assert_eq!(Codec::Hevc.name(), "hevc");
     assert_eq!(Codec::Jpeg.name(), "jpeg");
     assert_eq!(Codec::Av1.name(), "av1");
+    assert_eq!(Codec::Png.name(), "png");
+    assert_eq!(Codec::RawRgba.name(), "raw_rgba");
+    assert_eq!(Codec::RawRgb.name(), "raw_rgb");
 }
 
 #[test]
@@ -76,6 +86,9 @@ fn test_codec_encoder_elements() {
     assert_eq!(Codec::Hevc.encoder_element(), "nvv4l2h265enc");
     assert_eq!(Codec::Jpeg.encoder_element(), "nvjpegenc");
     assert_eq!(Codec::Av1.encoder_element(), "nvv4l2av1enc");
+    assert_eq!(Codec::Png.encoder_element(), "pngenc");
+    assert_eq!(Codec::RawRgba.encoder_element(), "identity");
+    assert_eq!(Codec::RawRgb.encoder_element(), "identity");
 }
 
 #[test]
@@ -84,12 +97,20 @@ fn test_codec_parser_elements() {
     assert_eq!(Codec::Hevc.parser_element(), "h265parse");
     assert_eq!(Codec::Jpeg.parser_element(), "jpegparse");
     assert_eq!(Codec::Av1.parser_element(), "av1parse");
+    assert_eq!(Codec::Png.parser_element(), "identity");
+    assert_eq!(Codec::RawRgba.parser_element(), "identity");
+    assert_eq!(Codec::RawRgb.parser_element(), "identity");
 }
 
 #[test]
 fn test_codec_display() {
     assert_eq!(format!("{}", Codec::H264), "h264");
     assert_eq!(format!("{}", Codec::Hevc), "hevc");
+    assert_eq!(format!("{}", Codec::Jpeg), "jpeg");
+    assert_eq!(format!("{}", Codec::Av1), "av1");
+    assert_eq!(format!("{}", Codec::Png), "png");
+    assert_eq!(format!("{}", Codec::RawRgba), "raw_rgba");
+    assert_eq!(format!("{}", Codec::RawRgb), "raw_rgb");
 }
 
 // ─── EncoderConfig tests ─────────────────────────────────────────────────
@@ -275,6 +296,109 @@ fn test_submit_rgba_with_conversion() {
         !remaining.is_empty(),
         "Expected encoded frames from RGBA conversion pipeline"
     );
+}
+
+#[test]
+#[serial]
+fn test_h264_submit_and_pull_frames() {
+    init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_h264_submit_and_pull_frames");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::H264, 320, 240);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(3000)).unwrap();
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one encoded H264 frame after finish()"
+    );
+    for frame in &remaining {
+        assert!(
+            !frame.data.is_empty(),
+            "Encoded H264 frame data should not be empty"
+        );
+        assert_eq!(frame.codec, Codec::H264);
+    }
+}
+
+#[test]
+#[serial]
+fn test_hevc_submit_and_pull_frames() {
+    init();
+    if !has_nvenc() {
+        eprintln!("NVENC not available — skipping test_hevc_submit_and_pull_frames");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Hevc, 320, 240);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(3000)).unwrap();
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one encoded HEVC frame after finish()"
+    );
+    for frame in &remaining {
+        assert!(
+            !frame.data.is_empty(),
+            "Encoded HEVC frame data should not be empty"
+        );
+        assert_eq!(frame.codec, Codec::Hevc);
+    }
+}
+
+#[test]
+#[serial]
+fn test_jpeg_submit_and_pull_frames() {
+    init();
+    if !has_nvjpegenc() {
+        eprintln!("nvjpegenc not available — skipping test_jpeg_submit_and_pull_frames");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Jpeg, 320, 240).format(VideoFormat::I420);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(3000)).unwrap();
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one encoded JPEG frame after finish()"
+    );
+    for frame in &remaining {
+        assert!(
+            !frame.data.is_empty(),
+            "Encoded JPEG frame data should not be empty"
+        );
+        assert_eq!(frame.codec, Codec::Jpeg);
+        assert!(frame.keyframe, "Every JPEG frame must be a keyframe");
+    }
 }
 
 // ─── AV1 encoding tests ─────────────────────────────────────────────────
@@ -867,5 +991,139 @@ fn test_raw_rgba_pixel_data_round_trip() {
     assert_eq!(
         frame.data, input_pixels,
         "Output pixels differ from input — raw RGBA round-trip is not lossless"
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_h264_jetson_props() {
+    init();
+    if !is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires Jetson + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::H264, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::H264Jetson(H264JetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            maxperf_enable: Some(true),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create H264 Jetson encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_hevc_jetson_props() {
+    init();
+    if !is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires Jetson + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Hevc, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::HevcJetson(HevcJetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            maxperf_enable: Some(true),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create HEVC Jetson encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_h264_dgpu_props() {
+    init();
+    if is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires dGPU + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::H264, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::H264Dgpu(H264DgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create H264 dGPU encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_hevc_dgpu_props() {
+    init();
+    if is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires dGPU + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Hevc, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::HevcDgpu(HevcDgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create HEVC dGPU encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_av1_dgpu_props() {
+    init();
+    if is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires dGPU + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Av1, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::Av1Dgpu(Av1DgpuProps {
+            preset: Some(DgpuPreset::P1),
+            tuning_info: Some(TuningPreset::LowLatency),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create AV1 dGPU encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_jpeg_props() {
+    init();
+    if !has_nvjpegenc() {
+        eprintln!("nvjpegenc not available — skipping test_encoder_creation_jpeg_props");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Jpeg, 640, 480)
+        .format(VideoFormat::I420)
+        .properties(EncoderProperties::Jpeg(JpegProps { quality: Some(90) }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create JPEG encoder with props: {:?}",
+        encoder.err()
     );
 }
