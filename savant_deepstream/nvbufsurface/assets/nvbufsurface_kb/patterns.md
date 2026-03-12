@@ -61,9 +61,9 @@ fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerat
 // Fill surface with zeros
 unsafe { deepstream_nvbufsurface::memset_surface(&buf, 0x00).unwrap(); }
 
-// Upload RGBA pixel data
+// Upload RGBA pixel data (channels must match surface colour format)
 let pixels: Vec<u8> = vec![0xFF; 640 * 480 * 4]; // white RGBA
-unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480).unwrap(); }
+unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480, 4).unwrap(); }
 ```
 
 ---
