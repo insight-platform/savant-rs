@@ -657,3 +657,215 @@ fn test_png_frame_id_preserved() {
         );
     }
 }
+
+// ─── Raw frame download tests ────────────────────────────────────────────
+//
+// Raw pseudoencoders download GPU frames to CPU memory as tightly-packed
+// pixel data. They always work — no NVENC or nvjpegenc required.
+
+#[test]
+#[serial]
+fn test_encoder_creation_raw_rgba() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgba, 640, 480).format(VideoFormat::RGBA);
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create RawRgba encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_encoder_creation_raw_rgb() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgb, 640, 480).format(VideoFormat::RGBA);
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create RawRgb encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
+fn test_raw_rgba_submit_and_pull_frames() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one raw RGBA frame after finish()"
+    );
+
+    let expected_size = 320 * 240 * 4; // W * H * 4 bytes per pixel
+    for frame in &remaining {
+        assert_eq!(
+            frame.data.len(),
+            expected_size,
+            "Raw RGBA frame data should be {} bytes, got {}",
+            expected_size,
+            frame.data.len()
+        );
+        assert_eq!(frame.codec, Codec::RawRgba);
+        assert!(frame.keyframe, "Every raw frame must be a keyframe");
+    }
+}
+
+#[test]
+#[serial]
+fn test_raw_rgb_submit_and_pull_frames() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgb, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_duration_ns = 33_333_333u64;
+
+    for i in 0..5u128 {
+        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+
+    assert!(
+        !remaining.is_empty(),
+        "Expected at least one raw RGB frame after finish()"
+    );
+
+    let expected_size = 320 * 240 * 3; // W * H * 3 bytes per pixel
+    for frame in &remaining {
+        assert_eq!(
+            frame.data.len(),
+            expected_size,
+            "Raw RGB frame data should be {} bytes, got {}",
+            expected_size,
+            frame.data.len()
+        );
+        assert_eq!(frame.codec, Codec::RawRgb);
+        assert!(frame.keyframe, "Every raw frame must be a keyframe");
+    }
+}
+
+#[test]
+#[serial]
+fn test_raw_frame_id_preserved() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let frame_ids: Vec<u128> = vec![10, 20, 30];
+    let frame_duration_ns = 33_333_333u64;
+
+    for (i, &fid) in frame_ids.iter().enumerate() {
+        let buffer = encoder
+            .generator()
+            .acquire_surface(Some(fid as i64))
+            .unwrap();
+        let pts_ns = i as u64 * frame_duration_ns;
+        encoder
+            .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
+            .unwrap();
+    }
+
+    let remaining = encoder.finish(Some(5000)).unwrap();
+
+    for frame in &remaining {
+        assert!(
+            frame_ids.contains(&frame.frame_id),
+            "Unexpected frame_id {} not in {:?}",
+            frame.frame_id,
+            frame_ids,
+        );
+    }
+}
+
+#[test]
+#[serial]
+fn test_raw_rgba_from_nv12_input() {
+    init();
+    let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::NV12);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
+    encoder
+        .submit_frame(buffer, 0, 0, Some(33_333_333))
+        .unwrap();
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected at least one frame from NV12->RGBA raw download"
+    );
+    let expected_size = 320 * 240 * 4;
+    assert_eq!(frames[0].data.len(), expected_size);
+    assert_eq!(frames[0].codec, Codec::RawRgba);
+}
+
+#[test]
+#[serial]
+fn test_raw_rgba_pixel_data_round_trip() {
+    init();
+    let w: u32 = 64;
+    let h: u32 = 48;
+    let bpp: usize = 4; // RGBA
+
+    let config = EncoderConfig::new(Codec::RawRgba, w, h).format(VideoFormat::RGBA);
+    let mut encoder = NvEncoder::new(&config).unwrap();
+
+    // Generate a deterministic gradient pattern: each pixel's RGBA
+    // values depend on its position.
+    let mut input_pixels = vec![0u8; (w as usize) * (h as usize) * bpp];
+    for y in 0..h as usize {
+        for x in 0..w as usize {
+            let offset = (y * w as usize + x) * bpp;
+            input_pixels[offset] = (x & 0xFF) as u8; // R
+            input_pixels[offset + 1] = (y & 0xFF) as u8; // G
+            input_pixels[offset + 2] = ((x + y) & 0xFF) as u8; // B
+            input_pixels[offset + 3] = 255; // A
+        }
+    }
+
+    // Upload the pattern to the GPU surface.
+    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
+    unsafe {
+        deepstream_nvbufsurface::upload_to_surface(&buffer, &input_pixels, w, h, 4)
+            .expect("upload_to_surface failed");
+    }
+
+    encoder
+        .submit_frame(buffer, 42, 0, Some(33_333_333))
+        .unwrap();
+
+    let frames = encoder.finish(Some(5000)).unwrap();
+    assert!(
+        !frames.is_empty(),
+        "Expected at least one frame from pixel round-trip"
+    );
+
+    let frame = &frames[0];
+    assert_eq!(frame.frame_id, 42);
+    assert_eq!(frame.data.len(), input_pixels.len());
+    assert_eq!(
+        frame.data, input_pixels,
+        "Output pixels differ from input — raw RGBA round-trip is not lossless"
+    );
+}

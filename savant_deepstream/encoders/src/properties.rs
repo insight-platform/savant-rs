@@ -15,6 +15,8 @@
 //! | [`Jpeg`](JpegProps) | JPEG | Both | `nvjpegenc` |
 //! | [`Png`](PngProps) | PNG | Both (CPU) | `pngenc` |
 //! | [`Av1Dgpu`](Av1DgpuProps) | AV1 | dGPU | `nvv4l2av1enc` |
+//! | [`RawRgba`](RawProps) | Raw RGBA | — | pseudoencoder |
+//! | [`RawRgb`](RawProps) | Raw RGB | — | pseudoencoder |
 
 use crate::error::EncoderError;
 use savant_gstreamer::Codec;
@@ -1029,6 +1031,32 @@ impl JpegProps {
     }
 }
 
+// ─── Raw (pseudoencoder) ───────────────────────────────────────────────
+
+/// Raw frame download properties (pseudoencoder, no configurable properties).
+///
+/// Used with [`Codec::RawRgba`] and [`Codec::RawRgb`] to download GPU frames
+/// to CPU memory as tightly-packed pixel data.
+#[derive(Debug, Clone, Default)]
+pub struct RawProps;
+
+impl RawProps {
+    pub fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
+        Vec::new()
+    }
+
+    pub fn from_pairs(pairs: &HashMap<String, String>) -> Result<Self, EncoderError> {
+        if !pairs.is_empty() {
+            let key = pairs.keys().next().unwrap();
+            return Err(EncoderError::InvalidProperty {
+                name: key.clone(),
+                reason: format!("raw pseudoencoder has no configurable properties, got '{key}'"),
+            });
+        }
+        Ok(Self)
+    }
+}
+
 // ─── AV1 dGPU ──────────────────────────────────────────────────────────
 
 /// AV1 encoder properties for dGPU (`nvv4l2av1enc`).
@@ -1176,6 +1204,10 @@ pub enum EncoderProperties {
     Av1Dgpu(Av1DgpuProps),
     /// PNG encoder (`pngenc`, CPU-based, gst-plugins-good).
     Png(PngProps),
+    /// Raw RGBA pseudoencoder (GPU-to-CPU download, no encoding).
+    RawRgba(RawProps),
+    /// Raw RGB pseudoencoder (GPU-to-CPU download, no encoding).
+    RawRgb(RawProps),
 }
 
 impl EncoderProperties {
@@ -1187,6 +1219,8 @@ impl EncoderProperties {
             Self::Jpeg(_) => Codec::Jpeg,
             Self::Av1Dgpu(_) => Codec::Av1,
             Self::Png(_) => Codec::Png,
+            Self::RawRgba(_) => Codec::RawRgba,
+            Self::RawRgb(_) => Codec::RawRgb,
         }
     }
 
@@ -1195,7 +1229,7 @@ impl EncoderProperties {
         match self {
             Self::H264Dgpu(_) | Self::HevcDgpu(_) | Self::Av1Dgpu(_) => Some(Platform::Dgpu),
             Self::H264Jetson(_) | Self::HevcJetson(_) => Some(Platform::Jetson),
-            Self::Jpeg(_) | Self::Png(_) => None,
+            Self::Jpeg(_) | Self::Png(_) | Self::RawRgba(_) | Self::RawRgb(_) => None,
         }
     }
 
@@ -1209,6 +1243,7 @@ impl EncoderProperties {
             Self::Jpeg(p) => p.to_gst_pairs(),
             Self::Av1Dgpu(p) => p.to_gst_pairs(),
             Self::Png(p) => p.to_gst_pairs(),
+            Self::RawRgba(p) | Self::RawRgb(p) => p.to_gst_pairs(),
         }
     }
 
@@ -1239,6 +1274,8 @@ impl EncoderProperties {
             (Codec::Av1, Platform::Jetson) => Err(EncoderError::UnsupportedCodec(
                 "AV1 encoding is not supported on Jetson".to_string(),
             )),
+            (Codec::RawRgba, _) => Ok(Self::RawRgba(RawProps::from_pairs(pairs)?)),
+            (Codec::RawRgb, _) => Ok(Self::RawRgb(RawProps::from_pairs(pairs)?)),
         }
     }
 }
@@ -1426,5 +1463,33 @@ mod tests {
         let p = EncoderProperties::Png(PngProps::default());
         assert_eq!(p.codec(), Codec::Png);
         assert_eq!(p.platform(), None);
+    }
+
+    #[test]
+    fn test_encoder_properties_raw() {
+        let p = EncoderProperties::RawRgba(RawProps);
+        assert_eq!(p.codec(), Codec::RawRgba);
+        assert_eq!(p.platform(), None);
+        assert!(p.to_gst_pairs().is_empty());
+
+        let p = EncoderProperties::RawRgb(RawProps);
+        assert_eq!(p.codec(), Codec::RawRgb);
+        assert_eq!(p.platform(), None);
+        assert!(p.to_gst_pairs().is_empty());
+    }
+
+    #[test]
+    fn test_raw_from_pairs_empty() {
+        let m = HashMap::new();
+        let props = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m).unwrap();
+        assert_eq!(props.codec(), Codec::RawRgba);
+    }
+
+    #[test]
+    fn test_raw_from_pairs_rejects_properties() {
+        let mut m = HashMap::new();
+        m.insert("quality".into(), "85".into());
+        let result = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m);
+        assert!(result.is_err());
     }
 }

@@ -25,6 +25,7 @@ use deepstream_nvbufsurface::{
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
 use log::debug;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -135,8 +136,10 @@ impl NvEncoder {
         }
 
         // PNG uses a CPU-based GStreamer pipeline (nvvideoconvert -> pngenc).
+        // Raw pseudoencoders download GPU frames to CPU memory.
         // Other codecs use NVIDIA hardware encoders.
         let is_png = config.codec == Codec::Png;
+        let is_raw = matches!(config.codec, Codec::RawRgba | Codec::RawRgb);
         if is_png && config.format != VideoFormat::RGBA {
             return Err(EncoderError::InvalidProperty {
                 name: "format".to_string(),
@@ -177,12 +180,16 @@ impl NvEncoder {
                 config.format != VideoFormat::NV12 && config.format != VideoFormat::I420,
             ),
             Codec::Png => ("pngenc", "identity", false),
+            Codec::RawRgba => ("identity", "identity", false),
+            Codec::RawRgb => ("identity", "identity", false),
         };
 
         // Determine encoder-native format.
         let native_format = match config.codec {
             Codec::Jpeg => VideoFormat::I420,
             Codec::Png => VideoFormat::RGBA,
+            Codec::RawRgba => VideoFormat::RGBA,
+            Codec::RawRgb => VideoFormat::RGBA,
             _ => VideoFormat::NV12,
         };
 
@@ -209,7 +216,8 @@ impl NvEncoder {
         // This replaces the `nvvideoconvert` GStreamer element, avoiding the
         // CUDA default-stream serialization bottleneck.
         // PNG uses nvvideoconvert in-pipeline (NVMM -> CPU for pngenc).
-        let convert_ctx = if is_png {
+        // Raw uses nvvideoconvert in-pipeline (NVMM -> CPU).
+        let convert_ctx = if is_png || is_raw {
             None
         } else if needs_convert {
             let native_generator =
@@ -272,14 +280,53 @@ impl NvEncoder {
         appsink_elem.set_property("sync", false);
         appsink_elem.set_property("emit-signals", false);
 
-        let enc = gst::ElementFactory::make(enc_name)
-            .name("enc")
-            .build()
-            .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?;
+        let enc = if is_raw {
+            None
+        } else {
+            Some(
+                gst::ElementFactory::make(enc_name)
+                    .name("enc")
+                    .build()
+                    .map_err(|_| EncoderError::ElementCreationFailed(enc_name.into()))?,
+            )
+        };
 
-        if is_png {
-            // PNG: appsrc (NVMM RGBA) -> nvvideoconvert -> pngenc -> appsink
-            // nvvideoconvert converts NVMM to system memory for pngenc (gst-plugins-good).
+        if is_raw {
+            let nvconv = gst::ElementFactory::make("nvvideoconvert")
+                .name("nvconv")
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed("nvvideoconvert".into()))?;
+
+            #[cfg(target_arch = "aarch64")]
+            nvconv.set_property_from_str("compute-hw", "1");
+
+            let raw_format = if config.codec == Codec::RawRgba {
+                "RGBA"
+            } else {
+                "RGB"
+            };
+            let caps = gst::Caps::builder("video/x-raw")
+                .field("format", raw_format)
+                .build();
+            let capsfilter = gst::ElementFactory::make("capsfilter")
+                .name("rawcaps")
+                .property("caps", &caps)
+                .build()
+                .map_err(|_| EncoderError::ElementCreationFailed("capsfilter".into()))?;
+
+            for elem in [&appsrc, &nvconv, &capsfilter, &appsink] {
+                pipeline.add(elem).map_err(|e| {
+                    EncoderError::PipelineError(format!("Failed to add element: {}", e))
+                })?;
+            }
+            gst::Element::link_many([&appsrc, &nvconv, &capsfilter, &appsink]).map_err(|_| {
+                EncoderError::LinkFailed {
+                    from: "appsrc->nvvideoconvert->capsfilter->appsink".to_string(),
+                    to: "".to_string(),
+                }
+            })?;
+        } else if is_png {
+            let enc = enc.as_ref().unwrap();
             let nvconv = gst::ElementFactory::make("nvvideoconvert")
                 .name("nvconv")
                 .build()
@@ -288,22 +335,23 @@ impl NvEncoder {
             // Apply PNG encoder properties (compression-level etc.).
             if let Some(ref params) = config.encoder_params {
                 for (key, value) in params.to_gst_pairs() {
-                    Self::set_element_property(&enc, key, &value)?;
+                    Self::set_element_property(enc, key, &value)?;
                 }
             }
 
-            for elem in [&appsrc, &nvconv, &enc, &appsink] {
+            for elem in [&appsrc, &nvconv, enc, &appsink] {
                 pipeline.add(elem).map_err(|e| {
                     EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
             }
-            gst::Element::link_many([&appsrc, &nvconv, &enc, &appsink]).map_err(|_| {
+            gst::Element::link_many([&appsrc, &nvconv, enc, &appsink]).map_err(|_| {
                 EncoderError::LinkFailed {
                     from: "appsrc->nvvideoconvert->pngenc->appsink".to_string(),
                     to: "".to_string(),
                 }
             })?;
         } else {
+            let enc = enc.as_ref().unwrap();
             // Hardware encoders: appsrc [-> nvvideoconvert] -> encoder -> parser -> appsink
             let parse = gst::ElementFactory::make(parse_name)
                 .name("parse")
@@ -328,24 +376,24 @@ impl NvEncoder {
             let pre_enc: Option<gst::Element> = None;
 
             // Bridge SavantIdMeta across the encoder element.
-            bridge_savant_id_meta(&enc);
+            bridge_savant_id_meta(enc);
 
             // Apply typed encoder properties.
             if let Some(ref params) = config.encoder_params {
                 for (key, value) in params.to_gst_pairs() {
-                    Self::set_element_property(&enc, key, &value)?;
+                    Self::set_element_property(enc, key, &value)?;
                 }
             }
 
             // Forcibly disable B-frames on the encoder if the property exists.
-            Self::force_disable_b_frames(&enc);
+            Self::force_disable_b_frames(enc);
 
             // Build the element chain, inserting nvvideoconvert when present.
             let mut all_elems: Vec<&gst::Element> = vec![&appsrc];
             if let Some(ref conv) = pre_enc {
                 all_elems.push(conv);
             }
-            all_elems.extend([&enc, &parse, &appsink]);
+            all_elems.extend([enc, &parse, &appsink]);
 
             for elem in &all_elems {
                 pipeline.add(*elem).map_err(|e| {
@@ -359,10 +407,11 @@ impl NvEncoder {
         }
 
         debug!(
-            "NvEncoder pipeline built: codec={:?}, convert={}, png={}",
+            "NvEncoder pipeline built: codec={:?}, convert={}, png={}, raw={}",
             config.codec,
             convert_ctx.is_some(),
             is_png,
+            is_raw,
         );
 
         // Start the pipeline.
@@ -605,15 +654,19 @@ impl NvEncoder {
         let final_duration = duration_ns.or(orig_duration);
 
         let keyframe = match self.codec {
-            Codec::Jpeg | Codec::Png => true,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb => true,
             _ => !buffer.flags().contains(gst::BufferFlags::DELTA_UNIT),
         };
 
         // Extract encoded data.
-        let map = buffer
-            .map_readable()
-            .map_err(|e| EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e)))?;
-        let data = map.as_slice().to_vec();
+        let data = if matches!(self.codec, Codec::RawRgba | Codec::RawRgb) {
+            Self::extract_raw_pixels(&sample, buffer)?
+        } else {
+            let map = buffer.map_readable().map_err(|e| {
+                EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e))
+            })?;
+            map.as_slice().to_vec()
+        };
 
         Ok(Some(EncodedFrame {
             frame_id,
@@ -745,6 +798,41 @@ impl NvEncoder {
                 value
             ),
         })
+    }
+
+    /// Extract tightly-packed pixel data from a raw video buffer,
+    /// stripping any stride padding added by the video subsystem.
+    fn extract_raw_pixels(
+        sample: &gst::Sample,
+        buffer: &gst::BufferRef,
+    ) -> Result<Vec<u8>, EncoderError> {
+        let caps = sample
+            .caps()
+            .ok_or_else(|| EncoderError::PipelineError("Raw sample has no caps".into()))?;
+        let video_info = gst_video::VideoInfo::from_caps(caps).map_err(|e| {
+            EncoderError::PipelineError(format!("Failed to parse video caps: {}", e))
+        })?;
+
+        let width = video_info.width() as usize;
+        let height = video_info.height() as usize;
+        let stride = video_info.stride()[0] as usize;
+        let bpp = video_info.format_info().pixel_stride()[0] as usize;
+        let row_bytes = width * bpp;
+
+        let map = buffer
+            .map_readable()
+            .map_err(|e| EncoderError::PipelineError(format!("Failed to map buffer: {:?}", e)))?;
+        let src = map.as_slice();
+
+        if stride == row_bytes {
+            Ok(src[..row_bytes * height].to_vec())
+        } else {
+            let mut data = Vec::with_capacity(row_bytes * height);
+            for row in 0..height {
+                data.extend_from_slice(&src[row * stride..row * stride + row_bytes]);
+            }
+            Ok(data)
+        }
     }
 }
 
