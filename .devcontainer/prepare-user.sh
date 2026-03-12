@@ -1,4 +1,5 @@
-#!/bin/sh -e
+#!/usr/bin/env bash
+set -e
 
 # x86 
 if [ "$(uname -m)" = "x86_64" ]; then
