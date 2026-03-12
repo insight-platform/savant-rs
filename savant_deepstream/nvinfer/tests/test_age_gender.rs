@@ -285,7 +285,7 @@ fn test_age_gender_e2e_real_images() {
 
     let src_buf = src_gen.acquire_surface(Some(0)).unwrap();
     unsafe {
-        deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H)
+        deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H, 4)
             .expect("upload_to_surface");
     }
 
@@ -430,7 +430,7 @@ fn test_age_gender_placement_independence() {
 
         let src_buf = src_gen.acquire_surface(Some(0)).unwrap();
         unsafe {
-            deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H)
+            deepstream_nvbufsurface::upload_to_surface(&src_buf, &canvas, FRAME_W, FRAME_H, 4)
                 .expect("upload_to_surface");
         }
 

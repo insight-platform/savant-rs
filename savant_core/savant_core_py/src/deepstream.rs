@@ -723,13 +723,14 @@ impl PyDsNvBufSurfaceGstBuffer {
         let shape = arr.shape();
         let height = shape[0] as u32;
         let width = shape[1] as u32;
+        let channels = shape[2] as u32;
         let slice = data.as_slice().map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "array must be contiguous in memory: {e}"
             ))
         })?;
         py.detach(|| unsafe {
-            deepstream_nvbufsurface::upload_to_surface(buf, slice, width, height)
+            deepstream_nvbufsurface::upload_to_surface(buf, slice, width, height, channels)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
@@ -1639,13 +1640,14 @@ impl PyDsNvUniformSurfaceBuffer {
         let shape = arr.shape();
         let height = shape[0] as u32;
         let width = shape[1] as u32;
+        let channels = shape[2] as u32;
         let slice = data.as_slice().map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "array must be contiguous in memory: {e}"
             ))
         })?;
         py.detach(|| unsafe {
-            deepstream_nvbufsurface::upload_to_surface(&slot_buf, slice, width, height)
+            deepstream_nvbufsurface::upload_to_surface(&slot_buf, slice, width, height, channels)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
