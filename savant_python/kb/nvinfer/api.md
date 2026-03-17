@@ -179,18 +179,23 @@ class ElementOutput:
 
 ## BatchInferenceOutput
 
-Owns the GStreamer sample. Tensor data stays valid as long as this object
-(or any child `TensorView`) is alive.
+Holds the output `SharedBuffer`. Tensor data stays valid as long as this
+object (or any child `TensorView`) is alive.
 
 ```python
 class BatchInferenceOutput:
     @property
-    def batch_id(self) -> int: ...
-    @property
     def num_elements(self) -> int: ...
     @property
     def elements(self) -> List[ElementOutput]: ...
+
+    def buffer(self) -> DsNvBufSurfaceGstBuffer: ...
 ```
+
+`buffer()` returns the output GStreamer buffer as a `DsNvBufSurfaceGstBuffer`.
+`SavantIdMeta` attached to the input buffer is preserved through the pipeline
+and readable from this output buffer. Frame/batch IDs are carried inside
+`SavantIdMeta` — there is no separate `batch_id` field.
 
 ---
 
@@ -207,22 +212,42 @@ class NvInfer:
     def submit(
         self,
         batch: DsNvBufSurfaceGstBuffer,
-        batch_id: int,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> None: ...
 
     def infer_sync(
         self,
         batch: DsNvBufSurfaceGstBuffer,
-        batch_id: int,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> BatchInferenceOutput: ...
 
     def shutdown(self) -> None: ...
 ```
 
-- `submit()` — async, results arrive via callback
-- `infer_sync()` — blocks up to 30 s, returns result directly
+- `submit()` — async, results arrive via callback. The buffer is consumed
+  (internally deconstructed from `SharedBuffer` to `gst::Buffer`).
+- `infer_sync()` — blocks up to 30 s, returns result directly. Same buffer
+  consumption semantics.
 - `shutdown()` — sends EOS, drains, stops pipeline. Raises if already shut down.
 
-⚠ `batch_id` must not equal `2**64 - 1`.
+### Rust API
+
+In the Rust API, `submit()` and `infer_sync()` accept `SharedBuffer` directly
+(not `gst::Buffer`). The `into_buffer()` deconstruction happens inside these
+methods. If the `SharedBuffer` has outstanding references, an `NvInferError`
+is returned.
+
+`BatchInferenceOutput` holds both a `gstreamer::Sample` and a `SharedBuffer`.
+The `SharedBuffer` is a **ref-counted handle** to the same `GstBuffer` held by
+the sample (obtained via `gst_mini_object_ref`, NOT `gst_mini_object_copy`).
+Access it via `buffer()`, which returns a clone of the `SharedBuffer`.
+
+**Critical**: never use `BufferRef::to_owned()` on DeepStream buffers — it
+triggers `gst_mini_object_copy()` which deep-copies `NvDsBatchMeta`.
+DeepStream's `batch_meta_copy` calls `nvds_acquire_meta_from_pool()` which
+crashes (SIGSEGV) when the meta pool doesn't support cloning outside the DS
+pipeline context. Always use `from_glib_none(buffer.as_ptr())` to get a
+ref-counted owned `gst::Buffer` without copying.
+
+Pipeline correlation (PTS) is auto-generated internally — callers do not
+provide a `batch_id`.

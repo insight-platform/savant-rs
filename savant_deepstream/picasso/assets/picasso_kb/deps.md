@@ -25,16 +25,16 @@ use picasso::rewrite_frame_transformations;
 use deepstream_encoders::prelude::*;
 // gives: NvEncoder, EncoderError, EncodedFrame, EncoderConfig,
 //        Codec (H264, Hevc, Jpeg, Av1, Png, RawRgba, RawRgb),
-//        cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+//        cuda_init, BufferGenerator, NvBufSurfaceMemType, VideoFormat,
 //        EncoderProperties, H264DgpuProps, HevcDgpuProps, H264JetsonProps, HevcJetsonProps,
 //        JpegProps, PngProps, Av1DgpuProps, RawProps,
 //        DgpuPreset, TuningPreset, H264Profile, HevcProfile,
 //        JetsonPresetLevel, Platform, RateControl
 ```
 
-### deepstream_nvbufsurface (transform config, GPU utilities)
+### deepstream_buffers (transform config, GPU utilities)
 ```rust
-use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
+use deepstream_buffers::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
 // TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
@@ -42,7 +42,7 @@ use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffe
 // CudaStream: safe RAII wrapper for CUDA stream handles
 // CudaStream::default() — legacy null stream; CudaStream::new_non_blocking() — owned non-blocking
 // SurfaceView.cuda_stream() — read CUDA stream; SurfaceView.with_cuda_stream(stream) — set stream
-// DsNvSurfaceBufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
+// BufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 // SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
 // SurfaceView::from_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
@@ -103,13 +103,13 @@ let buf = gstreamer::Buffer::new();
 let view = SurfaceView::wrap(buf);
 ```
 
-### DsNvSurfaceBufferGenerator (GPU)
+### BufferGenerator (GPU)
 ```rust
-let gen = DsNvSurfaceBufferGenerator::new(
+let gen = BufferGenerator::new(
     VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
 ).unwrap();
 assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter
-let buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
+let buf = gen.acquire(Some(frame_idx as i64)).unwrap();
 let view = SurfaceView::from_buffer(buf, 0).unwrap();
 // ⚠ pts/dts/duration are taken from the VideoFrame; do not assume they are in the buffer.
 // Set them on the frame before send_frame:

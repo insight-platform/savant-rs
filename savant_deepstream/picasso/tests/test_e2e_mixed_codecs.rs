@@ -6,8 +6,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -129,11 +129,12 @@ fn e2e_mixed_codecs() {
     };
     engine.set_source_spec("cam-encode", enc_spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 

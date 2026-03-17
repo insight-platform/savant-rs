@@ -1,6 +1,6 @@
 use crate::message::OutputMessage;
 use crate::spec::EvictionDecision;
-use deepstream_nvbufsurface::{SkiaRenderer, SurfaceView};
+use deepstream_buffers::{SkiaRenderer, SurfaceView};
 use savant_core::draw::ObjectDraw;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::object::BorrowedVideoObject;

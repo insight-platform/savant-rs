@@ -12,8 +12,8 @@
 
 mod common;
 
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -111,7 +111,7 @@ impl OnRender for RenderCounter {
     fn call(
         &self,
         _source_id: &str,
-        _renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        _renderer: &mut deepstream_buffers::SkiaRenderer,
         _frame: &VideoFrameProxy,
     ) {
         self.0.fetch_add(1, Ordering::Relaxed);
@@ -189,11 +189,12 @@ fn out_of_viewport_objects_do_not_crash() {
     };
     engine.set_source_spec("oob", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
@@ -266,11 +267,12 @@ fn all_oob_objects_on_single_frame() {
     };
     engine.set_source_spec("oob-all", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 

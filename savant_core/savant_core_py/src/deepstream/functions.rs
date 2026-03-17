@@ -1,7 +1,7 @@
 //! Standalone `#[pyfunction]` items for the `savant_rs.deepstream` module.
 
 use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
-use deepstream_nvbufsurface::{cuda_init, set_num_filled, transform};
+use deepstream_buffers::{cuda_init, set_num_filled, transform};
 use gstreamer as gst;
 use pyo3::prelude::*;
 use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};

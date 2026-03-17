@@ -4,9 +4,9 @@ use crate::message::OutputMessage;
 use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
 use crate::spec::source::CallbackInvocationOrder;
+use deepstream_buffers::CudaStream;
+use deepstream_buffers::{Padding, Rect, SkiaRenderer, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::CudaStream;
-use deepstream_nvbufsurface::{Padding, Rect, SkiaRenderer, TransformConfig};
 use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
 use savant_core::primitives::frame::{
@@ -124,7 +124,7 @@ fn fire_on_gpumat(
     source_id: &str,
     callbacks: &Callbacks,
     frame: &savant_core::primitives::frame::VideoFrameProxy,
-    view: &deepstream_nvbufsurface::SurfaceView,
+    view: &deepstream_buffers::SurfaceView,
 ) {
     if let Some(cb) = &callbacks.on_gpumat {
         cb.call(source_id, frame, view);
@@ -253,7 +253,7 @@ pub(crate) fn process_encode(
     drain_notify: Option<&DrainNotify>,
 ) -> Result<(), PicassoError> {
     let (target_w, target_h);
-    let shared: deepstream_nvbufsurface::SharedMutableGstBuffer;
+    let shared: deepstream_buffers::SharedBuffer;
 
     {
         let enc = encoder.lock();
@@ -263,8 +263,8 @@ pub(crate) fn process_encode(
 
         let encoder_gpu = generator.gpu_id();
         {
-            let input_guard = input.view.buffer();
-            if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input_guard.as_ref()) {
+            let input_guard = input.view.gst_buffer();
+            if let Ok(buf_gpu) = deepstream_buffers::buffer_gpu_id(input_guard.as_ref()) {
                 if buf_gpu != encoder_gpu {
                     return Err(PicassoError::GpuMismatch {
                         source_id: source_id.to_string(),
@@ -276,9 +276,9 @@ pub(crate) fn process_encode(
             drop(input_guard);
 
             shared = generator
-                .acquire_buffer(Some(input.frame_id as i64))
+                .acquire(Some(input.frame_id as i64))
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
-            let dst_view = deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0)
+            let dst_view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
             input
                 .view
@@ -294,11 +294,11 @@ pub(crate) fn process_encode(
 
     // ONE SurfaceView for the entire encode scope — resolves the CUDA
     // pointer once and serves both Skia rendering and on_gpumat callbacks.
-    // The SharedMutableGstBuffer is passed to submit_frame after the view
+    // The SharedBuffer is passed to submit_frame after the view
     // is dropped.
     let view = if need_view {
         Some(
-            deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0)
+            deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?
                 .with_cuda_stream(cuda_stream.clone()),
         )
@@ -324,7 +324,7 @@ pub(crate) fn process_encode(
     // --- Skia rendering ---
     if let Some(render) = render {
         let v = view.as_ref().unwrap();
-        let mut buf_guard = v.buffer();
+        let mut buf_guard = v.gst_buffer();
         do_skia_render(
             source_id,
             &input,

@@ -8,8 +8,8 @@ use crate::skia::context::DrawContext;
 use crate::spec::general::PtsResetPolicy;
 use crate::spec::{CodecSpec, SourceSpec};
 use crossbeam::channel::{Receiver, Sender};
+use deepstream_buffers::{CudaStream, SkiaRenderer};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{CudaStream, SkiaRenderer};
 use log::{debug, error, info, warn};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -125,8 +125,8 @@ impl WorkerState {
     fn process_frame(
         &mut self,
         frame: VideoFrameProxy,
-        view: deepstream_nvbufsurface::SurfaceView,
-        src_rect: Option<deepstream_nvbufsurface::Rect>,
+        view: deepstream_buffers::SurfaceView,
+        src_rect: Option<deepstream_buffers::Rect>,
     ) {
         if let Some((ns, name)) = &self.spec.conditional.encode_attribute {
             if frame.get_attribute(ns, name).is_none() {
@@ -136,7 +136,7 @@ impl WorkerState {
         }
 
         {
-            let mut guard = view.buffer();
+            let mut guard = view.gst_buffer();
             let buf_ref = guard.make_mut();
             crate::pipeline::apply_frame_timestamps_to_buffer(&frame, buf_ref);
         }

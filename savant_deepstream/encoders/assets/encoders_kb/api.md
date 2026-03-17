@@ -93,9 +93,9 @@ pub struct NvEncoder { /* private */ }
 | Method | Signature | Notes |
 |---|---|---|
 | `new` | `(config: &EncoderConfig) → Result<Self, EncoderError>` | GPU — builds and starts GStreamer pipeline |
-| `generator` | `(&self) → &DsNvSurfaceBufferGenerator` | For acquiring NVMM buffers |
+| `generator` | `(&self) → &BufferGenerator` | For acquiring NVMM buffers (wraps `UniformBatchGenerator` with `max_batch_size=1`) |
 | `codec` | `(&self) → Codec` | |
-| `submit_frame` | `(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>` | PTS must be strictly monotonic. Takes `gst::Buffer` with NvBufSurface memory (e.g. from `generator().acquire_buffer().into_buffer()`). |
+| `submit_frame` | `(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>` | PTS must be strictly monotonic. Takes `gst::Buffer` with NvBufSurface memory (e.g. from `generator().acquire().into_buffer()`). |
 | `pull_encoded` | `(&mut self) → Result<Option<EncodedFrame>, EncoderError>` | Non-blocking |
 | `pull_encoded_timeout` | `(&mut self, timeout_ms: u64) → Result<Option<EncodedFrame>, EncoderError>` | Blocking with timeout |
 | `finish` | `(&mut self, drain_timeout_ms: Option<u64>) → Result<Vec<EncodedFrame>, EncoderError>` | Send EOS, drain remaining |
@@ -221,8 +221,8 @@ pub use crate::encoder::NvEncoder;
 pub use crate::error::EncoderError;
 pub use crate::{EncodedFrame, EncoderConfig};
 pub use savant_gstreamer::Codec;
-pub use deepstream_nvbufsurface::{
-    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+pub use deepstream_buffers::{
+    cuda_init, BufferGenerator, NvBufSurfaceMemType, VideoFormat,
 };
 pub use crate::properties::{
     Av1DgpuProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps,

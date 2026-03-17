@@ -55,7 +55,7 @@ GStreamer pipeline
 ### ConvertContext (internal)
 ```rust
 struct ConvertContext {
-    native_generator: DsNvSurfaceBufferGenerator,  // NV12/I420 pool
+    native_generator: BufferGenerator,  // NV12/I420 pool
     cuda_stream: *mut c_void,                       // non-blocking CUDA stream
 }
 ```

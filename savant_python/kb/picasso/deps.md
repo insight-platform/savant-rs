@@ -29,7 +29,7 @@ from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer,  # RAII guard wrapping an NvBufSurface GStreamer buffer (auto-unrefs on GC)
     SurfaceView,          # unified GPU surface descriptor (preferred buf for send_frame)
     MemType,              # memory type enum
-    DsNvSurfaceBufferGenerator,# GPU buffer pool
+    BufferGenerator,# GPU buffer pool
     TransformConfig,      # transform config for CodecSpec.encode()
     VideoFormat,          # pixel format enum
     init_cuda,            # CUDA context init
@@ -103,10 +103,10 @@ VideoObject(
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
 ```
 
-### DsNvSurfaceBufferGenerator
+### BufferGenerator
 ```python
-gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
-buf = gen.acquire_surface(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard)
+gen = BufferGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
+buf = gen.acquire(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard)
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
 # buf.ptr → raw int pointer (for interop); buf is automatically unref'd when GC'd.
 ```
@@ -193,7 +193,7 @@ if _ds is not None:
 
 2. **Use absolute imports** to reference native symbols:
    ```python
-   from savant_rs.deepstream import DsNvSurfaceBufferGenerator, get_nvbufsurface_info
+   from savant_rs.deepstream import BufferGenerator, get_buffers_info
    ```
    By the time `savant_rs/__init__.py` imports your file, the native `.so` has
    already registered `savant_rs.deepstream` in `sys.modules`, so this resolves
@@ -250,7 +250,7 @@ from savant_rs.deepstream import nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpu
 
 # nvgstbuf_as_gpu_mat: takes a DsNvBufSurfaceGstBuffer guard (or raw int ptr), extracts NvBufSurface info.
 # Use outside callbacks (e.g. pre-filling backgrounds before send_frame).
-buf = gen.acquire_surface(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
+buf = gen.acquire(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
 with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((20, 20, 28, 255), stream=stream)
 # stream is synchronised on exit; buf safe to push downstream

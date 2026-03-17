@@ -49,7 +49,7 @@ savant_python (savant_rs wheel)
       └── [feature=deepstream]
            ├── nvinfer (DeepStream nvinfer plugin)
            ├── picasso (frame processing engine)
-           ├── deepstream_nvbufsurface (NvBufSurface wrappers)
+           ├── deepstream_buffers (NvBufSurface wrappers)
            ├── deepstream_encoders (H264/H265/JPEG/PNG encoders)
            ├── nvidia_gpu_utils (GPU memory queries, Jetson model detection, NVENC capability)
            └── skia-safe (Skia rendering)

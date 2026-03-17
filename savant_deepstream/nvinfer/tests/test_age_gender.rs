@@ -3,9 +3,9 @@
 mod common;
 
 use candle_core::{DType, Device, Tensor};
-use deepstream_nvbufsurface::{
-    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind,
-    SharedMutableGstBuffer, SurfaceView, TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
+    TransformConfig, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{DataType, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
@@ -98,21 +98,18 @@ fn decode_gender(tensor: &nvinfer::TensorView) -> candle_core::Result<String> {
 
 // ---------------------------------------------------------------------------
 
-fn make_age_gender_batch(num_frames: u32) -> SharedMutableGstBuffer {
+fn make_age_gender_batch(num_frames: u32) -> SharedBuffer {
     common::init();
 
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        112,
-        112,
-        1,
-        4,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("src generator");
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 112, 112)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(4)
+        .max_buffers(4)
+        .build()
+        .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         112,
         112,
@@ -124,18 +121,18 @@ fn make_age_gender_batch(num_frames: u32) -> SharedMutableGstBuffer {
     .expect("batched generator");
 
     let config = TransformConfig::default();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids: Vec<SavantIdMetaKind> = (0..num_frames)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
-    let mut ids = Vec::new();
     for i in 0..num_frames {
-        let src_shared = src_gen.acquire_buffer(Some(i as i64)).unwrap();
-        batch
-            .fill_slot(&*src_shared.lock(), None, Some(i as i64))
-            .unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
 
-    batch.finalize(num_frames, ids).unwrap();
+    batch.finalize().unwrap();
     batch.shared_buffer()
 }
 
@@ -157,8 +154,7 @@ fn test_multi_output_layer_names() {
     let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
     let shared = make_age_gender_batch(1);
-    let batch = shared.into_buffer().expect("sole owner");
-    let output = engine.infer_sync(batch, 1, None).expect("infer_sync");
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
 
     assert_eq!(output.num_elements(), 1);
     let elem = &output.elements()[0];
@@ -283,25 +279,22 @@ fn test_age_gender_e2e_real_images() {
     );
 
     // ---- Upload canvas to GPU surface -------------------------------------
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        FRAME_W,
-        FRAME_H,
-        1,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("1080p src generator");
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, FRAME_W, FRAME_H)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("1080p src generator");
 
-    let src_shared = src_gen.acquire_buffer(Some(0)).unwrap();
-    let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-    deepstream_nvbufsurface::upload_to_surface(&view, &canvas, FRAME_W, FRAME_H, 4)
+    let src_shared = src_gen.acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+    view.upload(&canvas, FRAME_W, FRAME_H, 4)
         .expect("upload_to_surface");
     drop(view);
 
     // ---- Create batched surface with one 1920x1080 slot -------------------
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         FRAME_W,
         FRAME_H,
@@ -313,9 +306,11 @@ fn test_age_gender_e2e_real_images() {
     .expect("1080p batched generator");
 
     let config = TransformConfig::default();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
-    batch.fill_slot(&*src_shared.lock(), None, Some(0)).unwrap();
-    batch.finalize(1, vec![SavantIdMetaKind::Frame(0)]).unwrap();
+    let ids = vec![SavantIdMetaKind::Frame(0)];
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
+    let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+    batch.transform_slot(0, &src_view, None).unwrap();
+    batch.finalize().unwrap();
     let shared = batch.shared_buffer();
     drop(batch);
 
@@ -331,12 +326,7 @@ fn test_age_gender_e2e_real_images() {
     let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
 
     // ---- Run inference ----------------------------------------------------
-    let batch = shared.into_buffer().expect("sole owner");
-    let output = engine
-        .infer_sync(batch, 1, Some(&rois))
-        .expect("infer_sync");
-
-    assert_eq!(output.batch_id(), 1);
+    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
     assert_eq!(
         output.num_elements(),
         num_faces,
@@ -417,7 +407,7 @@ fn test_age_gender_placement_independence() {
     let images = load_face_images(&assets.join("age_gender"));
     let num_faces = images.len();
 
-    let run = |seed: u64, batch_id: u64| -> Vec<f32> {
+    let run = |seed: u64| -> Vec<f32> {
         let mut rng = SmallRng::seed_from_u64(seed);
         let placements =
             place_non_overlapping(&mut rng, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
@@ -433,24 +423,21 @@ fn test_age_gender_placement_independence() {
             }
         }
 
-        let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-            VideoFormat::RGBA,
-            FRAME_W,
-            FRAME_H,
-            1,
-            1,
-            0,
-            NvBufSurfaceMemType::Default,
-        )
-        .expect("src generator");
+        let src_gen = BufferGenerator::builder(VideoFormat::RGBA, FRAME_W, FRAME_H)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator");
 
-        let src_shared = src_gen.acquire_buffer(Some(0)).unwrap();
-        let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-        deepstream_nvbufsurface::upload_to_surface(&view, &canvas, FRAME_W, FRAME_H, 4)
+        let src_shared = src_gen.acquire(Some(0)).unwrap();
+        let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        view.upload(&canvas, FRAME_W, FRAME_H, 4)
             .expect("upload_to_surface");
         drop(view);
 
-        let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+        let batched_gen = UniformBatchGenerator::new(
             VideoFormat::RGBA,
             FRAME_W,
             FRAME_H,
@@ -461,9 +448,11 @@ fn test_age_gender_placement_independence() {
         )
         .expect("batched generator");
         let config = TransformConfig::default();
-        let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
-        batch.fill_slot(&*src_shared.lock(), None, Some(0)).unwrap();
-        batch.finalize(1, vec![SavantIdMetaKind::Frame(0)]).unwrap();
+        let ids = vec![SavantIdMetaKind::Frame(0)];
+        let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(0, &src_view, None).unwrap();
+        batch.finalize().unwrap();
         let shared = batch.shared_buffer();
         drop(batch);
 
@@ -477,10 +466,7 @@ fn test_age_gender_placement_independence() {
             .collect();
         let rois: HashMap<u32, Vec<Roi>> = [(0u32, roi_vec)].into();
 
-        let batch = shared.into_buffer().expect("sole owner");
-        let output = engine
-            .infer_sync(batch, batch_id, Some(&rois))
-            .expect("infer_sync");
+        let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
 
         output
             .elements()
@@ -492,8 +478,8 @@ fn test_age_gender_placement_independence() {
             .collect()
     };
 
-    let ages_seed42 = run(42, 1);
-    let ages_seed99 = run(99, 2);
+    let ages_seed42 = run(42);
+    let ages_seed99 = run(99);
 
     eprintln!(
         "\n  {:>16}  {:>7}  {:>7}  {:>7}  {:>6}",

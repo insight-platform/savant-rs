@@ -8,7 +8,7 @@ use pyo3::prelude::*;
 /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
 #[pyclass(name = "SkiaContext", module = "savant_rs.deepstream", unsendable)]
 pub struct PySkiaContext {
-    inner: deepstream_nvbufsurface::SkiaRenderer,
+    inner: deepstream_buffers::SkiaRenderer,
 }
 
 #[pymethods]
@@ -16,7 +16,7 @@ impl PySkiaContext {
     #[new]
     #[pyo3(signature = (width, height, gpu_id=0))]
     fn new(width: u32, height: u32, gpu_id: u32) -> PyResult<Self> {
-        let inner = deepstream_nvbufsurface::SkiaRenderer::new(width, height, gpu_id)
+        let inner = deepstream_buffers::SkiaRenderer::new(width, height, gpu_id)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self { inner })
     }
@@ -31,7 +31,7 @@ impl PySkiaContext {
         if let Ok(sv) = buf.extract::<PyRef<'_, PySurfaceView>>() {
             let view = sv.inner_ref()?;
             let inner = unsafe {
-                deepstream_nvbufsurface::SkiaRenderer::from_nvbuf(
+                deepstream_buffers::SkiaRenderer::from_nvbuf(
                     view.width(),
                     view.height(),
                     gpu_id,
@@ -43,10 +43,10 @@ impl PySkiaContext {
             return Ok(Self { inner });
         }
         let shared = extract_shared_buffer(buf)?;
-        let view = deepstream_nvbufsurface::SurfaceView::from_shared(shared, 0)
+        let view = deepstream_buffers::SurfaceView::from_buffer(shared, 0)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let inner = unsafe {
-            deepstream_nvbufsurface::SkiaRenderer::from_nvbuf(
+            deepstream_buffers::SkiaRenderer::from_nvbuf(
                 view.width(),
                 view.height(),
                 gpu_id,

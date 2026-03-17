@@ -1,4 +1,4 @@
-//! PyO3 bindings for the `deepstream_nvbufsurface` crate.
+//! PyO3 bindings for the `deepstream_buffers` crate.
 //!
 //! These types are registered in the `savant_rs.deepstream` Python submodule
 //! by `savant_python` when the `deepstream` feature is enabled.
@@ -37,10 +37,10 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<config::PyTransformConfig>()?;
     m.add_class::<buffer::PyDsNvBufSurfaceGstBuffer>()?;
     m.add_class::<surface_view::PySurfaceView>()?;
-    m.add_class::<generators::PyDsNvSurfaceBufferGenerator>()?;
-    m.add_class::<generators::PyDsNvUniformSurfaceBufferGenerator>()?;
-    m.add_class::<generators::PyDsNvUniformSurfaceBuffer>()?;
-    m.add_class::<generators::PyDsNvNonUniformSurfaceBuffer>()?;
+    m.add_class::<generators::PyBufferGenerator>()?;
+    m.add_class::<generators::PyUniformBatchGenerator>()?;
+    m.add_class::<generators::PySurfaceBatch>()?;
+    m.add_class::<generators::PyNonUniformBatch>()?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_set_num_filled, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_init_cuda, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_gpu_mem_used_mib, m)?)?;

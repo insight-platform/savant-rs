@@ -7,9 +7,9 @@
 //! cached in the `assets/` directory; only the first run pays the build cost.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
-use deepstream_nvbufsurface::{
-    ComputeMode, DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator,
-    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, ComputeMode, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind,
+    SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{NvInfer, NvInferConfig};
 use rand::Rng;
@@ -34,7 +34,7 @@ fn init() {
             std::env::set_var("NVDSINFERSERVER_LOG_LEVEL", "0");
         }
         gstreamer::init().unwrap();
-        deepstream_nvbufsurface::cuda_init(0).expect("CUDA init — is a GPU available?");
+        deepstream_buffers::cuda_init(0).expect("CUDA init — is a GPU available?");
     });
 }
 
@@ -203,18 +203,23 @@ fn make_batch(
     base_w: u32,
     base_h: u32,
     batch_size: u32,
-) -> gstreamer::Buffer {
+) -> deepstream_buffers::SharedBuffer {
     match mode {
         BatchMode::Uniform => make_uniform_batch(format, base_w, base_h, batch_size),
         BatchMode::NonUniform => make_nonuniform_batch(format, base_w, base_h, batch_size),
     }
 }
 
-fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> gstreamer::Buffer {
+fn make_uniform_batch(
+    format: VideoFormat,
+    w: u32,
+    h: u32,
+    batch_size: u32,
+) -> deepstream_buffers::SharedBuffer {
     init();
 
     let min_bufs = batch_size.max(4);
-    let src_gen = DsNvSurfaceBufferGenerator::builder(format, w, h)
+    let src_gen = BufferGenerator::builder(format, w, h)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
         .min_buffers(min_bufs)
@@ -222,27 +227,24 @@ fn make_uniform_batch(format: VideoFormat, w: u32, h: u32, batch_size: u32) -> g
         .build()
         .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
-        format,
-        w,
-        h,
-        batch_size,
-        2,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("batched generator");
+    let batched_gen =
+        UniformBatchGenerator::new(format, w, h, batch_size, 2, 0, NvBufSurfaceMemType::Default)
+            .expect("batched generator");
 
     let config = platform_transform_config();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids: Vec<SavantIdMetaKind> = (0..batch_size)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
     for i in 0..batch_size {
-        let src = src_gen.acquire_surface(Some(i as i64)).unwrap();
-        batch.fill_slot(&src, None, Some(i as i64)).unwrap();
+        let src = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
 
     batch.finalize().unwrap();
-    batch.as_gst_buffer().unwrap()
+    batch.shared_buffer()
 }
 
 fn make_nonuniform_batch(
@@ -250,32 +252,35 @@ fn make_nonuniform_batch(
     base_w: u32,
     base_h: u32,
     batch_size: u32,
-) -> gstreamer::Buffer {
+) -> deepstream_buffers::SharedBuffer {
     init();
 
-    let mut src_bufs = Vec::with_capacity(batch_size as usize);
+    let mut keepalive = Vec::with_capacity(batch_size as usize);
     for i in 0..batch_size as usize {
         let s = NON_UNIFORM_SCALES[i % NON_UNIFORM_SCALES.len()];
         let w = ((base_w as f32 * s) as u32).max(4);
         let h = ((base_h as f32 * s) as u32).max(4);
 
-        let gen = DsNvSurfaceBufferGenerator::builder(format, w, h)
+        let gen = BufferGenerator::builder(format, w, h)
             .gpu_id(0)
             .mem_type(NvBufSurfaceMemType::Default)
             .min_buffers(1)
             .max_buffers(1)
             .build()
             .expect("src generator for nonuniform slot");
-        src_bufs.push(gen.acquire_surface(Some(i as i64)).unwrap());
+        let shared = gen.acquire(Some(i as i64)).unwrap();
+        let view = SurfaceView::from_buffer(&shared, 0).unwrap();
+        keepalive.push((shared, view));
     }
 
-    let mut batch = DsNvNonUniformSurfaceBuffer::new(batch_size, 0).unwrap();
-    for (i, buf) in src_bufs.iter().enumerate() {
-        batch.add(buf, Some(i as i64)).unwrap();
+    let mut batch = NonUniformBatch::new(0);
+    let mut ids = Vec::new();
+    for (i, (_shared, view)) in keepalive.iter().enumerate() {
+        batch.add(view).unwrap();
+        ids.push(SavantIdMetaKind::Frame(i as i64));
     }
 
-    batch.finalize().unwrap();
-    batch.as_gst_buffer().unwrap()
+    batch.finalize(ids).unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -315,7 +320,7 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
 
         let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
-        let _ = engine.infer_sync(warm, 0, None);
+        let _ = engine.infer_sync(warm, None);
 
         let fills: Vec<u32> = FILL_COUNTS.iter().copied().filter(|&f| f <= bs).collect();
         let n = BATCHES_PER_ITER;
@@ -330,10 +335,8 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
                             .collect::<Vec<_>>()
                     },
                     |batches| {
-                        for (i, batch) in batches.into_iter().enumerate() {
-                            let out = engine
-                                .infer_sync(batch, i as u64, None)
-                                .expect("infer_sync");
+                        for batch in batches {
+                            let out = engine.infer_sync(batch, None).expect("infer_sync");
                             std::hint::black_box(out);
                         }
                     },
@@ -415,32 +418,35 @@ const RANDOM_SIZE_MAX_INCL: u32 = 256;
 const RANDOM_SIZE_STEP: u32 = 4;
 const QUEUE_DEPTHS: &[u32] = &[1, 8, 16, 32];
 
-fn make_random_nonuniform_batch(rng: &mut impl Rng) -> gstreamer::Buffer {
+fn make_random_nonuniform_batch(rng: &mut impl Rng) -> deepstream_buffers::SharedBuffer {
     let n = RANDOM_NONUNIFORM_FRAMES;
     let steps = (RANDOM_SIZE_MAX_INCL - RANDOM_SIZE_MIN) / RANDOM_SIZE_STEP + 1;
 
-    let mut src_bufs = Vec::with_capacity(n as usize);
+    let mut keepalive = Vec::with_capacity(n as usize);
     for i in 0..n {
         let w = RANDOM_SIZE_MIN + rng.random_range(0..steps) * RANDOM_SIZE_STEP;
         let h = RANDOM_SIZE_MIN + rng.random_range(0..steps) * RANDOM_SIZE_STEP;
 
-        let gen = DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, w, h)
+        let gen = BufferGenerator::builder(VideoFormat::RGBA, w, h)
             .gpu_id(0)
             .mem_type(NvBufSurfaceMemType::Default)
             .min_buffers(1)
             .max_buffers(1)
             .build()
             .expect("src generator for random nonuniform slot");
-        src_bufs.push(gen.acquire_surface(Some(i as i64)).unwrap());
+        let shared = gen.acquire(Some(i as i64)).unwrap();
+        let view = SurfaceView::from_buffer(&shared, 0).unwrap();
+        keepalive.push((shared, view));
     }
 
-    let mut batch = DsNvNonUniformSurfaceBuffer::new(n, 0).unwrap();
-    for (i, buf) in src_bufs.iter().enumerate() {
-        batch.add(buf, Some(i as i64)).unwrap();
+    let mut batch = NonUniformBatch::new(0);
+    let mut ids = Vec::new();
+    for (i, (_shared, view)) in keepalive.iter().enumerate() {
+        batch.add(view).unwrap();
+        ids.push(SavantIdMetaKind::Frame(i as i64));
     }
 
-    batch.finalize().unwrap();
-    batch.as_gst_buffer().unwrap()
+    batch.finalize(ids).unwrap()
 }
 
 fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
@@ -493,7 +499,7 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
         let mut rng = rand::rng();
         done_count.store(0, Ordering::Release);
         let warmup = make_random_nonuniform_batch(&mut rng);
-        engine.submit(warmup, 0, None).expect("warmup submit");
+        engine.submit(warmup, None).expect("warmup submit");
         {
             let (lock, cvar) = &*notify;
             let mut guard = lock.lock().unwrap();
@@ -514,8 +520,8 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
                 |batches| {
                     done_count.store(0, Ordering::Release);
 
-                    for (i, batch) in batches.into_iter().enumerate() {
-                        engine.submit(batch, (i + 1) as u64, None).expect("submit");
+                    for batch in batches {
+                        engine.submit(batch, None).expect("submit");
                     }
 
                     let (lock, cvar) = &*notify;
@@ -568,7 +574,7 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
     // Warmup.
     let mut rng = rand::rng();
     let warmup = make_random_nonuniform_batch(&mut rng);
-    let _ = engine.infer_sync(warmup, 0, None);
+    let _ = engine.infer_sync(warmup, None);
 
     let id = format!("x{}_bs{}_sync", n, RANDOM_NONUNIFORM_FRAMES);
     group.bench_function(BenchmarkId::new(&id, 0), |b| {
@@ -580,10 +586,8 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
                     .collect::<Vec<_>>()
             },
             |batches| {
-                for (i, batch) in batches.into_iter().enumerate() {
-                    let out = engine
-                        .infer_sync(batch, (i + 1) as u64, None)
-                        .expect("infer_sync");
+                for batch in batches {
+                    let out = engine.infer_sync(batch, None).expect("infer_sync");
                     std::hint::black_box(out);
                 }
             },

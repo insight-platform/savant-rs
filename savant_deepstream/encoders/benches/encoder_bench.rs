@@ -90,8 +90,8 @@ fn create_and_encode_one(config: &EncoderConfig) {
 
     let shared = encoder
         .generator()
-        .acquire_buffer(Some(0))
-        .expect("acquire_surface failed");
+        .acquire(Some(0))
+        .expect("acquire failed");
     let buffer = shared.into_buffer().expect("sole owner");
 
     encoder
@@ -156,8 +156,8 @@ fn encode_n_frames(mut encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
         let shared = encoder
             .generator()
-            .acquire_buffer(Some(i as i64))
-            .expect("acquire_surface failed");
+            .acquire(Some(i as i64))
+            .expect("acquire failed");
         let buffer = shared.into_buffer().expect("sole owner");
 
         let pts_ns = i * FRAME_DURATION_NS;

@@ -8,9 +8,9 @@
 
 mod common;
 
-use deepstream_nvbufsurface::{
-    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind,
-    SharedMutableGstBuffer, SurfaceView, TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
+    TransformConfig, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
@@ -126,7 +126,7 @@ fn identity_engine_1080p() -> Option<NvInfer> {
 // ---------------------------------------------------------------------------
 
 struct CompositeResult {
-    shared: SharedMutableGstBuffer,
+    shared: SharedBuffer,
     rois: HashMap<u32, Vec<Roi>>,
 }
 
@@ -146,24 +146,21 @@ fn build_composite(images: &[(String, Vec<u8>)], seed: u64) -> CompositeResult {
         }
     }
 
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        FRAME_W,
-        FRAME_H,
-        1,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("1080p src generator");
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, FRAME_W, FRAME_H)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("1080p src generator");
 
-    let src_shared = src_gen.acquire_buffer(Some(0)).unwrap();
-    let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-    deepstream_nvbufsurface::upload_to_surface(&view, &canvas, FRAME_W, FRAME_H, 4)
+    let src_shared = src_gen.acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+    view.upload(&canvas, FRAME_W, FRAME_H, 4)
         .expect("upload_to_surface");
     drop(view);
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         FRAME_W,
         FRAME_H,
@@ -175,9 +172,11 @@ fn build_composite(images: &[(String, Vec<u8>)], seed: u64) -> CompositeResult {
     .expect("1080p batched generator");
 
     let config = TransformConfig::default();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
-    batch.fill_slot(&*src_shared.lock(), None, Some(0)).unwrap();
-    batch.finalize(1, vec![SavantIdMetaKind::Frame(0)]).unwrap();
+    let ids = vec![SavantIdMetaKind::Frame(0)];
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
+    let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+    batch.transform_slot(0, &src_view, None).unwrap();
+    batch.finalize().unwrap();
     let shared = batch.shared_buffer();
 
     let roi_vec: Vec<Roi> = placements
@@ -226,9 +225,8 @@ fn test_roi_crop_pixel_match() {
         place_non_overlapping(&mut rng_diag, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
 
     let comp = build_composite(&images, 42);
-    let batch = comp.shared.into_buffer().expect("sole owner");
     let output = engine
-        .infer_sync(batch, 1, Some(&comp.rois))
+        .infer_sync(comp.shared, Some(&comp.rois))
         .expect("infer_sync");
 
     assert_eq!(
@@ -324,14 +322,13 @@ fn test_roi_crop_placement_independence() {
     let num_faces = images.len();
     assert!(num_faces > 0, "no face images found");
 
-    let run = |seed: u64, batch_id: u64| -> (Vec<Vec<f32>>, Vec<(u32, u32)>) {
+    let run = |seed: u64| -> (Vec<Vec<f32>>, Vec<(u32, u32)>) {
         let mut rng = SmallRng::seed_from_u64(seed);
         let placements =
             place_non_overlapping(&mut rng, FRAME_W, FRAME_H, FACE_SZ, FACE_SZ, num_faces);
         let comp = build_composite(&images, seed);
-        let batch = comp.shared.into_buffer().expect("sole owner");
         let output = engine
-            .infer_sync(batch, batch_id, Some(&comp.rois))
+            .infer_sync(comp.shared, Some(&comp.rois))
             .expect("infer_sync");
         assert_eq!(output.num_elements(), num_faces);
         let tensors: Vec<Vec<f32>> = output
@@ -346,8 +343,8 @@ fn test_roi_crop_placement_independence() {
         (tensors, placements)
     };
 
-    let (tensors_s42, placements_s42) = run(42, 1);
-    let (tensors_s99, placements_s99) = run(99, 2);
+    let (tensors_s42, placements_s42) = run(42);
+    let (tensors_s99, placements_s99) = run(99);
 
     eprintln!(
         "\n  {:>16}  {:>10}  {:>10}  {:>12}  {:>14}  {:>14}",

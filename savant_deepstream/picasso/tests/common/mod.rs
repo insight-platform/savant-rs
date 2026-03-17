@@ -5,8 +5,8 @@
 
 #![allow(dead_code)] // Helpers used by various test files
 
+use deepstream_buffers::BufferGenerator;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator};
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -71,8 +71,8 @@ pub fn make_gst_buffer() -> gstreamer::Buffer {
 }
 
 /// Creates a SurfaceView wrapping a plain GStreamer buffer (stub for NOGPU tests).
-pub fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+pub fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 
 /// Creates a frame with PTS, duration, and a persistent attribute.
@@ -167,39 +167,35 @@ impl OnEviction for TerminateEviction {
 
 #[cfg(test)]
 pub fn make_gpu_buffer(
-    gen: &DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     _dur_ns: u64,
-) -> gstreamer::Buffer {
-    gen.acquire_surface(Some(idx as i64)).unwrap()
+) -> deepstream_buffers::SharedBuffer {
+    gen.acquire(Some(idx as i64)).unwrap()
 }
 
-/// Creates a SurfaceView from a single-frame GPU buffer (DsNvSurfaceBufferGenerator).
+/// Creates a SurfaceView from a single-frame GPU buffer (BufferGenerator).
 #[cfg(test)]
 pub fn make_gpu_surface_view(
-    gen: &DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     dur_ns: u64,
-) -> deepstream_nvbufsurface::SurfaceView {
+) -> deepstream_buffers::SurfaceView {
     let buf = make_gpu_buffer(gen, idx, dur_ns);
-    deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap()
+    deepstream_buffers::SurfaceView::from_buffer(&buf, 0).unwrap()
 }
 
-/// Creates a SurfaceView from a batched GPU buffer (DsNvUniformSurfaceBufferGenerator).
+/// Creates a SurfaceView from a single-frame GPU buffer (BufferGenerator).
 #[cfg(test)]
 pub fn make_gpu_surface_view_uniform(
-    gen: &DsNvUniformSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     dur_ns: u64,
-) -> deepstream_nvbufsurface::SurfaceView {
-    let shared = gen.acquire_buffer(Some(idx as i64)).unwrap();
-    {
-        let mut guard = shared.lock();
-        let buf_ref = guard.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * dur_ns));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(dur_ns));
-    }
-    deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0).unwrap()
+) -> deepstream_buffers::SurfaceView {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.set_pts_ns(idx * dur_ns);
+    shared.set_duration_ns(dur_ns);
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
 #[cfg(test)]

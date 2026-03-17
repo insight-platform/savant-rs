@@ -1,5 +1,5 @@
 use crate::spec::SourceSpec;
-use deepstream_nvbufsurface::{Rect, SurfaceView};
+use deepstream_buffers::{Rect, SurfaceView};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
 

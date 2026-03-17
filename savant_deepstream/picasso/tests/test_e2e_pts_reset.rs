@@ -15,8 +15,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use parking_lot::Mutex;
 use picasso::callbacks::{OnStreamReset, StreamResetReason};
 use picasso::prelude::*;
@@ -37,7 +37,7 @@ fn init() {
 
 fn send_frame_with_pts(
     engine: &PicassoEngine,
-    gen: &DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     source_id: &str,
     idx: u64,
     pts_ns: u64,
@@ -103,7 +103,7 @@ fn pts_reset_eos_policy_fires_eos_and_reencodes() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -220,7 +220,7 @@ fn pts_reset_recreate_policy_no_eos() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -321,7 +321,7 @@ fn pts_reset_triggered_by_equal_pts() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -404,7 +404,7 @@ fn pts_reset_multiple_consecutive_resets() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,
@@ -495,7 +495,7 @@ fn encode_attribute_gate_discards_unmarked_frames() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

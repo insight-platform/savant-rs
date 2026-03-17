@@ -20,7 +20,7 @@ savant_python::deepstream
   → savant_python::gst
   → savant_core_py::deepstream
     → savant_core_py::gst
-    → nvinfer, picasso, deepstream_nvbufsurface, deepstream_encoders,
+    → nvinfer, picasso, deepstream_buffers, deepstream_encoders,
       nvidia_gpu_utils, skia-safe
 ```
 
@@ -54,7 +54,7 @@ from savant_rs.gstreamer import FlowResult, InvocationReason, Codec, Mp4Muxer
 ```python
 from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer, SurfaceView,
-    DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator,
+    BufferGenerator, UniformBatchGenerator,
     init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
 )
 from savant_rs.nvinfer import NvInfer, NvInferConfig, Roi, ...

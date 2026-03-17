@@ -8,9 +8,9 @@
 
 mod common;
 
-use deepstream_nvbufsurface::{
-    DsNvNonUniformSurfaceBuffer, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
-    SavantIdMetaKind, SharedMutableGstBuffer, SurfaceView, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
+    SurfaceView, UniformBatchGenerator, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
 use nvinfer::{NvInfer, NvInferConfig, Roi};
@@ -27,21 +27,19 @@ const GPU_GROWTH_LIMIT_MIB: u64 = 48;
 /// Maximum allowed CPU RSS growth in MiB over the test run.
 const RSS_GROWTH_LIMIT_MIB: u64 = 64;
 
-fn make_identity_batch(num_frames: u32) -> SharedMutableGstBuffer {
+fn make_identity_batch(num_frames: u32) -> SharedBuffer {
     common::init();
 
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        12,
-        12,
-        1,
-        num_frames.max(4),
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("src generator");
+    let min_bufs = num_frames.max(4);
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(min_bufs)
+        .max_buffers(min_bufs)
+        .build()
+        .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -53,18 +51,18 @@ fn make_identity_batch(num_frames: u32) -> SharedMutableGstBuffer {
     .expect("batched generator");
 
     let config = common::platform_transform_config();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids: Vec<SavantIdMetaKind> = (0..num_frames)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
-    let mut ids = Vec::new();
     for i in 0..num_frames {
-        let src_shared = src_gen.acquire_buffer(Some(i as i64)).unwrap();
-        batch
-            .fill_slot(&*src_shared.lock(), None, Some(i as i64))
-            .unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
 
-    batch.finalize(num_frames, ids).unwrap();
+    batch.finalize().unwrap();
     batch.shared_buffer()
 }
 
@@ -91,9 +89,9 @@ fn stress_no_gpu_leak() {
     };
 
     // Warm up: a few iterations to let TensorRT/CUDA settle allocations.
-    for i in 0..5 {
+    for _ in 0..5 {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(shared.into_buffer().expect("sole owner"), i, None);
+        let _ = engine.infer_sync(shared, None);
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -103,11 +101,9 @@ fn stress_no_gpu_leak() {
         gpu_before, rss_before, STRESS_ITERATIONS, FRAMES_PER_BATCH
     );
 
-    for i in 0..STRESS_ITERATIONS {
+    for _ in 0..STRESS_ITERATIONS {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let output = engine
-            .infer_sync(shared.into_buffer().expect("sole owner"), 100 + i, None)
-            .expect("infer_sync");
+        let output = engine.infer_sync(shared, None).expect("infer_sync");
         // Consume output to prove tensors are readable, then drop.
         assert!(!output.elements().is_empty());
         drop(output);
@@ -192,9 +188,9 @@ fn stress_no_leak_with_rois() {
         .collect();
 
     // Warm up.
-    for i in 0..5 {
+    for _ in 0..5 {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
-        let _ = engine.infer_sync(shared.into_buffer().expect("sole owner"), i, Some(&rois));
+        let _ = engine.infer_sync(shared, Some(&rois));
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -204,14 +200,10 @@ fn stress_no_leak_with_rois() {
         gpu_before, rss_before
     );
 
-    for i in 0..STRESS_ITERATIONS {
+    for _ in 0..STRESS_ITERATIONS {
         let shared = make_identity_batch(FRAMES_PER_BATCH);
         let output = engine
-            .infer_sync(
-                shared.into_buffer().expect("sole owner"),
-                1000 + i,
-                Some(&rois),
-            )
+            .infer_sync(shared, Some(&rois))
             .expect("infer_sync with ROIs");
         assert!(!output.elements().is_empty());
         drop(output);
@@ -254,31 +246,28 @@ fn stress_no_leak_with_rois() {
 
 // ─── Non-uniform batch helpers ───────────────────────────────────────────────
 
-fn make_nonuniform_batch_with_rois() -> (SharedMutableGstBuffer, HashMap<u32, Vec<Roi>>) {
+fn make_nonuniform_batch_with_rois() -> (SharedBuffer, HashMap<u32, Vec<Roi>>) {
     common::init();
 
     let specs: &[(u32, u32, u8, i64)] = &[(24, 24, 100, 1), (36, 36, 180, 2)];
 
     let shared = {
-        let mut batch = DsNvNonUniformSurfaceBuffer::new(0);
+        let mut batch = NonUniformBatch::new(0);
 
         let mut ids = Vec::new();
         for &(w, h, fill, id) in specs {
-            let gen = DsNvUniformSurfaceBufferGenerator::new(
-                VideoFormat::RGBA,
-                w,
-                h,
-                1,
-                1,
-                0,
-                NvBufSurfaceMemType::Default,
-            )
-            .expect("src generator");
+            let gen = BufferGenerator::builder(VideoFormat::RGBA, w, h)
+                .gpu_id(0)
+                .mem_type(NvBufSurfaceMemType::Default)
+                .min_buffers(1)
+                .max_buffers(1)
+                .build()
+                .expect("src generator");
 
-            let src_shared = gen.acquire_buffer(Some(id)).unwrap();
-            let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-            deepstream_nvbufsurface::memset_surface(&view, fill).expect("memset_surface");
-            batch.add(&view, Some(id)).unwrap();
+            let src_shared = gen.acquire(Some(id)).unwrap();
+            let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+            view.memset(fill).expect("memset_surface");
+            batch.add(&view).unwrap();
             drop(view);
             ids.push(SavantIdMetaKind::Frame(id));
         }
@@ -337,9 +326,9 @@ fn stress_no_leak_nonuniform() {
     };
 
     // Warm up.
-    for i in 0..5 {
+    for _ in 0..5 {
         let (shared, rois) = make_nonuniform_batch_with_rois();
-        let _ = engine.infer_sync(shared.into_buffer().expect("sole owner"), i, Some(&rois));
+        let _ = engine.infer_sync(shared, Some(&rois));
     }
 
     let gpu_before = gpu_mem_used_mib(0).expect("gpu_mem_used_mib");
@@ -349,14 +338,10 @@ fn stress_no_leak_nonuniform() {
         gpu_before, rss_before
     );
 
-    for i in 0..STRESS_ITERATIONS {
+    for _ in 0..STRESS_ITERATIONS {
         let (shared, rois) = make_nonuniform_batch_with_rois();
         let output = engine
-            .infer_sync(
-                shared.into_buffer().expect("sole owner"),
-                2000 + i,
-                Some(&rois),
-            )
+            .infer_sync(shared, Some(&rois))
             .expect("infer_sync nonuniform");
         assert!(!output.elements().is_empty());
         drop(output);

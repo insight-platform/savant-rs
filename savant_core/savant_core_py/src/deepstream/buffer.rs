@@ -2,7 +2,7 @@
 //! buffers, plus utility functions for extracting buffer pointers and shared
 //! references from Python arguments.
 
-use deepstream_nvbufsurface::SharedMutableGstBuffer;
+use deepstream_buffers::SharedBuffer;
 use glib::translate::from_glib_none;
 use gstreamer as gst;
 use pyo3::prelude::*;
@@ -17,7 +17,7 @@ use pyo3::prelude::*;
 /// to transfer ownership out of the guard.
 #[pyclass(name = "DsNvBufSurfaceGstBuffer", module = "savant_rs.deepstream")]
 pub struct PyDsNvBufSurfaceGstBuffer {
-    inner: Option<SharedMutableGstBuffer>,
+    inner: Option<SharedBuffer>,
 }
 
 const CONSUMED_MSG: &str = "DsNvBufSurfaceGstBuffer has already been consumed via take(); \
@@ -26,7 +26,7 @@ const CONSUMED_MSG: &str = "DsNvBufSurfaceGstBuffer has already been consumed vi
 impl PyDsNvBufSurfaceGstBuffer {
     pub fn new(buffer: gst::Buffer) -> Self {
         Self {
-            inner: Some(SharedMutableGstBuffer::from(buffer)),
+            inner: Some(SharedBuffer::from(buffer)),
         }
     }
 
@@ -40,13 +40,13 @@ impl PyDsNvBufSurfaceGstBuffer {
         Ok(guard.as_ref().as_ptr() as usize)
     }
 
-    /// Borrow the inner [`SharedMutableGstBuffer`].
+    /// Borrow the inner [`SharedBuffer`].
     ///
     /// Callers that need a [`SurfaceView`] should clone this (cheap Arc
-    /// clone) and pass it to [`SurfaceView::from_shared`].  The GstBuffer
+    /// clone) and pass it to [`SurfaceView::from_buffer`].  The GstBuffer
     /// GLib refcount stays at 1, avoiding COW in `resolve_cuda_ptr` and
     /// preserving POOLED `EglCudaMeta` across pool recycles.
-    pub(crate) fn shared(&self) -> PyResult<&SharedMutableGstBuffer> {
+    pub(crate) fn shared(&self) -> PyResult<&SharedBuffer> {
         self.inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(CONSUMED_MSG))
@@ -150,7 +150,7 @@ impl PyDsNvBufSurfaceGstBuffer {
 /// Obtain a `&mut gst::BufferRef` from a Python buffer argument.
 ///
 /// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner `gst::Buffer` is
-/// accessed via the `SharedMutableGstBuffer` mutex lock.  Because the
+/// accessed via the `SharedBuffer` mutex lock.  Because the
 /// GstBuffer GLib refcount is always 1, `make_mut()` succeeds in-place
 /// without COW.  For raw integer pointers writability is checked explicitly.
 pub(crate) fn with_mut_buffer_ref<F, R>(buf: &Bound<'_, PyAny>, f: F) -> PyResult<R>
@@ -207,18 +207,18 @@ pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
     Ok(raw)
 }
 
-/// Extract a [`SharedMutableGstBuffer`] from a Python buffer argument.
+/// Extract a [`SharedBuffer`] from a Python buffer argument.
 ///
 /// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner shared buffer
 /// is cloned (cheap Arc clone — GstBuffer refcount stays at 1).
-/// For raw `usize` pointers a new `SharedMutableGstBuffer` is created
+/// For raw `usize` pointers a new `SharedBuffer` is created
 /// from the transferred-ownership buffer.
-pub(crate) fn extract_shared_buffer(buf: &Bound<'_, PyAny>) -> PyResult<SharedMutableGstBuffer> {
+pub(crate) fn extract_shared_buffer(buf: &Bound<'_, PyAny>) -> PyResult<SharedBuffer> {
     if let Ok(guard) = buf.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>() {
         return Ok(guard.shared()?.clone());
     }
     let gst_buf = extract_gst_buffer(buf)?;
-    Ok(SharedMutableGstBuffer::from(gst_buf))
+    Ok(SharedBuffer::from(gst_buf))
 }
 
 /// Extract a `gst::Buffer` from a Python buffer argument with correct

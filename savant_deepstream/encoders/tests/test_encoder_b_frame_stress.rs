@@ -16,7 +16,7 @@
 //!
 //! Decoding and encoding are done **frame-by-frame** in lockstep.  Each
 //! decoded NVMM buffer is immediately copied into the encoder's pool via
-//! [`DsNvSurfaceBufferGenerator::transform`] and then **dropped** so the
+//! [`BufferGenerator::transform`] and then **dropped** so the
 //! decoder's output buffer pool is not exhausted (`nvv4l2decoder` typically
 //! has only 4-8 output buffers).  Encoded output is pulled after every
 //! submit to keep the encoder's internal pipeline (pool size = 1) flowing.
@@ -33,11 +33,11 @@
 //! cargo test -p deepstream_encoders --test test_encoder_b_frame_stress -- --nocapture
 //! ```
 
-use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{
-    ComputeMode, DsNvSurfaceBufferGenerator, Interpolation, NvBufSurfaceMemType, Padding,
-    TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, ComputeMode, Interpolation, NvBufSurfaceMemType, Padding, TransformConfig,
+    VideoFormat,
 };
+use deepstream_encoders::prelude::*;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use serial_test::serial;
@@ -170,10 +170,10 @@ fn decode_and_reencode(
         dst_padding: None,
         interpolation: Interpolation::Nearest,
         compute_mode: ComputeMode::Default,
-        cuda_stream: deepstream_nvbufsurface::CudaStream::default(),
+        cuda_stream: deepstream_buffers::CudaStream::default(),
     };
 
-    let dst_gen = DsNvSurfaceBufferGenerator::builder(
+    let dst_gen = BufferGenerator::builder(
         encoder_config.format,
         encoder_config.width,
         encoder_config.height,
@@ -195,9 +195,17 @@ fn decode_and_reencode(
     // if B-frames leaked through, it returns Err which we propagate.
     let mut submit_and_drain = |buf_ref: &gst::BufferRef, idx: usize| {
         let owned = buf_ref.to_owned();
-        let enc_buf = dst_gen
-            .transform(&owned, &transform_cfg, Some(idx as i64), None)
+        let src_shared = deepstream_buffers::SharedBuffer::from(owned);
+        let src_view = deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0)
+            .unwrap_or_else(|e| panic!("SurfaceView failed at frame {idx}: {e}"));
+        let dst_shared = dst_gen
+            .transform(&src_view, &transform_cfg, None)
             .unwrap_or_else(|e| panic!("transform failed at frame {idx}: {e}"));
+        drop(src_view);
+        drop(src_shared);
+        let enc_buf = dst_shared.into_buffer().unwrap_or_else(|_| {
+            panic!("into_buffer failed at frame {idx}: outstanding references")
+        });
 
         let pts = idx as u64 * frame_dur_ns;
         encoder

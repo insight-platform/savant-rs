@@ -13,8 +13,8 @@
 //! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench bench_bypass
 //! ```
 
+use deepstream_buffers::SurfaceView;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::SurfaceView;
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod, VideoFrameTransformation,
@@ -87,15 +87,11 @@ fn add_objects(frame: &VideoFrameProxy) {
     }
 }
 
-fn make_buffer(gen: &DsNvUniformSurfaceBufferGenerator, idx: u64) -> SurfaceView {
-    let shared = gen.acquire_buffer(Some(idx as i64)).unwrap();
-    {
-        let mut guard = shared.lock();
-        let buf_ref = guard.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DURATION_NS));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DURATION_NS));
-    }
-    SurfaceView::from_shared(&shared, 0).unwrap()
+fn make_buffer(gen: &BufferGenerator, idx: u64) -> SurfaceView {
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.set_pts_ns(idx * FRAME_DURATION_NS);
+    shared.set_duration_ns(FRAME_DURATION_NS);
+    SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 
 /// Bypass sink that counts frames and performs sanity assertions.
@@ -228,13 +224,14 @@ fn main() {
             .unwrap();
     }
 
-    let generators: Vec<DsNvUniformSurfaceBufferGenerator> = (0..num_src)
+    let generators: Vec<BufferGenerator> = (0..num_src)
         .map(|_| {
-            DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, WIDTH, HEIGHT, 1)
+            BufferGenerator::builder(VideoFormat::RGBA, WIDTH, HEIGHT)
                 .fps(FPS, 1)
                 .gpu_id(0)
                 .mem_type(NvBufSurfaceMemType::Default)
-                .pool_size(32)
+                .min_buffers(32)
+                .max_buffers(32)
                 .build()
                 .unwrap()
         })

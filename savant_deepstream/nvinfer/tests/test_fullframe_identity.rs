@@ -7,9 +7,9 @@
 
 mod common;
 
-use deepstream_nvbufsurface::{
-    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind,
-    SharedMutableGstBuffer, SurfaceView, TransformConfig, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
+    TransformConfig, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{NvInfer, Roi};
 use rand::rngs::SmallRng;
@@ -59,7 +59,7 @@ fn identity_engine_fullhd() -> Option<NvInfer> {
 
 /// Dump NvBufSurfaceParams from a buffer for diagnostics.
 unsafe fn dump_surface_params(label: &str, buf: &gstreamer::BufferRef) {
-    let surf = deepstream_nvbufsurface::extract_nvbufsurface(buf).expect("extract_nvbufsurface");
+    let surf = deepstream_buffers::extract_nvbufsurface(buf).expect("extract_nvbufsurface");
     let s = &*surf;
     eprintln!(
         "  [{label}] NvBufSurface: gpuId={}, batchSize={}, numFilled={}",
@@ -85,21 +85,16 @@ unsafe fn dump_surface_params(label: &str, buf: &gstreamer::BufferRef) {
 
 /// Upload `canvas` to a GPU surface and wrap in a batched buffer with a single
 /// full-frame ROI.
-fn canvas_to_batch_with_fullframe_roi(
-    canvas: &[u8],
-) -> (SharedMutableGstBuffer, HashMap<u32, Vec<Roi>>) {
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        FRAME_W,
-        FRAME_H,
-        1,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("1080p src generator");
+fn canvas_to_batch_with_fullframe_roi(canvas: &[u8]) -> (SharedBuffer, HashMap<u32, Vec<Roi>>) {
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, FRAME_W, FRAME_H)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("1080p src generator");
 
-    let src_shared = src_gen.acquire_buffer(Some(0)).unwrap();
+    let src_shared = src_gen.acquire(Some(0)).unwrap();
 
     // Dump source surface params before upload.
     {
@@ -107,18 +102,18 @@ fn canvas_to_batch_with_fullframe_roi(
         unsafe { dump_surface_params("source (pre-upload)", guard.as_ref()) };
     }
 
-    let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
+    let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
     eprintln!(
         "  [SurfaceView] width={}, height={}, pitch={}",
         view.width(),
         view.height(),
         view.pitch()
     );
-    deepstream_nvbufsurface::upload_to_surface(&view, canvas, FRAME_W, FRAME_H, 4)
+    view.upload(canvas, FRAME_W, FRAME_H, 4)
         .expect("upload_to_surface");
     drop(view);
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         FRAME_W,
         FRAME_H,
@@ -130,10 +125,12 @@ fn canvas_to_batch_with_fullframe_roi(
     .expect("1080p batched generator");
 
     let config = TransformConfig::default();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids = vec![SavantIdMetaKind::Frame(0)];
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
-    batch.fill_slot(&*src_shared.lock(), None, Some(0)).unwrap();
-    batch.finalize(1, vec![SavantIdMetaKind::Frame(0)]).unwrap();
+    let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+    batch.transform_slot(0, &src_view, None).unwrap();
+    batch.finalize().unwrap();
 
     let shared = batch.shared_buffer();
     {
@@ -236,10 +233,7 @@ fn test_fullframe_identity_roundtrip() {
     let canvas = build_random_canvas(42);
 
     let (shared, rois) = canvas_to_batch_with_fullframe_roi(&canvas);
-    let batch = shared.into_buffer().expect("sole owner");
-    let output = engine
-        .infer_sync(batch, 1, Some(&rois))
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
 
     assert_eq!(output.num_elements(), 1, "expected one full-frame output");
     let elem = &output.elements()[0];

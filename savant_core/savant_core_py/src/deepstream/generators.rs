@@ -3,17 +3,16 @@
 use super::buffer::{extract_buf_ptr, PyDsNvBufSurfaceGstBuffer};
 use super::config::{PyRect, PyTransformConfig};
 use super::enums::{extract_mem_type, extract_video_format, PyVideoFormat};
-use deepstream_nvbufsurface::{
-    DsNvNonUniformSurfaceBuffer, DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBuffer,
-    DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
+use deepstream_buffers::{
+    BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SurfaceBatch, UniformBatchGenerator,
 };
 use gstreamer as gst;
 use numpy::PyReadonlyArray3;
 use pyo3::prelude::*;
 
-// ─── DsNvSurfaceBufferGenerator ─────────────────────────────────────────
+// ─── BufferGenerator ─────────────────────────────────────────
 
-/// Python wrapper for DsNvSurfaceBufferGenerator.
+/// Python wrapper for BufferGenerator.
 ///
 /// Args:
 ///     format (VideoFormat | str): Video format.
@@ -24,13 +23,13 @@ use pyo3::prelude::*;
 ///     gpu_id (int): GPU device ID (default 0).
 ///     mem_type (MemType | int): Memory type (default ``MemType.DEFAULT``).
 ///     pool_size (int): Buffer pool size (default 4).
-#[pyclass(name = "DsNvSurfaceBufferGenerator", module = "savant_rs.deepstream")]
-pub struct PyDsNvSurfaceBufferGenerator {
-    inner: DsNvSurfaceBufferGenerator,
+#[pyclass(name = "BufferGenerator", module = "savant_rs.deepstream")]
+pub struct PyBufferGenerator {
+    inner: BufferGenerator,
 }
 
 #[pymethods]
-impl PyDsNvSurfaceBufferGenerator {
+impl PyBufferGenerator {
     #[new]
     #[pyo3(signature = (format, width, height, fps_num=30, fps_den=1, gpu_id=0, mem_type=None, pool_size=4))]
     #[allow(clippy::too_many_arguments)]
@@ -50,7 +49,7 @@ impl PyDsNvSurfaceBufferGenerator {
             None => NvBufSurfaceMemType::Default,
         };
 
-        let inner = DsNvSurfaceBufferGenerator::builder(format, width, height)
+        let inner = BufferGenerator::builder(format, width, height)
             .fps(fps_num, fps_den)
             .gpu_id(gpu_id)
             .mem_type(mem_type)
@@ -64,7 +63,7 @@ impl PyDsNvSurfaceBufferGenerator {
 
     /// Return the NVMM caps string for configuring an ``appsrc``.
     fn nvmm_caps_str(&self) -> String {
-        self.inner.nvmm_caps().to_string()
+        self.inner.nvmm_caps()
     }
 
     #[getter]
@@ -87,14 +86,10 @@ impl PyDsNvSurfaceBufferGenerator {
     /// Returns:
     ///     GstBuffer: Guard owning the acquired buffer.
     #[pyo3(signature = (id=None))]
-    fn acquire_surface(
-        &self,
-        py: Python<'_>,
-        id: Option<i64>,
-    ) -> PyResult<PyDsNvBufSurfaceGstBuffer> {
+    fn acquire(&self, py: Python<'_>, id: Option<i64>) -> PyResult<PyDsNvBufSurfaceGstBuffer> {
         let buffer = py.detach(|| {
             self.inner
-                .acquire_surface(id)
+                .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
         Ok(PyDsNvBufSurfaceGstBuffer::new(buffer))
@@ -102,7 +97,7 @@ impl PyDsNvSurfaceBufferGenerator {
 
     /// Acquire a buffer and stamp PTS and duration on it.
     ///
-    /// Convenience wrapper around :meth:`acquire_surface` that stamps
+    /// Convenience wrapper around :meth:`acquire` that stamps
     /// PTS and duration on the buffer.
     ///
     /// Args:
@@ -113,7 +108,7 @@ impl PyDsNvSurfaceBufferGenerator {
     /// Returns:
     ///     GstBuffer: Guard owning the acquired buffer.
     #[pyo3(signature = (pts_ns, duration_ns, id=None))]
-    fn acquire_surface_with_params(
+    fn acquire_with_params(
         &self,
         py: Python<'_>,
         pts_ns: u64,
@@ -123,7 +118,7 @@ impl PyDsNvSurfaceBufferGenerator {
         let buffer = py.detach(|| -> PyResult<gst::Buffer> {
             let mut buffer = self
                 .inner
-                .acquire_surface(id)
+                .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             {
                 let buf_ref = buffer.make_mut();
@@ -137,7 +132,7 @@ impl PyDsNvSurfaceBufferGenerator {
 
     /// Acquire a buffer and return ``(GstBuffer, data_ptr, pitch)``.
     #[pyo3(signature = (id=None))]
-    fn acquire_surface_with_ptr(
+    fn acquire_with_ptr(
         &self,
         py: Python<'_>,
         id: Option<i64>,
@@ -145,7 +140,7 @@ impl PyDsNvSurfaceBufferGenerator {
         let (buffer, data_ptr, pitch) = py.detach(|| -> PyResult<(gst::Buffer, usize, u32)> {
             let (buf, ptr, p) = self
                 .inner
-                .acquire_buffer(id)
+                .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             Ok((buf, ptr as usize, p))
         })?;
@@ -168,14 +163,14 @@ impl PyDsNvSurfaceBufferGenerator {
         let dst_buf = py.detach(|| {
             let src_buf =
                 unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
-            let src_view = SurfaceView::from_buffer(src_gst, 0)
+            let src_view = deepstream_buffers::SurfaceView::from_gst_buffer(src_buf, 0)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             let dst_shared = self
                 .inner
-                .acquire_surface_with_ptr(id)
+                .acquire(id)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             {
-                let dst_view = SurfaceView::from_shared(dst_shared.clone(), 0)
+                let dst_view = deepstream_buffers::SurfaceView::from_buffer(&dst_shared, 0)
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
                 src_view
                     .transform_into(&dst_view, &config, src_rect_rust.as_ref())
@@ -217,7 +212,7 @@ impl PyDsNvSurfaceBufferGenerator {
     #[staticmethod]
     fn send_eos(appsrc_ptr: usize) -> PyResult<()> {
         unsafe {
-            DsNvSurfaceBufferGenerator::send_eos_raw(appsrc_ptr)
+            deepstream_buffers::gst_app::send_eos_raw(appsrc_ptr)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         }
     }
@@ -239,7 +234,7 @@ impl PyDsNvSurfaceBufferGenerator {
     }
 }
 
-// ─── DsNvUniformSurfaceBufferGenerator ───────────────────────────────────
+// ─── UniformBatchGenerator ───────────────────────────────────
 
 /// Homogeneous batched NvBufSurface buffer generator.
 ///
@@ -260,16 +255,13 @@ impl PyDsNvSurfaceBufferGenerator {
 ///
 /// Raises:
 ///     RuntimeError: If pool creation fails.
-#[pyclass(
-    name = "DsNvUniformSurfaceBufferGenerator",
-    module = "savant_rs.deepstream"
-)]
-pub struct PyDsNvUniformSurfaceBufferGenerator {
-    inner: DsNvUniformSurfaceBufferGenerator,
+#[pyclass(name = "UniformBatchGenerator", module = "savant_rs.deepstream")]
+pub struct PyUniformBatchGenerator {
+    inner: UniformBatchGenerator,
 }
 
 #[pymethods]
-impl PyDsNvUniformSurfaceBufferGenerator {
+impl PyUniformBatchGenerator {
     #[new]
     #[pyo3(signature = (format, width, height, max_batch_size, pool_size=2, fps_num=30, fps_den=1, gpu_id=0, mem_type=None))]
     #[allow(clippy::too_many_arguments)]
@@ -290,14 +282,13 @@ impl PyDsNvUniformSurfaceBufferGenerator {
             None => NvBufSurfaceMemType::Default,
         };
 
-        let inner =
-            DsNvUniformSurfaceBufferGenerator::builder(format, width, height, max_batch_size)
-                .fps(fps_num, fps_den)
-                .gpu_id(gpu_id)
-                .mem_type(mem_type)
-                .pool_size(pool_size)
-                .build()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let inner = UniformBatchGenerator::builder(format, width, height, max_batch_size)
+            .fps(fps_num, fps_den)
+            .gpu_id(gpu_id)
+            .mem_type(mem_type)
+            .pool_size(pool_size)
+            .build()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
         Ok(Self { inner })
     }
@@ -327,37 +318,44 @@ impl PyDsNvUniformSurfaceBufferGenerator {
         self.inner.max_batch_size()
     }
 
-    /// Acquire a ``DsNvUniformSurfaceBuffer`` from the pool, ready for slot filling.
-    fn acquire_batched_surface(
+    /// Acquire a ``SurfaceBatch`` from the pool, ready for slot filling.
+    #[pyo3(signature = (config, ids=None))]
+    fn acquire_batch(
         &self,
         py: Python<'_>,
         config: &PyTransformConfig,
-    ) -> PyResult<PyDsNvUniformSurfaceBuffer> {
+        ids: Option<Vec<i64>>,
+    ) -> PyResult<PySurfaceBatch> {
+        let id_kinds = ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(SavantIdMetaKind::Frame)
+            .collect();
         py.detach(|| {
             let batch = self
                 .inner
-                .acquire_batched_surface(config.to_rust())
+                .acquire_batch(config.to_rust(), id_kinds)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            Ok(PyDsNvUniformSurfaceBuffer { inner: batch })
+            Ok(PySurfaceBatch { inner: batch })
         })
     }
 }
 
-// ─── DsNvUniformSurfaceBuffer ─────────────────────────────────────────────
+// ─── SurfaceBatch ─────────────────────────────────────────────
 
 /// Pool-allocated batched NvBufSurface with per-slot fill tracking.
 ///
 /// Obtained from
-/// ``DsNvUniformSurfaceBufferGenerator.acquire_batched_surface``.
-/// Fill individual slots with ``fill_slot``, then call ``finalize``,
+/// ``UniformBatchGenerator.acquire_batch``.
+/// Fill individual slots with ``transform_slot``, then call ``finalize``,
 /// then ``as_gst_buffer`` to access the buffer.
-#[pyclass(name = "DsNvUniformSurfaceBuffer", module = "savant_rs.deepstream")]
-pub struct PyDsNvUniformSurfaceBuffer {
-    inner: DsNvUniformSurfaceBuffer,
+#[pyclass(name = "SurfaceBatch", module = "savant_rs.deepstream")]
+pub struct PySurfaceBatch {
+    inner: SurfaceBatch,
 }
 
 #[pymethods]
-impl PyDsNvUniformSurfaceBuffer {
+impl PySurfaceBatch {
     #[getter]
     fn num_filled(&self) -> u32 {
         self.inner.num_filled()
@@ -373,36 +371,29 @@ impl PyDsNvUniformSurfaceBuffer {
         self.inner.is_finalized()
     }
 
-    /// Return ``(data_ptr, pitch)`` for a slot by index.
-    fn slot_ptr(&self, index: u32) -> PyResult<(usize, u32)> {
-        let (data_ptr, pitch) = self
-            .inner
-            .slot_ptr(index)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok((data_ptr as usize, pitch))
-    }
-
-    /// Transform a source buffer into the next available batch slot.
-    #[pyo3(signature = (src_buf, src_rect=None, id=None))]
-    fn fill_slot(
+    /// Transform a source buffer into a specific batch slot.
+    #[pyo3(signature = (slot, src_buf, src_rect=None))]
+    fn transform_slot(
         &mut self,
         py: Python<'_>,
+        slot: u32,
         src_buf: &Bound<'_, PyAny>,
         src_rect: Option<&PyRect>,
-        id: Option<i64>,
     ) -> PyResult<()> {
         let src_buf_ptr = extract_buf_ptr(src_buf)?;
         let src_rect_rust = src_rect.map(|r| r.into_rust());
         py.detach(|| {
             let ptr = src_buf_ptr as *mut gst::ffi::GstBuffer;
             let src_buf = unsafe { gst::Buffer::from_glib_none(ptr) };
+            let src_view = deepstream_buffers::SurfaceView::from_gst_buffer(src_buf, 0)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             self.inner
-                .fill_slot(&src_buf, src_rect_rust.as_ref(), id)
+                .transform_slot(slot, &src_view, src_rect_rust.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
 
-    /// Finalize the batch (non-consuming).
+    /// Finalize the batch: set ``numFilled`` and attach IDs from acquisition.
     fn finalize(&mut self) -> PyResult<()> {
         self.inner
             .finalize()
@@ -434,9 +425,9 @@ impl PyDsNvUniformSurfaceBuffer {
             .extract_slot_view(index)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         py.detach(|| {
-            let view = deepstream_nvbufsurface::SurfaceView::from_buffer(slot_buf, 0)
+            let view = deepstream_buffers::SurfaceView::from_gst_buffer(slot_buf, 0)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            deepstream_nvbufsurface::memset_surface(&view, value)
+            view.memset(value)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
@@ -463,15 +454,15 @@ impl PyDsNvUniformSurfaceBuffer {
             ))
         })?;
         py.detach(|| {
-            let view = deepstream_nvbufsurface::SurfaceView::from_buffer(slot_buf, 0)
+            let view = deepstream_buffers::SurfaceView::from_gst_buffer(slot_buf, 0)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-            deepstream_nvbufsurface::upload_to_surface(&view, slice, width, height, channels)
+            view.upload(slice, width, height, channels)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
 }
 
-// ─── DsNvNonUniformSurfaceBuffer ─────────────────────────────────────────
+// ─── NonUniformBatch ─────────────────────────────────────────
 
 /// Zero-copy heterogeneous batch (nvstreammux2-style).
 ///
@@ -484,17 +475,17 @@ impl PyDsNvUniformSurfaceBuffer {
 ///
 /// Raises:
 ///     RuntimeError: If batch creation fails.
-#[pyclass(name = "DsNvNonUniformSurfaceBuffer", module = "savant_rs.deepstream")]
-pub struct PyDsNvNonUniformSurfaceBuffer {
-    inner: DsNvNonUniformSurfaceBuffer,
+#[pyclass(name = "NonUniformBatch", module = "savant_rs.deepstream")]
+pub struct PyNonUniformBatch {
+    inner: NonUniformBatch,
 }
 
 #[pymethods]
-impl PyDsNvNonUniformSurfaceBuffer {
+impl PyNonUniformBatch {
     #[new]
     #[pyo3(signature = (max_batch_size, gpu_id=0))]
     fn new(max_batch_size: u32, gpu_id: u32) -> PyResult<Self> {
-        let inner = DsNvNonUniformSurfaceBuffer::new(max_batch_size, gpu_id)
+        let inner = NonUniformBatch::new(max_batch_size, gpu_id)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self { inner })
     }
@@ -520,13 +511,12 @@ impl PyDsNvNonUniformSurfaceBuffer {
     }
 
     /// Add a source buffer to the batch (zero-copy).
-    #[pyo3(signature = (src_buf, id=None))]
-    fn add(&mut self, src_buf: &Bound<'_, PyAny>, id: Option<i64>) -> PyResult<()> {
+    fn add(&mut self, src_buf: &Bound<'_, PyAny>) -> PyResult<()> {
         let src_buf_ptr = extract_buf_ptr(src_buf)?;
         let src_buf =
             unsafe { gst::Buffer::from_glib_none(src_buf_ptr as *const gst::ffi::GstBuffer) };
         self.inner
-            .add(&src_buf, id)
+            .add(&src_buf)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 

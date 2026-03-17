@@ -13,14 +13,14 @@
 //! `nvvideoconvert` using the CUDA legacy default stream (stream 0).
 //!
 //! The user acquires NvBufSurface buffers from the embedded
-//! [`DsNvUniformSurfaceBufferGenerator`], renders content into them, and then submits
+//! [`BufferGenerator`], renders content into them, and then submits
 //! them to the encoder. Encoded frames are collected from the appsink.
 
 use crate::error::EncoderError;
 use crate::{Codec, EncodedFrame, EncoderConfig, VideoFormat};
-use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, CudaStream, DsNvSurfaceBufferGenerator,
-    DsNvUniformSurfaceBufferGenerator, TransformConfig,
+use deepstream_buffers::{
+    bridge_savant_id_meta, pipeline::BufferGeneratorExt, BufferGenerator, CudaStream,
+    TransformConfig,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -46,14 +46,14 @@ type PtsMap = HashMap<u64, (u128, Option<u64>)>;
 /// GPU-accelerated video encoder.
 ///
 /// Encapsulates a DeepStream encoding pipeline with an
-/// [`DsNvUniformSurfaceBufferGenerator`] for buffer management. The encoder validates
+/// [`BufferGenerator`] for buffer management. The encoder validates
 /// that B-frames are never enabled and that PTS values are monotonically
 /// increasing.
 ///
 /// # Lifecycle
 ///
 /// 1. Create with [`NvEncoder::new`].
-/// 2. Access the [`DsNvUniformSurfaceBufferGenerator`] via [`generator()`](Self::generator)
+/// 2. Access the [`BufferGenerator`] via [`generator()`](Self::generator)
 ///    to acquire NVMM buffers for rendering.
 /// 3. Submit filled buffers with [`submit_frame`](Self::submit_frame).
 /// 4. Pull encoded frames with [`pull_encoded`](Self::pull_encoded).
@@ -67,7 +67,7 @@ pub struct NvEncoder {
     /// AppSink for pulling encoded frames.
     appsink: gst_app::AppSink,
     /// The NvBufSurface buffer generator for user-facing format (e.g. RGBA).
-    generator: DsNvUniformSurfaceBufferGenerator,
+    generator: BufferGenerator,
     /// Codec used by this encoder.
     codec: Codec,
     /// Last **input** PTS — used to reject non-monotonic submissions.
@@ -90,7 +90,7 @@ pub struct NvEncoder {
 /// bypassing `nvvideoconvert` to avoid CUDA default-stream serialization.
 struct ConvertContext {
     /// Generator for encoder-native format buffers (NV12 or I420).
-    native_generator: DsNvSurfaceBufferGenerator,
+    native_generator: BufferGenerator,
     /// Dedicated non-blocking CUDA stream (`cudaStreamNonBlocking`).
     cuda_stream: CudaStream,
 }
@@ -197,17 +197,13 @@ impl NvEncoder {
         // while hardware is still reading from it.
         const POOL_SIZE: u32 = 1;
 
-        let generator = DsNvUniformSurfaceBufferGenerator::builder(
-            config.format,
-            config.width,
-            config.height,
-            1,
-        )
-        .fps(config.fps_num, config.fps_den)
-        .gpu_id(config.gpu_id)
-        .mem_type(config.mem_type)
-        .pool_size(POOL_SIZE)
-        .build()?;
+        let generator = BufferGenerator::builder(config.format, config.width, config.height)
+            .fps(config.fps_num, config.fps_den)
+            .gpu_id(config.gpu_id)
+            .mem_type(config.mem_type)
+            .min_buffers(POOL_SIZE)
+            .max_buffers(POOL_SIZE)
+            .build()?;
 
         // When the user format differs from the encoder-native format, set up
         // a ConvertContext with a second generator + non-blocking CUDA stream.
@@ -219,7 +215,7 @@ impl NvEncoder {
             None
         } else if needs_convert {
             let native_generator =
-                DsNvSurfaceBufferGenerator::builder(native_format, config.width, config.height)
+                BufferGenerator::builder(native_format, config.width, config.height)
                     .fps(config.fps_num, config.fps_den)
                     .gpu_id(config.gpu_id)
                     .mem_type(config.mem_type)
@@ -264,9 +260,9 @@ impl NvEncoder {
         // When conversion is needed, appsrc receives already-converted
         // native-format buffers (not the user's RGBA).
         let appsrc_caps = if let Some(ctx) = &convert_ctx {
-            ctx.native_generator.nvmm_caps()
+            ctx.native_generator.nvmm_caps_gst()
         } else {
-            generator.nvmm_caps()
+            generator.nvmm_caps_gst()
         };
         let appsrc_elem: &gst::Element = appsrc.upcast_ref();
         appsrc_elem.set_property("caps", appsrc_caps);
@@ -432,11 +428,11 @@ impl NvEncoder {
         })
     }
 
-    /// Access the internal [`DsNvUniformSurfaceBufferGenerator`].
+    /// Access the internal [`BufferGenerator`].
     ///
     /// Use this to acquire NVMM buffers for rendering before submitting
     /// them to the encoder.
-    pub fn generator(&self) -> &DsNvUniformSurfaceBufferGenerator {
+    pub fn generator(&self) -> &BufferGenerator {
         &self.generator
     }
 
@@ -494,22 +490,37 @@ impl NvEncoder {
         // with a dedicated non-blocking CUDA stream.
         let push_buffer = if let Some(ctx) = &self.convert_ctx {
             let transform_config = TransformConfig {
-                padding: deepstream_nvbufsurface::Padding::None,
+                padding: deepstream_buffers::Padding::None,
                 dst_padding: None,
-                interpolation: deepstream_nvbufsurface::Interpolation::Nearest,
-                compute_mode: deepstream_nvbufsurface::ComputeMode::Default,
+                interpolation: deepstream_buffers::Interpolation::Nearest,
+                compute_mode: deepstream_buffers::ComputeMode::Default,
                 cuda_stream: ctx.cuda_stream.clone(),
             };
 
-            let mut native_buf = ctx
+            let src_shared = deepstream_buffers::SharedBuffer::from(buffer);
+            let src_view =
+                deepstream_buffers::SurfaceView::from_buffer(&src_shared, 0).map_err(|e| {
+                    EncoderError::PipelineError(format!(
+                        "Failed to create SurfaceView from source buffer: {}",
+                        e
+                    ))
+                })?;
+            let dst_shared = ctx
                 .native_generator
-                .transform(&buffer, &transform_config, None, None)
+                .transform(&src_view, &transform_config, None)
                 .map_err(|e| {
                     EncoderError::PipelineError(format!(
                         "NvBufSurfTransform (format conversion) failed: {}",
                         e
                     ))
                 })?;
+            drop(src_view);
+            drop(src_shared);
+            let mut native_buf = dst_shared.into_buffer().map_err(|_| {
+                EncoderError::BufferAcquisitionFailed(
+                    "SharedBuffer has outstanding references".into(),
+                )
+            })?;
 
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {

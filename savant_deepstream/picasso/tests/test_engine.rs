@@ -28,8 +28,8 @@ fn make_gst_buffer() -> gstreamer::Buffer {
     gstreamer::Buffer::new()
 }
 
-fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 
 struct CountingBypassCb {

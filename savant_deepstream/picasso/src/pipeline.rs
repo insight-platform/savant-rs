@@ -1,7 +1,7 @@
 pub(crate) mod bypass;
 pub mod encode;
 
-use deepstream_nvbufsurface::SurfaceView;
+use deepstream_buffers::SurfaceView;
 use gstreamer as gst;
 use savant_core::primitives::frame::VideoFrameProxy;
 

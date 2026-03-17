@@ -1,7 +1,7 @@
 //! Shared test utilities for nvinfer integration tests.
 
-use deepstream_nvbufsurface::cuda_init;
-use deepstream_nvbufsurface::{ComputeMode, TransformConfig};
+use deepstream_buffers::cuda_init;
+use deepstream_buffers::{ComputeMode, TransformConfig};
 use gstreamer as gst;
 use std::collections::HashMap;
 use std::path::PathBuf;

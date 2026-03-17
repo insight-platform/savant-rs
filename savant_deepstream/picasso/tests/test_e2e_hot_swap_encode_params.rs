@@ -6,8 +6,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use picasso::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -78,7 +78,7 @@ fn e2e_hot_swap_encode_params() {
     };
     engine.set_source_spec("swap", spec1).unwrap();
 
-    let gen1 = DsNvSurfaceBufferGenerator::new(
+    let gen1 = BufferGenerator::new(
         VideoFormat::RGBA,
         W1,
         H1,
@@ -107,7 +107,7 @@ fn e2e_hot_swap_encode_params() {
     };
     engine.set_source_spec("swap", spec2).unwrap();
 
-    let gen2 = DsNvSurfaceBufferGenerator::new(
+    let gen2 = BufferGenerator::new(
         VideoFormat::RGBA,
         W2,
         H2,

@@ -19,7 +19,7 @@ members = [
     "services/common",
     "savant_deepstream/deepstream-sys",
     "savant_deepstream/deepstream",
-    "savant_deepstream/nvbufsurface",
+    "savant_deepstream/buffers",
     "savant_deepstream/encoders",
     "savant_deepstream/nvidia_gpu_utils",
     "savant_deepstream/nvinfer",
@@ -152,7 +152,7 @@ savant_core_py = { path = "savant_core/savant_core_py" }
 savant_protobuf = { path = "savant_protobuf" }
 savant_rs = { path = "savant_python" }
 savant_gstreamer = { path = "savant_gstreamer/savant_gstreamer" }
-deepstream_nvbufsurface = { path = "savant_deepstream/nvbufsurface" }
+deepstream_buffers = { path = "savant_deepstream/buffers" }
 nvidia_gpu_utils = { path = "savant_deepstream/nvidia_gpu_utils" }
 savant_services_common = { path = "services/common" }
 

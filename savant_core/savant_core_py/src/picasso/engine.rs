@@ -136,7 +136,7 @@ impl PyPicassoEngine {
             let shared = crate::deepstream::extract_shared_buffer(buf)?;
             py.detach(|| {
                 let view =
-                    deepstream_nvbufsurface::SurfaceView::from_shared(shared, 0).map_err(|e| {
+                    deepstream_buffers::SurfaceView::from_buffer(shared, 0).map_err(|e| {
                         pyo3::exceptions::PyValueError::new_err(format!(
                             "buffer does not contain a valid NvBufSurface: {e}"
                         ))

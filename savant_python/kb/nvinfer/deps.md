@@ -30,8 +30,8 @@ from savant_rs.primitives.geometry import (
 from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer,           # batched GPU buffer guard
     SurfaceView,                       # unified GPU surface descriptor (resolves CUDA ptr on Jetson)
-    DsNvSurfaceBufferGenerator,        # single-surface generator
-    DsNvUniformSurfaceBufferGenerator, # multi-surface batch generator
+    BufferGenerator,        # single-surface generator
+    UniformBatchGenerator, # multi-surface batch generator
     init_cuda,                         # call once before any GPU work
 )
 ```
@@ -56,19 +56,19 @@ GPU surface memory operations exposed to Python (`memset`, `upload`, `memset_slo
 ### Creating a single NvBufSurface
 
 ```python
-gen = DsNvSurfaceBufferGenerator(gpu_id=0)
+gen = BufferGenerator(gpu_id=0)
 surface = gen.create(width=1920, height=1080, format="RGBA", batch_size=1)
-ptr = surface.acquire_surface_with_ptr(0)
+ptr = surface.acquire_with_ptr(0)
 # ptr is a raw GPU pointer (int) — write pixels via ctypes CUDA memcpy
 ```
 
 ### Building a batched buffer
 
 ```python
-batch_gen = DsNvUniformSurfaceBufferGenerator(
+batch_gen = UniformBatchGenerator(
     gpu_id=0, width=1920, height=1080, format="RGBA", batch_size=N
 )
-batch_gen.fill_slot(0, surface)
+batch_gen.transform_slot(0, surface)
 buf = batch_gen.finalize()
 gst_buffer = buf.as_gst_buffer()
 ```

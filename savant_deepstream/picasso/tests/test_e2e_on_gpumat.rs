@@ -8,9 +8,9 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::ffi;
+use deepstream_buffers::{SurfaceView, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::ffi;
-use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -128,11 +128,12 @@ fn e2e_on_gpumat_fires_when_enabled() {
     };
     engine.set_source_spec("gpumat", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
@@ -209,11 +210,12 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     };
     engine.set_source_spec("gpumat-off", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
@@ -256,7 +258,7 @@ fn e2e_external_cuda_stream_rejected() {
     // Create a TransformConfig with a non-default cuda_stream.
     let transform = TransformConfig {
         cuda_stream: unsafe {
-            deepstream_nvbufsurface::CudaStream::from_raw(0xDEAD_BEEF as *mut std::ffi::c_void)
+            deepstream_buffers::CudaStream::from_raw(0xDEAD_BEEF as *mut std::ffi::c_void)
         },
         ..Default::default()
     };
@@ -320,11 +322,12 @@ fn e2e_callback_order_gpumat_skia() {
     };
     engine.set_source_spec("order-test", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
@@ -396,11 +399,12 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
     };
     engine.set_source_spec("double-test", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, W, H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 

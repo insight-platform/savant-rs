@@ -194,18 +194,15 @@ impl PyElementOutput {
 #[pyclass(name = "BatchInferenceOutput", module = "savant_rs.nvinfer")]
 pub struct PyBatchInferenceOutput {
     shared: SharedOutput,
-    batch_id: u64,
     num_elements: usize,
 }
 
 impl PyBatchInferenceOutput {
     /// Wrap a Rust `BatchInferenceOutput` for Python.
     pub(crate) fn from_rust(output: BatchInferenceOutput) -> Self {
-        let batch_id = output.batch_id();
         let num_elements = output.num_elements();
         Self {
             shared: Arc::new(Mutex::new(Some(output))),
-            batch_id,
             num_elements,
         }
     }
@@ -213,12 +210,6 @@ impl PyBatchInferenceOutput {
 
 #[pymethods]
 impl PyBatchInferenceOutput {
-    /// User-provided batch ID.
-    #[getter]
-    fn batch_id(&self) -> u64 {
-        self.batch_id
-    }
-
     /// Number of elements in the batch.
     #[getter]
     fn num_elements(&self) -> usize {
@@ -247,10 +238,22 @@ impl PyBatchInferenceOutput {
         Ok(list.unbind())
     }
 
+    /// Get the output GStreamer buffer.
+    fn buffer(&self) -> PyResult<crate::deepstream::PyDsNvBufSurfaceGstBuffer> {
+        let guard = self.shared.lock();
+        let output = guard.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("BatchInferenceOutput has been released")
+        })?;
+        let shared = output.buffer();
+        let buf = shared.into_buffer().map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "Cannot extract buffer: outstanding references",
+            )
+        })?;
+        Ok(crate::deepstream::PyDsNvBufSurfaceGstBuffer::new(buf))
+    }
+
     fn __repr__(&self) -> String {
-        format!(
-            "BatchInferenceOutput(batch_id={}, num_elements={})",
-            self.batch_id, self.num_elements,
-        )
+        format!("BatchInferenceOutput(num_elements={})", self.num_elements,)
     }
 }

@@ -18,8 +18,8 @@
 //! BENCH_NUM_SOURCES=8 cargo bench -p picasso --bench skia_pipeline
 //! ```
 
+use deepstream_buffers::{BufferGenerator, SurfaceView, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, SurfaceView, TransformConfig};
 use picasso::prelude::*;
 
 #[allow(dead_code)]
@@ -257,7 +257,7 @@ impl OnRender for BenchOnRender {
     fn call(
         &self,
         _source_id: &str,
-        renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        renderer: &mut deepstream_buffers::SkiaRenderer,
         frame: &VideoFrameProxy,
     ) {
         let canvas = renderer.canvas();
@@ -452,16 +452,11 @@ fn make_frame(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
     .unwrap()
 }
 
-fn make_nvmm_buffer(gen: &DsNvSurfaceBufferGenerator, frame_id: i64) -> gstreamer::Buffer {
-    let mut buf = gen.acquire_surface(Some(frame_id)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(
-            frame_id as u64 * FRAME_DURATION_NS,
-        ));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DURATION_NS));
-    }
-    buf
+fn make_nvmm_buffer(gen: &BufferGenerator, frame_id: i64) -> deepstream_buffers::SharedBuffer {
+    let shared = gen.acquire(Some(frame_id)).unwrap();
+    shared.set_pts_ns(frame_id as u64 * FRAME_DURATION_NS);
+    shared.set_duration_ns(FRAME_DURATION_NS);
+    shared
 }
 
 fn add_objects_to_frame(frame: &VideoFrameProxy, frame_idx: u64) {
@@ -640,9 +635,9 @@ fn main() {
     );
 
     // -- One NvBufSurface generator per source ----------------------------
-    let generators: Vec<DsNvSurfaceBufferGenerator> = (0..num_src)
+    let generators: Vec<BufferGenerator> = (0..num_src)
         .map(|_| {
-            DsNvSurfaceBufferGenerator::new(
+            BufferGenerator::new(
                 VideoFormat::RGBA,
                 WIDTH,
                 HEIGHT,
@@ -667,7 +662,7 @@ fn main() {
             let frame = make_frame(sid, WIDTH as i64, HEIGHT as i64);
             add_objects_to_frame(&frame, i as u64);
             let buf = make_nvmm_buffer(&generators[s], i);
-            let view = SurfaceView::from_buffer(buf, 0).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
             engine.send_frame(sid, frame, view, None).unwrap();
         }
         std::thread::sleep(std::time::Duration::from_millis(35));
@@ -693,7 +688,7 @@ fn main() {
             frame_mut.set_pts((i * FRAME_DURATION_NS) as i64).unwrap();
             add_objects_to_frame(&frame, i);
             let buf = make_nvmm_buffer(&generators[s], frame_id);
-            let view = SurfaceView::from_buffer(buf, 0).unwrap();
+            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
             engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }

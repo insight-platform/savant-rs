@@ -5,3 +5,9 @@ rustflags = "-C prefer-dynamic"
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "target-feature=+fp16"]
+
+[env]
+# All integration tests use #[serial] (GStreamer + CUDA state is process-global).
+# Running with multiple threads just causes lock contention and spurious
+# "has been running for over 60 seconds" warnings from the test harness.
+RUST_TEST_THREADS = "1"

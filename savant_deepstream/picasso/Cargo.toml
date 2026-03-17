@@ -18,7 +18,7 @@ crate-type = ["rlib"]
 [dependencies]
 savant_core = { path = "../../savant_core/savant_core" }
 deepstream_encoders = { path = "../encoders" }
-deepstream_nvbufsurface = { path = "../nvbufsurface", features = ["skia"] }
+deepstream_buffers = { path = "../buffers", features = ["skia"] }
 gstreamer = { workspace = true }
 skia-safe = { workspace = true }
 crossbeam = { workspace = true }
@@ -29,7 +29,7 @@ thiserror = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
-deepstream_nvbufsurface = { path = "../nvbufsurface", features = ["testing"] }
+deepstream_buffers = { path = "../buffers", features = ["testing"] }
 env_logger = "0.11"
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }

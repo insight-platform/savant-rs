@@ -70,17 +70,16 @@ pub struct ElementOutput {
 /// raw pointers inside any [`TensorView`]s still alive, so all `TensorView`s
 /// should be consumed before dropping `BatchInferenceOutput`.
 pub struct BatchInferenceOutput {
-    batch_id: u64,
     elements: Vec<ElementOutput>,
     /// When `true`, clear all frame object metas when this value is dropped.
     clear_on_drop: bool,
-    /// Holds the GStreamer sample (and thus the buffer) alive.
+    /// Ref-counted handle to the output GstBuffer (obtained via
+    /// `gst_mini_object_ref`, NOT `_copy`).
+    ///
     /// **Must be declared last** so that during field destruction (after
     /// `Drop::drop` returns), `elements` (which contain `TensorView`s with
-    /// pointers into this buffer) are dropped first, then `_sample` is
-    /// dropped. Rust drops fields in declaration order, so `_sample` last
-    /// ensures the buffer outlives the tensor views.
-    _sample: gstreamer::Sample,
+    /// raw pointers into this buffer's metadata) are dropped first.
+    buffer: deepstream_buffers::SharedBuffer,
 }
 
 // Safe to send: ownership transfer; pointers valid until BatchInferenceOutput is dropped.
@@ -89,24 +88,16 @@ unsafe impl Send for ElementOutput {}
 unsafe impl Send for BatchInferenceOutput {}
 
 impl BatchInferenceOutput {
-    /// Create from sample and extracted elements.
     pub(crate) fn new(
-        batch_id: u64,
-        sample: gstreamer::Sample,
+        buffer: deepstream_buffers::SharedBuffer,
         elements: Vec<ElementOutput>,
         clear_on_drop: bool,
     ) -> Self {
         Self {
-            batch_id,
             elements,
             clear_on_drop,
-            _sample: sample,
+            buffer,
         }
-    }
-
-    /// Get the user-provided batch ID.
-    pub fn batch_id(&self) -> u64 {
-        self.batch_id
     }
 
     /// Get per-element outputs.
@@ -118,17 +109,24 @@ impl BatchInferenceOutput {
     pub fn num_elements(&self) -> usize {
         self.elements.len()
     }
+
+    /// Get the output buffer as a [`SharedBuffer`](deepstream_buffers::SharedBuffer).
+    ///
+    /// The returned handle is a ref-counted clone pointing to the same
+    /// underlying `GstBuffer`.  `SavantIdMeta` attached to the input buffer
+    /// is preserved and can be read via
+    /// [`SharedBuffer::savant_ids()`](deepstream_buffers::SharedBuffer::savant_ids).
+    pub fn buffer(&self) -> deepstream_buffers::SharedBuffer {
+        self.buffer.clone()
+    }
 }
 
 impl Drop for BatchInferenceOutput {
     fn drop(&mut self) {
         if self.clear_on_drop {
-            if let Some(buffer) = self._sample.buffer() {
-                // _sample is still alive here (fields drop after this fn returns,
-                // in declaration order; _sample is last).
-                unsafe {
-                    clear_all_frame_objects(buffer.as_ptr() as *mut GstBuffer);
-                }
+            let guard = self.buffer.lock();
+            unsafe {
+                clear_all_frame_objects(guard.as_ref().as_ptr() as *mut GstBuffer);
             }
         }
     }
@@ -137,7 +135,6 @@ impl Drop for BatchInferenceOutput {
 impl std::fmt::Debug for BatchInferenceOutput {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BatchInferenceOutput")
-            .field("batch_id", &self.batch_id)
             .field("num_elements", &self.elements.len())
             .field("clear_on_drop", &self.clear_on_drop)
             .finish()

@@ -1,6 +1,6 @@
 //! Python enum wrappers and extraction helpers for DeepStream types.
 
-use deepstream_nvbufsurface::{ComputeMode, Interpolation, NvBufSurfaceMemType, Padding};
+use deepstream_buffers::{ComputeMode, Interpolation, NvBufSurfaceMemType, Padding};
 use pyo3::prelude::*;
 use savant_gstreamer::VideoFormat;
 

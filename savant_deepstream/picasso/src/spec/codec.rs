@@ -1,5 +1,5 @@
+use deepstream_buffers::TransformConfig;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
 
 /// Describes what to do with each incoming frame for a given source.
 #[derive(Debug, Clone)]

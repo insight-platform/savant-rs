@@ -22,9 +22,9 @@ try:
     )
     from savant_rs.primitives.geometry import RBBox
     from savant_rs.deepstream import (
-        DsNvNonUniformSurfaceBuffer,
-        DsNvSurfaceBufferGenerator,
-        DsNvUniformSurfaceBufferGenerator,
+        NonUniformBatch,
+        BufferGenerator,
+        UniformBatchGenerator,
         TransformConfig,
         init_cuda,
         nvbuf_as_gpu_mat,
@@ -264,7 +264,7 @@ def decode_gender(tensor_data: np.ndarray) -> str:
 
 Use `SurfaceView.from_buffer()` to resolve the CUDA device pointer, then
 `nvbuf_as_gpu_mat` to wrap it as an OpenCV `GpuMat`. On Jetson, the raw
-`data_ptr` returned by `acquire_surface_with_ptr` is a VIC-managed pointer,
+`data_ptr` returned by `acquire_with_ptr` is a VIC-managed pointer,
 **not** a valid CUDA pointer — `SurfaceView.from_buffer()` resolves it
 correctly on all platforms.
 
@@ -272,11 +272,11 @@ correctly on all platforms.
 from savant_rs.deepstream import SurfaceView, nvbuf_as_gpu_mat
 
 # Old (broken on Jetson):
-# src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+# src_buf, data_ptr, pitch = src_gen.acquire_with_ptr(0)
 # with nvbuf_as_gpu_mat(data_ptr, pitch, W, H) as (gpu_mat, stream): ...
 
 # New (works on all platforms):
-src_buf = src_gen.acquire_surface(id=0)
+src_buf = src_gen.acquire(id=0)
 view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
 with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, W, H) as (gpu_mat, stream):
     gpu_mat.upload(np.ascontiguousarray(canvas), stream)
@@ -288,7 +288,7 @@ Instead of raw ctypes CUDA calls (`cuMemsetD8_v2`), use the surface buffer's
 `memset` method:
 
 ```python
-buf = gen.acquire_surface()
+buf = gen.acquire()
 buf.memset(0)
 ```
 
@@ -299,7 +299,7 @@ Instead of `nvbuf_as_gpu_mat` + OpenCV `GpuMat.upload`, use the surface buffer's
 
 ```python
 pixels = np.zeros((480, 640, 4), dtype=np.uint8)  # (H, W, C) RGBA
-buf = gen.acquire_surface()
+buf = gen.acquire()
 buf.upload(pixels)
 ```
 
@@ -320,19 +320,19 @@ batch.upload_slot(0, pixels)
 ## Uniform batching pattern
 
 ```python
-src_gen = DsNvSurfaceBufferGenerator(
+src_gen = BufferGenerator(
     format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
 )
-src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+src_buf, data_ptr, pitch = src_gen.acquire_with_ptr(0)
 _upload_canvas_to_gpu(canvas, data_ptr, pitch)
 
-batched_gen = DsNvUniformSurfaceBufferGenerator(
+batched_gen = UniformBatchGenerator(
     format="RGBA", width=W, height=H,
     max_batch_size=32, pool_size=2, gpu_id=0,
 )
 config = TransformConfig()
-batch = batched_gen.acquire_batched_surface(config)
-batch.fill_slot(src_buf, id=0)
+batch = batched_gen.acquire_batch(config)
+batch.transform_slot(src_buf, id=0)
 batch.finalize()
 gst_buffer = batch.as_gst_buffer()
 ```
@@ -344,13 +344,13 @@ transform/copy.  After calling `as_gst_buffer()`, delete all source
 references so the gst_buffer has refcount 1 (writable).
 
 ```python
-src_gen = DsNvSurfaceBufferGenerator(
+src_gen = BufferGenerator(
     format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
 )
-src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+src_buf, data_ptr, pitch = src_gen.acquire_with_ptr(0)
 _upload_canvas_to_gpu(canvas, data_ptr, pitch)
 
-batch = DsNvNonUniformSurfaceBuffer(max_batch_size=32, gpu_id=0)
+batch = NonUniformBatch(max_batch_size=32, gpu_id=0)
 batch.add(src_buf, id=0)
 batch.finalize()
 gst_buffer = batch.as_gst_buffer()

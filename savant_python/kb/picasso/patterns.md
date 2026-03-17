@@ -3,7 +3,7 @@
 ## Two Test Categories
 
 ### NOGPU Tests (test_picasso_init.py style)
-- No CUDA, no DsNvSurfaceBufferGenerator, no send_frame
+- No CUDA, no BufferGenerator, no send_frame
 - Test: GeneralSpec, Callbacks, SourceSpec, CodecSpec (drop/bypass), ConditionalSpec, ObjectDrawSpec, EvictionDecision, engine init/shutdown
 - Only need picasso import guard (no deepstream runtime check)
 
@@ -26,7 +26,7 @@ if not hasattr(_mod, "PicassoEngine"):
     pytest.skip("deepstream feature disabled", allow_module_level=True)
 
 _ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
+if not hasattr(_ds, "BufferGenerator"):
     pytest.skip("deepstream feature disabled", allow_module_level=True)
 
 def _ds_runtime_available() -> bool:
@@ -118,8 +118,8 @@ def make_frame(source_id: str, width=1280, height=720) -> VideoFrame:
 FPS = 30
 FRAME_DURATION_NS = 1_000_000_000 // FPS
 
-gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
-buf = gen.acquire_surface(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard, auto-unrefs)
+gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+buf = gen.acquire(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard, auto-unrefs)
 # pts/duration are taken from the VideoFrame; set them before send_frame:
 frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
@@ -226,13 +226,13 @@ class TestEncode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_encode_spec())
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(10):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
             add_objects(frame)
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
@@ -266,12 +266,12 @@ class TestBypass:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
@@ -296,12 +296,12 @@ class TestDrop:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.drop_frames()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, 30, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
             frame.pts = i * FRAME_DURATION_NS
-            buf = gen.acquire_surface_with_params(
+            buf = gen.acquire_with_params(
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
@@ -524,7 +524,7 @@ def build_draw_spec() -> ObjectDrawSpec:
     return spec
 
 # 2. Per-frame: pre-fill bg + add objects + send
-buf = gen.acquire_surface(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
+buf = gen.acquire(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
 with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 

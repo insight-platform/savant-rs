@@ -10,7 +10,7 @@
 
 ### GPU Tests (encode, conditional, render, full pipeline)
 - Require `gstreamer::init()` + `cuda_init(0)`
-- Use `DsNvSurfaceBufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(buf, 0).unwrap()` (by value, consuming buf)
+- Use `BufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(buf, 0).unwrap()` (by value, consuming buf)
 - Helper: `make_gpu_surface_view(&gen, idx, dur_ns)` in `tests/common/mod.rs`
 - Cover: full encode pipeline, Skia rendering, conditional gates, on_render/on_gpumat callbacks
 
@@ -56,8 +56,8 @@ fn make_frame_sized(source_id: &str, w: i64, h: i64) -> VideoFrameProxy {
 
 ### Make SurfaceView (NOGPU)
 ```rust
-fn make_surface_view() -> deepstream_nvbufsurface::SurfaceView {
-    deepstream_nvbufsurface::SurfaceView::wrap(make_gst_buffer())
+fn make_surface_view() -> deepstream_buffers::SurfaceView {
+    deepstream_buffers::SurfaceView::wrap(make_gst_buffer())
 }
 ```
 Wraps a plain `gst::Buffer::new()` — surface params are zeroed, suitable for Drop/Bypass paths.
@@ -73,20 +73,20 @@ fn make_gst_buffer() -> gstreamer::Buffer {
 ### Make GPU SurfaceView
 ```rust
 fn make_gpu_surface_view(
-    gen: &DsNvSurfaceBufferGenerator,
+    gen: &BufferGenerator,
     idx: u64,
     dur_ns: u64,
-) -> deepstream_nvbufsurface::SurfaceView {
-    let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap()
+) -> deepstream_buffers::SurfaceView {
+    let buf = gen.acquire(Some(idx as i64)).unwrap();
+    deepstream_buffers::SurfaceView::from_buffer(buf, 0).unwrap()
 }
 ```
-Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests (consumes buf by value). On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_shared(shared.clone(), i)`.
+Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests (consumes buf by value). On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_buffer(shared.clone(), i)`.
 
 ### Make GPU Buffer (internal helper)
 ```rust
-fn make_gpu_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
-    let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
+fn make_gpu_buffer(gen: &BufferGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
+    let buf = gen.acquire(Some(idx as i64)).unwrap();
     buf
 }
 ```
@@ -182,7 +182,7 @@ impl OnEviction for TerminateEviction {
 ```rust
 struct RenderCounter(Arc<AtomicUsize>);
 impl OnRender for RenderCounter {
-    fn call(&self, _: &str, _: &mut deepstream_nvbufsurface::SkiaRenderer, _: &VideoFrameProxy) {
+    fn call(&self, _: &str, _: &mut deepstream_buffers::SkiaRenderer, _: &VideoFrameProxy) {
         self.0.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -443,7 +443,7 @@ fn encode_pipeline_basic() {
     };
     engine.set_source_spec("src", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
+    let gen = BufferGenerator::new(
         VideoFormat::RGBA, W, H, 30, 1, 0, NvBufSurfaceMemType::Default,
     ).unwrap();
 

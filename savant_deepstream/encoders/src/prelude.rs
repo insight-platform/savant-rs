@@ -17,10 +17,10 @@ pub use crate::{EncodedFrame, EncoderConfig};
 // Codec (re-exported from savant_gstreamer)
 pub use savant_gstreamer::Codec;
 
-// NvBufSurface utilities (re-exported from deepstream_nvbufsurface)
-pub use deepstream_nvbufsurface::{
-    cuda_init, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SharedMutableGstBuffer,
-    SurfaceView, VideoFormat,
+// NvBufSurface utilities (re-exported from deepstream_buffers)
+pub use deepstream_buffers::{
+    cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
+    UniformBatchGenerator, VideoFormat,
 };
 
 // Encoder properties — aggregate enum and all per-codec/platform structs

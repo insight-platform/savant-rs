@@ -2,9 +2,9 @@
 
 mod common;
 
-use deepstream_nvbufsurface::{
-    DsNvNonUniformSurfaceBuffer, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
-    SavantIdMetaKind, SharedMutableGstBuffer, SurfaceView, VideoFormat,
+use deepstream_buffers::{
+    BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
+    SurfaceView, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{
     attach_batch_meta_with_rois, DataType, MetaClearPolicy, NvInfer, NvInferConfig, Roi,
@@ -13,21 +13,18 @@ use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
 
-fn make_identity_batch(num_frames: u32) -> SharedMutableGstBuffer {
+fn make_identity_batch(num_frames: u32) -> SharedBuffer {
     common::init();
 
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        12,
-        12,
-        1,
-        4,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("src generator");
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(4)
+        .max_buffers(4)
+        .build()
+        .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -39,18 +36,18 @@ fn make_identity_batch(num_frames: u32) -> SharedMutableGstBuffer {
     .expect("batched generator");
 
     let config = common::platform_transform_config();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids: Vec<SavantIdMetaKind> = (0..num_frames)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
-    let mut ids = Vec::new();
     for i in 0..num_frames {
-        let src_shared = src_gen.acquire_buffer(Some(i as i64)).unwrap();
-        batch
-            .fill_slot(&*src_shared.lock(), None, Some(i as i64))
-            .unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
 
-    batch.finalize(num_frames, ids).unwrap();
+    batch.finalize().unwrap();
     batch.shared_buffer()
 }
 
@@ -60,7 +57,7 @@ fn make_identity_batch(num_frames: u32) -> SharedMutableGstBuffer {
 /// The identity model with `net-scale-factor=1.0` converts each RGBA u8 pixel
 /// to RGB float32: `output_value = pixel_byte * 1.0`.
 /// Shape is [3, 12, 12] = 432 elements, each equal to `fill_byte as f64`.
-fn make_identity_batch_known(num_frames: u32, fill_byte: u8) -> (SharedMutableGstBuffer, f64) {
+fn make_identity_batch_known(num_frames: u32, fill_byte: u8) -> (SharedBuffer, f64) {
     let (buf, sums) = make_identity_batch_per_frame(&vec![fill_byte; num_frames as usize]);
     (buf, sums[0])
 }
@@ -68,22 +65,20 @@ fn make_identity_batch_known(num_frames: u32, fill_byte: u8) -> (SharedMutableGs
 /// Build a batch where each frame `i` is memset to `fill_bytes[i]`.
 ///
 /// Returns the batch buffer and a vector of expected per-element output sums.
-fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (SharedMutableGstBuffer, Vec<f64>) {
+fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (SharedBuffer, Vec<f64>) {
     common::init();
 
     let num_frames = fill_bytes.len() as u32;
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        12,
-        12,
-        1,
-        num_frames.max(4),
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("src generator");
+    let min_bufs = num_frames.max(4);
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(min_bufs)
+        .max_buffers(min_bufs)
+        .build()
+        .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -95,25 +90,25 @@ fn make_identity_batch_per_frame(fill_bytes: &[u8]) -> (SharedMutableGstBuffer, 
     .expect("batched generator");
 
     let config = common::platform_transform_config();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids: Vec<SavantIdMetaKind> = (0..num_frames)
+        .map(|i| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
-    let mut ids = Vec::new();
     for (i, &fill_byte) in fill_bytes.iter().enumerate() {
-        let src_shared = src_gen.acquire_buffer(Some(i as i64)).unwrap();
-        let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-        deepstream_nvbufsurface::memset_surface(&view, fill_byte).expect("memset_surface");
+        let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
+        let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        view.memset(fill_byte).expect("memset_surface");
         drop(view);
-        batch
-            .fill_slot(&*src_shared.lock(), None, Some(i as i64))
-            .unwrap();
-        ids.push(SavantIdMetaKind::Frame(i as i64));
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
 
     let expected_sums: Vec<f64> = fill_bytes
         .iter()
         .map(|&b| 3.0 * 12.0 * 12.0 * (b as f64))
         .collect();
-    batch.finalize(num_frames, ids).unwrap();
+    batch.finalize().unwrap();
     (batch.shared_buffer(), expected_sums)
 }
 
@@ -146,27 +141,24 @@ fn identity_engine_flexible() -> Option<NvInfer> {
 /// Build a non-uniform batch from per-frame specs `(width, height, fill_byte, frame_id)`.
 ///
 /// Each frame is a separate GPU surface filled with a constant byte.
-fn make_nonuniform_identity_batch(frames: &[(u32, u32, u8, i64)]) -> SharedMutableGstBuffer {
+fn make_nonuniform_identity_batch(frames: &[(u32, u32, u8, i64)]) -> SharedBuffer {
     common::init();
-    let mut batch = DsNvNonUniformSurfaceBuffer::new(0);
+    let mut batch = NonUniformBatch::new(0);
 
     let mut ids = Vec::new();
     for &(w, h, fill, id) in frames {
-        let gen = DsNvUniformSurfaceBufferGenerator::new(
-            VideoFormat::RGBA,
-            w,
-            h,
-            1,
-            1,
-            0,
-            NvBufSurfaceMemType::Default,
-        )
-        .expect("src generator");
+        let gen = BufferGenerator::builder(VideoFormat::RGBA, w, h)
+            .gpu_id(0)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .min_buffers(1)
+            .max_buffers(1)
+            .build()
+            .expect("src generator");
 
-        let src_shared = gen.acquire_buffer(Some(id)).unwrap();
-        let view = SurfaceView::from_shared(&src_shared, 0).unwrap();
-        deepstream_nvbufsurface::memset_surface(&view, fill).expect("memset_surface");
-        batch.add(&view, Some(id)).unwrap();
+        let src_shared = gen.acquire(Some(id)).unwrap();
+        let view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        view.memset(fill).expect("memset_surface");
+        batch.add(&view).unwrap();
         drop(view);
         ids.push(SavantIdMetaKind::Frame(id));
     }
@@ -222,11 +214,8 @@ fn test_sync_single_frame() {
     };
 
     let (shared, expected_sum) = make_identity_batch_known(1, 128);
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 1, None)
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
 
-    assert_eq!(output.batch_id(), 1);
     assert_eq!(output.num_elements(), 1);
 
     let elem = &output.elements()[0];
@@ -267,11 +256,8 @@ fn test_sync_uniform_batch() {
     };
 
     let (shared, expected_sum) = make_identity_batch_known(4, 200);
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 42, None)
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
 
-    assert_eq!(output.batch_id(), 42);
     assert_eq!(output.num_elements(), 4);
 
     for (i, elem) in output.elements().iter().enumerate() {
@@ -303,9 +289,7 @@ fn test_identity_different_fill_values() {
 
     let fills: Vec<u8> = vec![64, 128, 200];
     let (shared, expected_sums) = make_identity_batch_per_frame(&fills);
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 7, None)
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
 
     assert_eq!(output.num_elements(), fills.len());
     for (i, (elem, &expected_sum)) in output.elements().iter().zip(&expected_sums).enumerate() {
@@ -333,18 +317,15 @@ fn test_element_ids_preserved() {
     // user-supplied IDs propagate, not just frame indices.
     let ids_to_send: Vec<i64> = vec![42, -7, 1000, 0];
 
-    let src_gen = DsNvUniformSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        12,
-        12,
-        1,
-        4,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("src generator");
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(4)
+        .max_buffers(4)
+        .build()
+        .expect("src generator");
 
-    let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+    let batched_gen = UniformBatchGenerator::new(
         VideoFormat::RGBA,
         12,
         12,
@@ -356,24 +337,22 @@ fn test_element_ids_preserved() {
     .expect("batched generator");
 
     let config = common::platform_transform_config();
-    let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
-    let mut id_kinds = Vec::new();
-    for &id in &ids_to_send {
-        let src_shared = src_gen.acquire_buffer(Some(id)).unwrap();
-        batch
-            .fill_slot(&*src_shared.lock(), None, Some(id))
-            .unwrap();
-        id_kinds.push(SavantIdMetaKind::Frame(id));
+    let id_kinds: Vec<SavantIdMetaKind> = ids_to_send
+        .iter()
+        .map(|&id| SavantIdMetaKind::Frame(id))
+        .collect();
+    let mut batch = batched_gen.acquire_batch(config, id_kinds).unwrap();
+    for (i, &id) in ids_to_send.iter().enumerate() {
+        let src_shared = src_gen.acquire(Some(id)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(i as u32, &src_view, None).unwrap();
     }
-    batch.finalize(ids_to_send.len() as u32, id_kinds).unwrap();
+    batch.finalize().unwrap();
     let shared = batch.shared_buffer();
     drop(batch); // Release batch's reference so shared is sole owner
 
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 99, None)
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
 
-    assert_eq!(output.batch_id(), 99);
     assert_eq!(output.num_elements(), ids_to_send.len());
     let received_ids: Vec<Option<i64>> = output.elements().iter().map(|e| e.frame_id).collect();
     assert_eq!(
@@ -401,16 +380,14 @@ fn test_async_callback() {
 
     let props = common::identity_properties();
     let config = NvInferConfig::new(props, "RGBA", 12, 12).queue_depth(2);
-    let callback = Box::new(move |output: nvinfer::BatchInferenceOutput| {
-        received_clone.store(output.batch_id(), Ordering::SeqCst);
+    let callback = Box::new(move |_output: nvinfer::BatchInferenceOutput| {
+        received_clone.store(1, Ordering::SeqCst);
     });
     let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
-    for batch_id in 1..=3u64 {
+    for _ in 1..=3u64 {
         let shared = make_identity_batch(1);
-        engine
-            .submit(shared.into_buffer().expect("sole owner"), batch_id, None)
-            .expect("submit");
+        engine.submit(shared, None).expect("submit");
     }
 
     std::thread::sleep(std::time::Duration::from_secs(5));
@@ -496,9 +473,7 @@ fn test_two_rois_same_rect_same_output() {
     )]
     .into();
 
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 55, Some(&rois))
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
 
     // Both ROIs should produce one ElementOutput each.
     assert_eq!(
@@ -546,11 +521,8 @@ fn test_nonuniform_batch_two_rois_each() {
 
     let rois = full_frame_rois(&[(24, 24, &[100, 101]), (36, 36, &[200, 201])]);
 
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 77, Some(&rois))
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
 
-    assert_eq!(output.batch_id(), 77, "batch_id must survive round-trip");
     assert_eq!(
         output.num_elements(),
         4,
@@ -616,11 +588,8 @@ fn test_nonuniform_batch_unequal_roi_counts() {
 
     let rois = full_frame_rois(&[(24, 24, &[10]), (36, 36, &[20, 21, 22])]);
 
-    let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 88, Some(&rois))
-        .expect("infer_sync");
+    let output = engine.infer_sync(shared, Some(&rois)).expect("infer_sync");
 
-    assert_eq!(output.batch_id(), 88);
     assert_eq!(
         output.num_elements(),
         4,
@@ -671,8 +640,8 @@ fn test_nonuniform_batch_unequal_roi_counts() {
 }
 
 /// Interleave uniform and non-uniform batches through the same flexible
-/// engine.  Verifies the pipeline handles both `DsNvUniformSurfaceBuffer`
-/// and `DsNvNonUniformSurfaceBuffer` without renegotiating or leaking state.
+/// engine.  Verifies the pipeline handles both `SurfaceBatch`
+/// and `NonUniformBatch` without renegotiating or leaking state.
 #[test]
 #[serial]
 fn test_mixed_uniform_nonuniform_sequential() {
@@ -688,9 +657,8 @@ fn test_mixed_uniform_nonuniform_sequential() {
         let shared = make_nonuniform_identity_batch(frames);
         let rois = full_frame_rois(&[(24, 24, &[10]), (36, 36, &[20])]);
         let output = engine
-            .infer_sync(shared.into_buffer().expect("sole owner"), 1, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("batch 1 infer_sync");
-        assert_eq!(output.batch_id(), 1);
         assert_eq!(output.num_elements(), 2);
         for (i, &fill) in [50u8, 150].iter().enumerate() {
             let expected_sum = 3.0 * 12.0 * 12.0 * (fill as f64);
@@ -708,9 +676,8 @@ fn test_mixed_uniform_nonuniform_sequential() {
         let (shared, expected_sum) = make_identity_batch_known(2, 100);
         let rois = full_frame_rois(&[(12, 12, &[30]), (12, 12, &[31])]);
         let output = engine
-            .infer_sync(shared.into_buffer().expect("sole owner"), 2, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("batch 2 infer_sync");
-        assert_eq!(output.batch_id(), 2);
         assert_eq!(output.num_elements(), 2);
         for (i, elem) in output.elements().iter().enumerate() {
             let actual_sum = tensor_f32_sum(&elem.tensors[0]);
@@ -728,9 +695,8 @@ fn test_mixed_uniform_nonuniform_sequential() {
         let shared = make_nonuniform_identity_batch(frames);
         let rois = full_frame_rois(&[(48, 48, &[50]), (12, 12, &[60])]);
         let output = engine
-            .infer_sync(shared.into_buffer().expect("sole owner"), 3, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("batch 3 infer_sync");
-        assert_eq!(output.batch_id(), 3);
         assert_eq!(output.num_elements(), 2);
         for (i, &fill) in [200u8, 80].iter().enumerate() {
             let expected_sum = 3.0 * 12.0 * 12.0 * (fill as f64);
@@ -748,9 +714,8 @@ fn test_mixed_uniform_nonuniform_sequential() {
         let (shared, expected_sum) = make_identity_batch_known(1, 255);
         let rois = full_frame_rois(&[(12, 12, &[70])]);
         let output = engine
-            .infer_sync(shared.into_buffer().expect("sole owner"), 4, Some(&rois))
+            .infer_sync(shared, Some(&rois))
             .expect("batch 4 infer_sync");
-        assert_eq!(output.batch_id(), 4);
         assert_eq!(output.num_elements(), 1);
         let actual_sum = tensor_f32_sum(&output.elements()[0].tensors[0]);
         let rel = (actual_sum - expected_sum).abs() / expected_sum;
@@ -782,10 +747,9 @@ fn test_flexible_engine_no_rois_runs_inference() {
     );
 
     let output = engine
-        .infer_sync(shared.into_buffer().expect("sole owner"), 99, None)
+        .infer_sync(shared, None)
         .expect("infer_sync with flexible engine and no ROIs");
 
-    assert_eq!(output.batch_id(), 99);
     assert_eq!(
         output.num_elements(),
         2,
@@ -801,4 +765,71 @@ fn test_flexible_engine_no_rois_runs_inference() {
             "element {i}: expected_sum={expected_sum}, actual_sum={actual_sum}, rel_err={rel}"
         );
     }
+}
+
+/// Verify that `SavantIdMeta` attached to the input `SharedBuffer` survives the
+/// nvinfer pipeline and is readable from the output `SharedBuffer`.
+#[test]
+#[serial]
+fn test_savant_id_meta_roundtrip_via_shared_buffer() {
+    common::init();
+    let engine = match identity_engine() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let original_ids = vec![
+        SavantIdMetaKind::Frame(42),
+        SavantIdMetaKind::Frame(-7),
+        SavantIdMetaKind::Frame(1000),
+    ];
+
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 12, 12)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(4)
+        .max_buffers(4)
+        .build()
+        .expect("src generator");
+
+    let batched_gen = UniformBatchGenerator::new(
+        VideoFormat::RGBA,
+        12,
+        12,
+        16,
+        2,
+        0,
+        NvBufSurfaceMemType::Default,
+    )
+    .expect("batched generator");
+
+    let config = common::platform_transform_config();
+    let mut batch = batched_gen
+        .acquire_batch(config, original_ids.clone())
+        .unwrap();
+
+    for i in 0..3u32 {
+        let src = src_gen.acquire(Some(i as i64)).unwrap();
+        let view = SurfaceView::from_buffer(&src, 0).unwrap();
+        batch.transform_slot(i, &view, None).unwrap();
+    }
+    batch.finalize().unwrap();
+    let shared = batch.shared_buffer();
+
+    assert_eq!(
+        shared.savant_ids(),
+        original_ids,
+        "SavantIdMeta must be present on the input SharedBuffer"
+    );
+
+    drop(batch);
+
+    let output = engine.infer_sync(shared, None).expect("infer_sync");
+
+    let out_buf = output.buffer();
+    let recovered_ids = out_buf.savant_ids();
+    assert_eq!(
+        recovered_ids, original_ids,
+        "SavantIdMeta must survive the nvinfer pipeline and be readable from the output SharedBuffer"
+    );
 }

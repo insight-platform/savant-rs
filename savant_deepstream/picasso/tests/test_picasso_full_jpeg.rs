@@ -19,8 +19,8 @@
 
 mod common;
 
+use deepstream_buffers::{Padding, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, TransformConfig};
 use picasso::prelude::*;
 use picasso::skia::context::DrawContext;
 use picasso::skia::object::draw_object;
@@ -255,7 +255,7 @@ impl OnRender for PixelCapture {
     fn call(
         &self,
         _source_id: &str,
-        renderer: &mut deepstream_nvbufsurface::SkiaRenderer,
+        renderer: &mut deepstream_buffers::SkiaRenderer,
         _frame: &VideoFrameProxy,
     ) {
         let canvas = renderer.canvas();
@@ -325,24 +325,21 @@ fn render_gpu() -> Vec<u8> {
     };
     engine.set_source_spec("gpu", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
     let frame = create_frame("gpu");
-    let shared = gen.acquire_buffer(Some(0)).unwrap();
-    {
-        let mut guard = shared.lock();
-        let buf_ref = guard.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine.send_frame("gpu", frame, view, None).unwrap();
 
     // Wait for the OnRender capture (timeout 10 s)
@@ -444,24 +441,21 @@ fn render_gpu_jpeg_encoded() -> Vec<u8> {
     };
     engine.set_source_spec("gpu-jpeg", spec).unwrap();
 
-    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H, 1)
+    let gen = BufferGenerator::builder(VideoFormat::RGBA, SRC_W, SRC_H)
         .fps(30, 1)
         .gpu_id(0)
         .mem_type(NvBufSurfaceMemType::Default)
-        .pool_size(32)
+        .min_buffers(32)
+        .max_buffers(32)
         .build()
         .unwrap();
 
     let frame = create_frame("gpu-jpeg");
-    let shared = gen.acquire_buffer(Some(0)).unwrap();
-    {
-        let mut guard = shared.lock();
-        let buf_ref = guard.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::ZERO);
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
-    }
+    let shared = gen.acquire(Some(0)).unwrap();
+    shared.set_pts_ns(0);
+    shared.set_duration_ns(33_333_333);
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0).unwrap();
+    let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap();
     engine.send_frame("gpu-jpeg", frame, view, None).unwrap();
 
     // EOS triggers encoder flush which produces the pending JPEG frame.

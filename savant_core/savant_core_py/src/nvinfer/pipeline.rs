@@ -9,18 +9,19 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
 
-/// Take exclusive ownership of the GStreamer buffer.
+/// Extract a GStreamer buffer and wrap it as [`SharedBuffer`].
 ///
 /// If `batch` is a `DsNvBufSurfaceGstBuffer` guard, we steal the inner
-/// `gst::Buffer` via `take_buffer()` so refcount stays at 1 — required
-/// by the nvinfer pipeline which calls `buffer.get_mut()`.  If it is a
+/// `gst::Buffer` via `take_buffer()` so refcount stays at 1.  If it is a
 /// raw pointer (`int`), we fall through to `extract_gst_buffer` which
 /// uses `from_glib_full` (already refcount 1).
-fn take_gst_buffer(batch: &Bound<'_, PyAny>) -> PyResult<gstreamer::Buffer> {
-    if let Ok(mut guard) = batch.extract::<PyRefMut<'_, PyDsNvBufSurfaceGstBuffer>>() {
-        return guard.take_buffer();
-    }
-    extract_gst_buffer(batch)
+fn take_shared_buffer(batch: &Bound<'_, PyAny>) -> PyResult<deepstream_buffers::SharedBuffer> {
+    let buf = if let Ok(mut guard) = batch.extract::<PyRefMut<'_, PyDsNvBufSurfaceGstBuffer>>() {
+        guard.take_buffer()?
+    } else {
+        extract_gst_buffer(batch)?
+    };
+    Ok(deepstream_buffers::SharedBuffer::from(buf))
 }
 
 /// Extract ``Dict[int, List[Roi]]`` from a Python object into Rust.
@@ -81,28 +82,26 @@ impl PyNvInfer {
     /// Args:
     ///     batch (Union[DsNvBufSurfaceGstBuffer, int]): Batched NvBufSurface
     ///         buffer.
-    ///     batch_id (int): User-chosen identifier (must not be ``2**64 - 1``).
     ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
     ///
     /// Raises:
     ///     RuntimeError: If the engine has been shut down or submission fails.
-    #[pyo3(signature = (batch, batch_id, rois=None))]
+    #[pyo3(signature = (batch, rois=None))]
     fn submit(
         &self,
         py: Python<'_>,
         batch: &Bound<'_, PyAny>,
-        batch_id: u64,
         rois: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
-        let gst_buf = take_gst_buffer(batch)?;
+        let shared = take_shared_buffer(batch)?;
         let rust_rois = rois.map(extract_rois).transpose()?;
         py.detach(|| {
             engine
-                .submit(gst_buf, batch_id, rust_rois.as_ref())
+                .submit(shared, rust_rois.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })
     }
@@ -115,7 +114,6 @@ impl PyNvInfer {
     /// Args:
     ///     batch (Union[DsNvBufSurfaceGstBuffer, int]): Batched NvBufSurface
     ///         buffer.
-    ///     batch_id (int): User-chosen identifier (must not be ``2**64 - 1``).
     ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
     ///
     /// Returns:
@@ -124,23 +122,22 @@ impl PyNvInfer {
     /// Raises:
     ///     RuntimeError: If the engine has been shut down, submission fails,
     ///         or inference times out.
-    #[pyo3(signature = (batch, batch_id, rois=None))]
+    #[pyo3(signature = (batch, rois=None))]
     fn infer_sync(
         &self,
         py: Python<'_>,
         batch: &Bound<'_, PyAny>,
-        batch_id: u64,
         rois: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyBatchInferenceOutput> {
         let engine = self
             .inner
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("NvInfer is shut down"))?;
-        let gst_buf = take_gst_buffer(batch)?;
+        let shared = take_shared_buffer(batch)?;
         let rust_rois = rois.map(extract_rois).transpose()?;
         let output = py.detach(|| {
             engine
-                .infer_sync(gst_buf, batch_id, rust_rois.as_ref())
+                .infer_sync(shared, rust_rois.as_ref())
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
         })?;
         Ok(PyBatchInferenceOutput::from_rust(output))

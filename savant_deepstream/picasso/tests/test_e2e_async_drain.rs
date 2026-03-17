@@ -13,8 +13,8 @@
 mod common;
 
 use common::*;
+use deepstream_buffers::{BufferGenerator, TransformConfig};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use picasso::prelude::*;
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -59,8 +59,8 @@ fn jpeg_spec() -> SourceSpec {
     }
 }
 
-fn make_generator() -> DsNvSurfaceBufferGenerator {
-    DsNvSurfaceBufferGenerator::new(
+fn make_generator() -> BufferGenerator {
+    BufferGenerator::new(
         VideoFormat::RGBA,
         W,
         H,

@@ -124,7 +124,8 @@ impl ObjectMeta {
                 return Ok(None);
             }
 
-            let bytes = std::slice::from_raw_parts(label_array.as_ptr(), len);
+            // Cast to u8 — c_char is i8 on x86_64, u8 on aarch64.
+            let bytes = std::slice::from_raw_parts(label_array.as_ptr().cast::<u8>(), len);
             let s = std::str::from_utf8(bytes).map_err(|e| {
                 DeepStreamError::ConversionError(format!("Invalid UTF-8 in obj_label: {e}"))
             })?;
@@ -143,7 +144,11 @@ impl ObjectMeta {
         unsafe {
             let label_array = &mut (*self.raw).obj_label;
             let copy_len = bytes.len().min(label_array.len());
-            let dst = std::slice::from_raw_parts_mut(label_array.as_mut_ptr(), label_array.len());
+            // Cast to u8 — c_char is i8 on x86_64, u8 on aarch64.
+            let dst = std::slice::from_raw_parts_mut(
+                label_array.as_mut_ptr().cast::<u8>(),
+                label_array.len(),
+            );
             dst[..copy_len].copy_from_slice(&bytes[..copy_len]);
             // Ensure NUL termination when truncated.
             if copy_len == label_array.len() {

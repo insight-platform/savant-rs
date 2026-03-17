@@ -66,7 +66,7 @@ def test_something():
 import pytest
 
 try:
-    from savant_rs.deepstream import init_cuda, DsNvSurfaceBufferGenerator
+    from savant_rs.deepstream import init_cuda, BufferGenerator
     HAS_DS = True
 except ImportError:
     HAS_DS = False

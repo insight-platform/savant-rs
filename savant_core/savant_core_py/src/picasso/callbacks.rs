@@ -1,6 +1,6 @@
 use super::message::PyOutputMessage;
 use super::spec::general::PyEvictionDecision;
-use deepstream_nvbufsurface::{SkiaRenderer, SurfaceView};
+use deepstream_buffers::{SkiaRenderer, SurfaceView};
 use picasso::prelude::*;
 use pyo3::prelude::*;
 use savant_core::draw::ObjectDraw;

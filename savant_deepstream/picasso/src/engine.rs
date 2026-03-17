@@ -126,8 +126,8 @@ impl PicassoEngine {
         &self,
         source_id: &str,
         frame: savant_core::primitives::frame::VideoFrameProxy,
-        view: deepstream_nvbufsurface::SurfaceView,
-        src_rect: Option<deepstream_nvbufsurface::Rect>,
+        view: deepstream_buffers::SurfaceView,
+        src_rect: Option<deepstream_buffers::Rect>,
     ) -> Result<(), PicassoError> {
         if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(PicassoError::Shutdown);

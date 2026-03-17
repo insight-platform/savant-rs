@@ -18,22 +18,22 @@ use pyo3::prelude::*;
 ///   ``__cuda_array_interface__`` (CuPy array, PyTorch CUDA tensor, etc.).
 #[pyclass(name = "SurfaceView", module = "savant_rs.deepstream")]
 pub struct PySurfaceView {
-    inner: Option<deepstream_nvbufsurface::SurfaceView>,
+    inner: Option<deepstream_buffers::SurfaceView>,
 }
 
 impl PySurfaceView {
-    pub fn new(view: deepstream_nvbufsurface::SurfaceView) -> Self {
+    pub fn new(view: deepstream_buffers::SurfaceView) -> Self {
         Self { inner: Some(view) }
     }
 
     /// Consume the inner SurfaceView (e.g. for passing to Picasso).
-    pub fn take(&mut self) -> PyResult<deepstream_nvbufsurface::SurfaceView> {
+    pub fn take(&mut self) -> PyResult<deepstream_buffers::SurfaceView> {
         self.inner.take().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
         })
     }
 
-    pub(crate) fn inner_ref(&self) -> PyResult<&deepstream_nvbufsurface::SurfaceView> {
+    pub(crate) fn inner_ref(&self) -> PyResult<&deepstream_buffers::SurfaceView> {
         self.inner.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("SurfaceView has been consumed")
         })
@@ -111,7 +111,7 @@ impl PySurfaceView {
         let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(keepalive);
 
         py.detach(|| {
-            let view = deepstream_nvbufsurface::SurfaceView::from_cuda_ptr(
+            let view = deepstream_buffers::SurfaceView::from_cuda_ptr(
                 data_ptr as *mut std::ffi::c_void,
                 pitch,
                 width,
@@ -149,13 +149,11 @@ impl PySurfaceView {
     ) -> PyResult<Self> {
         let shared = extract_shared_buffer(buf)?;
         py.detach(|| {
-            let mut view = deepstream_nvbufsurface::SurfaceView::from_shared(shared, slot_index)
+            let mut view = deepstream_buffers::SurfaceView::from_buffer(shared, slot_index)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             if cuda_stream != 0 {
                 view = view.with_cuda_stream(unsafe {
-                    deepstream_nvbufsurface::CudaStream::from_raw(
-                        cuda_stream as *mut std::ffi::c_void,
-                    )
+                    deepstream_buffers::CudaStream::from_raw(cuda_stream as *mut std::ffi::c_void)
                 });
             }
             Ok(PySurfaceView::new(view))
@@ -191,7 +189,7 @@ impl PySurfaceView {
         if cuda_stream != 0 {
             let view = py_view.inner.take().unwrap();
             py_view.inner = Some(view.with_cuda_stream(unsafe {
-                deepstream_nvbufsurface::CudaStream::from_raw(cuda_stream as *mut std::ffi::c_void)
+                deepstream_buffers::CudaStream::from_raw(cuda_stream as *mut std::ffi::c_void)
             }));
         }
         Ok(py_view)
@@ -316,7 +314,7 @@ impl PySurfaceView {
     ///         fails.
     fn memset(&self, value: u8) -> PyResult<()> {
         let view = self.inner_ref()?;
-        deepstream_nvbufsurface::memset_surface(view, value)
+        view.memset(value)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -339,8 +337,8 @@ impl PySurfaceView {
     ///         operation fails.
     fn fill(&self, color: Vec<u8>) -> PyResult<()> {
         let view = self.inner_ref()?;
-        deepstream_nvbufsurface::fill_surface(view, &color).map_err(|e| match e {
-            deepstream_nvbufsurface::NvBufSurfaceError::InvalidInput(_) => {
+        view.fill(&color).map_err(|e| match e {
+            deepstream_buffers::NvBufSurfaceError::InvalidInput(_) => {
                 pyo3::exceptions::PyValueError::new_err(e.to_string())
             }
             _ => pyo3::exceptions::PyRuntimeError::new_err(e.to_string()),
@@ -370,7 +368,7 @@ impl PySurfaceView {
                 "array must be contiguous in memory: {e}"
             ))
         })?;
-        deepstream_nvbufsurface::upload_to_surface(view, slice, width, height, channels)
+        view.upload(slice, width, height, channels)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 

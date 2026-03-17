@@ -37,7 +37,7 @@ pub enum EncoderError {
     AlreadyFinalized,
 
     #[error("NvBufSurface error: {0}")]
-    NvBufSurfaceError(#[from] deepstream_nvbufsurface::NvBufSurfaceError),
+    NvBufSurfaceError(#[from] deepstream_buffers::NvBufSurfaceError),
 }
 ```
 

@@ -1,8 +1,8 @@
 //! Python wrappers for geometry and transform configuration types.
 
 use super::enums::{PyComputeMode, PyInterpolation, PyPadding};
-use deepstream_nvbufsurface::transform::Rect;
-use deepstream_nvbufsurface::{DstPadding, TransformConfig};
+use deepstream_buffers::transform::Rect;
+use deepstream_buffers::{DstPadding, TransformConfig};
 use pyo3::prelude::*;
 
 // ─── Rect ────────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ impl PyTransformConfig {
             dst_padding: self.dst_padding.map(Into::into),
             interpolation: self.interpolation.into(),
             compute_mode: self.compute_mode.into(),
-            cuda_stream: deepstream_nvbufsurface::CudaStream::default(),
+            cuda_stream: deepstream_buffers::CudaStream::default(),
         }
     }
 }
