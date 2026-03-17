@@ -25,6 +25,9 @@ pub enum NvInferError {
 
     #[error("Null pointer: {0}")]
     NullPointer(String),
+
+    #[error("GStreamer initialization failed: {0}")]
+    GstInit(String),
 }
 
 /// Result type for NvInfer operations.

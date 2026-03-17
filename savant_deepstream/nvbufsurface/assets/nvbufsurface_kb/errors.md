@@ -40,6 +40,21 @@ pub enum NvBufSurfaceError {
 
     #[error("Batch has already been finalized; mutation is not allowed")]
     AlreadyFinalized,
+
+    #[error("NvBufSurfaceMap failed (code {0})")]
+    SurfaceMapFailed(i32),
+
+    #[error("NvBufSurfaceUnMap failed (code {0})")]
+    SurfaceUnmapFailed(i32),
+
+    #[error("NvBufSurfaceSyncForDevice failed (code {0})")]
+    SurfaceSyncFailed(i32),
+
+    #[error("CUDA driver API {function} failed (code {code})")]
+    CudaDriverError { function: &'static str, code: u32 },
+
+    #[error("{0}")]
+    InvalidInput(String),
 }
 ```
 
@@ -56,9 +71,14 @@ pub enum NvBufSurfaceError {
 | `NullPointer` | `SurfaceView::from_cuda_ptr(null, ...)` |
 | `CudaInitFailed` | `cudaSetDevice` or `cudaFree(NULL)` or stream ops fail |
 | `BatchOverflow` | `fill_slot`/`add` when `num_filled >= max_batch_size` |
-| `SlotOutOfBounds` | `slot_ptr(index >= max)` or `extract_slot_view(index >= numFilled)` |
-| `NotFinalized` | `as_gst_buffer()`, `extract_slot_view()`, `slot_ptr()` (non-uniform) before `finalize()` |
+| `SlotOutOfBounds` | `slot_ptr(index >= max)` or `SurfaceView::from_shared` with invalid slot index |
+| `NotFinalized` | Operations that require `finalize()` to have been called first |
 | `AlreadyFinalized` | `fill_slot()`/`add()` after `finalize()`, or double `finalize()` |
+| `SurfaceMapFailed` | `NvBufSurfaceMap()` returns non-zero (Jetson CPU-staging path in `surface_ops`, `clear_surface_black`) |
+| `SurfaceUnmapFailed` | `NvBufSurfaceUnMap()` returns non-zero (Jetson CPU-staging path) |
+| `SurfaceSyncFailed` | `NvBufSurfaceSyncForDevice()` returns non-zero (Jetson CPU-staging path) |
+| `CudaDriverError` | `cuMemsetD8_v2` or `cuMemcpyHtoD_v2` fails in `surface_ops` (dGPU path) |
+| `InvalidInput` | `upload_to_surface` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_nvbufsurface` failure propagated from `surface_ops` |
 
 ---
 
@@ -129,16 +149,16 @@ pub enum SkiaRendererError {
 
 ## Testing Error Paths
 
-### NotFinalized / AlreadyFinalized
+### AlreadyFinalized
 ```rust
 let mut batch = gen.acquire_batched_surface(TransformConfig::default()).unwrap();
-// Before finalize:
-assert!(matches!(batch.as_gst_buffer(), Err(NvBufSurfaceError::NotFinalized)));
-assert!(matches!(batch.extract_slot_view(0), Err(NvBufSurfaceError::NotFinalized)));
-
-batch.finalize().unwrap();
+batch.fill_slot(&src, None, Some(1)).unwrap();
+batch.finalize(1, vec![SavantIdMetaKind::Frame(1)]).unwrap();
 // After finalize:
-assert!(matches!(batch.finalize(), Err(NvBufSurfaceError::AlreadyFinalized)));
+assert!(matches!(
+    batch.finalize(1, vec![SavantIdMetaKind::Frame(1)]),
+    Err(NvBufSurfaceError::AlreadyFinalized)
+));
 assert!(matches!(batch.fill_slot(&src, None, None), Err(NvBufSurfaceError::AlreadyFinalized)));
 ```
 
@@ -153,6 +173,6 @@ assert!(matches!(batch.fill_slot(&src3, None, Some(3)), Err(NvBufSurfaceError::B
 
 ### SlotOutOfBounds
 ```rust
-let view = extract_slot_view(&batch_buf, 999);
-assert!(matches!(view, Err(NvBufSurfaceError::SlotOutOfBounds { .. })));
+let result = batch.slot_ptr(999);
+assert!(matches!(result, Err(NvBufSurfaceError::SlotOutOfBounds { .. })));
 ```

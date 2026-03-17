@@ -27,8 +27,8 @@ pub enum EncoderError {
     #[error("Failed to create GStreamer element '{0}'")]
     ElementCreationFailed(String),
 
-    #[error("Failed to link GStreamer elements: {from} -> {to}")]
-    LinkFailed { from: String, to: String },
+    #[error("Failed to link GStreamer elements: {0}")]
+    LinkFailed(String),
 
     #[error("Failed to acquire buffer: {0}")]
     BufferAcquisitionFailed(String),

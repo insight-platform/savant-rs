@@ -10,7 +10,8 @@ fn cuda_lib_dir() -> &'static str {
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let ds_dir = "/opt/nvidia/deepstream/deepstream";
+    let ds_dir = env::var("DEEPSTREAM_DIR")
+        .unwrap_or_else(|_| "/opt/nvidia/deepstream/deepstream".to_string());
 
     // Link against DeepStream libraries
     println!("cargo:rustc-link-search=native={}/lib/", ds_dir);
@@ -33,10 +34,15 @@ fn main() {
     println!("cargo:rustc-link-lib=cudart");
     println!("cargo:rustc-link-lib=cuda");
 
-    // When the `skia` feature is enabled, also link against EGL and GL
-    // for CUDA-GL interop (headless rendering via EGL + Skia GL backend).
-    if env::var("CARGO_FEATURE_SKIA").is_ok() {
+    // On Jetson, link EGL for NvBufSurfaceMapEglImage / cuGraphicsEGLRegisterImage.
+    // On all platforms with skia, also link GL for CUDA-GL interop.
+    let is_aarch64 = env::var("CARGO_CFG_TARGET_ARCH")
+        .unwrap_or_default()
+        .contains("aarch64");
+    if is_aarch64 || env::var("CARGO_FEATURE_SKIA").is_ok() {
         println!("cargo:rustc-link-lib=EGL");
+    }
+    if env::var("CARGO_FEATURE_SKIA").is_ok() {
         println!("cargo:rustc-link-lib=GL");
     }
 
@@ -59,6 +65,11 @@ fn main() {
         .allowlist_function("NvBufSurfaceUnMap")
         .allowlist_function("NvBufSurfaceSyncForDevice")
         .allowlist_function("NvBufSurfaceSyncForCpu")
+        .allowlist_function("NvBufSurfaceCreate")
+        .allowlist_function("NvBufSurfaceDestroy")
+        .allowlist_function("NvBufSurfaceMapEglImage")
+        .allowlist_function("NvBufSurfaceUnMapEglImage")
+        .allowlist_type("NvBufSurfaceCreateParams")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate NvBufSurface bindings");

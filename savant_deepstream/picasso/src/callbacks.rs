@@ -1,6 +1,6 @@
 use crate::message::OutputMessage;
 use crate::spec::EvictionDecision;
-use deepstream_nvbufsurface::SkiaRenderer;
+use deepstream_nvbufsurface::{SkiaRenderer, SurfaceView};
 use savant_core::draw::ObjectDraw;
 use savant_core::primitives::frame::VideoFrameProxy;
 use savant_core::primitives::object::BorrowedVideoObject;
@@ -41,29 +41,51 @@ pub trait OnObjectDrawSpec: Send + Sync + 'static {
     ) -> Option<ObjectDraw>;
 }
 
-/// Called with the CUDA pointer of the destination buffer after transform.
+/// Called with a [`SurfaceView`] of the destination buffer after transform.
 ///
-/// `cuda_stream` is the non-blocking CUDA stream handle owned by the
-/// Picasso worker (as a `usize` pointer).  Callers may enqueue GPU work
-/// on this stream; the worker will synchronise the stream before
-/// proceeding to the next pipeline stage.
+/// The `SurfaceView` provides zero-copy access to the CUDA device pointer
+/// and surface metadata (pitch, width, height).  It works transparently
+/// on both dGPU and Jetson.
+///
+/// # Pointer validity
+///
+/// The `data_ptr()` obtained from the `&SurfaceView` is **only valid for
+/// the duration of this callback**.  On Jetson the pointer is tied to the
+/// EGL-CUDA registration on the buffer; on dGPU it is the NvBufSurface
+/// `dataPtr`.  In both cases the buffer may be recycled after the encode
+/// pipeline returns.  Storing the raw pointer for later use is undefined
+/// behaviour.
+///
+/// The CUDA stream used by the Picasso worker is available via
+/// `view.cuda_stream()`.  Callers may enqueue GPU work on this stream;
+/// the worker synchronises the stream when the view is dropped.
 pub trait OnGpuMat: Send + Sync + 'static {
-    #[allow(clippy::too_many_arguments)]
-    fn call(
-        &self,
-        source_id: &str,
-        frame: &VideoFrameProxy,
-        data_ptr: usize,
-        pitch: u32,
-        width: u32,
-        height: u32,
-        cuda_stream: usize,
-    );
+    fn call(&self, source_id: &str, frame: &VideoFrameProxy, view: &SurfaceView);
 }
 
 /// Called when a source has been idle longer than its timeout.
 pub trait OnEviction: Send + Sync + 'static {
     fn call(&self, source_id: &str) -> EvictionDecision;
+}
+
+/// Reason the worker's encoder was reset (destroyed and recreated).
+#[derive(Debug, Clone)]
+pub enum StreamResetReason {
+    /// PTS decreased or stayed equal relative to the previous frame.
+    PtsDecreased {
+        /// PTS of the last successfully accepted frame (nanoseconds).
+        last_pts_ns: u64,
+        /// PTS of the incoming frame that triggered the reset (nanoseconds).
+        new_pts_ns: u64,
+    },
+}
+
+/// Fired when the worker resets its encoder due to a PTS anomaly.
+///
+/// The callback receives the `source_id` and the [`StreamResetReason`]
+/// describing what triggered the reset.
+pub trait OnStreamReset: Send + Sync + 'static {
+    fn call(&self, source_id: &str, reason: StreamResetReason);
 }
 
 /// Aggregate holder for all optional callbacks.
@@ -75,4 +97,5 @@ pub struct Callbacks {
     pub on_object_draw_spec: Option<Arc<dyn OnObjectDrawSpec>>,
     pub on_gpumat: Option<Arc<dyn OnGpuMat>>,
     pub on_eviction: Option<Arc<dyn OnEviction>>,
+    pub on_stream_reset: Option<Arc<dyn OnStreamReset>>,
 }

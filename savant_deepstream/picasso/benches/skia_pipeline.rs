@@ -19,7 +19,7 @@
 //! ```
 
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, SurfaceView, TransformConfig};
 use picasso::prelude::*;
 
 #[allow(dead_code)]
@@ -62,7 +62,7 @@ const NUM_FRAMES: u64 = if cfg!(not(target_arch = "aarch64")) {
 const NUM_BOXES: usize = 20;
 const FPS: i32 = 30;
 const FRAME_DURATION_NS: u64 = 1_000_000_000 / FPS as u64;
-const DEFAULT_NUM_SOURCES: usize = 4;
+const DEFAULT_NUM_SOURCES: usize = 1;
 
 fn num_sources() -> usize {
     std::env::var("BENCH_NUM_SOURCES")
@@ -660,12 +660,14 @@ fn main() {
     );
 
     // -- Warm-up: 10 frames per source ------------------------------------
+    // Input views use wrap() — EGL-CUDA registration is only needed for
+    // the *output* buffer inside the encode worker, not the input.
     for i in 0..10i64 {
         for (s, sid) in source_ids.iter().enumerate() {
             let frame = make_frame(sid, WIDTH as i64, HEIGHT as i64);
             add_objects_to_frame(&frame, i as u64);
             let buf = make_nvmm_buffer(&generators[s], i);
-            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            let view = SurfaceView::from_buffer(buf, 0).unwrap();
             engine.send_frame(sid, frame, view, None).unwrap();
         }
         std::thread::sleep(std::time::Duration::from_millis(35));
@@ -691,7 +693,7 @@ fn main() {
             frame_mut.set_pts((i * FRAME_DURATION_NS) as i64).unwrap();
             add_objects_to_frame(&frame, i);
             let buf = make_nvmm_buffer(&generators[s], frame_id);
-            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            let view = SurfaceView::from_buffer(buf, 0).unwrap();
             engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }

@@ -1,5 +1,6 @@
 use picasso::message::WorkerMessage;
 use picasso::prelude::*;
+use picasso::spec::PtsResetPolicy;
 use picasso::worker::SourceWorker;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -73,6 +74,7 @@ fn worker_drop_spec_discards_frames() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     let frame = make_frame("test-drop");
@@ -110,6 +112,7 @@ fn worker_bypass_fires_callback() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     for _ in 0..5 {
@@ -162,6 +165,7 @@ fn worker_eos_fires_sentinel_for_bypass() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     worker.send(WorkerMessage::Eos).unwrap();
@@ -189,6 +193,7 @@ fn worker_idle_timeout_terminates() {
         callbacks,
         Duration::from_millis(200),
         16,
+        PtsResetPolicy::default(),
     );
 
     std::thread::sleep(Duration::from_millis(500));
@@ -220,6 +225,7 @@ fn worker_spec_update() {
         callbacks,
         Duration::from_secs(60),
         16,
+        PtsResetPolicy::default(),
     );
 
     // Send a frame with Drop spec — shouldn't fire bypass

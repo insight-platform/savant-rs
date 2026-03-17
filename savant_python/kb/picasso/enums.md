@@ -31,7 +31,7 @@
 `DISABLED`, `ULTRA_FAST`, `FAST`, `MEDIUM`, `SLOW`
 
 ## Codec (from savant_rs.gstreamer)
-`H264`, `HEVC`, `JPEG`, `AV1`, `PNG`
+`H264`, `HEVC`, `JPEG`, `AV1`, `PNG`, `RAW_RGBA`, `RAW_RGB`
 
 ## VideoFormat (from savant_rs.deepstream)
 `RGBA`, `BGRx`, `NV12`, `NV21`, `I420`, `UYVY`, `GRAY8`
@@ -47,6 +47,34 @@
 
 ## ComputeMode (from savant_rs.deepstream)
 `DEFAULT`, `GPU`, `VIC`
+
+---
+
+## PtsResetPolicy (from savant_rs.picasso)
+Policy for handling non-monotonic (decreasing) PTS values.
+
+| Factory Static | Meaning |
+|---|---|
+| `PtsResetPolicy.eos_on_decreasing_pts()` | Emit synthetic EOS before recreating the encoder (default) |
+| `PtsResetPolicy.recreate_on_decreasing_pts()` | Silently recreate the encoder without emitting EOS |
+
+## StreamResetReason (from savant_rs.picasso)
+Reason the worker's encoder was reset. Passed to the `on_stream_reset` callback.
+
+| Property | Type | Notes |
+|---|---|---|
+| `last_pts_ns` | int | PTS of the last successfully accepted frame (nanoseconds) |
+| `new_pts_ns` | int | PTS of the incoming frame that triggered the reset (nanoseconds) |
+
+## CallbackInvocationOrder (from savant_rs.picasso)
+Controls when the `on_gpumat` callback fires relative to Skia rendering.
+
+| Variant | Meaning |
+|---|---|
+| `CallbackInvocationOrder.SkiaGpuMat` | Skia render then `on_gpumat` (default) |
+| `CallbackInvocationOrder.GpuMatSkia` | `on_gpumat` then Skia render |
+| `CallbackInvocationOrder.GpuMatSkiaGpuMat` | `on_gpumat` before **and** after Skia render |
+| `CallbackInvocationOrder.from_name(name)` | ⚠ ValueError on unknown |
 
 ---
 

@@ -3,7 +3,7 @@
 //! Measures:
 //! - **creation + 1 frame**: time to construct an `NvEncoder`, submit one
 //!   FullHD frame, call `finish()`, and receive the encoded bitstream.
-//! - **100-frame throughput**: time to encode 100 FullHD frames with a
+//! - **200-frame throughput**: time to encode 200 FullHD frames with a
 //!   pre-created encoder (creation cost excluded from measurement).
 //!
 //! Codecs: H.264, HEVC, AV1 (low-latency mode) and JPEG.
@@ -88,10 +88,11 @@ fn jpeg_config() -> EncoderConfig {
 fn create_and_encode_one(config: &EncoderConfig) {
     let mut encoder = NvEncoder::new(config).expect("NvEncoder::new failed");
 
-    let buffer = encoder
+    let shared = encoder
         .generator()
-        .acquire_surface(Some(0))
+        .acquire_buffer(Some(0))
         .expect("acquire_surface failed");
+    let buffer = shared.into_buffer().expect("sole owner");
 
     encoder
         .submit_frame(buffer, 0, 0, Some(33_333_333))
@@ -143,7 +144,7 @@ fn bench_creation_plus_one_frame(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmarks: 100-frame throughput (encoder pre-created)
+// Benchmarks: 200-frame throughput (encoder pre-created)
 // ---------------------------------------------------------------------------
 
 const THROUGHPUT_FRAMES: u64 = 200;
@@ -153,10 +154,11 @@ const FRAME_DURATION_NS: u64 = 33_333_333; // ~30 fps
 /// output after each submit to keep the single-buffer pool flowing.
 fn encode_n_frames(mut encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
-        let buffer = encoder
+        let shared = encoder
             .generator()
-            .acquire_surface(Some(i as i64))
+            .acquire_buffer(Some(i as i64))
             .expect("acquire_surface failed");
+        let buffer = shared.into_buffer().expect("sole owner");
 
         let pts_ns = i * FRAME_DURATION_NS;
         encoder
@@ -171,7 +173,7 @@ fn encode_n_frames(mut encoder: NvEncoder) {
     assert!(drained > 0 || THROUGHPUT_FRAMES == 0);
 }
 
-fn bench_100_frame_throughput(c: &mut Criterion) {
+fn bench_200_frame_throughput(c: &mut Criterion) {
     ensure_init();
 
     let mut group = c.benchmark_group("encoder_200_frame_throughput");
@@ -228,6 +230,6 @@ fn bench_100_frame_throughput(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_creation_plus_one_frame,
-    bench_100_frame_throughput
+    bench_200_frame_throughput
 );
 criterion_main!(benches);

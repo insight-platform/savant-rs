@@ -95,7 +95,7 @@ pub struct NvEncoder { /* private */ }
 | `new` | `(config: &EncoderConfig) → Result<Self, EncoderError>` | GPU — builds and starts GStreamer pipeline |
 | `generator` | `(&self) → &DsNvSurfaceBufferGenerator` | For acquiring NVMM buffers |
 | `codec` | `(&self) → Codec` | |
-| `submit_frame` | `(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>` | PTS must be strictly monotonic |
+| `submit_frame` | `(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>` | PTS must be strictly monotonic. Takes `gst::Buffer` with NvBufSurface memory (e.g. from `generator().acquire_buffer().into_buffer()`). |
 | `pull_encoded` | `(&mut self) → Result<Option<EncodedFrame>, EncoderError>` | Non-blocking |
 | `pull_encoded_timeout` | `(&mut self, timeout_ms: u64) → Result<Option<EncodedFrame>, EncoderError>` | Blocking with timeout |
 | `finish` | `(&mut self, drain_timeout_ms: Option<u64>) → Result<Vec<EncodedFrame>, EncoderError>` | Send EOS, drain remaining |

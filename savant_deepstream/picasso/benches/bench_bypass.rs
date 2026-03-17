@@ -87,14 +87,15 @@ fn add_objects(frame: &VideoFrameProxy) {
     }
 }
 
-fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> gstreamer::Buffer {
-    let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
+fn make_buffer(gen: &DsNvUniformSurfaceBufferGenerator, idx: u64) -> SurfaceView {
+    let shared = gen.acquire_buffer(Some(idx as i64)).unwrap();
     {
-        let buf_ref = buf.make_mut();
+        let mut guard = shared.lock();
+        let buf_ref = guard.make_mut();
         buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DURATION_NS));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DURATION_NS));
     }
-    buf
+    SurfaceView::from_shared(&shared, 0).unwrap()
 }
 
 /// Bypass sink that counts frames and performs sanity assertions.
@@ -227,18 +228,15 @@ fn main() {
             .unwrap();
     }
 
-    let generators: Vec<DsNvSurfaceBufferGenerator> = (0..num_src)
+    let generators: Vec<DsNvUniformSurfaceBufferGenerator> = (0..num_src)
         .map(|_| {
-            DsNvSurfaceBufferGenerator::new(
-                VideoFormat::RGBA,
-                WIDTH,
-                HEIGHT,
-                FPS,
-                1,
-                0,
-                NvBufSurfaceMemType::Default,
-            )
-            .unwrap()
+            DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, WIDTH, HEIGHT, 1)
+                .fps(FPS, 1)
+                .gpu_id(0)
+                .mem_type(NvBufSurfaceMemType::Default)
+                .pool_size(32)
+                .build()
+                .unwrap()
         })
         .collect();
 
@@ -247,8 +245,7 @@ fn main() {
         for (s, sid) in source_ids.iter().enumerate() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
-            let buf = make_buffer(&generators[s], i);
-            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            let view = make_buffer(&generators[s], i);
             engine.send_frame(sid, frame, view, None).unwrap();
         }
     }
@@ -270,8 +267,7 @@ fn main() {
         for (s, sid) in source_ids.iter().enumerate() {
             let frame = make_frame(sid, i);
             add_objects(&frame);
-            let buf = make_buffer(&generators[s], i);
-            let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+            let view = make_buffer(&generators[s], i);
             engine.send_frame(sid, frame, view, None).unwrap();
             submitted += 1;
         }

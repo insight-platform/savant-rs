@@ -1,57 +1,68 @@
 # Critical Caveats & Design Decisions
 
-## 1. `as_gst_buffer()` Returns a Self-Contained Wrapper — NOT the Pool Buffer
+## 1. Buffer Access: `shared_buffer()` and `into_buffer()` — NOT Direct Pool Buffer
 
 ### Uniform batches (`DsNvUniformSurfaceBuffer`)
-`as_gst_buffer()` does **not** return the pool-allocated buffer directly.
-It builds a new **system-memory** buffer with:
+`as_gst_buffer()` has been **removed**. Use `shared_buffer()` to get a
+`SharedMutableGstBuffer` (cheap Arc clone) for shared access, or use
+`into_buffer()` on the `SharedMutableGstBuffer` to extract a `gst::Buffer`
+when sole ownership is available.
 
-1. `NvBufSurface` header + all `NvBufSurfaceParams` entries **inlined**
-   contiguously (header immediately followed by params array).
-2. `surfaceList` pointer set to point within the buffer's own GstMemory.
-3. `GstParentBufferMeta` referencing the original pool buffer — keeps GPU
-   memory alive without any CUDA copy.
-
-**Why:** Pool-allocated buffers have `surfaceList` pointing to memory managed
-by the NvDs allocator. If the user clones the buffer and calls `make_mut()`
-(COW), the copy shares the NvBufSurface header via GstMemory but the
-`surfaceList` pointer becomes **dangling** once the original buffer returns
-to the pool (when the struct is dropped). By inlining the params, the
-returned buffer is fully self-contained and safe to outlive the struct.
-
-⚠ **Never** return `&self.buffer` or `self.buffer.clone()` directly for
-uniform batches — the `surfaceList` will dangle after struct drop.
+Pool-allocated buffers have `surfaceList` pointing to memory managed by
+the NvDs allocator. The `SharedMutableGstBuffer` wraps the pool buffer
+directly (no synthetic wrapper buffer needed). The pool buffer stays alive
+as long as the `SharedMutableGstBuffer` (and any `SurfaceView`s derived
+from it) are alive.
 
 ### Non-uniform batches (`DsNvNonUniformSurfaceBuffer`)
-Already uses system memory with inlined `surfaceList`, so `as_gst_buffer()`
-simply returns `self.buffer.clone()` (refcount+1). Safe because:
-- `surfaceList` is inside the buffer's own GstMemory
-- `GstParentBufferMeta` entries keep all source GPU buffers alive
+`finalize(ids)` is **consuming** (`self`) and returns a `SharedMutableGstBuffer`
+directly. The buffer uses system memory with inlined `surfaceList` and
+`GstParentBufferMeta` entries keeping all source GPU buffers alive.
 
-### Return type
-Both return `gst::Buffer` (owned), **not** `&gst::Buffer`.
-Callers do NOT need `.clone()`.
+### Extracting `gst::Buffer` for NvInfer / encoder
+```rust
+let shared = batch.shared_buffer();
+drop(batch); // drop batch to release its Arc ref
+let buf = shared.into_buffer().expect("sole owner");
+// now pass `buf` to NvInfer::infer_sync() or NvEncoder::submit_frame()
+```
 
----
-
-## 2. `extract_slot_view()` Uses the Same Pattern
-
-`extract_slot_view()` creates a system-memory buffer with `batchSize=1`,
-`numFilled=1`, inlined `surfaceList[0]` copied from the batch, and
-`GstParentBufferMeta` keeping the batch alive. Same self-contained design.
+⚠ `into_buffer()` fails if other references exist. Drop all `SurfaceView`s,
+batch structs, and clones first.
 
 ---
 
-## 3. `finalize()` Is Non-Consuming — State Guards Apply
+## 2. Per-Slot Access: `SurfaceView::from_shared(&shared, slot_index)`
+
+`extract_slot_view()` has been **removed**. Use `SurfaceView::from_shared`
+instead, which takes a `&SharedMutableGstBuffer` and a slot index, cloning
+the Arc internally to keep the source buffer alive. Multiple views for
+different slots can coexist — they all share the same underlying buffer.
+
+```rust
+let shared = batch.shared_buffer();
+let view0 = SurfaceView::from_shared(&shared, 0).unwrap();
+let view1 = SurfaceView::from_shared(&shared, 1).unwrap();
+// view0 and view1 have distinct data_ptr for their respective slots
+```
+
+---
+
+## 3. `finalize()` Signatures — Uniform vs Non-Uniform
+
+### Uniform: `finalize(&mut self, num_filled: u32, ids: Vec<SavantIdMetaKind>)`
+Non-consuming. Sets `numFilled` in the NvBufSurface descriptor and attaches
+`SavantIdMeta`. After finalize, `fill_slot` is blocked (`AlreadyFinalized`).
+Double-finalize also returns `AlreadyFinalized`.
 
 | State | Allowed | Blocked |
 |---|---|---|
-| Before `finalize()` | `fill_slot`/`add`, `slot_ptr` (uniform only) | `as_gst_buffer`, `extract_slot_view` |
-| After `finalize()` | `as_gst_buffer`, `extract_slot_view`, `is_finalized` | `fill_slot`/`add` |
+| Before `finalize()` | `fill_slot`, `slot_ptr`, `slot_view`, `shared_buffer` | — |
+| After `finalize()` | `shared_buffer`, `slot_view`, `is_finalized` | `fill_slot` |
 
-Calling a blocked operation returns `NvBufSurfaceError::NotFinalized` or
-`NvBufSurfaceError::AlreadyFinalized`. Double-finalize also returns
-`AlreadyFinalized`.
+### Non-uniform: `finalize(self, ids: Vec<SavantIdMetaKind>) -> Result<SharedMutableGstBuffer>`
+**Consuming** (`self`). Allocates the synthetic buffer, attaches
+`GstParentBufferMeta` per source, and returns `SharedMutableGstBuffer`.
 
 ---
 
@@ -60,19 +71,24 @@ Calling a blocked operation returns `NvBufSurfaceError::NotFinalized` or
 ```
 pool.acquire_buffer()
   → gst::Buffer (refcount=1, pool-owned)
-  → stored in DsNvUniformSurfaceBuffer.buffer
+  → wrapped in SharedMutableGstBuffer inside DsNvUniformSurfaceBuffer
   → fill_slot() calls NvBufSurfTransform to write GPU data
-  → finalize() sets numFilled + SavantIdMeta on the buffer
-  → as_gst_buffer() creates a wrapper with GstParentBufferMeta
-  → struct dropped → buffer.refcount decreases
-  → if refcount reaches 0 → buffer returns to pool
-  → wrapper keeps parent ref alive → pool buffer stays until wrapper is dropped
+  → finalize(num_filled, ids) sets numFilled + SavantIdMeta
+  → shared_buffer() → Arc clone of SharedMutableGstBuffer
+  → SurfaceView::from_shared(&shared, i) → per-slot GPU view (Arc clone)
+  → struct dropped → Arc ref decremented
+  → when all SharedMutableGstBuffer refs dropped → gst::Buffer refcount=0 → returns to pool
 ```
 
-⚠ The pool has a finite number of buffers (`pool_size`). If wrapper buffers
-leak (parent ref never released), the pool exhausts and
+⚠ The pool has a finite number of buffers (`pool_size`). If
+`SharedMutableGstBuffer` refs leak (outstanding `SurfaceView`s, clones,
+or batch structs not dropped), the pool exhausts and
 `acquire_batched_surface` blocks/fails. Smoke tests use `pool_size=2` with
 50 iterations to catch this.
+
+⚠ To extract `gst::Buffer` via `into_buffer()`, you must be the **sole**
+Arc owner. `drop(batch)` before calling `shared.into_buffer()` if `shared`
+was obtained via `batch.shared_buffer()`.
 
 ---
 
@@ -149,22 +165,31 @@ cargo clippy --features deepstream --all-targets
 ## 10. Jetson vs dGPU Memory Access
 
 - **Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
-  (VIC-managed), which is **not** CUDA-addressable. Direct use of
-  `cuMemsetD8_v2` / `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` would fail
-  with CUDA error 1 (`cudaErrorInvalidValue`). Instead, use
-  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
-  `NvBufSurfaceUnMap`.
+  (VIC-managed), which is **not** directly CUDA-addressable via `dataPtr`.
+  CUDA access is obtained via **EGL-CUDA interop** (`EglCudaMeta`), which
+  provides zero-copy CUDA device pointers from VIC-managed surfaces.
 
-- **dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
-  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly.
+- **Permanent implicit mapping on Jetson:** `cuGraphicsEGLRegisterImage` creates
+  a **permanent implicit mapping** — `cuGraphicsUnmapResources` returns error
+  999. There is **no RAII map/unmap cycle**. The pointer is valid from
+  registration until `cuGraphicsUnregisterResource`.
+
+- **dGPU:** `Default` maps to `CudaDevice`, and `NvBufSurfaceParams::dataPtr`
+  is directly CUDA-addressable.
+
+- **Unified access:** `SurfaceView::from_buffer(buf, slot_index)` or
+  `SurfaceView::from_shared(&shared, slot_index)` are the canonical entry points.
+  On Jetson they transparently attach `EglCudaMeta` per slot for permanent mapping.
+  The POOLED flag ensures the meta survives GstBufferPool recycles — no re-registration
+  on each acquisition.
+
+- **Exception:** `clear_surface_black` in `transform.rs` still uses CPU-staging
+  (`NvBufSurfaceMap` + memset + `NvBufSurfaceSyncForDevice` + `NvBufSurfaceUnMap`)
+  on Jetson, because it receives raw `*mut NvBufSurface` pointers without
+  `gst::Buffer` context.
 
 - **nvinfer on Jetson:** `scaling-compute-hw=1` is needed in nvinfer config to
   avoid VIC limitations with small surfaces (< 16×16 pixels).
-
-- This platform difference is handled via `cfg(target_arch = "aarch64")` in:
-  - `surface_ops` module (`memset_surface`, `upload_to_surface`)
-  - `transform.rs` (`clear_surface_black` / `clear_surface_black_mapped` for
-    letterbox padding)
 
 ---
 
@@ -207,8 +232,8 @@ Tests that use `nvjpegenc` must guard with
 ## 14. upload_to_surface Takes 5 Arguments
 
 ```rust
-pub unsafe fn upload_to_surface(
-    buf: &gst::Buffer,
+pub fn upload_to_surface(
+    view: &SurfaceView,
     data: &[u8],
     width: u32,
     height: u32,
@@ -219,8 +244,9 @@ pub unsafe fn upload_to_surface(
 The `channels` parameter was added for multi-format support. Commonly
 forgotten when calling from tests. Use `4` for RGBA, `3` for RGB.
 
-Platform-aware internally: uses CUDA driver API (`cuMemcpyHtoD_v2`) on dGPU,
-`NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` on Jetson.
+Takes `&SurfaceView` (not `&gst::Buffer`). No longer `unsafe` — unsafety
+is contained in `SurfaceView` construction. Platform-aware internally:
+uses `view.data_ptr()` for CUDA pointer on both dGPU and Jetson.
 
 ---
 
@@ -246,30 +272,24 @@ direct NvBufSurfTransform for format conversion.
 
 ---
 
-## 16. Skia Renderer Jetson Map/Unmap for CUDA-GL Interop
+## 16. Skia Renderer API
 
 The Skia renderer (`skia_renderer.rs`) uses CUDA-GL interop to copy pixels
-between NvBufSurface and an OpenGL texture (via `cudaArray`). On **dGPU**,
-this is a direct GPU-to-GPU copy (`cudaMemcpyDeviceToDevice`). On **Jetson**
-(`SurfaceArray`, VIC-managed), `dataPtr` is not CUDA-addressable, so the
-same `cudaMemcpy2DToArray` / `cudaMemcpy2DFromArray` calls fail with
-CUDA error 1.
+between NvBufSurface and an OpenGL texture (via `cudaArray`). It **no longer**
+has `resolve_nvbuf_cuda_ptr` — pointer resolution is handled internally
+by `render_to_nvbuf` or externally by the caller for the `*_with_ptr` / `*_raw` methods.
 
-**Fix:** Platform-aware paths via `cfg(target_arch = "aarch64")`:
+**API:**
+- `load_from_nvbuf(data_ptr, pitch)` — takes `(data_ptr: *const c_void, pitch: usize)` directly (marked `unsafe`). Caller must obtain a valid CUDA pointer (e.g. from `SurfaceView`).
+- `from_nvbuf(width, height, gpu_id, data_ptr, pitch)` — convenience constructor (marked `unsafe`).
+- `render_to_nvbuf(dst_buf, config)` — **convenience method** that creates a `SurfaceView` internally to resolve the CUDA pointer. **Keeps the view alive** during rendering to prevent use-after-free on Jetson (see caveat 20). Delegates to `render_to_nvbuf_with_ptr`.
+- `render_to_nvbuf_with_ptr(dst_buf, dst_ptr, dst_pitch, config)` — **primary API** (marked `unsafe`). Caller supplies `(dst_ptr, dst_pitch)`. For the scaled path, creates `SurfaceView` internally for the temp buffer.
+- `render_to_nvbuf_raw(data_ptr, pitch)` — direct 1:1 GPU copy, **available on ALL platforms** (no longer `#[cfg(not(aarch64))]`).
 
-- **Load (NvBuf → GL texture):** `NvBufSurfaceMap` → `NvBufSurfaceSyncForCpu`
-  → `cudaMemcpy2DToArray(mappedAddr, ..., HostToDevice)` → `NvBufSurfaceUnMap`
-
-- **Write (GL texture → NvBuf):** `NvBufSurfaceMap` →
-  `cudaMemcpy2DFromArray(mappedAddr, ..., DeviceToHost)` →
-  `NvBufSurfaceSyncForDevice` → `NvBufSurfaceUnMap`
-
-API changes:
-- `load_from_nvbuf` and `from_nvbuf` now accept `&gst::BufferRef` (not
-  raw `data_ptr`/`pitch`) so the NvBufSurface can be mapped on Jetson.
-- `copy_gl_to_nvbuf` accepts `*mut ffi::NvBufSurface` internally.
-- `render_to_nvbuf_raw` is `#[cfg(not(target_arch = "aarch64"))]` (dGPU only,
-  no callers in production code).
+Both platforms use `cudaMemcpy2DToArray` / `cudaMemcpy2DFromArray` with
+`CUDA_MEMCPY_DEVICE_TO_DEVICE` — no CPU staging. For `*_with_ptr` and
+`*_raw`, the caller resolves the NvBufSurface CUDA pointer via `SurfaceView`
+before calling these methods.
 
 ---
 
@@ -283,3 +303,71 @@ for _ in 0..N {
     // ...
 }
 ```
+
+---
+
+## 17. SurfaceView: from_buffer, from_shared
+
+- **`from_buffer(buf, slot_index)`** — wraps buffer in `SharedMutableGstBuffer`,
+  resolves CUDA ptr for slot. Use for input buffers from generators or pipelines.
+
+- **`from_shared(&shared, slot_index)`** — primary constructor for batched buffers.
+  Takes `&SharedMutableGstBuffer`, clones the Arc internally. Create one
+  `SurfaceView` per slot.
+
+- **`into_buffer()`** — extracts the underlying `gst::Buffer`. **Fails** (returns
+  `Err(self)`) when other references exist (sibling views, `shared_buffer()` clones).
+  Drop outstanding refs before retrying. Same semantics as `SharedMutableGstBuffer::into_buffer`.
+
+---
+
+## 18. MAX_BATCH_SLOTS Limit (EglCudaMeta, aarch64)
+
+`EglCudaMeta` supports up to `MAX_BATCH_SLOTS` (32) slots per buffer. If
+`batchSize` exceeds this, `ensure_meta` returns an error. Batched buffers
+with more than 32 slots are not supported on Jetson.
+
+---
+
+## 19. into_buffer / SharedMutableGstBuffer::into_buffer Fail When Other Refs Exist
+
+Both `SurfaceView::into_buffer()` and `SharedMutableGstBuffer::into_buffer()`
+return `Err(self)` when the Arc strong count is > 1. This happens when:
+- Multiple `SurfaceView`s share the same buffer (e.g. via `from_shared`)
+- `shared_buffer()` was called and the clone is still alive
+- The shared handle was cloned and passed elsewhere
+
+**Fix:** Drop all sibling views and clones before calling `into_buffer()`. Use
+`strong_count()` on `SharedMutableGstBuffer` for diagnostics (1 = sole owner).
+
+---
+
+## 20. Jetson EGL-CUDA Pointer Lifetime in render_to_nvbuf
+
+On Jetson, `render_to_nvbuf` uses `from_glib_none` to temporarily increment
+the GstBuffer refcount so it can create a `SurfaceView`. Because `from_glib_none`
+creates a new owned `gst::Buffer` that shares the same underlying `GstMiniObject`,
+the buffer now has refcount > 1. When `SurfaceView::from_buffer` calls
+`make_mut()` on the inner `SharedMutableGstBuffer`, GStreamer performs a **COW
+(copy-on-write)** copy. The `EglCudaMeta` (which provides the CUDA device
+pointer on Jetson) is attached to this **copy**, not the original buffer.
+
+**Problem:** If the `SurfaceView` (and thus the COW copy) is dropped **before**
+the CUDA device pointer is used for the actual render copy, the pointer becomes
+**invalid** — the EGL-CUDA mapping was destroyed with the copy.
+
+**Solution:** `render_to_nvbuf` keeps the `SurfaceView` alive until **after**
+`render_to_nvbuf_with_ptr` completes, then drops it explicitly:
+
+```rust
+let view = SurfaceView::from_buffer(owned, 0)?;
+let data_ptr = view.data_ptr();
+let pitch = view.pitch() as usize;
+let result = self.render_to_nvbuf_with_ptr(dst_buf, data_ptr, pitch, config);
+drop(view);  // safe: pointer already consumed
+result
+```
+
+⚠ This does NOT affect dGPU — `dataPtr` is directly CUDA-addressable and does
+not depend on `EglCudaMeta`. The issue is specific to Jetson's VIC-managed
+`SurfaceArray` memory type.

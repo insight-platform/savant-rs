@@ -29,6 +29,7 @@ from savant_rs.primitives.geometry import (
 ```python
 from savant_rs.deepstream import (
     DsNvBufSurfaceGstBuffer,           # batched GPU buffer guard
+    SurfaceView,                       # unified GPU surface descriptor (resolves CUDA ptr on Jetson)
     DsNvSurfaceBufferGenerator,        # single-surface generator
     DsNvUniformSurfaceBufferGenerator, # multi-surface batch generator
     init_cuda,                         # call once before any GPU work

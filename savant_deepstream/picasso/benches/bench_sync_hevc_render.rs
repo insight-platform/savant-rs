@@ -18,7 +18,7 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use savant_core::draw::{
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw, LabelPosition, ObjectDraw, PaddingDraw,
@@ -226,11 +226,13 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
 
     let frame_counter = Cell::new(WARMUP_FRAMES as i64);
 
-    // Warm-up: send a few frames and wait for them
+    // Warm-up: send a few frames and wait for them.
+    // Input views use wrap() — EGL-CUDA registration is only needed for
+    // the output buffer inside the encode worker, not the input.
     for i in 0..WARMUP_FRAMES {
         let frame = make_frame_with_objects("bench", i as i64, 0);
         let buf = make_gpu_buffer(&gen, i as i64);
-        let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+        let view = SurfaceView::from_buffer(buf, 0).unwrap();
         engine
             .send_frame("bench", frame, view, None)
             .unwrap_or_else(|e| panic!("send_frame failed: {}", e));
@@ -256,7 +258,7 @@ fn bench_sync_hevc_render(c: &mut Criterion) {
                 frame_counter.set(idx + 1);
                 let frame = make_frame_with_objects("bench", idx, num_objects);
                 let buf = make_gpu_buffer(&gen, idx);
-                let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+                let view = SurfaceView::from_buffer(buf, 0).unwrap();
                 engine
                     .send_frame("bench", frame, view, None)
                     .expect("send_frame failed");

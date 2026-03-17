@@ -79,6 +79,69 @@ pub fn age_gender_properties() -> HashMap<String, String> {
     m
 }
 
+/// Identity 3x112x112 model nvinfer properties with absolute paths.
+///
+/// Uses batch-size 32 to match the age_gender E2E tests. The model
+/// simply returns its input, so comparing the output tensor against
+/// known pixel data verifies the crop pipeline.
+#[allow(dead_code)]
+pub fn identity_112x112_properties() -> HashMap<String, String> {
+    let dir = assets_dir();
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "3".into());
+    m.insert("net-scale-factor".into(), "1.0".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("identity_3x112x112.onnx").to_string_lossy().into(),
+    );
+    m.insert(
+        "model-engine-file".into(),
+        dir.join("identity_3x112x112.onnx_b32_gpu0_fp16.engine")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert("batch-size".into(), "32".into());
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;112;112".into());
+    m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
+    m
+}
+
+/// FullHD identity model (3x1080x1920) nvinfer properties.
+///
+/// Batch-size 2 (only one frame needed but nvinfer needs >= 1).
+/// Processes the entire 1920x1080 frame so that the output tensor
+/// is a pixel-level copy of the input — ideal for diagnosing surface
+/// memory layout issues.
+#[allow(dead_code)]
+pub fn identity_fullhd_properties() -> HashMap<String, String> {
+    let dir = assets_dir();
+    let mut m = HashMap::new();
+    m.insert("gpu-id".into(), "0".into());
+    m.insert("gie-unique-id".into(), "4".into());
+    m.insert("net-scale-factor".into(), "1.0".into());
+    m.insert(
+        "onnx-file".into(),
+        dir.join("identity_fullhd.onnx").to_string_lossy().into(),
+    );
+    m.insert(
+        "model-engine-file".into(),
+        dir.join("identity_fullhd.onnx_b2_gpu0_fp16.engine")
+            .to_string_lossy()
+            .into(),
+    );
+    m.insert("batch-size".into(), "2".into());
+    m.insert("network-mode".into(), "2".into());
+    m.insert("network-type".into(), "100".into());
+    m.insert("infer-dims".into(), "3;1080;1920".into());
+    m.insert("model-color-format".into(), "0".into());
+    inject_jetson_scaling(&mut m);
+    m
+}
+
 /// On Jetson, force GPU compute for nvinfer's internal NvBufSurfTransform.
 /// VIC requires surfaces >= 16x16; GPU compute has no such restriction.
 fn inject_jetson_scaling(props: &mut HashMap<String, String>) {

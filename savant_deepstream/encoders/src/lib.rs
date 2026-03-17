@@ -15,7 +15,7 @@
 //!   than the previous frame's PTS. The encoder raises an error on
 //!   reordering.
 //! - **Integrated buffer management**: The encoder owns an
-//!   [`DsNvSurfaceBufferGenerator`](deepstream_nvbufsurface::DsNvSurfaceBufferGenerator)
+//!   [`DsNvUniformSurfaceBufferGenerator`](deepstream_nvbufsurface::DsNvUniformSurfaceBufferGenerator)
 //!   that provides NVMM GPU buffers for zero-copy rendering.
 //! - **Typed encoder properties**: Codec and platform-specific property
 //!   structs replace untyped string key-value pairs.  See the
@@ -42,7 +42,8 @@
 //!
 //! // Acquire NVMM buffer, render into it, then submit
 //! for i in 0..10u128 {
-//!     let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+//!     let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+//!     let buffer = shared.into_buffer().expect("sole owner");
 //!     let pts_ns = i as u64 * 33_333_333;
 //!     encoder.submit_frame(buffer, i, pts_ns, Some(33_333_333)).unwrap();
 //! }
@@ -61,7 +62,8 @@ pub use error::EncoderError;
 
 // Re-export commonly used items from deepstream_nvbufsurface.
 pub use deepstream_nvbufsurface::{
-    cuda_init, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat,
+    cuda_init, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SharedMutableGstBuffer,
+    SurfaceView, VideoFormat,
 };
 
 // Re-export Codec from savant_gstreamer so existing `use deepstream_encoders::Codec` keeps working.
@@ -139,6 +141,7 @@ impl EncoderConfig {
 
     /// Set the framerate.
     pub fn fps(mut self, num: i32, den: i32) -> Self {
+        assert!(den > 0, "fps denominator must be positive");
         self.fps_num = num;
         self.fps_den = den;
         self
@@ -170,7 +173,10 @@ impl EncoderConfig {
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
     /// User-defined frame identifier (passed via [`NvEncoder::submit_frame`]).
-    pub frame_id: u128,
+    ///
+    /// `None` when the encoded buffer could not be matched back to a
+    /// submitted frame (e.g. codec header packets emitted by some encoders).
+    pub frame_id: Option<u128>,
     /// Presentation timestamp in nanoseconds.
     pub pts_ns: u64,
     /// Decode timestamp in nanoseconds (if set by the encoder).

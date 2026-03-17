@@ -14,7 +14,7 @@ mod common;
 
 use common::*;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use picasso::prelude::*;
 use savant_core::primitives::frame::VideoFrameProxy;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -33,15 +33,16 @@
 //! On **dGPU** the entire path is GPU-side; no CPU pixel copies occur.
 //!
 //! On **Jetson** (`NvBufSurfaceMemType::Default` = `SurfaceArray`, VIC-managed)
-//! the surface memory is not directly CUDA-addressable.  The copies use
-//! `NvBufSurfaceMap` / `NvBufSurfaceSyncForCpu` / `NvBufSurfaceSyncForDevice`
-//! / `NvBufSurfaceUnMap` with `cudaMemcpyHostToDevice` / `DeviceToHost` via
-//! the CPU-mapped pointer.
+//! the surface memory is accessed via EGL-CUDA interop (`EglCudaMeta`) to
+//! obtain a CUDA device pointer, then uses `DeviceToDevice` copies — the same
+//! code path as dGPU.
 
+use crate::cuda_stream::CudaStream;
 use crate::egl_context::{EglError, EglHeadlessContext};
 use crate::transform::{self, TransformConfig};
-use crate::{ffi, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
+use crate::{ffi, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
 use gstreamer as gst;
+use gstreamer::glib;
 use thiserror::Error;
 
 // ─── CUDA-GL Interop FFI ────────────────────────────────────────────────────
@@ -82,7 +83,7 @@ extern "C" {
 
     fn cudaGraphicsUnregisterResource(resource: cudaGraphicsResource_t) -> i32;
 
-    fn cudaMemcpy2DFromArray(
+    fn cudaMemcpy2DFromArrayAsync(
         dst: *mut std::ffi::c_void,
         dpitch: usize,
         src: cudaArray_t,
@@ -90,10 +91,11 @@ extern "C" {
         h_offset: usize,
         width: usize,
         height: usize,
-        kind: i32, // cudaMemcpyDeviceToDevice = 3
+        kind: i32,
+        stream: cudaStream_t,
     ) -> i32;
 
-    fn cudaMemcpy2DToArray(
+    fn cudaMemcpy2DToArrayAsync(
         dst: cudaArray_t,
         w_offset: usize,
         h_offset: usize,
@@ -101,7 +103,8 @@ extern "C" {
         spitch: usize,
         width: usize,
         height: usize,
-        kind: i32, // cudaMemcpyDeviceToDevice = 3
+        kind: i32,
+        stream: cudaStream_t,
     ) -> i32;
 }
 
@@ -144,29 +147,43 @@ pub enum SkiaRendererError {
 /// GPU-accelerated Skia renderer that copies rendered frames into NvBufSurface
 /// buffers via CUDA-GL interop.
 ///
+/// This type is `!Send` and `!Sync` because the underlying EGL/GL context has
+/// thread affinity — all operations must occur on the thread that created the
+/// renderer.
+///
+/// # Drop order
+///
+/// Fields are declared so that Rust's implicit drop order (declaration order)
+/// destroys the Skia surface first, then the Skia GPU context, and finally the
+/// EGL context.  Do **not** reorder `surface`, `gr_context`, or `_egl`.
+///
 /// # Example
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     SkiaRenderer, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat, cuda_init,
+///     SkiaRenderer, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType,
+///     SurfaceView, VideoFormat, cuda_init,
 /// };
 /// use skia_safe::Color;
 ///
 /// cuda_init(0).unwrap();
-/// let gen = DsNvSurfaceBufferGenerator::new(
-///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
+/// let gen = DsNvUniformSurfaceBufferGenerator::new(
+///     VideoFormat::RGBA, 1920, 1080, 1, 2, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
 /// let mut renderer = SkiaRenderer::new(1920, 1080, 0).unwrap();
 /// renderer.canvas().clear(Color::from_argb(255, 30, 40, 60));
 ///
-/// let mut buf = gen.acquire_surface(None).unwrap();
-/// renderer.render_to_nvbuf(buf.make_mut(), None).unwrap();
+/// let shared = gen.acquire_buffer(None).unwrap();
+/// let view = SurfaceView::from_shared(&shared, 0).unwrap();
+/// let mut guard = view.buffer();
+/// renderer.render_to_nvbuf(guard.make_mut(), None).unwrap();
 /// ```
 pub struct SkiaRenderer {
-    _egl: EglHeadlessContext,
-    gr_context: skia_safe::gpu::DirectContext,
+    // Drop order: surface → gr_context → _egl.  Do not reorder.
     surface: skia_safe::Surface,
+    gr_context: skia_safe::gpu::DirectContext,
+    _egl: EglHeadlessContext,
     gl_texture: u32,
     gl_fbo: u32,
     cuda_resource: cudaGraphicsResource_t,
@@ -175,7 +192,8 @@ pub struct SkiaRenderer {
     gpu_id: u32,
     /// Lazily-created temporary generator for the scaled path
     /// (when canvas dimensions != destination dimensions).
-    temp_gen: Option<DsNvSurfaceBufferGenerator>,
+    temp_gen: Option<DsNvUniformSurfaceBufferGenerator>,
+    cuda_stream: CudaStream,
 }
 
 impl SkiaRenderer {
@@ -295,9 +313,9 @@ impl SkiaRenderer {
         .ok_or_else(|| SkiaRendererError::Skia("Failed to create Skia surface from FBO".into()))?;
 
         Ok(Self {
-            _egl: egl,
-            gr_context,
             surface,
+            gr_context,
+            _egl: egl,
             gl_texture: texture,
             gl_fbo: fbo,
             cuda_resource,
@@ -305,55 +323,67 @@ impl SkiaRenderer {
             height,
             gpu_id,
             temp_gen: None,
+            cuda_stream: CudaStream::default(),
         })
     }
 
-    /// Construct a SkiaRenderer pre-loaded with content from an NvBufSurface.
+    /// Construct a SkiaRenderer pre-loaded with content from GPU memory.
     ///
-    /// Creates the EGL/GL/CUDA setup at `width x height` (the source buffer's
-    /// dimensions) and copies the existing pixels into the GL texture so Skia
-    /// can draw on top.
+    /// Creates the EGL/GL/CUDA setup at `width x height` and copies the
+    /// existing pixels into the GL texture so Skia can draw on top.
     ///
-    /// On Jetson the copy goes through `NvBufSurfaceMap` (CPU staging) because
-    /// `SurfaceArray` memory is not directly CUDA-addressable.
+    /// The caller must provide the CUDA device pointer and pitch (row stride
+    /// in bytes). On dGPU this is the NvBufSurface `dataPtr`; on Jetson use
+    /// a [`SurfaceView`] to resolve the pointer via EGL-CUDA interop.
+    ///
+    /// [`SurfaceView`]: crate::SurfaceView
     ///
     /// # Arguments
     ///
-    /// * `width`  — source buffer width (canvas will be this size)
-    /// * `height` — source buffer height (canvas will be this size)
-    /// * `gpu_id` — CUDA GPU device ID
-    /// * `buf`    — GstBuffer backed by an NvBufSurface (RGBA)
-    pub fn from_nvbuf(
+    /// * `width`    — source buffer width (canvas will be this size)
+    /// * `height`   — source buffer height (canvas will be this size)
+    /// * `gpu_id`   — CUDA GPU device ID
+    /// * `data_ptr` — CUDA device pointer to the first pixel (RGBA)
+    /// * `pitch`    — row stride in bytes
+    /// # Safety
+    ///
+    /// `data_ptr` must be a valid CUDA device pointer with at least
+    /// `pitch * height` readable bytes.
+    pub unsafe fn from_nvbuf(
         width: u32,
         height: u32,
         gpu_id: u32,
-        buf: &gst::BufferRef,
+        data_ptr: *const std::ffi::c_void,
+        pitch: usize,
     ) -> Result<Self, SkiaRendererError> {
         let mut renderer = Self::new(width, height, gpu_id)?;
-        renderer.load_from_nvbuf(buf)?;
+        renderer.load_from_nvbuf(data_ptr, pitch)?;
         Ok(renderer)
     }
 
-    /// Copy NvBufSurface pixels INTO the GL texture (reverse direction).
+    /// Copy GPU pixels INTO the GL texture (reverse direction) so Skia can
+    /// draw on top of existing content.
     ///
-    /// On dGPU this is a GPU-to-GPU `cudaMemcpy2DToArray`.  On Jetson the
-    /// VIC-managed surface is mapped to CPU and copied with
-    /// `cudaMemcpyHostToDevice`.
+    /// Performs a GPU-to-GPU `cudaMemcpy2DToArray` (device-to-device) from
+    /// the caller-supplied CUDA pointer into the CUDA-GL interop array.
     ///
-    /// After this call Skia can draw on top of the loaded content.
+    /// # Safety
+    ///
+    /// `data_ptr` must be a valid CUDA device pointer with at least
+    /// `pitch * self.height` readable bytes.
     ///
     /// # Arguments
     ///
-    /// * `buf` — GstBuffer backed by an NvBufSurface (RGBA)
-    pub fn load_from_nvbuf(&mut self, buf: &gst::BufferRef) -> Result<(), SkiaRendererError> {
-        let surf_ptr = unsafe {
-            transform::extract_nvbufsurface(buf)
-                .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
+    /// * `data_ptr` — CUDA device pointer to the source RGBA pixels
+    /// * `pitch`    — row stride in bytes
+    pub unsafe fn load_from_nvbuf(
+        &mut self,
+        data_ptr: *const std::ffi::c_void,
+        pitch: usize,
+    ) -> Result<(), SkiaRendererError> {
+        let rc = unsafe {
+            cudaGraphicsMapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw())
         };
-
-        // 1. Map CUDA-GL resource → get cudaArray
-        let rc =
-            unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -367,7 +397,7 @@ impl SkiaRenderer {
         };
         if rc != 0 {
             unsafe {
-                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
+                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw());
             }
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -375,40 +405,25 @@ impl SkiaRenderer {
             ));
         }
 
-        let width_bytes = (self.width as usize) * 4; // RGBA = 4 bpp
+        let width_bytes = (self.width as usize) * 4;
 
-        #[cfg(not(target_arch = "aarch64"))]
-        let copy_rc = {
-            let surface = unsafe { &*(*surf_ptr).surfaceList };
-            let data_ptr = surface.dataPtr;
-            if data_ptr.is_null() {
-                unsafe {
-                    cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
-                }
-                return Err(SkiaRendererError::NvBuf(
-                    "NvBufSurface dataPtr is null".into(),
-                ));
-            }
-            unsafe {
-                cudaMemcpy2DToArray(
-                    cuda_array,
-                    0,
-                    0,
-                    data_ptr as *const std::ffi::c_void,
-                    surface.pitch as usize,
-                    width_bytes,
-                    self.height as usize,
-                    ffi::CUDA_MEMCPY_DEVICE_TO_DEVICE,
-                )
-            }
+        let copy_rc = unsafe {
+            cudaMemcpy2DToArrayAsync(
+                cuda_array,
+                0,
+                0,
+                data_ptr,
+                pitch,
+                width_bytes,
+                self.height as usize,
+                ffi::CUDA_MEMCPY_DEVICE_TO_DEVICE,
+                self.cuda_stream.as_raw(),
+            )
         };
 
-        #[cfg(target_arch = "aarch64")]
-        let copy_rc = unsafe { self.load_from_nvbuf_mapped(surf_ptr, cuda_array, width_bytes)? };
-
-        // Unmap CUDA-GL resource (always)
-        let unmap_rc =
-            unsafe { cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
+        let unmap_rc = unsafe {
+            cudaGraphicsUnmapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw())
+        };
 
         if copy_rc != 0 {
             return Err(SkiaRendererError::Cuda(
@@ -423,67 +438,8 @@ impl SkiaRenderer {
             ));
         }
 
-        // Invalidate Skia's cached GL state so it re-reads the texture
         self.gr_context.reset(None);
-
         Ok(())
-    }
-
-    /// Jetson: Map NvBufSurface → SyncForCpu → cudaMemcpy2DToArray (H2D) → UnMap.
-    ///
-    /// Returns the CUDA return code from `cudaMemcpy2DToArray` (0 = success).
-    #[cfg(target_arch = "aarch64")]
-    unsafe fn load_from_nvbuf_mapped(
-        &self,
-        surf_ptr: *mut ffi::NvBufSurface,
-        cuda_array: cudaArray_t,
-        width_bytes: usize,
-    ) -> Result<i32, SkiaRendererError> {
-        let ret = ffi::NvBufSurfaceMap(
-            surf_ptr,
-            0,
-            -1,
-            ffi::NvBufSurfaceMemMapFlags_NVBUF_MAP_READ_WRITE,
-        );
-        if ret != 0 {
-            return Err(SkiaRendererError::NvBuf(format!(
-                "NvBufSurfaceMap failed (code {})",
-                ret
-            )));
-        }
-
-        let ret = ffi::NvBufSurfaceSyncForCpu(surf_ptr, 0, -1);
-        if ret != 0 {
-            let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-            return Err(SkiaRendererError::NvBuf(format!(
-                "NvBufSurfaceSyncForCpu failed (code {})",
-                ret
-            )));
-        }
-
-        let params = &*(*surf_ptr).surfaceList;
-        let mapped = params.mappedAddr.addr[0];
-        if mapped.is_null() {
-            let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-            return Err(SkiaRendererError::NvBuf(
-                "mappedAddr.addr[0] is null after NvBufSurfaceMap".into(),
-            ));
-        }
-        let mapped_pitch = params.planeParams.pitch[0] as usize;
-
-        let rc = cudaMemcpy2DToArray(
-            cuda_array,
-            0,
-            0,
-            mapped as *const std::ffi::c_void,
-            mapped_pitch,
-            width_bytes,
-            self.height as usize,
-            ffi::CUDA_MEMCPY_HOST_TO_DEVICE,
-        );
-
-        let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-        Ok(rc)
     }
 
     /// Get the Skia canvas for drawing.
@@ -510,34 +466,92 @@ impl SkiaRenderer {
         self.gl_fbo
     }
 
+    /// Set the CUDA stream used for GPU interop copies (builder).
+    ///
+    /// When set, `cudaGraphicsMapResources`, `cudaGraphicsUnmapResources`,
+    /// and all async CUDA copies use this stream instead of the default.
+    pub fn with_cuda_stream(mut self, stream: CudaStream) -> Self {
+        self.cuda_stream = stream;
+        self
+    }
+
+    /// Replace the CUDA stream on an existing renderer.
+    ///
+    /// Same effect as [`with_cuda_stream`](Self::with_cuda_stream) but
+    /// takes `&mut self` so it can be called on a reused renderer without
+    /// consuming it.
+    pub fn set_cuda_stream(&mut self, stream: CudaStream) {
+        self.cuda_stream = stream;
+    }
+
     /// Flush Skia rendering and copy the result into a destination NvBufSurface.
     ///
-    /// ## Fast path (no scaling)
+    /// Convenience wrapper that creates a [`SurfaceView`] internally to
+    /// resolve the CUDA device pointer, then delegates to
+    /// [`render_to_nvbuf_with_ptr`](Self::render_to_nvbuf_with_ptr).
     ///
-    /// When `transform_config` is `None` **and** the canvas dimensions equal
-    /// the destination buffer dimensions, a direct CUDA-GL copy is performed
-    /// (GPU-to-GPU, no intermediate buffer).
-    ///
-    /// ## Scaled path (letterboxing)
-    ///
-    /// When `transform_config` is `Some` **or** dimensions differ:
-    /// 1. Copies the GL texture into an internal temporary RGBA NvBufSurface
-    ///    at canvas resolution
-    /// 2. Uses `NvBufSurfTransform` to scale/letterbox from the temp buffer
-    ///    into the destination
-    ///
-    /// # Arguments
-    ///
-    /// * `dst_buf` — Mutable reference to the destination GstBuffer
-    ///   (from [`DsNvSurfaceBufferGenerator::acquire_surface`]).
-    /// * `transform_config` — Optional scaling/padding configuration.
-    ///   When `None` and dimensions match, fast path is used.
+    /// [`SurfaceView`]: crate::SurfaceView
     pub fn render_to_nvbuf(
         &mut self,
         dst_buf: &mut gst::BufferRef,
         transform_config: Option<&TransformConfig>,
     ) -> Result<(), SkiaRendererError> {
-        // Extract destination NvBufSurface
+        // Obtain a temporary owned reference (increments GstBuffer refcount)
+        // so we can create a SurfaceView to resolve the CUDA pointer.
+        let owned: gst::Buffer = unsafe { glib::translate::from_glib_none(dst_buf.as_mut_ptr()) };
+        let view = crate::SurfaceView::from_buffer(owned, 0)
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+        let data_ptr = view.data_ptr();
+        let pitch = view.pitch() as usize;
+        // Keep `view` alive until after the pointer is used: on Jetson,
+        // `from_glib_none` bumps the refcount causing a COW copy, so the
+        // EGL-CUDA meta lives on the copy held by `view`. Dropping early
+        // would invalidate `data_ptr`.
+        let result =
+            unsafe { self.render_to_nvbuf_with_ptr(dst_buf, data_ptr, pitch, transform_config) };
+        drop(view);
+        result
+    }
+
+    /// Flush Skia rendering and copy the result into a destination NvBufSurface.
+    ///
+    /// ## Fast path (no scaling)
+    ///
+    /// When `transform_config` is `None` **and** the canvas dimensions equal
+    /// the destination buffer dimensions, a direct CUDA-GL copy into
+    /// `dst_ptr` is performed (GPU-to-GPU, no intermediate buffer).
+    ///
+    /// ## Scaled path (letterboxing)
+    ///
+    /// When `transform_config` is `Some` **or** dimensions differ:
+    /// 1. Copies the GL texture into an internal temporary RGBA NvBufSurface
+    ///    at canvas resolution (using a [`SurfaceView`] for pointer resolution)
+    /// 2. Uses `NvBufSurfTransform` to scale/letterbox from the temp buffer
+    ///    into the destination
+    ///
+    /// [`SurfaceView`]: crate::SurfaceView
+    ///
+    /// # Arguments
+    ///
+    /// * `dst_buf`  — Mutable reference to the destination GstBuffer (needed
+    ///   for the scaled-path transform; ignored on the fast path).
+    /// * `dst_ptr`  — CUDA device pointer to the destination's first pixel.
+    /// * `dst_pitch`— Row stride in bytes.
+    /// * `transform_config` — Optional scaling/padding configuration.
+    ///   When `None` and dimensions match, the fast path is used.
+    ///
+    /// # Safety
+    ///
+    /// `dst_ptr` must be a valid CUDA device pointer with at least
+    /// `dst_pitch * height` writable bytes (where `height` is the
+    /// destination buffer's height).
+    pub unsafe fn render_to_nvbuf_with_ptr(
+        &mut self,
+        dst_buf: &mut gst::BufferRef,
+        dst_ptr: *mut std::ffi::c_void,
+        dst_pitch: usize,
+        transform_config: Option<&TransformConfig>,
+    ) -> Result<(), SkiaRendererError> {
         let dst_surf = unsafe {
             transform::extract_nvbufsurface(dst_buf)
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
@@ -546,40 +560,45 @@ impl SkiaRenderer {
         let dst_w = dst_surface.width;
         let dst_h = dst_surface.height;
 
-        // Decide: fast path or scaled path
         let needs_scaling =
             transform_config.is_some() || self.width != dst_w || self.height != dst_h;
 
         if !needs_scaling {
-            return self.copy_gl_to_nvbuf(dst_surf);
+            return self.copy_gl_to_nvbuf(dst_ptr, dst_pitch);
         }
 
-        // Scaled path: copy GL → temp NvBufSurface → NvBufSurfTransform → dst
+        // Scaled path: GL → temp buffer → NvBufSurfTransform → dst
         if self.temp_gen.is_none() {
-            let surface_generator =
-                DsNvSurfaceBufferGenerator::builder(VideoFormat::RGBA, self.width, self.height)
-                    .gpu_id(self.gpu_id)
-                    .mem_type(NvBufSurfaceMemType::Default)
-                    .min_buffers(1)
-                    .max_buffers(1)
-                    .build()
-                    .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+            let surface_generator = DsNvUniformSurfaceBufferGenerator::builder(
+                VideoFormat::RGBA,
+                self.width,
+                self.height,
+                1,
+            )
+            .gpu_id(self.gpu_id)
+            .mem_type(NvBufSurfaceMemType::Default)
+            .pool_size(1)
+            .build()
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
             self.temp_gen = Some(surface_generator);
         }
         let temp_gen = self.temp_gen.as_ref().unwrap();
 
-        let temp_buf = temp_gen
-            .acquire_surface(None)
+        let temp_shared = temp_gen
+            .acquire_buffer(None)
             .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
 
+        let temp_view = crate::SurfaceView::from_shared(&temp_shared, 0)
+            .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?;
+
+        self.copy_gl_to_nvbuf(temp_view.data_ptr(), temp_view.pitch() as usize)?;
+
+        let temp_guard = temp_view.buffer();
         let temp_surf = unsafe {
-            transform::extract_nvbufsurface(temp_buf.as_ref())
+            transform::extract_nvbufsurface(temp_guard.as_ref())
                 .map_err(|e| SkiaRendererError::NvBuf(e.to_string()))?
         };
 
-        self.copy_gl_to_nvbuf(temp_surf)?;
-
-        // Perform transform: temp → dst (no crop)
         let config = transform_config.cloned().unwrap_or_default();
         unsafe {
             transform::do_transform(temp_surf, dst_surf, &config, None)
@@ -589,28 +608,26 @@ impl SkiaRenderer {
         Ok(())
     }
 
-    /// Flush Skia and copy the GL texture into an NvBufSurface.
+    /// Flush Skia and copy the GL texture into GPU memory at `(data_ptr, pitch)`.
     ///
-    /// On dGPU this is a direct GPU-to-GPU `cudaMemcpy2DFromArray`.
-    /// On Jetson the VIC-managed surface is mapped to CPU and the copy
-    /// uses `cudaMemcpyDeviceToHost` followed by `NvBufSurfaceSyncForDevice`.
+    /// Performs a `cudaMemcpy2DFromArray` device-to-device copy from the
+    /// CUDA-GL interop array into the caller-supplied CUDA device pointer.
     fn copy_gl_to_nvbuf(
         &mut self,
-        surf_ptr: *mut ffi::NvBufSurface,
+        data_ptr: *mut std::ffi::c_void,
+        pitch: usize,
     ) -> Result<(), SkiaRendererError> {
-        // 1. Flush Skia to GL
         self.gr_context.flush_and_submit();
 
-        // glFinish() guarantees that the GL texture contains the current
-        // frame's pixels before CUDA reads from it. flushAndSubmit() only
-        // calls glFlush() which does not block.
+        // glFinish() guarantees the GL texture contains current pixels
+        // before CUDA reads from it.
         unsafe {
             gl::Finish();
         }
 
-        // 2. Map CUDA-GL resource → get cudaArray
-        let rc =
-            unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
+        let rc = unsafe {
+            cudaGraphicsMapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw())
+        };
         if rc != 0 {
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -624,7 +641,7 @@ impl SkiaRenderer {
         };
         if rc != 0 {
             unsafe {
-                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
+                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw());
             }
             return Err(SkiaRendererError::Cuda(
                 rc,
@@ -632,40 +649,25 @@ impl SkiaRenderer {
             ));
         }
 
-        let width_bytes = (self.width as usize) * 4; // RGBA = 4 bpp
+        let width_bytes = (self.width as usize) * 4;
 
-        #[cfg(not(target_arch = "aarch64"))]
-        let copy_rc = {
-            let surface = unsafe { &*(*surf_ptr).surfaceList };
-            let data_ptr = surface.dataPtr;
-            if data_ptr.is_null() {
-                unsafe {
-                    cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
-                }
-                return Err(SkiaRendererError::NvBuf(
-                    "NvBufSurface dataPtr is null".into(),
-                ));
-            }
-            unsafe {
-                cudaMemcpy2DFromArray(
-                    data_ptr,
-                    surface.pitch as usize,
-                    cuda_array,
-                    0,
-                    0,
-                    width_bytes,
-                    self.height as usize,
-                    ffi::CUDA_MEMCPY_DEVICE_TO_DEVICE,
-                )
-            }
+        let copy_rc = unsafe {
+            cudaMemcpy2DFromArrayAsync(
+                data_ptr,
+                pitch,
+                cuda_array,
+                0,
+                0,
+                width_bytes,
+                self.height as usize,
+                ffi::CUDA_MEMCPY_DEVICE_TO_DEVICE,
+                self.cuda_stream.as_raw(),
+            )
         };
 
-        #[cfg(target_arch = "aarch64")]
-        let copy_rc = unsafe { self.copy_gl_to_nvbuf_mapped(surf_ptr, cuda_array, width_bytes)? };
-
-        // 4. Unmap CUDA-GL resource (always, even on copy error)
-        let unmap_rc =
-            unsafe { cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
+        let unmap_rc = unsafe {
+            cudaGraphicsUnmapResources(1, &mut self.cuda_resource, self.cuda_stream.as_raw())
+        };
 
         if copy_rc != 0 {
             return Err(SkiaRendererError::Cuda(
@@ -683,76 +685,18 @@ impl SkiaRenderer {
         Ok(())
     }
 
-    /// Jetson: Map NvBufSurface → cudaMemcpy2DFromArray (D2H) → SyncForDevice → UnMap.
+    /// Flush Skia and copy the GL texture into GPU memory at `(data_ptr, pitch)`.
     ///
-    /// Returns the CUDA return code from `cudaMemcpy2DFromArray` (0 = success).
-    #[cfg(target_arch = "aarch64")]
-    unsafe fn copy_gl_to_nvbuf_mapped(
-        &self,
-        surf_ptr: *mut ffi::NvBufSurface,
-        cuda_array: cudaArray_t,
-        width_bytes: usize,
-    ) -> Result<i32, SkiaRendererError> {
-        let ret = ffi::NvBufSurfaceMap(
-            surf_ptr,
-            0,
-            -1,
-            ffi::NvBufSurfaceMemMapFlags_NVBUF_MAP_READ_WRITE,
-        );
-        if ret != 0 {
-            return Err(SkiaRendererError::NvBuf(format!(
-                "NvBufSurfaceMap failed (code {})",
-                ret
-            )));
-        }
-
-        let params = &*(*surf_ptr).surfaceList;
-        let mapped = params.mappedAddr.addr[0];
-        if mapped.is_null() {
-            let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-            return Err(SkiaRendererError::NvBuf(
-                "mappedAddr.addr[0] is null after NvBufSurfaceMap".into(),
-            ));
-        }
-        let mapped_pitch = params.planeParams.pitch[0] as usize;
-
-        let rc = cudaMemcpy2DFromArray(
-            mapped,
-            mapped_pitch,
-            cuda_array,
-            0,
-            0,
-            width_bytes,
-            self.height as usize,
-            ffi::CUDA_MEMCPY_DEVICE_TO_HOST,
-        );
-
-        let sync_ret = ffi::NvBufSurfaceSyncForDevice(surf_ptr, 0, -1);
-        let unmap_ret = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-
-        if rc == 0 && sync_ret != 0 {
-            return Err(SkiaRendererError::NvBuf(format!(
-                "NvBufSurfaceSyncForDevice failed (code {})",
-                sync_ret
-            )));
-        }
-        if rc == 0 && unmap_ret != 0 {
-            return Err(SkiaRendererError::NvBuf(format!(
-                "NvBufSurfaceUnMap failed (code {})",
-                unmap_ret
-            )));
-        }
-
-        Ok(rc)
-    }
-
-    /// Legacy render_to_nvbuf variant that accepts raw (data_ptr, pitch).
+    /// This always does a direct 1:1 GPU-to-GPU copy (no scaling). The caller
+    /// must resolve the CUDA pointer beforehand (e.g. via [`SurfaceView`]).
     ///
-    /// This always does a direct 1:1 GPU-to-GPU copy (no scaling).
-    /// **Not available on Jetson** where `dataPtr` is VIC-managed.
-    /// Prefer [`render_to_nvbuf`](Self::render_to_nvbuf).
-    #[cfg(not(target_arch = "aarch64"))]
-    pub fn render_to_nvbuf_raw(
+    /// [`SurfaceView`]: crate::SurfaceView
+    ///
+    /// # Safety
+    ///
+    /// `data_ptr` must be a valid CUDA device pointer with at least
+    /// `pitch * self.height` writable bytes.
+    pub unsafe fn render_to_nvbuf_raw(
         &mut self,
         data_ptr: *mut std::ffi::c_void,
         pitch: u32,
@@ -762,66 +706,7 @@ impl SkiaRenderer {
                 "NvBufSurface dataPtr is null".into(),
             ));
         }
-
-        self.gr_context.flush_and_submit();
-        unsafe {
-            gl::Finish();
-        }
-
-        let rc =
-            unsafe { cudaGraphicsMapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
-        if rc != 0 {
-            return Err(SkiaRendererError::Cuda(
-                rc,
-                "cudaGraphicsMapResources failed".into(),
-            ));
-        }
-
-        let mut cuda_array: cudaArray_t = std::ptr::null_mut();
-        let rc = unsafe {
-            cudaGraphicsSubResourceGetMappedArray(&mut cuda_array, self.cuda_resource, 0, 0)
-        };
-        if rc != 0 {
-            unsafe {
-                cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut());
-            }
-            return Err(SkiaRendererError::Cuda(
-                rc,
-                "cudaGraphicsSubResourceGetMappedArray failed".into(),
-            ));
-        }
-
-        let width_bytes = (self.width as usize) * 4;
-        let rc = unsafe {
-            cudaMemcpy2DFromArray(
-                data_ptr,
-                pitch as usize,
-                cuda_array,
-                0,
-                0,
-                width_bytes,
-                self.height as usize,
-                ffi::CUDA_MEMCPY_DEVICE_TO_DEVICE,
-            )
-        };
-
-        let unmap_rc =
-            unsafe { cudaGraphicsUnmapResources(1, &mut self.cuda_resource, std::ptr::null_mut()) };
-
-        if rc != 0 {
-            return Err(SkiaRendererError::Cuda(
-                rc,
-                "cudaMemcpy2DFromArray failed".into(),
-            ));
-        }
-        if unmap_rc != 0 {
-            return Err(SkiaRendererError::Cuda(
-                unmap_rc,
-                "cudaGraphicsUnmapResources failed".into(),
-            ));
-        }
-
-        Ok(())
+        self.copy_gl_to_nvbuf(data_ptr, pitch as usize)
     }
 }
 
@@ -833,13 +718,12 @@ impl Drop for SkiaRenderer {
                 cudaGraphicsUnregisterResource(self.cuda_resource);
             }
         }
-        // Drop Skia surface before the context (implicit via struct field order)
-        // Then GL cleanup
+        // Explicit GL cleanup; struct field drop order (surface → gr_context → _egl)
+        // handles Skia → EGL teardown automatically after this method returns.
         unsafe {
             gl::DeleteFramebuffers(1, &self.gl_fbo);
             gl::DeleteTextures(1, &self.gl_texture);
         }
-        // EGL context destroyed via _egl Drop
     }
 }
 

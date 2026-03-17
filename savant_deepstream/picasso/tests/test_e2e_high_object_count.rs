@@ -65,16 +65,13 @@ fn e2e_high_object_count() {
     };
     engine.set_source_spec("many", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let mut frame = make_frame_sized("many", W as i64, H as i64);
     frame.set_pts(0).unwrap();
@@ -106,7 +103,7 @@ fn e2e_high_object_count() {
     );
 
     let start = Instant::now();
-    let buf = make_gpu_surface_view(&gen, 0, DUR);
+    let buf = make_gpu_surface_view_uniform(&gen, 0, DUR);
     engine.send_frame("many", frame, buf, None).unwrap();
     engine.send_eos("many").unwrap();
 

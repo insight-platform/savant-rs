@@ -1,47 +1,78 @@
 //! Platform-aware GPU surface memory operations.
 //!
-//! On dGPU (`NvBufSurfaceMemType::Default` = `CudaDevice`) the CUDA driver
-//! API is used directly.  On Jetson (`Default` = `SurfaceArray`), surfaces
-//! are mapped to CPU address space via `NvBufSurfaceMap`, modified, synced
-//! back with `NvBufSurfaceSyncForDevice`, and unmapped.
+//! Uses [`SurfaceView`] to resolve CUDA device pointers on both dGPU
+//! (direct `dataPtr`) and Jetson (EGL-CUDA interop via [`EglCudaMeta`]).
 
-use crate::surface_view::color_format_channels;
-use crate::{ffi, transform, NvBufSurfaceError};
-use gstreamer as gst;
+use crate::{ffi, NvBufSurfaceError, SurfaceView};
 
-/// Fill the first surface in `buf` with a constant byte `value`.
+/// Fill the surface in `view` with a constant byte `value`.
 ///
-/// The buffer must contain a valid NvBufSurface descriptor.  All bytes
-/// up to `pitch * height` are set to `value`.
-///
-/// # Safety
-///
-/// The caller must ensure `buf` is a live NvBufSurface-backed GStreamer
-/// buffer with at least one filled surface.
-pub unsafe fn memset_surface(buf: &gst::Buffer, value: u8) -> Result<(), NvBufSurfaceError> {
-    let surf_ptr = extract_surf(buf)?;
-    let params = &*(*surf_ptr).surfaceList;
-
-    #[cfg(target_arch = "aarch64")]
-    {
-        memset_via_map(surf_ptr, params.height, value)
+/// All bytes up to `pitch * height` are set to `value`.
+pub fn memset_surface(view: &SurfaceView, value: u8) -> Result<(), NvBufSurfaceError> {
+    let count = view.pitch() as usize * view.height() as usize;
+    let ret = unsafe { ffi::cuMemsetD8_v2(view.data_ptr() as u64, value, count) };
+    if ret != 0 {
+        return Err(NvBufSurfaceError::CudaDriverError {
+            function: "cuMemsetD8_v2",
+            code: ret,
+        });
     }
-
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        let count = params.pitch as usize * params.height as usize;
-        let ret = ffi::cuMemsetD8_v2(params.dataPtr as u64, value, count);
-        if ret != 0 {
-            return Err(NvBufSurfaceError::CudaDriverError {
-                function: "cuMemsetD8_v2",
-                code: ret,
-            });
-        }
-        Ok(())
-    }
+    Ok(())
 }
 
-/// Upload CPU pixel data to the first surface in `buf`.
+/// Fill the surface with a repeating pixel colour, entirely on-GPU.
+///
+/// `color` must have exactly as many elements as the surface has channels
+/// (e.g. 4 bytes for RGBA, 1 for GRAY8).
+///
+/// Supported channel counts:
+/// - **1** (GRAY8): uses `cuMemsetD8_v2`.
+/// - **4** (RGBA / BGRx): packs the 4 bytes into a `u32` and uses
+///   `cuMemsetD32_v2` — no host-to-device transfer.
+pub fn fill_surface(view: &SurfaceView, color: &[u8]) -> Result<(), NvBufSurfaceError> {
+    let bpp = view.channels() as usize;
+    if color.len() != bpp {
+        return Err(NvBufSurfaceError::InvalidInput(format!(
+            "color length {} does not match surface channel count {}",
+            color.len(),
+            bpp,
+        )));
+    }
+
+    let total_bytes = view.pitch() as usize * view.height() as usize;
+
+    match bpp {
+        1 => {
+            let ret = unsafe { ffi::cuMemsetD8_v2(view.data_ptr() as u64, color[0], total_bytes) };
+            if ret != 0 {
+                return Err(NvBufSurfaceError::CudaDriverError {
+                    function: "cuMemsetD8_v2",
+                    code: ret,
+                });
+            }
+        }
+        4 => {
+            let value = u32::from_le_bytes([color[0], color[1], color[2], color[3]]);
+            let count = total_bytes / 4;
+            let ret = unsafe { ffi::cuMemsetD32_v2(view.data_ptr() as u64, value, count) };
+            if ret != 0 {
+                return Err(NvBufSurfaceError::CudaDriverError {
+                    function: "cuMemsetD32_v2",
+                    code: ret,
+                });
+            }
+        }
+        other => {
+            return Err(NvBufSurfaceError::InvalidInput(format!(
+                "fill not supported for {other} channels; only 1 (GRAY8) and 4 (RGBA) are supported",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Upload CPU pixel data to the surface in `view`.
 ///
 /// `data` is a tightly-packed row-major pixel buffer of dimensions
 /// `width × height × channels` in the surface's color format (e.g. 4
@@ -51,24 +82,15 @@ pub unsafe fn memset_surface(buf: &gst::Buffer, value: u8) -> Result<(), NvBufSu
 /// `channels` is the number of interleaved colour channels per pixel in
 /// `data`.  It **must** match the surface's colour format; a mismatch is
 /// rejected with [`NvBufSurfaceError::InvalidInput`].
-///
-/// # Safety
-///
-/// The caller must ensure `buf` is a live NvBufSurface-backed GStreamer
-/// buffer with at least one filled surface whose color format has a
-/// known number of interleaved channels.
-pub unsafe fn upload_to_surface(
-    buf: &gst::Buffer,
+pub fn upload_to_surface(
+    view: &SurfaceView,
     data: &[u8],
     width: u32,
     height: u32,
     channels: u32,
 ) -> Result<(), NvBufSurfaceError> {
-    let surf_ptr = extract_surf(buf)?;
-    let params = &*(*surf_ptr).surfaceList;
-
-    let surf_w = params.width;
-    let surf_h = params.height;
+    let surf_w = view.width();
+    let surf_h = view.height();
     if width > surf_w || height > surf_h {
         return Err(NvBufSurfaceError::InvalidInput(format!(
             "array dimensions {}x{} exceed surface dimensions {}x{}",
@@ -76,13 +98,7 @@ pub unsafe fn upload_to_surface(
         )));
     }
 
-    let bpp = color_format_channels(params.colorFormat).ok_or_else(|| {
-        NvBufSurfaceError::InvalidInput(format!(
-            "unsupported color format {} (multi-plane not supported)",
-            params.colorFormat
-        ))
-    })?;
-
+    let bpp = view.channels();
     if channels != bpp {
         return Err(NvBufSurfaceError::InvalidInput(format!(
             "channel count mismatch: array has {} channels but surface \
@@ -104,122 +120,22 @@ pub unsafe fn upload_to_surface(
         )));
     }
 
-    #[cfg(target_arch = "aarch64")]
-    {
-        upload_via_map(surf_ptr, data, src_stride, height)
-    }
-
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        let ret = ffi::cudaMemcpy2D(
-            params.dataPtr,
-            params.pitch as usize,
+    let ret = unsafe {
+        ffi::cudaMemcpy2D(
+            view.data_ptr(),
+            view.pitch() as usize,
             data.as_ptr() as *const std::ffi::c_void,
             src_stride,
             src_stride,
             height as usize,
             ffi::CUDA_MEMCPY_HOST_TO_DEVICE,
-        );
-        if ret != 0 {
-            return Err(NvBufSurfaceError::CudaDriverError {
-                function: "cudaMemcpy2D",
-                code: ret as u32,
-            });
-        }
-        Ok(())
-    }
-}
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
-unsafe fn extract_surf(buf: &gst::Buffer) -> Result<*mut ffi::NvBufSurface, NvBufSurfaceError> {
-    transform::extract_nvbufsurface(buf.as_ref())
-        .map_err(|e| NvBufSurfaceError::InvalidInput(e.to_string()))
-}
-
-/// Jetson (aarch64): Map → write_bytes → SyncForDevice → UnMap.
-#[cfg(target_arch = "aarch64")]
-unsafe fn memset_via_map(
-    surf_ptr: *mut ffi::NvBufSurface,
-    height: u32,
-    value: u8,
-) -> Result<(), NvBufSurfaceError> {
-    let ret = ffi::NvBufSurfaceMap(
-        surf_ptr,
-        0,
-        -1,
-        ffi::NvBufSurfaceMemMapFlags_NVBUF_MAP_READ_WRITE,
-    );
+        )
+    };
     if ret != 0 {
-        return Err(NvBufSurfaceError::SurfaceMapFailed(ret));
-    }
-
-    let params = &*(*surf_ptr).surfaceList;
-    let mapped = params.mappedAddr.addr[0] as *mut u8;
-    if mapped.is_null() {
-        let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-        return Err(NvBufSurfaceError::NullPointer(
-            "mappedAddr.addr[0] is null after NvBufSurfaceMap".into(),
-        ));
-    }
-    let mapped_pitch = params.planeParams.pitch[0] as usize;
-    let total = mapped_pitch * height as usize;
-    std::ptr::write_bytes(mapped, value, total);
-
-    let ret = ffi::NvBufSurfaceSyncForDevice(surf_ptr, 0, -1);
-    if ret != 0 {
-        let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-        return Err(NvBufSurfaceError::SurfaceSyncFailed(ret));
-    }
-    let ret = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-    if ret != 0 {
-        return Err(NvBufSurfaceError::SurfaceUnmapFailed(ret));
-    }
-    Ok(())
-}
-
-/// Jetson (aarch64): Map → row-by-row copy → SyncForDevice → UnMap.
-#[cfg(target_arch = "aarch64")]
-unsafe fn upload_via_map(
-    surf_ptr: *mut ffi::NvBufSurface,
-    data: &[u8],
-    src_stride: usize,
-    height: u32,
-) -> Result<(), NvBufSurfaceError> {
-    let ret = ffi::NvBufSurfaceMap(
-        surf_ptr,
-        0,
-        -1,
-        ffi::NvBufSurfaceMemMapFlags_NVBUF_MAP_READ_WRITE,
-    );
-    if ret != 0 {
-        return Err(NvBufSurfaceError::SurfaceMapFailed(ret));
-    }
-
-    let params = &*(*surf_ptr).surfaceList;
-    let mapped = params.mappedAddr.addr[0] as *mut u8;
-    if mapped.is_null() {
-        let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-        return Err(NvBufSurfaceError::NullPointer(
-            "mappedAddr.addr[0] is null after NvBufSurfaceMap".into(),
-        ));
-    }
-    let mapped_pitch = params.planeParams.pitch[0] as usize;
-
-    for row in 0..height as usize {
-        let dst = mapped.add(row * mapped_pitch);
-        let src = &data[row * src_stride..(row + 1) * src_stride];
-        std::ptr::copy_nonoverlapping(src.as_ptr(), dst, src_stride);
-    }
-
-    let ret = ffi::NvBufSurfaceSyncForDevice(surf_ptr, 0, -1);
-    if ret != 0 {
-        let _ = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-        return Err(NvBufSurfaceError::SurfaceSyncFailed(ret));
-    }
-    let ret = ffi::NvBufSurfaceUnMap(surf_ptr, 0, -1);
-    if ret != 0 {
-        return Err(NvBufSurfaceError::SurfaceUnmapFailed(ret));
+        return Err(NvBufSurfaceError::CudaDriverError {
+            function: "cudaMemcpy2D",
+            code: ret as u32,
+        });
     }
     Ok(())
 }

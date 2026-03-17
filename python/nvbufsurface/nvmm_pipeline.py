@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """NVMM encoding pipeline example using the Picasso engine.
 
-Allocates ``cv2.cuda.GpuMat`` frames, fills them with a solid colour,
-and submits them to Picasso via ``__cuda_array_interface__``.  This
-demonstrates the zero-copy path where plain CUDA memory (no
-NvBufSurface) is handed directly to the encoder.
+Acquires NvBufSurface-backed GPU buffers from the generator pool,
+fills each frame with a cycling solid colour via ``nvgstbuf_as_gpu_mat``
+(zero-copy GpuMat view), and submits them to the Picasso encoder.
 
-The Picasso engine handles all encoding internals (encoder creation,
-format conversion, PTS validation).  The sample only needs to:
+This is the simplest pipeline: no bounding-box drawing, no Skia overlay,
+no ``on_gpumat`` / ``on_render`` callbacks — just colour fill + encode.
 
-1. Configure and create a :class:`PicassoSession`.
-2. For each frame, allocate a ``GpuMat``, draw into it, wrap with
-   :class:`GpuMatCudaArray`, and submit.
-3. (Encoded frames are delivered asynchronously via callback and
-   optionally pushed into the muxer.)
+On Jetson the NvBufSurface pool allocates NVMM surface-array memory
+(required by VIC-backed NvBufSurfTransform); using raw CUDA device
+memory (``GpuMatCudaArray``) would fail because VIC cannot read from
+``NVBUF_MEM_CUDA_DEVICE``.
 
 Output pipeline (when ``--output`` is given)::
 
@@ -42,10 +40,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from savant_rs.deepstream import (  # noqa: E402
-    GpuMatCudaArray,
+from savant_rs.deepstream import (
+    SurfaceView,
     VideoFormat,
-    make_gpu_mat,
+    nvbuf_as_gpu_mat,
 )
 
 from common import PicassoSession, add_common_args
@@ -58,31 +56,43 @@ from common import PicassoSession, add_common_args
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="NVMM encoding pipeline (Picasso engine, GpuMat source)"
+        description="NVMM encoding pipeline (Picasso engine, NvBufSurface source)"
     )
     add_common_args(parser)
     args = parser.parse_args()
 
-    session = PicassoSession(args, video_format=VideoFormat.RGBA, use_generator=False)
+    session = PicassoSession(args, video_format=VideoFormat.RGBA)
 
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
-        mat = make_gpu_mat(args.width, args.height)
-        mat.setTo((i % 255, i % 255, i % 255, 255))
-        cuda_frame = GpuMatCudaArray(mat)
-
         pts_ns = i * session.frame_duration_ns
-        try:
-            session.submit(
-                cuda_frame,
-                pts_ns=pts_ns,
-                duration_ns=session.frame_duration_ns,
-            )
+        for s in range(session.jobs):
+            try:
+                buf = session.acquire_surface(source_idx=s, frame_id=i)
+            except Exception as e:
+                print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
+                break
+
+            view = SurfaceView.from_buffer(buf, 0)
+            with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, view.width, view.height) as (mat, stream):
+                grey = i % 255
+                mat.setTo((grey, grey, grey, 255), stream=stream)
+
+            try:
+                session.submit(
+                    view,
+                    source_idx=s,
+                    pts_ns=pts_ns,
+                    duration_ns=session.frame_duration_ns,
+                )
+            except Exception as e:
+                print(f"Submit failed at frame {i} src {s}: {e}", file=sys.stderr)
+                break
+        else:
             i += 1
-        except Exception as e:
-            print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
-            break
+            continue
+        break
 
     session.shutdown()
 

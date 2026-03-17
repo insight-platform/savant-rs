@@ -250,7 +250,8 @@ fn test_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64; // ~30fps
 
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -284,7 +285,8 @@ fn test_submit_rgba_with_conversion() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * 33_333_333;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(33_333_333))
@@ -311,7 +313,8 @@ fn test_h264_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -345,7 +348,8 @@ fn test_hevc_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -379,7 +383,8 @@ fn test_jpeg_submit_and_pull_frames() {
 
     let frame_duration_ns = 33_333_333u64;
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -418,7 +423,8 @@ fn test_av1_single_frame() {
     let config = EncoderConfig::new(Codec::Av1, 320, 240);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf = shared.into_buffer().expect("sole owner");
     encoder.submit_frame(buf, 0, 0, Some(33_333_333)).unwrap();
 
     let frames = encoder.finish(Some(5000)).unwrap();
@@ -445,7 +451,8 @@ fn test_av1_multi_frame() {
 
     let frame_dur = 33_333_333u64;
     for i in 0..10u128 {
-        let buf = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buf = shared.into_buffer().expect("sole owner");
         encoder
             .submit_frame(buf, i, i as u64 * frame_dur, Some(frame_dur))
             .unwrap();
@@ -471,7 +478,8 @@ fn test_av1_with_rgba_conversion() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     for i in 0..3u128 {
-        let buf = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buf = shared.into_buffer().expect("sole owner");
         encoder
             .submit_frame(buf, i, i as u64 * 33_333_333, Some(33_333_333))
             .unwrap();
@@ -497,11 +505,13 @@ fn test_pts_reordering_rejected() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     // First frame at PTS=100
-    let buf1 = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared1 = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf1 = shared1.into_buffer().expect("sole owner");
     encoder.submit_frame(buf1, 0, 100, None).unwrap();
 
     // Second frame at PTS=50 (reordered — should fail)
-    let buf2 = encoder.generator().acquire_surface(Some(1)).unwrap();
+    let shared2 = encoder.generator().acquire_buffer(Some(1)).unwrap();
+    let buf2 = shared2.into_buffer().expect("sole owner");
     let result = encoder.submit_frame(buf2, 1, 50, None);
 
     assert!(result.is_err());
@@ -529,11 +539,13 @@ fn test_pts_equal_rejected() {
     };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let buf1 = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared1 = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf1 = shared1.into_buffer().expect("sole owner");
     encoder.submit_frame(buf1, 0, 100, None).unwrap();
 
     // Same PTS as previous — should be rejected.
-    let buf2 = encoder.generator().acquire_surface(Some(1)).unwrap();
+    let shared2 = encoder.generator().acquire_buffer(Some(1)).unwrap();
+    let buf2 = shared2.into_buffer().expect("sole owner");
     let result = encoder.submit_frame(buf2, 1, 100, None);
     assert!(result.is_err());
 }
@@ -550,7 +562,8 @@ fn test_double_finish_returns_empty() {
     };
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf = shared.into_buffer().expect("sole owner");
     encoder.submit_frame(buf, 0, 0, None).unwrap();
 
     let first = encoder.finish(Some(3000)).unwrap();
@@ -573,7 +586,8 @@ fn test_submit_after_finish_fails() {
 
     let _ = encoder.finish(Some(1000));
 
-    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf = shared.into_buffer().expect("sole owner");
     let result = encoder.submit_frame(buf, 0, 0, None);
     assert!(result.is_err());
     match result.unwrap_err() {
@@ -595,7 +609,8 @@ fn test_encoder_drop_does_not_panic() {
     let mut encoder = NvEncoder::new(&config).unwrap();
 
     // Submit a frame but don't call finish — drop should be safe.
-    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buf = shared.into_buffer().expect("sole owner");
     encoder.submit_frame(buf, 0, 0, Some(33_333_333)).unwrap();
 
     drop(encoder); // Should not panic.
@@ -636,10 +651,11 @@ fn test_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let buffer = encoder
+        let shared = encoder
             .generator()
-            .acquire_surface(Some(fid as i64))
+            .acquire_buffer(Some(fid as i64))
             .unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
@@ -649,10 +665,13 @@ fn test_frame_id_preserved() {
     let remaining = encoder.finish(Some(3000)).unwrap();
 
     for frame in &remaining {
+        let fid = frame
+            .frame_id
+            .expect("frame_id should be Some for user-submitted frames");
         assert!(
-            frame_ids.contains(&frame.frame_id),
+            frame_ids.contains(&fid),
             "Unexpected frame_id {} not in {:?}",
-            frame.frame_id,
+            fid,
             frame_ids,
         );
     }
@@ -700,7 +719,8 @@ fn test_png_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -736,7 +756,8 @@ fn test_png_with_compression_level() {
         .properties(props);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buffer = shared.into_buffer().expect("sole owner");
     encoder
         .submit_frame(buffer, 0, 0, Some(33_333_333))
         .unwrap();
@@ -760,10 +781,11 @@ fn test_png_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let buffer = encoder
+        let shared = encoder
             .generator()
-            .acquire_surface(Some(fid as i64))
+            .acquire_buffer(Some(fid as i64))
             .unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
@@ -773,10 +795,13 @@ fn test_png_frame_id_preserved() {
     let remaining = encoder.finish(Some(5000)).unwrap();
 
     for frame in &remaining {
+        let fid = frame
+            .frame_id
+            .expect("frame_id should be Some for user-submitted frames");
         assert!(
-            frame_ids.contains(&frame.frame_id),
+            frame_ids.contains(&fid),
             "Unexpected frame_id {} not in {:?}",
-            frame.frame_id,
+            fid,
             frame_ids,
         );
     }
@@ -823,7 +848,8 @@ fn test_raw_rgba_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -861,7 +887,8 @@ fn test_raw_rgb_submit_and_pull_frames() {
     let frame_duration_ns = 33_333_333u64;
 
     for i in 0..5u128 {
-        let buffer = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
+        let shared = encoder.generator().acquire_buffer(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, i, pts_ns, Some(frame_duration_ns))
@@ -900,10 +927,11 @@ fn test_raw_frame_id_preserved() {
     let frame_duration_ns = 33_333_333u64;
 
     for (i, &fid) in frame_ids.iter().enumerate() {
-        let buffer = encoder
+        let shared = encoder
             .generator()
-            .acquire_surface(Some(fid as i64))
+            .acquire_buffer(Some(fid as i64))
             .unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
         let pts_ns = i as u64 * frame_duration_ns;
         encoder
             .submit_frame(buffer, fid, pts_ns, Some(frame_duration_ns))
@@ -913,10 +941,13 @@ fn test_raw_frame_id_preserved() {
     let remaining = encoder.finish(Some(5000)).unwrap();
 
     for frame in &remaining {
+        let fid = frame
+            .frame_id
+            .expect("frame_id should be Some for user-submitted frames");
         assert!(
-            frame_ids.contains(&frame.frame_id),
+            frame_ids.contains(&fid),
             "Unexpected frame_id {} not in {:?}",
-            frame.frame_id,
+            fid,
             frame_ids,
         );
     }
@@ -929,7 +960,8 @@ fn test_raw_rgba_from_nv12_input() {
     let config = EncoderConfig::new(Codec::RawRgba, 320, 240).format(VideoFormat::NV12);
     let mut encoder = NvEncoder::new(&config).unwrap();
 
-    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buffer = shared.into_buffer().expect("sole owner");
     encoder
         .submit_frame(buffer, 0, 0, Some(33_333_333))
         .unwrap();
@@ -969,11 +1001,12 @@ fn test_raw_rgba_pixel_data_round_trip() {
     }
 
     // Upload the pattern to the GPU surface.
-    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
-    unsafe {
-        deepstream_nvbufsurface::upload_to_surface(&buffer, &input_pixels, w, h, 4)
-            .expect("upload_to_surface failed");
-    }
+    let shared = encoder.generator().acquire_buffer(Some(0)).unwrap();
+    let buffer = shared.into_buffer().expect("sole owner");
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(buffer, 0).unwrap();
+    deepstream_nvbufsurface::upload_to_surface(&view, &input_pixels, w, h, 4)
+        .expect("upload_to_surface failed");
+    let buffer = view.into_buffer().unwrap();
 
     encoder
         .submit_frame(buffer, 42, 0, Some(33_333_333))
@@ -986,7 +1019,7 @@ fn test_raw_rgba_pixel_data_round_trip() {
     );
 
     let frame = &frames[0];
-    assert_eq!(frame.frame_id, 42);
+    assert_eq!(frame.frame_id, Some(42));
     assert_eq!(frame.data.len(), input_pixels.len());
     assert_eq!(
         frame.data, input_pixels,

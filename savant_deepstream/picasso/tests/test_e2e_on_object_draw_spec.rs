@@ -99,16 +99,13 @@ fn e2e_on_object_draw_spec() {
     };
     engine.set_source_spec("obj-draw", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let mut frame = make_frame_sized("obj-draw", W as i64, H as i64);
     frame.set_pts(0).unwrap();
@@ -148,7 +145,7 @@ fn e2e_on_object_draw_spec() {
         .add_object(obj_ignored, IdCollisionResolutionPolicy::GenerateNewId)
         .unwrap();
 
-    let buf = make_gpu_surface_view(&gen, 0, DUR);
+    let buf = make_gpu_surface_view_uniform(&gen, 0, DUR);
     engine.send_frame("obj-draw", frame, buf, None).unwrap();
     engine.send_eos("obj-draw").unwrap();
 

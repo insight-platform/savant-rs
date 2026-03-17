@@ -22,6 +22,7 @@ deepstream_nvbufsurface = { path = "../nvbufsurface" }
 savant_core = { path = "../../savant_core/savant_core" }
 thiserror = { workspace = true }
 log = { workspace = true }
+parking_lot = { workspace = true }
 tempfile = "3"
 
 [dev-dependencies]

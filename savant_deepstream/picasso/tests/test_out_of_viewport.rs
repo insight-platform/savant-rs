@@ -97,16 +97,6 @@ fn make_frame(source_id: &str, idx: u64) -> VideoFrameProxy {
     frame
 }
 
-fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsurface::SurfaceView {
-    let mut buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    {
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
-        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
-    }
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
-}
-
 struct EncodedCounter(Arc<AtomicUsize>);
 impl OnEncodedFrame for EncodedCounter {
     fn call(&self, output: OutputMessage) {
@@ -199,16 +189,13 @@ fn out_of_viewport_objects_do_not_crash() {
     };
     engine.set_source_spec("oob", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let num_frames = OOB_BOXES.len();
 
@@ -223,7 +210,7 @@ fn out_of_viewport_objects_do_not_crash() {
             .build()
             .unwrap();
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
-        let buf = make_buffer(&gen, i as u64);
+        let buf = common::make_gpu_surface_view_uniform(&gen, i as u64, FRAME_DUR_NS);
         engine.send_frame("oob", frame, buf, None).unwrap();
     }
 
@@ -279,16 +266,13 @@ fn all_oob_objects_on_single_frame() {
     };
     engine.set_source_spec("oob-all", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let frame = make_frame("oob-all", 0);
     for &(cx, cy, w, h, angle) in OOB_BOXES {
@@ -302,7 +286,7 @@ fn all_oob_objects_on_single_frame() {
             .unwrap();
         let _ = frame.add_object(obj, IdCollisionResolutionPolicy::GenerateNewId);
     }
-    let buf = make_buffer(&gen, 0);
+    let buf = common::make_gpu_surface_view_uniform(&gen, 0, FRAME_DUR_NS);
     engine
         .send_frame("oob-all", frame.clone(), buf, None)
         .unwrap();

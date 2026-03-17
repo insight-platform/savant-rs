@@ -40,6 +40,16 @@ fn parse_u32(key: &str, value: &str) -> Result<u32, EncoderError> {
         })
 }
 
+fn validate_range(key: &str, value: u32, min: u32, max: u32) -> Result<u32, EncoderError> {
+    if value > max || value < min {
+        return Err(EncoderError::InvalidProperty {
+            name: key.to_string(),
+            reason: format!("value {value} out of range [{min}, {max}]"),
+        });
+    }
+    Ok(value)
+}
+
 fn parse_bool(key: &str, value: &str) -> Result<bool, EncoderError> {
     match value.to_lowercase().as_str() {
         "true" | "1" | "yes" => Ok(true),
@@ -552,7 +562,7 @@ impl H264DgpuProps {
                 "maxbitrate" | "max_bitrate" => props.max_bitrate = Some(parse_u32(key, value)?),
                 "vbvbufsize" | "vbv_buf_size" => props.vbv_buf_size = Some(parse_u32(key, value)?),
                 "vbvinit" | "vbv_init" => props.vbv_init = Some(parse_u32(key, value)?),
-                "cq" => props.cq = Some(parse_u32(key, value)?),
+                "cq" => props.cq = Some(validate_range(key, parse_u32(key, value)?, 0, 51)?),
                 "aq" => props.aq = Some(parse_u32(key, value)?),
                 "temporalaq" | "temporal_aq" => props.temporal_aq = Some(parse_bool(key, value)?),
                 "extended_colorformat" => {
@@ -687,7 +697,7 @@ impl HevcDgpuProps {
                 "maxbitrate" | "max_bitrate" => props.max_bitrate = Some(parse_u32(key, value)?),
                 "vbvbufsize" | "vbv_buf_size" => props.vbv_buf_size = Some(parse_u32(key, value)?),
                 "vbvinit" | "vbv_init" => props.vbv_init = Some(parse_u32(key, value)?),
-                "cq" => props.cq = Some(parse_u32(key, value)?),
+                "cq" => props.cq = Some(validate_range(key, parse_u32(key, value)?, 0, 51)?),
                 "aq" => props.aq = Some(parse_u32(key, value)?),
                 "temporalaq" | "temporal_aq" => props.temporal_aq = Some(parse_bool(key, value)?),
                 "extended_colorformat" => {
@@ -984,7 +994,8 @@ impl PngProps {
         for (key, value) in pairs {
             match normalize_key(key).as_str() {
                 "compression_level" | "compression-level" => {
-                    props.compression_level = Some(parse_u32(key, value)?);
+                    props.compression_level =
+                        Some(validate_range(key, parse_u32(key, value)?, 0, 9)?);
                 }
                 _ => {
                     return Err(EncoderError::InvalidProperty {
@@ -1018,7 +1029,9 @@ impl JpegProps {
         let mut props = Self::default();
         for (key, value) in pairs {
             match normalize_key(key).as_str() {
-                "quality" => props.quality = Some(parse_u32(key, value)?),
+                "quality" => {
+                    props.quality = Some(validate_range(key, parse_u32(key, value)?, 0, 100)?)
+                }
                 _ => {
                     return Err(EncoderError::InvalidProperty {
                         name: key.clone(),
@@ -1150,7 +1163,7 @@ impl Av1DgpuProps {
                 "maxbitrate" | "max_bitrate" => props.max_bitrate = Some(parse_u32(key, value)?),
                 "vbvbufsize" | "vbv_buf_size" => props.vbv_buf_size = Some(parse_u32(key, value)?),
                 "vbvinit" | "vbv_init" => props.vbv_init = Some(parse_u32(key, value)?),
-                "cq" => props.cq = Some(parse_u32(key, value)?),
+                "cq" => props.cq = Some(validate_range(key, parse_u32(key, value)?, 0, 51)?),
                 "aq" => props.aq = Some(parse_u32(key, value)?),
                 "temporalaq" | "temporal_aq" => props.temporal_aq = Some(parse_bool(key, value)?),
                 _ => {
@@ -1491,5 +1504,63 @@ mod tests {
         m.insert("quality".into(), "85".into());
         let result = EncoderProperties::from_pairs(Codec::RawRgba, Platform::Dgpu, &m);
         assert!(result.is_err());
+    }
+
+    // ─── Range validation ──────────────────────────────────────────────
+
+    #[test]
+    fn test_cq_range_valid() {
+        let mut m = HashMap::new();
+        m.insert("cq".into(), "30".into());
+        let props = H264DgpuProps::from_pairs(&m).unwrap();
+        assert_eq!(props.cq, Some(30));
+    }
+
+    #[test]
+    fn test_cq_range_boundary() {
+        let mut m = HashMap::new();
+        m.insert("cq".into(), "51".into());
+        H264DgpuProps::from_pairs(&m).unwrap();
+
+        m.clear();
+        m.insert("cq".into(), "0".into());
+        H264DgpuProps::from_pairs(&m).unwrap();
+    }
+
+    #[test]
+    fn test_cq_range_out_of_bounds() {
+        let mut m = HashMap::new();
+        m.insert("cq".into(), "52".into());
+        assert!(H264DgpuProps::from_pairs(&m).is_err());
+    }
+
+    #[test]
+    fn test_jpeg_quality_range_valid() {
+        let mut m = HashMap::new();
+        m.insert("quality".into(), "85".into());
+        let props = JpegProps::from_pairs(&m).unwrap();
+        assert_eq!(props.quality, Some(85));
+    }
+
+    #[test]
+    fn test_jpeg_quality_range_out_of_bounds() {
+        let mut m = HashMap::new();
+        m.insert("quality".into(), "101".into());
+        assert!(JpegProps::from_pairs(&m).is_err());
+    }
+
+    #[test]
+    fn test_png_compression_range_valid() {
+        let mut m = HashMap::new();
+        m.insert("compression-level".into(), "6".into());
+        let props = PngProps::from_pairs(&m).unwrap();
+        assert_eq!(props.compression_level, Some(6));
+    }
+
+    #[test]
+    fn test_png_compression_range_out_of_bounds() {
+        let mut m = HashMap::new();
+        m.insert("compression-level".into(), "10".into());
+        assert!(PngProps::from_pairs(&m).is_err());
     }
 }

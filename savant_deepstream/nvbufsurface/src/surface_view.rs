@@ -1,48 +1,74 @@
 //! Zero-copy view of a single GPU surface with cached parameters.
 //!
-//! [`SurfaceView`] wraps a refcounted [`gst::Buffer`] containing an
+//! [`SurfaceView`] wraps a [`SharedMutableGstBuffer`] containing an
 //! NvBufSurface descriptor and caches the surface parameters (`dataPtr`,
 //! `pitch`, `width`, `height`, `gpuId`, etc.) for fast access.
 //!
 //! Two construction paths are supported:
 //!
-//! - [`from_buffer`](SurfaceView::from_buffer) — extract a view from any
-//!   NvBufSurface-backed buffer (single-frame or batched).
+//! - [`from_buffer`](SurfaceView::from_buffer) / [`from_shared`](SurfaceView::from_shared)
+//!   — extract a view from any NvBufSurface-backed buffer (single-frame or batched).
 //! - [`from_cuda_ptr`](SurfaceView::from_cuda_ptr) — wrap arbitrary CUDA
 //!   device memory with a synthetic NvBufSurface descriptor.
 
-use crate::buffers::extract_slot_view;
+use crate::cuda_stream::CudaStream;
+use crate::shared_buffer::SharedMutableGstBuffer;
+use crate::transform::{Rect, TransformConfig};
 use crate::{ffi, transform, NvBufSurfaceError};
 use gstreamer as gst;
+use parking_lot::MutexGuard;
 use std::any::Any;
 
-/// Zero-copy view of a single GPU surface.
+/// Zero-copy view of a single GPU surface with CUDA-addressable pointer.
 ///
-/// Holds an owned `gst::Buffer` (with NvBufSurface descriptor, `batchSize=1,
-/// numFilled=1`) and caches the key surface parameters for direct access
-/// without repeated NvBufSurface extraction.
+/// Holds a [`SharedMutableGstBuffer`] (refcounted, lockable) and caches
+/// the key surface parameters for direct access without repeated
+/// NvBufSurface extraction.
+///
+/// # Platform behaviour
+///
+/// - **dGPU**: `data_ptr()` is the NvBufSurface `dataPtr`, which is always
+///   CUDA-addressable. No additional setup needed.
+/// - **Jetson (aarch64)**: VIC-managed memory is not directly CUDA-addressable.
+///   Construction transparently attaches an [`EglCudaMeta`] to the buffer
+///   (if not already present), which performs `NvBufSurfaceMapEglImage` +
+///   `cuGraphicsEGLRegisterImage` to obtain a permanent CUDA device pointer.
+///   The mapping persists for the buffer's lifetime and is cleaned up by the
+///   meta's `free` callback (`cuGraphicsUnregisterResource` +
+///   `NvBufSurfaceUnMapEglImage`).
+///
+/// [`EglCudaMeta`]: crate::egl_cuda_meta::EglCudaMeta
+///
+/// # Batched buffers
+///
+/// Multiple `SurfaceView`s can share the same underlying `gst::Buffer` by
+/// using [`from_shared`](Self::from_shared) with different `slot_index`
+/// values. On Jetson, all slot registrations are stored in a single
+/// multi-slot [`EglCudaMeta`] on the batch buffer — no synthetic buffers
+/// are created.
 ///
 /// # Construction
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, SurfaceView, VideoFormat,
+///     DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SurfaceView, VideoFormat,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let gen = DsNvSurfaceBufferGenerator::new(
-///     VideoFormat::RGBA, 640, 480, 30, 1, 0, NvBufSurfaceMemType::Default,
+/// let gen = DsNvUniformSurfaceBufferGenerator::new(
+///     VideoFormat::RGBA, 640, 480, 1, 2, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
-/// let buf = gen.acquire_surface(None).unwrap();
-/// let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+/// let shared = gen.acquire_buffer(None).unwrap();
+/// let view = SurfaceView::from_shared(&shared, 0).unwrap();
 ///
 /// assert_eq!(view.width(), 640);
 /// assert_eq!(view.height(), 480);
 /// assert_eq!(view.channels(), 4);
 /// ```
 pub struct SurfaceView {
-    buffer: gst::Buffer,
+    buffer: SharedMutableGstBuffer,
+    slot_index: u32,
     _keepalive: Option<Box<dyn Any + Send + Sync>>,
     data_ptr: *mut std::ffi::c_void,
     pitch: u32,
@@ -51,63 +77,104 @@ pub struct SurfaceView {
     gpu_id: u32,
     channels: u32,
     color_format: u32,
+    cuda_stream: CudaStream,
 }
 
 // SAFETY: SurfaceView is transferred across threads (e.g. via crossbeam
 // channel in Picasso) and shared via Arc in PyO3.  The raw `data_ptr`
 // points to GPU memory owned by the `buffer` (refcounted GstBuffer) or
-// kept alive via `_keepalive`.  Both `gst::Buffer` and
-// `Box<dyn Any + Send + Sync>` are Send + Sync.
+// kept alive via `_keepalive`.  SharedMutableGstBuffer is Send + Sync.
 unsafe impl Send for SurfaceView {}
 unsafe impl Sync for SurfaceView {}
+
+impl std::fmt::Debug for SurfaceView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SurfaceView")
+            .field("slot_index", &self.slot_index)
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("pitch", &self.pitch)
+            .field("gpu_id", &self.gpu_id)
+            .field("channels", &self.channels)
+            .field("data_ptr", &self.data_ptr)
+            .field("cuda_stream", &self.cuda_stream)
+            .finish()
+    }
+}
 
 /// Map an `NvBufSurfaceColorFormat` raw value to the number of interleaved
 /// channels in the primary plane.  Returns `None` for multi-plane formats
 /// (NV12, NV21, I420, YUV444, etc.) which are not representable as a
 /// single contiguous array.
 pub(crate) fn color_format_channels(color_format: u32) -> Option<u32> {
-    // NvBufSurfaceColorFormat values (from nvbufsurface.h / bindgen output):
     match color_format {
-        // 1 channel — GRAY8, GRAY8_ER, A32
-        1 | 88 => Some(1), // GRAY8, GRAY8_ER
-        68 => Some(1),     // A32 (single-channel alpha)
+        1 | 88 => Some(1),
+        68 => Some(1),
+        10 | 11 => Some(2),
+        12 | 13 => Some(2),
+        14 | 15 => Some(2),
+        16 | 17 => Some(2),
+        89..=91 => Some(2),
+        27 => Some(3),
+        28 => Some(3),
+        42 => Some(3),
+        43 => Some(3),
+        19 => Some(4),
+        20 => Some(4),
+        21 => Some(4),
+        22 => Some(4),
+        23 => Some(4),
+        24 => Some(4),
+        25 => Some(4),
+        26 => Some(4),
+        _ => None,
+    }
+}
 
-        // 2 channels — packed YUV 4:2:2 variants
-        10 | 11 => Some(2), // UYVY, UYVY_ER
-        12 | 13 => Some(2), // VYUY, VYUY_ER
-        14 | 15 => Some(2), // YUYV, YUYV_ER
-        16 | 17 => Some(2), // YVYU, YVYU_ER
-        89..=91 => Some(2), // UYVY_709, UYVY_709_ER, UYVY_2020
+/// Resolve a CUDA-addressable device pointer for a specific slot.
+///
+/// On dGPU the `NvBufSurfaceParams::dataPtr` is already a CUDA pointer.
+/// On Jetson (aarch64) the memory is VIC-managed, so we go through
+/// EGL-CUDA interop via [`EglCudaMeta`] to obtain a usable device pointer.
+///
+/// Fast path: if the buffer already has an [`EglCudaMeta`] with this slot
+/// registered (e.g. from a previous pool cycle with `GST_META_FLAG_POOLED`),
+/// the cached pointers are returned in O(1) without calling `make_mut()`.
+fn resolve_cuda_ptr(
+    buf: &SharedMutableGstBuffer,
+    slot_index: u32,
+    params: &ffi::NvBufSurfaceParams,
+) -> Result<(*mut std::ffi::c_void, u32), NvBufSurfaceError> {
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let _ = (buf, slot_index);
+        Ok((params.dataPtr, params.pitch))
+    }
 
-        // 3 channels — interleaved RGB/BGR
-        27 => Some(3), // RGB
-        28 => Some(3), // BGR
-        42 => Some(3), // R8_G8_B8
-        43 => Some(3), // B8_G8_R8
-
-        // 4 channels — interleaved RGBA/BGRA/ARGB/ABGR/RGBx/BGRx/xRGB/xBGR
-        19 => Some(4), // RGBA
-        20 => Some(4), // BGRA
-        21 => Some(4), // ARGB
-        22 => Some(4), // ABGR
-        23 => Some(4), // RGBx
-        24 => Some(4), // BGRx
-        25 => Some(4), // xRGB
-        26 => Some(4), // xBGR
-
-        _ => None, // multi-plane or unknown
+    #[cfg(target_arch = "aarch64")]
+    {
+        let _ = params;
+        let mut guard = buf.lock();
+        // Fast path: read existing meta without make_mut() (no COW risk).
+        if let Some(mapping) = crate::egl_cuda_meta::read_meta(guard.as_ref(), slot_index) {
+            return Ok((mapping.cuda_ptr(0), mapping.pitch(0)));
+        }
+        // Slow path: first access — register and attach meta.
+        let buf_ref = guard.make_mut();
+        let mapping = unsafe { crate::egl_cuda_meta::ensure_meta(buf_ref, slot_index)? };
+        Ok((mapping.cuda_ptr(0), mapping.pitch(0)))
     }
 }
 
 impl SurfaceView {
     /// Wrap a plain GStreamer buffer without NvBufSurface validation.
     ///
-    /// Surface parameters are zeroed. This is intended for code paths that
-    /// do not access GPU surface data (e.g. Drop/Bypass in Picasso) and
-    /// for testing without a GPU.
+    /// Surface parameters are zeroed. Intended only for testing without a GPU.
+    #[cfg(any(test, feature = "testing"))]
     pub fn wrap(buf: gst::Buffer) -> Self {
         Self {
-            buffer: buf,
+            buffer: SharedMutableGstBuffer::from(buf),
+            slot_index: 0,
             _keepalive: None,
             data_ptr: std::ptr::null_mut(),
             pitch: 0,
@@ -116,18 +183,25 @@ impl SurfaceView {
             gpu_id: 0,
             channels: 0,
             color_format: 0,
+            cuda_stream: CudaStream::default(),
         }
     }
 
     /// Create a view from an NvBufSurface-backed GStreamer buffer.
     ///
-    /// For batched buffers (`numFilled > 1`) a lightweight single-frame view
-    /// is created via [`extract_slot_view`]; for single-frame buffers
-    /// (`numFilled == 1, slot_index == 0`) the buffer is used directly.
+    /// The buffer is wrapped in a [`SharedMutableGstBuffer`] internally.
+    /// On Jetson, [`EglCudaMeta`] is attached with `GST_META_FLAG_POOLED` so
+    /// that it **survives pool recycles**.  Subsequent calls on the same
+    /// physical buffer return the cached CUDA pointers in O(1).
+    ///
+    /// For batched buffers, use [`from_shared`](Self::from_shared) to create
+    /// multiple views referencing different slots of the same buffer.
+    ///
+    /// [`EglCudaMeta`]: crate::egl_cuda_meta::EglCudaMeta
     ///
     /// # Arguments
     ///
-    /// * `buf` — source buffer containing an NvBufSurface.
+    /// * `buf` — owned buffer containing an NvBufSurface.
     /// * `slot_index` — zero-based index of the surface to view.
     ///
     /// # Errors
@@ -135,44 +209,130 @@ impl SurfaceView {
     /// Returns an error if the buffer is not a valid NvBufSurface, if
     /// `slot_index >= numFilled`, or if the surface's color format is
     /// multi-plane (NV12, NV21, I420).
-    pub fn from_buffer(buf: &gst::Buffer, slot_index: u32) -> Result<Self, NvBufSurfaceError> {
-        let surf = unsafe {
-            transform::extract_nvbufsurface(buf.as_ref())
-                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
-        };
-        let num_filled = unsafe { (*surf).numFilled };
+    pub fn from_buffer(buf: gst::Buffer, slot_index: u32) -> Result<Self, NvBufSurfaceError> {
+        Self::from_shared(&SharedMutableGstBuffer::from(buf), slot_index)
+    }
 
-        let view_buf = if num_filled == 1 && slot_index == 0 {
-            buf.clone()
-        } else {
-            extract_slot_view(buf, slot_index)?
+    /// Create a view from a shared buffer with a specific slot index.
+    ///
+    /// This is the primary constructor for batched buffers: wrap the batch
+    /// buffer in a [`SharedMutableGstBuffer`], then create one `SurfaceView`
+    /// per slot using `shared.clone()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use deepstream_nvbufsurface::{SharedMutableGstBuffer, SurfaceView};
+    /// # fn example(batch_buf: gstreamer::Buffer) {
+    /// let shared = SharedMutableGstBuffer::from(batch_buf);
+    /// let view0 = SurfaceView::from_shared(&shared, 0).unwrap();
+    /// let view1 = SurfaceView::from_shared(&shared, 1).unwrap();
+    /// # }
+    /// ```
+    pub fn from_shared(
+        buf: &SharedMutableGstBuffer,
+        slot_index: u32,
+    ) -> Result<Self, NvBufSurfaceError> {
+        let buf = buf.clone();
+        let (surf_ptr, gpu_id, num_filled, params_copy) = {
+            let guard = buf.lock();
+            let surf = unsafe {
+                transform::extract_nvbufsurface(guard.as_ref())
+                    .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+            };
+            let surf_ref = unsafe { &*surf };
+            let num_filled = surf_ref.numFilled;
+            if slot_index >= num_filled {
+                return Err(NvBufSurfaceError::SlotOutOfBounds {
+                    index: slot_index,
+                    max: num_filled,
+                });
+            }
+            let params = unsafe { &*surf_ref.surfaceList.add(slot_index as usize) };
+            (surf, surf_ref.gpuId, num_filled, *params)
         };
 
-        let view_surf = unsafe {
-            transform::extract_nvbufsurface(view_buf.as_ref())
-                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
-        };
-        let view_ref = unsafe { &*view_surf };
-        let params = unsafe { &*view_ref.surfaceList };
+        let _ = (surf_ptr, num_filled);
 
-        let channels = color_format_channels(params.colorFormat).ok_or_else(|| {
+        let channels = color_format_channels(params_copy.colorFormat).ok_or_else(|| {
             NvBufSurfaceError::BufferCopyFailed(format!(
                 "unsupported color format {} for SurfaceView (multi-plane formats not supported)",
-                params.colorFormat
+                params_copy.colorFormat
             ))
         })?;
 
+        let (data_ptr, pitch) = resolve_cuda_ptr(&buf, slot_index, &params_copy)?;
+
         Ok(Self {
-            data_ptr: params.dataPtr,
-            pitch: params.pitch,
-            width: params.width,
-            height: params.height,
-            gpu_id: view_ref.gpuId,
+            data_ptr,
+            pitch,
+            width: params_copy.width,
+            height: params_copy.height,
+            gpu_id,
             channels,
-            color_format: params.colorFormat,
-            buffer: view_buf,
+            color_format: params_copy.colorFormat,
+            buffer: buf,
+            slot_index,
             _keepalive: None,
+            cuda_stream: CudaStream::default(),
         })
+    }
+
+    /// Consume the view and extract the underlying GStreamer buffer.
+    ///
+    /// Succeeds only when this is the **sole** `SurfaceView` / clone
+    /// referencing the shared buffer.  Returns `Err(self)` if other
+    /// references exist — drop them first.
+    ///
+    /// On Jetson (aarch64), this synchronizes CUDA before releasing the
+    /// buffer to ensure all writes through the EGL-CUDA mapped pointer
+    /// are visible to VIC / NvBufSurfTransform.
+    ///
+    /// Use this to pass the buffer to APIs that need `gst::Buffer` by value
+    /// (e.g. `NvInfer::submit`).
+    pub fn into_buffer(self) -> Result<gst::Buffer, Self> {
+        self.sync();
+
+        // Prevent `Drop` from running — we handle cleanup manually below.
+        let me = std::mem::ManuallyDrop::new(self);
+
+        // SAFETY: reading from `me` which will not be dropped.
+        let keepalive = unsafe { std::ptr::read(&me._keepalive) };
+        let buffer = unsafe { std::ptr::read(&me.buffer) };
+        let data_ptr = me.data_ptr;
+        let pitch = me.pitch;
+        let width = me.width;
+        let height = me.height;
+        let gpu_id = me.gpu_id;
+        let channels = me.channels;
+        let color_format = me.color_format;
+        let cuda_stream = me.cuda_stream.clone();
+        let slot_index = me.slot_index;
+
+        match buffer.into_buffer() {
+            Ok(buf) => Ok(buf),
+            Err(shared) => Err(Self {
+                buffer: shared,
+                slot_index,
+                _keepalive: keepalive,
+                data_ptr,
+                pitch,
+                width,
+                height,
+                gpu_id,
+                channels,
+                color_format,
+                cuda_stream,
+            }),
+        }
+    }
+
+    /// Get a clone of the shared buffer handle.
+    ///
+    /// Use this to create sibling views for other slots, or to pass the
+    /// buffer to an encoder without consuming the view.
+    pub fn shared_buffer(&self) -> SharedMutableGstBuffer {
+        self.buffer.clone()
     }
 
     /// Create a view wrapping arbitrary CUDA device memory.
@@ -181,22 +341,6 @@ impl SurfaceView {
     /// in system memory, pointing at the given `data_ptr`.  The `keepalive`
     /// object (if any) is stored to prevent the source memory from being
     /// freed while this view exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `data_ptr` — GPU device pointer to the first pixel.
-    /// * `pitch` — row stride in bytes.
-    /// * `width` — surface width in pixels.
-    /// * `height` — surface height in pixels.
-    /// * `gpu_id` — CUDA device ID the memory resides on.
-    /// * `channels` — number of interleaved channels (e.g. 4 for RGBA).
-    /// * `color_format` — `NvBufSurfaceColorFormat` raw value.
-    /// * `keepalive` — optional boxed object that must outlive this view
-    ///   (e.g. a `Py<PyAny>` holding a reference to a Python array).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `data_ptr` is null or buffer allocation fails.
     #[allow(clippy::too_many_arguments)]
     pub fn from_cuda_ptr(
         data_ptr: *mut std::ffi::c_void,
@@ -251,7 +395,8 @@ impl SurfaceView {
         }
 
         Ok(Self {
-            buffer,
+            buffer: SharedMutableGstBuffer::from(buffer),
+            slot_index: 0,
             _keepalive: keepalive,
             data_ptr,
             pitch,
@@ -260,23 +405,86 @@ impl SurfaceView {
             gpu_id,
             channels,
             color_format,
+            cuda_stream: CudaStream::default(),
         })
     }
 
-    /// The underlying GStreamer buffer containing the NvBufSurface descriptor.
+    /// Transform this surface into the destination surface via NvBufSurfTransform.
     ///
-    /// Use this to pass the view to APIs that expect `&gst::Buffer` (e.g.
-    /// `DsNvSurfaceBufferGenerator::transform`).
-    pub fn buffer(&self) -> &gst::Buffer {
-        &self.buffer
+    /// Performs a GPU-to-GPU transform (scale/letterbox) from `self` (source) to `dest`
+    /// (destination). Does not require [`make_mut`](SharedMutableGstBuffer::make_mut) —
+    /// the operation uses NvBufSurfTransform directly on the underlying NvBufSurface memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `dest` — The destination [`SurfaceView`] to write into.
+    /// * `config` — Transform configuration (padding, interpolation, etc.). The CUDA stream
+    ///   is overridden with `dest.cuda_stream()` so that the transform runs on the destination's
+    ///   stream.
+    /// * `src_rect` — Optional source crop rectangle. When `None`, the full source surface
+    ///   is used.
+    ///
+    /// # Slot handling
+    ///
+    /// Correctly handles any slot index — not hardcoded to 0. Both source and destination
+    /// may be views into batched buffers at arbitrary slot indices.
+    ///
+    /// # Replaces
+    ///
+    /// This method replaces the old `fill_slot` and `transform` APIs.
+    pub fn transform_into(
+        &self,
+        dest: &SurfaceView,
+        config: &TransformConfig,
+        src_rect: Option<&Rect>,
+    ) -> Result<(), NvBufSurfaceError> {
+        let src_surf_ptr = {
+            let guard = self.buffer.lock();
+            unsafe {
+                transform::extract_nvbufsurface(guard.as_ref())
+                    .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+            }
+        };
+        let dest_surf_ptr = {
+            let guard = dest.buffer.lock();
+            unsafe {
+                transform::extract_nvbufsurface(guard.as_ref())
+                    .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
+            }
+        };
+
+        let mut eff_config = config.clone();
+        eff_config.cuda_stream = dest.cuda_stream().clone();
+
+        let (mut src_view, mut dst_view) = unsafe {
+            let mut src = *src_surf_ptr;
+            src.surfaceList = src.surfaceList.add(self.slot_index() as usize);
+            src.batchSize = 1;
+            src.numFilled = 1;
+            let mut dst = *dest_surf_ptr;
+            dst.surfaceList = dst.surfaceList.add(dest.slot_index() as usize);
+            dst.batchSize = 1;
+            dst.numFilled = 1;
+            (src, dst)
+        };
+
+        unsafe {
+            transform::do_transform(
+                &mut src_view as *mut ffi::NvBufSurface,
+                &mut dst_view as *mut ffi::NvBufSurface,
+                &eff_config,
+                src_rect,
+            )
+        }
+        .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))
     }
 
-    /// Mutable reference to the underlying GStreamer buffer.
+    /// Lock the underlying GStreamer buffer.
     ///
-    /// Needed for operations that require `buffer.make_mut()`, such as
-    /// setting timestamps or submitting to an encoder.
-    pub fn buffer_mut(&mut self) -> &mut gst::Buffer {
-        &mut self.buffer
+    /// The returned `MutexGuard` auto-derefs to `&gst::Buffer` (via `Deref`)
+    /// and `&mut gst::Buffer` (via `DerefMut`).
+    pub fn buffer(&self) -> MutexGuard<'_, gst::Buffer> {
+        self.buffer.lock()
     }
 
     /// GPU data pointer to the first pixel of the surface.
@@ -313,6 +521,53 @@ impl SurfaceView {
     pub fn color_format(&self) -> u32 {
         self.color_format
     }
+
+    /// The batch slot index this view refers to.
+    pub fn slot_index(&self) -> u32 {
+        self.slot_index
+    }
+
+    /// The CUDA stream this view synchronizes on release.
+    ///
+    /// Null (default) means the CUDA legacy default stream.
+    pub fn cuda_stream(&self) -> &CudaStream {
+        &self.cuda_stream
+    }
+
+    /// Override the CUDA stream used for synchronization on release.
+    ///
+    /// Chainable after any constructor:
+    ///
+    /// ```rust,no_run
+    /// # use deepstream_nvbufsurface::SurfaceView;
+    /// # fn example(view: SurfaceView, stream: deepstream_nvbufsurface::CudaStream) {
+    /// let view = view.with_cuda_stream(stream);
+    /// # }
+    /// ```
+    pub fn with_cuda_stream(mut self, stream: CudaStream) -> Self {
+        self.cuda_stream = stream;
+        self
+    }
+
+    /// Block until all async CUDA work on this view's stream completes.
+    ///
+    /// Ensures that transforms, Skia renders, and async copies enqueued on
+    /// the view's stream are finished before the buffer is handed to the
+    /// next consumer (encoder, another transform, etc.).
+    ///
+    /// Skipped only when `data_ptr` is null (no GPU backing).
+    fn sync(&self) {
+        if self.data_ptr.is_null() {
+            return;
+        }
+        self.cuda_stream.synchronize();
+    }
+}
+
+impl Drop for SurfaceView {
+    fn drop(&mut self) {
+        self.sync();
+    }
 }
 
 #[cfg(test)]
@@ -345,23 +600,14 @@ mod tests {
         assert_eq!(view.gpu_id(), 0);
         assert_eq!(view.color_format(), 19);
         assert_eq!(view.data_ptr(), fake_gpu_ptr());
+        assert_eq!(view.slot_index(), 0);
     }
 
     #[test]
     fn test_from_cuda_ptr_gray8() {
         gst::init().unwrap();
-        let view = SurfaceView::from_cuda_ptr(
-            fake_gpu_ptr(),
-            640,
-            640,
-            480,
-            1,
-            1,
-            1, // GRAY8
-            None,
-        )
-        .unwrap();
-
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 640, 640, 480, 1, 1, 1, None).unwrap();
         assert_eq!(view.channels(), 1);
         assert_eq!(view.color_format(), 1);
     }
@@ -396,43 +642,96 @@ mod tests {
         assert_eq!(view.channels(), 0);
         assert_eq!(view.gpu_id(), 0);
         assert!(view.data_ptr().is_null());
+        assert_eq!(view.slot_index(), 0);
     }
 
     #[test]
-    fn test_buffer_mut_accessible() {
+    fn test_buffer_accessible() {
         gst::init().unwrap();
-        let mut view =
+        let view =
             SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
 
-        let buf = view.buffer_mut();
-        let buf_ref = buf.make_mut();
-        buf_ref.set_pts(gst::ClockTime::from_nseconds(42_000));
-        assert_eq!(
-            view.buffer().as_ref().pts(),
-            Some(gst::ClockTime::from_nseconds(42_000))
-        );
+        {
+            let mut guard = view.buffer();
+            let buf_ref = guard.make_mut();
+            buf_ref.set_pts(gst::ClockTime::from_nseconds(42_000));
+        }
+        {
+            let guard = view.buffer();
+            assert_eq!(
+                guard.as_ref().pts(),
+                Some(gst::ClockTime::from_nseconds(42_000))
+            );
+        }
+    }
+
+    #[test]
+    fn test_into_buffer_sole_owner() {
+        gst::init().unwrap();
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
+        let _buf = view.into_buffer().expect("sole owner should succeed");
+    }
+
+    #[test]
+    fn test_into_buffer_fails_with_sibling() {
+        gst::init().unwrap();
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
+        let _sibling = view.shared_buffer();
+        let err = view.into_buffer().unwrap_err();
+        assert_eq!(err.width(), 640);
+    }
+
+    #[test]
+    fn test_shared_buffer_clone() {
+        gst::init().unwrap();
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
+        let shared = view.shared_buffer();
+        assert_eq!(shared.strong_count(), 2);
     }
 
     #[test]
     fn test_color_format_channels() {
-        assert_eq!(color_format_channels(1), Some(1)); // GRAY8
-        assert_eq!(color_format_channels(88), Some(1)); // GRAY8_ER
-        assert_eq!(color_format_channels(68), Some(1)); // A32
-        assert_eq!(color_format_channels(19), Some(4)); // RGBA
-        assert_eq!(color_format_channels(20), Some(4)); // BGRA
-        assert_eq!(color_format_channels(24), Some(4)); // BGRx
-        assert_eq!(color_format_channels(27), Some(3)); // RGB
-        assert_eq!(color_format_channels(28), Some(3)); // BGR
-        assert_eq!(color_format_channels(10), Some(2)); // UYVY
-        assert_eq!(color_format_channels(14), Some(2)); // YUYV
-        assert_eq!(color_format_channels(6), None); // NV12
-        assert_eq!(color_format_channels(2), None); // I420
-        assert_eq!(color_format_channels(0), None); // INVALID
+        assert_eq!(color_format_channels(1), Some(1));
+        assert_eq!(color_format_channels(88), Some(1));
+        assert_eq!(color_format_channels(68), Some(1));
+        assert_eq!(color_format_channels(19), Some(4));
+        assert_eq!(color_format_channels(20), Some(4));
+        assert_eq!(color_format_channels(24), Some(4));
+        assert_eq!(color_format_channels(27), Some(3));
+        assert_eq!(color_format_channels(28), Some(3));
+        assert_eq!(color_format_channels(10), Some(2));
+        assert_eq!(color_format_channels(14), Some(2));
+        assert_eq!(color_format_channels(6), None);
+        assert_eq!(color_format_channels(2), None);
+        assert_eq!(color_format_channels(0), None);
     }
 
     #[test]
     fn test_surface_view_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<SurfaceView>();
+    }
+
+    #[test]
+    fn test_cuda_stream_default() {
+        gst::init().unwrap();
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
+        assert!(view.cuda_stream().is_default());
+    }
+
+    #[test]
+    fn test_with_cuda_stream() {
+        gst::init().unwrap();
+        let stream = CudaStream::new_non_blocking().expect("CUDA stream creation failed");
+        let raw = stream.as_raw();
+        let view =
+            SurfaceView::from_cuda_ptr(fake_gpu_ptr(), 2560, 640, 480, 0, 4, 19, None).unwrap();
+        let view = view.with_cuda_stream(stream);
+        assert!(!view.cuda_stream().is_default());
+        assert_eq!(view.cuda_stream().as_raw(), raw);
     }
 }

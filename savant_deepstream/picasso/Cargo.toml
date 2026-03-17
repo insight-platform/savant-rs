@@ -23,11 +23,13 @@ gstreamer = { workspace = true }
 skia-safe = { workspace = true }
 crossbeam = { workspace = true }
 parking_lot = { workspace = true }
+hashbrown = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 
 [dev-dependencies]
+deepstream_nvbufsurface = { path = "../nvbufsurface", features = ["testing"] }
 env_logger = "0.11"
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }

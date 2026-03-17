@@ -182,24 +182,29 @@ def main() -> None:
     # -- Push loop ---------------------------------------------------------
     i = 0
     while i < session.limit and session.is_running:
-        try:
-            buf = session.acquire_surface(frame_id=i)
-        except Exception as e:
-            print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
-            break
-
-        view = SurfaceView.from_buffer(buf, 0)
         pts_ns = i * session.frame_duration_ns
-        try:
-            session.submit(
-                view,
-                pts_ns=pts_ns,
-                duration_ns=session.frame_duration_ns,
-            )
+        for s in range(session.jobs):
+            try:
+                buf = session.acquire_surface(source_idx=s, frame_id=i)
+            except Exception as e:
+                print(f"acquire_surface failed at frame {i}: {e}", file=sys.stderr)
+                break
+
+            view = SurfaceView.from_buffer(buf, 0)
+            try:
+                session.submit(
+                    view,
+                    source_idx=s,
+                    pts_ns=pts_ns,
+                    duration_ns=session.frame_duration_ns,
+                )
+            except Exception as e:
+                print(f"Submit failed at frame {i} src {s}: {e}", file=sys.stderr)
+                break
+        else:
             i += 1
-        except Exception as e:
-            print(f"Submit failed at frame {i}: {e}", file=sys.stderr)
-            break
+            continue
+        break
 
     session.shutdown()
 

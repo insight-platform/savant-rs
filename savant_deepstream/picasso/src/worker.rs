@@ -1,12 +1,15 @@
-use crate::callbacks::Callbacks;
+use crate::callbacks::{Callbacks, StreamResetReason};
 use crate::message::{OutputMessage, WorkerMessage};
-use crate::pipeline::encode::{DrainHandle, RenderOpts, SharedEncoder, SharedPendingFrames};
+use crate::pipeline::encode::{
+    DrainHandle, DrainNotify, RenderOpts, SharedEncoder, SharedPendingFrames,
+};
 use crate::pipeline::{bypass, encode, FrameInput};
 use crate::skia::context::DrawContext;
+use crate::spec::general::PtsResetPolicy;
 use crate::spec::{CodecSpec, SourceSpec};
 use crossbeam::channel::{Receiver, Sender};
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{create_cuda_stream, destroy_cuda_stream, SkiaRenderer};
+use deepstream_nvbufsurface::{CudaStream, SkiaRenderer};
 use log::{debug, error, info, warn};
 use savant_core::primitives::eos::EndOfStream;
 use savant_core::primitives::frame::VideoFrameProxy;
@@ -35,17 +38,31 @@ impl SourceWorker {
         callbacks: Arc<Callbacks>,
         idle_timeout: Duration,
         queue_size: usize,
+        pts_reset_policy: PtsResetPolicy,
     ) -> Self {
         let (tx, rx) = crossbeam::channel::bounded::<WorkerMessage>(queue_size);
         let alive = Arc::new(AtomicBool::new(true));
         let al = alive.clone();
 
+        let source_id_for_panic = source_id.clone();
         let thread = std::thread::Builder::new()
             .name(format!("picasso-{source_id}"))
             .spawn(move || {
-                worker_loop(source_id, rx, spec, callbacks, idle_timeout, al);
+                worker_loop(
+                    source_id,
+                    rx,
+                    spec,
+                    callbacks,
+                    idle_timeout,
+                    al,
+                    pts_reset_policy,
+                );
             })
-            .expect("failed to spawn picasso worker thread");
+            .unwrap_or_else(|e| {
+                panic!(
+                    "failed to spawn picasso worker thread for source {source_id_for_panic}: {e}"
+                );
+            });
 
         Self {
             tx,
@@ -92,20 +109,23 @@ struct WorkerState {
     pending_frames: SharedPendingFrames,
     /// Background thread that pulls encoded output from the encoder.
     drain_handle: Option<DrainHandle>,
+    /// Notification handle shared with the drain thread.
+    drain_notify: Option<DrainNotify>,
     /// Non-blocking CUDA stream owned by this worker, created alongside
     /// the encoder and destroyed when the encoder is stopped.
-    cuda_stream: *mut std::ffi::c_void,
+    cuda_stream: CudaStream,
+    /// PTS of the last frame that was submitted to the encoder.
+    /// Used to detect non-monotonic PTS sequences.
+    last_pts_ns: Option<u64>,
+    /// Policy for handling non-monotonic PTS.
+    pts_reset_policy: PtsResetPolicy,
 }
-
-// Safety: cuda_stream is only used within the worker thread that created it
-// and the same GPU context. The raw pointer is never shared across threads.
-unsafe impl Send for WorkerState {}
 
 impl WorkerState {
     fn process_frame(
         &mut self,
         frame: VideoFrameProxy,
-        mut view: deepstream_nvbufsurface::SurfaceView,
+        view: deepstream_nvbufsurface::SurfaceView,
         src_rect: Option<deepstream_nvbufsurface::Rect>,
     ) {
         if let Some((ns, name)) = &self.spec.conditional.encode_attribute {
@@ -116,7 +136,8 @@ impl WorkerState {
         }
 
         {
-            let buf_ref = view.buffer_mut().make_mut();
+            let mut guard = view.buffer();
+            let buf_ref = guard.make_mut();
             crate::pipeline::apply_frame_timestamps_to_buffer(&frame, buf_ref);
         }
 
@@ -140,6 +161,47 @@ impl WorkerState {
             CodecSpec::Encode { .. } => {}
         }
 
+        // PTS monotonicity check — only relevant for the Encode path
+        // where the hardware encoder requires strictly increasing PTS.
+        let pts_ns = input.frame.get_pts().max(0) as u64;
+        if let Some(prev) = self.last_pts_ns {
+            if pts_ns <= prev {
+                warn!(
+                    "PTS reset detected: source={}, prev_pts={prev}, new_pts={pts_ns}, policy={:?}",
+                    self.source_id, self.pts_reset_policy
+                );
+
+                if let Some(cb) = &self.callbacks.on_stream_reset {
+                    cb.call(
+                        &self.source_id,
+                        StreamResetReason::PtsDecreased {
+                            last_pts_ns: prev,
+                            new_pts_ns: pts_ns,
+                        },
+                    );
+                }
+
+                match self.pts_reset_policy {
+                    PtsResetPolicy::EosOnDecreasingPts => {
+                        warn!(
+                            "encoder recreation (EOS policy): source={}, draining and firing EOS",
+                            self.source_id
+                        );
+                        self.handle_eos();
+                    }
+                    PtsResetPolicy::RecreateOnDecreasingPts => {
+                        warn!(
+                            "encoder recreation (silent policy): source={}, draining without EOS",
+                            self.source_id
+                        );
+                        self.stop_encoder();
+                    }
+                }
+                self.last_pts_ns = None;
+            }
+        }
+        self.last_pts_ns = Some(pts_ns);
+
         let CodecSpec::Encode {
             transform,
             encoder: encoder_config,
@@ -160,7 +222,7 @@ impl WorkerState {
         self.ensure_encoder(&encoder_config);
 
         // Override the TransformConfig's CUDA stream with the worker's own stream.
-        transform.cuda_stream = self.cuda_stream;
+        transform.cuda_stream = self.cuda_stream.clone();
 
         if let Some(enc) = &self.encoder {
             let mut render_opts = if should_render {
@@ -186,7 +248,8 @@ impl WorkerState {
                 &self.pending_frames,
                 src_rect.as_ref(),
                 self.spec.callback_order,
-                self.cuda_stream,
+                &self.cuda_stream,
+                self.drain_notify.as_ref(),
             ) {
                 error!("encode error: source={}, err={e}", self.source_id);
             }
@@ -199,8 +262,8 @@ impl WorkerState {
             return;
         }
 
-        if self.cuda_stream.is_null() {
-            match create_cuda_stream() {
+        if self.cuda_stream.is_default() {
+            match CudaStream::new_non_blocking() {
                 Ok(stream) => {
                     info!("CUDA stream created: source={}", self.source_id);
                     self.cuda_stream = stream;
@@ -226,6 +289,7 @@ impl WorkerState {
                     self.pending_frames.clone(),
                 );
                 self.encoder = Some(shared);
+                self.drain_notify = Some(drain.notify());
                 self.drain_handle = Some(drain);
             }
             Err(e) => {
@@ -242,22 +306,17 @@ impl WorkerState {
         if let Some(mut drain) = self.drain_handle.take() {
             drain.stop();
         }
+        self.drain_notify = None;
         if let Some(shared_enc) = self.encoder.take() {
             let mut enc = shared_enc.lock();
             let mut pending = self.pending_frames.lock();
             drain_and_finish(&self.source_id, &mut enc, &self.callbacks, &mut pending);
         }
-        if !self.cuda_stream.is_null() {
-            if let Err(e) = unsafe { destroy_cuda_stream(self.cuda_stream) } {
-                warn!(
-                    "Failed to destroy CUDA stream: source={}, err={e}",
-                    self.source_id
-                );
-            } else {
-                debug!("CUDA stream destroyed: source={}", self.source_id);
-            }
-            self.cuda_stream = std::ptr::null_mut();
+        if !self.cuda_stream.is_default() {
+            self.cuda_stream = CudaStream::default();
+            debug!("CUDA stream released: source={}", self.source_id);
         }
+        self.last_pts_ns = None;
     }
 
     fn handle_eos(&mut self) {
@@ -273,6 +332,7 @@ impl WorkerState {
                 fire_eos_sentinel(&self.source_id, &self.callbacks);
             }
         }
+        self.last_pts_ns = None;
     }
 
     fn update_spec(&mut self, new_spec: SourceSpec) -> Option<Duration> {
@@ -302,6 +362,7 @@ fn worker_loop(
     callbacks: Arc<Callbacks>,
     mut idle_timeout: Duration,
     alive: Arc<AtomicBool>,
+    pts_reset_policy: PtsResetPolicy,
 ) {
     let mut draw_ctx = DrawContext::new(&spec.font_family);
     draw_ctx.rebuild_template_cache(&spec.draw);
@@ -315,7 +376,10 @@ fn worker_loop(
         draw_ctx,
         pending_frames: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         drain_handle: None,
-        cuda_stream: std::ptr::null_mut(),
+        drain_notify: None,
+        cuda_stream: CudaStream::default(),
+        last_pts_ns: None,
+        pts_reset_policy,
     };
 
     info!("worker started: source={source_id}");
@@ -388,11 +452,12 @@ fn drain_and_finish(
         Ok(remaining) => {
             for encoded in remaining {
                 if let Some(cb) = &callbacks.on_encoded_frame {
-                    if let Some(frame) = pending_frames.remove(&encoded.frame_id) {
+                    let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
+                    if let Some(frame) = frame {
                         encode::fill_encoded_frame(frame, encoded, cb);
                     } else {
                         warn!(
-                            "drain: no pending frame for frame_id={}, source={source_id}",
+                            "drain: no pending frame for frame_id={:?}, source={source_id}",
                             encoded.frame_id
                         );
                     }

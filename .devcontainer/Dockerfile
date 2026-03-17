@@ -53,6 +53,8 @@ ARG REMOTE_GID
 RUN --mount=type=bind,source=.devcontainer,target=/opt/scripts bash /opt/scripts/prepare-user.sh && \
     pip uninstall -y savant_rs
 
+RUN chown -R ${REMOTE_USER}:${REMOTE_GID} /opt/venv && chmod -R 755 /opt/venv
+
 ENV HOME=/home/${REMOTE_USER}
 # set directory to homedir
 WORKDIR ${HOME}

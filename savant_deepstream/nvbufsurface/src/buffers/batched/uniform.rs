@@ -13,50 +13,32 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use log::debug;
 
-extern "C" {
-    fn gst_buffer_add_parent_buffer_meta(
-        buffer: *mut gst::ffi::GstBuffer,
-        ref_: *mut gst::ffi::GstBuffer,
-    ) -> *mut std::ffi::c_void;
-}
-
 /// Generates GStreamer buffers with **batched** NvBufSurface memory.
 ///
-/// Unlike [`DsNvSurfaceBufferGenerator`](crate::DsNvSurfaceBufferGenerator) which creates single-frame
-/// buffers (`batchSize=1`), this generator produces buffers whose
-/// `surfaceList` is an array of `max_batch_size` independently fillable GPU
-/// surfaces — all with the same width, height and format.
+/// Produces buffers whose `surfaceList` is an array of `max_batch_size`
+/// independently fillable GPU surfaces — all with the same width, height
+/// and format.
 ///
-/// Use [`acquire_batched_surface`](Self::acquire_batched_surface) to obtain
-/// a [`DsNvUniformSurfaceBuffer`] wrapper, then fill slots via
-/// [`fill_slot`](DsNvUniformSurfaceBuffer::fill_slot) or
-/// [`slot_ptr`](DsNvUniformSurfaceBuffer::slot_ptr) and finalize.
+/// Use [`acquire_buffer`](Self::acquire_buffer) for simple acquisition with
+/// `numFilled = batchSize`, or [`acquire_batched_surface`](Self::acquire_batched_surface)
+/// for slot-by-slot filling with transform support.
 ///
 /// # Example
 ///
 /// ```rust,no_run
 /// use deepstream_nvbufsurface::{
-///     DsNvUniformSurfaceBufferGenerator, DsNvSurfaceBufferGenerator,
-///     NvBufSurfaceMemType, TransformConfig, VideoFormat,
+///     DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat, SurfaceView,
 /// };
 ///
 /// gstreamer::init().unwrap();
 ///
-/// let src_gen = DsNvSurfaceBufferGenerator::new(
-///     VideoFormat::RGBA, 1920, 1080, 30, 1, 0, NvBufSurfaceMemType::Default,
-/// ).unwrap();
-///
-/// let batched_gen = DsNvUniformSurfaceBufferGenerator::new(
+/// let gen = DsNvUniformSurfaceBufferGenerator::new(
 ///     VideoFormat::RGBA, 640, 640, 4, 2, 0, NvBufSurfaceMemType::Default,
 /// ).unwrap();
 ///
-/// let config = TransformConfig::default();
-/// let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
-///
-/// let src = src_gen.acquire_surface(Some(42)).unwrap();
-/// batch.fill_slot(&src, None, Some(42)).unwrap();
-/// batch.finalize().unwrap();
-/// let buffer = batch.as_gst_buffer().unwrap();
+/// let shared = gen.acquire_buffer(Some(42)).unwrap();
+/// let view0 = SurfaceView::from_shared(&shared, 0).unwrap();
+/// // ... use view0 for GPU operations ...
 /// ```
 pub struct DsNvUniformSurfaceBufferGenerator {
     pool: gst::BufferPool,
@@ -65,6 +47,8 @@ pub struct DsNvUniformSurfaceBufferGenerator {
     height: u32,
     gpu_id: u32,
     max_batch_size: u32,
+    fps_num: i32,
+    fps_den: i32,
 }
 
 /// Builder for [`DsNvUniformSurfaceBufferGenerator`] with advanced pool
@@ -274,6 +258,8 @@ impl DsNvUniformSurfaceBufferGenerator {
             height,
             gpu_id,
             max_batch_size,
+            fps_num,
+            fps_den,
         })
     }
 
@@ -305,13 +291,49 @@ impl DsNvUniformSurfaceBufferGenerator {
         }
 
         Ok(DsNvUniformSurfaceBuffer {
-            buffer,
+            buffer: crate::SharedMutableGstBuffer::from(buffer),
             config,
             ids: Vec::with_capacity(self.max_batch_size as usize),
             max_batch_size: self.max_batch_size,
             num_filled: 0,
             finalized: false,
         })
+    }
+
+    /// Acquire a [`SharedMutableGstBuffer`](crate::SharedMutableGstBuffer) from the pool.
+    ///
+    /// The returned buffer's `NvBufSurface` has `numFilled = batchSize` — all
+    /// GPU memory slots are already allocated and usable. Create
+    /// [`SurfaceView`](crate::SurfaceView)s via `SurfaceView::from_shared` to
+    /// access individual slots.
+    ///
+    /// If `id` is `Some`, a [`SavantIdMeta`] with `SavantIdMetaKind::Frame(id)`
+    /// is attached.
+    pub fn acquire_buffer(
+        &self,
+        id: Option<i64>,
+    ) -> Result<crate::SharedMutableGstBuffer, NvBufSurfaceError> {
+        let mut buffer = self
+            .pool
+            .acquire_buffer(None)
+            .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
+
+        {
+            let buf_ref = buffer.make_mut();
+            let mut map = buf_ref.map_writable().map_err(|e| {
+                NvBufSurfaceError::BufferAcquisitionFailed(format!("Failed to map buffer: {:?}", e))
+            })?;
+            let data = map.as_mut_slice();
+            let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
+            surf.numFilled = self.max_batch_size;
+        }
+
+        if let Some(frame_id) = id {
+            let buf_ref = buffer.make_mut();
+            SavantIdMeta::replace(buf_ref, vec![SavantIdMetaKind::Frame(frame_id)]);
+        }
+
+        Ok(crate::SharedMutableGstBuffer::from(buffer))
     }
 
     /// Get the maximum batch size.
@@ -338,6 +360,30 @@ impl DsNvUniformSurfaceBufferGenerator {
     pub fn gpu_id(&self) -> u32 {
         self.gpu_id
     }
+
+    /// Return NVMM caps matching this generator's format and dimensions.
+    ///
+    /// These caps include the `memory:NVMM` feature, suitable for configuring
+    /// `appsrc` elements that push into DeepStream-compatible pipelines.
+    pub fn nvmm_caps(&self) -> gst::Caps {
+        gst::Caps::builder("video/x-raw")
+            .features(["memory:NVMM"])
+            .field("format", self.format.gst_name())
+            .field("width", self.width as i32)
+            .field("height", self.height as i32)
+            .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
+            .build()
+    }
+
+    /// Return raw (non-NVMM) caps matching this generator's format/dimensions.
+    pub fn raw_caps(&self) -> gst::Caps {
+        gst::Caps::builder("video/x-raw")
+            .field("format", self.format.gst_name())
+            .field("width", self.width as i32)
+            .field("height", self.height as i32)
+            .field("framerate", gst::Fraction::new(self.fps_num, self.fps_den))
+            .build()
+    }
 }
 
 impl Drop for DsNvUniformSurfaceBufferGenerator {
@@ -351,16 +397,14 @@ impl Drop for DsNvUniformSurfaceBufferGenerator {
 
 // ─── DsNvUniformSurfaceBuffer wrapper ──────────────────────────────────────────────────
 
-/// A pool-allocated batched NvBufSurface with per-slot fill tracking and ID
-/// accumulation.
+/// A pool-allocated batched NvBufSurface with fill tracking and ID accumulation.
 ///
 /// Obtained from
-/// [`DsNvUniformSurfaceBufferGenerator::acquire_batched_surface`]. Fill slots via
-/// [`fill_slot`](Self::fill_slot) or directly via
-/// [`slot_ptr`](Self::slot_ptr), then call [`finalize`](Self::finalize) to
-/// produce the finished GstBuffer.
+/// [`DsNvUniformSurfaceBufferGenerator::acquire_batched_surface`]. Access slots
+/// via [`slot_view`](Self::slot_view) or [`slot_ptr`](Self::slot_ptr), then
+/// call [`finalize`](Self::finalize) to set `numFilled` and attach IDs.
 pub struct DsNvUniformSurfaceBuffer {
-    buffer: gst::Buffer,
+    buffer: crate::SharedMutableGstBuffer,
     config: TransformConfig,
     ids: Vec<Option<SavantIdMetaKind>>,
     max_batch_size: u32,
@@ -379,8 +423,9 @@ impl DsNvUniformSurfaceBuffer {
                 max: self.max_batch_size,
             });
         }
+        let guard = self.buffer.lock();
         let surf_ptr = unsafe {
-            transform::extract_nvbufsurface(self.buffer.as_ref())
+            transform::extract_nvbufsurface(guard.as_ref())
                 .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
         };
         let params = unsafe { &*(*surf_ptr).surfaceList.add(index as usize) };
@@ -417,8 +462,9 @@ impl DsNvUniformSurfaceBuffer {
             transform::extract_nvbufsurface(src_buf.as_ref())
                 .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
         };
+        let guard = self.buffer.lock();
         let dst_surf = unsafe {
-            transform::extract_nvbufsurface(self.buffer.as_ref())
+            transform::extract_nvbufsurface(guard.as_ref())
                 .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
         };
 
@@ -456,29 +502,60 @@ impl DsNvUniformSurfaceBuffer {
         self.max_batch_size
     }
 
+    /// Create a [`SurfaceView`](crate::SurfaceView) for the given batch slot.
+    ///
+    /// The view borrows the underlying [`SharedMutableGstBuffer`](crate::SharedMutableGstBuffer)
+    /// (clones the `Arc` internally).
+    pub fn slot_view(&self, index: u32) -> Result<crate::SurfaceView, NvBufSurfaceError> {
+        crate::SurfaceView::from_shared(&self.buffer, index)
+    }
+
+    /// Clone of the internal [`SharedMutableGstBuffer`](crate::SharedMutableGstBuffer).
+    ///
+    /// Use this to pass the buffer to downstream consumers (encoder, NvInfer)
+    /// without consuming the `DsNvUniformSurfaceBuffer`.
+    pub fn shared_buffer(&self) -> crate::SharedMutableGstBuffer {
+        self.buffer.clone()
+    }
+
     /// Finalize the batch: set `numFilled` in the NvBufSurface descriptor and
-    /// attach [`SavantIdMeta`] with collected IDs. Non-consuming; call
-    /// [`as_gst_buffer`](Self::as_gst_buffer) afterward to access the buffer.
-    pub fn finalize(&mut self) -> Result<(), NvBufSurfaceError> {
+    /// attach [`SavantIdMeta`] with the provided IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_filled` — number of slots that are actually used.
+    /// * `ids` — per-slot IDs to attach as `SavantIdMeta`.
+    pub fn finalize(
+        &mut self,
+        num_filled: u32,
+        ids: Vec<SavantIdMetaKind>,
+    ) -> Result<(), NvBufSurfaceError> {
         if self.finalized {
             return Err(NvBufSurfaceError::AlreadyFinalized);
         }
+        if num_filled > self.max_batch_size {
+            return Err(NvBufSurfaceError::BatchOverflow {
+                max: self.max_batch_size,
+            });
+        }
         {
-            let buf_ref = self.buffer.make_mut();
+            let mut guard = self.buffer.lock();
+            let buf_ref = guard.make_mut();
             let mut map = buf_ref
                 .map_writable()
                 .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("{:?}", e)))?;
             let data = map.as_mut_slice();
             let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
-            surf.numFilled = self.num_filled;
+            surf.numFilled = num_filled;
         }
 
-        let ids: Vec<SavantIdMetaKind> = self.ids.drain(..).flatten().collect();
         if !ids.is_empty() {
-            let buf_ref = self.buffer.make_mut();
+            let mut guard = self.buffer.lock();
+            let buf_ref = guard.make_mut();
             SavantIdMeta::replace(buf_ref, ids);
         }
 
+        self.num_filled = num_filled;
         self.finalized = true;
         Ok(())
     }
@@ -487,117 +564,4 @@ impl DsNvUniformSurfaceBuffer {
     pub fn is_finalized(&self) -> bool {
         self.finalized
     }
-
-    /// Build a self-contained `gst::Buffer` from the finalized batch.
-    ///
-    /// The returned buffer owns a system-memory copy of the `NvBufSurface`
-    /// header with the `surfaceList` entries inlined immediately after it.
-    /// A `GstParentBufferMeta` keeps the pool-allocated buffer (and its GPU
-    /// memory) alive for as long as the returned buffer exists.
-    ///
-    /// Because the `surfaceList` pointer lives inside the buffer's own
-    /// memory, the returned buffer is safe to clone, `make_mut`, or outlive
-    /// the `DsNvUniformSurfaceBuffer` struct.
-    ///
-    /// Available only after [`finalize`](Self::finalize) has been called.
-    pub fn as_gst_buffer(&self) -> Result<gst::Buffer, NvBufSurfaceError> {
-        if !self.finalized {
-            return Err(NvBufSurfaceError::NotFinalized);
-        }
-
-        let pool_surf = unsafe {
-            transform::extract_nvbufsurface(self.buffer.as_ref())
-                .map_err(|e| NvBufSurfaceError::BufferCopyFailed(e.to_string()))?
-        };
-
-        let surface_size = std::mem::size_of::<ffi::NvBufSurface>();
-        let params_size = std::mem::size_of::<ffi::NvBufSurfaceParams>();
-        let num = unsafe { (*pool_surf).numFilled } as usize;
-        let total_size = surface_size + num.max(1) * params_size;
-
-        let mut out = gst::Buffer::with_size(total_size).map_err(|_| {
-            NvBufSurfaceError::BufferAcquisitionFailed(
-                "failed to allocate system memory for batch wrapper".into(),
-            )
-        })?;
-
-        {
-            let buf_ref = out.make_mut();
-            let mut map = buf_ref.map_writable().map_err(|e| {
-                NvBufSurfaceError::BufferAcquisitionFailed(format!("map failed: {:?}", e))
-            })?;
-            let data = map.as_mut_slice();
-            data.fill(0);
-
-            let pool_ref = unsafe { &*pool_surf };
-            let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
-            surf.gpuId = pool_ref.gpuId;
-            surf.batchSize = pool_ref.batchSize;
-            surf.numFilled = pool_ref.numFilled;
-            surf.memType = pool_ref.memType;
-            surf.isContiguous = pool_ref.isContiguous;
-            surf.surfaceList =
-                unsafe { data.as_mut_ptr().add(surface_size) as *mut ffi::NvBufSurfaceParams };
-
-            for i in 0..num {
-                let src = unsafe { &*pool_ref.surfaceList.add(i) };
-                let dst = unsafe {
-                    &mut *(data.as_mut_ptr().add(surface_size + i * params_size)
-                        as *mut ffi::NvBufSurfaceParams)
-                };
-                *dst = *src;
-            }
-        }
-
-        unsafe {
-            gst_buffer_add_parent_buffer_meta(
-                out.make_mut().as_mut_ptr(),
-                self.buffer.as_ptr() as *mut gst::ffi::GstBuffer,
-            );
-        }
-
-        if let Some(meta) = self.buffer.meta::<SavantIdMeta>() {
-            SavantIdMeta::replace(out.make_mut(), meta.ids().to_vec());
-        }
-
-        Ok(out)
-    }
-
-    /// Create a zero-copy single-frame view of one filled slot.
-    ///
-    /// Delegates to [`extract_slot_view`](super::extract_slot_view).
-    /// See that function's documentation for details on lifetime,
-    /// timestamps, and ID propagation.
-    ///
-    /// Available only after [`finalize`](Self::finalize) has been called.
-    pub fn extract_slot_view(&self, slot_index: u32) -> Result<gst::Buffer, NvBufSurfaceError> {
-        if !self.finalized {
-            return Err(NvBufSurfaceError::NotFinalized);
-        }
-        super::extract_slot_view(&self.buffer, slot_index)
-    }
-}
-
-/// Set `numFilled` on a batched NvBufSurface GstBuffer.
-///
-/// Low-level helper for callers who fill slots manually via
-/// [`DsNvUniformSurfaceBuffer::slot_ptr`] instead of [`DsNvUniformSurfaceBuffer::fill_slot`].
-pub fn set_num_filled(buffer: &mut gst::BufferRef, count: u32) -> Result<(), NvBufSurfaceError> {
-    let mut map = buffer
-        .map_writable()
-        .map_err(|e| NvBufSurfaceError::BufferAcquisitionFailed(format!("map failed: {:?}", e)))?;
-    let data = map.as_mut_slice();
-    if data.len() < std::mem::size_of::<ffi::NvBufSurface>() {
-        return Err(NvBufSurfaceError::BufferAcquisitionFailed(
-            "Buffer too small for NvBufSurface".into(),
-        ));
-    }
-    let surf = unsafe { &mut *(data.as_mut_ptr() as *mut ffi::NvBufSurface) };
-    if count > surf.batchSize {
-        return Err(NvBufSurfaceError::BatchOverflow {
-            max: surf.batchSize,
-        });
-    }
-    surf.numFilled = count;
-    Ok(())
 }

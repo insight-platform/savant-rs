@@ -45,6 +45,11 @@ pub struct InferTensorMeta {
     raw: *mut NvDsInferTensorMeta,
 }
 
+// SAFETY: InferTensorMeta is a non-owning view into DeepStream-managed memory.
+// The pointer is valid for the lifetime of the parent gst::Sample, which is
+// kept alive by the BatchInferenceOutput that owns this meta. Sending across
+// threads is safe because the data is read-only after creation and the
+// Sample's refcount is atomic.
 unsafe impl Send for InferTensorMeta {}
 
 impl InferTensorMeta {

@@ -74,16 +74,13 @@ fn e2e_conditional_selective_recording() {
     };
     engine.set_source_spec("cond", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let make_frame_with_attrs =
         |encode_attr: bool, render_attr: bool, has_objects: bool, idx: u64| {
@@ -123,7 +120,7 @@ fn e2e_conditional_selective_recording() {
             frame
         };
 
-    let buf_a = make_gpu_surface_view(&gen, 0, DUR);
+    let buf_a = make_gpu_surface_view_uniform(&gen, 0, DUR);
     engine
         .send_frame(
             "cond",
@@ -133,7 +130,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_b = make_gpu_surface_view(&gen, 1, DUR);
+    let buf_b = make_gpu_surface_view_uniform(&gen, 1, DUR);
     engine
         .send_frame(
             "cond",
@@ -143,7 +140,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_c = make_gpu_surface_view(&gen, 2, DUR);
+    let buf_c = make_gpu_surface_view_uniform(&gen, 2, DUR);
     engine
         .send_frame(
             "cond",
@@ -153,7 +150,7 @@ fn e2e_conditional_selective_recording() {
         )
         .unwrap();
 
-    let buf_d = make_gpu_surface_view(&gen, 3, DUR);
+    let buf_d = make_gpu_surface_view_uniform(&gen, 3, DUR);
     engine
         .send_frame(
             "cond",

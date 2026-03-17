@@ -6,31 +6,22 @@ import gc
 
 import pytest
 
-_ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "DsNvUniformSurfaceBufferGenerator"):
-    pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
-ds = _ds
-
-
-def _ds_runtime_available() -> bool:
-    """Check if DeepStream + CUDA runtime is actually available."""
-    try:
-        ds.init_cuda(0)
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
-        _ = gen.acquire_surface()
-        return True
-    except Exception:
-        return False
-
-
-_has_runtime = _ds_runtime_available()
-skip_no_runtime = pytest.mark.skipif(
-    not _has_runtime, reason="CUDA/DeepStream not available"
+from conftest import HAS_DS_FEATURE, skip_no_ds_runtime
+from deepstream_helpers import (
+    LEAK_ITERATIONS,
+    WARMUP_ITERATIONS,
+    assert_no_leak,
+    cpu_rss_kb,
+    gpu_mem_used_mb,
+    make_gen,
 )
 
+if not HAS_DS_FEATURE:
+    pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
 
-def _make_src_gen(fmt: str, w: int, h: int) -> "ds.DsNvSurfaceBufferGenerator":
-    return ds.DsNvSurfaceBufferGenerator(fmt, w, h, pool_size=4)
+import savant_rs.deepstream as _ds
+
+ds = _ds
 
 
 def _make_batched_gen(
@@ -39,7 +30,7 @@ def _make_batched_gen(
     return ds.DsNvUniformSurfaceBufferGenerator(fmt, w, h, batch, pool_size=pool)
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestBatchedConstruction:
     def test_create_with_defaults(self):
         gen = ds.DsNvUniformSurfaceBufferGenerator("RGBA", 640, 640, 4)
@@ -58,7 +49,7 @@ class TestBatchedConstruction:
         assert batch.max_batch_size == 1
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestBatchedProperties:
     def test_width(self):
         gen = _make_batched_gen("RGBA", 640, 480, 4)
@@ -81,7 +72,7 @@ class TestBatchedProperties:
         assert gen.max_batch_size == 8
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestAcquireDsNvUniformSurfaceBuffer:
     def test_returns_batched_surface(self):
         gen = _make_batched_gen("RGBA", 640, 640, 4)
@@ -102,10 +93,10 @@ class TestAcquireDsNvUniformSurfaceBuffer:
         assert batch.max_batch_size == 4
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestFillSlot:
     def test_fill_single_slot(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -114,7 +105,7 @@ class TestFillSlot:
         assert batch.num_filled == 1
 
     def test_fill_all_slots(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -124,7 +115,7 @@ class TestFillSlot:
         assert batch.num_filled == 4
 
     def test_fill_partial_batch(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -134,7 +125,7 @@ class TestFillSlot:
         assert batch.num_filled == 2
 
     def test_fill_exceeds_batch_size_raises(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 2)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -147,13 +138,13 @@ class TestFillSlot:
             batch.fill_slot(src3)
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestFillSlotWithSrcRect:
     """Tests for fill_slot with src_rect (source crop ROI)."""
 
     def test_fill_with_src_rect(self):
         """Fill a slot with a cropped source region (top, left, width, height)."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 2)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -167,7 +158,7 @@ class TestFillSlotWithSrcRect:
 
     def test_fill_mixed_src_rect_and_none(self):
         """Fill slots: one with src_rect, one without (full frame)."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 2)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -187,7 +178,7 @@ class TestFillSlotWithSrcRect:
 
     def test_fill_all_slots_with_different_rois(self):
         """Fill all slots with different source crop regions."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -207,7 +198,7 @@ class TestFillSlotWithSrcRect:
 
     def test_same_src_added_multiple_times_with_various_rois(self):
         """Reuse the same source buffer for multiple slots with different ROIs."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 3)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -231,7 +222,7 @@ class TestFillSlotWithSrcRect:
 
     def test_roi_partially_outside_viewport_succeeds(self):
         """ROI extending partially outside source bounds should succeed (clipped)."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 1)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -247,7 +238,7 @@ class TestFillSlotWithSrcRect:
 
     def test_roi_completely_outside_viewport_fails(self):
         """ROI entirely outside source bounds must fail."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 1)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -258,7 +249,7 @@ class TestFillSlotWithSrcRect:
             batch.fill_slot(src, src_rect=roi, id=1)
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestSlotPtr:
     def test_returns_tuple(self):
         gen = _make_batched_gen("RGBA", 640, 640, 4)
@@ -286,10 +277,10 @@ class TestSlotPtr:
             batch.slot_ptr(100)
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestFinalize:
     def test_finalize_returns_nonzero(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -300,7 +291,7 @@ class TestFinalize:
         assert buf.ptr != 0
 
     def test_ids_propagated(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -324,10 +315,10 @@ class TestFinalize:
             batch.finalize()
 
 
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestSetNumFilled:
     def test_set_num_filled_succeeds(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -339,7 +330,7 @@ class TestSetNumFilled:
         # No exception means success; we cannot easily verify numFilled from Python
 
     def test_set_num_filled_overflow_raises(self):
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4)
         config = ds.TransformConfig()
         batch = batched_gen.acquire_batched_surface(config)
@@ -357,40 +348,18 @@ class TestSetNumFilled:
 
 # ── Memory-leak smoke tests ─────────────────────────────────────────────
 
-_LEAK_ITERATIONS = 200
-_WARMUP_ITERATIONS = 10
-_CPU_GROWTH_LIMIT_KB = 10_000  # 10 MB
-_GPU_GROWTH_LIMIT_MB = 20
 
-
-def _gpu_mem_used_mb() -> int:
-    """Query current GPU memory usage (MiB)."""
-    return ds.gpu_mem_used_mib()
-
-
-def _cpu_rss_kb() -> int:
-    """Current process RSS in KB (Linux), read from /proc/self/status."""
-    try:
-        with open("/proc/self/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    return int(line.split()[1])
-    except Exception:
-        pass
-    return 0
-
-
-@skip_no_runtime
+@skip_no_ds_runtime
 class TestBatchedMemoryLeak:
     """Smoke tests: loop over batch provisioning / release, assert no leak."""
 
     def test_batched_fill_finalize_release_no_leak(self):
         """Full cycle: acquire src → acquire batch → fill → finalize → RAII release."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4, pool=2)
         config = ds.TransformConfig()
 
-        for _ in range(_WARMUP_ITERATIONS):
+        for _ in range(WARMUP_ITERATIONS):
             src = src_gen.acquire_surface(id=1)
             batch = batched_gen.acquire_batched_surface(config)
             for slot in range(4):
@@ -400,10 +369,10 @@ class TestBatchedMemoryLeak:
             del batch, buf, src
 
         gc.collect()
-        cpu_before = _cpu_rss_kb()
-        gpu_before = _gpu_mem_used_mb()
+        cpu_before = cpu_rss_kb()
+        gpu_before = gpu_mem_used_mb()
 
-        for i in range(_LEAK_ITERATIONS):
+        for i in range(LEAK_ITERATIONS):
             src = src_gen.acquire_surface(id=i)
             batch = batched_gen.acquire_batched_surface(config)
             for slot in range(4):
@@ -413,56 +382,44 @@ class TestBatchedMemoryLeak:
             del batch, buf, src
 
         gc.collect()
-        cpu_after = _cpu_rss_kb()
-        gpu_after = _gpu_mem_used_mb()
-
-        cpu_growth = cpu_after - cpu_before
-        gpu_growth = gpu_after - gpu_before
-        assert cpu_growth < _CPU_GROWTH_LIMIT_KB, (
-            f"CPU RSS grew by {cpu_growth} KB over {_LEAK_ITERATIONS} iterations"
-        )
-        assert gpu_growth < _GPU_GROWTH_LIMIT_MB, (
-            f"GPU mem grew by {gpu_growth} MB over {_LEAK_ITERATIONS} iterations"
+        assert_no_leak(
+            "batched fill/finalize/release",
+            cpu_before, cpu_rss_kb(),
+            gpu_before, gpu_mem_used_mb(),
         )
 
     def test_batched_acquire_drop_no_finalize_no_leak(self):
         """Acquire + fill but drop without finalize — batch returns to pool."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 4, pool=2)
         config = ds.TransformConfig()
 
-        for _ in range(_WARMUP_ITERATIONS):
+        for _ in range(WARMUP_ITERATIONS):
             src = src_gen.acquire_surface(id=1)
             batch = batched_gen.acquire_batched_surface(config)
             batch.fill_slot(src, id=1)
             del batch, src
 
         gc.collect()
-        cpu_before = _cpu_rss_kb()
-        gpu_before = _gpu_mem_used_mb()
+        cpu_before = cpu_rss_kb()
+        gpu_before = gpu_mem_used_mb()
 
-        for i in range(_LEAK_ITERATIONS):
+        for i in range(LEAK_ITERATIONS):
             src = src_gen.acquire_surface(id=i)
             batch = batched_gen.acquire_batched_surface(config)
             batch.fill_slot(src, id=i)
             del batch, src
 
         gc.collect()
-        cpu_after = _cpu_rss_kb()
-        gpu_after = _gpu_mem_used_mb()
-
-        cpu_growth = cpu_after - cpu_before
-        gpu_growth = gpu_after - gpu_before
-        assert cpu_growth < _CPU_GROWTH_LIMIT_KB, (
-            f"CPU RSS grew by {cpu_growth} KB over {_LEAK_ITERATIONS} iterations"
-        )
-        assert gpu_growth < _GPU_GROWTH_LIMIT_MB, (
-            f"GPU mem grew by {gpu_growth} MB over {_LEAK_ITERATIONS} iterations"
+        assert_no_leak(
+            "batched acquire/drop without finalize",
+            cpu_before, cpu_rss_kb(),
+            gpu_before, gpu_mem_used_mb(),
         )
 
     def test_same_src_multiple_rois_release_no_leak(self):
         """Same source, multiple ROIs per batch, full release cycle."""
-        src_gen = _make_src_gen("RGBA", 1920, 1080)
+        src_gen = make_gen("RGBA", 1920, 1080)
         batched_gen = _make_batched_gen("RGBA", 640, 640, 3, pool=2)
         config = ds.TransformConfig()
         rois = [
@@ -471,7 +428,7 @@ class TestBatchedMemoryLeak:
             ds.Rect(540, 480, 960, 540),
         ]
 
-        for _ in range(_WARMUP_ITERATIONS):
+        for _ in range(WARMUP_ITERATIONS):
             src = src_gen.acquire_surface(id=1)
             batch = batched_gen.acquire_batched_surface(config)
             for j, roi in enumerate(rois):
@@ -481,10 +438,10 @@ class TestBatchedMemoryLeak:
             del batch, buf, src
 
         gc.collect()
-        cpu_before = _cpu_rss_kb()
-        gpu_before = _gpu_mem_used_mb()
+        cpu_before = cpu_rss_kb()
+        gpu_before = gpu_mem_used_mb()
 
-        for i in range(_LEAK_ITERATIONS):
+        for i in range(LEAK_ITERATIONS):
             src = src_gen.acquire_surface(id=i)
             batch = batched_gen.acquire_batched_surface(config)
             for j, roi in enumerate(rois):
@@ -494,14 +451,8 @@ class TestBatchedMemoryLeak:
             del batch, buf, src
 
         gc.collect()
-        cpu_after = _cpu_rss_kb()
-        gpu_after = _gpu_mem_used_mb()
-
-        cpu_growth = cpu_after - cpu_before
-        gpu_growth = gpu_after - gpu_before
-        assert cpu_growth < _CPU_GROWTH_LIMIT_KB, (
-            f"CPU RSS grew by {cpu_growth} KB over {_LEAK_ITERATIONS} iterations"
-        )
-        assert gpu_growth < _GPU_GROWTH_LIMIT_MB, (
-            f"GPU mem grew by {gpu_growth} MB over {_LEAK_ITERATIONS} iterations"
+        assert_no_leak(
+            "same src multiple ROIs",
+            cpu_before, cpu_rss_kb(),
+            gpu_before, gpu_mem_used_mb(),
         )

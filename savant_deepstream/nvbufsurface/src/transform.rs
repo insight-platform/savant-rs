@@ -4,6 +4,7 @@
 //! interpolation, and compute backend selection. This mirrors the approach
 //! used internally by nvinfer for ROI preparation.
 
+use crate::cuda_stream::CudaStream;
 use crate::ffi;
 use crate::ffi::transform_ffi;
 
@@ -150,7 +151,7 @@ impl Rect {
 }
 
 /// Configuration for a transform (scale/letterbox) operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TransformConfig {
     /// Padding mode for letterboxing.
     pub padding: Padding,
@@ -163,29 +164,11 @@ pub struct TransformConfig {
     pub compute_mode: ComputeMode,
     /// Optional CUDA stream for the transform operation.
     ///
-    /// When `null` (the default), the legacy default stream (stream 0) is used,
+    /// When default (null), the legacy default stream (stream 0) is used,
     /// which has implicit synchronization semantics with all other blocking
     /// streams. Set to a non-blocking stream created via
-    /// [`create_cuda_stream()`](crate::create_cuda_stream) to avoid global GPU
-    /// serialization.
-    pub cuda_stream: *mut std::ffi::c_void,
-}
-
-// Safety: the cuda_stream pointer is only used within the same GPU context
-// that created it, and is never dereferenced on the Rust side.
-unsafe impl Send for TransformConfig {}
-unsafe impl Sync for TransformConfig {}
-
-impl Default for TransformConfig {
-    fn default() -> Self {
-        Self {
-            padding: Padding::default(),
-            dst_padding: None,
-            interpolation: Interpolation::default(),
-            compute_mode: ComputeMode::default(),
-            cuda_stream: std::ptr::null_mut(),
-        }
-    }
+    /// [`CudaStream::new_non_blocking()`] to avoid global GPU serialization.
+    pub cuda_stream: CudaStream,
 }
 
 /// Extract a `*mut NvBufSurface` from a GstBuffer that was allocated by
@@ -327,6 +310,9 @@ unsafe fn clear_surface_black(
 ) -> Result<(), TransformError> {
     #[cfg(target_arch = "aarch64")]
     {
+        // On Jetson, do_transform's dst_surf is a raw pointer without a
+        // GstBuffer, so we cannot attach EglCudaMeta.  Use CPU-staging
+        // memset; this path is infrequent (only when letterboxing).
         let _ = (dst_h, cuda_stream);
         clear_surface_black_mapped(dst_surf)
     }
@@ -358,7 +344,7 @@ unsafe fn clear_surface_black(
     }
 }
 
-/// Jetson (aarch64): Map → zero all planes → SyncForDevice → UnMap.
+/// Jetson (aarch64): Map -> zero all planes -> SyncForDevice -> UnMap.
 #[cfg(target_arch = "aarch64")]
 unsafe fn clear_surface_black_mapped(
     dst_surf: *mut ffi::NvBufSurface,
@@ -424,7 +410,7 @@ pub(crate) unsafe fn do_transform(
     let mut session_params = transform_ffi::NvBufSurfTransformConfigParams {
         compute_mode: config.compute_mode.to_ffi(),
         gpu_id,
-        cuda_stream: config.cuda_stream as *mut transform_ffi::CUstream_st,
+        cuda_stream: config.cuda_stream.as_raw() as *mut transform_ffi::CUstream_st,
     };
     let ret = transform_ffi::NvBufSurfTransformSetSessionParams(&mut session_params);
     if ret != 0 {
@@ -478,17 +464,15 @@ pub(crate) unsafe fn do_transform(
         && dst_letterbox.width == dst_w
         && dst_letterbox.height == dst_h;
     if !fills_dst {
-        clear_surface_black(dst_surf, dst_h, config.cuda_stream)?;
+        clear_surface_black(dst_surf, dst_h, config.cuda_stream.as_raw())?;
     }
 
     let mut dst_rect_ffi = dst_letterbox.to_ffi();
 
     // Build transform flags
     let mut flags: u32 = transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_FILTER
-        | transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_DST
-        | transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
+        | transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_DST;
 
-    // If user specified a source crop, add the CROP_SRC flag (already included)
     if src_rect.is_some() {
         flags |= transform_ffi::NvBufSurfTransform_Transform_Flag_NVBUFSURF_TRANSFORM_CROP_SRC;
     }
@@ -525,7 +509,7 @@ pub(crate) unsafe fn do_transform(
     //
     // For the legacy default stream (null), this is effectively a no-op
     // because the default stream already has implicit sync semantics.
-    let ret = ffi::cudaStreamSynchronize(config.cuda_stream);
+    let ret = ffi::cudaStreamSynchronize(config.cuda_stream.as_raw());
     if ret != 0 {
         return Err(TransformError::CudaError(ret));
     }

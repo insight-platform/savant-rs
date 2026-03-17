@@ -5,7 +5,7 @@ use crate::pipeline::FrameInput;
 use crate::skia::context::DrawContext;
 use crate::spec::source::CallbackInvocationOrder;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::ffi;
+use deepstream_nvbufsurface::CudaStream;
 use deepstream_nvbufsurface::{Padding, Rect, SkiaRenderer, TransformConfig};
 use log::{debug, error, warn};
 use savant_core::geometry::{CropRect, DstInset, LetterBoxKind, ScaleSpec};
@@ -28,10 +28,15 @@ pub(crate) type SharedEncoder = Arc<parking_lot::Mutex<NvEncoder>>;
 /// Shared map of frames submitted to the encoder but not yet drained.
 pub(crate) type SharedPendingFrames = Arc<parking_lot::Mutex<HashMap<u128, VideoFrameProxy>>>;
 
+/// Condvar-based notification sent by the submit side to wake the drain
+/// thread when a new frame has been submitted to the encoder.
+pub(crate) type DrainNotify = Arc<(parking_lot::Mutex<()>, parking_lot::Condvar)>;
+
 /// Handle to the background drain thread that continuously pulls encoded
 /// output from the hardware encoder, independent of frame submission.
 pub(crate) struct DrainHandle {
     stop: Arc<AtomicBool>,
+    notify: DrainNotify,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -46,6 +51,9 @@ impl DrainHandle {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = stop.clone();
+        let notify: DrainNotify =
+            Arc::new((parking_lot::Mutex::new(()), parking_lot::Condvar::new()));
+        let notify_clone = notify.clone();
 
         let thread = std::thread::Builder::new()
             .name(format!("picasso-drain-{source_id}"))
@@ -56,19 +64,27 @@ impl DrainHandle {
                     &callbacks,
                     &pending_frames,
                     &stop_flag,
+                    &notify_clone,
                 );
             })
             .expect("failed to spawn drain thread");
 
         Self {
             stop,
+            notify,
             thread: Some(thread),
         }
+    }
+
+    /// Get a clone of the notification handle for waking the drain thread.
+    pub(crate) fn notify(&self) -> DrainNotify {
+        self.notify.clone()
     }
 
     /// Signal the drain thread to stop and wait for it to finish.
     pub(crate) fn stop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        self.notify.1.notify_one();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -100,48 +116,40 @@ pub(crate) struct RenderOpts<'a> {
     pub(crate) draw_ctx: &'a mut DrawContext,
 }
 
-/// Fire the `on_gpumat` callback and synchronise the worker CUDA stream.
-#[allow(clippy::too_many_arguments)]
+/// Fire the `on_gpumat` callback.
+///
+/// Stream synchronisation is handled by `drop(view)` — the view's
+/// `CudaStream` is synced on release.
 fn fire_on_gpumat(
     source_id: &str,
     callbacks: &Callbacks,
     frame: &savant_core::primitives::frame::VideoFrameProxy,
-    data_ptr: usize,
-    pitch: u32,
-    width: u32,
-    height: u32,
-    cuda_stream: usize,
-    cuda_stream_ptr: *mut std::ffi::c_void,
+    view: &deepstream_nvbufsurface::SurfaceView,
 ) {
     if let Some(cb) = &callbacks.on_gpumat {
-        cb.call(
-            source_id,
-            frame,
-            data_ptr,
-            pitch,
-            width,
-            height,
-            cuda_stream,
-        );
-    }
-    if !cuda_stream_ptr.is_null() {
-        unsafe {
-            ffi::cudaStreamSynchronize(cuda_stream_ptr);
-        }
+        cb.call(source_id, frame, view);
     }
 }
 
 /// Execute the Skia rendering pipeline: resolve draw specs, create/load
 /// the SkiaRenderer, draw objects, optionally fire `on_render`, and
 /// write back to the destination NvBufSurface.
+///
+/// The caller supplies the CUDA device pointer and pitch (resolved via
+/// [`SurfaceView`]) so Skia can load from and render into the buffer
+/// without needing platform-specific pointer resolution.
+#[allow(clippy::too_many_arguments)]
 fn do_skia_render(
     source_id: &str,
     input: &FrameInput,
     dst_buf: &mut gstreamer::Buffer,
     target_w: u32,
     target_h: u32,
+    data_ptr: *mut std::ffi::c_void,
+    pitch: usize,
     render: &mut RenderOpts<'_>,
     callbacks: &Callbacks,
+    cuda_stream: &CudaStream,
 ) -> Result<(), PicassoError> {
     let objects = input.frame.get_all_objects();
     let resolved: Vec<_> = objects
@@ -171,13 +179,25 @@ fn do_skia_render(
 
     let skia = match render.renderer {
         Some(r) => {
-            r.load_from_nvbuf(dst_buf.as_ref())
-                .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+            r.set_cuda_stream(cuda_stream.clone());
+            unsafe {
+                r.load_from_nvbuf(data_ptr as *const std::ffi::c_void, pitch)
+                    .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+            }
             r
         }
         None => {
-            let r = SkiaRenderer::from_nvbuf(target_w, target_h, render.gpu_id, dst_buf.as_ref())
-                .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+            let r = unsafe {
+                SkiaRenderer::from_nvbuf(
+                    target_w,
+                    target_h,
+                    render.gpu_id,
+                    data_ptr as *const std::ffi::c_void,
+                    pitch,
+                )
+                .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?
+                .with_cuda_stream(cuda_stream.clone())
+            };
             *render.renderer = Some(r);
             render.renderer.as_mut().unwrap()
         }
@@ -200,8 +220,10 @@ fn do_skia_render(
     }
 
     let buf_ref = dst_buf.make_mut();
-    skia.render_to_nvbuf(buf_ref, None)
-        .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+    unsafe {
+        skia.render_to_nvbuf_with_ptr(buf_ref, data_ptr, pitch, None)
+            .map_err(|e| PicassoError::Renderer(source_id.to_string(), e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -227,10 +249,11 @@ pub(crate) fn process_encode(
     pending_frames: &SharedPendingFrames,
     src_rect: Option<&Rect>,
     callback_order: CallbackInvocationOrder,
-    cuda_stream_ptr: *mut std::ffi::c_void,
+    cuda_stream: &CudaStream,
+    drain_notify: Option<&DrainNotify>,
 ) -> Result<(), PicassoError> {
-    let (target_w, target_h, need_ptr);
-    let (mut dst_buf, data_ptr, pitch);
+    let (target_w, target_h);
+    let shared: deepstream_nvbufsurface::SharedMutableGstBuffer;
 
     {
         let enc = encoder.lock();
@@ -239,49 +262,54 @@ pub(crate) fn process_encode(
         target_h = generator.height();
 
         let encoder_gpu = generator.gpu_id();
-        if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input.view.buffer().as_ref()) {
-            if buf_gpu != encoder_gpu {
-                return Err(PicassoError::GpuMismatch {
-                    source_id: source_id.to_string(),
-                    buffer_gpu: buf_gpu,
-                    encoder_gpu,
-                });
+        {
+            let input_guard = input.view.buffer();
+            if let Ok(buf_gpu) = deepstream_nvbufsurface::buffer_gpu_id(input_guard.as_ref()) {
+                if buf_gpu != encoder_gpu {
+                    return Err(PicassoError::GpuMismatch {
+                        source_id: source_id.to_string(),
+                        buffer_gpu: buf_gpu,
+                        encoder_gpu,
+                    });
+                }
             }
-        }
+            drop(input_guard);
 
-        need_ptr = render.is_some() || (use_on_gpumat && callbacks.on_gpumat.is_some());
-
-        if need_ptr {
-            let result = generator
-                .transform_with_ptr(
-                    input.view.buffer(),
-                    transform_config,
-                    Some(input.frame_id as i64),
-                    src_rect,
-                )
+            shared = generator
+                .acquire_buffer(Some(input.frame_id as i64))
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
-            dst_buf = result.0;
-            data_ptr = result.1;
-            pitch = result.2;
-        } else {
-            let buf = generator
-                .transform(
-                    input.view.buffer(),
-                    transform_config,
-                    Some(input.frame_id as i64),
-                    src_rect,
-                )
+            let dst_view = deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0)
                 .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
-            dst_buf = buf;
-            data_ptr = std::ptr::null_mut();
-            pitch = 0;
+            input
+                .view
+                .transform_into(&dst_view, transform_config, src_rect)
+                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?;
         }
     }
 
     rewrite_frame_transformations(&input.frame, target_w, target_h, transform_config, src_rect)?;
 
-    let gpumat_active = use_on_gpumat && !data_ptr.is_null();
-    let cuda_stream_val = cuda_stream_ptr as usize;
+    let gpumat_active = use_on_gpumat && callbacks.on_gpumat.is_some();
+    let need_view = gpumat_active || render.is_some();
+
+    // ONE SurfaceView for the entire encode scope — resolves the CUDA
+    // pointer once and serves both Skia rendering and on_gpumat callbacks.
+    // The SharedMutableGstBuffer is passed to submit_frame after the view
+    // is dropped.
+    let view = if need_view {
+        Some(
+            deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0)
+                .map_err(|e| PicassoError::Transform(source_id.to_string(), e.to_string()))?
+                .with_cuda_stream(cuda_stream.clone()),
+        )
+    } else {
+        None
+    };
+
+    let (data_ptr, pitch) = view
+        .as_ref()
+        .map(|v| (v.data_ptr(), v.pitch() as usize))
+        .unwrap_or((std::ptr::null_mut(), 0));
 
     // --- GpuMatSkia / GpuMatSkiaGpuMat: fire on_gpumat BEFORE Skia ---
     if gpumat_active
@@ -290,30 +318,26 @@ pub(crate) fn process_encode(
             CallbackInvocationOrder::GpuMatSkia | CallbackInvocationOrder::GpuMatSkiaGpuMat
         )
     {
-        fire_on_gpumat(
-            source_id,
-            callbacks,
-            &input.frame,
-            data_ptr as usize,
-            pitch,
-            target_w,
-            target_h,
-            cuda_stream_val,
-            cuda_stream_ptr,
-        );
+        fire_on_gpumat(source_id, callbacks, &input.frame, view.as_ref().unwrap());
     }
 
-    // --- Skia rendering (unchanged logic) ---
+    // --- Skia rendering ---
     if let Some(render) = render {
+        let v = view.as_ref().unwrap();
+        let mut buf_guard = v.buffer();
         do_skia_render(
             source_id,
             &input,
-            &mut dst_buf,
+            &mut buf_guard,
             target_w,
             target_h,
+            data_ptr,
+            pitch,
             render,
             callbacks,
+            cuda_stream,
         )?;
+        drop(buf_guard);
     }
 
     // --- SkiaGpuMat / GpuMatSkiaGpuMat: fire on_gpumat AFTER Skia ---
@@ -323,17 +347,7 @@ pub(crate) fn process_encode(
             CallbackInvocationOrder::SkiaGpuMat | CallbackInvocationOrder::GpuMatSkiaGpuMat
         )
     {
-        fire_on_gpumat(
-            source_id,
-            callbacks,
-            &input.frame,
-            data_ptr as usize,
-            pitch,
-            target_w,
-            target_h,
-            cuda_stream_val,
-            cuda_stream_ptr,
-        );
+        fire_on_gpumat(source_id, callbacks, &input.frame, view.as_ref().unwrap());
     }
 
     let pts = input.frame.get_pts().max(0) as u64;
@@ -341,12 +355,26 @@ pub(crate) fn process_encode(
 
     let frame_id = input.frame.get_uuid_u128();
 
+    // Drop the view before extracting the buffer for the encoder.
+    drop(view);
+
+    let buffer = shared.into_buffer().map_err(|s| {
+        PicassoError::Encoder(
+            source_id.to_string(),
+            format!("cannot extract buffer: strong_count={}", s.strong_count()),
+        )
+    })?;
+
     encoder
         .lock()
-        .submit_frame(dst_buf, frame_id, pts, duration)
+        .submit_frame(buffer, frame_id, pts, duration)
         .map_err(|e| PicassoError::Encoder(source_id.to_string(), e.to_string()))?;
 
     pending_frames.lock().insert(frame_id, input.frame);
+
+    if let Some(notify) = drain_notify {
+        notify.1.notify_one();
+    }
 
     Ok(())
 }
@@ -429,6 +457,7 @@ fn drain_loop(
     callbacks: &Arc<Callbacks>,
     pending_frames: &SharedPendingFrames,
     stop: &AtomicBool,
+    notify: &DrainNotify,
 ) {
     debug!("drain thread started: source={source_id}");
     while !stop.load(Ordering::Acquire) {
@@ -445,18 +474,22 @@ fn drain_loop(
 
         if let Some(encoded) = encoded {
             if let Some(cb) = &callbacks.on_encoded_frame {
-                let frame = pending_frames.lock().remove(&encoded.frame_id);
+                let frame = encoded
+                    .frame_id
+                    .and_then(|id| pending_frames.lock().remove(&id));
                 if let Some(frame) = frame {
                     fill_encoded_frame(frame, encoded, cb);
                 } else {
                     warn!(
-                        "drain: no pending frame for frame_id={}, source={source_id}",
+                        "drain: no pending frame for frame_id={:?}, source={source_id}",
                         encoded.frame_id
                     );
                 }
             }
         } else {
-            std::thread::sleep(DRAIN_POLL_INTERVAL);
+            let (lock, cvar) = &**notify;
+            let mut guard = lock.lock();
+            cvar.wait_for(&mut guard, DRAIN_POLL_INTERVAL);
         }
     }
     debug!("drain thread stopped: source={source_id}");
@@ -476,11 +509,12 @@ pub(crate) fn drain_remaining(
         match encoder.pull_encoded() {
             Ok(Some(encoded)) => {
                 if let Some(cb) = &callbacks.on_encoded_frame {
-                    if let Some(frame) = pending_frames.remove(&encoded.frame_id) {
+                    let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
+                    if let Some(frame) = frame {
                         fill_encoded_frame(frame, encoded, cb);
                     } else {
                         warn!(
-                            "drain: no pending frame for frame_id={}, source={source_id}",
+                            "drain: no pending frame for frame_id={:?}, source={source_id}",
                             encoded.frame_id
                         );
                     }

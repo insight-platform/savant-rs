@@ -4,13 +4,13 @@
 
 ### NOGPU Tests (bypass, drop, worker, engine, geometry)
 - Require `gstreamer::init().unwrap()` at start
-- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (no GPU surface data)
+- Use `SurfaceView::wrap(gst::Buffer::new())` as stub view (test-only, gated by `testing` feature)
 - Helper: `make_surface_view()` in `tests/common/mod.rs`
 - Cover: Drop, Bypass codec specs, EOS, shutdown, spec hot-swap, idle eviction, geometry transforms
 
 ### GPU Tests (encode, conditional, render, full pipeline)
 - Require `gstreamer::init()` + `cuda_init(0)`
-- Use `DsNvSurfaceBufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(&buf, 0).unwrap()`
+- Use `DsNvSurfaceBufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(buf, 0).unwrap()` (by value, consuming buf)
 - Helper: `make_gpu_surface_view(&gen, idx, dur_ns)` in `tests/common/mod.rs`
 - Cover: full encode pipeline, Skia rendering, conditional gates, on_render/on_gpumat callbacks
 
@@ -78,10 +78,10 @@ fn make_gpu_surface_view(
     dur_ns: u64,
 ) -> deepstream_nvbufsurface::SurfaceView {
     let buf = gen.acquire_surface(Some(idx as i64)).unwrap();
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+    deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap()
 }
 ```
-Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests.
+Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests (consumes buf by value). On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_shared(shared.clone(), i)`.
 
 ### Make GPU Buffer (internal helper)
 ```rust
@@ -184,6 +184,21 @@ struct RenderCounter(Arc<AtomicUsize>);
 impl OnRender for RenderCounter {
     fn call(&self, _: &str, _: &mut deepstream_nvbufsurface::SkiaRenderer, _: &VideoFrameProxy) {
         self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+```
+
+### GpuMatRecorder pattern (on_gpumat tests)
+`OnGpuMat::call` receives `(&self, source_id, frame, view)` — the `cuda_stream` is obtained from `view.cuda_stream().as_raw() as usize`. The `data_ptr: usize` stored in `GpuMatCall` is for equality checks only — must NOT be dereferenced after the callback scope. The actual CUDA read (`cudaMemcpy2D`) happens inside the callback while the pointer is still valid. Storing the pointer for later use is undefined behaviour because the buffer may be recycled after the encode pipeline returns.
+
+### StreamResetRecorder pattern (on_stream_reset tests)
+```rust
+struct StreamResetRecorder {
+    resets: Arc<Mutex<Vec<(String, StreamResetReason)>>>,
+}
+impl OnStreamReset for StreamResetRecorder {
+    fn call(&self, source_id: &str, reason: StreamResetReason) {
+        self.resets.lock().unwrap().push((source_id.to_string(), reason));
     }
 }
 ```
@@ -323,7 +338,7 @@ fn worker_bypass_fires_callback() {
         ..Default::default()
     });
     let spec = SourceSpec { codec: CodecSpec::Bypass, ..Default::default() };
-    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60), 8);
+    let worker = SourceWorker::spawn("test".into(), spec, callbacks, Duration::from_secs(60), 8, PtsResetPolicy::EosOnDecreasingPts);
 
     for _ in 0..5 {
         worker.send(WorkerMessage::Frame(make_frame("test"), make_surface_view(), None)).unwrap();
@@ -461,6 +476,7 @@ fn symmetric_letterbox_center() {
     rewrite_frame_transformations(
         &frame, 800, 800,
         &TransformConfig { padding: Padding::Symmetric, ..Default::default() },
+        None,
     ).unwrap();
     // Object should shift down by 100px (pad_top = (800-600)/2 = 100)
     let obj = frame.get_all_objects().into_iter().find(|o| o.get_id() == obj_id).unwrap();
@@ -524,7 +540,12 @@ fn e2e_async_drain_delivers_independently() {
 
 ---
 
-## Benchmark Callback Pattern
+## Benchmark Patterns
+
+### SurfaceView in Benchmarks
+Picasso benchmarks use `SurfaceView::from_buffer(buf, 0).unwrap()` (by value) instead of `SurfaceView::wrap(buf)`. With POOLED meta, EGL-CUDA registration survives pool recycles, so this is now efficient for repeated encode cycles.
+
+### Benchmark Callback Pattern
 
 ⚠ With the async drain thread, the `OnEncodedFrame` callback fires from the
 drain thread. Using `mpsc::sync_channel(0)` (rendezvous) will block the drain

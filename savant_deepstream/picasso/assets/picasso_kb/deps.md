@@ -5,10 +5,12 @@
 ### picasso (the crate itself)
 ```rust
 use picasso::prelude::*;
-// gives: Callbacks, On*Frame/Render/Eviction/GpuMat/ObjectDrawSpec traits,
+// gives: Callbacks, On*Frame/Render/Eviction/GpuMat/ObjectDrawSpec/StreamReset traits,
+//        StreamResetReason,
 //        PicassoEngine, PicassoError,
 //        OutputMessage,
-//        CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec
+//        CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision,
+//        GeneralSpec, ObjectDrawSpec, PtsResetPolicy, SourceSpec
 
 // For low-level worker tests:
 use picasso::worker::SourceWorker;
@@ -37,12 +39,18 @@ use deepstream_nvbufsurface::{Padding, Rect, SurfaceView, TransformConfig, buffe
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
 // TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
 // TransformConfig implements Default (Symmetric, Bilinear, Default compute)
+// CudaStream: safe RAII wrapper for CUDA stream handles
+// CudaStream::default() — legacy null stream; CudaStream::new_non_blocking() — owned non-blocking
+// SurfaceView.cuda_stream() — read CUDA stream; SurfaceView.with_cuda_stream(stream) — set stream
 // DsNvSurfaceBufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
-// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed
-// SurfaceView::from_buffer(&buf, slot_index) — extract from NvBufSurface-backed buffer
+// SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
+// SurfaceView::from_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
+// view.into_buffer() — recover gst::Buffer from view before submit (consumes view)
 // SurfaceView::from_cuda_ptr(...) — wrap arbitrary CUDA device memory
-// SurfaceView accessors: buffer(), buffer_mut(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
+// SurfaceView accessors: buffer(), shared_buffer(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
+// SurfaceView CUDA stream: cuda_stream() → &CudaStream, with_cuda_stream(stream) → Self
+// surface_ops: memset_surface(&SurfaceView, value), upload_to_surface(&SurfaceView, data, w, h, channels) — take &SurfaceView, not &gst::Buffer
 ```
 
 ### savant_core (frames, objects, geometry)
@@ -102,7 +110,7 @@ let gen = DsNvSurfaceBufferGenerator::new(
 ).unwrap();
 assert_eq!(gen.gpu_id(), 0);  // stored GPU ID accessible via getter
 let buf = gen.acquire_surface(Some(frame_idx as i64)).unwrap();
-let view = SurfaceView::from_buffer(&buf, 0).unwrap();
+let view = SurfaceView::from_buffer(buf, 0).unwrap();
 // ⚠ pts/dts/duration are taken from the VideoFrame; do not assume they are in the buffer.
 // Set them on the frame before send_frame:
 frame.set_pts((idx * dur_ns) as i64).unwrap();

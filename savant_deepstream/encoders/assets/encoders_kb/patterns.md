@@ -140,7 +140,8 @@ fn test_codec_submit_and_pull() {
     let dur = 33_333_333u64;
     for i in 0..5u128 {
         let buf = encoder.generator().acquire_surface(Some(i as i64)).unwrap();
-        encoder.submit_frame(buf, i, i as u64 * dur, Some(dur)).unwrap();
+        let shared = SharedMutableGstBuffer::from(buf);
+        encoder.submit_frame(shared, i, i as u64 * dur, Some(dur)).unwrap();
     }
     let frames = encoder.finish(Some(5000)).unwrap();
     assert!(!frames.is_empty());
@@ -185,12 +186,12 @@ fn test_raw_rgba_pixel_data_round_trip() {
     let mut input_pixels = vec![0u8; (w as usize) * (h as usize) * bpp];
     // ... fill with pattern ...
 
-    let buffer = encoder.generator().acquire_surface(Some(0)).unwrap();
-    unsafe {
-        deepstream_nvbufsurface::upload_to_surface(&buffer, &input_pixels, w, h, 4)
-            .expect("upload failed");
-    }
-    encoder.submit_frame(buffer, 42, 0, Some(33_333_333)).unwrap();
+    let buf = encoder.generator().acquire_surface(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(buf, 0).unwrap();
+    deepstream_nvbufsurface::upload_to_surface(&view, &input_pixels, w, h, 4)
+        .expect("upload failed");
+    let shared = SharedMutableGstBuffer::from(view.into_buffer().unwrap());
+    encoder.submit_frame(shared, 42, 0, Some(33_333_333)).unwrap();
     let frames = encoder.finish(Some(5000)).unwrap();
     assert_eq!(frames[0].data, input_pixels);
 }

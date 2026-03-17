@@ -213,15 +213,16 @@ pub fn jetson_model(gpu_id: u32) -> Result<Option<JetsonModel>, GpuUtilsError> {
 
 /// Returns `true` if the kernel is a Jetson (Tegra) kernel.
 ///
-/// Checks `uname -r` for the "tegra" suffix.
+/// Reads `/proc/version` and checks for "tegra". The result is cached
+/// in a [`OnceLock`](std::sync::OnceLock) so the file is read at most once.
 #[must_use]
 pub fn is_jetson_kernel() -> bool {
-    std::process::Command::new("uname")
-        .arg("-r")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .is_some_and(|s| s.contains("tegra"))
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::fs::read_to_string("/proc/version")
+            .map(|s| s.contains("tegra"))
+            .unwrap_or(false)
+    })
 }
 
 /// Returns (SM count, compute capability major, compute capability minor).
@@ -231,7 +232,6 @@ fn cuda_device_attrs(gpu_id: u32) -> Result<(i32, i32, i32), GpuUtilsError> {
     const CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR: i32 = 75;
     const CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR: i32 = 76;
 
-    #[link(name = "cuda")]
     extern "C" {
         fn cuInit(flags: u32) -> u32;
         fn cuDeviceGet(device: *mut i32, ordinal: i32) -> u32;
@@ -239,10 +239,16 @@ fn cuda_device_attrs(gpu_id: u32) -> Result<(i32, i32, i32), GpuUtilsError> {
     }
 
     let mut device: i32 = 0;
+    // SAFETY: cuInit(0) is the standard CUDA driver API initialisation call.
+    // It is safe to call multiple times (idempotent) and requires no
+    // pre-conditions beyond a working CUDA installation.
     let err = unsafe { cuInit(0) };
     if err != 0 {
         return Err(GpuUtilsError::Cuda(format!("cuInit failed: {}", err)));
     }
+    // SAFETY: cuInit succeeded, so the driver is initialised. `device` is a
+    // valid mutable pointer to a stack-local i32, and `gpu_id` is the
+    // caller-supplied ordinal (bounds-checked by the driver itself).
     let err = unsafe { cuDeviceGet(&mut device, gpu_id as i32) };
     if err != 0 {
         return Err(GpuUtilsError::Cuda(format!(
@@ -251,6 +257,8 @@ fn cuda_device_attrs(gpu_id: u32) -> Result<(i32, i32, i32), GpuUtilsError> {
         )));
     }
     let mut sm_count: i32 = 0;
+    // SAFETY: `device` is a valid CUdevice handle returned by cuDeviceGet.
+    // `sm_count` is a valid mutable pointer to a stack-local i32.
     let err = unsafe {
         cuDeviceGetAttribute(
             &mut sm_count,
@@ -265,6 +273,7 @@ fn cuda_device_attrs(gpu_id: u32) -> Result<(i32, i32, i32), GpuUtilsError> {
         )));
     }
     let mut major: i32 = 0;
+    // SAFETY: same as above — valid device handle and output pointer.
     let err = unsafe {
         cuDeviceGetAttribute(
             &mut major,
@@ -279,6 +288,7 @@ fn cuda_device_attrs(gpu_id: u32) -> Result<(i32, i32, i32), GpuUtilsError> {
         )));
     }
     let mut minor: i32 = 0;
+    // SAFETY: same as above — valid device handle and output pointer.
     let err = unsafe {
         cuDeviceGetAttribute(
             &mut minor,
@@ -317,7 +327,12 @@ fn parse_meminfo_line(line: &str) -> Option<u64> {
 /// Maps (SM count, compute cap, MemTotal MiB) to Jetson model.
 ///
 /// Orin: CC 8.7, SMs 16/12/8/6; Xavier: CC 7.2, SMs 8/6; TX2: CC 6.2, 2 SMs; Nano: CC 5.3, 1 SM.
-fn map_to_jetson(sm_count: i32, cc_major: i32, cc_minor: i32, mem_total_mib: u64) -> JetsonModel {
+pub(crate) fn map_to_jetson(
+    sm_count: i32,
+    cc_major: i32,
+    cc_minor: i32,
+    mem_total_mib: u64,
+) -> JetsonModel {
     let is_orin = cc_major == 8 && cc_minor == 7;
     let is_xavier = cc_major == 7 && cc_minor == 2;
     let is_pascal = cc_major == 6;
@@ -390,10 +405,24 @@ pub fn has_nvenc(gpu_id: u32) -> Result<bool, GpuUtilsError> {
 }
 
 #[cfg(target_arch = "x86_64")]
+fn cached_nvml() -> Result<&'static nvml_wrapper::Nvml, GpuUtilsError> {
+    use std::sync::OnceLock;
+    static NVML: OnceLock<nvml_wrapper::Nvml> = OnceLock::new();
+    if let Some(nvml) = NVML.get() {
+        return Ok(nvml);
+    }
+    let nvml = nvml_wrapper::Nvml::init()?;
+    let _ = NVML.set(nvml);
+    Ok(NVML
+        .get()
+        .expect("OnceLock was just set or set by another thread"))
+}
+
+#[cfg(target_arch = "x86_64")]
 fn has_nvenc_nvml(gpu_id: u32) -> Result<bool, GpuUtilsError> {
     use nvml_wrapper::enum_wrappers::device::EncoderType;
 
-    let nvml = nvml_wrapper::Nvml::init()?;
+    let nvml = cached_nvml()?;
     let device = nvml.device_by_index(gpu_id)?;
     match device.encoder_capacity(EncoderType::H264) {
         Ok(cap) => Ok(cap > 0),
@@ -404,7 +433,7 @@ fn has_nvenc_nvml(gpu_id: u32) -> Result<bool, GpuUtilsError> {
 
 #[cfg(target_arch = "x86_64")]
 fn gpu_mem_used_mib_nvml(gpu_id: u32) -> Result<u64, GpuUtilsError> {
-    let nvml = nvml_wrapper::Nvml::init()?;
+    let nvml = cached_nvml()?;
     let device = nvml.device_by_index(gpu_id)?;
     let info = device.memory_info()?;
     Ok(info.used / (1024 * 1024))
@@ -479,5 +508,129 @@ mod tests {
     #[test]
     fn test_has_nvenc_does_not_panic() {
         let _ = has_nvenc(0);
+    }
+
+    // ---- map_to_jetson exhaustive tests ----
+
+    #[test]
+    fn test_agx_orin_64gb() {
+        assert_eq!(map_to_jetson(16, 8, 7, 62_000), JetsonModel::AgxOrin64GB);
+        assert_eq!(map_to_jetson(16, 8, 7, 60_000), JetsonModel::AgxOrin64GB);
+        assert_eq!(map_to_jetson(16, 8, 7, 65_000), JetsonModel::AgxOrin64GB);
+    }
+
+    #[test]
+    fn test_agx_orin_32gb() {
+        assert_eq!(map_to_jetson(12, 8, 7, 31_000), JetsonModel::AgxOrin32GB);
+        assert_eq!(map_to_jetson(12, 8, 7, 30_000), JetsonModel::AgxOrin32GB);
+        assert_eq!(map_to_jetson(12, 8, 7, 59_999), JetsonModel::AgxOrin32GB);
+    }
+
+    #[test]
+    fn test_orin_nx_16gb() {
+        assert_eq!(map_to_jetson(8, 8, 7, 15_000), JetsonModel::OrinNx16GB);
+        assert_eq!(map_to_jetson(8, 8, 7, 14_000), JetsonModel::OrinNx16GB);
+        assert_eq!(map_to_jetson(8, 8, 7, 19_999), JetsonModel::OrinNx16GB);
+    }
+
+    #[test]
+    fn test_orin_nano_8gb() {
+        assert_eq!(map_to_jetson(8, 8, 7, 8_000), JetsonModel::OrinNano8GB);
+        assert_eq!(map_to_jetson(8, 8, 7, 7_000), JetsonModel::OrinNano8GB);
+        assert_eq!(map_to_jetson(8, 8, 7, 9_999), JetsonModel::OrinNano8GB);
+    }
+
+    #[test]
+    fn test_orin_nx_8gb() {
+        assert_eq!(map_to_jetson(6, 8, 7, 8_000), JetsonModel::OrinNx8GB);
+        assert_eq!(map_to_jetson(6, 8, 7, 7_000), JetsonModel::OrinNx8GB);
+        assert_eq!(map_to_jetson(6, 8, 7, 9_999), JetsonModel::OrinNx8GB);
+    }
+
+    #[test]
+    fn test_orin_nano_4gb() {
+        assert_eq!(map_to_jetson(6, 8, 7, 4_000), JetsonModel::OrinNano4GB);
+        assert_eq!(map_to_jetson(6, 8, 7, 3_500), JetsonModel::OrinNano4GB);
+        assert_eq!(map_to_jetson(6, 8, 7, 5_499), JetsonModel::OrinNano4GB);
+    }
+
+    #[test]
+    fn test_agx_xavier() {
+        assert_eq!(map_to_jetson(8, 7, 2, 32_000), JetsonModel::AgxXavier);
+        assert_eq!(map_to_jetson(8, 7, 2, 28_000), JetsonModel::AgxXavier);
+        assert_eq!(map_to_jetson(8, 7, 2, 35_999), JetsonModel::AgxXavier);
+    }
+
+    #[test]
+    fn test_xavier_nx() {
+        assert_eq!(map_to_jetson(6, 7, 2, 8_000), JetsonModel::XavierNx);
+        assert_eq!(map_to_jetson(6, 7, 2, 7_000), JetsonModel::XavierNx);
+        assert_eq!(map_to_jetson(6, 7, 2, 9_999), JetsonModel::XavierNx);
+    }
+
+    #[test]
+    fn test_tx2() {
+        assert_eq!(map_to_jetson(2, 6, 2, 8_000), JetsonModel::Tx2);
+        assert_eq!(map_to_jetson(2, 6, 1, 4_000), JetsonModel::Tx2);
+    }
+
+    #[test]
+    fn test_nano() {
+        assert_eq!(map_to_jetson(1, 5, 3, 4_000), JetsonModel::Nano);
+        assert_eq!(map_to_jetson(1, 5, 0, 2_000), JetsonModel::Nano);
+    }
+
+    #[test]
+    fn test_orin_memory_gap_between_ranges() {
+        // 8 SMs, Orin CC, memory between NX 16GB and Nano 8GB ranges (10_000..14_000)
+        assert_eq!(map_to_jetson(8, 8, 7, 12_000), JetsonModel::Unknown);
+        // 6 SMs, Orin CC, memory between Nano 4GB and NX 8GB ranges (5_500..7_000)
+        assert_eq!(map_to_jetson(6, 8, 7, 6_000), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_orin_memory_below_lowest_range() {
+        assert_eq!(map_to_jetson(6, 8, 7, 2_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(8, 8, 7, 5_000), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_xavier_memory_out_of_range() {
+        assert_eq!(map_to_jetson(8, 7, 2, 50_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(6, 7, 2, 3_000), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_orin_sm_count_not_recognized() {
+        assert_eq!(map_to_jetson(4, 8, 7, 16_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(10, 8, 7, 32_000), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_cc_mismatch_right_sm_wrong_cc() {
+        // 16 SMs but not Orin CC — should fall through to Unknown
+        assert_eq!(map_to_jetson(16, 7, 0, 62_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(16, 9, 0, 62_000), JetsonModel::Unknown);
+        // 8 SMs with Xavier CC but memory in Orin NX range
+        assert_eq!(map_to_jetson(8, 7, 2, 15_000), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_zero_sm_count() {
+        assert_eq!(map_to_jetson(0, 8, 7, 32_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(0, 7, 2, 32_000), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(0, 0, 0, 0), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_agx_orin_64gb_boundary_below_threshold() {
+        // Just below the 60_000 threshold
+        assert_eq!(map_to_jetson(16, 8, 7, 59_999), JetsonModel::Unknown);
+    }
+
+    #[test]
+    fn test_agx_orin_32gb_boundary_at_edges() {
+        assert_eq!(map_to_jetson(12, 8, 7, 29_999), JetsonModel::Unknown);
+        assert_eq!(map_to_jetson(12, 8, 7, 60_000), JetsonModel::Unknown);
     }
 }

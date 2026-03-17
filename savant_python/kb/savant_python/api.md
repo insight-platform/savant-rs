@@ -171,6 +171,7 @@ from savant_rs.metrics import CounterFamily, GaugeFamily, delete_metric_family, 
 from savant_rs.gstreamer import FlowResult, InvocationReason
 # With gst feature:
 from savant_rs.gstreamer import Codec, Mp4Muxer
+# Codec variants: H264, HEVC, JPEG, AV1, PNG, RAW_RGBA, RAW_RGB
 ```
 
 ---
@@ -185,6 +186,11 @@ from savant_rs.deepstream import (
     Rect, Padding, Interpolation, ComputeMode, VideoFormat, MemType,
     TransformConfig, DstPadding,
     init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
+    SkiaContext,                # GPU Skia rendering context
+    set_num_filled,             # low-level batch filling
+    get_savant_id_meta, get_nvbufsurface_info,  # meta functions
+    GpuMatCudaArray, make_gpu_mat, nvgstbuf_as_gpu_mat, nvbuf_as_gpu_mat, from_gpumat,  # OpenCV CUDA helpers
+    SkiaCanvas,                 # convenience Skia wrapper
 )
 ```
 
@@ -212,6 +218,7 @@ from savant_rs.picasso import (
     GeneralSpec, EvictionDecision, ConditionalSpec,
     ObjectDrawSpec, CodecSpec, SourceSpec,
     CallbackInvocationOrder,
+    PtsResetPolicy, StreamResetReason,
     # Encoder types
     EncoderConfig, EncoderProperties, H264DgpuProps, HevcDgpuProps, ...
 )

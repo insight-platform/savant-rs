@@ -5,7 +5,7 @@
 //! chain. The encoded PNG is captured from OnEncodedFrame and validated.
 
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{Padding, TransformConfig};
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, Padding, TransformConfig};
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -143,7 +143,7 @@ fn render_png_encoded() -> Vec<u8> {
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(33_333_333));
     }
 
-    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap();
+    let view = deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap();
     engine.send_frame("png", frame, view, None).unwrap();
     engine.send_eos("png").unwrap();
 

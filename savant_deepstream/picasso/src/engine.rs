@@ -1,6 +1,7 @@
 use crate::callbacks::Callbacks;
 use crate::error::PicassoError;
 use crate::message::WorkerMessage;
+use crate::spec::general::PtsResetPolicy;
 use crate::spec::{CodecSpec, GeneralSpec, SourceSpec};
 use crate::watchdog::{self, WatchdogSignal};
 use crate::worker::SourceWorker;
@@ -19,6 +20,7 @@ pub struct PicassoEngine {
     workers: Arc<Mutex<HashMap<String, SourceWorker>>>,
     callbacks: Arc<Callbacks>,
     default_spec: GeneralSpec,
+    pts_reset_policy: PtsResetPolicy,
     shutdown_flag: Arc<AtomicBool>,
     watchdog_signal: Arc<WatchdogSignal>,
     watchdog: Option<std::thread::JoinHandle<()>>,
@@ -54,10 +56,13 @@ impl PicassoEngine {
             name_display, general.idle_timeout_secs, general.inflight_queue_size
         );
 
+        let pts_reset_policy = general.pts_reset_policy;
+
         Self {
             workers,
             callbacks,
             default_spec: general,
+            pts_reset_policy,
             shutdown_flag,
             watchdog_signal,
             watchdog: Some(watchdog),
@@ -69,12 +74,12 @@ impl PicassoEngine {
     /// If the worker already exists, sends an `UpdateSpec` message.
     /// Otherwise the spec is stored and used when the first frame arrives.
     pub fn set_source_spec(&self, source_id: &str, spec: SourceSpec) -> Result<(), PicassoError> {
-        if self.shutdown_flag.load(Ordering::Relaxed) {
+        if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(PicassoError::Shutdown);
         }
 
         if let CodecSpec::Encode { ref transform, .. } = spec.codec {
-            if !transform.cuda_stream.is_null() {
+            if !transform.cuda_stream.is_default() {
                 return Err(PicassoError::ExternalCudaStream);
             }
         }
@@ -95,6 +100,7 @@ impl PicassoEngine {
                 self.callbacks.clone(),
                 idle_timeout,
                 self.default_spec.inflight_queue_size,
+                self.pts_reset_policy,
             );
             workers.insert(source_id.to_string(), worker);
         }
@@ -123,11 +129,12 @@ impl PicassoEngine {
         view: deepstream_nvbufsurface::SurfaceView,
         src_rect: Option<deepstream_nvbufsurface::Rect>,
     ) -> Result<(), PicassoError> {
-        if self.shutdown_flag.load(Ordering::Relaxed) {
+        if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(PicassoError::Shutdown);
         }
 
         let mut workers = self.workers.lock();
+        let pts_reset_policy = self.pts_reset_policy;
         let worker = workers.entry(source_id.to_string()).or_insert_with(|| {
             let idle_timeout = Duration::from_secs(self.default_spec.idle_timeout_secs);
             SourceWorker::spawn(
@@ -136,6 +143,7 @@ impl PicassoEngine {
                 self.callbacks.clone(),
                 idle_timeout,
                 self.default_spec.inflight_queue_size,
+                pts_reset_policy,
             )
         });
 
@@ -148,7 +156,7 @@ impl PicassoEngine {
 
     /// Send an end-of-stream signal to a specific source.
     pub fn send_eos(&self, source_id: &str) -> Result<(), PicassoError> {
-        if self.shutdown_flag.load(Ordering::Relaxed) {
+        if self.shutdown_flag.load(Ordering::Acquire) {
             return Err(PicassoError::Shutdown);
         }
 
@@ -164,7 +172,7 @@ impl PicassoEngine {
     /// Gracefully shut down all workers and the watchdog.
     pub fn shutdown(&mut self) {
         info!("PicassoEngine shutting down");
-        self.shutdown_flag.store(true, Ordering::Relaxed);
+        self.shutdown_flag.store(true, Ordering::Release);
         self.watchdog_signal.notify_shutdown();
 
         let mut workers = self.workers.lock();
@@ -184,7 +192,7 @@ impl PicassoEngine {
 
 impl Drop for PicassoEngine {
     fn drop(&mut self) {
-        if !self.shutdown_flag.load(Ordering::Relaxed) {
+        if !self.shutdown_flag.load(Ordering::Acquire) {
             self.shutdown();
         }
     }

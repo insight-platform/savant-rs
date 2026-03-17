@@ -1,5 +1,7 @@
 """E2E tests for savant_rs.nvinfer — uniform and nonuniform batching."""
 
+from __future__ import annotations
+
 import ctypes
 import json
 import os
@@ -21,6 +23,7 @@ try:
         DsNvNonUniformSurfaceBuffer,
         DsNvSurfaceBufferGenerator,
         DsNvUniformSurfaceBufferGenerator,
+        SurfaceView,
         TransformConfig,
         init_cuda,
         nvbuf_as_gpu_mat,
@@ -203,8 +206,9 @@ def test_age_gender_e2e_real_images():
         gpu_id=0,
         pool_size=1,
     )
-    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
-    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    src_buf = src_gen.acquire_surface(id=0)
+    view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Create batched surface with one 1920x1080 slot
@@ -335,8 +339,9 @@ def test_age_gender_e2e_nonuniform_callback():
         gpu_id=0,
         pool_size=1,
     )
-    src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
-    with nvbuf_as_gpu_mat(data_ptr, pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    src_buf = src_gen.acquire_surface(id=0)
+    view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Assemble batch via DsNvNonUniformSurfaceBuffer (zero-copy add)

@@ -36,11 +36,12 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 
 ## GeneralSpec
 ```
-SIG: __init__(name: str = "picasso", idle_timeout_secs: int = 30, inflight_queue_size: int = 8) → None
+SIG: __init__(name: str = "picasso", idle_timeout_secs: int = 30, inflight_queue_size: int = 8, pts_reset_policy: Optional[PtsResetPolicy] = None) → None
 ```
 - `name`: get/set, str. Optional instance name for logging and future extensibility. DEF: "picasso"
 - `idle_timeout_secs`: get/set, u64. DEF: 30
 - `inflight_queue_size`: get/set, int. Capacity of the per-worker message queue. Controls how many frames can be buffered between `send_frame` and the worker consuming them. Larger values absorb bursts but increase memory/latency. DEF: 8
+- `pts_reset_policy`: get/set, Optional[PtsResetPolicy]. Policy for handling non-monotonic (decreasing) PTS values. DEF: None (defaults to `PtsResetPolicy.eos_on_decreasing_pts()`)
 - repr: `"GeneralSpec(name=..., idle_timeout_secs=N, inflight_queue_size=N)"`
 
 ---
@@ -65,12 +66,13 @@ SIG: __init__(
     on_bypass_frame: Optional[Callable[[OutputMessage], Any]] = None,
     on_render: Optional[Callable[[str, int, int, int, VideoFrame], Any]] = None,
     on_object_draw_spec: Optional[Callable[..., Optional[ObjectDraw]]] = None,
-    on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int], Any]] = None,
+    on_gpumat: Optional[Callable[[str, VideoFrame, int, int, int, int, int], Any]] = None,
     on_eviction: Optional[Callable[[str], EvictionDecision]] = None,
+    on_stream_reset: Optional[Callable[[str, StreamResetReason], Any]] = None,
 ) → None
 ```
 
-All 6 slots: get/set as properties. All Optional, DEF: None.
+All 7 slots: get/set as properties. All Optional, DEF: None.
 
 ### Callback Signatures
 | Callback | Args | Return |
@@ -79,11 +81,13 @@ All 6 slots: get/set as properties. All Optional, DEF: None.
 | `on_bypass_frame` | `(output: OutputMessage)` | None |
 | `on_render` | `(source_id: str, fbo_id: int, width: int, height: int, frame: VideoFrame)` | None |
 | `on_object_draw_spec` | `(source_id: str, object: BorrowedVideoObject, current_spec: Optional[ObjectDraw])` | `Optional[ObjectDraw]` |
-| `on_gpumat` | `(source_id: str, frame: VideoFrame, data_ptr: int, pitch: int, width: int, height: int)` | None |
+| `on_gpumat` | `(source_id: str, frame: VideoFrame, data_ptr: int, pitch: int, width: int, height: int, cuda_stream: int)` | None |
 | `on_eviction` | `(source_id: str)` | `EvictionDecision` |
+| `on_stream_reset` | `(source_id: str, reason: StreamResetReason)` | None |
 
 ⚠ Callbacks execute on Rust worker threads with GIL acquired. Keep them fast.
 ⚠ on_eviction MUST return EvictionDecision. On error → defaults to Terminate.
+⚠ on_stream_reset is informational — no return value required.
 ⚠ **Thread affinity**: PyO3 objects marked `!Send` (e.g. `Mp4Muxer` from
   `savant_gstreamer`) **cannot** be used inside callbacks — they panic if
   accessed from a thread other than the one that created them. Relay data
@@ -135,6 +139,7 @@ SIG: __init__(
     idle_timeout_secs: Optional[int] = None,
     use_on_render: bool = False,
     use_on_gpumat: bool = False,
+    callback_order: CallbackInvocationOrder = CallbackInvocationOrder.SkiaGpuMat,
 ) → None
 ```
 
@@ -148,6 +153,7 @@ SIG: __init__(
 | `idle_timeout_secs` | Optional[int] | None |
 | `use_on_render` | bool | False |
 | `use_on_gpumat` | bool | False |
+| `callback_order` | CallbackInvocationOrder | SkiaGpuMat |
 
 ---
 
@@ -260,6 +266,45 @@ if vf.content.is_internal():
 Bypass frames are delivered as `OutputMessage.as_video_frame()`; EOS for bypass
 sources is delivered as `OutputMessage.as_eos()` through this callback (not
 `on_encoded_frame`).
+
+---
+
+## PtsResetPolicy
+Policy for handling non-monotonic (decreasing) PTS values.
+Factory statics only (no direct __init__):
+
+| Factory | Meaning |
+|---|---|
+| `PtsResetPolicy.eos_on_decreasing_pts()` | Emit synthetic EOS before recreating the encoder (default) |
+| `PtsResetPolicy.recreate_on_decreasing_pts()` | Silently recreate the encoder without emitting EOS |
+
+repr includes variant name.
+
+---
+
+## StreamResetReason
+Reason the worker's encoder was reset. Passed to the `on_stream_reset` callback.
+
+### Properties (read-only)
+| Prop | Type | Notes |
+|---|---|---|
+| `last_pts_ns` | int | PTS of the last successfully accepted frame (nanoseconds) |
+| `new_pts_ns` | int | PTS of the incoming frame that triggered the reset (nanoseconds) |
+
+---
+
+## CallbackInvocationOrder
+Controls when the `on_gpumat` callback fires relative to Skia rendering.
+
+| Variant | Meaning |
+|---|---|
+| `CallbackInvocationOrder.SkiaGpuMat` | Skia render then `on_gpumat` (default) |
+| `CallbackInvocationOrder.GpuMatSkia` | `on_gpumat` then Skia render |
+| `CallbackInvocationOrder.GpuMatSkiaGpuMat` | `on_gpumat` before **and** after Skia render |
+
+| Method | Signature |
+|---|---|
+| `from_name` | `(name: str) → CallbackInvocationOrder` — create from string name (`SkiaGpuMat`, `GpuMatSkia`, `GpuMatSkiaGpuMat`) |
 
 ---
 

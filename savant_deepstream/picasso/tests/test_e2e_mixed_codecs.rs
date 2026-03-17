@@ -129,16 +129,13 @@ fn e2e_mixed_codecs() {
     };
     engine.set_source_spec("cam-encode", enc_spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         // Drop: stub buffer
@@ -157,7 +154,7 @@ fn e2e_mixed_codecs() {
         let mut frame_enc = make_frame_sized("cam-encode", W as i64, H as i64);
         frame_enc.set_pts((i * DUR) as i64).unwrap();
         frame_enc.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine
             .send_frame("cam-encode", frame_enc, buf, None)
             .unwrap();

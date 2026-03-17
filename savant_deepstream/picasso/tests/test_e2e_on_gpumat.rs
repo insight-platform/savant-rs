@@ -10,7 +10,7 @@ mod common;
 use common::*;
 use deepstream_encoders::prelude::*;
 use deepstream_nvbufsurface::ffi;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{SurfaceView, TransformConfig};
 use picasso::prelude::*;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,9 @@ const BPP: u32 = 4; // RGBA
 #[allow(dead_code)]
 struct GpuMatCall {
     source_id: String,
+    /// Recorded for equality checks only — must NOT be dereferenced after the
+    /// callback scope because the buffer may be recycled / the EGL-CUDA
+    /// registration may be freed.
     data_ptr: usize,
     pitch: u32,
     width: u32,
@@ -48,17 +51,16 @@ impl OnGpuMat for GpuMatRecorder {
         &self,
         source_id: &str,
         _frame: &savant_core::primitives::frame::VideoFrameProxy,
-        data_ptr: usize,
-        pitch: u32,
-        width: u32,
-        height: u32,
-        cuda_stream: usize,
+        view: &SurfaceView,
     ) {
+        let data_ptr = view.data_ptr() as usize;
+        let pitch = view.pitch();
+        let width = view.width();
+        let height = view.height();
+        let cuda_stream = view.cuda_stream().as_raw() as usize;
         let width_bytes = (width * BPP) as usize;
         let mut host_row = vec![0u8; width_bytes];
 
-        // Synchronize the worker CUDA stream so the transform result is
-        // visible before we read.
         let cuda_read_rc = unsafe {
             ffi::cudaStreamSynchronize(cuda_stream as *mut std::ffi::c_void);
             ffi::cudaMemcpy2D(
@@ -126,22 +128,19 @@ fn e2e_on_gpumat_fires_when_enabled() {
     };
     engine.set_source_spec("gpumat", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         let mut frame = make_frame_sized("gpumat", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("gpumat", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat").unwrap();
@@ -210,22 +209,19 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     };
     engine.set_source_spec("gpumat-off", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         let mut frame = make_frame_sized("gpumat-off", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("gpumat-off", frame, buf, None).unwrap();
     }
     engine.send_eos("gpumat-off").unwrap();
@@ -257,9 +253,11 @@ fn e2e_external_cuda_stream_rejected() {
         callbacks,
     );
 
-    // Create a TransformConfig with a non-null cuda_stream.
+    // Create a TransformConfig with a non-default cuda_stream.
     let transform = TransformConfig {
-        cuda_stream: 0xDEAD_BEEF as *mut std::ffi::c_void,
+        cuda_stream: unsafe {
+            deepstream_nvbufsurface::CudaStream::from_raw(0xDEAD_BEEF as *mut std::ffi::c_void)
+        },
         ..Default::default()
     };
 
@@ -322,22 +320,19 @@ fn e2e_callback_order_gpumat_skia() {
     };
     engine.set_source_spec("order-test", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     for i in 0..3u64 {
         let mut frame = make_frame_sized("order-test", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("order-test", frame, buf, None).unwrap();
     }
     engine.send_eos("order-test").unwrap();
@@ -401,23 +396,20 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
     };
     engine.set_source_spec("double-test", spec).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     let num_frames = 3u64;
     for i in 0..num_frames {
         let mut frame = make_frame_sized("double-test", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("double-test", frame, buf, None).unwrap();
     }
     engine.send_eos("double-test").unwrap();

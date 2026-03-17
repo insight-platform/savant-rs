@@ -16,7 +16,7 @@
 //!
 //! Decoding and encoding are done **frame-by-frame** in lockstep.  Each
 //! decoded NVMM buffer is immediately copied into the encoder's pool via
-//! [`DsNvSurfaceBufferGenerator::transform()`] and then **dropped** so the
+//! [`DsNvSurfaceBufferGenerator::transform`] and then **dropped** so the
 //! decoder's output buffer pool is not exhausted (`nvv4l2decoder` typically
 //! has only 4-8 output buffers).  Encoded output is pulled after every
 //! submit to keep the encoder's internal pipeline (pool size = 1) flowing.
@@ -34,7 +34,10 @@
 //! ```
 
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::{ComputeMode, Interpolation, Padding, TransformConfig};
+use deepstream_nvbufsurface::{
+    ComputeMode, DsNvSurfaceBufferGenerator, Interpolation, NvBufSurfaceMemType, Padding,
+    TransformConfig, VideoFormat,
+};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use serial_test::serial;
@@ -167,8 +170,20 @@ fn decode_and_reencode(
         dst_padding: None,
         interpolation: Interpolation::Nearest,
         compute_mode: ComputeMode::Default,
-        cuda_stream: std::ptr::null_mut(),
+        cuda_stream: deepstream_nvbufsurface::CudaStream::default(),
     };
+
+    let dst_gen = DsNvSurfaceBufferGenerator::builder(
+        encoder_config.format,
+        encoder_config.width,
+        encoder_config.height,
+    )
+    .gpu_id(encoder_config.gpu_id)
+    .mem_type(NvBufSurfaceMemType::Default)
+    .min_buffers(1)
+    .max_buffers(1)
+    .build()
+    .unwrap_or_else(|e| panic!("Failed to create destination generator: {e}"));
 
     let frame_dur_ns: u64 = 33_333_333; // 30 fps
     let mut encoded_count: usize = 0;
@@ -180,8 +195,7 @@ fn decode_and_reencode(
     // if B-frames leaked through, it returns Err which we propagate.
     let mut submit_and_drain = |buf_ref: &gst::BufferRef, idx: usize| {
         let owned = buf_ref.to_owned();
-        let enc_buf = encoder
-            .generator()
+        let enc_buf = dst_gen
             .transform(&owned, &transform_cfg, Some(idx as i64), None)
             .unwrap_or_else(|e| panic!("transform failed at frame {idx}: {e}"));
 

@@ -262,15 +262,23 @@ def decode_gender(tensor_data: np.ndarray) -> str:
 
 ## GPU upload: host numpy -> pitched device surface
 
-Use the existing `nvbuf_as_gpu_mat` context manager from `savant_rs.deepstream`.
-It wraps a raw CUDA device pointer as an OpenCV `GpuMat` and synchronises
-the CUDA stream on exit.
+Use `SurfaceView.from_buffer()` to resolve the CUDA device pointer, then
+`nvbuf_as_gpu_mat` to wrap it as an OpenCV `GpuMat`. On Jetson, the raw
+`data_ptr` returned by `acquire_surface_with_ptr` is a VIC-managed pointer,
+**not** a valid CUDA pointer — `SurfaceView.from_buffer()` resolves it
+correctly on all platforms.
 
 ```python
-from savant_rs.deepstream import nvbuf_as_gpu_mat
+from savant_rs.deepstream import SurfaceView, nvbuf_as_gpu_mat
 
-src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
-with nvbuf_as_gpu_mat(data_ptr, pitch, W, H) as (gpu_mat, stream):
+# Old (broken on Jetson):
+# src_buf, data_ptr, pitch = src_gen.acquire_surface_with_ptr(0)
+# with nvbuf_as_gpu_mat(data_ptr, pitch, W, H) as (gpu_mat, stream): ...
+
+# New (works on all platforms):
+src_buf = src_gen.acquire_surface(id=0)
+view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, W, H) as (gpu_mat, stream):
     gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 ```
 

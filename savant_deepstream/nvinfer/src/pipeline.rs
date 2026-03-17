@@ -14,11 +14,12 @@ use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_app::AppSinkCallbacks;
 use log::info;
+use parking_lot::Mutex;
 use savant_core::primitives::RBBox;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tempfile::NamedTempFile;
 
 /// Callback type invoked when inference completes (async mode).
@@ -82,7 +83,7 @@ impl NvInfer {
         };
         info!("NvInfer initializing (name={})", name_display);
 
-        let _ = gst::init();
+        gst::init().map_err(|e| NvInferError::GstInit(e.to_string()))?;
 
         let config_file = config.validate_and_materialize()?;
         let config_path = config_file.path().to_string_lossy().to_string();
@@ -204,7 +205,7 @@ impl NvInfer {
                 // sync waiter (if any) owns this result, so we fall back to the
                 // user callback to avoid misdelivery.
                 let sync_sender =
-                    batch_id_opt.and_then(|id| delivery_clone.sync_tx.lock().unwrap().remove(&id));
+                    batch_id_opt.and_then(|id| delivery_clone.sync_tx.lock().remove(&id));
                 if let Some(tx) = sync_sender {
                     let _ = tx.send(output);
                 } else {
@@ -213,7 +214,7 @@ impl NvInfer {
                             "Buffer PTS is None; cannot determine batch_id, routing to callback"
                         );
                     }
-                    if let Some(ref mut cb) = *delivery_clone.callback.lock().unwrap() {
+                    if let Some(ref mut cb) = *delivery_clone.callback.lock() {
                         cb(output);
                     }
                 }
@@ -267,12 +268,9 @@ impl NvInfer {
                 "batch_id must not be u64::MAX (reserved as GST_CLOCK_TIME_NONE)".into(),
             ));
         }
+
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
 
-        // When using flexible config (input_width/height = 0) with no
-        // explicit ROIs, read per-slot dimensions from the NvBufSurface
-        // and synthesize full-frame ROIs. Without this, the sentinel ROI
-        // would be 0x0 and nvinfer would silently skip inference.
         let synthetic_rois;
         let effective_rois = if rois.is_none()
             && self.input_width == 0
@@ -337,7 +335,7 @@ impl NvInfer {
     ) -> Result<BatchInferenceOutput> {
         let (tx, rx) = mpsc::channel();
         {
-            let mut sync_map = self.delivery.sync_tx.lock().unwrap();
+            let mut sync_map = self.delivery.sync_tx.lock();
             if sync_map.contains_key(&batch_id) {
                 return Err(NvInferError::PipelineError(format!(
                     "batch_id {batch_id} is already in use by another infer_sync caller"
@@ -346,19 +344,19 @@ impl NvInfer {
             sync_map.insert(batch_id, tx);
         }
         if let Err(e) = self.submit(batch, batch_id, rois) {
-            self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
+            self.delivery.sync_tx.lock().remove(&batch_id);
             return Err(e);
         }
         match rx.recv_timeout(std::time::Duration::from_secs(30)) {
             Ok(output) => Ok(output),
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
+                self.delivery.sync_tx.lock().remove(&batch_id);
                 Err(NvInferError::PipelineError(format!(
                     "infer_sync timed out after 30s for batch_id {batch_id}"
                 )))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                self.delivery.sync_tx.lock().unwrap().remove(&batch_id);
+                self.delivery.sync_tx.lock().remove(&batch_id);
                 Err(NvInferError::PipelineError(format!(
                     "infer_sync channel disconnected for batch_id {batch_id}"
                 )))
@@ -459,6 +457,11 @@ fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u3
     }
 
     let surf = unsafe { &*(data.as_ptr() as *const ffi::NvBufSurface) };
+    if surf.surfaceList.is_null() {
+        return Err(NvInferError::NullPointer(
+            "NvBufSurface.surfaceList is null".into(),
+        ));
+    }
     let mut dims = Vec::with_capacity(num_filled as usize);
     for i in 0..num_filled {
         let params = unsafe { &*surf.surfaceList.add(i as usize) };

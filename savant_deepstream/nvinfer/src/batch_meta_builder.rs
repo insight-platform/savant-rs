@@ -88,6 +88,9 @@ pub(crate) const FULL_FRAME_SENTINEL: i32 = -1;
 /// * `rois` – Optional per-slot ROI lists (key = slot index `0..num_frames`).
 /// * `input_width` / `input_height` – Model input dimensions used for the
 ///   full-frame fallback.
+///
+/// Returns `Ok(n)` where `n` is the number of ROIs dropped due to object meta
+/// pool exhaustion. `n == 0` means all ROIs were attached successfully.
 pub fn attach_batch_meta_with_rois(
     buffer: &mut gstreamer::BufferRef,
     num_frames: u32,
@@ -96,7 +99,7 @@ pub fn attach_batch_meta_with_rois(
     rois: Option<&HashMap<u32, Vec<Roi>>>,
     input_width: u32,
     input_height: u32,
-) -> Result<()> {
+) -> Result<usize> {
     if num_frames == 0 || num_frames > max_batch_size {
         return Err(NvInferError::BatchMetaFailed(format!(
             "num_frames {num_frames} must be in 1..={max_batch_size}"
@@ -169,10 +172,11 @@ pub fn attach_batch_meta_with_rois(
     // the slot order we set via batch_id when creating).
     let mut frame_list = unsafe { (*batch_meta_raw).frame_meta_list };
     let mut slot: u32 = 0;
+    let mut total_dropped: usize = 0;
     while !frame_list.is_null() && slot < num_frames {
         let frame_ptr = unsafe { (*frame_list).data as *mut NvDsFrameMeta };
         if !frame_ptr.is_null() {
-            add_roi_objects(
+            total_dropped += add_roi_objects(
                 batch_meta_raw,
                 frame_ptr,
                 slot,
@@ -185,7 +189,14 @@ pub fn attach_batch_meta_with_rois(
         frame_list = unsafe { (*frame_list).next };
     }
 
-    Ok(())
+    if total_dropped > 0 {
+        log::warn!(
+            "{total_dropped} ROI(s) dropped due to object meta pool exhaustion \
+             (num_frames={num_frames}, max_batch_size={max_batch_size})"
+        );
+    }
+
+    Ok(total_dropped)
 }
 
 /// Remove every `NvDsObjectMeta` from every frame in the batch meta attached
@@ -255,6 +266,7 @@ fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32,
 /// Add `NvDsObjectMeta` entries for the given slot to `frame_ptr`.
 ///
 /// Uses explicit ROIs when present, or a single full-frame sentinel otherwise.
+/// Returns the number of ROIs that were dropped due to pool exhaustion.
 fn add_roi_objects(
     batch_meta: *mut NvDsBatchMeta,
     frame_meta: *mut NvDsFrameMeta,
@@ -262,10 +274,11 @@ fn add_roi_objects(
     rois: Option<&HashMap<u32, Vec<Roi>>>,
     input_width: u32,
     input_height: u32,
-) {
+) -> usize {
     let slot_rois = rois.and_then(|r| r.get(&slot));
     let max_w = input_width as f32;
     let max_h = input_height as f32;
+    let mut dropped: usize = 0;
 
     if let Some(roi_list) = slot_rois.filter(|v| !v.is_empty()) {
         // Iterate in reverse because nvds_add_obj_meta_to_frame prepends
@@ -275,6 +288,7 @@ fn add_roi_objects(
             let obj_meta = unsafe { nvds_acquire_obj_meta_from_pool(batch_meta) };
             if obj_meta.is_null() {
                 log::error!("nvds_acquire_obj_meta_from_pool returned null for slot {slot}");
+                dropped += 1;
                 continue;
             }
             let (left, top, width, height) = rbbox_to_rect_params(&roi.bbox, max_w, max_h);
@@ -296,7 +310,8 @@ fn add_roi_objects(
             log::error!(
                 "nvds_acquire_obj_meta_from_pool returned null (full-frame) for slot {slot}"
             );
-            return;
+            dropped += 1;
+            return dropped;
         }
         unsafe {
             (*obj_meta).rect_params.left = 0.0;
@@ -307,6 +322,8 @@ fn add_roi_objects(
             nvds_add_obj_meta_to_frame(frame_meta, obj_meta, ptr::null_mut());
         }
     }
+
+    dropped
 }
 
 // ─── helpers used by tests ────────────────────────────────────────────────────

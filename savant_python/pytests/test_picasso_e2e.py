@@ -8,68 +8,55 @@ Reference: savant_python/aux/picasso/kb/ (api.md, deps.md, patterns.md).
 
 from __future__ import annotations
 
-import math
 import struct
 import threading
 import time
 
 import pytest
 
-_mod = pytest.importorskip("savant_rs.picasso")
-if not hasattr(_mod, "PicassoEngine"):
-    pytest.skip("deepstream feature disabled", allow_module_level=True)
+from conftest import HAS_DS_FEATURE, HAS_DS_RUNTIME
 
-_ds = pytest.importorskip("savant_rs.deepstream")
-if not hasattr(_ds, "DsNvSurfaceBufferGenerator"):
-    pytest.skip("deepstream feature disabled", allow_module_level=True)
-
-
-def _ds_runtime_available() -> bool:
-    try:
-        from savant_rs.deepstream import init_cuda
-
-        init_cuda(0)
-        return True
-    except Exception:
-        return False
-
-
-if not _ds_runtime_available():
+if not HAS_DS_FEATURE:
+    pytest.skip("savant_rs built without deepstream feature", allow_module_level=True)
+if not HAS_DS_RUNTIME:
     pytest.skip("DeepStream/CUDA runtime not available", allow_module_level=True)
 
-
+from picasso_helpers import (
+    WIDTH,
+    HEIGHT,
+    FPS,
+    FRAME_DURATION_NS,
+    CLASSES,
+    PNG_SIGNATURE,
+    pseudo_rand,
+    make_frame,
+    make_nvmm_buffer,
+    add_objects_to_frame,
+    build_draw_spec,
+    build_h264_encoder_config,
+    build_jpeg_encoder_config,
+    build_png_encoder_config,
+    build_default_encoder_config,
+    build_source_spec,
+)
 from savant_rs.deepstream import (
     DsNvSurfaceBufferGenerator,
+    SurfaceView,
     TransformConfig,
     VideoFormat,
+    has_nvenc,
     init_cuda,
 )
-from savant_rs.draw_spec import (
-    BoundingBoxDraw,
-    ColorDraw,
-    DotDraw,
-    LabelDraw,
-    LabelPosition,
-    ObjectDraw,
-    PaddingDraw,
-)
-from savant_rs.gstreamer import Codec
 from savant_rs.picasso import (
     Callbacks,
     CodecSpec,
     ConditionalSpec,
-    DgpuPreset,
     EncoderConfig,
-    EncoderProperties,
     EvictionDecision,
     GeneralSpec,
-    H264DgpuProps,
-    JpegProps,
     ObjectDrawSpec,
     PicassoEngine,
-    PngProps,
     SourceSpec,
-    TuningPreset,
 )
 from savant_rs.primitives import (
     IdCollisionResolutionPolicy,
@@ -78,197 +65,6 @@ from savant_rs.primitives import (
     VideoObject,
 )
 from savant_rs.primitives.geometry import RBBox
-
-# ─── Constants ─────────────────────────────────────────────────────────────
-
-WIDTH = 1280
-HEIGHT = 720
-FPS = 30
-FRAME_DURATION_NS = 1_000_000_000 // FPS
-PNG_SIGNATURE = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-
-CLASSES = [
-    ("person", (255, 80, 80)),
-    ("car", (80, 200, 255)),
-    ("truck", (255, 180, 40)),
-    ("bicycle", (80, 255, 120)),
-    ("dog", (220, 100, 255)),
-    ("bus", (255, 255, 80)),
-    ("bike", (80, 255, 255)),
-    ("sign", (255, 140, 140)),
-]
-
-
-# ─── Helpers ───────────────────────────────────────────────────────────────
-
-
-def pseudo_rand(seed1: int, seed2: int) -> float:
-    """Deterministic pseudo-random in [0, 1)."""
-    mask64 = 0xFFFF_FFFF_FFFF_FFFF
-    h = ((seed1 * 6_364_136_223_846_793_005) & mask64 + seed2) & mask64
-    h ^= h >> 33
-    h = (h * 0xFF51_AFD7_ED55_8CCD) & mask64
-    h ^= h >> 33
-    return (h & 0x00FF_FFFF) / 0x0100_0000
-
-
-def make_frame(
-    source_id: str,
-    width: int = WIDTH,
-    height: int = HEIGHT,
-) -> VideoFrame:
-    """Create a VideoFrame with default params."""
-    return VideoFrame(
-        source_id=source_id,
-        framerate="30/1",
-        width=width,
-        height=height,
-        content=VideoFrameContent.none(),
-        time_base=(1, 1_000_000_000),
-        pts=0,
-    )
-
-
-def make_nvmm_buffer(gen: DsNvSurfaceBufferGenerator, frame_id: int) -> int:
-    """Acquire a GPU buffer."""
-    return gen.acquire_surface(id=frame_id)
-
-
-def add_objects_to_frame(
-    frame: VideoFrame,
-    frame_idx: int,
-    num_boxes: int = 20,
-) -> None:
-    """Add detection objects with deterministic positions."""
-    w, h = frame.width, frame.height
-    scene_w = w - min(w * 0.22, 340.0)
-    t = frame_idx / 60.0
-
-    for i in range(num_boxes):
-        seed = i
-        cx_base = pseudo_rand(seed, 100) * scene_w * 0.7 + scene_w * 0.15
-        cy_base = pseudo_rand(seed, 200) * h * 0.7 + h * 0.15
-        orbit_rx = pseudo_rand(seed, 300) * scene_w * 0.12 + 20.0
-        orbit_ry = pseudo_rand(seed, 400) * h * 0.10 + 15.0
-        speed = 0.3 + pseudo_rand(seed, 500) * 0.7
-        phase = pseudo_rand(seed, 600) * math.tau
-
-        cx = cx_base + math.cos(t * speed + phase) * orbit_rx
-        cy = cy_base + math.sin(t * speed * 0.8 + phase) * orbit_ry
-        bw = 50.0 + pseudo_rand(seed, 700) * 140.0
-        bh = 40.0 + pseudo_rand(seed, 800) * 160.0
-        class_idx = int(pseudo_rand(seed, 900) * len(CLASSES)) % len(CLASSES)
-        cls_name = CLASSES[class_idx][0]
-
-        obj = VideoObject(
-            id=0,
-            namespace="detector",
-            label=cls_name,
-            detection_box=RBBox(cx, cy, bw, bh),
-            attributes=[],
-            confidence=None,
-            track_id=None,
-            track_box=None,
-        )
-        frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-
-
-def build_draw_spec() -> ObjectDrawSpec:
-    """Build ObjectDrawSpec with bbox + label + dot per class."""
-    spec = ObjectDrawSpec()
-    for cls_name, (r, g, b) in CLASSES:
-        border = ColorDraw(r, g, b, 255)
-        bg = ColorDraw(r, g, b, 50)
-        bb = BoundingBoxDraw(border, bg, 2, PaddingDraw.default_padding())
-        dot = DotDraw(ColorDraw(r, g, b, 255), 4)
-        label = LabelDraw(
-            font_color=ColorDraw(0, 0, 0, 255),
-            background_color=ColorDraw(r, g, b, 200),
-            border_color=ColorDraw(0, 0, 0, 0),
-            font_scale=1.4,
-            thickness=1,
-            position=LabelPosition.default_position(),
-            padding=PaddingDraw(4, 2, 4, 2),
-            format=["{label} #{id}", "{confidence}"],
-        )
-        od = ObjectDraw(bounding_box=bb, central_dot=dot, label=label)
-        spec.insert("detector", cls_name, od)
-    return spec
-
-
-def build_h264_encoder_config(
-    width: int = WIDTH,
-    height: int = HEIGHT,
-    fps: int = FPS,
-) -> EncoderConfig:
-    """Build H.264 dGPU encoder config."""
-    props = EncoderProperties.h264_dgpu(
-        H264DgpuProps(
-            bitrate=4_000_000,
-            preset=DgpuPreset.P1,
-            tuning_info=TuningPreset.LOW_LATENCY,
-            iframeinterval=30,
-        )
-    )
-    cfg = EncoderConfig(Codec.H264, width, height)
-    cfg.format(VideoFormat.RGBA)
-    cfg.fps(fps, 1)
-    cfg.properties(props)
-    return cfg
-
-
-def build_jpeg_encoder_config(
-    width: int = WIDTH,
-    height: int = HEIGHT,
-    fps: int = FPS,
-) -> EncoderConfig:
-    """Build JPEG encoder config."""
-    props = EncoderProperties.jpeg(JpegProps(quality=90))
-    cfg = EncoderConfig(Codec.JPEG, width, height)
-    cfg.format(VideoFormat.RGBA)
-    cfg.fps(fps, 1)
-    cfg.properties(props)
-    return cfg
-
-
-def build_png_encoder_config(
-    width: int = WIDTH,
-    height: int = HEIGHT,
-    fps: int = FPS,
-) -> EncoderConfig:
-    """Build PNG encoder config (CPU-based, lossless)."""
-    props = EncoderProperties.png(PngProps(compression_level=6))
-    cfg = EncoderConfig(Codec.PNG, width, height)
-    cfg.format(VideoFormat.RGBA)
-    cfg.fps(fps, 1)
-    cfg.properties(props)
-    return cfg
-
-
-def build_source_spec(
-    *,
-    width: int = WIDTH,
-    height: int = HEIGHT,
-    use_render: bool = False,
-    use_gpumat: bool = False,
-    encoder_config: EncoderConfig | None = None,
-    draw: ObjectDrawSpec | None = None,
-    font_family: str = "monospace",
-    conditional: ConditionalSpec | None = None,
-    idle_timeout_secs: int | None = None,
-) -> SourceSpec:
-    """Build encode SourceSpec."""
-    enc = encoder_config or build_h264_encoder_config(width, height)
-    return SourceSpec(
-        codec=CodecSpec.encode(TransformConfig(), enc),
-        draw=draw or build_draw_spec(),
-        font_family=font_family,
-        use_on_render=use_render,
-        use_on_gpumat=use_gpumat,
-        conditional=conditional,
-        idle_timeout_secs=idle_timeout_secs,
-    )
-
 
 # ─── TestPngEncode ────────────────────────────────────────────────────────
 
@@ -623,7 +419,7 @@ class TestConditionalSelectiveRecording:
             encode_attribute=("recording", "active"),
             render_attribute=("scene", "has_objects"),
         )
-        enc = build_h264_encoder_config()
+        enc = build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()
         spec = SourceSpec(
             codec=CodecSpec.encode(TransformConfig(), enc),
             draw=build_draw_spec(),
@@ -706,7 +502,7 @@ class TestMixedCodecs:
         engine.set_source_spec("bypass-src", SourceSpec(codec=CodecSpec.bypass()))
         engine.set_source_spec(
             "encode-src",
-            build_source_spec(encoder_config=build_h264_encoder_config()),
+            build_source_spec(encoder_config=build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()),
         )
 
         gen_bypass = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)

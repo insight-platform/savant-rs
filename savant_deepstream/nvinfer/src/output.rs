@@ -75,8 +75,11 @@ pub struct BatchInferenceOutput {
     /// When `true`, clear all frame object metas when this value is dropped.
     clear_on_drop: bool,
     /// Holds the GStreamer sample (and thus the buffer) alive.
-    /// **Must be declared last** so that it is still valid when `Drop::drop`
-    /// runs and clears the object metas.
+    /// **Must be declared last** so that during field destruction (after
+    /// `Drop::drop` returns), `elements` (which contain `TensorView`s with
+    /// pointers into this buffer) are dropped first, then `_sample` is
+    /// dropped. Rust drops fields in declaration order, so `_sample` last
+    /// ensures the buffer outlives the tensor views.
     _sample: gstreamer::Sample,
 }
 

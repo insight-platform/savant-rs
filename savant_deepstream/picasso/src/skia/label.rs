@@ -2,6 +2,8 @@
 //! position (TopLeftOutside / TopLeftInside / Center), margin, padding,
 //! background, border, font color/scale, and template interpolation.
 
+const BASE_FONT_SIZE: f64 = 12.0;
+
 use crate::skia::common::{color_to_skia, ResolvedBBox};
 use crate::skia::context::DrawContext;
 use savant_core::draw::{LabelDraw, LabelPositionKind};
@@ -33,7 +35,7 @@ pub fn draw_label(
         return;
     }
 
-    let font_size = (label_draw.font_scale * 12.0) as f32;
+    let font_size = (label_draw.font_scale * BASE_FONT_SIZE) as f32;
     let font = skia_safe::Font::from_typeface(&ctx.default_typeface, font_size);
 
     let line_height = font_size * 1.25;

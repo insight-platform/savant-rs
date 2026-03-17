@@ -58,12 +58,40 @@ fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> DsNvSurfaceBufferGenerat
 
 ### memset_surface / upload_to_surface
 ```rust
-// Fill surface with zeros
-unsafe { deepstream_nvbufsurface::memset_surface(&buf, 0x00).unwrap(); }
+// Create view first (by value for input buffers)
+let view = SurfaceView::from_buffer(buf, 0).unwrap();
+
+// Fill surface with zeros (no longer unsafe)
+deepstream_nvbufsurface::memset_surface(&view, 0x00).unwrap();
 
 // Upload RGBA pixel data (channels must match surface colour format)
 let pixels: Vec<u8> = vec![0xFF; 640 * 480 * 4]; // white RGBA
-unsafe { deepstream_nvbufsurface::upload_to_surface(&buf, &pixels, 640, 480, 4).unwrap(); }
+deepstream_nvbufsurface::upload_to_surface(&view, &pixels, 640, 480, 4).unwrap();
+
+// Recover buffer for downstream if sole owner
+let buf = view.into_buffer().expect("no sibling views");
+```
+
+### Batched buffer usage with SharedMutableGstBuffer
+```rust
+// Wrap batch buffer in shared handle
+let shared = SharedMutableGstBuffer::from(batch_buf);
+
+// Create one SurfaceView per slot (borrow shared; clones Arc internally)
+let view0 = SurfaceView::from_shared(&shared, 0).unwrap();
+let view1 = SurfaceView::from_shared(&shared, 1).unwrap();
+
+// Each view has distinct data_ptr for its slot
+deepstream_nvbufsurface::memset_surface(&view0, 0x00).unwrap();
+deepstream_nvbufsurface::memset_surface(&view1, 0xFF).unwrap();
+
+// Pass buffer to encoder without consuming a view
+let shared_for_encoder = view0.shared_buffer();
+// ... submit shared_for_encoder.lock().as_ref() to encoder ...
+
+// Extract buffer only when sole owner (drop sibling views first)
+drop(view1);
+let buf = view0.into_buffer().expect("sole owner after dropping view1");
 ```
 
 ---
@@ -81,49 +109,53 @@ fn make_batched_gen(
 
 ### Build Uniform Batch (with timestamps and IDs)
 ```rust
-fn build_uniform_batch(ids: &[i64]) -> gst::Buffer {
+fn build_uniform_batch(ids: &[i64]) -> SharedMutableGstBuffer {
     let src_gen = make_src_gen(VideoFormat::RGBA, 1920, 1080);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, ids.len() as u32, 2);
     let config = TransformConfig::default();
     let mut batch = batched_gen.acquire_batched_surface(config).unwrap();
+    let ids_vec: Vec<SavantIdMetaKind> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
     for &id in ids {
-        let src = src_gen.acquire_surface(None).unwrap();
-        batch.fill_slot(&src, None, Some(id)).unwrap();
+        let src_shared = src_gen.acquire_buffer(Some(id)).unwrap();
+        batch.fill_slot(&*src_shared.lock(), None, Some(id)).unwrap();
     }
-    batch.finalize().unwrap();
-    let mut buf = batch.as_gst_buffer().unwrap();
+    batch.finalize(ids.len() as u32, ids_vec).unwrap();
+    let shared = batch.shared_buffer();
     {
-        let buf_ref = buf.make_mut();
+        let mut guard = shared.lock();
+        let buf_ref = guard.make_mut();
         buf_ref.set_pts(gst::ClockTime::from_nseconds(1_000_000));
         buf_ref.set_dts(gst::ClockTime::from_nseconds(2_000_000));
         buf_ref.set_duration(gst::ClockTime::from_nseconds(33_333_333));
         buf_ref.set_offset(42);
         buf_ref.set_offset_end(43);
     }
-    buf
+    shared
 }
 ```
 
 ### Build Heterogeneous Batch
 ```rust
-fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[i64]) -> gst::Buffer {
-    let mut batch = DsNvNonUniformSurfaceBuffer::new(resolutions.len() as u32, 0).unwrap();
+fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[i64]) -> SharedMutableGstBuffer {
+    let mut batch = DsNvNonUniformSurfaceBuffer::new(0);
     for (i, &(w, h)) in resolutions.iter().enumerate() {
         let gen = make_src_gen(VideoFormat::RGBA, w, h);
-        let buf = gen.acquire_surface(None).unwrap();
-        batch.add(&buf, Some(ids[i])).unwrap();
+        let shared = gen.acquire_buffer(Some(ids[i])).unwrap();
+        let view = SurfaceView::from_shared(&shared, 0).unwrap();
+        batch.add(&view, Some(ids[i])).unwrap();
     }
-    batch.finalize().unwrap();
-    let mut buf = batch.as_gst_buffer().unwrap();
+    let ids_vec: Vec<SavantIdMetaKind> = ids.iter().map(|&id| SavantIdMetaKind::Frame(id)).collect();
+    let shared = batch.finalize(ids_vec).unwrap();
     {
-        let buf_ref = buf.make_mut();
+        let mut guard = shared.lock();
+        let buf_ref = guard.make_mut();
         buf_ref.set_pts(gst::ClockTime::from_nseconds(5_000_000));
         buf_ref.set_dts(gst::ClockTime::from_nseconds(6_000_000));
         buf_ref.set_duration(gst::ClockTime::from_nseconds(16_666_667));
         buf_ref.set_offset(99);
         buf_ref.set_offset_end(100);
     }
-    buf
+    shared
 }
 ```
 
@@ -131,24 +163,18 @@ fn build_heterogeneous_batch(resolutions: &[(u32, u32)], ids: &[i64]) -> gst::Bu
 
 ## Test Templates
 
-### Basic Slot View Extraction
+### Basic Slot View via SurfaceView::from_shared
 ```rust
 #[test]
-fn test_uniform_extract_first_slot() {
+fn test_uniform_slot_view() {
     common::init();
-    let batch = build_uniform_batch(&[10, 20, 30]);
-    let view = extract_slot_view(&batch, 0).unwrap();
+    let shared = build_uniform_batch(&[10, 20, 30]);
+    let view = SurfaceView::from_shared(&shared, 0).unwrap();
 
-    let surf_ptr = unsafe { extract_nvbufsurface(view.as_ref()).unwrap() };
-    let surf = unsafe { &*surf_ptr };
-    assert_eq!(surf.batchSize, 1);
-    assert_eq!(surf.numFilled, 1);
-
-    let params = unsafe { &*surf.surfaceList };
-    assert!(!params.dataPtr.is_null());
-    assert!(params.pitch > 0);
-    assert_eq!(params.width, 640);
-    assert_eq!(params.height, 640);
+    assert!(!view.data_ptr().is_null());
+    assert!(view.pitch() > 0);
+    assert_eq!(view.width(), 640);
+    assert_eq!(view.height(), 640);
 }
 ```
 
@@ -160,26 +186,22 @@ fn test_uniform_buffer_valid_after_struct_drop() {
     let src_gen = make_src_gen(VideoFormat::RGBA, 1920, 1080);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 3, 2);
 
-    let buf = {
+    let shared = {
         let mut batch = batched_gen.acquire_batched_surface(TransformConfig::default()).unwrap();
-        for _ in 0..3 {
+        let ids: Vec<SavantIdMetaKind> = (0..3).map(|i| SavantIdMetaKind::Frame(i)).collect();
+        for i in 0..3 {
             let src = src_gen.acquire_surface(None).unwrap();
-            batch.fill_slot(&src, None, Some(1)).unwrap();
+            batch.fill_slot(&src, None, Some(i)).unwrap();
         }
-        batch.finalize().unwrap();
-        batch.as_gst_buffer().unwrap()
-        // batch dropped here — pool buffer returned
+        batch.finalize(3, ids).unwrap();
+        batch.shared_buffer()
+        // batch dropped here — Arc still holds buffer
     };
 
-    // Verify buffer is still valid
-    let surf_ptr = unsafe { extract_nvbufsurface(buf.as_ref()).unwrap() };
-    let surf = unsafe { &*surf_ptr };
-    assert_eq!(surf.numFilled, 3);
-    for i in 0..3 {
-        let params = unsafe { &*surf.surfaceList.add(i) };
-        assert!(!params.dataPtr.is_null());
-        assert_eq!(params.width, 640);
-    }
+    // Verify buffer is still valid via SurfaceView
+    let view = SurfaceView::from_shared(&shared, 0).unwrap();
+    assert!(!view.data_ptr().is_null());
+    assert_eq!(view.width(), 640);
 }
 ```
 
@@ -191,33 +213,32 @@ fn test_uniform_buffer_valid_after_cow() {
     let src_gen = make_src_gen(VideoFormat::RGBA, 1920, 1080);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 2, 2);
 
-    let buf = {
+    let shared = {
         let mut batch = batched_gen.acquire_batched_surface(TransformConfig::default()).unwrap();
-        for _ in 0..2 {
+        let ids: Vec<SavantIdMetaKind> = (0..2).map(|i| SavantIdMetaKind::Frame(i)).collect();
+        for i in 0..2 {
             let src = src_gen.acquire_surface(None).unwrap();
-            batch.fill_slot(&src, None, Some(1)).unwrap();
+            batch.fill_slot(&src, None, Some(i)).unwrap();
         }
-        batch.finalize().unwrap();
-        let mut b = batch.as_gst_buffer().unwrap();
-        // Force COW
-        let buf_ref = b.make_mut();
-        buf_ref.set_pts(gst::ClockTime::from_nseconds(42));
-        b
+        batch.finalize(2, ids).unwrap();
+        let shared = batch.shared_buffer();
+        {
+            let mut guard = shared.lock();
+            let buf_ref = guard.make_mut();
+            buf_ref.set_pts(gst::ClockTime::from_nseconds(42));
+        }
+        shared
     };
 
-    let surf_ptr = unsafe { extract_nvbufsurface(buf.as_ref()).unwrap() };
-    let surf = unsafe { &*surf_ptr };
-    for i in 0..2 {
-        let params = unsafe { &*surf.surfaceList.add(i) };
-        assert!(!params.dataPtr.is_null());
-    }
+    let view = SurfaceView::from_shared(&shared, 0).unwrap();
+    assert!(!view.data_ptr().is_null());
 }
 ```
 
 ### Leak Smoke Test (Uniform, pool_size=2)
 ```rust
 #[test]
-fn test_uniform_as_gst_buffer_no_pool_leak() {
+fn test_uniform_no_pool_leak() {
     common::init();
     let src_gen = make_src_gen(VideoFormat::RGBA, 320, 240);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 160, 160, 2, 2);
@@ -226,13 +247,14 @@ fn test_uniform_as_gst_buffer_no_pool_leak() {
         let mut batch = batched_gen
             .acquire_batched_surface(TransformConfig::default())
             .unwrap();
+        let ids: Vec<SavantIdMetaKind> = vec![SavantIdMetaKind::Frame(1), SavantIdMetaKind::Frame(2)];
         for _ in 0..2 {
             let src = src_gen.acquire_surface(None).unwrap();
             batch.fill_slot(&src, None, Some(1)).unwrap();
         }
-        batch.finalize().unwrap();
-        let _buf = batch.as_gst_buffer().unwrap();
-        // batch + _buf dropped here — pool buffers must return
+        batch.finalize(2, ids).unwrap();
+        let _shared = batch.shared_buffer();
+        // batch + _shared dropped here — pool buffers must return
     }
 }
 ```
@@ -240,7 +262,7 @@ fn test_uniform_as_gst_buffer_no_pool_leak() {
 ### Leak Smoke Test (COW variant)
 ```rust
 #[test]
-fn test_uniform_as_gst_buffer_cow_no_pool_leak() {
+fn test_uniform_cow_no_pool_leak() {
     common::init();
     let src_gen = make_src_gen(VideoFormat::RGBA, 320, 240);
     let batched_gen = make_batched_gen(VideoFormat::RGBA, 160, 160, 2, 2);
@@ -249,18 +271,20 @@ fn test_uniform_as_gst_buffer_cow_no_pool_leak() {
         let mut batch = batched_gen
             .acquire_batched_surface(TransformConfig::default())
             .unwrap();
+        let ids = vec![SavantIdMetaKind::Frame(1), SavantIdMetaKind::Frame(2)];
         for _ in 0..2 {
             let src = src_gen.acquire_surface(None).unwrap();
             batch.fill_slot(&src, None, Some(1)).unwrap();
         }
-        batch.finalize().unwrap();
-        let mut buf = batch.as_gst_buffer().unwrap();
+        batch.finalize(2, ids).unwrap();
+        let shared = batch.shared_buffer();
         drop(batch);
         {
-            let buf_ref = buf.make_mut(); // trigger COW
+            let mut guard = shared.lock();
+            let buf_ref = guard.make_mut(); // trigger COW
             buf_ref.set_pts(gst::ClockTime::from_nseconds(1));
         }
-        drop(buf);
+        drop(shared);
     }
 }
 ```
@@ -268,37 +292,25 @@ fn test_uniform_as_gst_buffer_cow_no_pool_leak() {
 ### Leak Smoke Test (Heterogeneous)
 ```rust
 #[test]
-fn test_heterogeneous_as_gst_buffer_no_leak() {
+fn test_heterogeneous_no_leak() {
     common::init();
     let gen = make_src_gen(VideoFormat::RGBA, 320, 240);
 
     for _ in 0..50 {
-        let mut batch = DsNvNonUniformSurfaceBuffer::new(2, 0).unwrap();
+        let mut batch = DsNvNonUniformSurfaceBuffer::new(0);
         for _ in 0..2 {
             let buf = gen.acquire_surface(None).unwrap();
-            batch.add(&buf, Some(1)).unwrap();
+            let view = SurfaceView::from_buffer(buf, 0).unwrap();
+            batch.add(&view, Some(1)).unwrap();
         }
-        batch.finalize().unwrap();
-        let _buf = batch.as_gst_buffer().unwrap();
+        let ids = vec![SavantIdMetaKind::Frame(1), SavantIdMetaKind::Frame(2)];
+        let _shared = batch.finalize(ids).unwrap();
     }
 }
 ```
 
 ### State Guard Tests
 ```rust
-#[test]
-fn test_uniform_not_finalized_guards() {
-    common::init();
-    let batched_gen = make_batched_gen(VideoFormat::RGBA, 640, 640, 4, 2);
-    let batch = batched_gen
-        .acquire_batched_surface(TransformConfig::default())
-        .unwrap();
-
-    assert!(matches!(batch.as_gst_buffer(), Err(NvBufSurfaceError::NotFinalized)));
-    assert!(matches!(batch.extract_slot_view(0), Err(NvBufSurfaceError::NotFinalized)));
-    assert!(!batch.is_finalized());
-}
-
 #[test]
 fn test_uniform_already_finalized_guards() {
     common::init();
@@ -307,10 +319,13 @@ fn test_uniform_already_finalized_guards() {
     let mut batch = batched_gen.acquire_batched_surface(TransformConfig::default()).unwrap();
     let src = src_gen.acquire_surface(None).unwrap();
     batch.fill_slot(&src, None, Some(1)).unwrap();
-    batch.finalize().unwrap();
+    batch.finalize(1, vec![SavantIdMetaKind::Frame(1)]).unwrap();
 
     assert!(batch.is_finalized());
-    assert!(matches!(batch.finalize(), Err(NvBufSurfaceError::AlreadyFinalized)));
+    assert!(matches!(
+        batch.finalize(1, vec![SavantIdMetaKind::Frame(1)]),
+        Err(NvBufSurfaceError::AlreadyFinalized)
+    ));
     assert!(matches!(
         batch.fill_slot(&src, None, Some(2)),
         Err(NvBufSurfaceError::AlreadyFinalized)
@@ -325,7 +340,6 @@ fn test_uniform_already_finalized_guards() {
 use deepstream_nvbufsurface::{
     cuda_init,
     extract_nvbufsurface,
-    extract_slot_view,
     DsNvNonUniformSurfaceBuffer,
     DsNvSurfaceBufferGenerator,
     DsNvUniformSurfaceBufferGenerator,
@@ -333,6 +347,7 @@ use deepstream_nvbufsurface::{
     NvBufSurfaceMemType,
     SavantIdMeta,
     SavantIdMetaKind,
+    SharedMutableGstBuffer,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -412,6 +427,97 @@ When inserting `nvvideoconvert` as `pre_encoder`, set `disable-passthrough=true`
 on it — otherwise it passes through buffers when caps match, defeating the
 purpose. `SavantIdMeta` survives through `nvvideoconvert` because it has a
 proper `savant_id_meta_transform` function.
+
+---
+
+---
+
+## SurfaceView GPU Test Templates (tests/surface_view_gpu.rs)
+
+### CUDA Addressability
+```rust
+#[test]
+fn test_data_ptr_is_cuda_addressable() {
+    common::init();
+    let gen = DsNvSurfaceBufferGenerator::new(
+        VideoFormat::RGBA, 320, 240, 30, 1, 0, NvBufSurfaceMemType::Default,
+    ).unwrap();
+    let buf = gen.acquire_surface(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(buf, 0).unwrap();
+    assert!(!view.data_ptr().is_null());
+    assert!(view.pitch() >= view.width() * view.channels());
+    // Verify CUDA accessibility via cudaMemcpy2D readback
+}
+```
+
+### Write/Read Roundtrip
+```rust
+#[test]
+fn test_write_read_roundtrip() {
+    common::init();
+    let gen = /* ... */;
+    let buf = gen.acquire_surface(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(buf, 0).unwrap();
+    deepstream_nvbufsurface::memset_surface(&view, 0xAB).unwrap();
+    // cudaMemcpy2D readback and verify bytes == 0xAB
+}
+```
+
+### Uniform Batch Slot Views
+```rust
+#[test]
+fn test_uniform_batch_slot_views_distinct() {
+    common::init();
+    let src_gen = /* ... */;
+    let batch_gen = /* ... */;
+    let mut batch = batch_gen.acquire_batched_surface(TransformConfig::default()).unwrap();
+    // Fill slots, finalize(num_filled, ids)
+    let shared = batch.shared_buffer();
+    // Create one SurfaceView per slot via from_shared (takes &shared)
+    let views: Vec<_> = (0..N)
+        .map(|i| SurfaceView::from_shared(&shared, i).unwrap())
+        .collect();
+    // Assert distinct data_ptr across views
+}
+```
+
+### EglCudaMeta Tracking Tests (aarch64 only)
+```rust
+#[cfg(target_arch = "aarch64")]
+mod tracking {
+    static LOCK: Mutex<()> = Mutex::new(());  // Serialize tracking tests
+
+    #[test]
+    fn test_meta_deregistration_on_pool_destroy() {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        common::init();
+        let (base_reg, base_dereg) = deepstream_nvbufsurface::egl_cuda_meta::tracking_counts();
+        // Create pool, acquire buffer, create SurfaceView (triggers registration)
+        // Drop everything
+        // Assert: new_reg >= 2, new_dereg >= 2 (relaxed — concurrent tests may
+        // inject extra registrations; we only assert our minimum)
+    }
+}
+```
+
+**Note:** The `map_unmap_cycle` verification test module (`tests/surface_view_gpu.rs`)
+confirms Jetson behavior: `cuGraphicsEGLRegisterImage` creates an implicit permanent
+mapping; `cuGraphicsUnmapResources` returns error 999. No RAII map/unmap cycle.
+
+---
+
+## Benchmarks
+
+See `benches/surface_view_mapping.rs`:
+- `bench_registration_plus_first_view` — fresh buffer (includes EGL-CUDA registration on Jetson)
+- `bench_recycled_buffer_view` — recycled pool buffer; POOLED meta survives recycle, no re-registration
+
+Use `from_buffer(buf, 0)` for input buffers — no `wrap` workaround needed. POOLED meta
+prevents re-registration on recycle.
+
+```bash
+cargo bench -p deepstream_nvbufsurface --bench surface_view_mapping
+```
 
 ---
 

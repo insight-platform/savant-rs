@@ -9,12 +9,14 @@ Prelude: `use picasso::prelude::*;`
 ```rust
 pub use crate::callbacks::{
     Callbacks, OnBypassFrame, OnEncodedFrame, OnEviction, OnGpuMat, OnObjectDrawSpec, OnRender,
+    OnStreamReset, StreamResetReason,
 };
 pub use crate::engine::PicassoEngine;
 pub use crate::error::PicassoError;
 pub use crate::message::OutputMessage;
 pub use crate::spec::{
-    CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec, ObjectDrawSpec, SourceSpec,
+    CallbackInvocationOrder, CodecSpec, ConditionalSpec, EvictionDecision, GeneralSpec,
+    ObjectDrawSpec, PtsResetPolicy, SourceSpec,
 };
 ```
 
@@ -54,6 +56,7 @@ pub struct GeneralSpec {
     pub name: String,                // DEF: "" — used internally for logging and future extensibility
     pub idle_timeout_secs: u64,      // DEF: 30
     pub inflight_queue_size: usize,  // DEF: 8 — capacity of the per-worker crossbeam bounded channel
+    pub pts_reset_policy: PtsResetPolicy, // DEF: PtsResetPolicy::EosOnDecreasingPts
 }
 ```
 Implements `Default`. `DEFAULT_INFLIGHT_QUEUE_SIZE` constant = 8.
@@ -104,6 +107,7 @@ pub struct SourceSpec {
     pub idle_timeout_secs: Option<u64>,// DEF: None (use engine's)
     pub use_on_render: bool,           // DEF: false
     pub use_on_gpumat: bool,           // DEF: false
+    pub callback_order: CallbackInvocationOrder, // DEF: CallbackInvocationOrder::SkiaGpuMat
 }
 ```
 Implements `Default`.
@@ -155,6 +159,7 @@ pub struct Callbacks {
     pub on_object_draw_spec: Option<Arc<dyn OnObjectDrawSpec>>,
     pub on_gpumat:        Option<Arc<dyn OnGpuMat>>,
     pub on_eviction:      Option<Arc<dyn OnEviction>>,
+    pub on_stream_reset:  Option<Arc<dyn OnStreamReset>>,
 }
 ```
 
@@ -178,13 +183,23 @@ pub trait OnObjectDrawSpec {
 }
 
 pub trait OnGpuMat {
-    fn call(&self, source_id: &str, frame: &VideoFrameProxy, data_ptr: usize, pitch: u32, width: u32, height: u32);
+    fn call(&self, source_id: &str, frame: &VideoFrameProxy, view: &SurfaceView);
 }
 
 pub trait OnEviction {
     fn call(&self, source_id: &str) → EvictionDecision;
 }
+
+pub enum StreamResetReason {
+    PtsDecreased { last_pts_ns: u64, new_pts_ns: u64 },
+}
+
+pub trait OnStreamReset {
+    fn call(&self, source_id: &str, reason: StreamResetReason);
+}
 ```
+
+**Pointer validity (OnGpuMat):** The `data_ptr()` obtained from `&SurfaceView` is only valid for the duration of the callback. Storing the raw pointer for later use is undefined behaviour. On Jetson the pointer is tied to the EGL-CUDA registration; on dGPU it's the NvBufSurface `dataPtr`. The buffer may be recycled after the encode pipeline returns.
 
 - ⚠ `OnObjectDrawSpec`: callback-returned `labelDraw.format` is resolved ephemerally and never written to the template cache.
 
@@ -226,7 +241,7 @@ pub struct SourceWorker { /* private */ }
 
 | Method | Signature |
 |---|---|
-| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize) → Self` |
+| `spawn` | `(source_id: String, spec: SourceSpec, callbacks: Arc<Callbacks>, idle_timeout: Duration, queue_size: usize, pts_reset_policy: PtsResetPolicy) → Self` |
 | `send` | `(&self, msg: WorkerMessage) → Result<(), SendError<WorkerMessage>>` |
 | `is_alive` | `(&self) → bool` |
 
@@ -242,6 +257,7 @@ pub fn rewrite_frame_transformations(
     target_w: u32,
     target_h: u32,
     config: &TransformConfig,
+    src_rect: Option<&Rect>,
 ) → Result<(), PicassoError>
 ```
 Path: `picasso::rewrite_frame_transformations` (re-exported from lib.rs)
@@ -267,22 +283,29 @@ Returns `Err` if `dst_padding` reduces the effective width or height below `MIN_
 
 ## GPU Utilities (from deepstream_nvbufsurface)
 
+### SharedMutableGstBuffer
+Shared currency for the encode pipeline. Wraps a `gst::Buffer` in interior mutability so multiple `SurfaceView` instances can hold references while the encoder receives the same shared handle.
+
+- `SharedMutableGstBuffer::from(buf: gst::Buffer) → Self` — wrap a buffer for shared use
+- Passed directly to `NvEncoder::submit_frame`; no need to recover the buffer from the view
+
 ### SurfaceView
 ```rust
 pub struct SurfaceView { /* private */ }
 ```
-Zero-copy view of a single GPU surface with cached parameters. Wraps a refcounted `gst::Buffer` containing an NvBufSurface descriptor.
+Zero-copy view of a single GPU surface with cached parameters. Wraps either a refcounted `gst::Buffer` or a `SharedMutableGstBuffer` containing an NvBufSurface descriptor.
 
 | Constructor | Signature | Notes |
 |---|---|---|
 | `wrap` | `(buf: gst::Buffer) → Self` | Plain wrapper, surface params zeroed. For Drop/Bypass paths and NOGPU tests. |
-| `from_buffer` | `(buf: &gst::Buffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Extract view from NvBufSurface-backed buffer. Supports batched buffers. |
+| `from_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Extract view from NvBufSurface-backed buffer (consumes buf by value). On Jetson, the pointer from `data_ptr()` is tied to a permanent EGL-CUDA registration that lives with the buffer. Recover buffer with `into_buffer()`. |
+| `from_shared` | `(shared: SharedMutableGstBuffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Create view from shared buffer. Use `view.buffer()` for mutable access. Drop view before passing `SharedMutableGstBuffer` to `submit_frame`. |
 | `from_cuda_ptr` | `(data_ptr, pitch, width, height, gpu_id, channels, color_format, keepalive) → Result<Self, NvBufSurfaceError>` | Wrap arbitrary CUDA device memory with synthetic descriptor. |
 
 | Accessor | Signature |
 |---|---|
-| `buffer` | `(&self) → &gst::Buffer` |
-| `buffer_mut` | `(&mut self) → &mut gst::Buffer` |
+| `buffer` | `(&self) → MutexGuard<gst::Buffer>` | Replaces both old `buffer()` and `buffer_mut()`. Use for read and write access. |
+| `into_buffer` | `(self) → Result<gst::Buffer, SurfaceView>` | Consumes the view and recovers the underlying buffer. Fails (returns `Err(self)`) if other refs exist (e.g. when using `from_shared`). For encode path, drop the view and pass `SharedMutableGstBuffer` to `submit_frame` instead. |
 | `data_ptr` | `(&self) → *mut c_void` |
 | `pitch` | `(&self) → u32` |
 | `width` | `(&self) → u32` |
@@ -306,3 +329,22 @@ Extracts the `gpuId` from the NvBufSurface inside a GStreamer buffer. Used by `p
 pub fn gpu_id(&self) → u32
 ```
 Returns the GPU device ID this generator allocates buffers on. Stored at construction time.
+
+### NvEncoder::submit_frame (from deepstream_encoders)
+```rust
+pub fn submit_frame(&mut self, buf: SharedMutableGstBuffer, ...) → ...
+```
+Takes `SharedMutableGstBuffer` instead of `gst::Buffer`. The encode pipeline passes the shared handle directly after dropping the `SurfaceView`; no buffer recovery step.
+
+---
+
+## process_encode flow (pipeline/encode.rs)
+
+```
+dst_buf = generator.transform(...) → gst::Buffer
+shared = SharedMutableGstBuffer::from(dst_buf)
+view = SurfaceView::from_shared(shared.clone(), 0)
+... rendering + callbacks using view.buffer() (MutexGuard) ...
+drop(view)
+encoder.submit_frame(shared, ...) → pass SharedMutableGstBuffer directly
+```

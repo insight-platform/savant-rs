@@ -1,0 +1,154 @@
+//! Standalone `#[pyfunction]` items for the `savant_rs.deepstream` module.
+
+use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
+use deepstream_nvbufsurface::{cuda_init, set_num_filled, transform};
+use gstreamer as gst;
+use pyo3::prelude::*;
+use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
+
+/// Set numFilled on a batched NvBufSurface GstBuffer.
+///
+/// Args:
+///     buf (GstBuffer | int): Buffer containing a batched NvBufSurface.
+///     count (int): Number of filled slots.
+#[pyfunction]
+#[pyo3(name = "set_num_filled")]
+pub fn py_set_num_filled(buf: &Bound<'_, PyAny>, count: u32) -> PyResult<()> {
+    with_mut_buffer_ref(buf, |buf_ref| {
+        set_num_filled(buf_ref, count)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    })
+}
+
+/// Initialize CUDA context for the given GPU device.
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+#[pyfunction]
+#[pyo3(name = "init_cuda", signature = (gpu_id=0))]
+pub fn py_init_cuda(gpu_id: u32) -> PyResult<()> {
+    cuda_init(gpu_id).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Returns GPU memory currently used, in MiB.
+///
+/// - dGPU (x86_64): Uses NVML to query device ``gpu_id``.
+/// - Jetson (aarch64): Reads /proc/meminfo (unified memory).
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     int: GPU memory used in MiB.
+///
+/// Raises:
+///     RuntimeError: If NVML or /proc/meminfo is unavailable.
+#[pyfunction]
+#[pyo3(name = "gpu_mem_used_mib", signature = (gpu_id=0))]
+pub fn py_gpu_mem_used_mib(gpu_id: u32) -> PyResult<u64> {
+    nvidia_gpu_utils::gpu_mem_used_mib(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Returns the Jetson model name if running on a Jetson device, or ``None`` if not.
+///
+/// Uses CUDA SM count and /proc/meminfo MemTotal to identify the model.
+/// Works inside containers where /proc/device-tree is typically not mounted.
+/// Requires ``uname -r`` to contain "tegra" and a working CUDA.
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     str | None: Model name (e.g. "Orin Nano 8GB") or None if not Jetson.
+///
+/// Raises:
+///     RuntimeError: If CUDA or /proc/meminfo is unavailable.
+#[pyfunction]
+#[pyo3(name = "jetson_model", signature = (gpu_id=0))]
+pub fn py_jetson_model(gpu_id: u32) -> PyResult<Option<String>> {
+    nvidia_gpu_utils::jetson_model(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        .map(|opt| opt.map(|m| m.to_string()))
+}
+
+/// Returns ``True`` if the kernel is a Jetson (Tegra) kernel.
+///
+/// Checks ``uname -r`` for the "tegra" suffix.
+#[pyfunction]
+#[pyo3(name = "is_jetson_kernel")]
+pub fn py_is_jetson_kernel() -> bool {
+    nvidia_gpu_utils::is_jetson_kernel()
+}
+
+/// Returns ``True`` if the GPU has NVENC hardware encoding support.
+///
+/// - **Jetson**: Orin Nano is the only Jetson without NVENC; all others have it.
+///   ``Unknown`` models conservatively return ``False``.
+/// - **dGPU (x86_64)**: Uses NVML ``encoder_capacity(H264)`` — returns ``False``
+///   for datacenter GPUs without NVENC (H100, A100, A30, etc.).
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     bool: ``True`` if NVENC is available.
+///
+/// Raises:
+///     RuntimeError: If CUDA/NVML initialization fails.
+#[pyfunction]
+#[pyo3(name = "has_nvenc", signature = (gpu_id=0))]
+pub fn py_has_nvenc(gpu_id: u32) -> PyResult<bool> {
+    nvidia_gpu_utils::has_nvenc(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Read ``SavantIdMeta`` from a GStreamer buffer.
+///
+/// Returns:
+///     list[tuple[str, int]]: Meta entries, e.g. ``[("frame", 42)]``.
+#[pyfunction]
+#[pyo3(name = "get_savant_id_meta")]
+pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(String, i64)>> {
+    let buf_ptr = extract_buf_ptr(buf)?;
+    unsafe {
+        let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
+        match buf_ref.meta::<SavantIdMeta>() {
+            Some(meta) => {
+                let ids = meta
+                    .ids()
+                    .iter()
+                    .map(|k| match k {
+                        SavantIdMetaKind::Frame(id) => ("frame".to_string(), *id),
+                        SavantIdMetaKind::Batch(id) => ("batch".to_string(), *id),
+                    })
+                    .collect();
+                Ok(ids)
+            }
+            None => Ok(vec![]),
+        }
+    }
+}
+
+/// Extract NvBufSurface descriptor fields from an existing GstBuffer.
+///
+/// Returns:
+///     tuple[int, int, int, int]: ``(data_ptr, pitch, width, height)``
+#[pyfunction]
+#[pyo3(name = "get_nvbufsurface_info")]
+pub fn py_get_nvbufsurface_info(buf: &Bound<'_, PyAny>) -> PyResult<(usize, u32, u32, u32)> {
+    let buf_ptr = extract_buf_ptr(buf)?;
+    unsafe {
+        let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
+        let surf_ptr = transform::extract_nvbufsurface(buf_ref)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let surf = &*surf_ptr;
+        let params = &*surf.surfaceList;
+        Ok((
+            params.dataPtr as usize,
+            params.pitch as u32,
+            params.width,
+            params.height,
+        ))
+    }
+}

@@ -7,7 +7,7 @@ mod common;
 
 use common::*;
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use picasso::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

@@ -15,7 +15,7 @@
 mod common;
 
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMeta,
+    bridge_savant_id_meta, DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SavantIdMeta,
     VideoFormat,
 };
 use gstreamer as gst;
@@ -25,38 +25,23 @@ use std::sync::Arc;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Per-encoder test configuration.
 struct EncoderTestConfig {
-    /// NvBufSurface pixel format (e.g. `VideoFormat::NV12`, `VideoFormat::I420`).
     format: VideoFormat,
-    /// GStreamer encoder element factory name.
     enc_name: &'static str,
-    /// Optional parser element placed between encoder and appsink.
     parser: Option<&'static str>,
-    /// Optional converter element placed between appsrc and encoder.
-    ///
-    /// On Jetson, some encoders (e.g. `nvjpegenc`) require surfaces to be
-    /// re-created through `nvvideoconvert` so the hardware engine can
-    /// register/pin them. NvDS buffer pool surfaces pushed directly from
-    /// appsrc lack this registration and cause hangs.
     pre_encoder: Option<&'static str>,
 }
 
-/// Run a full pipeline and assert that [`bridge_savant_id_meta`]
-/// propagates `SavantIdMeta` across the given encoder.
 fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
     common::init();
 
-    let generator = DsNvSurfaceBufferGenerator::new(
-        config.format,
-        640,
-        480,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .expect("Failed to create generator");
+    let generator = DsNvUniformSurfaceBufferGenerator::builder(config.format, 640, 480, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(16)
+        .build()
+        .expect("Failed to create generator");
 
     let pipeline = gst::Pipeline::new();
 
@@ -69,7 +54,6 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .build()
         .unwrap_or_else(|_| panic!("Failed to create {}", config.enc_name));
 
-    // Install PTS-keyed meta bridge on the encoder
     bridge_savant_id_meta(&enc);
 
     let sink_elem = gst::ElementFactory::make("appsink")
@@ -77,16 +61,13 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .build()
         .expect("appsink");
 
-    // Configure appsrc
     appsrc_elem.set_property("caps", generator.nvmm_caps());
     appsrc_elem.set_property_from_str("format", "time");
     appsrc_elem.set_property_from_str("stream-type", "stream");
 
-    // Configure appsink
     sink_elem.set_property("sync", false);
     sink_elem.set_property("emit-signals", true);
 
-    // Build the element chain: appsrc → [pre_encoder →] enc → [parser →] appsink
     let pre_enc_elem = config.pre_encoder.map(|name| {
         let elem = gst::ElementFactory::make(name)
             .name("pre_enc")
@@ -119,7 +100,6 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
         .expect("Failed to add elements");
     gst::Element::link_many(chain.iter().copied()).unwrap();
 
-    // Set up appsink callback to count received buffers and meta
     let received = Arc::new(AtomicU32::new(0));
     let meta_ok = Arc::new(AtomicU32::new(0));
 
@@ -142,7 +122,6 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
             .build(),
     );
 
-    // Start pipeline
     pipeline
         .set_state(gst::State::Playing)
         .expect("Failed to start pipeline");
@@ -154,14 +133,27 @@ fn run_pipeline_bridge_test(config: &EncoderTestConfig, num_frames: u32) {
 
     for i in 0..num_frames {
         let pts_ns = i as u64 * frame_duration_ns;
-        match generator.push_to_appsrc(&appsrc, pts_ns, frame_duration_ns, Some(i as i64)) {
-            Ok(()) => pushed += 1,
+
+        let shared = generator
+            .acquire_buffer(Some(i as i64))
+            .unwrap_or_else(|e| panic!("acquire_buffer failed at frame {}: {:?}", i, e));
+
+        let mut buf = shared.into_buffer().unwrap_or_else(|_| {
+            panic!("into_buffer failed at frame {} (outstanding references)", i)
+        });
+        {
+            let buf_ref = buf.make_mut();
+            buf_ref.set_pts(gst::ClockTime::from_nseconds(pts_ns));
+            buf_ref.set_duration(gst::ClockTime::from_nseconds(frame_duration_ns));
+        }
+
+        match appsrc.push_buffer(buf) {
+            Ok(_) => pushed += 1,
             Err(e) => panic!("Push failed at frame {}: {:?}", i, e),
         }
     }
 
-    // EOS + drain
-    DsNvSurfaceBufferGenerator::send_eos(&appsrc).unwrap();
+    appsrc.end_of_stream().unwrap();
     let bus = pipeline.bus().unwrap();
     for msg in bus.iter_timed(gst::ClockTime::from_seconds(30)) {
         match msg.view() {
@@ -249,8 +241,6 @@ fn test_bridge_meta_nvjpegenc() {
             format: VideoFormat::I420,
             enc_name: "nvjpegenc",
             parser: Some("jpegparse"),
-            // On Jetson, nvjpegenc requires surfaces pinned/registered by
-            // nvvideoconvert; NvDS pool surfaces from appsrc lack this.
             pre_encoder: if cfg!(target_arch = "aarch64") {
                 Some("nvvideoconvert")
             } else {

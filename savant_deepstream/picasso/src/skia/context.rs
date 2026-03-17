@@ -6,10 +6,10 @@
 //! repeated `FontMgr::default()` + `match_family_style()` lookups and
 //! template re-parsing.
 
-use crate::spec::draw::ObjectDrawSpec;
+use crate::spec::draw::{ObjectDrawSpec, StrPairKey};
+use hashbrown::HashMap;
 use savant_core::draw::ObjectDraw;
 use savant_core::label_template::{format_hash, ParsedLabelFormats};
-use std::collections::HashMap;
 
 /// Key for the template cache: `(namespace, label)`.
 type SpecKey = (String, String);
@@ -28,7 +28,10 @@ impl DrawContext {
         let default_typeface = skia_safe::FontMgr::default()
             .match_family_style(font_family, skia_safe::FontStyle::default())
             .unwrap_or_else(|| {
-                panic!("Failed to find font family \"{font_family}\"");
+                log::warn!("Font family \"{font_family}\" not found, falling back to default");
+                skia_safe::FontMgr::default()
+                    .match_family_style("", skia_safe::FontStyle::default())
+                    .expect("No default font available")
             });
 
         let mut stroke_paint = skia_safe::Paint::default();
@@ -107,25 +110,28 @@ impl DrawContext {
             return None;
         }
 
-        let key = (namespace.to_string(), label.to_string());
         let new_hash = format_hash(format);
+        let borrow_key = StrPairKey(namespace, label);
 
-        if let Some(existing) = self.template_cache.get(&key) {
-            if existing.source_hash() == new_hash {
-                return self.template_cache.get(&key);
+        let needs_reparse = !matches!(
+            self.template_cache.get(&borrow_key),
+            Some(existing) if existing.source_hash() == new_hash
+        );
+
+        if needs_reparse {
+            let owned_key = (namespace.to_string(), label.to_string());
+            match ParsedLabelFormats::parse(format) {
+                Ok(parsed) => {
+                    self.template_cache.insert(owned_key, parsed);
+                }
+                Err(e) => {
+                    log::error!("failed to parse label template at render time: {e}");
+                    return None;
+                }
             }
         }
 
-        match ParsedLabelFormats::parse(format) {
-            Ok(parsed) => {
-                self.template_cache.insert(key.clone(), parsed);
-                self.template_cache.get(&key)
-            }
-            Err(e) => {
-                log::error!("failed to parse label template at render time: {e}");
-                None
-            }
-        }
+        self.template_cache.get(&borrow_key)
     }
 
     /// Resolve label templates for the given object without writing to the cache.
@@ -150,10 +156,9 @@ impl DrawContext {
             return None;
         }
 
-        let key = (namespace.to_string(), label.to_string());
         let new_hash = format_hash(format);
 
-        if let Some(existing) = self.template_cache.get(&key) {
+        if let Some(existing) = self.template_cache.get(&StrPairKey(namespace, label)) {
             if existing.source_hash() == new_hash {
                 return Some(existing.clone());
             }

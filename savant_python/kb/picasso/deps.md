@@ -14,6 +14,8 @@ from savant_rs.picasso import (
     # Spec types
     GeneralSpec, EvictionDecision, ConditionalSpec, ObjectDrawSpec,
     CodecSpec, SourceSpec,
+    # PTS reset & callback ordering
+    PtsResetPolicy, StreamResetReason, CallbackInvocationOrder,
     # Output messages
     OutputMessage,
     # Callbacks & engine
@@ -57,7 +59,7 @@ from savant_rs.draw_spec import (
 
 ### savant_rs.gstreamer
 ```python
-from savant_rs.gstreamer import Codec  # H264, HEVC, JPEG, AV1, PNG
+from savant_rs.gstreamer import Codec  # H264, HEVC, JPEG, AV1, PNG, RAW_RGBA, RAW_RGB
 ```
 
 ### savant_rs.primitives (frames, objects, geometry)

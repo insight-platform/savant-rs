@@ -9,8 +9,8 @@ savant_deepstream/nvbufsurface/
 ├── nvbufsurftransform_rs.h     # C header for NvBufSurfTransform bindgen
 ├── src/
 │   ├── lib.rs                  # Root: NvBufSurfaceError, NvBufSurfaceMemType,
-│   │                           #   cuda_init, create/destroy_cuda_stream,
-│   │                           #   bridge_savant_id_meta
+│   │                           #   cuda_init, bridge_savant_id_meta
+│   ├── cuda_stream.rs          # CudaStream: safe RAII CUDA stream wrapper
 │   ├── ffi.rs                  # bindgen output: NvBufSurface, NvBufSurfaceParams,
 │   │                           #   NvBufSurfTransform, CUDA, gst_nvds_buffer_pool_new
 │   ├── transform.rs            # Padding, Interpolation, ComputeMode, Rect,
@@ -18,27 +18,38 @@ savant_deepstream/nvbufsurface/
 │   │                           #   extract_nvbufsurface, buffer_gpu_id,
 │   │                           #   clear_surface_black (platform-aware),
 │   │                           #   do_transform, do_transform_to_slot
+│   ├── shared_buffer.rs         # SharedMutableGstBuffer: Arc<parking_lot::Mutex<gst::Buffer>>,
+│   │                           #   shared currency for SurfaceView, Picasso, encoder
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
 │   ├── surface_ops.rs          # memset_surface, upload_to_surface (platform-aware)
 │   ├── buffers.rs              # re-exports single + batched
 │   ├── buffers/
 │   │   ├── single.rs           # DsNvSurfaceBufferGenerator + Builder (batchSize=1)
-│   │   ├── batched.rs          # re-exports uniform, non_uniform, slot_view
+│   │   ├── batched.rs          # re-exports uniform, non_uniform
 │   │   └── batched/
 │   │       ├── uniform.rs      # DsNvUniformSurfaceBufferGenerator + Builder,
-│   │       │                   #   DsNvUniformSurfaceBuffer, set_num_filled
-│   │       ├── non_uniform.rs  # DsNvNonUniformSurfaceBuffer
-│   │       └── slot_view.rs    # extract_slot_view()
+│   │       │                   #   DsNvUniformSurfaceBuffer
+│   │       └── non_uniform.rs  # DsNvNonUniformSurfaceBuffer
+│   ├── egl_cuda_meta.rs        # [aarch64] EglCudaMeta GstMeta (multi-slot),
+│   │                           #   EglCudaMapping, ensure_meta/read_meta per slot,
+│   │                           #   EGL-CUDA zero-copy interop, meta_free iterates slots
 │   ├── egl_context.rs          # [skia] EglHeadlessContext, EglError
 │   └── skia_renderer.rs        # [skia] SkiaRenderer, SkiaRendererError
-└── tests/
-    ├── common/mod.rs           # init() — GStreamer + CUDA one-time setup
-    ├── batched.rs              # Uniform batched generator tests
-    ├── heterogeneous.rs        # DsNvNonUniformSurfaceBuffer tests
-    ├── slot_view.rs            # extract_slot_view + as_gst_buffer safety/leak tests
-    ├── generator.rs            # Single-frame DsNvSurfaceBufferGenerator tests
-    ├── transform.rs            # NvBufSurfTransform (scale/letterbox) tests
-    └── bridge_meta.rs          # PTS-keyed SavantIdMeta bridge tests
+├── tests/
+│   ├── common/mod.rs           # init() — GStreamer + CUDA one-time setup
+│   ├── batched.rs              # Uniform batched generator tests
+│   ├── heterogeneous.rs        # DsNvNonUniformSurfaceBuffer tests
+│   ├── slot_view.rs            # SurfaceView + SharedMutableGstBuffer integration tests
+│   ├── bridge_meta.rs          # PTS-keyed SavantIdMeta bridge tests
+│   └── surface_view_gpu.rs     # SurfaceView GPU tests: CUDA addressability,
+│                               #   write/read roundtrip, recycled buffer mapping,
+│                               #   uniform batch slot tests, EglCudaMeta tracking,
+│                               #   map_unmap_cycle verification
+└── benches/
+    ├── surface_view_mapping.rs # Criterion benchmarks: bench_registration_plus_first_view
+    │                           #   (fresh buffer), bench_recycled_buffer_view (recycled pool;
+    │                           #   POOLED meta survives recycle, no re-registration)
+    └── transform_into.rs       # Criterion benchmarks for transform operations
 ```
 
 ## Memory Model
@@ -82,7 +93,7 @@ GstBufferPool (NvDS) → gst::Buffer
 The pool owns the external allocator memory. When the buffer's refcount
 drops to 0, it returns to the pool and the allocator memory is reused.
 
-#### 2. System-Memory Self-Contained (Wrappers, Non-Uniform, Slot Views)
+#### 2. System-Memory Self-Contained (Non-Uniform, Synthetic Views)
 ```
 gst::Buffer
   └── GstMemory (system malloc):
@@ -93,20 +104,26 @@ gst::Buffer
 ```
 
 This is the layout used by:
-- `as_gst_buffer()` on **uniform** batches (copies header + params, parent ref to pool buffer)
-- `as_gst_buffer()` on **non-uniform** batches (buffer.clone(), already self-contained)
-- `extract_slot_view()` (batchSize=1, single params entry, parent ref to batch)
+- **Non-uniform** batches: `finalize(ids)` allocates a self-contained buffer and returns
+  `SharedMutableGstBuffer`; no `as_gst_buffer()` (removed from `DsNvNonUniformSurfaceBuffer`).
+- **Uniform** batches: `as_gst_buffer()` has been removed (use `shared_buffer()` +
+  `SurfaceView::from_shared` for per-slot access; `shared.into_buffer()` to extract
+  `gst::Buffer` for NvInfer/encoder).
+- `extract_slot_view()` has been removed; use `SurfaceView::from_shared(&shared, i)` instead.
 - `SurfaceView::from_cuda_ptr()` (synthetic descriptor around raw CUDA pointer)
 
 #### 3. Non-Uniform Batch Internal
 ```
-gst::Buffer (system memory, owned by DsNvNonUniformSurfaceBuffer)
+gst::Buffer (system memory, owned by SharedMutableGstBuffer from finalize)
   └── GstMemory: [NvBufSurface | params[0] | ... | params[N-1]]
   └── surfaceList → within GstMemory
   └── GstParentBufferMeta[0] → source buffer 0 (keeps its GPU memory alive)
   └── GstParentBufferMeta[1] → source buffer 1
   └── ...
 ```
+
+Non-uniform batches no longer use `as_gst_buffer()`; `finalize(ids)` returns
+`SharedMutableGstBuffer` directly.
 
 ### GstParentBufferMeta Chain
 `GstParentBufferMeta` is a standard GStreamer meta that increments the
@@ -115,9 +132,9 @@ parent buffer's refcount. It propagates through `gst_buffer_copy`
 
 Reference chain examples:
 ```
-slot_view → batch wrapper → pool buffer → pool
+SurfaceView::from_shared(&shared, i) → shared (SharedMutableGstBuffer) → pool buffer → pool
 
-slot_view from non-uniform → non-uniform buffer → source buffers[0..N]
+SurfaceView::from_shared(&shared, i) → shared (from non-uniform finalize) → source buffers[0..N]
 ```
 
 ### Buffer Pool Lifecycle
@@ -125,13 +142,16 @@ slot_view from non-uniform → non-uniform buffer → source buffers[0..N]
 DsNvUniformSurfaceBufferGenerator
   ├── pool: gst::BufferPool (NvDS, active)
   ├── Drop → pool.set_active(false)
-  └── acquire_batched_surface() → DsNvUniformSurfaceBuffer { buffer: gst::Buffer }
+  ├── acquire_buffer(id) → SharedMutableGstBuffer (direct pool acquisition)
+  └── acquire_batched_surface(config) → DsNvUniformSurfaceBuffer { buffer: SharedMutableGstBuffer }
 
 DsNvUniformSurfaceBuffer
-  ├── buffer: gst::Buffer (refcount managed by GStreamer)
+  ├── buffer: SharedMutableGstBuffer (Arc<parking_lot::Mutex<gst::Buffer>>)
   ├── fill_slot() → NvBufSurfTransform writes to GPU
-  ├── finalize() → sets numFilled, attaches SavantIdMeta
-  ├── as_gst_buffer() → new self-contained buffer + GstParentBufferMeta
+  ├── finalize(num_filled, ids) → sets numFilled, attaches SavantIdMeta
+  ├── shared_buffer() → SharedMutableGstBuffer for per-slot access
+  ├── SurfaceView::from_shared(&shared, i) → per-slot GPU view
+  ├── shared.into_buffer() → extract gst::Buffer for NvInfer/encoder (when sole ref)
   └── Drop → buffer refcount decremented
        └── if refcount=0 → buffer returns to pool
 ```
@@ -144,6 +164,8 @@ DsNvUniformSurfaceBuffer
 | `gst_nvds_buffer_pool_new()` | Create DeepStream buffer pool |
 | `NvBufSurfaceMap` | Map surface for CPU access (auto-generated via bindgen) |
 | `NvBufSurfaceUnMap` | Unmap surface after CPU access (auto-generated via bindgen) |
+| `NvBufSurfaceMapEglImage` | Map surface to EGLImage for EGL-CUDA interop (bindgen) |
+| `NvBufSurfaceUnMapEglImage` | Unmap EGLImage (bindgen) |
 | `NvBufSurfaceSyncForDevice` | Sync CPU writes to device (auto-generated via bindgen) |
 | `NvBufSurfaceSyncForCpu` | Sync device writes to CPU (auto-generated via bindgen) |
 | `cuMemsetD8_v2` | CUDA memset (manually declared) |
@@ -151,9 +173,30 @@ DsNvUniformSurfaceBuffer
 | `cudaSetDevice(device)` | Set active CUDA device |
 | `cudaFree(ptr)` | Free CUDA memory / trigger lazy context init |
 | `cudaMemset2DAsync(...)` | Clear GPU surface to black for letterboxing |
+| `cudaMemcpy2D(...)` | 2D memory copy with pitch (manually declared) |
 | `cudaStreamCreateWithFlags(...)` | Create non-blocking CUDA stream |
 | `cudaStreamDestroy(stream)` | Destroy CUDA stream |
 | `cudaStreamSynchronize(stream)` | Wait for stream operations to complete |
+| `cuInit(flags)` | Initialize CUDA driver API (manually declared in lib.rs) |
+| `cuDevicePrimaryCtxRetain(...)` | Retain primary CUDA context for device |
+| `cuCtxSetCurrent(ctx)` | Set CUDA context on current thread |
+
+### Key FFI Functions (EGL-CUDA interop, ffi.rs — aarch64 only)
+| Function | Purpose |
+|---|---|
+| `cuGraphicsEGLRegisterImage(...)` | Register EGLImage with CUDA (creates permanent implicit mapping on Jetson) |
+| `cuGraphicsResourceGetMappedEglFrame(...)` | Get CUDA pointer from registered EGLImage |
+| `cuGraphicsUnregisterResource(...)` | Unregister CUDA graphics resource |
+| `NvBufSurfaceUnMapEglImage(surf_ptr, 0)` | Called from `meta_free` alongside unregister |
+
+**Note:** `cuGraphicsMapResources` / `cuGraphicsUnmapResources` are **not used** on Jetson — the mapping is implicit and permanent from registration until unregister.
+
+### Key FFI Types (EGL-CUDA interop, ffi.rs)
+| Type | Purpose |
+|---|---|
+| `CUgraphicsResource` | Opaque handle for CUDA graphics resource |
+| `CUeglFrame` | EGL frame descriptor with CUDA pointers and pitches |
+| `CUeglFrameData` | Union: `pArray[3]` or `pPitch[3]` CUDA pointers |
 
 ### Key FFI Functions (transform_ffi)
 | Function | Purpose |
@@ -161,7 +204,7 @@ DsNvUniformSurfaceBuffer
 | `NvBufSurfTransformSetSessionParams(...)` | Set compute mode, GPU, stream |
 | `NvBufSurfTransform(src, dst, params)` | Perform scaling/cropping |
 
-### Key FFI Functions (used via extern "C" in uniform.rs, non_uniform.rs, slot_view.rs)
+### Key FFI Functions (used via extern "C" in non_uniform.rs)
 | Function | Purpose |
 |---|---|
 | `gst_buffer_add_parent_buffer_meta(buf, parent)` | Add parent buffer meta (keeps parent alive) |
@@ -177,9 +220,9 @@ pipeline. Propagation rules:
 | `fill_slot(src, None, None)` | Auto-propagate first ID from source buffer |
 | `add(src, Some(42))` | Explicit ID `Frame(42)` stored |
 | `add(src, None)` | Auto-propagate first ID from source buffer |
-| `finalize()` | All collected IDs attached as `SavantIdMeta` on batch buffer |
-| `as_gst_buffer()` | IDs copied from internal buffer to wrapper |
-| `extract_slot_view(batch, i)` | ID at index `i` propagated to slot view |
+| `finalize(num_filled, ids)` (uniform) | Explicit `ids` attached as `SavantIdMeta` on batch buffer |
+| `finalize(ids)` (non-uniform) | Explicit `ids` attached; returns `SharedMutableGstBuffer` |
+| `SurfaceView::from_shared(&shared, i)` | Does not propagate IDs — they live on the batch buffer accessed via `shared_buffer()` |
 | `bridge_savant_id_meta(element)` | PTS-keyed bridging across encoders |
 
 ## CUDA Stream Model
@@ -187,38 +230,82 @@ pipeline. Propagation rules:
 By default, `TransformConfig.cuda_stream` is null, which uses CUDA's
 legacy default stream (stream 0). This has implicit sync semantics that
 serialize all GPU operations. For concurrent transforms, use
-`create_cuda_stream()` to get a non-blocking stream and set it in the
-config. Always call `destroy_cuda_stream()` when done.
+`CudaStream::new_non_blocking()` to get a non-blocking stream and set it
+in the config.  The stream is destroyed automatically on drop.
 
 ⚠ After each transform, `cudaStreamSynchronize` is called to prevent
 stale-data artifacts when source buffers are returned to pools.
 
 ## Platform-Aware Memory Access
 
-Multiple modules handle the Jetson vs dGPU memory difference via
-`cfg(target_arch = "aarch64")`:
+### SharedMutableGstBuffer — Shared Currency
 
-- **On Jetson (aarch64):** `NvBufSurfaceMemType::Default` maps to `SurfaceArray`
-  (VIC-managed), which is **NOT** CUDA-addressable. Must use
-  `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` →
-  `NvBufSurfaceUnMap`.
+`SharedMutableGstBuffer` is a newtype around `Arc<parking_lot::Mutex<gst::Buffer>>`
+(not `std::sync::Mutex`) that serves as the shared currency for passing
+NvBufSurface-backed buffers between `SurfaceView`, Picasso, and the encoder without
+ownership transfer. Multiple `SurfaceView`s (for different batch slots) can reference
+the same underlying buffer via `from_shared`. `Clone` is cheap (Arc increment).
+`into_buffer()` extracts the inner buffer only when this is the sole strong reference.
 
-- **On dGPU:** `Default` maps to `CudaDevice`, and `cuMemsetD8_v2` /
-  `cudaMemset2DAsync` / `cuMemcpyHtoD_v2` work directly on the GPU memory.
+### Unified via SurfaceView + EglCudaMeta
+
+Most GPU memory access is unified through `SurfaceView::from_buffer` or
+`SurfaceView::from_shared`, which wrap the buffer in `SharedMutableGstBuffer` and
+provide a CUDA device pointer on both platforms:
+
+- **On dGPU:** `data_ptr` is read directly from `NvBufSurfaceParams::dataPtr`.
+- **On Jetson (aarch64):** `from_shared` / `from_buffer` call `EglCudaMeta::ensure_meta`
+  with the slot index, which performs per-slot EGL-CUDA interop to obtain a
+  zero-copy CUDA device pointer. The mapping is attached as `GstMeta` on the buffer
+  and automatically deregistered when the buffer is freed.
+
+`SurfaceView` holds `SharedMutableGstBuffer` + `slot_index` internally. It no longer
+uses `extract_slot_view` — batched buffers are accessed directly via `from_shared`
+with different slot indices.
+
+### EGL-CUDA Interop Details (Jetson, aarch64 only)
+
+The `egl_cuda_meta` module implements **multi-slot** EGL-CUDA interop:
+
+- `EglCudaMetaInner` has `slots: [SlotRegistration; MAX_BATCH_SLOTS]` (32 slots)
+  and `batch_size: u32`. Each slot is registered lazily on first access.
+- `ensure_meta(buf, slot_index)` — per-slot lazy registration; returns cached
+  pointers if the slot is already registered.
+- `read_meta(buf, slot_index)` — per-slot read; returns `None` if slot not registered.
+- `meta_free` — iterates all slots, deregisters each with non-null `resource`
+  via `cuGraphicsUnregisterResource` and `NvBufSurfaceUnMapEglImage`.
+- Tracking counters (`tracking_counts`) are per individual slot registration/deregistration.
+
+Interop chain per slot:
+1. `NvBufSurfaceMapEglImage(surf_ptr, slot_index)` — maps VIC surface to EGLImage
+2. `cuGraphicsEGLRegisterImage` — registers EGLImage with CUDA; on Jetson this
+   creates a **permanent implicit mapping** (`cuGraphicsUnmapResources` returns
+   error 999). No RAII map/unmap cycle — pointer valid from registration until
+   unregister.
+3. `cuGraphicsResourceGetMappedEglFrame` — gets CUDA pointer directly (no
+   `cuGraphicsMapResources` call)
+4. On buffer free: `meta_free` iterates slots and calls `cuGraphicsUnregisterResource`
+   and `NvBufSurfaceUnMapEglImage(surf_ptr, i)` for each registered slot.
+
+Thread safety: `ensure_cuda_egl_context` initializes CUDA driver context
+(`cuDevicePrimaryCtxRetain` + `cuCtxSetCurrent`) and EGL display per thread.
+
+**Key behaviour:** `EglCudaMeta` is created with `GST_META_FLAG_POOLED | GST_META_FLAG_LOCKED`,
+so the meta **survives GstBufferPool recycles**. Pool of 1 buffer, N acquisitions =
+1 registration per slot (first time), 0 re-registrations. Deregistration only on pool destroy.
 
 ### Modules with platform-aware paths
 
 | Module | Functions | Jetson path | dGPU path |
 |---|---|---|---|
-| `surface_ops` | `memset_surface`, `upload_to_surface` | `NvBufSurfaceMap` + CPU write | `cuMemsetD8_v2`, `cudaMemcpy2D` |
+| `surface_view` | `from_buffer`, `from_shared` | `EglCudaMeta::ensure_meta(buf, slot_index)` per-slot (zero-copy EGL-CUDA interop, permanent mapping, POOLED meta) | Direct `NvBufSurfaceParams::dataPtr` |
+| `surface_ops` | `memset_surface`, `upload_to_surface` | Take `&SurfaceView` → `cuMemsetD8_v2`, `cudaMemcpy2D` | Take `&SurfaceView` → `cuMemsetD8_v2`, `cudaMemcpy2D` |
+| `skia_renderer` | `load_from_nvbuf`, `from_nvbuf`, `render_to_nvbuf`, `render_to_nvbuf_with_ptr`, `render_to_nvbuf_raw` | `render_to_nvbuf` creates a `SurfaceView` internally to resolve the CUDA pointer and **keeps the view alive** until after the pointer is used (prevents use-after-free on Jetson where COW buffer copy would invalidate the EGL-CUDA pointer if dropped early). `render_to_nvbuf_with_ptr`/`render_to_nvbuf_raw`: caller supplies `(data_ptr, pitch)`. Scaled path creates `SurfaceView` internally for temp buffer. | Same: caller supplies pointer for `*_with_ptr`/`*_raw`; `render_to_nvbuf` creates `SurfaceView` internally |
 | `transform` | `clear_surface_black` (letterbox padding) | `clear_surface_black_mapped`: Map → zero all planes → Sync → Unmap | `cudaMemset2DAsync` + `cudaStreamSynchronize` |
-| `skia_renderer` | `load_from_nvbuf`, `copy_gl_to_nvbuf` | Map → SyncForCpu/SyncForDevice → `cudaMemcpy2D{To,From}Array` (H2D/D2H) → UnMap | `cudaMemcpy2D{To,From}Array` (D2D) directly on `dataPtr` |
 
-The `clear_surface_black` function in `transform.rs` is called by `do_transform()`
-when the letterboxed image doesn't fill the entire destination surface. On Jetson,
-the mapped path (`clear_surface_black_mapped`) iterates all planes via
-`planeParams.num_planes` and uses `planeParams.pitch[plane]` /
-`planeParams.height[plane]` for correct multi-plane format support (NV12, I420).
+**Note:** `clear_surface_black` in `transform.rs` still uses CPU-staging on Jetson
+because it operates on raw `*mut NvBufSurface` pointers (not `gst::Buffer`). The
+overhead is acceptable as it only runs during letterbox padding operations.
 
 ---
 

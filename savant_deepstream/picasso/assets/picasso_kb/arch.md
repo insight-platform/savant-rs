@@ -16,7 +16,7 @@ picasso/src/
 ├── error.rs          # PicassoError enum
 ├── spec.rs           # Sub-module declarations
 ├── spec/
-│   ├── general.rs    # GeneralSpec, EvictionDecision
+│   ├── general.rs    # GeneralSpec, EvictionDecision, PtsResetPolicy
 │   ├── codec.rs      # CodecSpec (Drop/Bypass/Encode)
 │   ├── source.rs     # SourceSpec (combines all facets)
 │   ├── conditional.rs# ConditionalSpec (attribute gates)
@@ -57,15 +57,15 @@ Main thread
 ## Timestamp Source
 pts, dts, time_base, and duration are taken from the [`VideoFrameProxy`], not from the
 [`gst::Buffer`]. At pipeline entry, `apply_frame_timestamps_to_buffer` is called on
-`view.buffer_mut().make_mut()` to copy these values from the frame onto the buffer so
+`view.buffer().make_mut()` to copy these values from the frame onto the buffer so
 downstream consumers see correct metadata.
 
 ## Data Flow (Encode Path)
 ```
 send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
-  → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam bounded channel (capacity = GeneralSpec.inflight_queue_size, default 8)
+  → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam bounded channel (capacity = GeneralSpec.inflight_queue_size, default 8; GeneralSpec.pts_reset_policy propagated to worker)
   → worker_loop receives
-  → apply_frame_timestamps_to_buffer(frame, view.buffer_mut().make_mut())
+  → apply_frame_timestamps_to_buffer(frame, view.buffer().make_mut())
   → WorkerState::process_frame
     → check encode_attribute gate (skip if missing)
     → match CodecSpec::Encode
@@ -73,15 +73,18 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
       → process_encode:
          1. Lock encoder, get generator
          2. GPU affinity check (view.gpu_id() vs generator.gpu_id → GpuMismatch)
-         3. GPU transform via view.buffer() (generator.transform / transform_with_ptr)
+         3. GPU transform via view.buffer() (always `generator.transform`)
          4. Unlock encoder
          5. rewrite_frame_transformations (coordinate mapping)
-         6. Skia + on_gpumat order per CallbackInvocationOrder:
-            - SkiaGpuMat: Skia (draw specs, load_from_nvbuf, draw, on_render, render_to_nvbuf) then on_gpumat
-            - GpuMatSkia: on_gpumat then Skia
-            - GpuMatSkiaGpuMat: on_gpumat → Skia → on_gpumat
-            (each on_gpumat receives worker's cuda_stream; cudaStreamSynchronize after each)
-        12. Lock encoder, submit_frame
+         6. If on_gpumat active OR Skia rendering needed: wrap `dst_buf` in `SharedMutableGstBuffer::from(dst_buf)`, create `SurfaceView::from_shared(shared.clone(), 0)` for the entire encode scope
+         7. Skia + on_gpumat order per CallbackInvocationOrder:
+            - Skia receives `(data_ptr, pitch)` from the SurfaceView; `do_skia_render` uses `view.buffer()` (returns `MutexGuard<gst::Buffer>`) and passes them to `load_from_nvbuf(data_ptr, pitch)` and `render_to_nvbuf_with_ptr(buf_ref, data_ptr, pitch, None)`
+            - SkiaGpuMat: Skia (draw specs, load_from_nvbuf, draw, on_render, render_to_nvbuf_with_ptr) then on_gpumat(&SurfaceView)
+            - GpuMatSkia: on_gpumat(&SurfaceView) then Skia
+            - GpuMatSkiaGpuMat: on_gpumat(&SurfaceView) → Skia → on_gpumat(&SurfaceView)
+            (each on_gpumat receives &SurfaceView + worker's cuda_stream; cudaStreamSynchronize after each)
+        11. Drop view; pass `SharedMutableGstBuffer` directly to submit
+        12. Lock encoder, submit_frame(shared, ...)
         13. Insert into pending_frames (only after successful submit)
         14. Drain thread pulls output independently
 ```
@@ -89,8 +92,9 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
 ### Render Omission (Fast Path)
 When `use_on_render=false` AND `draw` spec is empty for a source, `should_render`
 is false, `render_opts` is `None`, and process_encode skips the entire Skia path:
-- `need_ptr=false` → plain `generator.transform()` (no CUDA pointer overhead)
-- Skia block (steps 6–10) skipped entirely: no EGL lock, no SkiaRenderer, no canvas
+- Always uses `generator.transform()` (no separate `transform_with_ptr` path)
+- `SurfaceView` is created from `SharedMutableGstBuffer` via `from_shared(shared.clone(), 0)` when either `on_gpumat` OR Skia rendering is needed; view is dropped before submit, and `SharedMutableGstBuffer` is passed directly to `submit_frame`
+- Skia block skipped entirely: no EGL lock, no SkiaRenderer, no canvas
 - Frame goes straight from GPU transform to encoder submit
 
 ## Data Flow (Bypass Path)
@@ -111,6 +115,21 @@ Frame → CodecSpec::Drop → log debug, return (buffer dropped)
 - Bypass: fire EOS sentinel via on_bypass_frame(OutputMessage::EndOfStream)
 - Encode: stop drain thread → drain_remaining → encoder.finish(5s timeout) → fire callbacks for remaining frames → EOS sentinel
 - After EOS, encoder + drain handle are set to None (re-created on next frame)
+
+## CallbackInvocationOrder
+Controls when the `on_gpumat` callback fires relative to Skia rendering:
+- `SkiaGpuMat` (default): Skia render → `on_gpumat`
+- `GpuMatSkia`: `on_gpumat` → Skia render
+- `GpuMatSkiaGpuMat`: `on_gpumat` → Skia render → `on_gpumat`
+
+After each `on_gpumat` invocation the worker's CUDA stream is synchronised before the next pipeline stage proceeds. Set via `SourceSpec::callback_order`.
+
+## PTS Reset Handling
+When a frame's PTS is not strictly greater than the previous frame's PTS (non-monotonic / backward jump), the `PtsResetPolicy` (from `GeneralSpec`) determines the recovery strategy:
+- `EosOnDecreasingPts` (default): emit synthetic EOS (drain + flush encoder, fire EOS sentinel), then recreate the encoder. Downstream sees a clean EOS boundary.
+- `RecreateOnDecreasingPts`: silently destroy and recreate the encoder without emitting EOS.
+
+In both cases the `on_stream_reset` callback (if set) is fired with `StreamResetReason::PtsDecreased { last_pts_ns, new_pts_ns }` before the encoder is reset. The offending frame is then processed normally on the new encoder. `last_pts_ns` is cleared after reset so the next frame always succeeds.
 
 ## Shared Encoder State
 - `SharedEncoder = Arc<parking_lot::Mutex<NvEncoder>>` — shared between worker and drain threads
@@ -177,20 +196,25 @@ This ensures per-object callback overrides do not affect other objects or future
 ## Skia EGL Lock
 - `SKIA_EGL_LOCK`: process-global Mutex
 - Serializes all SkiaRenderer operations (EGL contexts on same GPU corrupt each other)
-- Held during: load_from_nvbuf, canvas draws, render_to_nvbuf
+- Held during: load_from_nvbuf, canvas draws, render_to_nvbuf_with_ptr
+- Skia operations receive pre-resolved CUDA pointers `(data_ptr, pitch)` from the caller
 
 ## Skia Renderer Jetson Compatibility
 On Jetson, `NvBufSurfaceMemType::Default` is VIC-managed (`SurfaceArray`) and
-NOT directly CUDA-addressable. The Skia renderer's CUDA-GL interop paths
-(`load_from_nvbuf`, `copy_gl_to_nvbuf`) use `NvBufSurfaceMap` /
-`NvBufSurfaceSyncForCpu` / `NvBufSurfaceSyncForDevice` / `NvBufSurfaceUnMap`
-on aarch64, with `cudaMemcpyHostToDevice` / `DeviceToHost` through the
-CPU-mapped pointer. On dGPU, the copy is direct GPU-to-GPU (`DeviceToDevice`).
+NOT directly CUDA-addressable from the runtime API. The Skia renderer's CUDA-GL
+interop paths use **EGL-CUDA interop** (via `EglCudaMeta`) on aarch64 to obtain
+zero-copy CUDA device pointers from VIC-managed surfaces. On dGPU, `dataPtr`
+from `NvBufSurfaceParams` is used directly.
 
-API consequence: `load_from_nvbuf` and `from_nvbuf` accept `&gst::BufferRef`
-(not raw `data_ptr`/`pitch`) so the NvBufSurface can be mapped. The picasso
-caller (`do_skia_render` in `encode.rs`) passes `dst_buf.as_ref()` instead
-of the `(data_ptr, pitch)` tuple that was previously extracted separately.
+Both platforms perform `cudaMemcpy2DToArray` / `cudaMemcpy2DFromArray` with
+`CUDA_MEMCPY_DEVICE_TO_DEVICE` — no CPU staging is involved.
+
+API: The caller passes `(data_ptr, pitch)` from a `SurfaceView` (created via
+`SurfaceView::from_buffer` or `SurfaceView::from_shared`). On Jetson, the view triggers EGL-CUDA registration
+when the pointer is first resolved. The Skia renderer's `load_from_nvbuf` takes
+`(data_ptr, pitch)` directly; `from_nvbuf` takes `(width, height, gpu_id, data_ptr, pitch)`;
+`render_to_nvbuf_with_ptr` is the primary API (takes `dst_buf`, `dst_ptr`, `dst_pitch`, `config`).
+The `render_to_nvbuf` method keeps the `SurfaceView` alive during rendering to ensure the CUDA pointer remains valid for the full render lifetime.
 
 ## Key Invariants
 - Frame's transformation chain must start with exactly `[InitialSize(w, h)]` before `rewrite_frame_transformations`

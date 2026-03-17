@@ -64,23 +64,20 @@ fn e2e_font_family_hot_swap() {
     };
     engine.set_source_spec("font", spec1).unwrap();
 
-    let gen = DsNvSurfaceBufferGenerator::new(
-        VideoFormat::RGBA,
-        W,
-        H,
-        30,
-        1,
-        0,
-        NvBufSurfaceMemType::Default,
-    )
-    .unwrap();
+    let gen = DsNvUniformSurfaceBufferGenerator::builder(VideoFormat::RGBA, W, H, 1)
+        .fps(30, 1)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .pool_size(32)
+        .build()
+        .unwrap();
 
     for i in 0..5u64 {
         let mut frame = make_frame_sized("font", W as i64, H as i64);
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         add_object(&frame, 100.0, 100.0, 50.0, 30.0);
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("font", frame, buf, None).unwrap();
     }
     std::thread::sleep(Duration::from_secs(1));
@@ -101,7 +98,7 @@ fn e2e_font_family_hot_swap() {
         frame.set_pts((i * DUR) as i64).unwrap();
         frame.set_duration(Some(DUR as i64)).unwrap();
         add_object(&frame, 200.0, 200.0, 60.0, 40.0);
-        let buf = make_gpu_surface_view(&gen, i, DUR);
+        let buf = make_gpu_surface_view_uniform(&gen, i, DUR);
         engine.send_frame("font", frame, buf, None).unwrap();
     }
     engine.send_eos("font").unwrap();

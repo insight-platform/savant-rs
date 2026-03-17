@@ -14,7 +14,7 @@
 mod common;
 
 use deepstream_encoders::prelude::*;
-use deepstream_nvbufsurface::TransformConfig;
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, TransformConfig};
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -72,7 +72,7 @@ fn make_buffer(gen: &DsNvSurfaceBufferGenerator, idx: u64) -> deepstream_nvbufsu
         buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * FRAME_DUR_NS));
         buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(FRAME_DUR_NS));
     }
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+    deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap()
 }
 
 struct EncodedCounter(Arc<AtomicUsize>);

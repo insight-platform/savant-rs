@@ -41,4 +41,5 @@ pip install --no-cache-dir \
     isort \
     unify \
     mypy \
-    ipython
+    ipython \
+    pillow

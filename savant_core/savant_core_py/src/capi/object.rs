@@ -155,8 +155,7 @@ pub unsafe extern "C" fn savant_object_get_namespace(
     // copy ns to allocated_buf
     let ns_len = ns.len();
     let len = std::cmp::min(ns_len, len);
-    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf as *mut u8, len) };
-    // fill with ns
+    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf.cast::<u8>(), len) };
     buf[..len].copy_from_slice(&ns[..len]);
     ns_len
 }
@@ -176,11 +175,9 @@ pub unsafe extern "C" fn savant_object_get_label(
     let object = &*object;
     let label = object.get_label();
     let label = label.as_bytes();
-    // copy label to allocated_buf
     let label_len = label.len();
     let len = min(label_len, len);
-    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf as *mut u8, len) };
-    // fill with label
+    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf.cast::<u8>(), len) };
     buf[..len].copy_from_slice(&label[..len]);
     label_len
 }
@@ -200,10 +197,9 @@ pub unsafe extern "C" fn savant_object_get_draw_label(
     let object = &*object;
     let label = object.get_draw_label();
     let label = label.as_bytes();
-    // copy label to allocated_buf
     let label_len = label.len();
     let len = std::cmp::min(label_len, len);
-    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf as *mut u8, len) };
+    let buf = unsafe { std::slice::from_raw_parts_mut(caller_allocated_buf.cast::<u8>(), len) };
     // fill with label
     buf[..len].copy_from_slice(&label[..len]);
     label_len

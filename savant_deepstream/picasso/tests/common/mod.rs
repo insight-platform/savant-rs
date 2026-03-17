@@ -6,6 +6,7 @@
 #![allow(dead_code)] // Helpers used by various test files
 
 use deepstream_encoders::prelude::*;
+use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, DsNvUniformSurfaceBufferGenerator};
 use picasso::prelude::*;
 use savant_core::primitives::frame::{
     VideoFrameContent, VideoFrameProxy, VideoFrameTranscodingMethod,
@@ -166,22 +167,39 @@ impl OnEviction for TerminateEviction {
 
 #[cfg(test)]
 pub fn make_gpu_buffer(
-    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
+    gen: &DsNvSurfaceBufferGenerator,
     idx: u64,
     _dur_ns: u64,
 ) -> gstreamer::Buffer {
     gen.acquire_surface(Some(idx as i64)).unwrap()
 }
 
-/// Creates a SurfaceView from a GPU buffer (requires CUDA + NvBufSurface).
+/// Creates a SurfaceView from a single-frame GPU buffer (DsNvSurfaceBufferGenerator).
 #[cfg(test)]
 pub fn make_gpu_surface_view(
-    gen: &deepstream_encoders::DsNvSurfaceBufferGenerator,
+    gen: &DsNvSurfaceBufferGenerator,
     idx: u64,
     dur_ns: u64,
 ) -> deepstream_nvbufsurface::SurfaceView {
     let buf = make_gpu_buffer(gen, idx, dur_ns);
-    deepstream_nvbufsurface::SurfaceView::from_buffer(&buf, 0).unwrap()
+    deepstream_nvbufsurface::SurfaceView::from_buffer(buf, 0).unwrap()
+}
+
+/// Creates a SurfaceView from a batched GPU buffer (DsNvUniformSurfaceBufferGenerator).
+#[cfg(test)]
+pub fn make_gpu_surface_view_uniform(
+    gen: &DsNvUniformSurfaceBufferGenerator,
+    idx: u64,
+    dur_ns: u64,
+) -> deepstream_nvbufsurface::SurfaceView {
+    let shared = gen.acquire_buffer(Some(idx as i64)).unwrap();
+    {
+        let mut guard = shared.lock();
+        let buf_ref = guard.make_mut();
+        buf_ref.set_pts(gstreamer::ClockTime::from_nseconds(idx * dur_ns));
+        buf_ref.set_duration(gstreamer::ClockTime::from_nseconds(dur_ns));
+    }
+    deepstream_nvbufsurface::SurfaceView::from_shared(&shared, 0).unwrap()
 }
 
 #[cfg(test)]

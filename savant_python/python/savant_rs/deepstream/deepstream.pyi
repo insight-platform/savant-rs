@@ -35,12 +35,8 @@ __all__ = [
     "jetson_model",
     "is_jetson_kernel",
     "has_nvenc",
-    "bridge_savant_id_meta",
     "get_savant_id_meta",
     "get_nvbufsurface_info",
-    "set_buffer_pts",
-    "set_buffer_duration",
-    "release_buffer",
     "GpuMatCudaArray",
     "make_gpu_mat",
     "nvgstbuf_as_gpu_mat",
@@ -291,30 +287,6 @@ class DsNvBufSurfaceGstBuffer:
         """``True`` if the guard still owns a buffer, ``False`` if consumed."""
         ...
 
-    def memset(self, value: int) -> None:
-        """Fill the surface with a constant byte value.
-
-        Args:
-            value: Byte value (0–255) to fill every byte with.
-
-        Raises:
-            RuntimeError: If the buffer has been consumed or the GPU operation fails.
-        """
-        ...
-
-    def upload(self, data: np.ndarray) -> None:
-        """Upload pixel data from a NumPy array to the surface.
-
-        Args:
-            data: A 3-D ``uint8`` array with shape ``(height, width, channels)``
-                matching the surface dimensions and color format (e.g. 4 channels for RGBA).
-
-        Raises:
-            ValueError: If *data* has wrong shape, dtype, or dimensions.
-            RuntimeError: If the buffer has been consumed or the GPU operation fails.
-        """
-        ...
-
 # ── SurfaceView ─────────────────────────────────────────────────────────
 
 @final
@@ -333,7 +305,7 @@ class SurfaceView:
     """
 
     @staticmethod
-    def from_buffer(buf: Union[DsNvBufSurfaceGstBuffer, int], slot_index: int = 0) -> SurfaceView:
+    def from_buffer(buf: Union[DsNvBufSurfaceGstBuffer, int], slot_index: int = 0, cuda_stream: int = 0) -> SurfaceView:
         """Create a view from an NvBufSurface-backed buffer.
 
         Args:
@@ -348,7 +320,7 @@ class SurfaceView:
         ...
 
     @staticmethod
-    def from_cuda_array(obj: Any, gpu_id: int = 0) -> SurfaceView:
+    def from_cuda_array(obj: Any, gpu_id: int = 0, cuda_stream: int = 0) -> SurfaceView:
         """Create a view from any ``__cuda_array_interface__`` object.
 
         Supported shapes: ``(H, W, C)`` or ``(H, W)`` (grayscale).
@@ -403,11 +375,65 @@ class SurfaceView:
         ...
 
     @property
+    def cuda_stream(self) -> int:
+        """CUDA stream handle associated with this view (as an integer pointer).
+
+        Returns 0 for the default (legacy) stream.
+        """
+        ...
+
+    @property
     def __cuda_array_interface__(self) -> Dict[str, Any]:
         """CUDA array interface descriptor (v3).
 
         Allows CuPy, PyTorch, and other CUDA-aware libraries to access
         the surface data without copies.
+        """
+        ...
+
+    def memset(self, value: int) -> None:
+        """Fill the surface with a constant byte value.
+
+        Every byte of the surface (up to ``pitch × height``) is set to
+        *value*.  Use :meth:`fill` for arbitrary per-channel colours.
+
+        Args:
+            value: Byte value (0–255) to fill every byte with.
+
+        Raises:
+            RuntimeError: If the view has been consumed or the GPU operation fails.
+        """
+        ...
+
+    def fill(self, color: List[int]) -> None:
+        """Fill the surface with a repeating pixel colour.
+
+        *color* must have exactly as many elements as the surface's
+        channel count (e.g. ``[R, G, B, A]`` for RGBA, ``[Y]`` for GRAY8).
+
+        Example::
+
+            view.fill([128, 0, 255, 255])   # semi-blue, opaque RGBA
+
+        Args:
+            color: Per-channel byte values (0–255 each).
+
+        Raises:
+            ValueError: If *color* length does not match channel count.
+            RuntimeError: If the view has been consumed or the GPU operation fails.
+        """
+        ...
+
+    def upload(self, data: np.ndarray) -> None:
+        """Upload pixel data from a NumPy array to the surface.
+
+        Args:
+            data: A 3-D ``uint8`` array with shape ``(height, width, channels)``
+                matching the surface dimensions and color format (e.g. 4 channels for RGBA).
+
+        Raises:
+            ValueError: If *data* has wrong shape, dtype, or dimensions.
+            RuntimeError: If the view has been consumed or the GPU operation fails.
         """
         ...
 
@@ -531,16 +557,6 @@ class DsNvSurfaceBufferGenerator:
         src_rect: Optional[Rect] = None,
     ) -> Tuple[DsNvBufSurfaceGstBuffer, int, int]:
         """Like :meth:`transform` but also returns ``(guard, data_ptr, pitch)``."""
-        ...
-
-    def push_to_appsrc(
-        self,
-        appsrc_ptr: int,
-        pts_ns: int,
-        duration_ns: int,
-        id: Optional[int] = None,
-    ) -> None:
-        """Push a new NVMM buffer to an AppSrc element."""
         ...
 
     @staticmethod
@@ -865,8 +881,13 @@ class SkiaContext:
 
     def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
     @staticmethod
-    def from_nvbuf(buf: Union[DsNvBufSurfaceGstBuffer, int], gpu_id: int = 0) -> SkiaContext:
-        """Create a SkiaContext from an existing NvBufSurface buffer."""
+    def from_nvbuf(buf: Union[SurfaceView, DsNvBufSurfaceGstBuffer, int], gpu_id: int = 0) -> SkiaContext:
+        """Create a SkiaContext from an existing NvBufSurface buffer.
+
+        Accepts a ``SurfaceView`` (preferred — the CUDA pointer is already
+        resolved), a ``DsNvBufSurfaceGstBuffer``, or a raw ``GstBuffer*``
+        pointer as ``int``.
+        """
         ...
 
     @property
@@ -945,10 +966,6 @@ def has_nvenc(gpu_id: int = 0) -> bool:
     """
     ...
 
-def bridge_savant_id_meta(element_ptr: int) -> None:
-    """Bridge Savant ID metadata across a GStreamer element."""
-    ...
-
 def get_savant_id_meta(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> List[Tuple[str, int]]:
     """Read Savant ID metadata from a GstBuffer.
 
@@ -965,47 +982,12 @@ def get_nvbufsurface_info(buf: Union[DsNvBufSurfaceGstBuffer, int]) -> Tuple[int
     """
     ...
 
-def set_buffer_pts(buf: Union[DsNvBufSurfaceGstBuffer, int], pts_ns: int) -> None:
-    """Set the presentation timestamp on a GstBuffer.
-
-    Args:
-        buf: ``GstBuffer`` guard or raw pointer address.
-        pts_ns: Presentation timestamp in nanoseconds.
-    """
-    ...
-
 def set_num_filled(buf: Union[DsNvBufSurfaceGstBuffer, int], count: int) -> None:
     """Set numFilled on a batched NvBufSurface GstBuffer.
 
     Args:
         buf: ``GstBuffer`` guard or raw pointer to a batched NvBufSurface.
         count: Number of filled slots.
-    """
-    ...
-
-def set_buffer_duration(buf: Union[DsNvBufSurfaceGstBuffer, int], duration_ns: int) -> None:
-    """Set the duration on a GstBuffer.
-
-    Args:
-        buf: ``GstBuffer`` guard or raw pointer address.
-        duration_ns: Duration in nanoseconds.
-    """
-    ...
-
-def release_buffer(buf_ptr: int) -> None:
-    """Release (unref) a raw ``GstBuffer*`` pointer.
-
-    Call this to free a buffer obtained from ``acquire_surface``,
-    ``acquire_surface_with_params``, ``acquire_surface_with_ptr``,
-    ``transform``, ``transform_with_ptr``, or ``finalize`` when the
-    buffer is no longer needed and is not being passed into a GStreamer
-    pipeline.
-
-    Args:
-        buf_ptr: Raw ``GstBuffer*`` pointer to release.
-
-    Raises:
-        ValueError: If *buf_ptr* is 0 (null).
     """
     ...
 

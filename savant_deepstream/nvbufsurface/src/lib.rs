@@ -1,38 +1,46 @@
 //! Safe Rust API for NVIDIA DeepStream NvBufSurface buffer generation.
 //!
-//! This crate provides a Rust implementation of the DsNvSurfaceBufferGenerator,
-//! which creates GStreamer buffers with NvBufSurface memory allocated via
-//! DeepStream's buffer pool mechanism.
+//! This crate provides Rust wrappers for DeepStream NvBufSurface buffer
+//! allocation and GPU surface operations.
 //!
 //! # Overview
 //!
-//! The [`DsNvSurfaceBufferGenerator`] creates a DeepStream buffer pool configured
-//! with the specified caps, GPU ID, and memory type. It can then allocate
-//! NvBufSurface memory and attach it to GStreamer buffers.
+//! [`DsNvUniformSurfaceBufferGenerator`] creates a DeepStream buffer pool and
+//! produces [`SharedMutableGstBuffer`]s.  Access individual slots via
+//! [`SurfaceView::from_shared`](SurfaceView::from_shared).
 //!
 //! # Example (Rust)
 //!
 //! ```rust,no_run
-//! use deepstream_nvbufsurface::{DsNvSurfaceBufferGenerator, NvBufSurfaceMemType, VideoFormat};
+//! use deepstream_nvbufsurface::{
+//!     DsNvUniformSurfaceBufferGenerator, NvBufSurfaceMemType, SurfaceView, VideoFormat,
+//! };
 //!
 //! gstreamer::init().unwrap();
 //!
-//! let generator = DsNvSurfaceBufferGenerator::new(
-//!     VideoFormat::RGBA, 640, 480, 30, 1,
-//!     0, NvBufSurfaceMemType::Default,
+//! let gen = DsNvUniformSurfaceBufferGenerator::new(
+//!     VideoFormat::RGBA, 640, 480, 1, 2, 0, NvBufSurfaceMemType::Default,
 //! ).unwrap();
 //!
-//! let buffer = generator.acquire_surface(None).unwrap();
+//! let shared = gen.acquire_buffer(None).unwrap();
+//! let view = SurfaceView::from_shared(&shared, 0).unwrap();
 //! ```
 
+pub mod cuda_stream;
 pub mod ffi;
 pub mod surface_ops;
 pub mod transform;
 
 pub mod buffers;
+pub mod shared_buffer;
 pub mod surface_view;
 
+pub use cuda_stream::CudaStream;
+pub use shared_buffer::SharedMutableGstBuffer;
 pub use surface_view::SurfaceView;
+
+#[cfg(target_arch = "aarch64")]
+pub mod egl_cuda_meta;
 
 #[cfg(feature = "skia")]
 pub mod egl_context;
@@ -41,7 +49,7 @@ pub mod skia_renderer;
 #[cfg(feature = "skia")]
 pub use skia_renderer::SkiaRenderer;
 
-pub use surface_ops::{memset_surface, upload_to_surface};
+pub use surface_ops::{fill_surface, memset_surface, upload_to_surface};
 pub use transform::extract_nvbufsurface;
 pub use transform::{
     buffer_gpu_id, ComputeMode, DstPadding, Interpolation, Padding, Rect, TransformConfig,
@@ -160,7 +168,7 @@ impl From<NvBufSurfaceMemType> for u32 {
 
 /// Initialize CUDA context for the given GPU device.
 ///
-/// This must be called before creating an [`DsNvSurfaceBufferGenerator`] when
+/// This must be called before creating a [`DsNvUniformSurfaceBufferGenerator`] when
 /// not running inside a DeepStream pipeline (which handles CUDA initialization
 /// automatically). This is particularly needed in standalone usage and tests.
 ///
@@ -178,9 +186,16 @@ pub fn cuda_init(gpu_id: u32) -> Result<(), NvBufSurfaceError> {
     extern "C" {
         fn cudaSetDevice(device: i32) -> i32;
         fn cudaFree(dev_ptr: *mut std::ffi::c_void) -> i32;
+        fn cuInit(flags: u32) -> u32;
     }
 
     unsafe {
+        // Initialize the CUDA driver API (needed for cuGraphicsEGL* on Jetson).
+        let err = cuInit(0);
+        if err != 0 {
+            return Err(NvBufSurfaceError::CudaInitFailed(err as i32));
+        }
+
         let err = cudaSetDevice(gpu_id as i32);
         if err != 0 {
             return Err(NvBufSurfaceError::CudaInitFailed(err));
@@ -193,55 +208,6 @@ pub fn cuda_init(gpu_id: u32) -> Result<(), NvBufSurfaceError> {
     }
 
     debug!("CUDA initialized for GPU {}", gpu_id);
-    Ok(())
-}
-
-/// Create a non-blocking CUDA stream.
-///
-/// Returns an opaque `*mut c_void` stream handle suitable for passing to
-/// [`TransformConfig::cuda_stream`]. The returned stream has the
-/// `cudaStreamNonBlocking` flag, meaning it will **not** implicitly
-/// synchronize with the CUDA legacy default stream (stream 0). This
-/// eliminates the global GPU serialization barrier that occurs when
-/// `nvvideoconvert` uses the default stream for `NvBufSurfTransform`.
-///
-/// The caller must eventually call [`destroy_cuda_stream()`] to free
-/// the stream.
-///
-/// # Errors
-///
-/// Returns [`NvBufSurfaceError::CudaInitFailed`] if stream creation fails.
-pub fn create_cuda_stream() -> Result<*mut std::ffi::c_void, NvBufSurfaceError> {
-    let mut stream: *mut std::ffi::c_void = std::ptr::null_mut();
-    // 0x01 = cudaStreamNonBlocking
-    let ret = unsafe { ffi::cudaStreamCreateWithFlags(&mut stream, 0x01) };
-    if ret != 0 {
-        return Err(NvBufSurfaceError::CudaInitFailed(ret));
-    }
-    debug!("Created non-blocking CUDA stream {:?}", stream);
-    Ok(stream)
-}
-
-/// Destroy a CUDA stream previously created by [`create_cuda_stream()`].
-///
-/// Passing a null pointer is a no-op.
-///
-/// # Errors
-///
-/// Returns [`NvBufSurfaceError::CudaInitFailed`] if destruction fails.
-/// # Safety
-///
-/// `stream` must be a valid CUDA stream handle previously returned by
-/// [`create_cuda_stream()`], or null (in which case this is a no-op).
-pub unsafe fn destroy_cuda_stream(stream: *mut std::ffi::c_void) -> Result<(), NvBufSurfaceError> {
-    if stream.is_null() {
-        return Ok(());
-    }
-    let ret = unsafe { ffi::cudaStreamDestroy(stream) };
-    if ret != 0 {
-        return Err(NvBufSurfaceError::CudaInitFailed(ret));
-    }
-    debug!("Destroyed CUDA stream {:?}", stream);
     Ok(())
 }
 
@@ -262,6 +228,12 @@ pub(crate) unsafe fn set_structure_uint(
 }
 
 // ─── PTS-keyed meta bridge ───────────────────────────────────────────────────
+
+/// Maximum number of in-flight PTS→meta entries before eviction kicks in.
+/// If the map exceeds this size, the oldest half of entries (by PTS) are
+/// removed.  This guards against slow memory leaks when an encoder drops
+/// buffers without producing matching output.
+const MAX_BRIDGE_MAP_SIZE: usize = 256;
 
 /// Install pad probes on `element` to propagate [`SavantIdMeta`] across
 /// elements that create new output buffers (e.g. hardware video encoders).
@@ -313,7 +285,18 @@ pub fn bridge_savant_id_meta(element: &gst::Element) {
             if let Some(meta) = buffer.meta::<SavantIdMeta>() {
                 if let Some(pts) = buffer.pts() {
                     let ids = meta.ids().to_vec();
-                    sink_map.lock().unwrap().insert(pts.nseconds(), ids);
+                    let mut map = sink_map.lock().unwrap();
+                    map.insert(pts.nseconds(), ids);
+                    if map.len() > MAX_BRIDGE_MAP_SIZE {
+                        log::warn!(
+                            "bridge_savant_id_meta: PTS map exceeded {} entries, evicting stale entries",
+                            MAX_BRIDGE_MAP_SIZE,
+                        );
+                        let mut keys: Vec<u64> = map.keys().copied().collect();
+                        keys.sort_unstable();
+                        let cutoff = keys[keys.len() / 2];
+                        map.retain(|&pts, _| pts >= cutoff);
+                    }
                 }
             }
         }

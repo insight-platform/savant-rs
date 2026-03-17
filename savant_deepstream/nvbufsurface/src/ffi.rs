@@ -64,6 +64,12 @@ extern "C" {
     /// Fill GPU memory with a constant byte value.
     pub fn cuMemsetD8_v2(dst: u64, value: u8, count: usize) -> u32;
 
+    /// Fill GPU memory with a constant 32-bit value.
+    ///
+    /// Sets `count` consecutive 32-bit values starting at `dst` to `value`.
+    /// `dst` must be 4-byte aligned.
+    pub fn cuMemsetD32_v2(dst: u64, value: u32, count: usize) -> u32;
+
     /// Pitched 2-D copy from host to device (or any combination).
     ///
     /// Copies a `width × height` byte region from `src` (pitch `spitch`) to
@@ -79,7 +85,79 @@ extern "C" {
     ) -> i32;
 }
 
+// GStreamer parent buffer meta.
+extern "C" {
+    /// Attach a `GstParentBufferMeta` to `buffer`, preventing `ref_` from
+    /// being freed while `buffer` is alive.
+    pub fn gst_buffer_add_parent_buffer_meta(
+        buffer: *mut gstreamer::ffi::GstBuffer,
+        ref_: *mut gstreamer::ffi::GstBuffer,
+    ) -> *mut std::ffi::c_void;
+}
+
 /// `cudaMemcpyKind` values from `<cuda_runtime_api.h>`.
 pub const CUDA_MEMCPY_HOST_TO_DEVICE: i32 = 1;
 pub const CUDA_MEMCPY_DEVICE_TO_HOST: i32 = 2;
 pub const CUDA_MEMCPY_DEVICE_TO_DEVICE: i32 = 3;
+
+// ─── CUDA EGL interop (Jetson zero-copy VIC → CUDA) ─────────────────────────
+
+/// Opaque handle returned by `cuGraphicsEGLRegisterImage`.
+pub type CUgraphicsResource = *mut std::ffi::c_void;
+
+pub const CU_EGL_FRAME_TYPE_PITCH: u32 = 1;
+pub const CU_GRAPHICS_MAP_RESOURCE_FLAGS_NONE: u32 = 0x00;
+
+const MAX_PLANES: usize = 3;
+
+/// Per-plane data: either `CUarray` handles or pitched device pointers.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union CUeglFrameData {
+    pub p_array: [*mut std::ffi::c_void; MAX_PLANES],
+    pub p_pitch: [*mut std::ffi::c_void; MAX_PLANES],
+}
+
+/// Mapped EGL frame returned by `cuGraphicsResourceGetMappedEglFrame`.
+#[repr(C)]
+pub struct CUeglFrame {
+    pub frame: CUeglFrameData,
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub pitch: u32,
+    pub plane_count: u32,
+    pub num_channels: u32,
+    pub frame_type: u32,
+    pub egl_color_format: u32,
+    pub cu_format: u32,
+}
+
+extern "C" {
+    pub fn cuGraphicsEGLRegisterImage(
+        pCudaResource: *mut CUgraphicsResource,
+        image: *mut std::ffi::c_void,
+        flags: u32,
+    ) -> u32;
+
+    pub fn cuGraphicsMapResources(
+        count: u32,
+        resources: *mut CUgraphicsResource,
+        hStream: *mut std::ffi::c_void,
+    ) -> u32;
+
+    pub fn cuGraphicsUnmapResources(
+        count: u32,
+        resources: *mut CUgraphicsResource,
+        hStream: *mut std::ffi::c_void,
+    ) -> u32;
+
+    pub fn cuGraphicsResourceGetMappedEglFrame(
+        eglFrame: *mut CUeglFrame,
+        resource: CUgraphicsResource,
+        index: u32,
+        mipLevel: u32,
+    ) -> u32;
+
+    pub fn cuGraphicsUnregisterResource(resource: CUgraphicsResource) -> u32;
+}

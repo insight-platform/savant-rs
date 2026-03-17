@@ -36,7 +36,10 @@ impl From<NvDsInferDataType> for DataType {
             x if x == NvDsInferDataType_HALF => DataType::Half,
             x if x == NvDsInferDataType_INT8 => DataType::Int8,
             x if x == NvDsInferDataType_INT32 => DataType::Int32,
-            _ => DataType::Float,
+            _ => {
+                log::warn!("Unknown NvDsInferDataType value {value}, defaulting to Float");
+                DataType::Float
+            }
         }
     }
 }

@@ -13,14 +13,14 @@
 //! `nvvideoconvert` using the CUDA legacy default stream (stream 0).
 //!
 //! The user acquires NvBufSurface buffers from the embedded
-//! [`DsNvSurfaceBufferGenerator`], renders content into them, and then submits
+//! [`DsNvUniformSurfaceBufferGenerator`], renders content into them, and then submits
 //! them to the encoder. Encoded frames are collected from the appsink.
 
 use crate::error::EncoderError;
 use crate::{Codec, EncodedFrame, EncoderConfig, VideoFormat};
 use deepstream_nvbufsurface::{
-    bridge_savant_id_meta, create_cuda_stream, destroy_cuda_stream, DsNvSurfaceBufferGenerator,
-    TransformConfig,
+    bridge_savant_id_meta, CudaStream, DsNvSurfaceBufferGenerator,
+    DsNvUniformSurfaceBufferGenerator, TransformConfig,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -28,7 +28,6 @@ use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 use log::debug;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// Known GStreamer property names that control B-frame count on NVIDIA
 /// encoders.  Used exclusively by [`force_disable_b_frames`] to ensure
@@ -47,14 +46,14 @@ type PtsMap = HashMap<u64, (u128, Option<u64>)>;
 /// GPU-accelerated video encoder.
 ///
 /// Encapsulates a DeepStream encoding pipeline with an
-/// [`DsNvSurfaceBufferGenerator`] for buffer management. The encoder validates
+/// [`DsNvUniformSurfaceBufferGenerator`] for buffer management. The encoder validates
 /// that B-frames are never enabled and that PTS values are monotonically
 /// increasing.
 ///
 /// # Lifecycle
 ///
 /// 1. Create with [`NvEncoder::new`].
-/// 2. Access the [`DsNvSurfaceBufferGenerator`] via [`generator()`](Self::generator)
+/// 2. Access the [`DsNvUniformSurfaceBufferGenerator`] via [`generator()`](Self::generator)
 ///    to acquire NVMM buffers for rendering.
 /// 3. Submit filled buffers with [`submit_frame`](Self::submit_frame).
 /// 4. Pull encoded frames with [`pull_encoded`](Self::pull_encoded).
@@ -68,7 +67,7 @@ pub struct NvEncoder {
     /// AppSink for pulling encoded frames.
     appsink: gst_app::AppSink,
     /// The NvBufSurface buffer generator for user-facing format (e.g. RGBA).
-    generator: DsNvSurfaceBufferGenerator,
+    generator: DsNvUniformSurfaceBufferGenerator,
     /// Codec used by this encoder.
     codec: Codec,
     /// Last **input** PTS — used to reject non-monotonic submissions.
@@ -80,7 +79,7 @@ pub struct NvEncoder {
     /// Whether EOS has been sent.
     finalized: bool,
     /// PTS -> (frame_id, duration_ns) map for reconstructing output metadata.
-    pts_map: Arc<Mutex<PtsMap>>,
+    pts_map: PtsMap,
     /// When format conversion is needed (e.g. RGBA → NV12), this holds a
     /// second generator for the encoder-native format and a dedicated
     /// non-blocking CUDA stream for the `NvBufSurfTransform` call.
@@ -93,13 +92,8 @@ struct ConvertContext {
     /// Generator for encoder-native format buffers (NV12 or I420).
     native_generator: DsNvSurfaceBufferGenerator,
     /// Dedicated non-blocking CUDA stream (`cudaStreamNonBlocking`).
-    cuda_stream: *mut std::ffi::c_void,
+    cuda_stream: CudaStream,
 }
-
-// Safety: the cuda_stream pointer is only used within the same GPU context
-// and is not dereferenced on the Rust side.
-unsafe impl Send for ConvertContext {}
-unsafe impl Sync for ConvertContext {}
 
 impl NvEncoder {
     /// Create a new GPU-accelerated encoder.
@@ -119,7 +113,8 @@ impl NvEncoder {
     /// - GStreamer elements cannot be created or linked.
     pub fn new(config: &EncoderConfig) -> Result<Self, EncoderError> {
         // Ensure GStreamer is initialized.
-        let _ = gst::init();
+        gst::init()
+            .map_err(|e| EncoderError::PipelineError(format!("GStreamer init failed: {e}")))?;
 
         // Validate: encoder_params codec must match config.codec.
         if let Some(ref params) = config.encoder_params {
@@ -202,14 +197,17 @@ impl NvEncoder {
         // while hardware is still reading from it.
         const POOL_SIZE: u32 = 1;
 
-        let generator =
-            DsNvSurfaceBufferGenerator::builder(config.format, config.width, config.height)
-                .fps(config.fps_num, config.fps_den)
-                .gpu_id(config.gpu_id)
-                .mem_type(config.mem_type)
-                .min_buffers(POOL_SIZE)
-                .max_buffers(POOL_SIZE)
-                .build()?;
+        let generator = DsNvUniformSurfaceBufferGenerator::builder(
+            config.format,
+            config.width,
+            config.height,
+            1,
+        )
+        .fps(config.fps_num, config.fps_den)
+        .gpu_id(config.gpu_id)
+        .mem_type(config.mem_type)
+        .pool_size(POOL_SIZE)
+        .build()?;
 
         // When the user format differs from the encoder-native format, set up
         // a ConvertContext with a second generator + non-blocking CUDA stream.
@@ -229,7 +227,7 @@ impl NvEncoder {
                     .max_buffers(POOL_SIZE)
                     .build()?;
 
-            let cuda_stream = create_cuda_stream().map_err(|e| {
+            let cuda_stream = CudaStream::new_non_blocking().map_err(|e| {
                 EncoderError::PipelineError(format!(
                     "Failed to create non-blocking CUDA stream: {}",
                     e
@@ -320,10 +318,7 @@ impl NvEncoder {
                 })?;
             }
             gst::Element::link_many([&appsrc, &nvconv, &capsfilter, &appsink]).map_err(|_| {
-                EncoderError::LinkFailed {
-                    from: "appsrc->nvvideoconvert->capsfilter->appsink".to_string(),
-                    to: "".to_string(),
-                }
+                EncoderError::LinkFailed("appsrc->nvvideoconvert->capsfilter->appsink".into())
             })?;
         } else if is_png {
             let enc = enc.as_ref().unwrap();
@@ -345,10 +340,7 @@ impl NvEncoder {
                 })?;
             }
             gst::Element::link_many([&appsrc, &nvconv, enc, &appsink]).map_err(|_| {
-                EncoderError::LinkFailed {
-                    from: "appsrc->nvvideoconvert->pngenc->appsink".to_string(),
-                    to: "".to_string(),
-                }
+                EncoderError::LinkFailed("appsrc->nvvideoconvert->pngenc->appsink".into())
             })?;
         } else {
             let enc = enc.as_ref().unwrap();
@@ -400,9 +392,8 @@ impl NvEncoder {
                     EncoderError::PipelineError(format!("Failed to add element: {}", e))
                 })?;
             }
-            gst::Element::link_many(&all_elems).map_err(|_| EncoderError::LinkFailed {
-                from: "appsrc->enc->parse->appsink".to_string(),
-                to: "".to_string(),
+            gst::Element::link_many(&all_elems).map_err(|_| {
+                EncoderError::LinkFailed("appsrc->[nvvideoconvert]->enc->parse->appsink".into())
             })?;
         }
 
@@ -436,16 +427,16 @@ impl NvEncoder {
             last_input_pts_ns: None,
             last_output_pts_ns: None,
             finalized: false,
-            pts_map: Arc::new(Mutex::new(HashMap::new())),
+            pts_map: HashMap::new(),
             convert_ctx,
         })
     }
 
-    /// Access the internal [`DsNvSurfaceBufferGenerator`].
+    /// Access the internal [`DsNvUniformSurfaceBufferGenerator`].
     ///
     /// Use this to acquire NVMM buffers for rendering before submitting
     /// them to the encoder.
-    pub fn generator(&self) -> &DsNvSurfaceBufferGenerator {
+    pub fn generator(&self) -> &DsNvUniformSurfaceBufferGenerator {
         &self.generator
     }
 
@@ -496,10 +487,7 @@ impl NvEncoder {
         self.last_input_pts_ns = Some(pts_ns);
 
         // Store PTS -> (frame_id, duration) mapping.
-        self.pts_map
-            .lock()
-            .unwrap()
-            .insert(pts_ns, (frame_id, duration_ns));
+        self.pts_map.insert(pts_ns, (frame_id, duration_ns));
 
         // When conversion is needed, transform the user buffer (e.g. RGBA)
         // into the encoder-native format (NV12/I420) using NvBufSurfTransform
@@ -510,7 +498,7 @@ impl NvEncoder {
                 dst_padding: None,
                 interpolation: deepstream_nvbufsurface::Interpolation::Nearest,
                 compute_mode: deepstream_nvbufsurface::ComputeMode::Default,
-                cuda_stream: ctx.cuda_stream,
+                cuda_stream: ctx.cuda_stream.clone(),
             };
 
             let mut native_buf = ctx
@@ -523,9 +511,6 @@ impl NvEncoder {
                     ))
                 })?;
 
-            // Set timestamps on the converted buffer.  Both PTS and DTS
-            // are set to prevent downstream elements (e.g. nvvideoconvert
-            // on Jetson) from re-generating timestamps.
             {
                 let buf_ref = native_buf.get_mut().ok_or_else(|| {
                     EncoderError::BufferAcquisitionFailed("Converted buffer is not writable".into())
@@ -618,19 +603,21 @@ impl NvEncoder {
         // nvvideoconvert retimestamps buffers (changing PTS) but preserves
         // the original PTS in DTS.  Try PTS first, fall back to DTS.
         let (pts_lookup, original_pts) = {
-            let mut map = self.pts_map.lock().unwrap();
-            let by_pts = map.remove(&buf_pts_ns);
+            let by_pts = self.pts_map.remove(&buf_pts_ns);
             if by_pts.is_some() {
                 (by_pts, buf_pts_ns)
             } else if let Some(dts) = buf_dts_ns {
-                let by_dts = map.remove(&dts);
+                let by_dts = self.pts_map.remove(&dts);
                 (by_dts, dts)
             } else {
                 (None, buf_pts_ns)
             }
         };
         let is_user_frame = pts_lookup.is_some();
-        let (frame_id, orig_duration) = pts_lookup.unwrap_or((u128::MAX, duration_ns));
+        let (frame_id, orig_duration) = match pts_lookup {
+            Some((id, dur)) => (Some(id), dur),
+            None => (None, duration_ns),
+        };
         let pts_ns = original_pts;
 
         // --- Output ordering validation ---
@@ -767,11 +754,11 @@ impl NvEncoder {
     pub fn check_error(&self) -> Result<(), EncoderError> {
         if let Some(bus) = self.pipeline.bus() {
             if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error]) {
-                let err = msg
-                    .structure()
-                    .and_then(|s| s.get::<String>("debug").ok())
-                    .unwrap_or_default();
-                return Err(EncoderError::PipelineError(err));
+                if let gst::MessageView::Error(e) = msg.view() {
+                    let err_msg = e.error().to_string();
+                    let debug = e.debug().unwrap_or_default().to_string();
+                    return Err(EncoderError::PipelineError(format!("{err_msg} ({debug})")));
+                }
             }
         }
         Ok(())
@@ -878,13 +865,7 @@ impl Drop for NvEncoder {
             debug!("NvEncoder dropped (EOS sent)");
         }
 
-        // Destroy the dedicated CUDA stream if we created one.
-        if let Some(ctx) = self.convert_ctx.take() {
-            if let Err(e) = unsafe { destroy_cuda_stream(ctx.cuda_stream) } {
-                log::warn!("Failed to destroy CUDA stream on drop: {}", e);
-            } else {
-                debug!("ConvertContext CUDA stream destroyed");
-            }
-        }
+        // CudaStream's Drop handles CUDA stream destruction automatically.
+        drop(self.convert_ctx.take());
     }
 }
