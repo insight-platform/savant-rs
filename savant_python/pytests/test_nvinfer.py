@@ -20,9 +20,10 @@ try:
         Roi,
     )
     from savant_rs.deepstream import (
-        DsNvNonUniformSurfaceBuffer,
-        DsNvSurfaceBufferGenerator,
-        DsNvUniformSurfaceBufferGenerator,
+        BufferGenerator,
+        NonUniformBatch,
+        SavantIdMetaKind,
+        UniformBatchGenerator,
         SurfaceView,
         TransformConfig,
         init_cuda,
@@ -199,20 +200,20 @@ def test_age_gender_e2e_real_images():
         canvas[y : y + fh, x : x + fw] = rgba
 
     # Upload canvas to GPU surface
-    src_gen = DsNvSurfaceBufferGenerator(
+    src_gen = BufferGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
         gpu_id=0,
         pool_size=1,
     )
-    src_buf = src_gen.acquire_surface(id=0)
+    src_buf = src_gen.acquire(id=0)
     view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
     with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Create batched surface with one 1920x1080 slot
-    batched_gen = DsNvUniformSurfaceBufferGenerator(
+    batched_gen = UniformBatchGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
@@ -221,10 +222,11 @@ def test_age_gender_e2e_real_images():
         gpu_id=0,
     )
     config = TransformConfig()
-    batch = batched_gen.acquire_batched_surface(config)
-    batch.fill_slot(src_buf, id=0)
+    batch = batched_gen.acquire_batch(config, ids=[(SavantIdMetaKind.FRAME, 0)])
+    batch.transform_slot(0, src_buf)
     batch.finalize()
-    gst_buffer = batch.as_gst_buffer()
+    gst_buffer = batch.shared_buffer()
+    del batch, view, src_buf, src_gen
 
     # Build ROIs
     rois: Dict[int, list] = {
@@ -245,9 +247,8 @@ def test_age_gender_e2e_real_images():
     engine = NvInfer(nvinfer_config, callback=lambda _output: None)
 
     try:
-        output = engine.infer_sync(batch=gst_buffer, batch_id=1, rois=rois)
+        output = engine.infer_sync(batch=gst_buffer, rois=rois)
 
-        assert output.batch_id == 1
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
         )
@@ -332,24 +333,24 @@ def test_age_gender_e2e_nonuniform_callback():
         canvas[y : y + fh, x : x + fw] = rgba
 
     # Upload canvas to GPU surface
-    src_gen = DsNvSurfaceBufferGenerator(
+    src_gen = BufferGenerator(
         format="RGBA",
         width=FRAME_W,
         height=FRAME_H,
         gpu_id=0,
         pool_size=1,
     )
-    src_buf = src_gen.acquire_surface(id=0)
+    src_buf = src_gen.acquire(id=0)
     view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
     with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
-    # Assemble batch via DsNvNonUniformSurfaceBuffer (zero-copy add)
-    batch = DsNvNonUniformSurfaceBuffer(max_batch_size=32, gpu_id=0)
-    batch.add(src_buf, id=0)
-    batch.finalize()
-    gst_buffer = batch.as_gst_buffer()
-    del batch, src_buf, src_gen
+    # Assemble batch via NonUniformBatch (zero-copy add)
+    batch = NonUniformBatch(gpu_id=0)
+    src_view = SurfaceView.from_buffer(src_buf)
+    batch.add(src_view)
+    gst_buffer = batch.finalize(ids=[(SavantIdMetaKind.FRAME, 0)])
+    del batch, src_view, src_buf, src_gen
 
     # Build ROIs
     rois: Dict[int, list] = {
@@ -377,13 +378,12 @@ def test_age_gender_e2e_nonuniform_callback():
     engine = NvInfer(nvinfer_config, callback=on_output)
 
     try:
-        engine.submit(batch=gst_buffer, batch_id=3, rois=rois)
+        engine.submit(batch=gst_buffer, rois=rois)
 
         assert done.wait(timeout=30), "callback not invoked within 30 s"
         assert len(result_holder) == 1, f"expected 1 callback, got {len(result_holder)}"
         output = result_holder[0]
 
-        assert output.batch_id == 3
         assert output.num_elements == num_faces, (
             f"expected {num_faces} elements, got {output.num_elements}"
         )

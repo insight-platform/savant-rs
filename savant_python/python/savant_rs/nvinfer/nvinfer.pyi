@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Union, final
 
-from savant_rs.deepstream import DsNvBufSurfaceGstBuffer
+from savant_rs.deepstream import SharedBuffer
 from savant_rs.primitives.geometry import RBBox
 
 __all__ = [
@@ -274,6 +274,14 @@ class BatchInferenceOutput:
         """Per-element outputs (one per ROI per frame)."""
         ...
 
+    def buffer(self) -> SharedBuffer:
+        """Get the output GStreamer buffer.
+
+        Returns:
+            SharedBuffer for the inference output.
+        """
+        ...
+
     def __repr__(self) -> str: ...
 
 # ── Engine ───────────────────────────────────────────────────────────────
@@ -298,7 +306,7 @@ class NvInfer:
 
     def submit(
         self,
-        batch: Union[DsNvBufSurfaceGstBuffer, int],
+        batch: Union[SharedBuffer, int],
         batch_id: int,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> None:
@@ -313,7 +321,7 @@ class NvInfer:
 
     def infer_sync(
         self,
-        batch: Union[DsNvBufSurfaceGstBuffer, int],
+        batch: Union[SharedBuffer, int],
         batch_id: int,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> BatchInferenceOutput:

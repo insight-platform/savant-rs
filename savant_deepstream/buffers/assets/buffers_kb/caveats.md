@@ -50,14 +50,15 @@ let view1 = SurfaceView::from_buffer(&shared, 1).unwrap();
 
 ## 3. `finalize()` Signatures — Uniform vs Non-Uniform
 
-### Uniform: `finalize(&mut self, num_filled: u32, ids: Vec<SavantIdMetaKind>)`
-Non-consuming. Sets `numFilled` in the NvBufSurface descriptor and attaches
-`SavantIdMeta`. After finalize, `transform_slot` is blocked (`AlreadyFinalized`).
+### Uniform: `finalize(&mut self) -> Result<(), NvBufSurfaceError>`
+Non-consuming. Sets `numFilled` from slots written via `transform_slot`.
+`SavantIdMeta` is attached at `acquire_batch` time (ids passed there).
+After finalize, `transform_slot` is blocked (`AlreadyFinalized`).
 Double-finalize also returns `AlreadyFinalized`.
 
 | State | Allowed | Blocked |
 |---|---|---|
-| Before `finalize()` | `transform_slot`, `slot_ptr`, `view`, `shared_buffer` | — |
+| Before `finalize()` | `transform_slot`, `view`, `shared_buffer` | — |
 | After `finalize()` | `shared_buffer`, `view`, `is_finalized` | `transform_slot` |
 
 ### Non-uniform: `finalize(self, ids: Vec<SavantIdMetaKind>) -> Result<SharedBuffer>`
@@ -97,11 +98,11 @@ was obtained via `batch.shared_buffer()`.
 The PyO3 layer uses `with_mut_buffer_ref()` for functions that need
 `&mut gst::BufferRef` (`set_num_filled`, `set_buffer_pts`, etc.).
 
-- **`DsNvBufSurfaceGstBuffer` path:** uses `gst::Buffer::make_mut()` (COW)
+- **`SharedBuffer` (PySharedBuffer) path:** uses `gst::Buffer::make_mut()` (COW)
   so the caller always gets a writable reference regardless of refcount.
 - **Raw `usize` pointer path:** checks `gst_mini_object_is_writable()` via
   FFI before calling `from_mut_ptr`. Returns a clear Python error if
-  refcount > 1, advising the user to pass a `DsNvBufSurfaceGstBuffer`
+  refcount > 1, advising the user to pass a `SharedBuffer` (PySharedBuffer)
   instead.
 
 ⚠ **Never** call `BufferRef::from_mut_ptr()` on a raw pointer without
@@ -229,24 +230,16 @@ Tests that use `nvjpegenc` must guard with
 
 ---
 
-## 14. upload_to_surface Takes 5 Arguments
+## 14. SurfaceView::upload Takes 5 Arguments
 
 ```rust
-pub fn upload_to_surface(
-    view: &SurfaceView,
-    data: &[u8],
-    width: u32,
-    height: u32,
-    channels: u32,    // 4 for RGBA, 3 for RGB
-) → Result<(), NvBufSurfaceError>
+pub fn upload(&self, data: &[u8], width: u32, height: u32, channels: u32)
+    → Result<(), NvBufSurfaceError>
 ```
 
-The `channels` parameter was added for multi-format support. Commonly
-forgotten when calling from tests. Use `4` for RGBA, `3` for RGB.
-
-Takes `&SurfaceView` (not `&gst::Buffer`). No longer `unsafe` — unsafety
-is contained in `SurfaceView` construction. Platform-aware internally:
-uses `view.data_ptr()` for CUDA pointer on both dGPU and Jetson.
+Method on `SurfaceView` (not a free function). The `channels` parameter is
+commonly forgotten. Use `4` for RGBA, `3` for RGB. Uses CUDA driver API
+for GPU upload on both dGPU and Jetson.
 
 ---
 
@@ -280,7 +273,7 @@ has `resolve_nvbuf_cuda_ptr` — pointer resolution is handled internally
 by `render_to_nvbuf` or externally by the caller for the `*_with_ptr` / `*_raw` methods.
 
 **API:**
-- `load_from_nvbuf(data_ptr, pitch)` — takes `(data_ptr: *const c_void, pitch: usize)` directly (marked `unsafe`). Caller must obtain a valid CUDA pointer (e.g. from `SurfaceView`).
+- `load_from_nvbuf(data_ptr, pitch)` — takes `(data_ptr: *const c_void, pitch: usize)` directly (marked `unsafe`). Caller must obtain a valid CUDA pointer (e.g. from `SurfaceView::data_ptr()`).
 - `from_nvbuf(width, height, gpu_id, data_ptr, pitch)` — convenience constructor (marked `unsafe`).
 - `render_to_nvbuf(dst_buf, config)` — **convenience method** that creates a `SurfaceView` internally to resolve the CUDA pointer. **Keeps the view alive** during rendering to prevent use-after-free on Jetson (see caveat 20). Delegates to `render_to_nvbuf_with_ptr`.
 - `render_to_nvbuf_with_ptr(dst_buf, dst_ptr, dst_pitch, config)` — **primary API** (marked `unsafe`). Caller supplies `(dst_ptr, dst_pitch)`. For the scaled path, creates `SurfaceView` internally for the temp buffer.
@@ -315,7 +308,7 @@ for _ in 0..N {
   Takes `&SharedBuffer`, clones the Arc internally. Create one
   `SurfaceView` per slot.
 
-- **`into_buffer()`** — extracts the underlying `gst::Buffer`. **Fails** (returns
+- **`into_gst_buffer()`** — extracts the underlying `gst::Buffer`. **Fails** (returns
   `Err(self)`) when other references exist (sibling views, `shared_buffer()` clones).
   Drop outstanding refs before retrying. Same semantics as `SharedBuffer::into_buffer`.
 
@@ -329,16 +322,16 @@ with more than 32 slots are not supported on Jetson.
 
 ---
 
-## 19. into_buffer / SharedBuffer::into_buffer Fail When Other Refs Exist
+## 19. into_gst_buffer / SharedBuffer::into_buffer Fail When Other Refs Exist
 
-Both `SurfaceView::into_buffer()` and `SharedBuffer::into_buffer()`
+Both `SurfaceView::into_gst_buffer()` and `SharedBuffer::into_buffer()`
 return `Err(self)` when the Arc strong count is > 1. This happens when:
 - Multiple `SurfaceView`s share the same buffer (e.g. via `from_buffer`)
 - `shared_buffer()` was called and the clone is still alive
 - The shared handle was cloned and passed elsewhere
 
-**Fix:** Drop all sibling views and clones before calling `into_buffer()`. Use
-`strong_count()` on `SharedBuffer` for diagnostics (1 = sole owner).
+**Fix:** Drop all sibling views and clones before calling `into_gst_buffer()` /
+`into_buffer()`. Use `strong_count()` on `SharedBuffer` for diagnostics (1 = sole owner).
 
 ---
 

@@ -27,8 +27,8 @@ from gi.repository import Gst  # noqa: E402
 
 import savant_rs  # noqa: E402
 from savant_rs.deepstream import (  # noqa: E402
-    DsNvBufSurfaceGstBuffer,
-    DsNvSurfaceBufferGenerator,
+    BufferGenerator,
+    SharedBuffer,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -319,11 +319,11 @@ class PicassoSession:
         print(f"Encoder properties: {enc_props}")
 
         # -- NvBufSurface generators (one per source) --------------------------
-        self._generators: list[DsNvSurfaceBufferGenerator] = []
+        self._generators: list[BufferGenerator] = []
         if use_generator:
             for _ in range(self.jobs):
                 self._generators.append(
-                    DsNvSurfaceBufferGenerator(
+                    BufferGenerator(
                         video_format,
                         self._width,
                         self._height,
@@ -426,16 +426,16 @@ class PicassoSession:
 
     def acquire_surface(
         self, *, source_idx: int = 0, frame_id: int
-    ) -> DsNvBufSurfaceGstBuffer:
+    ) -> SharedBuffer:
         """Acquire an NvBufSurface GPU buffer from the pool of *source_idx*.
 
         Requires ``use_generator=True`` (the default).
         """
         if not self._generators:
             raise RuntimeError(
-                "DsNvSurfaceBufferGenerator was not created (use_generator=False)"
+                "BufferGenerator was not created (use_generator=False)"
             )
-        return self._generators[source_idx].acquire_surface(id=frame_id)
+        return self._generators[source_idx].acquire(id=frame_id)
 
     def acquire_surface_view(
         self, *, source_idx: int = 0, frame_id: int
@@ -468,7 +468,7 @@ class PicassoSession:
     def send_frame(
         self,
         frame: VideoFrame,
-        buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any,
+        buf: SurfaceView | SharedBuffer | int | Any,
         *,
         source_idx: int = 0,
     ) -> None:
@@ -479,7 +479,7 @@ class PicassoSession:
 
     def submit(
         self,
-        buf: SurfaceView | DsNvBufSurfaceGstBuffer | int | Any,
+        buf: SurfaceView | SharedBuffer | int | Any,
         *,
         source_idx: int = 0,
         pts_ns: int,

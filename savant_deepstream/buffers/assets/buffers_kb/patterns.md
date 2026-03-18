@@ -56,20 +56,21 @@ fn make_src_gen(format: VideoFormat, w: u32, h: u32) -> BufferGenerator {
 }
 ```
 
-### memset_surface / upload_to_surface
+### SurfaceView::memset / fill / upload
 ```rust
-// Create view first (by value for input buffers)
-let view = SurfaceView::from_buffer(buf, 0).unwrap();
+// Create view first (from SharedBuffer for batched/single buffers)
+let view = SurfaceView::from_buffer(&shared, 0).unwrap();
 
-// Fill surface with zeros (no longer unsafe)
-deepstream_buffers::memset_surface(&view, 0x00).unwrap();
+// Fill surface with zeros
+view.memset(0x00).unwrap();
 
 // Upload RGBA pixel data (channels must match surface colour format)
 let pixels: Vec<u8> = vec![0xFF; 640 * 480 * 4]; // white RGBA
-deepstream_buffers::upload_to_surface(&view, &pixels, 640, 480, 4).unwrap();
+view.upload(&pixels, 640, 480, 4).unwrap();
 
 // Recover buffer for downstream if sole owner
-let buf = view.into_buffer().expect("no sibling views");
+let buf = view.into_gst_buffer().expect("no sibling views");
+// Or: drop(view); let buf = shared.into_buffer().expect("sole owner");
 ```
 
 ### Batched buffer usage with SharedBuffer
@@ -82,8 +83,8 @@ let view0 = SurfaceView::from_buffer(&shared, 0).unwrap();
 let view1 = SurfaceView::from_buffer(&shared, 1).unwrap();
 
 // Each view has distinct data_ptr for its slot
-deepstream_buffers::memset_surface(&view0, 0x00).unwrap();
-deepstream_buffers::memset_surface(&view1, 0xFF).unwrap();
+view0.memset(0x00).unwrap();
+view1.memset(0xFF).unwrap();
 
 // Pass buffer to encoder without consuming a view
 let shared_for_encoder = view0.shared_buffer();
@@ -91,7 +92,7 @@ let shared_for_encoder = view0.shared_buffer();
 
 // Extract buffer only when sole owner (drop sibling views first)
 drop(view1);
-let buf = view0.into_buffer().expect("sole owner after dropping view1");
+let buf = view0.into_gst_buffer().expect("sole owner after dropping view1");
 ```
 
 ---
@@ -464,7 +465,7 @@ fn test_write_read_roundtrip() {
     let gen = /* ... */;
     let buf = gen.acquire(Some(0)).unwrap();
     let view = SurfaceView::from_buffer(buf, 0).unwrap();
-    deepstream_buffers::memset_surface(&view, 0xAB).unwrap();
+    view.memset(0xAB).unwrap();
     // cudaMemcpy2D readback and verify bytes == 0xAB
 }
 ```

@@ -62,7 +62,7 @@ const NUM_FRAMES: u64 = if cfg!(not(target_arch = "aarch64")) {
 const NUM_BOXES: usize = 20;
 const FPS: i32 = 30;
 const FRAME_DURATION_NS: u64 = 1_000_000_000 / FPS as u64;
-const DEFAULT_NUM_SOURCES: usize = 1;
+const DEFAULT_NUM_SOURCES: usize = 4;
 
 fn num_sources() -> usize {
     std::env::var("BENCH_NUM_SOURCES")

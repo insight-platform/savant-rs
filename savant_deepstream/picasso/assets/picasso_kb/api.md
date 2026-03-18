@@ -284,10 +284,10 @@ Returns `Err` if `dst_padding` reduces the effective width or height below `MIN_
 ## GPU Utilities (from deepstream_buffers)
 
 ### SharedBuffer
-Shared currency for the encode pipeline. Wraps a `gst::Buffer` in interior mutability so multiple `SurfaceView` instances can hold references while the encoder receives the same shared handle.
+Shared currency for the encode pipeline. Wraps a `gst::Buffer` in interior mutability so multiple `SurfaceView` instances can hold references.
 
 - `SharedBuffer::from(buf: gst::Buffer) → Self` — wrap a buffer for shared use
-- Passed directly to `NvEncoder::submit_frame`; no need to recover the buffer from the view
+- Extract with `shared.into_buffer()` when sole owner; pass the resulting `gst::Buffer` to `NvEncoder::submit_frame`
 
 ### SurfaceView
 ```rust
@@ -298,14 +298,14 @@ Zero-copy view of a single GPU surface with cached parameters. Wraps either a re
 | Constructor | Signature | Notes |
 |---|---|---|
 | `wrap` | `(buf: gst::Buffer) → Self` | Plain wrapper, surface params zeroed. For Drop/Bypass paths and NOGPU tests. |
-| `from_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Extract view from NvBufSurface-backed buffer (consumes buf by value). On Jetson, the pointer from `data_ptr()` is tied to a permanent EGL-CUDA registration that lives with the buffer. Recover buffer with `into_buffer()`. |
-| `from_buffer` | `(shared: SharedBuffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Create view from shared buffer. Use `view.buffer()` for mutable access. Drop view before passing `SharedBuffer` to `submit_frame`. |
+| `from_gst_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Extract view from NvBufSurface-backed buffer (consumes buf by value). On Jetson, the pointer from `data_ptr()` is tied to a permanent EGL-CUDA registration that lives with the buffer. Recover buffer with `into_gst_buffer()`. |
+| `from_buffer` | `(shared: &SharedBuffer, slot_index: u32) → Result<Self, NvBufSurfaceError>` | Create view from shared buffer. Use `view.gst_buffer()` for mutable access. Drop view before extracting buffer for `submit_frame`. |
 | `from_cuda_ptr` | `(data_ptr, pitch, width, height, gpu_id, channels, color_format, keepalive) → Result<Self, NvBufSurfaceError>` | Wrap arbitrary CUDA device memory with synthetic descriptor. |
 
 | Accessor | Signature |
 |---|---|
-| `buffer` | `(&self) → MutexGuard<gst::Buffer>` | Replaces both old `buffer()` and `buffer_mut()`. Use for read and write access. |
-| `into_buffer` | `(self) → Result<gst::Buffer, SurfaceView>` | Consumes the view and recovers the underlying buffer. Fails (returns `Err(self)`) if other refs exist (e.g. when using `from_buffer`). For encode path, drop the view and pass `SharedBuffer` to `submit_frame` instead. |
+| `gst_buffer` | `(&self) → MutexGuard<gst::Buffer>` | Lock for read/write access to the underlying buffer. |
+| `into_gst_buffer` | `(self) → Result<gst::Buffer, SurfaceView>` | Consumes the view and recovers the underlying buffer. Fails (returns `Err(self)`) if other refs exist. For encode path, drop the view and pass `shared.into_buffer()` to `submit_frame` instead. |
 | `data_ptr` | `(&self) → *mut c_void` |
 | `pitch` | `(&self) → u32` |
 | `width` | `(&self) → u32` |
@@ -332,19 +332,19 @@ Returns the GPU device ID this generator allocates buffers on. Stored at constru
 
 ### NvEncoder::submit_frame (from deepstream_encoders)
 ```rust
-pub fn submit_frame(&mut self, buf: SharedBuffer, ...) → ...
+pub fn submit_frame(&mut self, buffer: gst::Buffer, frame_id: u128, pts_ns: u64, duration_ns: Option<u64>) → Result<(), EncoderError>
 ```
-Takes `SharedBuffer` instead of `gst::Buffer`. The encode pipeline passes the shared handle directly after dropping the `SurfaceView`; no buffer recovery step.
+Takes `gst::Buffer`. The encode pipeline drops the `SurfaceView`, calls `shared.into_buffer()` to extract the buffer when sole owner, then passes it to `submit_frame`.
 
 ---
 
 ## process_encode flow (pipeline/encode.rs)
 
 ```
-dst_buf = generator.transform(...) → gst::Buffer
-shared = SharedBuffer::from(dst_buf)
-view = SurfaceView::from_buffer(shared.clone(), 0)
-... rendering + callbacks using view.buffer() (MutexGuard) ...
+shared = generator.acquire(...) → SharedBuffer
+view = SurfaceView::from_buffer(&shared, 0)
+... rendering + callbacks using view.gst_buffer() (MutexGuard) ...
 drop(view)
-encoder.submit_frame(shared, ...) → pass SharedBuffer directly
+buffer = shared.into_buffer() → extract gst::Buffer when sole owner
+encoder.submit_frame(buffer, ...) → pass gst::Buffer
 ```

@@ -24,7 +24,7 @@ SIG: __init__(general: GeneralSpec, callbacks: Callbacks) → None
 |---|---|---|
 | `set_source_spec` | `(source_id: str, spec: SourceSpec) → None` | Creates/replaces worker. ⚠ RuntimeError if shut down |
 | `remove_source_spec` | `(source_id: str) → None` | Stops worker. ⚠ RuntimeError if shut down |
-| `send_frame` | `(source_id: str, frame: VideoFrame, buf: Union[SurfaceView, DsNvBufSurfaceGstBuffer, int, Any], src_rect: Optional[Rect]=None) → None` | GPU. `buf` dispatch order: **PySurfaceView** → `__cuda_array_interface__` object (e.g. CuPy) → DsNvBufSurfaceGstBuffer/int (legacy). Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf is null |
+| `send_frame` | `(source_id: str, frame: VideoFrame, buf: Union[SurfaceView, SharedBuffer, int, Any], src_rect: Optional[Rect]=None) → None` | GPU. `buf` dispatch order: **PySurfaceView** → `__cuda_array_interface__` object (e.g. CuPy) → SharedBuffer/int (legacy). Optional per-frame crop. ⚠ RuntimeError if shut down, ValueError if buf is null |
 | `send_eos` | `(source_id: str) → None` | Signals end-of-stream. ⚠ RuntimeError if shut down |
 | `shutdown` | `() → None` | Idempotent. Releases GIL during join. |
 
@@ -317,7 +317,7 @@ Module: `savant_rs.deepstream`
 ### Factory Methods
 | Method | Signature | Notes |
 |---|---|---|
-| `from_buffer` | `(buf: Union[DsNvBufSurfaceGstBuffer, int], batch_id: int) → SurfaceView` | Extract slot `batch_id` from an NvBufSurface-backed buffer (RAII guard or raw `int` pointer) |
+| `from_buffer` | `(buf: Union[SharedBuffer, int], cuda_stream: int = 0) → SurfaceView` | Create a view of an NvBufSurface-backed buffer (SharedBuffer or raw `int` pointer) |
 | `from_cuda_array` | `(obj: Any) → SurfaceView` | Create from any object exposing `__cuda_array_interface__` (e.g. CuPy ndarray). Must be contiguous RGBA `uint8` on GPU. |
 
 ### Properties (read-only)

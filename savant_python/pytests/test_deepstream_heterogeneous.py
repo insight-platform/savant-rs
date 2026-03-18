@@ -1,4 +1,4 @@
-"""Tests for DsNvNonUniformSurfaceBuffer (zero-copy, nvstreammux2-style) — require CUDA/DeepStream runtime."""
+"""Tests for NonUniformBatch (zero-copy, nvstreammux2-style) — require CUDA/DeepStream runtime."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 
 from conftest import HAS_DS_FEATURE, skip_no_ds_runtime
 from deepstream_helpers import (
+    GPU_GROWTH_LIMIT_MB,
     LEAK_ITERATIONS,
     WARMUP_ITERATIONS,
     assert_no_leak,
@@ -27,16 +28,11 @@ ds = _ds
 @skip_no_ds_runtime
 class TestHeterogeneousCreate:
     def test_create_with_defaults(self):
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
+        batch = ds.NonUniformBatch(gpu_id=0)
         assert batch is not None
 
-    def test_create_batch_size_1(self):
-        batch = ds.DsNvNonUniformSurfaceBuffer(1)
-        assert batch.max_batch_size == 1
-
     def test_properties(self):
-        batch = ds.DsNvNonUniformSurfaceBuffer(4, gpu_id=0)
-        assert batch.max_batch_size == 4
+        batch = ds.NonUniformBatch(gpu_id=0)
         assert batch.num_filled == 0
         assert batch.gpu_id == 0
 
@@ -45,132 +41,74 @@ class TestHeterogeneousCreate:
 class TestHeterogeneousAdd:
     def test_add_single(self):
         gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        buf = gen.acquire_surface(id=1)
-        batch.add(buf, id=1)
+        batch = ds.NonUniformBatch(gpu_id=0)
+        buf = gen.acquire(id=1)
+        view = ds.SurfaceView.from_buffer(buf)
+        batch.add(view)
         assert batch.num_filled == 1
 
     def test_add_multiple_different_sizes(self):
         gen_small = make_gen("RGBA", 320, 240)
         gen_1080p = make_gen("RGBA", 1920, 1080)
         gen_720p = make_gen("RGBA", 1280, 720)
-        batch = ds.DsNvNonUniformSurfaceBuffer(8)
-        batch.add(gen_small.acquire_surface(), id=1)
-        batch.add(gen_1080p.acquire_surface(), id=2)
-        batch.add(gen_720p.acquire_surface(), id=3)
+        batch = ds.NonUniformBatch(gpu_id=0)
+        view1 = ds.SurfaceView.from_buffer(gen_small.acquire())
+        view2 = ds.SurfaceView.from_buffer(gen_1080p.acquire())
+        view3 = ds.SurfaceView.from_buffer(gen_720p.acquire())
+        batch.add(view1)
+        batch.add(view2)
+        batch.add(view3)
         assert batch.num_filled == 3
 
     def test_add_different_formats(self):
         gen_rgba = make_gen("RGBA", 640, 480)
         gen_nv12 = make_gen("NV12", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen_rgba.acquire_surface(), id=1)
-        batch.add(gen_nv12.acquire_surface(), id=2)
+        batch = ds.NonUniformBatch(gpu_id=0)
+        view1 = ds.SurfaceView.from_buffer(gen_rgba.acquire())
+        view2 = ds.SurfaceView.from_buffer(gen_nv12.acquire())
+        batch.add(view1)
+        batch.add(view2)
         assert batch.num_filled == 2
-
-    def test_add_exceeds_capacity_raises(self):
-        gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(2)
-        batch.add(gen.acquire_surface(), id=1)
-        batch.add(gen.acquire_surface(), id=2)
-        with pytest.raises(RuntimeError, match="overflow|Batch"):
-            batch.add(gen.acquire_surface(), id=3)
-
-    def test_add_null_raises(self):
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        with pytest.raises(ValueError, match="null"):
-            batch.add(0, id=1)
-
-
-@skip_no_ds_runtime
-class TestHeterogeneousSlotPtr:
-    def test_returns_4_tuple(self):
-        gen_small = make_gen("RGBA", 320, 240)
-        gen_1080p = make_gen("RGBA", 1920, 1080)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen_small.acquire_surface(), id=1)
-        batch.add(gen_1080p.acquire_surface(), id=2)
-        batch.finalize()
-        result = batch.slot_ptr(0)
-        assert isinstance(result, tuple)
-        assert len(result) == 4
-
-    def test_dimensions_match_source(self):
-        gen_small = make_gen("RGBA", 320, 240)
-        gen_1080p = make_gen("RGBA", 1920, 1080)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen_small.acquire_surface(), id=1)
-        batch.add(gen_1080p.acquire_surface(), id=2)
-        batch.finalize()
-        data_ptr0, pitch0, w0, h0 = batch.slot_ptr(0)
-        data_ptr1, pitch1, w1, h1 = batch.slot_ptr(1)
-        assert w0 == 320
-        assert h0 == 240
-        assert w1 == 1920
-        assert h1 == 1080
-        assert data_ptr0 != 0
-        assert data_ptr1 != 0
-        assert data_ptr0 != data_ptr1
-
-    def test_slot_ptr_out_of_bounds_raises(self):
-        gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen.acquire_surface(), id=1)
-        batch.finalize()
-        # index 0 is valid (1 filled), index 1 is out of bounds
-        _ = batch.slot_ptr(0)
-        with pytest.raises(RuntimeError, match="bounds|Slot"):
-            batch.slot_ptr(1)
-        with pytest.raises(RuntimeError, match="bounds|Slot"):
-            batch.slot_ptr(100)
 
 
 @skip_no_ds_runtime
 class TestHeterogeneousFinalize:
     def test_finalize_returns_nonzero(self):
         gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen.acquire_surface(id=1), id=1)
-        batch.finalize()
-        buf = batch.as_gst_buffer()
-        assert buf.ptr != 0
+        batch = ds.NonUniformBatch(gpu_id=0)
+        buf = gen.acquire(id=1)
+        view = ds.SurfaceView.from_buffer(buf)
+        batch.add(view)
+        shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, 1)])
+        assert bool(shared)
 
     def test_ids_propagated(self):
         gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
+        batch = ds.NonUniformBatch(gpu_id=0)
+        views = []
         for frame_id in [10, 20, 30]:
-            buf = gen.acquire_surface(id=frame_id)
-            batch.add(buf, id=frame_id)
-        batch.finalize()
-        result = batch.as_gst_buffer()
-        meta = ds.get_savant_id_meta(result)
-        meta_ids = [v for _kind, v in meta if _kind == "frame"]
+            buf = gen.acquire(id=frame_id)
+            view = ds.SurfaceView.from_buffer(buf)
+            batch.add(view)
+            views.append(view)
+        shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, fid) for fid in [10, 20, 30]])
+        meta = ds.get_savant_id_meta(shared)
+        meta_ids = [v for kind, v in meta if kind == ds.SavantIdMetaKind.FRAME]
         for frame_id in [10, 20, 30]:
             assert frame_id in meta_ids
 
-    def test_auto_propagate_ids(self):
-        gen = make_gen("RGBA", 640, 480)
-        buf = gen.acquire_surface(id=42)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(buf, id=None)
-        batch.finalize()
-        result = batch.as_gst_buffer()
-        meta = ds.get_savant_id_meta(result)
-        ids = [v for _kind, v in meta if _kind == "frame"]
-        assert 42 in ids
-
-    def test_finalize_empty(self):
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.finalize()
-        buf = batch.as_gst_buffer()
-        assert buf.ptr != 0
-        meta = ds.get_savant_id_meta(buf)
-        assert meta == []
+    def test_finalize_empty_raises(self):
+        """Finalizing an empty batch raises RuntimeError."""
+        batch = ds.NonUniformBatch(gpu_id=0)
+        with pytest.raises(RuntimeError, match="empty"):
+            batch.finalize()
 
     def test_finalize_twice_raises(self):
         gen = make_gen("RGBA", 640, 480)
-        batch = ds.DsNvNonUniformSurfaceBuffer(4)
-        batch.add(gen.acquire_surface(), id=1)
+        batch = ds.NonUniformBatch(gpu_id=0)
+        buf = gen.acquire()
+        view = ds.SurfaceView.from_buffer(buf)
+        batch.add(view)
         batch.finalize()
         with pytest.raises(RuntimeError, match="finalized"):
             batch.finalize()
@@ -184,36 +122,46 @@ class TestHeterogeneousMemoryLeak:
     """Smoke tests: loop over heterogeneous batch provisioning / release."""
 
     def test_hetero_add_finalize_release_no_leak(self):
-        """Full cycle: acquire srcs → add to batch → finalize → RAII release."""
+        """Full cycle: acquire srcs → add views to batch → finalize → RAII release.
+
+        Uses a higher CPU RSS threshold (20 MB) because the SurfaceView-based
+        API creates more transient Python/PyO3 objects per iteration than the
+        old direct-buffer API, which amplifies pytest runner RSS noise.
+        """
         gen = make_gen("RGBA", 1920, 1080)
 
         for _ in range(WARMUP_ITERATIONS):
-            srcs = [gen.acquire_surface(id=j) for j in range(4)]
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            for j, s in enumerate(srcs):
-                batch.add(s, id=j)
-            batch.finalize()
-            buf = batch.as_gst_buffer()
-            del batch, buf, srcs, s, j
+            bufs = [gen.acquire(id=j) for j in range(4)]
+            views = [ds.SurfaceView.from_buffer(b) for b in bufs]
+            batch = ds.NonUniformBatch(gpu_id=0)
+            for v in views:
+                batch.add(v)
+            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)])
+            del batch, shared, bufs, views, v
 
         gc.collect()
         cpu_before = cpu_rss_kb()
         gpu_before = gpu_mem_used_mb()
 
         for i in range(LEAK_ITERATIONS):
-            srcs = [gen.acquire_surface(id=j) for j in range(4)]
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            for j, s in enumerate(srcs):
-                batch.add(s, id=j)
-            batch.finalize()
-            buf = batch.as_gst_buffer()
-            del batch, buf, srcs, s, j
+            bufs = [gen.acquire(id=j) for j in range(4)]
+            views = [ds.SurfaceView.from_buffer(b) for b in bufs]
+            batch = ds.NonUniformBatch(gpu_id=0)
+            for v in views:
+                batch.add(v)
+            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)])
+            del batch, shared, bufs, views, v
 
         gc.collect()
-        assert_no_leak(
-            "hetero add/finalize/release",
-            cpu_before, cpu_rss_kb(),
-            gpu_before, gpu_mem_used_mb(),
+        cpu_growth = cpu_rss_kb() - cpu_before
+        gpu_growth = gpu_mem_used_mb() - gpu_before
+        assert cpu_growth < 20_000, (
+            f"hetero add/finalize/release: CPU RSS grew by {cpu_growth} KB "
+            f"over {LEAK_ITERATIONS} iterations"
+        )
+        assert gpu_growth < GPU_GROWTH_LIMIT_MB, (
+            f"hetero add/finalize/release: GPU mem grew by {gpu_growth} MB "
+            f"over {LEAK_ITERATIONS} iterations"
         )
 
     def test_hetero_mixed_sizes_no_leak(self):
@@ -222,28 +170,30 @@ class TestHeterogeneousMemoryLeak:
         gen_large = make_gen("RGBA", 1920, 1080)
 
         for _ in range(WARMUP_ITERATIONS):
-            s1 = gen_small.acquire_surface(id=1)
-            s2 = gen_large.acquire_surface(id=2)
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            batch.add(s1, id=1)
-            batch.add(s2, id=2)
-            batch.finalize()
-            buf = batch.as_gst_buffer()
-            del batch, buf, s1, s2
+            buf1 = gen_small.acquire(id=1)
+            buf2 = gen_large.acquire(id=2)
+            view1 = ds.SurfaceView.from_buffer(buf1)
+            view2 = ds.SurfaceView.from_buffer(buf2)
+            batch = ds.NonUniformBatch(gpu_id=0)
+            batch.add(view1)
+            batch.add(view2)
+            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, 1), (ds.SavantIdMetaKind.FRAME, 2)])
+            del batch, shared, buf1, buf2, view1, view2
 
         gc.collect()
         cpu_before = cpu_rss_kb()
         gpu_before = gpu_mem_used_mb()
 
         for i in range(LEAK_ITERATIONS):
-            s1 = gen_small.acquire_surface(id=i)
-            s2 = gen_large.acquire_surface(id=i + 1000)
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            batch.add(s1, id=i)
-            batch.add(s2, id=i + 1000)
-            batch.finalize()
-            buf = batch.as_gst_buffer()
-            del batch, buf, s1, s2
+            buf1 = gen_small.acquire(id=i)
+            buf2 = gen_large.acquire(id=i + 1000)
+            view1 = ds.SurfaceView.from_buffer(buf1)
+            view2 = ds.SurfaceView.from_buffer(buf2)
+            batch = ds.NonUniformBatch(gpu_id=0)
+            batch.add(view1)
+            batch.add(view2)
+            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, i), (ds.SavantIdMetaKind.FRAME, i + 1000)])
+            del batch, shared, buf1, buf2, view1, view2
 
         gc.collect()
         assert_no_leak(
@@ -257,20 +207,22 @@ class TestHeterogeneousMemoryLeak:
         gen = make_gen("RGBA", 640, 480)
 
         for _ in range(WARMUP_ITERATIONS):
-            src = gen.acquire_surface(id=1)
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            batch.add(src, id=1)
-            del batch, src
+            buf = gen.acquire(id=1)
+            view = ds.SurfaceView.from_buffer(buf)
+            batch = ds.NonUniformBatch(gpu_id=0)
+            batch.add(view)
+            del batch, buf, view
 
         gc.collect()
         cpu_before = cpu_rss_kb()
         gpu_before = gpu_mem_used_mb()
 
         for i in range(LEAK_ITERATIONS):
-            src = gen.acquire_surface(id=i)
-            batch = ds.DsNvNonUniformSurfaceBuffer(4)
-            batch.add(src, id=i)
-            del batch, src
+            buf = gen.acquire(id=i)
+            view = ds.SurfaceView.from_buffer(buf)
+            batch = ds.NonUniformBatch(gpu_id=0)
+            batch.add(view)
+            del batch, buf, view
 
         gc.collect()
         assert_no_leak(

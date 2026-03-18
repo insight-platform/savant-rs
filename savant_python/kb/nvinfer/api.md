@@ -189,10 +189,10 @@ class BatchInferenceOutput:
     @property
     def elements(self) -> List[ElementOutput]: ...
 
-    def buffer(self) -> DsNvBufSurfaceGstBuffer: ...
+    def buffer(self) -> SharedBuffer: ...
 ```
 
-`buffer()` returns the output GStreamer buffer as a `DsNvBufSurfaceGstBuffer`.
+`buffer()` returns the output GStreamer buffer as a `SharedBuffer`.
 `SavantIdMeta` attached to the input buffer is preserved through the pipeline
 and readable from this output buffer. Frame/batch IDs are carried inside
 `SavantIdMeta` — there is no separate `batch_id` field.
@@ -211,13 +211,13 @@ class NvInfer:
 
     def submit(
         self,
-        batch: DsNvBufSurfaceGstBuffer,
+        batch: SharedBuffer,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> None: ...
 
     def infer_sync(
         self,
-        batch: DsNvBufSurfaceGstBuffer,
+        batch: SharedBuffer,
         rois: Optional[Dict[int, List[Roi]]] = None,
     ) -> BatchInferenceOutput: ...
 

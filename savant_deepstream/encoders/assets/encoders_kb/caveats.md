@@ -62,19 +62,14 @@ nvconv.set_property_from_str("compute-hw", "1");
 
 ---
 
-## 5. upload_to_surface Takes 5 Arguments
+## 5. SurfaceView::upload Takes 5 Arguments
 
 ```rust
-pub unsafe fn upload_to_surface(
-    buf: &gst::Buffer,
-    data: &[u8],
-    width: u32,
-    height: u32,
-    channels: u32,    // <-- commonly forgotten 5th arg
-) -> Result<(), NvBufSurfaceError>
+pub fn upload(&self, data: &[u8], width: u32, height: u32, channels: u32)
+    -> Result<(), NvBufSurfaceError>
 ```
 
-⚠ The `channels` parameter was added for multi-format support. Use `4` for RGBA, `3` for RGB. Omitting it causes a compile error that's easy to misinterpret.
+Method on `SurfaceView` (not a free function). The `channels` parameter is commonly forgotten. Use `4` for RGBA, `3` for RGB.
 
 ---
 
@@ -113,4 +108,4 @@ AV1 encoders emit a sequence header buffer before the first data frame, often wi
 
 ## 10. Jetson Memory Access Model
 
-On Jetson, `NvBufSurfaceMemType::Default` maps to `SurfaceArray` (VIC-managed), which is NOT CUDA-addressable. The `upload_to_surface` function handles this transparently using `NvBufSurfaceMap` → CPU write → `NvBufSurfaceSyncForDevice` → `NvBufSurfaceUnMap` on Jetson, vs direct `cuMemcpyHtoD_v2` on dGPU.
+On Jetson, `NvBufSurfaceMemType::Default` maps to `SurfaceArray` (VIC-managed), which is NOT CUDA-addressable. The `SurfaceView::upload` method uses `cudaMemcpy2D` (device-to-device via EGL-CUDA mapping) on both platforms. For CPU upload paths, create a `SurfaceView` first — it resolves the CUDA pointer via `EglCudaMeta` on Jetson.

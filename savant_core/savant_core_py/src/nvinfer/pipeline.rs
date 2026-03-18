@@ -3,24 +3,22 @@
 use super::config::PyNvInferConfig;
 use super::output::PyBatchInferenceOutput;
 use super::roi::PyRoi;
-use crate::deepstream::{extract_gst_buffer, PyDsNvBufSurfaceGstBuffer};
+use crate::deepstream::{extract_gst_buffer, PySharedBuffer};
 use nvinfer::{NvInfer, Roi};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
 
-/// Extract a GStreamer buffer and wrap it as [`SharedBuffer`].
+/// Extract a `SharedBuffer` from a Python buffer argument.
 ///
-/// If `batch` is a `DsNvBufSurfaceGstBuffer` guard, we steal the inner
-/// `gst::Buffer` via `take_buffer()` so refcount stays at 1.  If it is a
-/// raw pointer (`int`), we fall through to `extract_gst_buffer` which
-/// uses `from_glib_full` (already refcount 1).
+/// If `batch` is a `SharedBuffer`, we consume it via `take_inner()`.
+/// If it is a raw pointer (`int`), we fall through to `extract_gst_buffer`
+/// which uses `from_glib_full` (already refcount 1).
 fn take_shared_buffer(batch: &Bound<'_, PyAny>) -> PyResult<deepstream_buffers::SharedBuffer> {
-    let buf = if let Ok(mut guard) = batch.extract::<PyRefMut<'_, PyDsNvBufSurfaceGstBuffer>>() {
-        guard.take_buffer()?
-    } else {
-        extract_gst_buffer(batch)?
-    };
+    if let Ok(mut sb) = batch.extract::<PyRefMut<'_, PySharedBuffer>>() {
+        return sb.take_inner();
+    }
+    let buf = extract_gst_buffer(batch)?;
     Ok(deepstream_buffers::SharedBuffer::from(buf))
 }
 
@@ -76,12 +74,11 @@ impl PyNvInfer {
 
     /// Submit a batched buffer for asynchronous inference.
     ///
-    /// The buffer is **consumed**: the ``DsNvBufSurfaceGstBuffer`` guard
+    /// The buffer is **consumed**: the ``SharedBuffer``
     /// becomes invalid after this call.
     ///
     /// Args:
-    ///     batch (Union[DsNvBufSurfaceGstBuffer, int]): Batched NvBufSurface
-    ///         buffer.
+    ///     batch (Union[SharedBuffer, int]): Batched NvBufSurface buffer.
     ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
     ///
     /// Raises:
@@ -108,12 +105,11 @@ impl PyNvInfer {
 
     /// Synchronous inference -- blocks until results arrive (up to 30 s).
     ///
-    /// The buffer is **consumed**: the ``DsNvBufSurfaceGstBuffer`` guard
+    /// The buffer is **consumed**: the ``SharedBuffer``
     /// becomes invalid after this call.
     ///
     /// Args:
-    ///     batch (Union[DsNvBufSurfaceGstBuffer, int]): Batched NvBufSurface
-    ///         buffer.
+    ///     batch (Union[SharedBuffer, int]): Batched NvBufSurface buffer.
     ///     rois (Optional[Dict[int, List[Roi]]]): Per-slot ROI lists.
     ///
     /// Returns:

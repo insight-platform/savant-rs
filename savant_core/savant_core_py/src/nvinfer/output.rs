@@ -239,18 +239,13 @@ impl PyBatchInferenceOutput {
     }
 
     /// Get the output GStreamer buffer.
-    fn buffer(&self) -> PyResult<crate::deepstream::PyDsNvBufSurfaceGstBuffer> {
+    fn buffer(&self) -> PyResult<crate::deepstream::PySharedBuffer> {
         let guard = self.shared.lock();
         let output = guard.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("BatchInferenceOutput has been released")
         })?;
         let shared = output.buffer();
-        let buf = shared.into_buffer().map_err(|_| {
-            pyo3::exceptions::PyRuntimeError::new_err(
-                "Cannot extract buffer: outstanding references",
-            )
-        })?;
-        Ok(crate::deepstream::PyDsNvBufSurfaceGstBuffer::new(buf))
+        Ok(crate::deepstream::PySharedBuffer::from_rust(shared))
     }
 
     fn __repr__(&self) -> String {

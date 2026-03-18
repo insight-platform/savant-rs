@@ -23,8 +23,8 @@ Self-contained reference for agents to write nvinfer Python tests without readin
 - **Native module shadows Python packages** — `savant_rs.nvinfer` is a native PyO3 submodule registered directly in `sys.modules` by the `.so`. The `nvinfer/__init__.py` is **never loaded at runtime**. Type stubs live at `nvinfer/nvinfer.pyi`.
 - **Tensor lifetime / Arc** — `TensorView` holds a reference to the parent `BatchInferenceOutput` via `Arc`. Tensor data (host pointers) remains valid as long as either the `BatchInferenceOutput` or any child `TensorView`/`ElementOutput` is alive. Once all references are dropped, tensor data is freed. Always call `as_bytes()` or `as_numpy()` to copy data before dropping the output.
 - **GIL in callbacks** — The async callback fires on a GStreamer thread with the GIL acquired via `Python::attach()`. Keep callbacks fast; heavy work should be offloaded.
-- **Buffer ownership** — `submit()` and `infer_sync()` consume the `gst::Buffer` from the `DsNvBufSurfaceGstBuffer` guard. After calling either, the guard is invalidated.
-- **batch_id** — Must not be `2**64 - 1` (`u64::MAX`), which maps to `GST_CLOCK_TIME_NONE` and cannot survive the PTS round-trip.
+- **Buffer ownership** — `submit()` and `infer_sync()` consume the `gst::Buffer` from the `SharedBuffer` (via `take_inner()`). After calling either, the `SharedBuffer` is consumed (`is_consumed` is true). All outstanding references (SurfaceView, batch objects) must be deleted before consumption, otherwise the engine raises `RuntimeError: SharedBuffer has outstanding references`.
+- **PTS correlation** — Pipeline correlation is auto-generated internally via `SavantIdMeta` attached to the buffer. There is no separate `batch_id` parameter.
 
 ## Building and Testing savant_python
 

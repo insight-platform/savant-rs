@@ -53,7 +53,7 @@ from savant_rs.gstreamer import FlowResult, InvocationReason, Codec, Mp4Muxer
 ### DeepStream (feature=deepstream)
 ```python
 from savant_rs.deepstream import (
-    DsNvBufSurfaceGstBuffer, SurfaceView,
+    SharedBuffer, SurfaceView,
     BufferGenerator, UniformBatchGenerator,
     init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
 )

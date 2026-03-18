@@ -40,7 +40,7 @@ from picasso_helpers import (
     build_source_spec,
 )
 from savant_rs.deepstream import (
-    DsNvSurfaceBufferGenerator,
+    BufferGenerator,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -98,7 +98,7 @@ class TestPngEncode:
         )
         engine.set_source_spec("png", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 320, 240, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 320, 240, FPS, 1, 0)
 
         frame = make_frame("png", 320, 240)
         frame.pts = 0
@@ -160,7 +160,7 @@ class TestAsyncDrain:
         )
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
         num_frames = 10
 
         for i in range(num_frames):
@@ -200,7 +200,7 @@ class TestAsyncDrain:
         )
         engine.set_source_spec("src-0", spec1)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(4):
             frame = make_frame("src-0")
@@ -254,7 +254,7 @@ class TestAsyncDrain:
         )
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
         num_frames = 100
 
         for i in range(num_frames):
@@ -294,7 +294,7 @@ class TestAsyncDrain:
         )
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
         num_frames = 20
 
         for i in range(num_frames):
@@ -346,7 +346,7 @@ class TestHotSwapEncodeParams:
         )
         engine.set_source_spec("src-0", spec1)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 1280, 720, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, 1280, 720, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0", 1280, 720)
@@ -363,7 +363,7 @@ class TestHotSwapEncodeParams:
         )
         engine.set_source_spec("src-0", spec2)
 
-        gen2 = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, 640, 480, FPS, 1, 0)
+        gen2 = BufferGenerator(VideoFormat.RGBA, 640, 480, FPS, 1, 0)
         for i in range(5, 10):
             frame = make_frame("src-0", 640, 480)
             frame.pts = i * FRAME_DURATION_NS
@@ -429,7 +429,7 @@ class TestConditionalSelectiveRecording:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         # Frame 0: no attributes -> dropped
         frame0 = make_frame("src-0")
@@ -505,8 +505,8 @@ class TestMixedCodecs:
             build_source_spec(encoder_config=build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()),
         )
 
-        gen_bypass = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
-        gen_encode = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen_bypass = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen_encode = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame_b = make_frame("bypass-src")
@@ -564,7 +564,7 @@ class TestEncodeEosReencode:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec())
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -625,7 +625,7 @@ class TestOnGpuMat:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -671,7 +671,7 @@ class TestOnGpuMat:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(3):
             frame = make_frame("src-0")
@@ -720,7 +720,7 @@ class TestOnObjectDrawSpec:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", spec)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         frame = make_frame("src-0")
         frame.pts = 0
@@ -782,7 +782,7 @@ class TestEvictionKeepFor:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=1), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
         frame = make_frame("src-0")
         frame.pts = 0
         frame.duration = FRAME_DURATION_NS
@@ -818,7 +818,7 @@ class TestWatchdog:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=1), callbacks)
         engine.set_source_spec("src-0", SourceSpec(codec=CodecSpec.bypass()))
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         frame1 = make_frame("src-0")
         frame1.pts = 0
@@ -866,7 +866,7 @@ class TestFontFamilyHotSwap:
         spec1 = build_source_spec(font_family="sans-serif")
         engine.set_source_spec("src-0", spec1)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(4):
             frame = make_frame("src-0")
@@ -926,7 +926,7 @@ class TestSustainedMultiSourceEos:
             engine.set_source_spec(sid, SourceSpec(codec=CodecSpec.bypass()))
 
         gens = {
-            sid: DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+            sid: BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
             for sid in sources
         }
 
@@ -990,7 +990,7 @@ class TestHighObjectCount:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec())
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         for i in range(5):
             frame = make_frame("src-0")
@@ -1040,7 +1040,7 @@ class TestPerSourceIdleTimeout:
         engine.set_source_spec("fast", spec_fast)
         engine.set_source_spec("slow", spec_slow)
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         frame_fast = make_frame("fast")
         frame_fast.pts = 0
@@ -1084,7 +1084,7 @@ class TestFrameMetadataPreservation:
         engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
         engine.set_source_spec("src-0", build_source_spec())
 
-        gen = DsNvSurfaceBufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
+        gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
 
         frame = make_frame("src-0")
         frame.pts = 0

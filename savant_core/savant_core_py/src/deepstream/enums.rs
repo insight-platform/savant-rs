@@ -1,6 +1,8 @@
 //! Python enum wrappers and extraction helpers for DeepStream types.
 
-use deepstream_buffers::{ComputeMode, Interpolation, NvBufSurfaceMemType, Padding};
+use deepstream_buffers::{
+    ComputeMode, Interpolation, NvBufSurfaceMemType, Padding, SavantIdMetaKind,
+};
 use pyo3::prelude::*;
 use savant_gstreamer::VideoFormat;
 
@@ -35,6 +37,58 @@ impl From<PyPadding> for Padding {
             PyPadding::RightBottom => Padding::RightBottom,
             PyPadding::Symmetric => Padding::Symmetric,
         }
+    }
+}
+
+// ─── SavantIdMetaKind enum ───────────────────────────────────────────────
+
+/// Kind tag for ``SavantIdMeta`` entries.
+///
+/// Each NvBufSurface buffer can carry a list of ``(SavantIdMetaKind, int)``
+/// pairs that identify the logical frame or batch it belongs to.
+///
+/// - ``FRAME`` — per-frame identifier.
+/// - ``BATCH`` — per-batch identifier.
+#[pyclass(
+    from_py_object,
+    name = "SavantIdMetaKind",
+    module = "savant_rs.deepstream",
+    frozen,
+    eq,
+    eq_int,
+    hash
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PySavantIdMetaKind {
+    #[pyo3(name = "FRAME")]
+    Frame = 0,
+    #[pyo3(name = "BATCH")]
+    Batch = 1,
+}
+
+#[pymethods]
+impl PySavantIdMetaKind {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PySavantIdMetaKind::Frame => "SavantIdMetaKind.FRAME",
+            PySavantIdMetaKind::Batch => "SavantIdMetaKind.BATCH",
+        }
+    }
+}
+
+/// Convert a Python `(SavantIdMetaKind, int)` pair into the Rust enum.
+pub(crate) fn to_rust_id_kind(kind: PySavantIdMetaKind, id: i64) -> SavantIdMetaKind {
+    match kind {
+        PySavantIdMetaKind::Frame => SavantIdMetaKind::Frame(id),
+        PySavantIdMetaKind::Batch => SavantIdMetaKind::Batch(id),
+    }
+}
+
+/// Convert a Rust `SavantIdMetaKind` into a Python `(SavantIdMetaKind, int)` pair.
+pub(crate) fn from_rust_id_kind(kind: &SavantIdMetaKind) -> (PySavantIdMetaKind, i64) {
+    match kind {
+        SavantIdMetaKind::Frame(id) => (PySavantIdMetaKind::Frame, *id),
+        SavantIdMetaKind::Batch(id) => (PySavantIdMetaKind::Batch, *id),
     }
 }
 

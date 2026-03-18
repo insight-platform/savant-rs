@@ -149,7 +149,7 @@ impl PySurfaceView {
     ) -> PyResult<Self> {
         let shared = extract_shared_buffer(buf)?;
         py.detach(|| {
-            let mut view = deepstream_buffers::SurfaceView::from_buffer(shared, slot_index)
+            let mut view = deepstream_buffers::SurfaceView::from_buffer(&shared, slot_index)
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
             if cuda_stream != 0 {
                 view = view.with_cuda_stream(unsafe {

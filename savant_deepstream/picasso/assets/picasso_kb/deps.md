@@ -45,8 +45,9 @@ use deepstream_buffers::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu
 // BufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 // SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
-// SurfaceView::from_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
-// view.into_buffer() — recover gst::Buffer from view before submit (consumes view)
+// SurfaceView::from_gst_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
+// SurfaceView::from_buffer(&shared, slot_index) — create view from SharedBuffer (primary for batched/single)
+// view.into_gst_buffer() — recover gst::Buffer from view (consumes view); or shared.into_buffer() after dropping view
 // SurfaceView::from_cuda_ptr(...) — wrap arbitrary CUDA device memory
 // SurfaceView accessors: buffer(), shared_buffer(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
 // SurfaceView CUDA stream: cuda_stream() → &CudaStream, with_cuda_stream(stream) → Self

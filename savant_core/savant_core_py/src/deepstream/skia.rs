@@ -23,7 +23,7 @@ impl PySkiaContext {
 
     /// Create from an existing NvBufSurface buffer or ``SurfaceView``.
     ///
-    /// Accepts a ``SurfaceView`` (preferred) or a ``DsNvBufSurfaceGstBuffer``
+    /// Accepts a ``SurfaceView`` (preferred) or a ``SharedBuffer``
     /// / raw ``int`` pointer.
     #[staticmethod]
     #[pyo3(signature = (buf, gpu_id=0))]
@@ -43,7 +43,7 @@ impl PySkiaContext {
             return Ok(Self { inner });
         }
         let shared = extract_shared_buffer(buf)?;
-        let view = deepstream_buffers::SurfaceView::from_buffer(shared, 0)
+        let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         let inner = unsafe {
             deepstream_buffers::SkiaRenderer::from_nvbuf(

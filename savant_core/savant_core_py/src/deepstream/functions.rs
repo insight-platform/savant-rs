@@ -1,22 +1,27 @@
 //! Standalone `#[pyfunction]` items for the `savant_rs.deepstream` module.
 
-use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
-use deepstream_buffers::{cuda_init, set_num_filled, transform};
+use super::buffer::{extract_buf_ptr, with_mut_buffer_ref, PySharedBuffer};
+use super::enums::{from_rust_id_kind, PySavantIdMetaKind};
+use deepstream_buffers::transform;
 use gstreamer as gst;
 use pyo3::prelude::*;
-use savant_gstreamer::id_meta::{SavantIdMeta, SavantIdMetaKind};
+use savant_gstreamer::id_meta::SavantIdMeta;
 
 /// Set numFilled on a batched NvBufSurface GstBuffer.
 ///
 /// Args:
-///     buf (GstBuffer | int): Buffer containing a batched NvBufSurface.
+///     buf (SharedBuffer | int): Buffer containing a batched NvBufSurface.
 ///     count (int): Number of filled slots.
 #[pyfunction]
 #[pyo3(name = "set_num_filled")]
 pub fn py_set_num_filled(buf: &Bound<'_, PyAny>, count: u32) -> PyResult<()> {
     with_mut_buffer_ref(buf, |buf_ref| {
-        set_num_filled(buf_ref, count)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+        let surf_ptr = unsafe {
+            transform::extract_nvbufsurface(buf_ref)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        };
+        unsafe { (*surf_ptr).numFilled = count };
+        Ok(())
     })
 }
 
@@ -27,7 +32,8 @@ pub fn py_set_num_filled(buf: &Bound<'_, PyAny>, count: u32) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(name = "init_cuda", signature = (gpu_id=0))]
 pub fn py_init_cuda(gpu_id: u32) -> PyResult<()> {
-    cuda_init(gpu_id).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    deepstream_buffers::cuda_init(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
 /// Returns GPU memory currently used, in MiB.
@@ -109,22 +115,12 @@ pub fn py_has_nvenc(gpu_id: u32) -> PyResult<bool> {
 ///     list[tuple[str, int]]: Meta entries, e.g. ``[("frame", 42)]``.
 #[pyfunction]
 #[pyo3(name = "get_savant_id_meta")]
-pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(String, i64)>> {
+pub fn py_get_savant_id_meta(buf: &Bound<'_, PyAny>) -> PyResult<Vec<(PySavantIdMetaKind, i64)>> {
     let buf_ptr = extract_buf_ptr(buf)?;
     unsafe {
         let buf_ref = gst::BufferRef::from_ptr(buf_ptr as *const gst::ffi::GstBuffer);
         match buf_ref.meta::<SavantIdMeta>() {
-            Some(meta) => {
-                let ids = meta
-                    .ids()
-                    .iter()
-                    .map(|k| match k {
-                        SavantIdMetaKind::Frame(id) => ("frame".to_string(), *id),
-                        SavantIdMetaKind::Batch(id) => ("batch".to_string(), *id),
-                    })
-                    .collect();
-                Ok(ids)
-            }
+            Some(meta) => Ok(meta.ids().iter().map(from_rust_id_kind).collect()),
             None => Ok(vec![]),
         }
     }
@@ -151,4 +147,27 @@ pub fn py_get_nvbufsurface_info(buf: &Bound<'_, PyAny>) -> PyResult<(usize, u32,
             params.height,
         ))
     }
+}
+
+/// Debug-only mock consumer that simulates Rust-side buffer deconstruction.
+///
+/// Calls ``take_inner()`` followed by ``into_buffer()`` on the
+/// ``SharedBuffer``, verifying the full consumption lifecycle.
+/// Fails if the buffer has outstanding `Arc` references (e.g. a live
+/// ``SurfaceView``).
+///
+/// Available only in debug builds.
+#[cfg(debug_assertions)]
+#[pyfunction]
+#[pyo3(name = "_test_consume_shared_buffer")]
+pub fn py_test_consume_shared_buffer(buf: &Bound<'_, PyAny>) -> PyResult<()> {
+    let mut sb = buf.extract::<PyRefMut<'_, PySharedBuffer>>()?;
+    let shared = sb.take_inner()?;
+    shared.into_buffer().map_err(|returned| {
+        sb.restore(returned);
+        pyo3::exceptions::PyRuntimeError::new_err(
+            "SharedBuffer has outstanding references; drop all SurfaceViews before consuming",
+        )
+    })?;
+    Ok(())
 }

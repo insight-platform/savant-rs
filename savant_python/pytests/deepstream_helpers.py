@@ -22,11 +22,11 @@ def make_gen(
     w: int,
     h: int,
     pool_size: int = 4,
-) -> "savant_rs.deepstream.DsNvSurfaceBufferGenerator":
-    """Create a ``DsNvSurfaceBufferGenerator`` with given parameters."""
+) -> "savant_rs.deepstream.BufferGenerator":
+    """Create a ``BufferGenerator`` with given parameters."""
     import savant_rs.deepstream as ds
 
-    return ds.DsNvSurfaceBufferGenerator(fmt, w, h, pool_size=pool_size)
+    return ds.BufferGenerator(fmt, w, h, pool_size=pool_size)
 
 
 # ─── Memory-leak test helpers ──────────────────────────────────────────

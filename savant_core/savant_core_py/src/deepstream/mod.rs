@@ -12,10 +12,10 @@ pub mod skia;
 pub mod surface_view;
 
 // Re-export types used by other crate modules (picasso, nvinfer).
-pub use buffer::PyDsNvBufSurfaceGstBuffer;
+pub use buffer::PySharedBuffer;
 pub(crate) use buffer::{extract_gst_buffer, extract_shared_buffer};
 pub use config::{PyDstPadding, PyRect, PyTransformConfig};
-pub use enums::{PyMemType, PyVideoFormat};
+pub use enums::{PyMemType, PySavantIdMetaKind, PyVideoFormat};
 pub use surface_view::PySurfaceView;
 
 use gstreamer as gst;
@@ -32,10 +32,11 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<enums::PyComputeMode>()?;
     m.add_class::<enums::PyVideoFormat>()?;
     m.add_class::<enums::PyMemType>()?;
+    m.add_class::<enums::PySavantIdMetaKind>()?;
     m.add_class::<config::PyRect>()?;
     m.add_class::<config::PyDstPadding>()?;
     m.add_class::<config::PyTransformConfig>()?;
-    m.add_class::<buffer::PyDsNvBufSurfaceGstBuffer>()?;
+    m.add_class::<buffer::PySharedBuffer>()?;
     m.add_class::<surface_view::PySurfaceView>()?;
     m.add_class::<generators::PyBufferGenerator>()?;
     m.add_class::<generators::PyUniformBatchGenerator>()?;
@@ -50,6 +51,11 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(functions::py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(
         functions::py_get_nvbufsurface_info,
+        m
+    )?)?;
+    #[cfg(debug_assertions)]
+    m.add_function(pyo3::wrap_pyfunction!(
+        functions::py_test_consume_shared_buffer,
         m
     )?)?;
     m.add_class::<skia::PySkiaContext>()?;

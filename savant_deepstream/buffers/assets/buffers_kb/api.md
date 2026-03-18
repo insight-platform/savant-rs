@@ -11,9 +11,6 @@ Crate: `deepstream_buffers`
 |---|---|---|
 | `cuda_init` | `(gpu_id: u32) → Result<(), NvBufSurfaceError>` | Must call before creating generators outside DeepStream |
 | `bridge_savant_id_meta` | `(element: &gst::Element)` | PTS-keyed meta bridge for encoders |
-| `memset_surface` | `(view: &SurfaceView, value: u8) → Result<(), NvBufSurfaceError>` | Fill the first surface with a constant byte value. Platform-aware: uses CUDA driver API on dGPU, NvBufSurfaceMap on Jetson. Unsafety contained in `SurfaceView` construction. |
-| `fill_surface` | `(view: &SurfaceView, color: &[u8]) → Result<(), NvBufSurfaceError>` | Fill surface with a per-pixel color pattern. `color.len()` must match `view.channels()`. Each pixel row is filled with the repeating color pattern. Platform-aware. |
-| `upload_to_surface` | `(view: &SurfaceView, data: &[u8], width: u32, height: u32, channels: u32) → Result<(), NvBufSurfaceError>` | Upload CPU pixel data to the first surface. `channels`: 4 for RGBA, 3 for RGB. Row-by-row copy respecting GPU pitch. Platform-aware (CUDA on dGPU, NvBufSurfaceMap on Jetson). Unsafety contained in `SurfaceView` construction. ⚠ 5 args, not 4. |
 
 ### Enums
 | Enum | Variants |
@@ -36,7 +33,6 @@ pub use BufferGenerator, BufferGeneratorBuilder;  // from buffers/single
 pub use UniformBatchGenerator, UniformBatchGeneratorBuilder,
         SurfaceBatch;  // from buffers/batched/uniform
 pub use NonUniformBatch;     // from buffers/batched/non_uniform
-pub use fill_surface, memset_surface, upload_to_surface;  // from surface_ops
 ```
 
 ---
@@ -199,17 +195,23 @@ uses `extract_slot_view` internally.
 
 | Constructor | Signature | Notes |
 |---|---|---|
-| `from_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, E>` | Wraps buffer in `SharedBuffer`, resolves CUDA ptr for slot. |
+| `from_gst_buffer` | `(buf: gst::Buffer, slot_index: u32) → Result<Self, E>` | Wraps buffer in `SharedBuffer`, resolves CUDA ptr for slot. |
 | `from_buffer` | `(buf: &SharedBuffer, slot_index: u32) → Result<Self, E>` | **Primary constructor** for batched access. Borrows buf, clones Arc internally. Create one view per slot. |
 | `from_cuda_ptr` | `(data_ptr, pitch, w, h, gpu_id, channels, color_format, keepalive) → Result<Self, E>` | Synthetic descriptor around raw CUDA ptr |
 | `wrap` | `(buf: gst::Buffer) → Self` | `#[cfg(any(test, feature = "testing"))]` only. Wrap plain buffer without NvBufSurface validation (zeroed params). |
 
 | Accessor | Signature |
 |---|---|
-| `buffer` | `(&self) → MutexGuard<'_, gst::Buffer>` | Lock for read/write; replaces old `buffer()` and `buffer_mut()`. |
+| `gst_buffer` | `(&self) → MutexGuard<'_, gst::Buffer>` | Lock for read/write access to the underlying buffer. |
 | `shared_buffer` | `(&self) → SharedBuffer` | Clone of internal handle; for sibling views or encoder. |
 | `slot_index` | `(&self) → u32` | Batch slot index this view refers to. |
-| `into_buffer` | `(self) → Result<gst::Buffer, Self>` | Extract buffer; **fails** if other refs exist (returns `Err(self)`). |
+| `into_gst_buffer` | `(self) → Result<gst::Buffer, Self>` | Extract buffer; **fails** if other refs exist (returns `Err(self)`). |
+
+| Method | Signature | Notes |
+|---|---|---|
+| `memset` | `(&self, value: u8) → Result<(), NvBufSurfaceError>` | Fill surface with constant byte value. Uses CUDA driver API. |
+| `fill` | `(&self, color: &[u8]) → Result<(), NvBufSurfaceError>` | Fill with repeating pixel colour. `color.len()` must match `channels()`. Supports 1 (GRAY8) and 4 (RGBA) channels. |
+| `upload` | `(&self, data: &[u8], width: u32, height: u32, channels: u32) → Result<(), NvBufSurfaceError>` | Upload CPU pixel data. Row-by-row copy respecting GPU pitch. ⚠ 5 args: data, width, height, channels. |
 | `cuda_stream` | `(&self) → &CudaStream` | CUDA stream for synchronization on release |
 | `with_cuda_stream` | `(self, stream: CudaStream) → Self` | Override the stream; chainable |
 

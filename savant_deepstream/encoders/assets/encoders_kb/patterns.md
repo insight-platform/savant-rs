@@ -139,9 +139,9 @@ fn test_codec_submit_and_pull() {
     let mut encoder = NvEncoder::new(&config).unwrap();
     let dur = 33_333_333u64;
     for i in 0..5u128 {
-        let buf = encoder.generator().acquire(Some(i as i64)).unwrap();
-        let shared = SharedBuffer::from(buf);
-        encoder.submit_frame(shared, i, i as u64 * dur, Some(dur)).unwrap();
+        let shared = encoder.generator().acquire(Some(i as i64)).unwrap();
+        let buffer = shared.into_buffer().expect("sole owner");
+        encoder.submit_frame(buffer, i, i as u64 * dur, Some(dur)).unwrap();
     }
     let frames = encoder.finish(Some(5000)).unwrap();
     assert!(!frames.is_empty());
@@ -186,12 +186,12 @@ fn test_raw_rgba_pixel_data_round_trip() {
     let mut input_pixels = vec![0u8; (w as usize) * (h as usize) * bpp];
     // ... fill with pattern ...
 
-    let buf = encoder.generator().acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(buf, 0).unwrap();
-    deepstream_buffers::upload_to_surface(&view, &input_pixels, w, h, 4)
-        .expect("upload failed");
-    let shared = SharedBuffer::from(view.into_buffer().unwrap());
-    encoder.submit_frame(shared, 42, 0, Some(33_333_333)).unwrap();
+    let shared = encoder.generator().acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&shared, 0).unwrap();
+    view.upload(&input_pixels, w, h, 4).expect("upload failed");
+    drop(view);
+    let buffer = shared.into_buffer().expect("sole owner");
+    encoder.submit_frame(buffer, 42, 0, Some(33_333_333)).unwrap();
     let frames = encoder.finish(Some(5000)).unwrap();
     assert_eq!(frames[0].data, input_pixels);
 }

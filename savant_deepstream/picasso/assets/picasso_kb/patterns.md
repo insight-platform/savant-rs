@@ -77,17 +77,17 @@ fn make_gpu_surface_view(
     idx: u64,
     dur_ns: u64,
 ) -> deepstream_buffers::SurfaceView {
-    let buf = gen.acquire(Some(idx as i64)).unwrap();
-    deepstream_buffers::SurfaceView::from_buffer(buf, 0).unwrap()
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    deepstream_buffers::SurfaceView::from_buffer(&shared, 0).unwrap()
 }
 ```
-Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests (consumes buf by value). On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_buffer(shared.clone(), i)`.
+Acquires a GPU buffer and creates a validated `SurfaceView` for encode tests. On Jetson, `from_buffer` triggers EGL-CUDA registration for the surface. For batched buffers accessed multiple times, use `SurfaceView::from_buffer(&shared, i)`.
 
 ### Make GPU Buffer (internal helper)
 ```rust
 fn make_gpu_buffer(gen: &BufferGenerator, idx: u64, dur_ns: u64) -> gstreamer::Buffer {
-    let buf = gen.acquire(Some(idx as i64)).unwrap();
-    buf
+    let shared = gen.acquire(Some(idx as i64)).unwrap();
+    shared.into_buffer().expect("sole owner")
 }
 ```
 

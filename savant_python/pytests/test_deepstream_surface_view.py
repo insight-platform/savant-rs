@@ -26,8 +26,8 @@ ds = _ds
 @skip_no_ds_runtime
 class TestSurfaceViewFromBuffer:
     def test_basic_properties(self):
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 320, 240, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 320, 240, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert view.width == 320
         assert view.height == 240
@@ -38,8 +38,8 @@ class TestSurfaceViewFromBuffer:
 
     def test_cuda_array_interface_roundtrip(self):
         """from_buffer → __cuda_array_interface__ → from_cuda_array round-trip."""
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 640, 480, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 640, 480, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
 
         iface = view.__cuda_array_interface__
@@ -57,14 +57,14 @@ class TestSurfaceViewFromBuffer:
 
     def test_cuda_array_interface_hasattr(self):
         """SurfaceView must expose __cuda_array_interface__ for external consumers."""
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 64, 64, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert hasattr(view, "__cuda_array_interface__")
 
     def test_gray8_shape(self):
-        gen = ds.DsNvSurfaceBufferGenerator("GRAY8", 256, 128, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("GRAY8", 256, 128, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         assert view.channels == 1
         iface = view.__cuda_array_interface__
@@ -189,8 +189,8 @@ class TestSurfaceViewFromCuPy:
         """SurfaceView (from buffer) must be consumable by CuPy as external consumer."""
         import cupy as cp
 
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 48, 32, pool_size=1)
-        buf = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 48, 32, pool_size=1)
+        buf = gen.acquire()
         view = ds.SurfaceView.from_buffer(buf, 0)
         arr = cp.asarray(view)
         assert arr.shape == (32, 48, 4)

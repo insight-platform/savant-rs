@@ -66,10 +66,10 @@ from savant_rs.picasso import (
 engine = PicassoEngine(GeneralSpec(idle_timeout_secs=300), callbacks)
 # 2. Set source spec(s)
 engine.set_source_spec("src-0", spec)
-# 3. Send frames (GPU only) — buf is SurfaceView, DsNvBufSurfaceGstBuffer, int, or __cuda_array_interface__ object
+# 3. Send frames (GPU only) — buf is SurfaceView, SharedBuffer, int, or __cuda_array_interface__ object
 engine.send_frame("src-0", frame, surface_view)   # preferred: SurfaceView
 engine.send_frame("src-0", frame, cupy_array)      # __cuda_array_interface__ object
-engine.send_frame("src-0", frame, buf)             # legacy: DsNvBufSurfaceGstBuffer or int
+engine.send_frame("src-0", frame, buf)             # legacy: SharedBuffer or int
 # 4. Send EOS when done
 engine.send_eos("src-0")
 # 5. Wait for async processing
@@ -119,7 +119,7 @@ FPS = 30
 FRAME_DURATION_NS = 1_000_000_000 // FPS
 
 gen = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
-buf = gen.acquire(id=frame_idx)  # returns DsNvBufSurfaceGstBuffer (RAII guard, auto-unrefs)
+buf = gen.acquire(id=frame_idx)  # returns SharedBuffer
 # pts/duration are taken from the VideoFrame; set them before send_frame:
 frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
@@ -134,7 +134,7 @@ cuda_frame = cp.zeros((HEIGHT, WIDTH, 4), dtype=cp.uint8)
 surface_view = SurfaceView.from_cuda_array(cuda_frame)
 engine.send_frame("src-0", frame, surface_view)
 
-# Legacy: pass DsNvBufSurfaceGstBuffer or int pointer directly (still works)
+# Legacy: pass SharedBuffer or int pointer directly (still works)
 engine.send_frame("src-0", frame, buf)
 # buf.ptr gives raw int pointer; buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
 ```
@@ -356,7 +356,7 @@ locking is needed for the animation state within a single source.
 ⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height)`.
 Use `nvbuf_as_gpu_mat(data_ptr, pitch, width, height)` inside the callback.
 Use `nvgstbuf_as_gpu_mat(buf)` outside callbacks (e.g. pre-filling
-backgrounds before `send_frame`) where you have a `DsNvBufSurfaceGstBuffer` guard (or raw `int` pointer).
+backgrounds before `send_frame`) where you have a `SharedBuffer` (or raw `int` pointer).
 
 ---
 
@@ -495,7 +495,7 @@ a layered scene.  The composition order is:
 
 ```python
 import cv2
-from savant_rs.deepstream import DsNvBufSurfaceGstBuffer, nvgstbuf_as_gpu_mat
+from savant_rs.deepstream import SharedBuffer, nvgstbuf_as_gpu_mat
 from savant_rs.draw_spec import (
     BoundingBoxDraw, ColorDraw, DotDraw, LabelDraw,
     LabelPosition, ObjectDraw, PaddingDraw,
@@ -524,7 +524,7 @@ def build_draw_spec() -> ObjectDrawSpec:
     return spec
 
 # 2. Per-frame: pre-fill bg + add objects + send
-buf = gen.acquire(id=i)  # DsNvBufSurfaceGstBuffer RAII guard
+buf = gen.acquire(id=i)  # SharedBuffer
 with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
     mat.setTo((18, 20, 28, 255), stream=stream)       # dark background
 

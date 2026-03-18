@@ -78,7 +78,7 @@ pub enum NvBufSurfaceError {
 | `SurfaceUnmapFailed` | `NvBufSurfaceUnMap()` returns non-zero (Jetson CPU-staging path) |
 | `SurfaceSyncFailed` | `NvBufSurfaceSyncForDevice()` returns non-zero (Jetson CPU-staging path) |
 | `CudaDriverError` | `cuMemsetD8_v2` or `cuMemcpyHtoD_v2` fails in `surface_ops` (dGPU path) |
-| `InvalidInput` | `upload_to_surface` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_buffers` failure propagated from `surface_ops` |
+| `InvalidInput` | `SurfaceView::upload` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_buffers` failure |
 
 ---
 

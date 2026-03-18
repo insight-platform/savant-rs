@@ -180,10 +180,10 @@ from savant_rs.gstreamer import Codec, Mp4Muxer
 
 ```python
 from savant_rs.deepstream import (
-    DsNvBufSurfaceGstBuffer, SurfaceView,
+    SharedBuffer, SurfaceView,
     BufferGenerator, UniformBatchGenerator,
     SurfaceBatch, NonUniformBatch,
-    Rect, Padding, Interpolation, ComputeMode, VideoFormat, MemType,
+    Rect, Padding, Interpolation, ComputeMode, VideoFormat, MemType, SavantIdMetaKind,
     TransformConfig, DstPadding,
     init_cuda, gpu_mem_used_mib, jetson_model, is_jetson_kernel, has_nvenc,
     SkiaContext,                # GPU Skia rendering context

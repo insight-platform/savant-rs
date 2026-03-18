@@ -7,12 +7,13 @@ import pytest
 
 # ─── DeepStream feature detection ──────────────────────────────────────────
 
+
 def _deepstream_feature_compiled() -> bool:
     """Return True if the savant_rs wheel was built with ``deepstream`` feature."""
     try:
         import savant_rs.deepstream as ds
 
-        return hasattr(ds, "DsNvSurfaceBufferGenerator")
+        return hasattr(ds, "BufferGenerator")
     except ImportError:
         return False
 
@@ -30,8 +31,8 @@ def _deepstream_runtime_available() -> bool:
         import savant_rs.deepstream as ds
 
         ds.init_cuda(0)
-        gen = ds.DsNvSurfaceBufferGenerator("RGBA", 64, 64, pool_size=1)
-        _ = gen.acquire_surface()
+        gen = ds.BufferGenerator("RGBA", 64, 64, pool_size=1)
+        _ = gen.acquire()
         return True
     except Exception:
         return False
@@ -51,6 +52,7 @@ skip_no_ds_runtime = pytest.mark.skipif(
 
 
 # ─── Optional library detection ────────────────────────────────────────────
+
 
 def _has_cv2_cuda() -> bool:
     try:

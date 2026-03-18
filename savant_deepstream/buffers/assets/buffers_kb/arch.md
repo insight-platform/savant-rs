@@ -21,7 +21,7 @@ savant_deepstream/buffers/
 │   ├── shared_buffer.rs         # SharedBuffer: Arc<parking_lot::Mutex<gst::Buffer>>,
 │   │                           #   shared currency for SurfaceView, Picasso, encoder
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
-│   ├── surface_ops.rs          # memset_surface, upload_to_surface (platform-aware)
+│   │                           #   memset, fill, upload (methods on SurfaceView)
 │   ├── buffers.rs              # re-exports single + batched
 │   ├── buffers/
 │   │   ├── single.rs           # BufferGenerator + Builder (batchSize=1)
@@ -298,8 +298,8 @@ so the meta **survives GstBufferPool recycles**. Pool of 1 buffer, N acquisition
 
 | Module | Functions | Jetson path | dGPU path |
 |---|---|---|---|
-| `surface_view` | `from_buffer`, `from_buffer` | `EglCudaMeta::ensure_meta(buf, slot_index)` per-slot (zero-copy EGL-CUDA interop, permanent mapping, POOLED meta) | Direct `NvBufSurfaceParams::dataPtr` |
-| `surface_ops` | `memset_surface`, `upload_to_surface` | Take `&SurfaceView` → `cuMemsetD8_v2`, `cudaMemcpy2D` | Take `&SurfaceView` → `cuMemsetD8_v2`, `cudaMemcpy2D` |
+| `surface_view` | `from_buffer`, `from_gst_buffer` | `EglCudaMeta::ensure_meta(buf, slot_index)` per-slot (zero-copy EGL-CUDA interop, permanent mapping, POOLED meta) | Direct `NvBufSurfaceParams::dataPtr` |
+| `surface_view` | `memset`, `fill`, `upload` (methods) | `view.memset()`, `view.fill()`, `view.upload()` — CUDA driver API | Same: `cuMemsetD8_v2`, `cuMemsetD32_v2`, `cudaMemcpy2D` |
 | `skia_renderer` | `load_from_nvbuf`, `from_nvbuf`, `render_to_nvbuf`, `render_to_nvbuf_with_ptr`, `render_to_nvbuf_raw` | `render_to_nvbuf` creates a `SurfaceView` internally to resolve the CUDA pointer and **keeps the view alive** until after the pointer is used (prevents use-after-free on Jetson where COW buffer copy would invalidate the EGL-CUDA pointer if dropped early). `render_to_nvbuf_with_ptr`/`render_to_nvbuf_raw`: caller supplies `(data_ptr, pitch)`. Scaled path creates `SurfaceView` internally for temp buffer. | Same: caller supplies pointer for `*_with_ptr`/`*_raw`; `render_to_nvbuf` creates `SurfaceView` internally |
 | `transform` | `clear_surface_black` (letterbox padding) | `clear_surface_black_mapped`: Map → zero all planes → Sync → Unmap | `cudaMemset2DAsync` + `cudaStreamSynchronize` |
 
@@ -322,7 +322,7 @@ PyO3 bindings live in `savant_core/savant_core_py/src/deepstream.rs`, not
 in this crate. They wrap:
 - `SurfaceBatch` → `PySurfaceBatch`
 - `NonUniformBatch` → `PyNonUniformBatch`
-- `gst::Buffer` wrapper → `PyDsNvBufSurfaceGstBuffer`
+- `SharedBuffer` → `PySharedBuffer` (uses `Option<SharedBuffer>` internally for Python move semantics; no constructors/clone/deconstruct exposed)
 - `SurfaceView` → `PySurfaceView`
 - Free functions: `set_num_filled`, `render_to_nvbuf`, `set_buffer_pts`, etc.
 

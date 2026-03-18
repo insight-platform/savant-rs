@@ -80,9 +80,8 @@ def test_e2e():
 
     try:
         # ... prepare buffer, ROIs ...
-        output = engine.infer_sync(batch=gst_buffer, batch_id=1, rois=rois)
+        output = engine.infer_sync(batch=gst_buffer, rois=rois)
 
-        assert output.batch_id == 1
         assert output.num_elements == expected_count
 
         for elem in output.elements:
@@ -117,7 +116,7 @@ def test_e2e_async():
     engine = NvInfer(config, callback=on_output)
 
     try:
-        engine.submit(batch=gst_buffer, batch_id=3, rois=rois)
+        engine.submit(batch=gst_buffer, rois=rois)
         assert done.wait(timeout=30), "callback not invoked within 30 s"
         output = result_holder[0]
         # ... validate output ...
@@ -323,36 +322,41 @@ batch.upload_slot(0, pixels)
 src_gen = BufferGenerator(
     format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
 )
-src_buf, data_ptr, pitch = src_gen.acquire_with_ptr(0)
-_upload_canvas_to_gpu(canvas, data_ptr, pitch)
+src_buf = src_gen.acquire(id=0)
+view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, W, H) as (gpu_mat, stream):
+    gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
 batched_gen = UniformBatchGenerator(
     format="RGBA", width=W, height=H,
     max_batch_size=32, pool_size=2, gpu_id=0,
 )
 config = TransformConfig()
-batch = batched_gen.acquire_batch(config)
-batch.transform_slot(src_buf, id=0)
+batch = batched_gen.acquire_batch(config, ids=[(SavantIdMetaKind.FRAME, 0)])
+batch.transform_slot(0, src_buf)
 batch.finalize()
-gst_buffer = batch.as_gst_buffer()
+gst_buffer = batch.shared_buffer()
+del batch, view, src_buf, src_gen  # release Arc refs before consumption
 ```
 
 ## Nonuniform batching pattern
 
-Nonuniform batching aggregates source buffer pointers without GPU
-transform/copy.  After calling `as_gst_buffer()`, delete all source
-references so the gst_buffer has refcount 1 (writable).
+Nonuniform batching aggregates source buffer views without GPU
+transform/copy.  After calling `finalize()`, delete all source
+references so the SharedBuffer can be exclusively consumed.
 
 ```python
 src_gen = BufferGenerator(
     format="RGBA", width=W, height=H, gpu_id=0, pool_size=1,
 )
-src_buf, data_ptr, pitch = src_gen.acquire_with_ptr(0)
-_upload_canvas_to_gpu(canvas, data_ptr, pitch)
+src_buf = src_gen.acquire(id=0)
+view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
+with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, W, H) as (gpu_mat, stream):
+    gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
-batch = NonUniformBatch(max_batch_size=32, gpu_id=0)
-batch.add(src_buf, id=0)
-batch.finalize()
-gst_buffer = batch.as_gst_buffer()
-del batch, src_buf, src_gen  # ensure gst_buffer refcount == 1
+batch = NonUniformBatch(gpu_id=0)
+src_view = SurfaceView.from_buffer(src_buf)
+batch.add(src_view)
+gst_buffer = batch.finalize(ids=[(SavantIdMetaKind.FRAME, 0)])
+del batch, src_view, view, src_buf, src_gen  # release Arc refs before consumption
 ```

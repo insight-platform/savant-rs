@@ -1,147 +1,144 @@
-//! `DsNvBufSurfaceGstBuffer` — RAII guard for NvBufSurface-backed GStreamer
-//! buffers, plus utility functions for extracting buffer pointers and shared
-//! references from Python arguments.
+//! `PySharedBuffer` — safe Python wrapper for `SharedBuffer`, plus utility
+//! functions for extracting buffer pointers and shared references from Python
+//! arguments.
 
+use super::enums::{from_rust_id_kind, to_rust_id_kind, PySavantIdMetaKind};
 use deepstream_buffers::SharedBuffer;
 use glib::translate::from_glib_none;
 use gstreamer as gst;
 use pyo3::prelude::*;
 
-// ─── DsNvBufSurfaceGstBuffer guard ──────────────────────────────────────
+// ─── PySharedBuffer ─────────────────────────────────────────────────────
 
-/// RAII guard for an NvBufSurface-backed ``GstBuffer``.
+/// Safe Python wrapper for a `SharedBuffer`.
 ///
-/// Wraps a GStreamer buffer and automatically unrefs it when the Python
-/// object is garbage-collected.  Use ``ptr`` to obtain the raw pointer
-/// for interop with functions that accept raw addresses, and ``take``
-/// to transfer ownership out of the guard.
-#[pyclass(name = "DsNvBufSurfaceGstBuffer", module = "savant_rs.deepstream")]
-pub struct PyDsNvBufSurfaceGstBuffer {
-    inner: Option<SharedBuffer>,
-}
+/// Uses the `Option<T>` pattern to emulate Rust move semantics in Python.
+/// After a consuming Rust method (e.g. `nvinfer.submit`) calls
+/// [`take_inner`](Self::take_inner), the wrapper becomes empty and all
+/// subsequent property access raises `RuntimeError`.
+///
+/// Python code cannot construct, clone, or deconstruct this type.
+#[pyclass(name = "SharedBuffer", module = "savant_rs.deepstream")]
+pub struct PySharedBuffer(Option<SharedBuffer>);
 
-const CONSUMED_MSG: &str = "DsNvBufSurfaceGstBuffer has already been consumed via take(); \
-                            create a new one with as_gst_buffer() or from_ptr()";
+const CONSUMED_MSG: &str = "SharedBuffer has been consumed";
 
-impl PyDsNvBufSurfaceGstBuffer {
-    pub fn new(buffer: gst::Buffer) -> Self {
-        Self {
-            inner: Some(SharedBuffer::from(buffer)),
-        }
+impl PySharedBuffer {
+    /// Wrap a Rust `SharedBuffer` for Python.  Only callable from Rust.
+    pub fn from_rust(shared: SharedBuffer) -> Self {
+        Self(Some(shared))
     }
 
-    /// Return the raw pointer as `usize`, or an error if consumed.
-    pub fn ptr_usize(&self) -> PyResult<usize> {
-        let shared = self
-            .inner
-            .as_ref()
-            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(CONSUMED_MSG))?;
-        let guard = shared.lock();
-        Ok(guard.as_ref().as_ptr() as usize)
-    }
-
-    /// Borrow the inner [`SharedBuffer`].
+    /// Borrow the inner `SharedBuffer`.
     ///
     /// Callers that need a [`SurfaceView`] should clone this (cheap Arc
-    /// clone) and pass it to [`SurfaceView::from_buffer`].  The GstBuffer
-    /// GLib refcount stays at 1, avoiding COW in `resolve_cuda_ptr` and
-    /// preserving POOLED `EglCudaMeta` across pool recycles.
+    /// clone) and pass it to `SurfaceView::from_buffer`.
     pub(crate) fn shared(&self) -> PyResult<&SharedBuffer> {
-        self.inner
+        self.0
             .as_ref()
             .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(CONSUMED_MSG))
     }
 
-    /// Take exclusive ownership of the inner `gst::Buffer`, leaving the
-    /// guard empty.  Fails if the Arc has outstanding clones (e.g. a
-    /// `SurfaceView` still holds a reference).
-    pub(crate) fn take_buffer(&mut self) -> PyResult<gst::Buffer> {
-        let shared = self
-            .inner
-            .take()
-            .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err(CONSUMED_MSG))?;
-        shared.into_buffer().map_err(|returned| {
-            self.inner = Some(returned);
-            pyo3::exceptions::PyRuntimeError::new_err(
-                "buffer is shared with outstanding SurfaceViews; drop them first",
-            )
-        })
+    /// Consume the inner `SharedBuffer`, leaving the wrapper empty.
+    ///
+    /// Logs `debug!` on success and `warn!` on double-consume.
+    pub(crate) fn take_inner(&mut self) -> PyResult<SharedBuffer> {
+        let self_ptr = self as *const Self as usize;
+
+        let current = self.0.as_ref().ok_or_else(|| {
+            log::warn!("SharedBuffer@{self_ptr:#x}: attempt to consume already-consumed buffer");
+            pyo3::exceptions::PyRuntimeError::new_err(CONSUMED_MSG)
+        })?;
+
+        let gst_ptr = {
+            let guard = current.lock();
+            guard.as_ref().as_ptr() as usize
+        };
+        let pts = current.pts_ns();
+
+        let shared = self.0.take().unwrap();
+        log::debug!("SharedBuffer@{self_ptr:#x} consumed: gst_ptr={gst_ptr:#x}, pts={pts:?}");
+        Ok(shared)
+    }
+
+    /// Restore a previously taken `SharedBuffer` (e.g. on failed `into_buffer`).
+    pub(crate) fn restore(&mut self, shared: SharedBuffer) {
+        self.0 = Some(shared);
     }
 }
 
 #[pymethods]
-impl PyDsNvBufSurfaceGstBuffer {
-    /// Wrap a raw ``GstBuffer*`` pointer in a guard.
-    ///
-    /// Args:
-    ///     ptr (int): Raw ``GstBuffer*`` pointer address.
-    ///     add_ref (bool): If ``True`` (default) an additional reference
-    ///         is taken — use for borrowed pointers (pad probes,
-    ///         callbacks).  If ``False`` the guard assumes ownership of
-    ///         an existing reference — use for pointers obtained via the
-    ///         legacy ``int``-returning API.
-    ///
-    /// Raises:
-    ///     ValueError: If *ptr* is 0 (null).
-    #[staticmethod]
-    #[pyo3(signature = (ptr, add_ref=true))]
-    fn from_ptr(ptr: usize, add_ref: bool) -> PyResult<Self> {
-        if ptr == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err("ptr is null"));
-        }
-        let buffer = unsafe {
-            if add_ref {
-                gst::Buffer::from_glib_none(ptr as *const gst::ffi::GstBuffer)
-            } else {
-                gst::Buffer::from_glib_full(ptr as *mut gst::ffi::GstBuffer)
-            }
-        };
-        Ok(Self::new(buffer))
-    }
-
-    /// Raw ``GstBuffer*`` pointer address.
-    ///
-    /// Raises:
-    ///     RuntimeError: If the buffer has been consumed via ``take``.
+impl PySharedBuffer {
+    /// Number of strong `Arc` references to the underlying buffer.
     #[getter]
-    fn ptr(&self) -> PyResult<usize> {
-        self.ptr_usize()
+    fn strong_count(&self) -> PyResult<usize> {
+        Ok(self.shared()?.strong_count())
     }
 
-    /// Transfer ownership out of the guard and return the raw pointer.
-    ///
-    /// After this call the guard is empty — ``ptr`` will raise and the
-    /// destructor becomes a no-op.
+    /// Buffer PTS in nanoseconds, or ``None`` if unset.
+    #[getter]
+    fn pts_ns(&self) -> PyResult<Option<u64>> {
+        Ok(self.shared()?.pts_ns())
+    }
+
+    /// Set the buffer PTS in nanoseconds.
+    #[setter]
+    fn set_pts_ns(&self, pts_ns: u64) -> PyResult<()> {
+        self.shared()?.set_pts_ns(pts_ns);
+        Ok(())
+    }
+
+    /// Buffer duration in nanoseconds, or ``None`` if unset.
+    #[getter]
+    fn duration_ns(&self) -> PyResult<Option<u64>> {
+        Ok(self.shared()?.duration_ns())
+    }
+
+    /// Set the buffer duration in nanoseconds.
+    #[setter]
+    fn set_duration_ns(&self, duration_ns: u64) -> PyResult<()> {
+        self.shared()?.set_duration_ns(duration_ns);
+        Ok(())
+    }
+
+    /// Read ``SavantIdMeta`` from the buffer.
     ///
     /// Returns:
-    ///     int: Raw ``GstBuffer*`` pointer (caller owns the reference).
-    ///
-    /// Raises:
-    ///     RuntimeError: If already consumed or buffer is shared.
-    fn take(&mut self) -> PyResult<usize> {
-        let buffer = self.take_buffer()?;
-        let raw = unsafe {
-            use glib::translate::IntoGlibPtr;
-            buffer.into_glib_ptr() as usize
-        };
-        Ok(raw)
+    ///     list[tuple[SavantIdMetaKind, int]]: Meta entries,
+    ///         e.g. ``[(SavantIdMetaKind.FRAME, 42)]``.
+    fn savant_ids(&self) -> PyResult<Vec<(PySavantIdMetaKind, i64)>> {
+        let ids = self.shared()?.savant_ids();
+        Ok(ids.iter().map(from_rust_id_kind).collect())
     }
 
-    fn __repr__(&self) -> String {
-        match &self.inner {
-            Some(shared) => {
-                let guard = shared.lock();
-                format!(
-                    "DsNvBufSurfaceGstBuffer(ptr=0x{:x})",
-                    guard.as_ref().as_ptr() as usize
-                )
-            }
-            None => "DsNvBufSurfaceGstBuffer(<consumed>)".to_string(),
-        }
+    /// Replace ``SavantIdMeta`` on the buffer.
+    ///
+    /// Args:
+    ///     ids (list[tuple[SavantIdMetaKind, int]]): Meta entries to set.
+    fn set_savant_ids(&self, ids: Vec<(PySavantIdMetaKind, i64)>) -> PyResult<()> {
+        let kinds = ids
+            .into_iter()
+            .map(|(kind, id)| to_rust_id_kind(kind, id))
+            .collect();
+        self.shared()?.set_savant_ids(kinds);
+        Ok(())
+    }
+
+    /// ``True`` if the buffer has been consumed (inner is ``None``).
+    #[getter]
+    fn is_consumed(&self) -> bool {
+        self.0.is_none()
     }
 
     fn __bool__(&self) -> bool {
-        self.inner.is_some()
+        self.0.is_some()
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.0 {
+            Some(shared) => format!("SharedBuffer(strong_count={})", shared.strong_count()),
+            None => "SharedBuffer(<consumed>)".to_string(),
+        }
     }
 }
 
@@ -149,7 +146,7 @@ impl PyDsNvBufSurfaceGstBuffer {
 
 /// Obtain a `&mut gst::BufferRef` from a Python buffer argument.
 ///
-/// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner `gst::Buffer` is
+/// When `buf` is a [`PySharedBuffer`] the inner `gst::Buffer` is
 /// accessed via the `SharedBuffer` mutex lock.  Because the
 /// GstBuffer GLib refcount is always 1, `make_mut()` succeeds in-place
 /// without COW.  For raw integer pointers writability is checked explicitly.
@@ -157,7 +154,7 @@ pub(crate) fn with_mut_buffer_ref<F, R>(buf: &Bound<'_, PyAny>, f: F) -> PyResul
 where
     F: FnOnce(&mut gst::BufferRef) -> PyResult<R>,
 {
-    if let Ok(guard) = buf.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>() {
+    if let Ok(guard) = buf.extract::<PyRef<'_, PySharedBuffer>>() {
         let shared = guard.shared()?;
         let mut lock = shared.lock();
         let buf_ref = lock.make_mut();
@@ -166,12 +163,12 @@ where
 
     let raw = buf.extract::<usize>().map_err(|_| {
         pyo3::exceptions::PyTypeError::new_err(
-            "expected DsNvBufSurfaceGstBuffer or int (raw GstBuffer* pointer)",
+            "expected SharedBuffer or int (raw GstBuffer* pointer)",
         )
     })?;
     if raw == 0 {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "GstBuffer pointer is null (0); pass a valid DsNvBufSurfaceGstBuffer \
+            "GstBuffer pointer is null (0); pass a valid SharedBuffer \
              or a non-zero raw pointer",
         ));
     }
@@ -181,7 +178,7 @@ where
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "GstBuffer is not writable (refcount > 1). When passing a raw \
                  pointer, ensure the buffer is exclusively owned. Prefer passing \
-                 a DsNvBufSurfaceGstBuffer object instead \u{2014} it handles \
+                 a SharedBuffer object instead \u{2014} it handles \
                  copy-on-write automatically.",
             ));
         }
@@ -190,16 +187,16 @@ where
     }
 }
 
-/// Extract a raw ``GstBuffer*`` pointer from either a ``DsNvBufSurfaceGstBuffer`` guard
-/// or a plain ``int``.
+/// Extract a raw ``GstBuffer*`` pointer from either a ``SharedBuffer`` or
+/// a plain ``int``.
 pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
-    if let Ok(guard) = ob.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>() {
-        return guard.ptr_usize();
+    if let Ok(guard) = ob.extract::<PyRef<'_, PySharedBuffer>>() {
+        let shared = guard.shared()?;
+        let lock = shared.lock();
+        return Ok(lock.as_ref().as_ptr() as usize);
     }
     let raw = ob.extract::<usize>().map_err(|_| {
-        pyo3::exceptions::PyTypeError::new_err(
-            "expected DsNvBufSurfaceGstBuffer or int (raw pointer)",
-        )
+        pyo3::exceptions::PyTypeError::new_err("expected SharedBuffer or int (raw pointer)")
     })?;
     if raw == 0 {
         return Err(pyo3::exceptions::PyValueError::new_err("buf_ptr is null"));
@@ -209,12 +206,12 @@ pub(crate) fn extract_buf_ptr(ob: &Bound<'_, PyAny>) -> PyResult<usize> {
 
 /// Extract a [`SharedBuffer`] from a Python buffer argument.
 ///
-/// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner shared buffer
+/// When `buf` is a [`PySharedBuffer`] the inner shared buffer
 /// is cloned (cheap Arc clone — GstBuffer refcount stays at 1).
 /// For raw `usize` pointers a new `SharedBuffer` is created
 /// from the transferred-ownership buffer.
 pub(crate) fn extract_shared_buffer(buf: &Bound<'_, PyAny>) -> PyResult<SharedBuffer> {
-    if let Ok(guard) = buf.extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>() {
+    if let Ok(guard) = buf.extract::<PyRef<'_, PySharedBuffer>>() {
         return Ok(guard.shared()?.clone());
     }
     let gst_buf = extract_gst_buffer(buf)?;
@@ -224,19 +221,17 @@ pub(crate) fn extract_shared_buffer(buf: &Bound<'_, PyAny>) -> PyResult<SharedBu
 /// Extract a `gst::Buffer` from a Python buffer argument with correct
 /// refcount handling.
 ///
-/// When `buf` is a [`PyDsNvBufSurfaceGstBuffer`] the inner buffer pointer
+/// When `buf` is a [`PySharedBuffer`] the inner buffer pointer
 /// is borrowed (`from_glib_none` — refcount incremented), because the
 /// Python object retains ownership. For raw `usize` pointers the buffer is
 /// assumed to be transferred (`from_glib_full` — no extra refcount).
 ///
 /// GStreamer must already be initialised before calling this function.
 pub(crate) fn extract_gst_buffer(buf: &Bound<'_, PyAny>) -> PyResult<gst::Buffer> {
-    let is_guard = buf
-        .extract::<PyRef<'_, PyDsNvBufSurfaceGstBuffer>>()
-        .is_ok();
+    let is_shared = buf.extract::<PyRef<'_, PySharedBuffer>>().is_ok();
     let buf_ptr = extract_buf_ptr(buf)?;
     let gst_buf = unsafe {
-        if is_guard {
+        if is_shared {
             from_glib_none(buf_ptr as *const gst::ffi::GstBuffer)
         } else {
             gst::Buffer::from_glib_full(buf_ptr as *mut gst::ffi::GstBuffer)

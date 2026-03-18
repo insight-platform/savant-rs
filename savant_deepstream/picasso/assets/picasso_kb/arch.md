@@ -65,7 +65,7 @@ downstream consumers see correct metadata.
 send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
   → WorkerMessage::Frame(proxy, view, src_rect) via crossbeam bounded channel (capacity = GeneralSpec.inflight_queue_size, default 8; GeneralSpec.pts_reset_policy propagated to worker)
   → worker_loop receives
-  → apply_frame_timestamps_to_buffer(frame, view.buffer().make_mut())
+  → apply_frame_timestamps_to_buffer(frame, view.gst_buffer().make_mut())
   → WorkerState::process_frame
     → check encode_attribute gate (skip if missing)
     → match CodecSpec::Encode
@@ -73,18 +73,18 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
       → process_encode:
          1. Lock encoder, get generator
          2. GPU affinity check (view.gpu_id() vs generator.gpu_id → GpuMismatch)
-         3. GPU transform via view.buffer() (always `generator.transform`)
+         3. GPU transform via view.gst_buffer() (always `generator.transform`)
          4. Unlock encoder
          5. rewrite_frame_transformations (coordinate mapping)
          6. If on_gpumat active OR Skia rendering needed: wrap `dst_buf` in `SharedBuffer::from(dst_buf)`, create `SurfaceView::from_buffer(shared.clone(), 0)` for the entire encode scope
          7. Skia + on_gpumat order per CallbackInvocationOrder:
-            - Skia receives `(data_ptr, pitch)` from the SurfaceView; `do_skia_render` uses `view.buffer()` (returns `MutexGuard<gst::Buffer>`) and passes them to `load_from_nvbuf(data_ptr, pitch)` and `render_to_nvbuf_with_ptr(buf_ref, data_ptr, pitch, None)`
+            - Skia receives `(data_ptr, pitch)` from the SurfaceView; `do_skia_render` uses `view.gst_buffer()` (returns `MutexGuard<gst::Buffer>`) and passes them to `load_from_nvbuf(data_ptr, pitch)` and `render_to_nvbuf_with_ptr(buf_ref, data_ptr, pitch, None)`
             - SkiaGpuMat: Skia (draw specs, load_from_nvbuf, draw, on_render, render_to_nvbuf_with_ptr) then on_gpumat(&SurfaceView)
             - GpuMatSkia: on_gpumat(&SurfaceView) then Skia
             - GpuMatSkiaGpuMat: on_gpumat(&SurfaceView) → Skia → on_gpumat(&SurfaceView)
             (each on_gpumat receives &SurfaceView + worker's cuda_stream; cudaStreamSynchronize after each)
         11. Drop view; pass `SharedBuffer` directly to submit
-        12. Lock encoder, submit_frame(shared, ...)
+        12. Lock encoder, submit_frame(buffer, ...) — buffer from shared.into_buffer()
         13. Insert into pending_frames (only after successful submit)
         14. Drain thread pulls output independently
 ```
@@ -93,7 +93,7 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
 When `use_on_render=false` AND `draw` spec is empty for a source, `should_render`
 is false, `render_opts` is `None`, and process_encode skips the entire Skia path:
 - Always uses `generator.transform()` (no separate `transform_with_ptr` path)
-- `SurfaceView` is created from `SharedBuffer` via `from_buffer(shared.clone(), 0)` when either `on_gpumat` OR Skia rendering is needed; view is dropped before submit, and `SharedBuffer` is passed directly to `submit_frame`
+- `SurfaceView` is created from `SharedBuffer` via `from_buffer(&shared, 0)` when either `on_gpumat` OR Skia rendering is needed; view is dropped before submit, then `shared.into_buffer()` extracts `gst::Buffer` for `submit_frame`
 - Skia block skipped entirely: no EGL lock, no SkiaRenderer, no canvas
 - Frame goes straight from GPU transform to encoder submit
 

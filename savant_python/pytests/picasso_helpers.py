@@ -14,7 +14,7 @@ import math
 from typing import Optional
 
 from savant_rs.deepstream import (
-    DsNvSurfaceBufferGenerator,
+    BufferGenerator,
     SurfaceView,
     TransformConfig,
     VideoFormat,
@@ -107,11 +107,11 @@ def make_frame(
 
 
 def make_nvmm_buffer(
-    gen: DsNvSurfaceBufferGenerator,
+    gen: BufferGenerator,
     frame_id: int,
 ) -> SurfaceView:
     """Acquire a GPU buffer and wrap as SurfaceView (mirrors Rust test helper)."""
-    buf = gen.acquire_surface(id=frame_id)
+    buf = gen.acquire(id=frame_id)
     return SurfaceView.from_buffer(buf)
 
 
