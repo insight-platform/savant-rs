@@ -23,9 +23,7 @@ const H: u32 = 480;
 const DUR: u64 = 33_333_333;
 
 /// OnObjectDrawSpec callback that overrides "alert" with red bbox, uses static for "car", None for "ignored".
-struct ObjectDrawSpecOverride {
-    call_count: Arc<AtomicUsize>,
-}
+struct ObjectDrawSpecOverride(Arc<AtomicUsize>);
 
 impl OnObjectDrawSpec for ObjectDrawSpecOverride {
     fn call(
@@ -34,7 +32,7 @@ impl OnObjectDrawSpec for ObjectDrawSpecOverride {
         object: &savant_core::primitives::object::BorrowedVideoObject,
         _current_spec: Option<&ObjectDraw>,
     ) -> Option<ObjectDraw> {
-        self.call_count.fetch_add(1, Ordering::SeqCst);
+        self.0.fetch_add(1, Ordering::SeqCst);
         let label = object.get_label();
         match label.as_str() {
             "alert" => {
@@ -71,9 +69,7 @@ fn e2e_on_object_draw_spec() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_object_draw_spec: Some(Arc::new(ObjectDrawSpecOverride {
-            call_count: callback_count.clone(),
-        })),
+        on_object_draw_spec: Some(Arc::new(ObjectDrawSpecOverride(callback_count.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),

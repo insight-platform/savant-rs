@@ -241,15 +241,11 @@ impl OverlayCtx {
     }
 }
 
-struct BenchOnRender {
-    ctx: parking_lot::Mutex<OverlayCtx>,
-}
+struct BenchOnRender(parking_lot::Mutex<OverlayCtx>);
 
 impl BenchOnRender {
     fn new() -> Self {
-        Self {
-            ctx: parking_lot::Mutex::new(OverlayCtx::new()),
-        }
+        Self(parking_lot::Mutex::new(OverlayCtx::new()))
     }
 }
 
@@ -262,7 +258,7 @@ impl OnRender for BenchOnRender {
     ) {
         let canvas = renderer.canvas();
         let frame_idx = frame.get_pts() as u64 / FRAME_DURATION_NS;
-        let mut ctx = self.ctx.lock();
+        let mut ctx = self.0.lock();
         draw_scene_overlay(canvas, &mut ctx, frame_idx, frame);
     }
 }

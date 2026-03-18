@@ -50,13 +50,11 @@ fn send_frame_with_pts(
 }
 
 /// Collects `StreamResetReason` events.
-struct ResetCollector {
-    events: Arc<Mutex<Vec<(String, StreamResetReason)>>>,
-}
+struct ResetCollector(Arc<Mutex<Vec<(String, StreamResetReason)>>>);
 
 impl OnStreamReset for ResetCollector {
     fn call(&self, source_id: &str, reason: StreamResetReason) {
-        self.events.lock().push((source_id.to_string(), reason));
+        self.0.lock().push((source_id.to_string(), reason));
     }
 }
 
@@ -79,9 +77,7 @@ fn pts_reset_eos_policy_fires_eos_and_reencodes() {
             count: enc_count.clone(),
             eos_count: eos_count.clone(),
         })),
-        on_stream_reset: Some(Arc::new(ResetCollector {
-            events: reset_events.clone(),
-        })),
+        on_stream_reset: Some(Arc::new(ResetCollector(reset_events.clone()))),
         ..Default::default()
     };
 
@@ -196,9 +192,7 @@ fn pts_reset_recreate_policy_no_eos() {
             count: enc_count.clone(),
             eos_count: eos_count.clone(),
         })),
-        on_stream_reset: Some(Arc::new(ResetCollector {
-            events: reset_events.clone(),
-        })),
+        on_stream_reset: Some(Arc::new(ResetCollector(reset_events.clone()))),
         ..Default::default()
     };
 
@@ -297,9 +291,7 @@ fn pts_reset_triggered_by_equal_pts() {
             count: enc_count.clone(),
             eos_count: eos_count.clone(),
         })),
-        on_stream_reset: Some(Arc::new(ResetCollector {
-            events: reset_events.clone(),
-        })),
+        on_stream_reset: Some(Arc::new(ResetCollector(reset_events.clone()))),
         ..Default::default()
     };
 
@@ -380,9 +372,7 @@ fn pts_reset_multiple_consecutive_resets() {
             count: enc_count.clone(),
             eos_count: eos_count.clone(),
         })),
-        on_stream_reset: Some(Arc::new(ResetCollector {
-            events: reset_events.clone(),
-        })),
+        on_stream_reset: Some(Arc::new(ResetCollector(reset_events.clone()))),
         ..Default::default()
     };
 

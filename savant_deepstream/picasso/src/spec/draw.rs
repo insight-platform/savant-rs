@@ -27,9 +27,7 @@ impl Equivalent<(String, String)> for StrPairKey<'_> {
 ///
 /// Lookup is strict — only exact matches are returned.
 #[derive(Debug, Clone, Default)]
-pub struct ObjectDrawSpec {
-    map: HashMap<(String, String), ObjectDraw>,
-}
+pub struct ObjectDrawSpec(HashMap<(String, String), ObjectDraw>);
 
 impl ObjectDrawSpec {
     pub fn new() -> Self {
@@ -38,7 +36,7 @@ impl ObjectDrawSpec {
 
     /// Insert a draw spec for the given `(namespace, label)` key.
     pub fn insert(&mut self, namespace: &str, label: &str, draw: ObjectDraw) {
-        self.map
+        self.0
             .insert((namespace.to_string(), label.to_string()), draw);
     }
 
@@ -47,20 +45,20 @@ impl ObjectDrawSpec {
     /// Uses [`StrPairKey`] to avoid heap-allocating two `String`s on every
     /// call — this is the hot path (called per object per frame).
     pub fn lookup(&self, namespace: &str, label: &str) -> Option<&ObjectDraw> {
-        self.map.get(&StrPairKey(namespace, label))
+        self.0.get(&StrPairKey(namespace, label))
     }
 
     /// Iterate over all `(key, ObjectDraw)` entries.
     pub fn iter(&self) -> impl Iterator<Item = (&(String, String), &ObjectDraw)> {
-        self.map.iter()
+        self.0.iter()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.map.is_empty()
+        self.0.is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.map.len()
+        self.0.len()
     }
 }
 

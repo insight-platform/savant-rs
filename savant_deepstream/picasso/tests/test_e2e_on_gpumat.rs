@@ -42,9 +42,7 @@ struct GpuMatCall {
 
 /// Callback that records metadata **and** performs a real CUDA memory read
 /// to prove the pointer is CUDA-addressable.
-struct GpuMatRecorder {
-    calls: Arc<Mutex<Vec<GpuMatCall>>>,
-}
+struct GpuMatRecorder(Arc<Mutex<Vec<GpuMatCall>>>);
 
 impl OnGpuMat for GpuMatRecorder {
     fn call(
@@ -76,7 +74,7 @@ impl OnGpuMat for GpuMatRecorder {
 
         let has_nonzero_pixel = host_row.iter().any(|&b| b != 0);
 
-        self.calls.lock().unwrap().push(GpuMatCall {
+        self.0.lock().unwrap().push(GpuMatCall {
             source_id: source_id.to_string(),
             data_ptr,
             pitch,
@@ -100,9 +98,7 @@ fn e2e_on_gpumat_fires_when_enabled() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -182,9 +178,7 @@ fn e2e_on_gpumat_does_not_fire_when_disabled() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -293,9 +287,7 @@ fn e2e_callback_order_gpumat_skia() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),
@@ -370,9 +362,7 @@ fn e2e_callback_order_gpumat_skia_gpumat() {
     let enc_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_gpumat: Some(Arc::new(GpuMatRecorder {
-            calls: calls.clone(),
-        })),
+        on_gpumat: Some(Arc::new(GpuMatRecorder(calls.clone()))),
         on_encoded_frame: Some(Arc::new(CountingEncodedCb {
             count: enc_count.clone(),
             eos_count: Arc::new(AtomicUsize::new(0)),

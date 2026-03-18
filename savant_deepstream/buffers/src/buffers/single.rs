@@ -32,9 +32,7 @@ use crate::{
 ///
 /// let buffer = gen.acquire(None).unwrap();
 /// ```
-pub struct BufferGenerator {
-    inner: UniformBatchGenerator,
-}
+pub struct BufferGenerator(UniformBatchGenerator);
 
 /// Builder for [`BufferGenerator`] with advanced pool configuration.
 ///
@@ -57,38 +55,36 @@ pub struct BufferGenerator {
 ///     .build()
 ///     .unwrap();
 /// ```
-pub struct BufferGeneratorBuilder {
-    inner: UniformBatchGeneratorBuilder,
-}
+pub struct BufferGeneratorBuilder(UniformBatchGeneratorBuilder);
 
 impl BufferGeneratorBuilder {
     /// Set the framerate (numerator / denominator).
     pub fn fps(mut self, num: i32, den: i32) -> Self {
-        self.inner = self.inner.fps(num, den);
+        self.0 = self.0.fps(num, den);
         self
     }
 
     /// Set the GPU device ID (default: 0).
     pub fn gpu_id(mut self, gpu_id: u32) -> Self {
-        self.inner = self.inner.gpu_id(gpu_id);
+        self.0 = self.0.gpu_id(gpu_id);
         self
     }
 
     /// Set the NvBufSurface memory type (default: [`NvBufSurfaceMemType::Default`]).
     pub fn mem_type(mut self, mem_type: NvBufSurfaceMemType) -> Self {
-        self.inner = self.inner.mem_type(mem_type);
+        self.0 = self.0.mem_type(mem_type);
         self
     }
 
     /// Set the minimum number of pre-allocated buffers in the pool (default: 0 = dynamic).
     pub fn min_buffers(mut self, min: u32) -> Self {
-        self.inner = self.inner.min_buffers(min);
+        self.0 = self.0.min_buffers(min);
         self
     }
 
     /// Set the maximum number of buffers in the pool (default: 0 = unlimited).
     pub fn max_buffers(mut self, max: u32) -> Self {
-        self.inner = self.inner.max_buffers(max);
+        self.0 = self.0.max_buffers(max);
         self
     }
 
@@ -99,8 +95,8 @@ impl BufferGeneratorBuilder {
     /// Returns an error if the buffer pool cannot be created, configured,
     /// or activated.
     pub fn build(self) -> Result<BufferGenerator, NvBufSurfaceError> {
-        let inner = self.inner.build()?;
-        Ok(BufferGenerator { inner })
+        let inner = self.0.build()?;
+        Ok(BufferGenerator(inner))
     }
 }
 
@@ -133,7 +129,7 @@ impl BufferGenerator {
         let inner = UniformBatchGenerator::create_pool(
             format, width, height, 1, 0, 0, fps_num, fps_den, gpu_id, mem_type,
         )?;
-        Ok(Self { inner })
+        Ok(Self(inner))
     }
 
     /// Return a builder for advanced pool configuration.
@@ -141,11 +137,11 @@ impl BufferGenerator {
     /// The builder requires `format`, `width`, and `height`. All other
     /// parameters have sensible defaults.
     pub fn builder(format: VideoFormat, width: u32, height: u32) -> BufferGeneratorBuilder {
-        BufferGeneratorBuilder {
-            inner: UniformBatchGenerator::builder(format, width, height, 1)
+        BufferGeneratorBuilder(
+            UniformBatchGenerator::builder(format, width, height, 1)
                 .min_buffers(0)
                 .max_buffers(0),
-        }
+        )
     }
 
     /// Return NVMM-featured caps matching this generator's format/dimensions.
@@ -167,22 +163,22 @@ impl BufferGenerator {
     /// // gen.nvmm_caps() returns a String representation of the caps
     /// ```
     pub fn nvmm_caps(&self) -> String {
-        self.inner.nvmm_caps()
+        self.0.nvmm_caps()
     }
 
     /// Return NVMM caps as a `gst::Caps` object (for pipeline integration).
     pub(crate) fn nvmm_caps_gst(&self) -> gstreamer::Caps {
-        self.inner.nvmm_caps_gst()
+        self.0.nvmm_caps_gst()
     }
 
     /// Return raw (non-NVMM) caps matching this generator's format/dimensions.
     pub fn raw_caps(&self) -> String {
-        self.inner.raw_caps()
+        self.0.raw_caps()
     }
 
     /// Return raw caps as a `gst::Caps` object (for pipeline integration).
     pub(crate) fn raw_caps_gst(&self) -> gstreamer::Caps {
-        self.inner.raw_caps_gst()
+        self.0.raw_caps_gst()
     }
 
     /// Acquire a buffer from the internal pool with NvBufSurface ready for use.
@@ -201,7 +197,7 @@ impl BufferGenerator {
     ///   [`SavantIdMeta`](savant_gstreamer::id_meta::SavantIdMeta) containing
     ///   `Frame(id)` is attached to the buffer.
     pub fn acquire(&self, id: Option<i64>) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
-        self.inner.acquire(id)
+        self.0.acquire(id)
     }
 
     /// Transform (scale + letterbox) a source surface into a new destination
@@ -223,7 +219,7 @@ impl BufferGenerator {
         config: &TransformConfig,
         src_rect: Option<&Rect>,
     ) -> Result<crate::SharedBuffer, NvBufSurfaceError> {
-        let shared = self.inner.acquire(None)?;
+        let shared = self.0.acquire(None)?;
         let dst_view = crate::SurfaceView::from_buffer(&shared, 0)?;
         src.transform_into(&dst_view, config, src_rect)?;
         drop(dst_view);
@@ -232,21 +228,21 @@ impl BufferGenerator {
 
     /// Get the width of buffers produced by this generator.
     pub fn width(&self) -> u32 {
-        self.inner.width()
+        self.0.width()
     }
 
     /// Get the height of buffers produced by this generator.
     pub fn height(&self) -> u32 {
-        self.inner.height()
+        self.0.height()
     }
 
     /// Get the video format of buffers produced by this generator.
     pub fn format(&self) -> VideoFormat {
-        self.inner.format()
+        self.0.format()
     }
 
     /// Get the GPU device ID this generator allocates buffers on.
     pub fn gpu_id(&self) -> u32 {
-        self.inner.gpu_id()
+        self.0.gpu_id()
     }
 }

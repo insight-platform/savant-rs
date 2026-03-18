@@ -41,9 +41,7 @@ impl From<&NvDsInferDims> for InferDims {
 /// This is a non-owning wrapper: the underlying memory is managed by
 /// DeepStream and remains valid as long as the parent `gst::Sample` (or
 /// buffer) is alive.
-pub struct InferTensorMeta {
-    raw: *mut NvDsInferTensorMeta,
-}
+pub struct InferTensorMeta(*mut NvDsInferTensorMeta);
 
 // SAFETY: InferTensorMeta is a non-owning view into DeepStream-managed memory.
 // The pointer is valid for the lifetime of the parent gst::Sample, which is
@@ -67,44 +65,44 @@ impl InferTensorMeta {
         if raw.is_null() {
             return Err(DeepStreamError::null_pointer("InferTensorMeta::from_raw"));
         }
-        Ok(Self { raw })
+        Ok(Self(raw))
     }
 
     /// Get the raw pointer.
     pub fn as_raw(&self) -> *mut NvDsInferTensorMeta {
-        self.raw
+        self.0
     }
 
     /// Get the unique identifier for this inference tensor metadata.
     pub fn unique_id(&self) -> u32 {
-        unsafe { (*self.raw).unique_id }
+        unsafe { (*self.0).unique_id }
     }
 
     /// Number of output layers.
     pub fn num_output_layers(&self) -> u32 {
-        unsafe { (*self.raw).num_output_layers }
+        unsafe { (*self.0).num_output_layers }
     }
 
     /// GPU ID.
     pub fn gpu_id(&self) -> i32 {
-        unsafe { (*self.raw).gpu_id }
+        unsafe { (*self.0).gpu_id }
     }
 
     /// Whether aspect ratio is maintained.
     pub fn maintain_aspect_ratio(&self) -> bool {
-        unsafe { (*self.raw).maintain_aspect_ratio != 0 }
+        unsafe { (*self.0).maintain_aspect_ratio != 0 }
     }
 
     /// Raw pointer to the output-layers info array.
     pub fn output_layers_info(&self) -> *mut deepstream_sys::NvDsInferLayerInfo {
-        unsafe { (*self.raw).output_layers_info }
+        unsafe { (*self.0).output_layers_info }
     }
 
     /// Human-readable names for each output layer.
     pub fn layer_names(&self) -> Vec<String> {
         let n = self.num_output_layers() as usize;
         let mut names = Vec::with_capacity(n);
-        let mut cur = unsafe { (*self.raw).output_layers_info };
+        let mut cur = unsafe { (*self.0).output_layers_info };
         for _ in 0..n {
             let name = unsafe {
                 CStr::from_ptr((*cur).layerName)
@@ -125,7 +123,7 @@ impl InferTensorMeta {
     pub fn layer_dimensions(&self) -> Vec<InferDims> {
         let n = self.num_output_layers() as usize;
         let mut dims = Vec::with_capacity(n);
-        let mut cur = unsafe { (*self.raw).output_layers_info };
+        let mut cur = unsafe { (*self.0).output_layers_info };
         for _ in 0..n {
             dims.push(unsafe { InferDims::from(&(*cur).__bindgen_anon_1.dims) });
             cur = unsafe { cur.add(1) };
@@ -137,7 +135,7 @@ impl InferTensorMeta {
     pub fn layer_data_types(&self) -> Vec<NvDsInferDataType> {
         let n = self.num_output_layers() as usize;
         let mut types = Vec::with_capacity(n);
-        let mut cur = unsafe { (*self.raw).output_layers_info };
+        let mut cur = unsafe { (*self.0).output_layers_info };
         for _ in 0..n {
             types.push(unsafe { (*cur).dataType });
             cur = unsafe { cur.add(1) };
@@ -149,7 +147,7 @@ impl InferTensorMeta {
     pub fn out_buf_ptrs_host(&self) -> Vec<*mut c_void> {
         let n = self.num_output_layers() as usize;
         let mut ptrs = Vec::with_capacity(n);
-        let mut cur = unsafe { (*self.raw).out_buf_ptrs_host };
+        let mut cur = unsafe { (*self.0).out_buf_ptrs_host };
         for _ in 0..n {
             if cur.is_null() {
                 break;
@@ -164,7 +162,7 @@ impl InferTensorMeta {
     pub fn out_buf_ptrs_dev(&self) -> Vec<*mut c_void> {
         let n = self.num_output_layers() as usize;
         let mut ptrs = Vec::with_capacity(n);
-        let mut cur = unsafe { (*self.raw).out_buf_ptrs_dev };
+        let mut cur = unsafe { (*self.0).out_buf_ptrs_dev };
         for _ in 0..n {
             if cur.is_null() {
                 break;
@@ -177,13 +175,13 @@ impl InferTensorMeta {
 
     /// Network info structure.
     pub fn network_info(&self) -> deepstream_sys::NvDsInferNetworkInfo {
-        unsafe { (*self.raw).network_info }
+        unsafe { (*self.0).network_info }
     }
 }
 
 impl Clone for InferTensorMeta {
     fn clone(&self) -> Self {
-        Self { raw: self.raw }
+        Self(self.0)
     }
 }
 

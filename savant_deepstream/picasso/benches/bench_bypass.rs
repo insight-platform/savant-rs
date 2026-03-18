@@ -95,15 +95,13 @@ fn make_buffer(gen: &BufferGenerator, idx: u64) -> SurfaceView {
 }
 
 /// Bypass sink that counts frames and performs sanity assertions.
-struct BypassSink {
-    count: Arc<AtomicUsize>,
-}
+struct BypassSink(Arc<AtomicUsize>);
 
 impl OnBypassFrame for BypassSink {
     fn call(&self, output: OutputMessage) {
         match output {
             OutputMessage::VideoFrame(frame) => {
-                self.count.fetch_add(1, Ordering::Relaxed);
+                self.0.fetch_add(1, Ordering::Relaxed);
 
                 // Source ID must start with our prefix.
                 assert!(
@@ -198,9 +196,7 @@ fn main() {
     let bypass_count = Arc::new(AtomicUsize::new(0));
 
     let callbacks = Callbacks {
-        on_bypass_frame: Some(Arc::new(BypassSink {
-            count: bypass_count.clone(),
-        })),
+        on_bypass_frame: Some(Arc::new(BypassSink(bypass_count.clone()))),
         on_encoded_frame: Some(Arc::new(EosOnlyEncodedSink)),
         ..Default::default()
     };
