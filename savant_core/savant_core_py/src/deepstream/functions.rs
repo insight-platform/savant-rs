@@ -1,6 +1,8 @@
 //! Standalone `#[pyfunction]` items for the `savant_rs.deepstream` module.
 
-use super::buffer::{extract_buf_ptr, with_mut_buffer_ref, PySharedBuffer};
+use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
+#[cfg(debug_assertions)]
+use super::buffer::PySharedBuffer;
 use super::enums::{from_rust_id_kind, PySavantIdMetaKind};
 use deepstream_buffers::transform;
 use gstreamer as gst;

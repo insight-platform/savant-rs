@@ -62,6 +62,7 @@ impl PySharedBuffer {
     }
 
     /// Restore a previously taken `SharedBuffer` (e.g. on failed `into_buffer`).
+    #[allow(dead_code)]
     pub(crate) fn restore(&mut self, shared: SharedBuffer) {
         self.0 = Some(shared);
     }
