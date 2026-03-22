@@ -38,7 +38,7 @@ nvidia_gpu_utils = { workspace = true, optional = true }
 nvinfer = { path = "../../savant_deepstream/nvinfer", optional = true }
 picasso = { path = "../../savant_deepstream/picasso", optional = true }
 skia-safe = { workspace = true, optional = true }
-numpy = { version = "0.28", optional = true }
+numpy = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 prometheus-client = { workspace = true }

@@ -26,7 +26,7 @@ savant_gstreamer = { workspace = true }
 
 # Skia rendering (optional)
 skia-safe = { workspace = true, optional = true }
-gl = { version = "0.14", optional = true }
+gl = { workspace = true, optional = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -37,7 +37,7 @@ skia = ["dep:skia-safe", "dep:gl"]
 testing = []
 
 [dev-dependencies]
-env_logger = "0.11"
+env_logger = { workspace = true }
 clap = { workspace = true }
 ctrlc = { workspace = true }
 nvidia_gpu_utils = { workspace = true }

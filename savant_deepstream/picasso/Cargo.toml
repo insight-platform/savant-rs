@@ -30,15 +30,12 @@ log = { workspace = true }
 
 [dev-dependencies]
 deepstream_buffers = { path = "../buffers", features = ["testing"] }
-env_logger = "0.11"
+env_logger = { workspace = true }
 nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
-imagehash = "0.3"
-image = { version = "0.24", default-features = false, features = [
-    "jpeg",
-    "png",
-] }
+imagehash = { workspace = true }
+image = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]

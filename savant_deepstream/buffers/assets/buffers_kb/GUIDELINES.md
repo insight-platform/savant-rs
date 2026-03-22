@@ -28,3 +28,6 @@ Self-contained reference for agents to write Rust code/tests for the
 - `⚠` = important caveat
 - `GPU` = requires CUDA/NvBufSurface runtime
 - `pool_size=2` = use small pools in leak smoke tests to catch leaked refs
+
+## Cargo
+Third-party crates (including optional `gl` and dev-only `env_logger`) are declared in the repo root `[workspace.dependencies]` and referenced here as `{ workspace = true }` so versions stay centralized.

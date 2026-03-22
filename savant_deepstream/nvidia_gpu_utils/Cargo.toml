@@ -24,7 +24,7 @@ clap = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
-nvml-wrapper = "0.12"
+nvml-wrapper = { workspace = true }
 
 [dev-dependencies]
 deepstream_buffers = { path = "../buffers" }
