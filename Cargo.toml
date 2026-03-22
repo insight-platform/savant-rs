@@ -97,7 +97,10 @@ gst-plugin-version-helper = "0.8"
 half = "2.5"
 hashbrown = { version = "0.15", features = ["serde"] }
 
-image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.24", default-features = false, features = [
+    "jpeg",
+    "png",
+] }
 imagehash = "0.3"
 
 jmespath = { version = "0.3", features = ["sync"] }
@@ -136,8 +139,8 @@ prometheus-client = "0.23"
 prost = "0.13"
 prost-types = "0.13"
 prost-build = "0.13"
-pyo3 = "0.28.1"
-pyo3-build-config = "0.28.1"
+pyo3 = "0.28.2"
+pyo3-build-config = "0.28.2"
 
 rand = "0.9"
 rayon = "1.10"
