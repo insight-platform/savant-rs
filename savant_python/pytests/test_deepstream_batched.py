@@ -39,9 +39,7 @@ class TestBatchedConstruction:
         assert gen is not None
 
     def test_create_custom_params(self):
-        gen = ds.UniformBatchGenerator(
-            "NV12", 320, 240, 8, pool_size=4, gpu_id=0
-        )
+        gen = ds.UniformBatchGenerator("NV12", 320, 240, 8, pool_size=4, gpu_id=0)
         assert gen is not None
 
     def test_batch_size_1(self):
@@ -457,8 +455,10 @@ class TestBatchedMemoryLeak:
         gc.collect()
         assert_no_leak(
             "batched acquire/drop without finalize",
-            cpu_before, cpu_rss_kb(),
-            gpu_before, gpu_mem_used_mb(),
+            cpu_before,
+            cpu_rss_kb(),
+            gpu_before,
+            gpu_mem_used_mb(),
         )
 
     def test_same_src_multiple_rois_release_no_leak(self):
@@ -498,6 +498,8 @@ class TestBatchedMemoryLeak:
         gc.collect()
         assert_no_leak(
             "same src multiple ROIs",
-            cpu_before, cpu_rss_kb(),
-            gpu_before, gpu_mem_used_mb(),
+            cpu_before,
+            cpu_rss_kb(),
+            gpu_before,
+            gpu_mem_used_mb(),
         )

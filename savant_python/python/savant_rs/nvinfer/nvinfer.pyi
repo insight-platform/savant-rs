@@ -81,7 +81,6 @@ class Roi:
     """
 
     def __init__(self, id: int, bbox: RBBox) -> None: ...
-
     @property
     def id(self) -> int:
         """Caller-defined identifier."""
@@ -128,7 +127,6 @@ class NvInferConfig:
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
         disable_output_host_copy: bool = False,
     ) -> None: ...
-
     @staticmethod
     def new_flexible(
         nvinfer_properties: Dict[str, str],
@@ -322,7 +320,6 @@ class NvInfer:
         config: NvInferConfig,
         callback: Callable[[BatchInferenceOutput], None],
     ) -> None: ...
-
     def submit(
         self,
         batch: Union[SharedBuffer, int],

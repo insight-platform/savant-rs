@@ -353,7 +353,9 @@ def main() -> None:
                 break
 
             view = SurfaceView.from_buffer(buf, 0)
-            with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, view.width, view.height) as (mat, stream):
+            with nvbuf_as_gpu_mat(
+                view.data_ptr, view.pitch, view.width, view.height
+            ) as (mat, stream):
                 mat.setTo((18, 20, 28, 255), stream=stream)
             frame = session.make_frame(
                 source_idx=s, pts_ns=pts_ns, duration_ns=session.frame_duration_ns

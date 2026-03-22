@@ -42,7 +42,11 @@ import sys
 
 import cv2
 
-from savant_rs.deepstream import SurfaceView, VideoFormat, nvbuf_as_gpu_mat  # noqa: E402
+from savant_rs.deepstream import (
+    SurfaceView,
+    VideoFormat,
+    nvbuf_as_gpu_mat,
+)  # noqa: E402
 
 from common import PicassoSession, add_common_args
 

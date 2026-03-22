@@ -75,7 +75,9 @@ def main() -> None:
                 break
 
             view = SurfaceView.from_buffer(buf, 0)
-            with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, view.width, view.height) as (mat, stream):
+            with nvbuf_as_gpu_mat(
+                view.data_ptr, view.pitch, view.width, view.height
+            ) as (mat, stream):
                 grey = i % 255
                 mat.setTo((grey, grey, grey, 255), stream=stream)
 

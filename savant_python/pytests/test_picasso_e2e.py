@@ -419,7 +419,9 @@ class TestConditionalSelectiveRecording:
             encode_attribute=("recording", "active"),
             render_attribute=("scene", "has_objects"),
         )
-        enc = build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()
+        enc = (
+            build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()
+        )
         spec = SourceSpec(
             codec=CodecSpec.encode(TransformConfig(), enc),
             draw=build_draw_spec(),
@@ -502,7 +504,13 @@ class TestMixedCodecs:
         engine.set_source_spec("bypass-src", SourceSpec(codec=CodecSpec.bypass()))
         engine.set_source_spec(
             "encode-src",
-            build_source_spec(encoder_config=build_h264_encoder_config() if has_nvenc(0) else build_jpeg_encoder_config()),
+            build_source_spec(
+                encoder_config=(
+                    build_h264_encoder_config()
+                    if has_nvenc(0)
+                    else build_jpeg_encoder_config()
+                )
+            ),
         )
 
         gen_bypass = BufferGenerator(VideoFormat.RGBA, WIDTH, HEIGHT, FPS, 1, 0)
@@ -618,7 +626,9 @@ class TestOnGpuMat:
             cuda_stream: int,
         ) -> None:
             with lock:
-                gpumat_calls.append((source_id, data_ptr, pitch, width, height, cuda_stream))
+                gpumat_calls.append(
+                    (source_id, data_ptr, pitch, width, height, cuda_stream)
+                )
 
         callbacks = Callbacks(on_gpumat=on_gpumat)
         spec = build_source_spec(use_gpumat=True)

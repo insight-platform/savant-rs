@@ -209,7 +209,10 @@ def test_age_gender_e2e_real_images():
     )
     src_buf = src_gen.acquire(id=0)
     view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
-    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (
+        gpu_mat,
+        stream,
+    ):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Create batched surface with one 1920x1080 slot
@@ -273,7 +276,9 @@ def test_age_gender_e2e_real_images():
 
             age_cp = tensor_to_cupy(age_tensor).get()
             gender_cp = tensor_to_cupy(gender_tensor).get()
-            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch"
+            )
             np.testing.assert_array_equal(
                 gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
             )
@@ -342,7 +347,10 @@ def test_age_gender_e2e_nonuniform_callback():
     )
     src_buf = src_gen.acquire(id=0)
     view = SurfaceView.from_buffer(src_buf, cuda_stream=0)
-    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (gpu_mat, stream):
+    with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, FRAME_W, FRAME_H) as (
+        gpu_mat,
+        stream,
+    ):
         gpu_mat.upload(np.ascontiguousarray(canvas), stream)
 
     # Assemble batch via NonUniformBatch (zero-copy add)
@@ -408,7 +416,9 @@ def test_age_gender_e2e_nonuniform_callback():
 
             age_cp = tensor_to_cupy(age_tensor).get()
             gender_cp = tensor_to_cupy(gender_tensor).get()
-            np.testing.assert_array_equal(age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch")
+            np.testing.assert_array_equal(
+                age_np, age_cp, err_msg=f"{fname}: age CPU/GPU mismatch"
+            )
             np.testing.assert_array_equal(
                 gender_np, gender_cp, err_msg=f"{fname}: gender CPU/GPU mismatch"
             )

@@ -91,7 +91,9 @@ class TestHeterogeneousFinalize:
             view = ds.SurfaceView.from_buffer(buf)
             batch.add(view)
             views.append(view)
-        shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, fid) for fid in [10, 20, 30]])
+        shared = batch.finalize(
+            ids=[(ds.SavantIdMetaKind.FRAME, fid) for fid in [10, 20, 30]]
+        )
         meta = ds.get_savant_id_meta(shared)
         meta_ids = [v for kind, v in meta if kind == ds.SavantIdMetaKind.FRAME]
         for frame_id in [10, 20, 30]:
@@ -136,7 +138,9 @@ class TestHeterogeneousMemoryLeak:
             batch = ds.NonUniformBatch(gpu_id=0)
             for v in views:
                 batch.add(v)
-            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)])
+            shared = batch.finalize(
+                ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)]
+            )
             del batch, shared, bufs, views, v
 
         gc.collect()
@@ -149,7 +153,9 @@ class TestHeterogeneousMemoryLeak:
             batch = ds.NonUniformBatch(gpu_id=0)
             for v in views:
                 batch.add(v)
-            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)])
+            shared = batch.finalize(
+                ids=[(ds.SavantIdMetaKind.FRAME, j) for j in range(4)]
+            )
             del batch, shared, bufs, views, v
 
         gc.collect()
@@ -177,7 +183,9 @@ class TestHeterogeneousMemoryLeak:
             batch = ds.NonUniformBatch(gpu_id=0)
             batch.add(view1)
             batch.add(view2)
-            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, 1), (ds.SavantIdMetaKind.FRAME, 2)])
+            shared = batch.finalize(
+                ids=[(ds.SavantIdMetaKind.FRAME, 1), (ds.SavantIdMetaKind.FRAME, 2)]
+            )
             del batch, shared, buf1, buf2, view1, view2
 
         gc.collect()
@@ -192,14 +200,21 @@ class TestHeterogeneousMemoryLeak:
             batch = ds.NonUniformBatch(gpu_id=0)
             batch.add(view1)
             batch.add(view2)
-            shared = batch.finalize(ids=[(ds.SavantIdMetaKind.FRAME, i), (ds.SavantIdMetaKind.FRAME, i + 1000)])
+            shared = batch.finalize(
+                ids=[
+                    (ds.SavantIdMetaKind.FRAME, i),
+                    (ds.SavantIdMetaKind.FRAME, i + 1000),
+                ]
+            )
             del batch, shared, buf1, buf2, view1, view2
 
         gc.collect()
         assert_no_leak(
             "hetero mixed sizes",
-            cpu_before, cpu_rss_kb(),
-            gpu_before, gpu_mem_used_mb(),
+            cpu_before,
+            cpu_rss_kb(),
+            gpu_before,
+            gpu_mem_used_mb(),
         )
 
     def test_hetero_drop_without_finalize_no_leak(self):
@@ -227,6 +242,8 @@ class TestHeterogeneousMemoryLeak:
         gc.collect()
         assert_no_leak(
             "hetero drop without finalize",
-            cpu_before, cpu_rss_kb(),
-            gpu_before, gpu_mem_used_mb(),
+            cpu_before,
+            cpu_rss_kb(),
+            gpu_before,
+            gpu_mem_used_mb(),
         )

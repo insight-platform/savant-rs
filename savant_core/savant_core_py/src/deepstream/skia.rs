@@ -1,8 +1,7 @@
 //! `SkiaContext` — GPU-accelerated Skia rendering context backed by CUDA-GL interop.
 
-use super::buffer::{extract_shared_buffer, with_mut_buffer_ref};
+use super::buffer::with_mut_buffer_ref;
 use super::config::PyTransformConfig;
-use super::surface_view::PySurfaceView;
 use pyo3::prelude::*;
 
 /// GPU-accelerated Skia rendering context backed by CUDA-GL interop.
@@ -21,42 +20,42 @@ impl PySkiaContext {
         Ok(Self { inner })
     }
 
-    /// Create from an existing NvBufSurface buffer or ``SurfaceView``.
-    ///
-    /// Accepts a ``SurfaceView`` (preferred) or a ``SharedBuffer``
-    /// / raw ``int`` pointer.
-    #[staticmethod]
-    #[pyo3(signature = (buf, gpu_id=0))]
-    fn from_nvbuf(buf: &Bound<'_, PyAny>, gpu_id: u32) -> PyResult<Self> {
-        if let Ok(sv) = buf.extract::<PyRef<'_, PySurfaceView>>() {
-            let view = sv.inner_ref()?;
-            let inner = unsafe {
-                deepstream_buffers::SkiaRenderer::from_nvbuf(
-                    view.width(),
-                    view.height(),
-                    gpu_id,
-                    view.data_ptr() as *const std::ffi::c_void,
-                    view.pitch() as usize,
-                )
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
-            };
-            return Ok(Self { inner });
-        }
-        let shared = extract_shared_buffer(buf)?;
-        let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        let inner = unsafe {
-            deepstream_buffers::SkiaRenderer::from_nvbuf(
-                view.width(),
-                view.height(),
-                gpu_id,
-                view.data_ptr() as *const std::ffi::c_void,
-                view.pitch() as usize,
-            )
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
-        };
-        Ok(Self { inner })
-    }
+    // /// Create from an existing NvBufSurface buffer or ``SurfaceView``.
+    // ///
+    // /// Accepts a ``SurfaceView`` (preferred) or a ``SharedBuffer``
+    // /// / raw ``int`` pointer.
+    // #[staticmethod]
+    // #[pyo3(signature = (buf, gpu_id=0))]
+    // fn from_nvbuf(buf: &Bound<'_, PyAny>, gpu_id: u32) -> PyResult<Self> {
+    //     if let Ok(sv) = buf.extract::<PyRef<'_, PySurfaceView>>() {
+    //         let view = sv.inner_ref()?;
+    //         let inner = unsafe {
+    //             deepstream_buffers::SkiaRenderer::from_nvbuf(
+    //                 view.width(),
+    //                 view.height(),
+    //                 gpu_id,
+    //                 view.data_ptr() as *const std::ffi::c_void,
+    //                 view.pitch() as usize,
+    //             )
+    //             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+    //         };
+    //         return Ok(Self { inner });
+    //     }
+    //     let shared = extract_shared_buffer(buf)?;
+    //     let view = deepstream_buffers::SurfaceView::from_buffer(&shared, 0)
+    //         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    //     let inner = unsafe {
+    //         deepstream_buffers::SkiaRenderer::from_nvbuf(
+    //             view.width(),
+    //             view.height(),
+    //             gpu_id,
+    //             view.data_ptr() as *const std::ffi::c_void,
+    //             view.pitch() as usize,
+    //         )
+    //         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+    //     };
+    //     Ok(Self { inner })
+    // }
 
     #[getter]
     fn fbo_id(&self) -> u32 {

@@ -91,7 +91,6 @@ class Interpolation:
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
 
-
 @final
 class DstPadding:
     """Optional per-side destination padding for letterboxing.
@@ -113,7 +112,6 @@ class DstPadding:
         bottom: int = 0,
     ) -> None: ...
     def __repr__(self) -> str: ...
-
 
 @final
 class ComputeMode:
@@ -268,7 +266,6 @@ class SharedBuffer:
 
     @pts_ns.setter
     def pts_ns(self, value: int) -> None: ...
-
     @property
     def duration_ns(self) -> Optional[int]:
         """Buffer duration in nanoseconds, or None if unset."""
@@ -276,7 +273,6 @@ class SharedBuffer:
 
     @duration_ns.setter
     def duration_ns(self, value: int) -> None: ...
-
     def savant_ids(self) -> List[Tuple[SavantIdMetaKind, int]]:
         """Read SavantIdMeta from the buffer.
 
@@ -323,7 +319,9 @@ class SurfaceView:
     """
 
     @staticmethod
-    def from_buffer(buf: Union[SharedBuffer, int], slot_index: int = 0, cuda_stream: int = 0) -> SurfaceView:
+    def from_buffer(
+        buf: Union[SharedBuffer, int], slot_index: int = 0, cuda_stream: int = 0
+    ) -> SurfaceView:
         """Create a view from an NvBufSurface-backed buffer.
 
         Args:
@@ -822,7 +820,9 @@ class SkiaContext:
 
     def __init__(self, width: int, height: int, gpu_id: int = 0) -> None: ...
     @staticmethod
-    def from_nvbuf(buf: Union[SurfaceView, SharedBuffer, int], gpu_id: int = 0) -> SkiaContext:
+    def from_nvbuf(
+        buf: Union[SurfaceView, SharedBuffer, int], gpu_id: int = 0
+    ) -> SkiaContext:
         """Create a SkiaContext from an existing NvBufSurface buffer.
 
         Accepts a ``SurfaceView`` (preferred — the CUDA pointer is already
@@ -936,7 +936,9 @@ def has_nvenc(gpu_id: int = 0) -> bool:
     """
     ...
 
-def get_savant_id_meta(buf: Union[SharedBuffer, int]) -> List[Tuple[SavantIdMetaKind, int]]:
+def get_savant_id_meta(
+    buf: Union[SharedBuffer, int],
+) -> List[Tuple[SavantIdMetaKind, int]]:
     """Read Savant ID metadata from a GstBuffer.
 
     Returns:
@@ -1045,7 +1047,6 @@ class SkiaCanvas:
 
 # ── GpuMat helpers ──────────────────────────────────────────────────────
 
-
 class GpuMatCudaArray:
     """Exposes ``__cuda_array_interface__`` (v3) for a ``cv2.cuda.GpuMat``.
 
@@ -1059,11 +1060,9 @@ class GpuMatCudaArray:
 
     def __init__(self, mat: cv2.cuda.GpuMat) -> None: ...
 
-
 def make_gpu_mat(width: int, height: int, channels: int = 4) -> cv2.cuda.GpuMat:
     """Allocate a zero-initialised ``cv2.cuda.GpuMat`` of the given size."""
     ...
-
 
 @contextmanager
 def nvgstbuf_as_gpu_mat(

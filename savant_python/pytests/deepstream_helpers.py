@@ -95,6 +95,8 @@ def run_leak_test(warmup_fn, body_fn, label: str = "leak test") -> None:
     gc.collect()
     assert_no_leak(
         label,
-        cpu_before, cpu_rss_kb(),
-        gpu_before, gpu_mem_used_mb(),
+        cpu_before,
+        cpu_rss_kb(),
+        gpu_before,
+        gpu_mem_used_mb(),
     )

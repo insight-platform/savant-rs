@@ -76,7 +76,9 @@ def check_release_build(args: argparse.Namespace) -> None:
     Pass ``--allow-debug-build`` to override this check (e.g. for functional
     smoke-tests where absolute performance does not matter).
     """
-    if not savant_rs.is_release_build() and not getattr(args, "allow_debug_build", False):
+    if not savant_rs.is_release_build() and not getattr(
+        args, "allow_debug_build", False
+    ):
         print(
             "ERROR: savant_rs was compiled in DEBUG mode.\n"
             "  Performance benchmarks against a debug build are meaningless —\n"
@@ -378,9 +380,11 @@ class PicassoSession:
                                 data,
                                 vf.pts,
                                 vf.dts if vf.dts is not None else vf.pts,
-                                vf.duration
-                                if vf.duration is not None
-                                else self.frame_duration_ns,
+                                (
+                                    vf.duration
+                                    if vf.duration is not None
+                                    else self.frame_duration_ns
+                                ),
                             )
             except Exception as e:
                 print(f"Encoder callback error: {e}", file=sys.stderr)
@@ -424,17 +428,13 @@ class PicassoSession:
         """``False`` after Ctrl-C or an encoder callback error."""
         return self._running
 
-    def acquire_surface(
-        self, *, source_idx: int = 0, frame_id: int
-    ) -> SharedBuffer:
+    def acquire_surface(self, *, source_idx: int = 0, frame_id: int) -> SharedBuffer:
         """Acquire an NvBufSurface GPU buffer from the pool of *source_idx*.
 
         Requires ``use_generator=True`` (the default).
         """
         if not self._generators:
-            raise RuntimeError(
-                "BufferGenerator was not created (use_generator=False)"
-            )
+            raise RuntimeError("BufferGenerator was not created (use_generator=False)")
         return self._generators[source_idx].acquire(id=frame_id)
 
     def acquire_surface_view(

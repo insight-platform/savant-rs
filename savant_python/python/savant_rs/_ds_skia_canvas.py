@@ -83,20 +83,20 @@ class SkiaCanvas:
         ctx = SkiaContext(width, height, gpu_id)
         return cls(ctx)
 
-    @classmethod
-    def from_nvbuf(cls, buf_ptr: int, gpu_id: int = 0):
-        """Create with canvas pre-loaded from an NvBufSurface.
+    # @classmethod
+    # def from_nvbuf(cls, buf_ptr: int, gpu_id: int = 0):
+    #     """Create with canvas pre-loaded from an NvBufSurface.
 
-        Canvas dimensions match the source buffer.
+    #     Canvas dimensions match the source buffer.
 
-        Args:
-            buf_ptr: Raw pointer of the source GstBuffer.
-            gpu_id:  GPU device ID (default 0).
-        """
-        from savant_rs.deepstream import SkiaContext
+    #     Args:
+    #         buf_ptr: Raw pointer of the source GstBuffer.
+    #         gpu_id:  GPU device ID (default 0).
+    #     """
+    #     from savant_rs.deepstream import SkiaContext
 
-        ctx = SkiaContext.from_nvbuf(buf_ptr, gpu_id)
-        return cls(ctx)
+    #     ctx = SkiaContext.from_nvbuf(buf_ptr, gpu_id)
+    #     return cls(ctx)
 
     @property
     def gr_context(self) -> skia.GrDirectContext:
