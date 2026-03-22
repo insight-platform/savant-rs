@@ -55,6 +55,7 @@ pub struct NvInferConfig {
     pub input_width: Option<u32>,
     pub input_height: Option<u32>,
     pub meta_clear_policy: MetaClearPolicy,
+    pub disable_output_host_copy: bool,
 }
 ```
 
@@ -70,8 +71,10 @@ pub struct NvInferConfig {
 | `queue_depth` | `(self, depth: u32) → Self` — 0 = no queue (sync) |
 | `name` | `(self, name: impl Into<String>) → Self` |
 | `meta_clear_policy` | `(self, policy: MetaClearPolicy) → Self` |
+| `disable_output_host_copy` | `(self, disable: bool) → Self` — skip D2H copy; only GPU pointers valid |
 
 **Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`.
+`disable-output-host-copy` is controlled via `NvInferConfig.disable_output_host_copy` and must **not** be set in `nvinfer_properties`.
 Use dotted notation `section.key` for per-class config (e.g. `class-attrs-0.nms-iou-threshold`).
 
 ---
@@ -103,6 +106,7 @@ Owns the output `GstBuffer`. Tensor views borrow from it.
 |---|---|
 | `elements` | `(&self) → &[ElementOutput]` |
 | `num_elements` | `(&self) → usize` |
+| `host_copy_enabled` | `(&self) → bool` — `false` when `disable_output_host_copy` was set |
 | `buffer` | `(&self) → SharedBuffer` — clone for downstream (e.g. SavantIdMeta) |
 
 ⚠ **Drop semantics:** When `MetaClearPolicy::After` or `Both`, dropping clears all
@@ -134,14 +138,16 @@ pub struct TensorView {
     pub host_ptr: *const c_void,
     pub device_ptr: *const c_void,
     pub byte_length: usize,
+    pub host_copy_enabled: bool,
 }
 ```
 
 Zero-copy view into a single output tensor. Valid while parent `BatchInferenceOutput` is alive.
+When `host_copy_enabled` is `false`, host pointers contain stale data — only `device_ptr` is usable.
 
 | Method | Signature |
 |---|---|
-| `unsafe as_slice<T>` | `(&self) → &[T]` — interpret host data as typed slice |
+| `unsafe as_slice<T>` | `(&self) → &[T]` — interpret host data as typed slice; returns `&[]` when host copy disabled |
 
 ---
 

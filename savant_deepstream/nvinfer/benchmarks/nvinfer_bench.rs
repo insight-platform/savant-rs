@@ -4,7 +4,7 @@
 //!
 //! Each (model, batch_size) pair gets its own nvinfer config so TensorRT builds
 //! a dedicated engine optimised for that exact batch size.  Engine files are
-//! cached in the `assets/` directory; only the first run pays the build cost.
+//! cached in `assets/engines/<platform>/`; only the first run pays the build cost.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use deepstream_buffers::{
@@ -42,6 +42,25 @@ fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
 }
 
+fn engines_dir() -> PathBuf {
+    let tag = nvidia_gpu_utils::gpu_platform_tag(0).unwrap_or_else(|_| "unknown".to_string());
+    let dir = assets_dir().join("engines").join(tag);
+    std::fs::create_dir_all(&dir).expect("create engine cache directory");
+    dir
+}
+
+fn promote_built_engine(onnx_stem: &str, batch_size: u32) {
+    let engine_name = format!("{}_b{}_gpu0_fp16.engine", onnx_stem, batch_size);
+    let auto_path = assets_dir().join(&engine_name);
+    let cached_path = engines_dir().join(&engine_name);
+    if auto_path.exists() && !cached_path.exists() {
+        std::fs::rename(&auto_path, &cached_path).unwrap_or_else(|_| {
+            std::fs::copy(&auto_path, &cached_path).expect("copy engine to platform cache");
+            std::fs::remove_file(&auto_path).ok();
+        });
+    }
+}
+
 fn platform_transform_config() -> TransformConfig {
     let mut config = TransformConfig::default();
     if cfg!(target_arch = "aarch64") {
@@ -53,6 +72,20 @@ fn platform_transform_config() -> TransformConfig {
 fn inject_jetson_scaling(props: &mut HashMap<String, String>) {
     if cfg!(target_arch = "aarch64") {
         props.insert("scaling-compute-hw".into(), "1".into());
+    }
+}
+
+/// On Jetson (shared CPU/GPU memory), cap workspace-size to avoid TensorRT
+/// building degenerate engines when it cannot allocate the requested amount.
+fn inject_jetson_workspace_cap(props: &mut HashMap<String, String>, max_mb: u32) {
+    if cfg!(target_arch = "aarch64") {
+        if let Some(current) = props.get("workspace-size") {
+            if let Ok(val) = current.parse::<u32>() {
+                if val > max_mb {
+                    props.insert("workspace-size".into(), max_mb.to_string());
+                }
+            }
+        }
     }
 }
 
@@ -75,15 +108,13 @@ struct ModelSpec {
 fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
     let mut m = HashMap::new();
     m.insert("gpu-id".into(), "0".into());
-    m.insert("gie-unique-id".into(), "1".into());
     m.insert("net-scale-factor".into(), "1.0".into());
     m.insert(
         "onnx-file".into(),
-        dir.join("identity.onnx").to_string_lossy().into(),
+        dir.join("identity_3x112x112.onnx").to_string_lossy().into(),
     );
     m.insert("network-mode".into(), "2".into());
-    m.insert("network-type".into(), "100".into());
-    m.insert("infer-dims".into(), "3;12;12".into());
+    m.insert("infer-dims".into(), "3;112;112".into());
     m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
@@ -92,7 +123,6 @@ fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
 fn age_gender_base_properties(dir: &Path) -> HashMap<String, String> {
     let mut m = HashMap::new();
     m.insert("gpu-id".into(), "0".into());
-    m.insert("gie-unique-id".into(), "2".into());
     m.insert("net-scale-factor".into(), "0.007843137254902".into());
     m.insert("offsets".into(), "127.5;127.5;127.5".into());
     m.insert(
@@ -102,7 +132,6 @@ fn age_gender_base_properties(dir: &Path) -> HashMap<String, String> {
             .into(),
     );
     m.insert("network-mode".into(), "2".into());
-    m.insert("network-type".into(), "100".into());
     m.insert("infer-dims".into(), "3;112;112".into());
     m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
@@ -115,6 +144,7 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
         "onnx-file".into(),
         dir.join("yolo11m-seg.onnx").to_string_lossy().into(),
     );
+    m.insert("gpu-id".into(), "0".into());
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
     m.insert("infer-dims".into(), "3;640;640".into());
@@ -124,21 +154,8 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
     m.insert("model-color-format".into(), "0".into());
     m.insert("output-blob-names".into(), "output0;output1".into());
-    m.insert("num-detected-classes".into(), "80".into());
-    m.insert("gpu-id".into(), "0".into());
-    m.insert("secondary-reinfer-interval".into(), "0".into());
-    m.insert("operate-on-gie-id".into(), "0".into());
-    m.insert("operate-on-class-ids".into(), "0".into());
-    m.insert("gie-unique-id".into(), "1".into());
-    m.insert("network-type".into(), "100".into());
-    m.insert(
-        "class-attrs-all.pre-cluster-threshold".into(),
-        "10000000000.0".into(),
-    );
-    m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
-    m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
-    m.insert("class-attrs-0.detected-min-h".into(), "64".into());
     inject_jetson_scaling(&mut m);
+    inject_jetson_workspace_cap(&mut m, 2048);
     m
 }
 
@@ -148,6 +165,7 @@ fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
         "onnx-file".into(),
         dir.join("yolo11n.onnx").to_string_lossy().into(),
     );
+    m.insert("gpu-id".into(), "0".into());
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
     m.insert("infer-dims".into(), "3;640;640".into());
@@ -157,22 +175,8 @@ fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
     m.insert("model-color-format".into(), "0".into());
     m.insert("output-blob-names".into(), "output0".into());
-    m.insert("num-detected-classes".into(), "80".into());
-    m.insert("gpu-id".into(), "0".into());
-    m.insert("secondary-reinfer-interval".into(), "0".into());
-    m.insert("operate-on-gie-id".into(), "0".into());
-    m.insert("operate-on-class-ids".into(), "0".into());
-    m.insert("gie-unique-id".into(), "1".into());
-    m.insert("network-type".into(), "100".into());
-    m.insert(
-        "class-attrs-all.pre-cluster-threshold".into(),
-        "10000000000.0".into(),
-    );
-    m.insert("class-attrs-0.pre-cluster-threshold".into(), "0.5".into());
-    m.insert("class-attrs-0.nms-iou-threshold".into(), "0.5".into());
-    m.insert("class-attrs-0.detected-min-w".into(), "30".into());
-    m.insert("class-attrs-0.detected-min-h".into(), "30".into());
     inject_jetson_scaling(&mut m);
+    inject_jetson_workspace_cap(&mut m, 2048);
     m
 }
 
@@ -299,7 +303,6 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         return;
     }
 
-    let dir = assets_dir();
     let group_name = format!("{}/{}", spec.group_name, mode);
     let mut group = c.benchmark_group(&group_name);
     group
@@ -311,13 +314,15 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
         props.insert("batch-size".into(), bs.to_string());
         props.insert(
             "model-engine-file".into(),
-            dir.join(format!("{}_b{}_gpu0_fp16.engine", spec.onnx_stem, bs))
+            engines_dir()
+                .join(format!("{}_b{}_gpu0_fp16.engine", spec.onnx_stem, bs))
                 .to_string_lossy()
                 .into(),
         );
 
         let config = NvInferConfig::new(props, "RGBA", spec.width, spec.height);
         let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
+        promote_built_engine(&spec.onnx_stem, bs);
 
         let warm = make_batch(mode, spec.format, spec.width, spec.height, bs);
         let _ = engine.infer_sync(warm, None);
@@ -359,12 +364,12 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
 
     let models = [
         ModelSpec {
-            onnx_path: dir.join("identity.onnx"),
-            onnx_stem: "identity.onnx".into(),
+            onnx_path: dir.join("identity_3x112x112.onnx"),
+            onnx_stem: "identity_3x112x112.onnx".into(),
             base_properties: identity_base_properties(&dir),
             format: VideoFormat::RGBA,
-            width: 12,
-            height: 12,
+            width: 112,
+            height: 112,
             group_name: "identity".into(),
         },
         ModelSpec {
@@ -484,16 +489,21 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
         props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
         props.insert(
             "model-engine-file".into(),
-            dir.join(format!(
-                "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
-                RANDOM_NONUNIFORM_FRAMES
-            ))
-            .to_string_lossy()
-            .into(),
+            engines_dir()
+                .join(format!(
+                    "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
+                    RANDOM_NONUNIFORM_FRAMES
+                ))
+                .to_string_lossy()
+                .into(),
         );
 
         let config = NvInferConfig::new(props, "RGBA", 112, 112).queue_depth(q);
         let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
+        promote_built_engine(
+            "age_gender_mobilenet_v2_dynBatch.onnx",
+            RANDOM_NONUNIFORM_FRAMES,
+        );
 
         // Warmup with one batch.
         let mut rng = rand::rng();
@@ -560,16 +570,21 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
     props.insert("batch-size".into(), RANDOM_NONUNIFORM_FRAMES.to_string());
     props.insert(
         "model-engine-file".into(),
-        dir.join(format!(
-            "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
-            RANDOM_NONUNIFORM_FRAMES
-        ))
-        .to_string_lossy()
-        .into(),
+        engines_dir()
+            .join(format!(
+                "age_gender_mobilenet_v2_dynBatch.onnx_b{}_gpu0_fp16.engine",
+                RANDOM_NONUNIFORM_FRAMES
+            ))
+            .to_string_lossy()
+            .into(),
     );
 
     let config = NvInferConfig::new(props, "RGBA", 112, 112);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for sync bench");
+    promote_built_engine(
+        "age_gender_mobilenet_v2_dynBatch.onnx",
+        RANDOM_NONUNIFORM_FRAMES,
+    );
 
     // Warmup.
     let mut rng = rand::rng();

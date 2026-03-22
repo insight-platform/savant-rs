@@ -31,16 +31,22 @@ pub struct TensorView {
     pub device_ptr: *const c_void,
     /// Byte length of the tensor.
     pub byte_length: usize,
+    /// `true` when the host buffer contains valid data (D2H copy was performed).
+    /// When `false`, only [`device_ptr`] is usable.
+    pub host_copy_enabled: bool,
 }
 
 impl TensorView {
     /// Interpret host data as a typed slice (zero-copy).
     ///
+    /// Returns an empty slice when host copy is disabled, the pointer is null,
+    /// or the byte length is zero.
+    ///
     /// # Safety
     /// The caller must ensure the pointer is valid and properly aligned for `T`.
     /// The slice length is derived from `byte_length / size_of::<T>()`.
     pub unsafe fn as_slice<T>(&self) -> &[T] {
-        if self.host_ptr.is_null() || self.byte_length == 0 {
+        if !self.host_copy_enabled || self.host_ptr.is_null() || self.byte_length == 0 {
             return &[];
         }
         let len = self.byte_length / std::mem::size_of::<T>();
@@ -73,6 +79,8 @@ pub struct BatchInferenceOutput {
     elements: Vec<ElementOutput>,
     /// When `true`, clear all frame object metas when this value is dropped.
     clear_on_drop: bool,
+    /// `true` when host (CPU) tensor buffers contain valid data.
+    host_copy_enabled: bool,
     /// Ref-counted handle to the output GstBuffer (obtained via
     /// `gst_mini_object_ref`, NOT `_copy`).
     ///
@@ -92,10 +100,12 @@ impl BatchInferenceOutput {
         buffer: deepstream_buffers::SharedBuffer,
         elements: Vec<ElementOutput>,
         clear_on_drop: bool,
+        host_copy_enabled: bool,
     ) -> Self {
         Self {
             elements,
             clear_on_drop,
+            host_copy_enabled,
             buffer,
         }
     }
@@ -108,6 +118,14 @@ impl BatchInferenceOutput {
     /// Number of elements in the batch.
     pub fn num_elements(&self) -> usize {
         self.elements.len()
+    }
+
+    /// Whether host (CPU) tensor buffers contain valid data.
+    ///
+    /// Returns `false` when `disable_output_host_copy` was set in the config,
+    /// meaning only device (GPU) pointers in [`TensorView`] are usable.
+    pub fn host_copy_enabled(&self) -> bool {
+        self.host_copy_enabled
     }
 
     /// Get the output buffer as a [`SharedBuffer`](deepstream_buffers::SharedBuffer).
@@ -137,6 +155,7 @@ impl std::fmt::Debug for BatchInferenceOutput {
         f.debug_struct("BatchInferenceOutput")
             .field("num_elements", &self.elements.len())
             .field("clear_on_drop", &self.clear_on_drop)
+            .field("host_copy_enabled", &self.host_copy_enabled)
             .finish()
     }
 }

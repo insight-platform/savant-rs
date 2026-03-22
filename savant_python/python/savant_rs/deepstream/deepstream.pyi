@@ -891,6 +891,35 @@ def is_jetson_kernel() -> bool:
     """
     ...
 
+def gpu_architecture(gpu_id: int = 0) -> Optional[str]:
+    """Return the GPU architecture family name (x86_64 dGPU only, via NVML).
+
+    Returns a lowercase architecture name such as ``"ampere"``, ``"ada"``,
+    ``"hopper"``, ``"turing"``, etc.  Returns ``None`` on Jetson/aarch64.
+
+    Args:
+        gpu_id: GPU device ID (default 0).
+
+    Returns:
+        Architecture name or None if not on x86_64.
+    """
+    ...
+
+def gpu_platform_tag(gpu_id: int = 0) -> str:
+    """Return a directory-safe platform tag for TensorRT engine caching.
+
+    - Jetson: Jetson model name (e.g. ``"agx_orin_64gb"``, ``"orin_nano_8gb"``).
+    - dGPU (x86_64): GPU architecture family (e.g. ``"ampere"``, ``"ada"``).
+    - Unknown: ``"unknown"`` if the platform cannot be determined.
+
+    Args:
+        gpu_id: GPU device ID (default 0).
+
+    Returns:
+        Platform tag string.
+    """
+    ...
+
 def has_nvenc(gpu_id: int = 0) -> bool:
     """Return True if the GPU has NVENC hardware encoding support.
 

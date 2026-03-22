@@ -95,6 +95,7 @@ impl NvInfer {
         let input_width = config.input_width.unwrap_or(0);
         let input_height = config.input_height.unwrap_or(0);
         let policy = config.meta_clear_policy;
+        let host_copy_enabled = !config.disable_output_host_copy;
 
         let pipeline = gst::Pipeline::new();
 
@@ -196,7 +197,8 @@ impl NvInfer {
                 })?;
                 let pts_key = sample.buffer().and_then(|b| b.pts()).map(|t| t.nseconds());
 
-                let output = extract_batch_output(sample, policy).map_err(|e| {
+                let output =
+                    extract_batch_output(sample, policy, host_copy_enabled).map_err(|e| {
                     log::error!("extract_batch_output error: {:?}", e);
                     gst::FlowError::Error
                 })?;
@@ -501,6 +503,7 @@ fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
 fn extract_batch_output(
     sample: gst::Sample,
     policy: MetaClearPolicy,
+    host_copy_enabled: bool,
 ) -> Result<BatchInferenceOutput> {
     let buffer = sample
         .buffer()
@@ -567,6 +570,7 @@ fn extract_batch_output(
                             host_ptr: host_ptr as *const _,
                             device_ptr: device_ptr as *const _,
                             byte_length,
+                            host_copy_enabled,
                         });
                     }
                 }
@@ -589,5 +593,6 @@ fn extract_batch_output(
         shared,
         elements,
         policy.clear_after(),
+        host_copy_enabled,
     ))
 }

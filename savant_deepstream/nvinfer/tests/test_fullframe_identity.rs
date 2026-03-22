@@ -54,7 +54,9 @@ fn identity_engine_fullhd() -> Option<NvInfer> {
     }
     let props = common::identity_fullhd_properties();
     let config = nvinfer::NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create identity FullHD NvInfer"))
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity FullHD NvInfer");
+    common::promote_built_engine("identity_fullhd.onnx", 2);
+    Some(engine)
 }
 
 /// Dump NvBufSurfaceParams from a buffer for diagnostics.

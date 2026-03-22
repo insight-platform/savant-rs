@@ -60,6 +60,7 @@ pub struct PyTensorView {
     byte_length: usize,
     host_ptr: usize,
     device_ptr: usize,
+    has_host_data: bool,
 }
 
 #[pymethods]
@@ -100,6 +101,15 @@ impl PyTensorView {
         self.device_ptr
     }
 
+    /// Whether host (CPU) tensor data is valid.
+    ///
+    /// Returns ``False`` when ``disable_output_host_copy`` was set on the
+    /// config, meaning only ``device_ptr`` is usable.
+    #[getter]
+    fn has_host_data(&self) -> bool {
+        self.has_host_data
+    }
+
     /// NumPy-compatible dtype string (``"float32"``, ``"float16"``,
     /// ``"int8"``, ``"int32"``).
     #[getter]
@@ -115,13 +125,14 @@ impl PyTensorView {
     fn __repr__(&self) -> String {
         format!(
             "TensorView(name={:?}, dims={:?}, data_type={}, byte_length={}, \
-             host_ptr=0x{:x}, device_ptr=0x{:x})",
+             host_ptr=0x{:x}, device_ptr=0x{:x}, has_host_data={})",
             self.name,
             self.dims.dims,
             self.data_type.repr_str(),
             self.byte_length,
             self.host_ptr,
             self.device_ptr,
+            self.has_host_data,
         )
     }
 }
@@ -172,6 +183,7 @@ impl PyElementOutput {
                 byte_length: tv.byte_length,
                 host_ptr: tv.host_ptr as usize,
                 device_ptr: tv.device_ptr as usize,
+                has_host_data: tv.host_copy_enabled,
             };
             let obj = Py::new(py, py_tv)?;
             list.append(obj)?;
@@ -195,15 +207,18 @@ impl PyElementOutput {
 pub struct PyBatchInferenceOutput {
     shared: SharedOutput,
     num_elements: usize,
+    has_host_data: bool,
 }
 
 impl PyBatchInferenceOutput {
     /// Wrap a Rust `BatchInferenceOutput` for Python.
     pub(crate) fn from_rust(output: BatchInferenceOutput) -> Self {
         let num_elements = output.num_elements();
+        let has_host_data = output.host_copy_enabled();
         Self {
             shared: Arc::new(Mutex::new(Some(output))),
             num_elements,
+            has_host_data,
         }
     }
 }
@@ -238,6 +253,15 @@ impl PyBatchInferenceOutput {
         Ok(list.unbind())
     }
 
+    /// Whether host (CPU) tensor data is valid for all tensors in this batch.
+    ///
+    /// Returns ``False`` when ``disable_output_host_copy`` was set on the
+    /// config, meaning only device (GPU) pointers in ``TensorView`` are usable.
+    #[getter]
+    fn has_host_data(&self) -> bool {
+        self.has_host_data
+    }
+
     /// Get the output GStreamer buffer.
     fn buffer(&self) -> PyResult<crate::deepstream::PySharedBuffer> {
         let guard = self.shared.lock();
@@ -249,6 +273,9 @@ impl PyBatchInferenceOutput {
     }
 
     fn __repr__(&self) -> String {
-        format!("BatchInferenceOutput(num_elements={})", self.num_elements,)
+        format!(
+            "BatchInferenceOutput(num_elements={}, has_host_data={})",
+            self.num_elements, self.has_host_data,
+        )
     }
 }

@@ -181,18 +181,12 @@ fn age_gender_engine_1080p() -> Option<NvInfer> {
         return None;
     }
 
-    let mut props = common::age_gender_properties();
-    props.insert("batch-size".into(), "32".into());
-    props.insert(
-        "model-engine-file".into(),
-        assets
-            .join("age_gender_mobilenet_v2_dynBatch.onnx_b32_gpu0_fp16.engine")
-            .to_string_lossy()
-            .into(),
-    );
+    let props = common::age_gender_properties();
 
     let config = NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create age_gender NvInfer 1080p"))
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create age_gender NvInfer 1080p");
+    common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 16);
+    Some(engine)
 }
 
 /// Load all face JPEGs from `assets/age_gender/`, sorted by filename.

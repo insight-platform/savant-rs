@@ -28,8 +28,8 @@ pub struct NvInferConfig {
     pub name: String,
     /// NvInfer config keys. Use dotted notation `section.key` for per-class
     /// sections (e.g. `class-attrs-0.nms-iou-threshold`). Bare keys go to
-    /// `[property]`. Mandatory `process-mode` and `output-tensor-meta` are
-    /// auto-injected in `[property]` if missing.
+    /// `[property]`. Mandatory keys `process-mode`, `output-tensor-meta`,
+    /// `network-type`, and `gie-unique-id` are auto-injected if missing.
     pub nvinfer_properties: HashMap<String, String>,
     /// Additional GStreamer element properties (e.g. "unique-id" -> "1").
     pub element_properties: HashMap<String, String>,
@@ -49,6 +49,10 @@ pub struct NvInferConfig {
     /// When and whether to clear `NvDsObjectMeta` entries from the batch
     /// buffer. Defaults to [`MetaClearPolicy::Before`].
     pub meta_clear_policy: MetaClearPolicy,
+    /// When `true`, nvinfer skips the device-to-host copy of output tensors.
+    /// Host pointers in [`TensorView`] will contain stale data;
+    /// only device pointers are valid. Default: `false` (copy enabled).
+    pub disable_output_host_copy: bool,
 }
 
 impl NvInferConfig {
@@ -58,8 +62,9 @@ impl NvInferConfig {
     /// supplied.
     ///
     /// `nvinfer_properties` covers the [property] section. Use absolute paths
-    /// for `onnx-file` and `model-engine-file`. Mandatory keys `process-mode`
-    /// and `output-tensor-meta` are auto-injected as `1` if missing.
+    /// for `onnx-file` and `model-engine-file`. Mandatory keys
+    /// `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, and
+    /// `gie-unique-id=1` are auto-injected if missing.
     pub fn new(
         nvinfer_properties: HashMap<String, String>,
         input_format: impl Into<String>,
@@ -76,6 +81,7 @@ impl NvInferConfig {
             input_width: Some(input_width),
             input_height: Some(input_height),
             meta_clear_policy: MetaClearPolicy::default(),
+            disable_output_host_copy: false,
         }
     }
 
@@ -99,6 +105,7 @@ impl NvInferConfig {
             input_width: None,
             input_height: None,
             meta_clear_policy: MetaClearPolicy::default(),
+            disable_output_host_copy: false,
         }
     }
 
@@ -132,16 +139,86 @@ impl NvInferConfig {
         self
     }
 
+    /// Skip the device-to-host copy of output tensors.
+    ///
+    /// When `true`, only device (GPU) pointers in [`TensorView`] are valid;
+    /// host pointers will contain stale/uninitialized data.
+    pub fn disable_output_host_copy(mut self, disable: bool) -> Self {
+        self.disable_output_host_copy = disable;
+        self
+    }
+
     /// Validate mandatory keys, inject if missing, and write config to a
     /// temporary file. Caller must keep the returned file alive.
     ///
     /// Keys with dotted notation `section.key` are grouped under `[section]`.
     /// Bare keys go to `[property]`.
+    ///
+    /// ## Forbidden properties
+    ///
+    /// The following nvinfer properties are incompatible with NvInfer's
+    /// standalone `appsrc → nvinfer → appsink` pipeline and are **rejected**
+    /// with an error if the caller supplies them:
+    ///
+    /// | Key | Reason |
+    /// |---|---|
+    /// | `operate-on-gie-id` | Filters objects by upstream GIE id; the synthetic ROI sentinels use `unique_component_id = -1` and would be silently skipped. |
+    /// | `operate-on-class-ids` | Filters objects by class id; sentinels carry no meaningful class and would be skipped. |
+    /// | `secondary-reinfer-interval` | Controls re-inference cadence across frames in a multi-frame pipeline; meaningless in single-shot mode and can silently skip frames. |
+    /// | `num-detected-classes` | Only meaningful for detector `network-type` (0); misleading with `network-type=100`. |
+    /// | `disable-output-host-copy` | Controlled via [`NvInferConfig::disable_output_host_copy`]; must not be set in `nvinfer_properties`. |
+    ///
+    /// ## Auto-injected properties
+    ///
+    /// | Key | Value | Reason |
+    /// |---|---|---|
+    /// | `process-mode` | `2` | Secondary/object mode required for ROI-based inference. |
+    /// | `output-tensor-meta` | `1` | Raw tensor output required for post-processing. |
+    /// | `network-type` | `100` | Custom network type; avoids DeepStream built-in post-processing. |
+    /// | `gie-unique-id` | `1` | Single-GIE pipeline; the value is meaningless but must be set. |
     pub fn validate_and_materialize(&self) -> Result<NamedTempFile> {
         let mut props = self.nvinfer_properties.clone();
 
         fn get_prop<'a>(p: &'a HashMap<String, String>, k: &str) -> Option<&'a String> {
             p.get(k).or_else(|| p.get(&format!("property.{}", k)))
+        }
+
+        const FORBIDDEN_KEYS: &[(&str, &str)] = &[
+            (
+                "operate-on-gie-id",
+                "incompatible with NvInfer's standalone pipeline; \
+                 synthetic ROI sentinels use unique_component_id=-1 \
+                 and would be silently skipped",
+            ),
+            (
+                "operate-on-class-ids",
+                "incompatible with NvInfer's standalone pipeline; \
+                 synthetic ROI sentinels carry no class id \
+                 and would be silently skipped",
+            ),
+            (
+                "secondary-reinfer-interval",
+                "meaningless in NvInfer's single-shot pipeline; \
+                 can silently skip frames",
+            ),
+            (
+                "num-detected-classes",
+                "only meaningful for detector network-type (0); \
+                 NvInfer uses network-type=100 (custom)",
+            ),
+            (
+                "disable-output-host-copy",
+                "controlled via NvInferConfig.disable_output_host_copy; \
+                 must not be set in nvinfer_properties",
+            ),
+        ];
+
+        for &(key, reason) in FORBIDDEN_KEYS {
+            if get_prop(&props, key).is_some() {
+                return Err(NvInferError::InvalidConfig(format!(
+                    "'{key}' must not be set: {reason}"
+                )));
+            }
         }
 
         match get_prop(&props, "process-mode") {
@@ -168,6 +245,34 @@ impl NvInferConfig {
             None => {
                 props.insert("output-tensor-meta".into(), "1".into());
             }
+        }
+
+        match get_prop(&props, "network-type") {
+            Some(v) if v.trim() == "100" => {}
+            Some(other) => {
+                return Err(NvInferError::InvalidConfig(format!(
+                    "network-type={other} but NvInfer requires network-type=100 (custom)"
+                )));
+            }
+            None => {
+                props.insert("network-type".into(), "100".into());
+            }
+        }
+
+        match get_prop(&props, "gie-unique-id") {
+            Some(v) if v.trim() == "1" => {}
+            Some(other) => {
+                return Err(NvInferError::InvalidConfig(format!(
+                    "gie-unique-id={other} but NvInfer requires gie-unique-id=1"
+                )));
+            }
+            None => {
+                props.insert("gie-unique-id".into(), "1".into());
+            }
+        }
+
+        if self.disable_output_host_copy {
+            props.insert("disable-output-host-copy".into(), "1".into());
         }
 
         // Group by section: section -> BTreeMap<key, value>
@@ -205,5 +310,168 @@ impl NvInferConfig {
             .map_err(|e| NvInferError::InvalidConfig(format!("flush config: {}", e)))?;
 
         Ok(tmp)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_props() -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        m.insert("gpu-id".into(), "0".into());
+        m.insert("infer-dims".into(), "3;12;12".into());
+        m
+    }
+
+    #[test]
+    fn rejects_operate_on_gie_id() {
+        let mut props = minimal_props();
+        props.insert("operate-on-gie-id".into(), "0".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("operate-on-gie-id"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_operate_on_class_ids() {
+        let mut props = minimal_props();
+        props.insert("operate-on-class-ids".into(), "0".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("operate-on-class-ids"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_secondary_reinfer_interval() {
+        let mut props = minimal_props();
+        props.insert("secondary-reinfer-interval".into(), "0".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("secondary-reinfer-interval"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_num_detected_classes() {
+        let mut props = minimal_props();
+        props.insert("num-detected-classes".into(), "80".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("num-detected-classes"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_forbidden_key_with_property_prefix() {
+        let mut props = minimal_props();
+        props.insert("property.operate-on-gie-id".into(), "0".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("operate-on-gie-id"),
+            "error must catch property-prefixed variant: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_network_type() {
+        let mut props = minimal_props();
+        props.insert("network-type".into(), "0".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("network-type=0"),
+            "error must mention the wrong value: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_gie_unique_id() {
+        let mut props = minimal_props();
+        props.insert("gie-unique-id".into(), "2".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("gie-unique-id=2"),
+            "error must mention the wrong value: {err}"
+        );
+    }
+
+    #[test]
+    fn auto_injects_hardcoded_properties() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("network-type=100"),
+            "must inject network-type=100"
+        );
+        assert!(
+            content.contains("gie-unique-id=1"),
+            "must inject gie-unique-id=1"
+        );
+        assert!(
+            content.contains("process-mode=2"),
+            "must inject process-mode=2"
+        );
+        assert!(
+            content.contains("output-tensor-meta=1"),
+            "must inject output-tensor-meta=1"
+        );
+    }
+
+    #[test]
+    fn accepts_clean_config() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        assert!(
+            cfg.validate_and_materialize().is_ok(),
+            "minimal config without forbidden keys must succeed"
+        );
+    }
+
+    #[test]
+    fn rejects_disable_output_host_copy_in_kv() {
+        let mut props = minimal_props();
+        props.insert("disable-output-host-copy".into(), "1".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("disable-output-host-copy"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn injects_disable_output_host_copy_when_set() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
+            .disable_output_host_copy(true);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("disable-output-host-copy=1"),
+            "must inject disable-output-host-copy=1 when enabled"
+        );
+    }
+
+    #[test]
+    fn does_not_inject_disable_output_host_copy_by_default() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            !content.contains("disable-output-host-copy"),
+            "must not inject disable-output-host-copy when disabled (default)"
+        );
     }
 }

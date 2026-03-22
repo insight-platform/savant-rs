@@ -74,7 +74,9 @@ fn identity_engine() -> Option<NvInfer> {
     }
     let props = common::identity_properties();
     let config = NvInferConfig::new(props, "RGBA", 12, 12);
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer"))
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer");
+    common::promote_built_engine("identity.onnx", 16);
+    Some(engine)
 }
 
 /// Run `STRESS_ITERATIONS` synchronous inferences and assert that neither GPU
@@ -307,7 +309,9 @@ fn identity_engine_flexible() -> Option<NvInfer> {
     }
     let props = common::identity_properties();
     let config = NvInferConfig::new_flexible(props, "RGBA");
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)"))
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)");
+    common::promote_built_engine("identity.onnx", 16);
+    Some(engine)
 }
 
 /// Stress test for non-uniform batches with ROIs.

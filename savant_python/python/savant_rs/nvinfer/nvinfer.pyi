@@ -126,6 +126,7 @@ class NvInferConfig:
         gpu_id: int = 0,
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
+        disable_output_host_copy: bool = False,
     ) -> None: ...
 
     @staticmethod
@@ -138,6 +139,7 @@ class NvInferConfig:
         gpu_id: int = 0,
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
+        disable_output_host_copy: bool = False,
     ) -> NvInferConfig:
         """Create a config without fixed input dimensions.
 
@@ -160,6 +162,10 @@ class NvInferConfig:
     def input_height(self) -> Optional[int]: ...
     @property
     def meta_clear_policy(self) -> MetaClearPolicy: ...
+    @property
+    def disable_output_host_copy(self) -> bool:
+        """Whether the device-to-host copy of output tensors is disabled."""
+        ...
 
     def __repr__(self) -> str: ...
 
@@ -223,6 +229,15 @@ class TensorView:
         ...
 
     @property
+    def has_host_data(self) -> bool:
+        """Whether host (CPU) tensor data is valid.
+
+        Returns ``False`` when ``disable_output_host_copy`` was set on the
+        config, meaning only ``device_ptr`` is usable.
+        """
+        ...
+
+    @property
     def numpy_dtype(self) -> str:
         """NumPy-compatible dtype string (``"float32"``, ``"float16"``,
         ``"int8"``, ``"int32"``)."""
@@ -260,8 +275,12 @@ class BatchInferenceOutput:
     """
 
     @property
-    def batch_id(self) -> int:
-        """User-provided batch ID."""
+    def has_host_data(self) -> bool:
+        """Whether host (CPU) tensor data is valid for all tensors.
+
+        Returns ``False`` when ``disable_output_host_copy`` was set on the
+        config, meaning only device (GPU) pointers in ``TensorView`` are usable.
+        """
         ...
 
     @property

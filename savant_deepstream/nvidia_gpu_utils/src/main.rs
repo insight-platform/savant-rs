@@ -16,7 +16,8 @@
 
 use clap::Parser;
 use nvidia_gpu_utils::{
-    gpu_mem_used_mib, has_nvenc, is_jetson_kernel, jetson_model, mem_total_mib, process_rss_mib,
+    gpu_architecture, gpu_mem_used_mib, gpu_platform_tag, has_nvenc, is_jetson_kernel,
+    jetson_model, mem_total_mib, process_rss_mib,
 };
 
 /// Query GPU and device info. Outputs shell-safe KEY='value' pairs.
@@ -33,7 +34,8 @@ struct Args {
     /// Parameters to output. If none given, prints all.
     ///
     /// Available: jetson_model, is_jetson, is_jetson_kernel, is_orin_nano,
-    /// has_nvenc, gpu_mem_used_mib, mem_total_mib, process_rss_mib
+    /// has_nvenc, gpu_architecture, gpu_platform_tag, gpu_mem_used_mib,
+    /// mem_total_mib, process_rss_mib
     #[arg(value_name = "PARAM")]
     params: Vec<String>,
 }
@@ -44,6 +46,8 @@ const ALL_PARAMS: &[&str] = &[
     "is_jetson_kernel",
     "is_orin_nano",
     "has_nvenc",
+    "gpu_architecture",
+    "gpu_platform_tag",
     "gpu_mem_used_mib",
     "mem_total_mib",
     "process_rss_mib",
@@ -92,6 +96,14 @@ fn print_param(param: &str, gpu_id: u32) -> Result<(), Box<dyn std::error::Error
         "has_nvenc" => {
             let val = has_nvenc(gpu_id)?;
             println!("NVIDIA_GPU_HAS_NVENC='{}'", val);
+        }
+        "gpu_architecture" => {
+            let val: String = gpu_architecture(gpu_id)?.unwrap_or_default();
+            println!("NVIDIA_GPU_ARCHITECTURE='{}'", escape_for_shell(&val));
+        }
+        "gpu_platform_tag" => {
+            let val = gpu_platform_tag(gpu_id)?;
+            println!("NVIDIA_GPU_PLATFORM_TAG='{}'", escape_for_shell(&val));
         }
         "gpu_mem_used_mib" => {
             let val = gpu_mem_used_mib(gpu_id)?;

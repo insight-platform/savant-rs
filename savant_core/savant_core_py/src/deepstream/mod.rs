@@ -47,6 +47,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(pyo3::wrap_pyfunction!(functions::py_gpu_mem_used_mib, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_jetson_model, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_is_jetson_kernel, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(functions::py_gpu_architecture, m)?)?;
+    m.add_function(pyo3::wrap_pyfunction!(functions::py_gpu_platform_tag, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_has_nvenc, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(functions::py_get_savant_id_meta, m)?)?;
     m.add_function(pyo3::wrap_pyfunction!(

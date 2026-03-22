@@ -21,6 +21,9 @@ use std::collections::HashMap;
 ///     gpu_id (int): GPU device ID.
 ///     queue_depth (int): GStreamer queue max-size-buffers (0 = no queue).
 ///     meta_clear_policy (MetaClearPolicy): When to clear object metadata.
+///     disable_output_host_copy (bool): When ``True``, skip device-to-host
+///         copy of output tensors. Only device (GPU) pointers will be valid.
+///         Default: ``False``.
 #[pyclass(
     name = "NvInferConfig",
     module = "savant_rs.nvinfer",
@@ -45,6 +48,7 @@ impl PyNvInferConfig {
         gpu_id = 0,
         queue_depth = 0,
         meta_clear_policy = PyMetaClearPolicy::Before,
+        disable_output_host_copy = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -57,12 +61,14 @@ impl PyNvInferConfig {
         gpu_id: u32,
         queue_depth: u32,
         meta_clear_policy: PyMetaClearPolicy,
+        disable_output_host_copy: bool,
     ) -> Self {
         let mut cfg =
             NvInferConfig::new(nvinfer_properties, input_format, input_width, input_height)
                 .gpu_id(gpu_id)
                 .queue_depth(queue_depth)
-                .meta_clear_policy(meta_clear_policy.into());
+                .meta_clear_policy(meta_clear_policy.into())
+                .disable_output_host_copy(disable_output_host_copy);
         if !name.is_empty() {
             cfg = cfg.name(name);
         }
@@ -97,6 +103,7 @@ impl PyNvInferConfig {
         gpu_id = 0,
         queue_depth = 0,
         meta_clear_policy = PyMetaClearPolicy::Before,
+        disable_output_host_copy = false,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new_flexible(
@@ -107,11 +114,13 @@ impl PyNvInferConfig {
         gpu_id: u32,
         queue_depth: u32,
         meta_clear_policy: PyMetaClearPolicy,
+        disable_output_host_copy: bool,
     ) -> Self {
         let mut cfg = NvInferConfig::new_flexible(nvinfer_properties, input_format)
             .gpu_id(gpu_id)
             .queue_depth(queue_depth)
-            .meta_clear_policy(meta_clear_policy.into());
+            .meta_clear_policy(meta_clear_policy.into())
+            .disable_output_host_copy(disable_output_host_copy);
         if !name.is_empty() {
             cfg = cfg.name(name);
         }
@@ -156,10 +165,17 @@ impl PyNvInferConfig {
         self.inner.meta_clear_policy.into()
     }
 
+    /// Whether the device-to-host copy of output tensors is disabled.
+    #[getter]
+    fn disable_output_host_copy(&self) -> bool {
+        self.inner.disable_output_host_copy
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "NvInferConfig(name={:?}, gpu_id={}, queue_depth={}, input_format={:?}, \
-             input_width={:?}, input_height={:?}, meta_clear_policy={:?})",
+             input_width={:?}, input_height={:?}, meta_clear_policy={:?}, \
+             disable_output_host_copy={})",
             self.inner.name,
             self.inner.gpu_id,
             self.inner.queue_depth,
@@ -167,6 +183,7 @@ impl PyNvInferConfig {
             self.inner.input_width,
             self.inner.input_height,
             PyMetaClearPolicy::from(self.inner.meta_clear_policy),
+            self.inner.disable_output_host_copy,
         )
     }
 }

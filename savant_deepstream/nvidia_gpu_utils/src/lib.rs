@@ -66,6 +66,27 @@ impl JetsonModel {
     pub fn is_orin_nano(&self) -> bool {
         matches!(self, Self::OrinNano8GB | Self::OrinNano4GB)
     }
+
+    /// Directory-safe platform tag for TensorRT engine caching.
+    ///
+    /// Returns a lowercase, underscore-separated identifier suitable for use
+    /// as a filesystem directory name (e.g. `"agx_orin_64gb"`, `"orin_nano_8gb"`).
+    #[must_use]
+    pub fn platform_tag(&self) -> &'static str {
+        match self {
+            Self::AgxOrin64GB => "agx_orin_64gb",
+            Self::AgxOrin32GB => "agx_orin_32gb",
+            Self::OrinNx16GB => "orin_nx_16gb",
+            Self::OrinNx8GB => "orin_nx_8gb",
+            Self::OrinNano8GB => "orin_nano_8gb",
+            Self::OrinNano4GB => "orin_nano_4gb",
+            Self::XavierNx => "xavier_nx",
+            Self::AgxXavier => "agx_xavier",
+            Self::Tx2 => "tx2",
+            Self::Nano => "nano",
+            Self::Unknown => "unknown_jetson",
+        }
+    }
 }
 
 impl std::fmt::Display for JetsonModel {
@@ -404,6 +425,76 @@ pub fn has_nvenc(gpu_id: u32) -> Result<bool, GpuUtilsError> {
     Ok(true)
 }
 
+/// Returns the GPU architecture family name on dGPU (x86_64 only).
+///
+/// Uses NVML `device.architecture()` to return a lowercase architecture name
+/// such as `"ampere"`, `"ada"`, `"hopper"`, `"turing"`, etc.
+///
+/// Returns `None` on Jetson/aarch64 (use [`jetson_model`] instead).
+///
+/// # Errors
+///
+/// Returns an error if NVML initialization fails.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// if let Some(arch) = nvidia_gpu_utils::gpu_architecture(0)? {
+///     println!("GPU architecture: {}", arch);
+/// }
+/// # Ok(())
+/// # }
+/// ```
+pub fn gpu_architecture(gpu_id: u32) -> Result<Option<String>, GpuUtilsError> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        Ok(Some(gpu_architecture_nvml(gpu_id)?))
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = gpu_id;
+        Ok(None)
+    }
+}
+
+/// Returns a directory-safe platform tag for TensorRT engine caching.
+///
+/// - **Jetson**: Jetson model name in lowercase with underscores
+///   (e.g. `"agx_orin_64gb"`, `"orin_nano_8gb"`).
+/// - **dGPU (x86_64)**: GPU architecture family from NVML
+///   (e.g. `"ampere"`, `"ada"`, `"hopper"`).
+/// - **Unknown**: `"unknown"` if the platform cannot be determined.
+///
+/// The returned string is safe for use as a filesystem directory name.
+///
+/// # Errors
+///
+/// Returns an error if CUDA/NVML initialization fails.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let tag = nvidia_gpu_utils::gpu_platform_tag(0)?;
+/// let engine_dir = format!("assets/engines/{}", tag);
+/// println!("Engine cache dir: {}", engine_dir);
+/// # Ok(())
+/// # }
+/// ```
+pub fn gpu_platform_tag(gpu_id: u32) -> Result<String, GpuUtilsError> {
+    if let Some(model) = jetson_model(gpu_id)? {
+        return Ok(model.platform_tag().to_string());
+    }
+
+    if let Some(arch) = gpu_architecture(gpu_id)? {
+        return Ok(arch);
+    }
+
+    Ok("unknown".to_string())
+}
+
 #[cfg(target_arch = "x86_64")]
 fn cached_nvml() -> Result<&'static nvml_wrapper::Nvml, GpuUtilsError> {
     use std::sync::OnceLock;
@@ -429,6 +520,14 @@ fn has_nvenc_nvml(gpu_id: u32) -> Result<bool, GpuUtilsError> {
         Err(nvml_wrapper::error::NvmlError::NotSupported) => Ok(false),
         Err(e) => Err(GpuUtilsError::Nvml(e)),
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn gpu_architecture_nvml(gpu_id: u32) -> Result<String, GpuUtilsError> {
+    let nvml = cached_nvml()?;
+    let device = nvml.device_by_index(gpu_id)?;
+    let arch = device.architecture()?;
+    Ok(arch.to_string().to_lowercase())
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -508,6 +607,63 @@ mod tests {
     #[test]
     fn test_has_nvenc_does_not_panic() {
         let _ = has_nvenc(0);
+    }
+
+    #[test]
+    fn test_platform_tag_all_variants() {
+        assert_eq!(JetsonModel::AgxOrin64GB.platform_tag(), "agx_orin_64gb");
+        assert_eq!(JetsonModel::AgxOrin32GB.platform_tag(), "agx_orin_32gb");
+        assert_eq!(JetsonModel::OrinNx16GB.platform_tag(), "orin_nx_16gb");
+        assert_eq!(JetsonModel::OrinNx8GB.platform_tag(), "orin_nx_8gb");
+        assert_eq!(JetsonModel::OrinNano8GB.platform_tag(), "orin_nano_8gb");
+        assert_eq!(JetsonModel::OrinNano4GB.platform_tag(), "orin_nano_4gb");
+        assert_eq!(JetsonModel::XavierNx.platform_tag(), "xavier_nx");
+        assert_eq!(JetsonModel::AgxXavier.platform_tag(), "agx_xavier");
+        assert_eq!(JetsonModel::Tx2.platform_tag(), "tx2");
+        assert_eq!(JetsonModel::Nano.platform_tag(), "nano");
+        assert_eq!(JetsonModel::Unknown.platform_tag(), "unknown_jetson");
+    }
+
+    #[test]
+    fn test_platform_tag_is_directory_safe() {
+        let variants = [
+            JetsonModel::AgxOrin64GB,
+            JetsonModel::AgxOrin32GB,
+            JetsonModel::OrinNx16GB,
+            JetsonModel::OrinNx8GB,
+            JetsonModel::OrinNano8GB,
+            JetsonModel::OrinNano4GB,
+            JetsonModel::XavierNx,
+            JetsonModel::AgxXavier,
+            JetsonModel::Tx2,
+            JetsonModel::Nano,
+            JetsonModel::Unknown,
+        ];
+        for v in &variants {
+            let tag = v.platform_tag();
+            assert!(
+                !tag.is_empty(),
+                "platform_tag() should not be empty for {:?}",
+                v
+            );
+            assert!(
+                tag.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "platform_tag() '{}' contains non-directory-safe chars for {:?}",
+                tag,
+                v
+            );
+        }
+    }
+
+    #[test]
+    fn test_gpu_platform_tag_does_not_panic() {
+        let _ = gpu_platform_tag(0);
+    }
+
+    #[test]
+    fn test_gpu_architecture_does_not_panic() {
+        let _ = gpu_architecture(0);
     }
 
     // ---- map_to_jetson exhaustive tests ----

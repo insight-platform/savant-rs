@@ -1,8 +1,8 @@
 //! Standalone `#[pyfunction]` items for the `savant_rs.deepstream` module.
 
-use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
 #[cfg(debug_assertions)]
 use super::buffer::PySharedBuffer;
+use super::buffer::{extract_buf_ptr, with_mut_buffer_ref};
 use super::enums::{from_rust_id_kind, PySavantIdMetaKind};
 use deepstream_buffers::transform;
 use gstreamer as gst;
@@ -87,6 +87,47 @@ pub fn py_jetson_model(gpu_id: u32) -> PyResult<Option<String>> {
 #[pyo3(name = "is_jetson_kernel")]
 pub fn py_is_jetson_kernel() -> bool {
     nvidia_gpu_utils::is_jetson_kernel()
+}
+
+/// Returns the GPU architecture family name (x86_64 dGPU only, via NVML).
+///
+/// Returns a lowercase architecture name such as ``"ampere"``, ``"ada"``,
+/// ``"hopper"``, ``"turing"``, etc.  Returns ``None`` on Jetson/aarch64.
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     str | None: Architecture name or None if not on x86_64.
+///
+/// Raises:
+///     RuntimeError: If NVML initialization fails.
+#[pyfunction]
+#[pyo3(name = "gpu_architecture", signature = (gpu_id=0))]
+pub fn py_gpu_architecture(gpu_id: u32) -> PyResult<Option<String>> {
+    nvidia_gpu_utils::gpu_architecture(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Returns a directory-safe platform tag for TensorRT engine caching.
+///
+/// - **Jetson**: Jetson model name (e.g. ``"agx_orin_64gb"``, ``"orin_nano_8gb"``).
+/// - **dGPU (x86_64)**: GPU architecture family (e.g. ``"ampere"``, ``"ada"``).
+/// - **Unknown**: ``"unknown"`` if the platform cannot be determined.
+///
+/// Args:
+///     gpu_id (int): GPU device ID (default 0).
+///
+/// Returns:
+///     str: Platform tag string.
+///
+/// Raises:
+///     RuntimeError: If CUDA/NVML initialization fails.
+#[pyfunction]
+#[pyo3(name = "gpu_platform_tag", signature = (gpu_id=0))]
+pub fn py_gpu_platform_tag(gpu_id: u32) -> PyResult<String> {
+    nvidia_gpu_utils::gpu_platform_tag(gpu_id)
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
 
 /// Returns ``True`` if the GPU has NVENC hardware encoding support.

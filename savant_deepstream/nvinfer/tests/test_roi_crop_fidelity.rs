@@ -106,18 +106,12 @@ fn identity_engine_1080p() -> Option<NvInfer> {
         return None;
     }
 
-    let mut props = common::identity_112x112_properties();
-    props.insert("batch-size".into(), "32".into());
-    props.insert(
-        "model-engine-file".into(),
-        assets
-            .join("identity_3x112x112.onnx_b32_gpu0_fp16.engine")
-            .to_string_lossy()
-            .into(),
-    );
+    let props = common::identity_112x112_properties();
 
     let config = NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
-    Some(NvInfer::new(config, Box::new(|_| {})).expect("create identity NvInfer 1080p"))
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity NvInfer 1080p");
+    common::promote_built_engine("identity_3x112x112.onnx", 32);
+    Some(engine)
 }
 
 // ---------------------------------------------------------------------------
