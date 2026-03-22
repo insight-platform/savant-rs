@@ -16,7 +16,6 @@ Cargo.lock
 **/*.zip
 **/*.so
 **/*.tar
-**/*.engine
 # Added by cargo
 
 /.idea
