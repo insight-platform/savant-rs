@@ -129,7 +129,7 @@ fn make_age_gender_batch(num_frames: u32) -> SharedBuffer {
     for i in 0..num_frames {
         let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-        batch.transform_slot(i as u32, &src_view, None).unwrap();
+        batch.transform_slot(i, &src_view, None).unwrap();
     }
 
     batch.finalize().unwrap();
@@ -232,6 +232,7 @@ fn test_age_gender_e2e_real_images() {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
     // ---- Load ground truth ------------------------------------------------
     let gt_text = std::fs::read_to_string(&gt_path).expect("read ground_truth.json");
@@ -400,6 +401,7 @@ fn test_age_gender_placement_independence() {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
     let gt_text = std::fs::read_to_string(&gt_path).expect("read ground_truth.json");
     let gt: HashMap<String, GroundTruth> =

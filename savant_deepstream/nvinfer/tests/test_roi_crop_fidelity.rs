@@ -215,6 +215,7 @@ fn test_roi_crop_pixel_match() {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
     let images = load_face_images(&face_dir);
     let num_faces = images.len();
@@ -317,6 +318,7 @@ fn test_roi_crop_placement_independence() {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
     let images = load_face_images(&face_dir);
     let num_faces = images.len();

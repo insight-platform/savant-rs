@@ -163,3 +163,51 @@ pub fn platform_transform_config() -> TransformConfig {
     }
     config
 }
+
+/// Send one dummy frame through the engine to prime the TensorRT execution
+/// context. The first inference after engine creation may behave differently
+/// (CUDA context warm-up, memory pool allocation, cuDNN autotuning, etc.),
+/// so this ensures subsequent runs produce stable, comparable results.
+#[allow(dead_code)]
+pub fn warmup_engine(engine: &nvinfer::NvInfer, width: u32, height: u32) {
+    use deepstream_buffers::{
+        BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SurfaceView, UniformBatchGenerator,
+        VideoFormat,
+    };
+
+    let src_gen = BufferGenerator::builder(VideoFormat::RGBA, width, height)
+        .gpu_id(0)
+        .mem_type(NvBufSurfaceMemType::Default)
+        .min_buffers(1)
+        .max_buffers(1)
+        .build()
+        .expect("warmup src generator");
+
+    let batched_gen = UniformBatchGenerator::new(
+        VideoFormat::RGBA,
+        width,
+        height,
+        1,
+        1,
+        0,
+        NvBufSurfaceMemType::Default,
+    )
+    .expect("warmup batched generator");
+
+    let shared = {
+        let config = platform_transform_config();
+        let ids = vec![SavantIdMetaKind::Frame(-1)];
+        let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
+        let src_shared = src_gen.acquire(Some(-1)).unwrap();
+        let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
+        batch.transform_slot(0, &src_view, None).unwrap();
+        drop(src_view);
+        drop(src_shared);
+        batch.finalize().unwrap();
+        let shared = batch.shared_buffer();
+        drop(batch);
+        shared
+    };
+    let _ = engine.infer_sync(shared, None).expect("warmup infer_sync");
+    eprintln!("  [warmup] engine primed with {width}x{height} dummy frame");
+}

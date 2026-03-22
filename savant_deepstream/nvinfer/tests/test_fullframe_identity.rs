@@ -229,6 +229,7 @@ fn test_fullframe_identity_roundtrip() {
         Some(e) => e,
         None => return,
     };
+    common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
     let canvas = build_random_canvas(42);
 

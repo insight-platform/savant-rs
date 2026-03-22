@@ -59,7 +59,7 @@ fn make_identity_batch(num_frames: u32) -> SharedBuffer {
     for i in 0..num_frames {
         let src_shared = src_gen.acquire(Some(i as i64)).unwrap();
         let src_view = SurfaceView::from_buffer(&src_shared, 0).unwrap();
-        batch.transform_slot(i as u32, &src_view, None).unwrap();
+        batch.transform_slot(i, &src_view, None).unwrap();
     }
 
     batch.finalize().unwrap();
