@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import threading
 from dataclasses import dataclass
 
 import skia
@@ -211,8 +212,7 @@ class LegendCtx:
         self.legend_text_paint = skia.Paint(
             AntiAlias=True, Color=skia.Color(255, 255, 255, 220)
         )
-
-    _cls_color_cache: dict[str, tuple[int, int, int]] = {}
+        self._cls_color_cache: dict[str, tuple[int, int, int]] = {}
 
     def class_color(self, label: str) -> tuple[int, int, int]:
         if label not in self._cls_color_cache:
@@ -282,11 +282,34 @@ class SkiaRenderer:
     Picasso draws the detection bounding boxes via the draw spec before
     this callback fires.  The callback adds the legend (detection list)
     on top of the rendered scene using :class:`SkiaCanvas`.
+
+    Picasso spawns one worker thread per source, each with its own GL
+    context and FBO.  Per-source state (:class:`SkiaCanvas` and
+    :class:`LegendCtx`) is keyed by ``source_id`` so that each worker
+    gets an isolated canvas bound to its own GL context.
+
+    A lock guards the dict because Picasso workers are Rust OS threads
+    that call into Python via PyO3 — ``threading.local()`` does not
+    persist across ``PyGILState_Ensure``/``Release`` cycles.
     """
 
     def __init__(self):
-        self._canvas: SkiaCanvas | None = None
-        self._legend_ctx: LegendCtx | None = None
+        self._sources: dict[str, tuple[SkiaCanvas, LegendCtx]] = {}
+        self._lock = threading.Lock()
+
+    def _get_or_create(
+        self, source_id: str, fbo_id: int, width: int, height: int
+    ) -> tuple[SkiaCanvas, LegendCtx]:
+        with self._lock:
+            entry = self._sources.get(source_id)
+            if entry is not None:
+                return entry
+        canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
+        legend_ctx = LegendCtx()
+        print(f"SkiaCanvas created on Picasso worker thread ({source_id})")
+        with self._lock:
+            self._sources[source_id] = (canvas, legend_ctx)
+        return canvas, legend_ctx
 
     def __call__(
         self,
@@ -296,24 +319,21 @@ class SkiaRenderer:
         height: int,
         frame: object,
     ) -> None:
-        if self._canvas is None:
-            self._canvas = SkiaCanvas.from_fbo(fbo_id, width, height)
-            self._legend_ctx = LegendCtx()
-            print("SkiaCanvas created on Picasso worker thread")
+        canvas, legend_ctx = self._get_or_create(source_id, fbo_id, width, height)
 
         # Picasso's draw-spec renderer uses its own GrDirectContext on the
         # same GL context.  Tell our context that external GL state changes
         # may have occurred so it re-queries everything.
-        self._canvas.gr_context.resetContext()
+        canvas.gr_context.resetContext()
 
         draw_legend(
-            self._canvas.canvas(),
-            self._legend_ctx,
+            canvas.canvas(),
+            legend_ctx,
             frame,
             float(width),
             float(height),
         )
-        self._canvas.gr_context.flushAndSubmit()
+        canvas.gr_context.flushAndSubmit()
 
 
 # ===========================================================================

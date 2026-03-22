@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import threading
 
 import cv2
 
@@ -140,14 +141,21 @@ class GpuMatRenderer:
     :class:`cv2.cuda.GpuMat` (zero-copy) and renders a bouncing
     rectangle each frame.
 
-    Picasso calls this on its worker thread for each frame; a single
-    source is processed sequentially, so no locking is needed for
-    the animation state.
+    Picasso spawns one worker thread per source and calls this callback
+    sequentially within each source.  Per-source animation state is
+    keyed by ``source_id`` so that multiple sources get independent
+    state.
+
+    A lock guards the dict because Picasso workers are Rust OS threads
+    that call into Python via PyO3 — ``threading.local()`` does not
+    persist across ``PyGILState_Ensure``/``Release`` cycles.
     """
 
     def __init__(self, width: int, height: int):
-        self._rect = RectState(width, height)
-        self._frame_idx = 0
+        self._width = width
+        self._height = height
+        self._sources: dict[str, tuple[RectState, int]] = {}
+        self._lock = threading.Lock()
 
     def __call__(
         self,
@@ -159,12 +167,19 @@ class GpuMatRenderer:
         height: int,
         cuda_stream: int,
     ) -> None:
-        # cuda_stream is the worker's CUDA stream; nvbuf_as_gpu_mat creates its
-        # own cv2.cuda.Stream for OpenCV ops — use cuda_stream if integrating
-        # with raw CUDA APIs.
+        with self._lock:
+            entry = self._sources.get(source_id)
+        if entry is None:
+            rect = RectState(self._width, self._height)
+            frame_idx = 0
+        else:
+            rect, frame_idx = entry
+
         with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (gpumat, stream):
-            draw_frame(gpumat, stream, self._rect, self._frame_idx)
-        self._frame_idx += 1
+            draw_frame(gpumat, stream, rect, frame_idx)
+
+        with self._lock:
+            self._sources[source_id] = (rect, frame_idx + 1)
 
 
 # ===========================================================================
