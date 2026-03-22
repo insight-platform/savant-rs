@@ -56,13 +56,20 @@ let src_gen = BufferGenerator::builder(VideoFormat::RGBA, 640, 480)
     .gpu_id(0)
     .build()
     .unwrap();
+
+// Builder pattern:
 let batched_gen = UniformBatchGenerator::builder(VideoFormat::RGBA, 640, 640, 4)
     .gpu_id(0)
     .build()
     .unwrap();
 
+// Direct constructor (format, width, height, batch_size, pool_size, gpu_id, mem_type):
+let batched_gen = UniformBatchGenerator::new(
+    VideoFormat::RGBA, 640, 640, 4, 2, 0, NvBufSurfaceMemType::Default,
+).unwrap();
+
 let config = platform_transform_config();
-let ids: Vec<SavantIdMetaKind> = (0..4).map(SavantIdMetaKind::Frame).collect();
+let ids: Vec<SavantIdMetaKind> = (0..4).map(|i| SavantIdMetaKind::Frame(i as i64)).collect();
 let mut batch = batched_gen.acquire_batch(config, ids).unwrap();
 
 for i in 0..4u32 {
@@ -134,9 +141,17 @@ for elem in output.elements() {
 
 ```toml
 [dev-dependencies]
+candle-core = "0.9"
+cudarc = { version = "0.17", features = ["cuda-12020"] }
+half = "2.5"
+criterion = { workspace = true }
 env_logger = "0.11"
-serial_test = { workspace = true }
+image = "0.25"
 nvidia_gpu_utils = { path = "../nvidia_gpu_utils" }
+rand = "0.9"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
 ```
 
 ---

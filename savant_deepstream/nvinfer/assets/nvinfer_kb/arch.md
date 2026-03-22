@@ -11,7 +11,7 @@ nvinfer/src/
 ├── roi.rs              # Roi
 ├── meta_clear_policy.rs# MetaClearPolicy
 ├── nvinfer_types.rs    # DataType
-└── batch_meta_builder.rs # attach_batch_meta_with_rois, clear_all_frame_objects
+└── batch_meta_builder.rs # attach_batch_meta_with_rois, clear_all_frame_objects (pub(crate))
 ```
 
 ## Pipeline Layout

@@ -135,10 +135,10 @@ unwinds correctly when all copies are dropped.
 
 ---
 
-## 8. `extract_buffers()` Returns a Pointer Valid Only During Map
+## 8. `extract_nvbufsurface()` Returns a Pointer Valid Only During Map
 
 ```rust
-pub unsafe fn extract_buffers(buf: &BufferRef) -> Result<*mut NvBufSurface, TransformError>
+pub unsafe fn extract_nvbufsurface(buf: &BufferRef) -> Result<*mut NvBufSurface, TransformError>
 ```
 
 This maps the buffer, reads the pointer, then **drops the map**. The

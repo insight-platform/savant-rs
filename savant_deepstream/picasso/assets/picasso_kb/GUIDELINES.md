@@ -17,7 +17,7 @@ Self-contained reference for agents to write Rust code/tests for the picasso cra
 2. `deps.md` — imports from external crates (includes `buffer_gpu_id`, `EncoderConfig.gpu_id()`)
 3. `patterns.md` — test scaffolding, helpers, templates (includes async drain + benchmark patterns)
 4. `arch.md` — internals: threading model, async drain, GPU affinity, shared encoder state, render omission fast path
-5. `errors.md` — all PicassoError variants including `GpuMismatch`
+5. `errors.md` — all PicassoError variants including `GpuMismatch`, `ExternalCudaStream`, `CudaStreamCreationFailed`
 
 ## Conventions
 - `SIG:` = function/method signature

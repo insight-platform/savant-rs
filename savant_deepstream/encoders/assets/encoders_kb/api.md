@@ -113,7 +113,7 @@ pub struct NvEncoder { /* private */ }
 ```rust
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
-    pub frame_id: u128,
+    pub frame_id: Option<u128>, // None for codec header packets (e.g. AV1 sequence header)
     pub pts_ns: u64,
     pub dts_ns: Option<u64>,
     pub duration_ns: Option<u64>,
@@ -222,7 +222,8 @@ pub use crate::error::EncoderError;
 pub use crate::{EncodedFrame, EncoderConfig};
 pub use savant_gstreamer::Codec;
 pub use deepstream_buffers::{
-    cuda_init, BufferGenerator, NvBufSurfaceMemType, VideoFormat,
+    cuda_init, BufferGenerator, NvBufSurfaceMemType, SharedBuffer, SurfaceView,
+    UniformBatchGenerator, VideoFormat,
 };
 pub use crate::properties::{
     Av1DgpuProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps,

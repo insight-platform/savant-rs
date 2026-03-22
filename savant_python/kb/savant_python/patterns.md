@@ -1,5 +1,20 @@
 # savant_python — Patterns & Development Workflow
 
+## Virtual Environment
+
+The Makefile uses `VENV_DIR` to locate the Python virtualenv:
+
+```
+VENV_DIR ?= /opt/venv          # default (Docker containers)
+VENV_BIN := $(VENV_DIR)/bin
+```
+
+Override for local development:
+
+```bash
+VENV_DIR=./venv make build_savant install
+```
+
 ## Build Commands
 
 All commands run from the **project root** (`/workspaces/savant-rs`).

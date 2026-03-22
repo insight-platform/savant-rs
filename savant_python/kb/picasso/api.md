@@ -317,7 +317,7 @@ Module: `savant_rs.deepstream`
 ### Factory Methods
 | Method | Signature | Notes |
 |---|---|---|
-| `from_buffer` | `(buf: Union[SharedBuffer, int], cuda_stream: int = 0) → SurfaceView` | Create a view of an NvBufSurface-backed buffer (SharedBuffer or raw `int` pointer) |
+| `from_buffer` | `(buf: Union[SharedBuffer, int], slot_index: int = 0, cuda_stream: int = 0) → SurfaceView` | Create a view of an NvBufSurface-backed buffer (SharedBuffer or raw `int` pointer). `slot_index` selects the slot in a batched NvBufSurface. |
 | `from_cuda_array` | `(obj: Any) → SurfaceView` | Create from any object exposing `__cuda_array_interface__` (e.g. CuPy ndarray). Must be contiguous RGBA `uint8` on GPU. |
 
 ### Properties (read-only)
@@ -329,13 +329,13 @@ Module: `savant_rs.deepstream`
 | `height` | int | Height in pixels |
 | `gpu_id` | int | CUDA device ordinal |
 | `channels` | int | Number of channels (e.g. 4 for RGBA) |
-| `color_format` | VideoFormat | Pixel format enum |
+| `color_format` | int | Raw `NvBufSurfaceColorFormat` value |
 
 ### `__cuda_array_interface__`
 `SurfaceView` exposes `__cuda_array_interface__` (v3), so it can be consumed
 by CuPy, Numba, or any library that supports the protocol:
 ```python
 import cupy as cp
-view = SurfaceView.from_buffer(buf, 0)
+view = SurfaceView.from_buffer(buf, slot_index=0)
 arr = cp.asarray(view)   # zero-copy GPU array (H, W, C) uint8
 ```

@@ -24,7 +24,7 @@ pub use VideoFormat;                      // from savant_gstreamer
 pub use SharedBuffer;           // from shared_buffer
 pub use SurfaceView;                     // from surface_view
 pub use CudaStream;                      // from cuda_stream
-pub use extract_buffers, buffer_gpu_id, ComputeMode, DstPadding,
+pub use extract_nvbufsurface, buffer_gpu_id, ComputeMode, DstPadding,
         Interpolation, Padding, Rect, TransformConfig, TransformError,
         MIN_EFFECTIVE_DIM;                                // from transform
 #[cfg(feature = "skia")]
@@ -32,7 +32,8 @@ pub use SkiaRenderer;                                    // from skia_renderer
 pub use BufferGenerator, BufferGeneratorBuilder;  // from buffers/single
 pub use UniformBatchGenerator, UniformBatchGeneratorBuilder,
         SurfaceBatch;  // from buffers/batched/uniform
-pub use NonUniformBatch;     // from buffers/batched/non_uniform
+pub use NonUniformBatch;     // type alias for DsNvNonUniformSurfaceBuffer (from buffers/batched/non_uniform)
+pub use pipeline::{BufferGeneratorExt, UniformBatchGeneratorExt};  // from pipeline.rs
 ```
 
 ---
@@ -81,9 +82,20 @@ pub struct BufferGenerator { inner: UniformBatchGenerator }
 | `acquire` | `(&self, frame_id: Option<i64>) → Result<SharedBuffer, E>` | Acquire single buffer from pool. Attaches SavantIdMeta if frame_id given |
 | `transform` | `(&self, src: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) → Result<SharedBuffer, E>` | Acquire + GPU transform |
 | `width` / `height` / `format` / `gpu_id` | `(&self) → T` | Getters |
+| `nvmm_caps` | `(&self) → String` | NVMM caps string (delegates to inner `UniformBatchGenerator`) |
+| `raw_caps` | `(&self) → String` | Raw (non-NVMM) caps string |
 
 Builder methods: `fps(num, den)`, `gpu_id(u32)`, `mem_type(NvBufSurfaceMemType)`,
 `min_buffers(u32)`, `max_buffers(u32)`, `build()`.
+
+### BufferGeneratorExt (pipeline.rs)
+
+Extension trait providing GStreamer-level caps access:
+
+| Method | Signature | Notes |
+|---|---|---|
+| `nvmm_caps_gst` | `(&self) → gst::Caps` | NVMM caps as `gst::Caps` object |
+| `raw_caps_gst` | `(&self) → gst::Caps` | Raw caps as `gst::Caps` object |
 
 ### gst_app (free functions)
 
@@ -110,6 +122,9 @@ pub struct UniformBatchGenerator { /* pool, format, w, h, gpu_id, max_batch_size
 | `builder` | `(format, w, h, max_batch_size) → Builder` | Advanced, DEF pool_size=2 |
 | `acquire_batch` | `(&self, config: TransformConfig, ids: Vec<SavantIdMetaKind>) → Result<SurfaceBatch, E>` | ⚠ `config` and `ids` are moved; ids attached at finalize |
 | `max_batch_size` / `width` / `height` / `format` / `gpu_id` | `(&self) → T` | Getters |
+| `nvmm_caps` | `(&self) → String` | NVMM caps string (includes `memory:NVMM` feature) |
+| `nvmm_caps_gst` | `(&self) → gst::Caps` | NVMM caps as `gst::Caps` object |
+| `raw_caps` | `(&self) → String` | Raw (non-NVMM) caps string |
 
 **`acquire()` is `pub(crate)` only** — used internally by `BufferGenerator` (which
 wraps `UniformBatchGenerator` with `max_batch_size=1`). External callers must use
@@ -117,6 +132,15 @@ wraps `UniformBatchGenerator` with `max_batch_size=1`). External callers must us
 
 Builder methods: `fps(num, den)`, `gpu_id(u32)`, `mem_type(NvBufSurfaceMemType)`,
 `pool_size(u32)` (sets both min/max), `min_buffers(u32)`, `max_buffers(u32)`, `build()`.
+
+### UniformBatchGeneratorExt (pipeline.rs)
+
+Extension trait providing GStreamer-level caps access:
+
+| Method | Signature | Notes |
+|---|---|---|
+| `nvmm_caps_gst` | `(&self) → gst::Caps` | NVMM caps as `gst::Caps` object |
+| `raw_caps_gst` | `(&self) → gst::Caps` | Raw caps as `gst::Caps` object |
 
 ---
 
@@ -151,8 +175,13 @@ not deferred to `finalize`. This is consistent with `acquire()` for single frame
 
 ## NonUniformBatch (batched, heterogeneous)
 
+`NonUniformBatch` is a **type alias** for `DsNvNonUniformSurfaceBuffer`:
 ```rust
-pub struct NonUniformBatch {
+pub type NonUniformBatch = DsNvNonUniformSurfaceBuffer;
+```
+
+```rust
+pub struct DsNvNonUniformSurfaceBuffer {
     params: Vec<NvBufSurfaceParams>,
     parents: Vec<SharedBuffer>,
     gpu_id: u32,
@@ -350,10 +379,10 @@ pub struct Rect { pub top: u32, pub left: u32, pub width: u32, pub height: u32 }
 
 ---
 
-## extract_buffers
+## extract_nvbufsurface
 
 ```rust
-pub unsafe fn extract_buffers(buf: &BufferRef) → Result<*mut NvBufSurface, TransformError>
+pub unsafe fn extract_nvbufsurface(buf: &BufferRef) → Result<*mut NvBufSurface, TransformError>
 ```
 
 Maps buffer, reads NvBufSurface pointer. ⚠ Pointer valid while GstMemory exists.
@@ -430,4 +459,4 @@ pub enum SkiaRendererError {
 | `Gl` | OpenGL error during texture/FBO creation |
 | `Cuda` | `cudaGraphicsGLRegisterImage`, `cudaGraphicsMapResources`, `cudaMemcpy2D*` failures |
 | `Skia` | Skia `DirectContext` or `Surface` creation failure |
-| `NvBuf` | `SurfaceView` creation failure, `extract_buffers` failure, temp generator creation/acquire failure, `NvBufSurfTransform` failure |
+| `NvBuf` | `SurfaceView` creation failure, `extract_nvbufsurface` failure, temp generator creation/acquire failure, `NvBufSurfTransform` failure |

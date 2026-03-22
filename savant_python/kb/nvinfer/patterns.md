@@ -26,6 +26,8 @@ try:
         BufferGenerator,
         UniformBatchGenerator,
         TransformConfig,
+        SurfaceView,
+        SavantIdMetaKind,
         init_cuda,
         nvbuf_as_gpu_mat,
     )
@@ -283,23 +285,25 @@ with nvbuf_as_gpu_mat(view.data_ptr, view.pitch, W, H) as (gpu_mat, stream):
 
 ## GPU memset via Python (preferred over raw ctypes)
 
-Instead of raw ctypes CUDA calls (`cuMemsetD8_v2`), use the surface buffer's
-`memset` method:
+Instead of raw ctypes CUDA calls (`cuMemsetD8_v2`), create a `SurfaceView`
+from the buffer and call `memset` on the view:
 
 ```python
-buf = gen.acquire()
-buf.memset(0)
+buf = gen.acquire(id=0)
+view = SurfaceView.from_buffer(buf, cuda_stream=0)
+view.memset(0)
 ```
 
 ## GPU upload via Python (preferred over nvbuf_as_gpu_mat)
 
-Instead of `nvbuf_as_gpu_mat` + OpenCV `GpuMat.upload`, use the surface buffer's
-`upload` method with a numpy array in `(H, W, C)` layout (e.g. RGBA):
+Instead of `nvbuf_as_gpu_mat` + OpenCV `GpuMat.upload`, create a `SurfaceView`
+and call `upload` with a numpy array in `(H, W, C)` layout (e.g. RGBA):
 
 ```python
 pixels = np.zeros((480, 640, 4), dtype=np.uint8)  # (H, W, C) RGBA
-buf = gen.acquire()
-buf.upload(pixels)
+buf = gen.acquire(id=0)
+view = SurfaceView.from_buffer(buf, cuda_stream=0)
+view.upload(pixels)
 ```
 
 ## Batch slot operations (after finalize)

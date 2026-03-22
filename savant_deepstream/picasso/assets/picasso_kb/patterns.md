@@ -10,7 +10,7 @@
 
 ### GPU Tests (encode, conditional, render, full pipeline)
 - Require `gstreamer::init()` + `cuda_init(0)`
-- Use `BufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(buf, 0).unwrap()` (by value, consuming buf)
+- Use `BufferGenerator` for real GPU buffers, then `SurfaceView::from_buffer(&shared, 0).unwrap()` (takes `&SharedBuffer`)
 - Helper: `make_gpu_surface_view(&gen, idx, dur_ns)` in `tests/common/mod.rs`
 - Cover: full encode pipeline, Skia rendering, conditional gates, on_render/on_gpumat callbacks
 
@@ -19,9 +19,14 @@
 ## Cargo.toml Test Dependencies
 ```toml
 [dev-dependencies]
+deepstream_buffers = { path = "../buffers", features = ["testing"] }
 env_logger = "0.11"
+nvidia_gpu_utils = { workspace = true }
 serial_test = { workspace = true }
 gstreamer-video = { workspace = true }
+imagehash = "0.3"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+criterion = { workspace = true }
 ```
 
 ## Test File Location
@@ -543,7 +548,7 @@ fn e2e_async_drain_delivers_independently() {
 ## Benchmark Patterns
 
 ### SurfaceView in Benchmarks
-Picasso benchmarks use `SurfaceView::from_buffer(buf, 0).unwrap()` (by value) instead of `SurfaceView::wrap(buf)`. With POOLED meta, EGL-CUDA registration survives pool recycles, so this is now efficient for repeated encode cycles.
+Picasso benchmarks use `SurfaceView::from_buffer(&shared, 0).unwrap()` (takes `&SharedBuffer`) instead of `SurfaceView::wrap(buf)`. With POOLED meta, EGL-CUDA registration survives pool recycles, so this is now efficient for repeated encode cycles.
 
 ### Benchmark Callback Pattern
 

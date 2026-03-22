@@ -37,7 +37,7 @@ pub struct PicassoEngine { /* private */ }
 | Method | Signature | Notes |
 |---|---|---|
 | `new` | `(general: GeneralSpec, callbacks: Callbacks) → Self` | Spawns watchdog thread |
-| `set_source_spec` | `(&self, source_id: &str, spec: SourceSpec) → Result<(), PicassoError>` | Creates worker on first call; sends UpdateSpec if worker exists |
+| `set_source_spec` | `(&self, source_id: &str, spec: SourceSpec) → Result<(), PicassoError>` | Creates worker on first call; sends UpdateSpec if worker exists. Returns `Err(PicassoError::ExternalCudaStream)` if `TransformConfig.cuda_stream` is not default. |
 | `remove_source_spec` | `(&self, source_id: &str)` | Sends Shutdown to worker, removes from map |
 | `send_frame` | `(&self, source_id: &str, frame: VideoFrameProxy, view: SurfaceView, src_rect: Option<Rect>) → Result<(), PicassoError>` | Auto-creates worker with default Drop spec if source unknown. `src_rect` is optional per-frame crop. `SurfaceView` from `deepstream_buffers`. |
 | `send_eos` | `(&self, source_id: &str) → Result<(), PicassoError>` | No-op if source not found |
@@ -90,7 +90,7 @@ pub enum CodecSpec {
 }
 ```
 
-- `TransformConfig` from `deepstream_buffers`
+- `TransformConfig` from `deepstream_buffers`; `TransformConfig.dst_padding` propagates through the transform chain to `rewrite_frame_transformations` (affects letterbox geometry)
 - `EncoderConfig` from `deepstream_encoders`
 
 ---

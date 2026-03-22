@@ -37,7 +37,7 @@ pub enum NvInferError {
 | `ElementCreationFailed` | `gst::ElementFactory::make` fails for appsrc, appsink, nvinfer, queue |
 | `LinkFailed` | `gst::Element::link_many` fails |
 | `InvalidProperty` | GStreamer element property set fails |
-| `InvalidConfig` | `process-mode != 2` or `output-tensor-meta != 1`; forbidden key in nvinfer_properties (e.g. `disable-output-host-copy`); temp file creation/write fails |
+| `InvalidConfig` | `process-mode != 2`, `output-tensor-meta != 1`, `network-type != 100`, or `gie-unique-id != 1`; forbidden key in nvinfer_properties (`operate-on-gie-id`, `operate-on-class-ids`, `secondary-reinfer-interval`, `num-detected-classes`, `disable-output-host-copy`); temp file creation/write fails |
 | `BatchMetaFailed` | `attach_batch_meta_with_rois` or batch meta read fails |
 | `NullPointer` | Null pointer in batch meta / surface extraction |
 | `GstInit` | `gst::init()` fails |

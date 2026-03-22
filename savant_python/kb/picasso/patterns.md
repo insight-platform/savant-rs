@@ -125,7 +125,7 @@ frame.pts = frame_idx * FRAME_DURATION_NS
 frame.duration = FRAME_DURATION_NS
 
 # Preferred: wrap as SurfaceView before sending
-surface_view = SurfaceView.from_buffer(buf, 0)  # slot 0 in the NvBufSurface batch
+surface_view = SurfaceView.from_buffer(buf, slot_index=0)  # slot 0 in the NvBufSurface batch
 engine.send_frame("src-0", frame, surface_view)
 
 # From CuPy array (contiguous RGBA uint8 on GPU):
@@ -136,7 +136,7 @@ engine.send_frame("src-0", frame, surface_view)
 
 # Legacy: pass SharedBuffer or int pointer directly (still works)
 engine.send_frame("src-0", frame, buf)
-# buf.ptr gives raw int pointer; buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
+# For raw buffer info use get_nvbufsurface_info(buf); buf can be passed directly to send_frame/nvgstbuf_as_gpu_mat
 ```
 
 ### Build H.264 Encoder Config
@@ -236,7 +236,7 @@ class TestEncode:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)  # preferred
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -275,7 +275,7 @@ class TestBypass:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -283,8 +283,10 @@ class TestBypass:
         engine.shutdown()
 
         assert len(bypass_results) > 0
-        assert bypass_results[0].source_id == "src-0"
-        assert bypass_results[0].frame is not None
+        r = bypass_results[0]
+        assert r.is_video_frame
+        frame = r.as_video_frame()
+        assert frame.source_id == "src-0"
 ```
 
 ## Drop Pipeline Test Template
@@ -305,7 +307,7 @@ class TestDrop:
                 pts_ns=i * FRAME_DURATION_NS,
                 duration_ns=FRAME_DURATION_NS, id=i,
             )
-            sv = SurfaceView.from_buffer(buf, 0)
+            sv = SurfaceView.from_buffer(buf, slot_index=0)
             engine.send_frame("src-0", frame, sv)
 
         engine.send_eos("src-0")
@@ -333,7 +335,7 @@ class GpuMatRenderer:
     def __init__(self, width: int, height: int):
         self._frame_idx = 0
 
-    def __call__(self, source_id, frame, data_ptr, pitch, width, height):
+    def __call__(self, source_id, frame, data_ptr, pitch, width, height, cuda_stream):
         gpumat = cv2.cuda.createGpuMatFromCudaMemory(
             int(height), int(width), _RGBA_CV_TYPE, int(data_ptr), int(pitch),
         )
@@ -353,7 +355,7 @@ spec = SourceSpec(
 ⚠ A single source is processed sequentially on one worker thread; no
 locking is needed for the animation state within a single source.
 
-⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height)`.
+⚠ The `on_gpumat` callback receives raw `(data_ptr, pitch, width, height, cuda_stream)`.
 Use `nvbuf_as_gpu_mat(data_ptr, pitch, width, height)` inside the callback.
 Use `nvgstbuf_as_gpu_mat(buf)` outside callbacks (e.g. pre-filling
 backgrounds before `send_frame`) where you have a `SharedBuffer` (or raw `int` pointer).
@@ -539,7 +541,7 @@ obj = VideoObject(id=0, namespace="detector", label="person",
                   attributes=[], confidence=0.95,
                   track_id=None, track_box=None)
 frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
-sv = SurfaceView.from_buffer(buf, 0)
+sv = SurfaceView.from_buffer(buf, slot_index=0)
 engine.send_frame("src-0", frame, sv)
 
 # 3. SourceSpec wiring
@@ -594,8 +596,9 @@ objects = vf.get_all_objects()
 
 ### Bypass output
 ```python
-assert output.source_id == "src-0"
-assert output.frame is not None
+assert output.is_video_frame
+frame = output.as_video_frame()
+assert frame.source_id == "src-0"
 ```
 
 ### Engine state

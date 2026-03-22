@@ -15,13 +15,15 @@ savant_deepstream/buffers/
 │   │                           #   NvBufSurfTransform, CUDA, gst_nvds_buffer_pool_new
 │   ├── transform.rs            # Padding, Interpolation, ComputeMode, Rect,
 │   │                           #   TransformConfig, TransformError,
-│   │                           #   extract_buffers, buffer_gpu_id,
+│   │                           #   extract_nvbufsurface, buffer_gpu_id,
 │   │                           #   clear_surface_black (platform-aware),
 │   │                           #   do_transform, do_transform_to_slot
 │   ├── shared_buffer.rs         # SharedBuffer: Arc<parking_lot::Mutex<gst::Buffer>>,
 │   │                           #   shared currency for SurfaceView, Picasso, encoder
 │   ├── surface_view.rs         # SurfaceView: zero-copy single-surface view
 │   │                           #   memset, fill, upload (methods on SurfaceView)
+│   ├── pipeline.rs             # BufferGeneratorExt, UniformBatchGeneratorExt traits,
+│   │                           #   re-exports extract_nvbufsurface, buffer_gpu_id
 │   ├── buffers.rs              # re-exports single + batched
 │   ├── buffers/
 │   │   ├── single.rs           # BufferGenerator + Builder (batchSize=1)
@@ -39,7 +41,7 @@ savant_deepstream/buffers/
 │   ├── common/mod.rs           # init() — GStreamer + CUDA one-time setup
 │   ├── batched.rs              # Uniform batched generator tests
 │   ├── heterogeneous.rs        # NonUniformBatch tests
-│   ├── view.rs            # SurfaceView + SharedBuffer integration tests
+│   ├── slot_view.rs            # SurfaceView + SharedBuffer integration tests
 │   ├── bridge_meta.rs          # PTS-keyed SavantIdMeta bridge tests
 │   └── surface_view_gpu.rs     # SurfaceView GPU tests: CUDA addressability,
 │                               #   write/read roundtrip, recycled buffer mapping,
@@ -49,6 +51,7 @@ savant_deepstream/buffers/
     ├── surface_view_mapping.rs # Criterion benchmarks: bench_registration_plus_first_view
     │                           #   (fresh buffer), bench_recycled_buffer_view (recycled pool;
     │                           #   POOLED meta survives recycle, no re-registration)
+    ├── non_uniform_batch.rs    # Criterion benchmarks for non-uniform batch operations
     └── transform_into.rs       # Criterion benchmarks for transform operations
 ```
 

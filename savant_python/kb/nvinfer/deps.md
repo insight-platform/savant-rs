@@ -30,8 +30,10 @@ from savant_rs.primitives.geometry import (
 from savant_rs.deepstream import (
     SharedBuffer,                      # batched GPU buffer (shared via Arc)
     SurfaceView,                       # unified GPU surface descriptor (resolves CUDA ptr on Jetson)
-    BufferGenerator,        # single-surface generator
-    UniformBatchGenerator, # multi-surface batch generator
+    SavantIdMetaKind,                  # kind tag for SavantIdMeta entries (FRAME, etc.)
+    TransformConfig,                   # transform (scale / letterbox) config for batch ops
+    BufferGenerator,                   # single-surface generator
+    UniformBatchGenerator,             # multi-surface batch generator
     init_cuda,                         # call once before any GPU work
 )
 ```
@@ -46,9 +48,10 @@ GPU surface memory operations exposed to Python (`memset`, `upload`, `memset_slo
 
 | Package | Usage |
 |---|---|
-| `numpy` | `tensor.as_numpy()` returns ndarray; build canvases; decode outputs |
+| `numpy` | Build canvases; decode outputs; zero-copy via `tensor.host_ptr` + `tensor.numpy_dtype` |
 | `PIL` (Pillow) | Load JPEG/PNG test images, convert to RGBA numpy |
-| `ctypes` | CUDA runtime calls: `cuMemcpyHtoD_v2`, `cuMemsetD8_v2` |
+| `ctypes` | Zero-copy tensor access (`ctypes.c_char` buffer from `host_ptr`); CUDA runtime calls |
+| `cupy` | Zero-copy GPU tensor access via `cupy.cuda.UnownedMemory` from `device_ptr` |
 | `json` | Load ground-truth data |
 
 ## Buffer Interop

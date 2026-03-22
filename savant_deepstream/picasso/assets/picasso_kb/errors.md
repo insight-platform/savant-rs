@@ -24,6 +24,12 @@ pub enum PicassoError {
     #[error("GPU mismatch for source '{source_id}': buffer on GPU {buffer_gpu}, encoder on GPU {encoder_gpu}")]
     GpuMismatch { source_id: String, buffer_gpu: u32, encoder_gpu: u32 },
 
+    #[error("TransformConfig.cuda_stream must be null; Picasso manages its own CUDA streams")]
+    ExternalCudaStream,
+
+    #[error("Failed to create worker CUDA stream: {0}")]
+    CudaStreamCreationFailed(String),
+
     #[error("Engine is shut down")]
     Shutdown,
 }
@@ -35,11 +41,13 @@ pub enum PicassoError {
 |---|---|
 | `Shutdown` | `send_frame`, `send_eos`, `set_source_spec` after `engine.shutdown()` |
 | `ChannelDisconnected` | Worker thread died or channel dropped; `send_frame`, `send_eos`, `set_source_spec` (UpdateSpec path) |
-| `Encoder` | `NvEncoder::submit_frame` or `NvEncoder::finish` failure (includes `PtsReordered` on non-monotonic PTS) |
-| `Transform` | `BufferGenerator::transform` failure |
+| `Encoder` | `NvEncoder::submit_frame` or `NvEncoder::finish` failure (includes `PtsReordered` on non-monotonic PTS); also returned when `SharedBuffer::into_buffer()` fails (strong_count > 1) |
+| `Transform` | `SurfaceView::transform_into` failure |
 | `Renderer` | `SkiaRenderer::from_nvbuf` / `load_from_nvbuf` / `render_to_nvbuf` failure |
 | `InvalidTransformationChain` | Frame doesn't have exactly `[InitialSize(w,h)]` matching its dimensions; also ScaleSpec errors |
 | `GpuMismatch` | Incoming buffer's `NvBufSurface.gpuId` differs from `EncoderConfig.gpu_id`; checked at top of `process_encode`. Fail-open: skipped if GPU ID cannot be extracted (e.g., non-NVMM buffers). |
+| `ExternalCudaStream` | Returned by `set_source_spec` when `TransformConfig.cuda_stream` is not default (Picasso manages its own CUDA streams) |
+| `CudaStreamCreationFailed` | Reserved for future use |
 | `SourceNotFound` | Currently unused in engine (kept for future use) |
 
 ## Testing Error Paths
@@ -48,16 +56,16 @@ pub enum PicassoError {
 ```rust
 let mut engine = PicassoEngine::new(GeneralSpec::default(), Callbacks::default());
 engine.shutdown();
-assert!(matches!(engine.send_frame("x", frame, buf), Err(PicassoError::Shutdown)));
+assert!(matches!(engine.send_frame("x", frame, view, None), Err(PicassoError::Shutdown)));
 assert!(matches!(engine.send_eos("x"), Err(PicassoError::Shutdown)));
 assert!(matches!(engine.set_source_spec("x", spec), Err(PicassoError::Shutdown)));
 ```
 
 ### Invalid transformation chain
 ```rust
-let frame = make_frame(800, 600);
+let frame = make_frame_sized("t", 800, 600);
 let mut fm = frame.clone();
 fm.add_transformation(VideoFrameTransformation::Padding(10, 10, 10, 10)); // breaks invariant
-let result = rewrite_frame_transformations(&frame, 640, 480, &TransformConfig::default());
+let result = rewrite_frame_transformations(&frame, 640, 480, &TransformConfig::default(), None);
 assert!(result.is_err());
 ```

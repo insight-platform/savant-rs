@@ -67,7 +67,7 @@ pub enum NvBufSurfaceError {
 | `PoolSetConfigFailed` | `gst_buffer_pool_set_config()` returns FALSE |
 | `PoolActivationFailed` | `pool.set_active(true)` fails |
 | `BufferAcquisitionFailed` | `pool.acquire()` or `Buffer::with_size()` or `map_writable()` fails |
-| `BufferCopyFailed` | `extract_buffers()` or transform fails |
+| `BufferCopyFailed` | `extract_nvbufsurface()` or transform fails |
 | `NullPointer` | `SurfaceView::from_cuda_ptr(null, ...)` |
 | `CudaInitFailed` | `cudaSetDevice` or `cudaFree(NULL)` or stream ops fail |
 | `BatchOverflow` | `transform_slot`/`add` when `num_filled >= max_batch_size` |
@@ -78,7 +78,7 @@ pub enum NvBufSurfaceError {
 | `SurfaceUnmapFailed` | `NvBufSurfaceUnMap()` returns non-zero (Jetson CPU-staging path) |
 | `SurfaceSyncFailed` | `NvBufSurfaceSyncForDevice()` returns non-zero (Jetson CPU-staging path) |
 | `CudaDriverError` | `cuMemsetD8_v2` or `cuMemcpyHtoD_v2` fails in `surface_ops` (dGPU path) |
-| `InvalidInput` | `SurfaceView::upload` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_buffers` failure |
+| `InvalidInput` | `SurfaceView::upload` dimension/data mismatch, `EglCudaMeta` registration failure (e.g., `NvBufSurfaceMapEglImage` or `cuGraphicsEGLRegisterImage` error), `extract_nvbufsurface` failure |
 
 ---
 
@@ -124,9 +124,13 @@ The `clear_surface_black` function in `transform.rs` handles this via
 ## EglError (egl_context.rs, skia feature)
 
 ```rust
+#[derive(Debug, thiserror::Error)]
 pub enum EglError {
+    #[error("EGL extension not available: {0}")]
     MissingExtension(String),
+    #[error("No EGL devices found")]
     NoDevices,
+    #[error("EGL error 0x{0:x}: {1}")]
     Egl(u32, String),
 }
 ```
@@ -175,6 +179,6 @@ assert!(matches!(batch.transform_slot(2, &v3, None), Err(NvBufSurfaceError::Slot
 
 ### SlotOutOfBounds
 ```rust
-let result = batch.slot_ptr(999);
+let result = SurfaceView::from_buffer(&shared, 999);
 assert!(matches!(result, Err(NvBufSurfaceError::SlotOutOfBounds { .. })));
 ```

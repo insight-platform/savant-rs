@@ -57,7 +57,7 @@ Main thread
 ## Timestamp Source
 pts, dts, time_base, and duration are taken from the [`VideoFrameProxy`], not from the
 [`gst::Buffer`]. At pipeline entry, `apply_frame_timestamps_to_buffer` is called on
-`view.buffer().make_mut()` to copy these values from the frame onto the buffer so
+`view.gst_buffer().make_mut()` to copy these values from the frame onto the buffer so
 downstream consumers see correct metadata.
 
 ## Data Flow (Encode Path)
@@ -73,7 +73,7 @@ send_frame(source_id, VideoFrameProxy, SurfaceView, src_rect: Option<Rect>)
       → process_encode:
          1. Lock encoder, get generator
          2. GPU affinity check (view.gpu_id() vs generator.gpu_id → GpuMismatch)
-         3. GPU transform via view.gst_buffer() (always `generator.transform`)
+         3. GPU transform via `input.view.transform_into(&dst_view, config, src_rect)`
          4. Unlock encoder
          5. rewrite_frame_transformations (coordinate mapping)
          6. If on_gpumat active OR Skia rendering needed: wrap `dst_buf` in `SharedBuffer::from(dst_buf)`, create `SurfaceView::from_buffer(shared.clone(), 0)` for the entire encode scope
@@ -146,6 +146,9 @@ In both cases the `on_stream_reset` callback (if set) is fired with `StreamReset
 - `process_encode` checks buffer GPU vs encoder GPU at entry; returns `PicassoError::GpuMismatch` on mismatch
 - Check is fail-open: if `buffer_gpu_id` can't extract (e.g., non-NVMM stub buffer in tests), proceeds silently
 - Transform (`NvBufSurfTransform`) reads GPU from the source buffer's `gpuId` field independently
+
+## CUDA Stream Management
+Picasso rejects external CUDA streams passed via `TransformConfig.cuda_stream` — `set_source_spec` returns `Err(PicassoError::ExternalCudaStream)` if the stream is not default. Each worker creates its own per-worker non-blocking CUDA stream to avoid global GPU serialization.
 
 ## PNG Encoding (CPU-based)
 - Uses GStreamer pipeline: appsrc (NVMM RGBA) → nvvideoconvert → pngenc → appsink

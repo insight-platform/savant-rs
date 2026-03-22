@@ -7,7 +7,8 @@
 | `anyhow` | Error handling: `Result<T>` = `anyhow::Result<T>` throughout |
 | `thiserror` | Typed error enums (pipeline, protobuf) |
 | `serde` / `serde_json` / `serde_yaml` | JSON/YAML serialization for MatchQuery, Attribute, config files |
-| `prost` / `tonic` | Protobuf encoding/decoding (via `savant_protobuf`) |
+| `prost` | Protobuf encoding/decoding (via `savant_protobuf`) |
+| `tonic` | gRPC transport — used directly in `telemetry.rs` for OTLP exporter TLS config |
 | `parking_lot` | Fast RwLock/Mutex (used in VideoFrameProxy, Pipeline, SymbolMapper) |
 | `hashbrown` | HashMap/HashSet (faster than std) |
 | `lazy_static` | Global singletons (BBOX_UNDEFINED, async runtime, etc.) |
@@ -89,6 +90,23 @@
 | Crate | Usage |
 |-------|-------|
 | `criterion` | Benchmarks |
+| `ctrlc` | Signal handling in webserver shutdown tests |
 | `serial_test` | Serial test execution (shared global state) |
 | `tempfile` | Temporary files in tests |
 | `bollard` | Docker API (container tests) |
+
+## Benchmarks
+
+Defined in `Cargo.toml` as `[[bench]]` entries (all use `criterion`, `harness = false`):
+
+| Name | Target |
+|------|--------|
+| `bench_bbox_utils` | IoU/IoS/IoO geometry helpers |
+| `bench_bboxes` | RBBox operations |
+| `bench_frame_save_load_pb` | Frame protobuf round-trip |
+| `bench_json_attrs` | JSON attribute serialization |
+| `bench_label_filter` | Label filter parser |
+| `bench_message_save_load` | Message save/load round-trip |
+| `bench_object_filter` | MatchQuery object filtering |
+| `bench_pipeline` | Pipeline throughput |
+| `bench_zmq` | ZeroMQ transport |

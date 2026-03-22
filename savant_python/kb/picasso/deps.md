@@ -37,6 +37,8 @@ from savant_rs.deepstream import (
     Interpolation,        # NEAREST, BILINEAR, ALGO1-4, DEFAULT
     ComputeMode,          # DEFAULT, GPU, VIC
     # Pure-Python helpers (injected at import time, see note below)
+    GpuMatCudaArray,      # __cuda_array_interface__ wrapper for cv2.cuda.GpuMat
+    make_gpu_mat,         # allocate a zero-initialised GpuMat
     nvgstbuf_as_gpu_mat,  # context manager: SharedBuffer (or int) → (GpuMat, Stream)
     nvbuf_as_gpu_mat,     # context manager: raw CUDA params → (GpuMat, Stream)
     from_gpumat,          # GpuMat → SharedBuffer via generator pool
@@ -108,7 +110,7 @@ frame.add_object(obj, IdCollisionResolutionPolicy.GenerateNewId)
 gen = BufferGenerator(VideoFormat.RGBA, width, height, fps_num, fps_den, gpu_id)
 buf = gen.acquire(id=frame_idx)  # returns SharedBuffer
 # pts/duration are taken from the VideoFrame; set frame.pts and frame.duration before send_frame.
-# buf.ptr → raw int pointer (for interop); buf is automatically unref'd when GC'd.
+# For raw buffer info (data_ptr, pitch, width, height) use get_nvbufsurface_info(buf).
 ```
 
 ### Rect
@@ -257,7 +259,7 @@ with nvgstbuf_as_gpu_mat(buf) as (mat, stream):
 
 # nvbuf_as_gpu_mat: takes raw CUDA params directly.
 # Use inside the on_gpumat callback which already provides these values.
-def on_gpumat(source_id, frame, data_ptr, pitch, width, height):
+def on_gpumat(source_id, frame, data_ptr, pitch, width, height, cuda_stream):
     with nvbuf_as_gpu_mat(data_ptr, pitch, width, height) as (mat, stream):
         mat.setTo((20, 20, 28, 255), stream=stream)
 

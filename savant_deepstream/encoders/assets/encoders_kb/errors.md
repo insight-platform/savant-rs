@@ -16,10 +16,10 @@ pub enum EncoderError {
     PtsReordered { frame_id: u128, pts_ns: u64, prev_pts_ns: u64 },
 
     #[error("Output PTS reordering detected (B-frames?): ...")]
-    OutputPtsReordered { frame_id: u128, pts_ns: u64, prev_pts_ns: u64 },
+    OutputPtsReordered { frame_id: Option<u128>, pts_ns: u64, prev_pts_ns: u64 },
 
     #[error("Output DTS > PTS detected (B-frames?): ...")]
-    OutputDtsExceedsPts { frame_id: u128, dts_ns: u64, pts_ns: u64 },
+    OutputDtsExceedsPts { frame_id: Option<u128>, dts_ns: u64, pts_ns: u64 },
 
     #[error("GStreamer pipeline error: {0}")]
     PipelineError(String),

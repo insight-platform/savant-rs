@@ -14,6 +14,7 @@ env_logger = "0.11"
 clap = { workspace = true }
 ctrlc = { workspace = true }
 nvidia_gpu_utils = { workspace = true }   # has_nvenc(), jetson_model() for test guards
+serial_test = { workspace = true }        # serialize EglCudaMeta tracking tests
 ```
 
 ## Test File Location
@@ -304,8 +305,8 @@ fn test_heterogeneous_no_leak() {
     for _ in 0..50 {
         let mut batch = NonUniformBatch::new(0);
         for _ in 0..2 {
-            let buf = gen.acquire(None).unwrap();
-            let view = SurfaceView::from_buffer(buf, 0).unwrap();
+            let shared = gen.acquire(None).unwrap();
+            let view = SurfaceView::from_buffer(&shared, 0).unwrap();
             batch.add(&view).unwrap();
         }
         let ids = vec![SavantIdMetaKind::Frame(1), SavantIdMetaKind::Frame(2)];
@@ -346,7 +347,7 @@ fn test_uniform_already_finalized_guards() {
 ```rust
 use deepstream_buffers::{
     cuda_init,
-    extract_buffers,
+    extract_nvbufsurface,
     NonUniformBatch,
     BufferGenerator,
     UniformBatchGenerator,
@@ -371,13 +372,13 @@ use gstreamer as gst;
 cargo test -p deepstream_buffers
 
 # Single test file
-cargo test -p deepstream_buffers --test view
+cargo test -p deepstream_buffers --test slot_view
 
 # Single test
-cargo test -p deepstream_buffers --test view test_uniform_extract_first_slot
+cargo test -p deepstream_buffers --test slot_view test_uniform_extract_first_slot
 
 # With logging
-RUST_LOG=debug cargo test -p deepstream_buffers --test view -- --nocapture
+RUST_LOG=debug cargo test -p deepstream_buffers --test slot_view -- --nocapture
 
 # Python tests (full build cycle)
 SAVANT_FEATURES=deepstream make release install && make sp-pytest
@@ -449,8 +450,8 @@ fn test_data_ptr_is_cuda_addressable() {
     let gen = BufferGenerator::new(
         VideoFormat::RGBA, 320, 240, 30, 1, 0, NvBufSurfaceMemType::Default,
     ).unwrap();
-    let buf = gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(buf, 0).unwrap();
+    let shared = gen.acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&shared, 0).unwrap();
     assert!(!view.data_ptr().is_null());
     assert!(view.pitch() >= view.width() * view.channels());
     // Verify CUDA accessibility via cudaMemcpy2D readback
@@ -463,8 +464,8 @@ fn test_data_ptr_is_cuda_addressable() {
 fn test_write_read_roundtrip() {
     common::init();
     let gen = /* ... */;
-    let buf = gen.acquire(Some(0)).unwrap();
-    let view = SurfaceView::from_buffer(buf, 0).unwrap();
+    let shared = gen.acquire(Some(0)).unwrap();
+    let view = SurfaceView::from_buffer(&shared, 0).unwrap();
     view.memset(0xAB).unwrap();
     // cudaMemcpy2D readback and verify bytes == 0xAB
 }
@@ -489,20 +490,24 @@ fn test_uniform_batch_slot_views_distinct() {
 ```
 
 ### EglCudaMeta Tracking Tests (aarch64 only)
+
+Use `reset_tracking()` to zero the counters before each test, and `serial_test::serial`
+to prevent concurrent tests from interfering with the global counters.
+
 ```rust
 #[cfg(target_arch = "aarch64")]
 mod tracking {
-    static LOCK: Mutex<()> = Mutex::new(());  // Serialize tracking tests
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_meta_deregistration_on_pool_destroy() {
-        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         common::init();
-        let (base_reg, base_dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();
+        deepstream_buffers::egl_cuda_meta::reset_tracking();
         // Create pool, acquire buffer, create SurfaceView (triggers registration)
         // Drop everything
-        // Assert: new_reg >= 2, new_dereg >= 2 (relaxed — concurrent tests may
-        // inject extra registrations; we only assert our minimum)
+        let (new_reg, new_dereg) = deepstream_buffers::egl_cuda_meta::tracking_counts();
+        // Assert: new_reg >= 2, new_dereg >= 2
     }
 }
 ```
@@ -519,7 +524,7 @@ See `benches/surface_view_mapping.rs`:
 - `bench_registration_plus_first_view` — fresh buffer (includes EGL-CUDA registration on Jetson)
 - `bench_recycled_buffer_view` — recycled pool buffer; POOLED meta survives recycle, no re-registration
 
-Use `from_buffer(buf, 0)` for input buffers — no `wrap` workaround needed. POOLED meta
+Use `from_buffer(&shared, 0)` for input buffers — no `wrap` workaround needed. POOLED meta
 prevents re-registration on recycle.
 
 ```bash

@@ -35,7 +35,7 @@ let frame = VideoFrameProxy::new(
     VideoFrameTranscodingMethod::Copy, // transcoding method
     None,                              // codec
     Some(true),                        // keyframe
-    Some((1, 30)),                     // time_base (num, den)
+    (1, 30),                            // time_base (num, den)
     Some(0),                           // pts
     None, None,                        // dts, duration
 )?;
@@ -132,11 +132,23 @@ let pipeline = Pipeline::new(
 // Add frame
 let id = pipeline.add_frame("input", frame)?;
 
-// Move to next stage
-pipeline.move_as_is("process", &[id])?;
+// Move to next stage (move_as_is takes Vec<i64>, not &[i64])
+pipeline.move_as_is("process", vec![id])?;
 
-// Pack into batch
-let batch_id = pipeline.move_and_pack_frames("process", &[id])?;
+// Pack into batch (move_and_pack_frames takes Vec<i64>)
+let batch_id = pipeline.move_and_pack_frames("process", vec![id])?;
+```
+
+## Webserver Status (async)
+
+`get_status()` is an async function — must be called from an async context:
+```rust
+use savant_core::webserver::{get_status, PipelineStatus};
+
+async fn check_status() {
+    let status: PipelineStatus = get_status().await;
+    // ...
+}
 ```
 
 ## Testing Conventions
@@ -162,10 +174,8 @@ async fn test_async_thing() { ... }
 
 4. Tests needing serial execution (shared global state):
 ```rust
-use serial_test::serial;
-
 #[test]
-#[serial]
+#[serial_test::serial]
 fn test_with_global_state() { ... }
 ```
 

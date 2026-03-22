@@ -37,19 +37,19 @@ use deepstream_encoders::prelude::*;
 use deepstream_buffers::{Padding, Rect, SurfaceView, TransformConfig, buffer_gpu_id};
 // Padding: None, Symmetric, RightBottom
 // Rect: { top, left, width, height } — optional per-call crop for transform/send_frame
-// TransformConfig fields: padding, interpolation, compute_mode, cuda_stream (no src_rect)
+// TransformConfig fields: padding, dst_padding, interpolation, compute_mode, cuda_stream (no src_rect)
 // TransformConfig implements Default (Symmetric, Bilinear, Default compute)
 // CudaStream: safe RAII wrapper for CUDA stream handles
 // CudaStream::default() — legacy null stream; CudaStream::new_non_blocking() — owned non-blocking
 // SurfaceView.cuda_stream() — read CUDA stream; SurfaceView.with_cuda_stream(stream) — set stream
-// BufferGenerator::transform(..., src_rect: Option<&Rect>) — pass crop per call
+// SurfaceView::transform_into(&self, dest: &SurfaceView, config: &TransformConfig, src_rect: Option<&Rect>) — GPU transform per call
 // buffer_gpu_id(&gst::BufferRef) → Result<u32, TransformError>  — extract GPU ID from NvBufSurface buffer
 // SurfaceView::wrap(buf) — NOGPU stub, surface params zeroed (test-only: requires `testing` feature)
 // SurfaceView::from_gst_buffer(buf, slot_index) — extract from NvBufSurface-backed buffer (consumes buf by value)
 // SurfaceView::from_buffer(&shared, slot_index) — create view from SharedBuffer (primary for batched/single)
 // view.into_gst_buffer() — recover gst::Buffer from view (consumes view); or shared.into_buffer() after dropping view
 // SurfaceView::from_cuda_ptr(...) — wrap arbitrary CUDA device memory
-// SurfaceView accessors: buffer(), shared_buffer(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
+// SurfaceView accessors: gst_buffer(), shared_buffer(), data_ptr(), pitch(), width(), height(), gpu_id(), channels()
 // SurfaceView CUDA stream: cuda_stream() → &CudaStream, with_cuda_stream(stream) → Self
 // surface_ops: memset_surface(&SurfaceView, value), upload_to_surface(&SurfaceView, data, w, h, channels) — take &SurfaceView, not &gst::Buffer
 ```

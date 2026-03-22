@@ -17,11 +17,18 @@ deepstream/src/
 ```
 GstBuffer
   └── NvDsBatchMeta (BatchMeta)
-        └── frame_meta_list → NvDsFrameMeta (FrameMeta)
-              └── obj_meta_list → NvDsObjectMeta (ObjectMeta)
-              └── NvDsInferTensorMeta (InferTensorMeta) — attached by nvinfer
+        ├── frame_meta_list → NvDsFrameMeta (FrameMeta)
+        │     ├── obj_meta_list → NvDsObjectMeta (ObjectMeta)
+        │     │     └── obj_user_meta_list → NvDsUserMeta (UserMeta)
+        │     └── frame_user_meta_list → NvDsUserMeta (UserMeta)
+        │           └── may contain NvDsInferTensorMeta (InferTensorMeta)
+        │               when meta_type == NVDSINFER_TENSOR_OUTPUT_META
         └── user_meta_list → NvDsUserMeta (UserMeta)
 ```
+
+`InferTensorMeta` is **not** directly attached to frames — it is stored as
+user data inside `NvDsUserMeta` entries on the frame's `frame_user_meta_list`.
+Use `UserMeta::as_infer_tensor_meta()` to extract it.
 
 ## Lock Model
 
@@ -44,6 +51,15 @@ The crate uses `deepstream-sys` for raw bindings. Key types:
 set when `nvds_meta_api_get_type()` is called. The crate calls this
 (via `ensure_nvds_meta_api_registered`) before any batch meta access to
 avoid `gst_meta_api_type_has_tag: assertion 'tag != 0' failed`.
+
+## Dependencies
+
+| Crate | Role |
+|---|---|
+| `deepstream-sys` | Raw FFI bindings to DeepStream C API (local path) |
+| `glib` | GLib types, used for `From<glib::Error>` conversion |
+| `thiserror` | Derive macro for `DeepStreamError` |
+| `log` | Logging unsupported data types in `InferTensorMeta::layer_names` |
 
 ## Usage Context
 

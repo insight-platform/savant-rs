@@ -15,10 +15,11 @@
 
 | Trigger | When |
 |---|---|
-| `TensorView.as_bytes()` after output dropped | Arc guard is `None` |
-| `TensorView.as_numpy()` after output dropped | Arc guard is `None` |
 | `ElementOutput.tensors` after output dropped | Arc guard is `None` |
 | `BatchInferenceOutput.elements` after output dropped | Arc guard is `None` |
+| `BatchInferenceOutput.buffer()` after output dropped | Arc guard is `None` |
+
+Message: `"BatchInferenceOutput has been released"`
 
 These arise when a user stores a child reference (`ElementOutput`,
 `TensorView`) beyond the lifetime of the parent `BatchInferenceOutput`.

@@ -14,10 +14,9 @@ deepstream_encoders/src/
 
 ### NVENC codecs (H264, HEVC, AV1) — NVENC required
 ```
-appsrc (NVMM, native fmt) → [nvvideoconvert*] → encoder → parser → appsink
+appsrc (NVMM, native fmt) → encoder → parser → appsink
 ```
-- `nvvideoconvert` inserted only on Jetson + JPEG (see caveat #4 in caveats.md)
-- Format conversion (RGBA→NV12) done **outside** pipeline via NvBufSurfTransform with dedicated CUDA stream
+- No `nvvideoconvert` in the NVENC pipeline — format conversion (e.g. RGBA→NV12) is done **outside** the pipeline via `NvBufSurfTransform` with a dedicated non-blocking CUDA stream (see Format Conversion Architecture below)
 
 ### JPEG — nvjpegenc required
 ```
@@ -56,7 +55,7 @@ GStreamer pipeline
 ```rust
 struct ConvertContext {
     native_generator: BufferGenerator,  // NV12/I420 pool
-    cuda_stream: *mut c_void,                       // non-blocking CUDA stream
+    cuda_stream: CudaStream,                         // non-blocking CUDA stream
 }
 ```
 Created when: `format != native_format` and codec is NOT PNG/Raw.
@@ -69,7 +68,7 @@ Destroyed on: `NvEncoder::drop()`.
 | JPEG | I420 |
 | PNG | RGBA |
 | RawRgba | RGBA |
-| RawRgb | RGBA |
+| RawRgb | RGB |
 
 ## NVENC Detection
 

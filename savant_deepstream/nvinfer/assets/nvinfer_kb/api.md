@@ -37,6 +37,9 @@ Builds `appsrc ! [queue] ! nvinfer ! appsink`. Operates in `process-mode=2`
 | `new` | `(config: NvInferConfig, callback: InferCallback) → Result<Self>` | Spawns pipeline; callback invoked when inference completes (async mode) |
 | `submit` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<()>` | **Consumes** batch. Requires sole ownership (`into_buffer()` succeeds). Async: results delivered to callback. |
 | `infer_sync` | `(&self, batch: SharedBuffer, rois: Option<&HashMap<u32, Vec<Roi>>>) → Result<BatchInferenceOutput>` | **Consumes** batch. Blocks up to 30s. Same ROI semantics as `submit`. |
+| `shutdown` | `(&mut self) → Result<()>` | Graceful shutdown: sends EOS, waits up to 10s for drain, sets pipeline to Null. |
+| `input_width` | `(&self) → u32` | Model input width (0 for flexible config). |
+| `input_height` | `(&self) → u32` | Model input height (0 for flexible config). |
 
 **InferCallback:** `Box<dyn FnMut(BatchInferenceOutput) + Send>`
 
@@ -73,8 +76,18 @@ pub struct NvInferConfig {
 | `meta_clear_policy` | `(self, policy: MetaClearPolicy) → Self` |
 | `disable_output_host_copy` | `(self, disable: bool) → Self` — skip D2H copy; only GPU pointers valid |
 
-**Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`.
-`disable-output-host-copy` is controlled via `NvInferConfig.disable_output_host_copy` and must **not** be set in `nvinfer_properties`.
+**Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, `gie-unique-id=1`.
+
+**Forbidden nvinfer properties** (rejected with `InvalidConfig` error):
+
+| Key | Reason |
+|---|---|
+| `operate-on-gie-id` | Filters objects by upstream GIE id; synthetic ROI sentinels use `unique_component_id = -1` and would be silently skipped. |
+| `operate-on-class-ids` | Filters objects by class id; sentinels carry no meaningful class and would be skipped. |
+| `secondary-reinfer-interval` | Controls re-inference cadence across frames in a multi-frame pipeline; meaningless in single-shot mode and can silently skip frames. |
+| `num-detected-classes` | Only meaningful for detector `network-type` (0); misleading with `network-type=100`. |
+| `disable-output-host-copy` | Controlled via `NvInferConfig.disable_output_host_copy`; must not be set in `nvinfer_properties`. |
+
 Use dotted notation `section.key` for per-class config (e.g. `class-attrs-0.nms-iou-threshold`).
 
 ---
@@ -192,7 +205,7 @@ pub fn attach_batch_meta_with_rois(
     rois: Option<&HashMap<u32, Vec<Roi>>>,
     input_width: u32,
     input_height: u32,
-) → Result<u32>
+) → Result<usize>
 ```
 
 Attach `NvDsBatchMeta` for secondary-mode ROI inference. Returns number of ROIs dropped (0 = success).

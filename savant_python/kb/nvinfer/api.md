@@ -78,6 +78,7 @@ class NvInferConfig:
         gpu_id: int = 0,                                         # OPT
         queue_depth: int = 0,                                    # OPT
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE, # OPT
+        disable_output_host_copy: bool = False,                  # OPT
     ) -> None: ...
 
     @staticmethod
@@ -90,6 +91,7 @@ class NvInferConfig:
         gpu_id: int = 0,
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
+        disable_output_host_copy: bool = False,
     ) -> NvInferConfig: ...
 
     @property
@@ -106,6 +108,8 @@ class NvInferConfig:
     def input_height(self) -> Optional[int]: ...   # None for flexible configs
     @property
     def meta_clear_policy(self) -> MetaClearPolicy: ...
+    @property
+    def disable_output_host_copy(self) -> bool: ... # True = skip D2H copy
 ```
 
 ### nvinfer_properties dict
@@ -151,13 +155,22 @@ class TensorView:
     def data_type(self) -> DataType: ...
     @property
     def byte_length(self) -> int: ...
-
-    def as_bytes(self) -> bytes: ...
-    def as_numpy(self) -> numpy.ndarray: ...
+    @property
+    def host_ptr(self) -> int: ...       # CPU address, 0 if unavailable
+    @property
+    def device_ptr(self) -> int: ...     # GPU address, 0 if unavailable
+    @property
+    def has_host_data(self) -> bool: ... # False when disable_output_host_copy is set
+    @property
+    def numpy_dtype(self) -> str: ...    # "float32", "float16", "int8", "int32"
 ```
 
-`as_numpy()` returns a **1-D** ndarray with dtype matching `data_type`:
-FLOAT → float32, HALF → float16, INT8 → int8, INT32 → int32.
+`host_ptr` / `device_ptr` are plain integer addresses. Build framework-native
+tensors (NumPy via `ctypes`, CuPy, PyTorch) without any data copy on the Rust
+side — see `patterns.md` for `tensor_to_numpy` / `tensor_to_cupy` helpers.
+
+`numpy_dtype` maps `data_type` to a NumPy-compatible string:
+FLOAT → `"float32"`, HALF → `"float16"`, INT8 → `"int8"`, INT32 → `"int32"`.
 
 ⚠ Raises `RuntimeError` if `BatchInferenceOutput` has been dropped.
 
@@ -184,6 +197,8 @@ object (or any child `TensorView`) is alive.
 
 ```python
 class BatchInferenceOutput:
+    @property
+    def has_host_data(self) -> bool: ...  # False when disable_output_host_copy is set
     @property
     def num_elements(self) -> int: ...
     @property

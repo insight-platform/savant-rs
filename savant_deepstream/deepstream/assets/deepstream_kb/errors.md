@@ -1,7 +1,9 @@
 # DeepStreamError Reference
 
 ```rust
-#[derive(Debug, thiserror::Error)]
+use thiserror::Error;
+
+#[derive(Error, Debug)]
 pub enum DeepStreamError {
     #[error("Null pointer encountered: {0}")]
     NullPointer(String),
