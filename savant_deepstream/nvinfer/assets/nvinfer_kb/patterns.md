@@ -31,6 +31,15 @@ Jetson scaling is injected automatically: `scaling-compute-hw=1` on aarch64.
 
 ---
 
+## Shared age-gender test helpers (`tests/common/age_gender_test_utils.rs`)
+
+`place_non_overlapping`, `load_face_images` (with explicit face width/height),
+`decode_age`, `decode_gender`, and `to_candle_tensor` live in this module so
+`test_age_gender`, `test_roi_crop_fidelity`, and `test_oversized_batch` do not
+duplicate them.
+
+---
+
 ## NvInferConfig Builder
 
 ```rust

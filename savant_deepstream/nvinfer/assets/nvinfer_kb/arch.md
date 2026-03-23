@@ -67,6 +67,17 @@ Regression: `tests/test_memory.rs` (`test_nonuniform_slot_numbers`) asserts that
 `SharedBuffer::savant_ids()` on the batch submitted to `infer_sync` matches
 `output.buffer().savant_ids()` afterward (multi-slot non-uniform batch).
 
+## Oversized batches vs engine `batch-size`
+
+`gstnvinfer` may run multiple internal TensorRT passes when the number of
+frames / ROIs in a single buffer exceeds the model’s configured `batch-size`.
+The Rust `NvInfer` pipeline does not split buffers; it forwards the full batch.
+
+Regression: `tests/test_oversized_batch.rs` uses the age/gender model with
+`batch-size=1` and submits two frames with four ROIs each (eight inferences),
+validating outputs and `SavantIdMeta` propagation for both uniform and
+non-uniform batches.
+
 ## Config File
 
 `validate_and_materialize()` writes config to a `NamedTempFile`. The file

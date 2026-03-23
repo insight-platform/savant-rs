@@ -8,79 +8,28 @@
 
 mod common;
 
+use common::age_gender_test_utils::{load_face_images, place_non_overlapping};
 use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
 use nvinfer::{NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const FRAME_W: u32 = 1920;
 const FRAME_H: u32 = 1080;
 const FACE_SZ: u32 = 112;
-const ALIGN: u32 = 2;
 
 /// Per-pixel tolerance for the fp16 identity round-trip.
 const PIXEL_TOL: f32 = 2.0;
 
 fn assets_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets")
-}
-
-// ---------------------------------------------------------------------------
-// Helpers (same logic as test_age_gender.rs)
-// ---------------------------------------------------------------------------
-
-fn place_non_overlapping(
-    rng: &mut SmallRng,
-    fw: u32,
-    fh: u32,
-    w: u32,
-    h: u32,
-    count: usize,
-) -> Vec<(u32, u32)> {
-    let mut placed: Vec<(u32, u32)> = Vec::with_capacity(count);
-    let max_x = (fw - w) / ALIGN;
-    let max_y = (fh - h) / ALIGN;
-    for _ in 0..count {
-        for attempt in 0..10_000 {
-            let x = rng.random_range(0..=max_x) * ALIGN;
-            let y = rng.random_range(0..=max_y) * ALIGN;
-            let overlaps = placed
-                .iter()
-                .any(|&(px, py)| x < px + w && x + w > px && y < py + h && y + h > py);
-            if !overlaps {
-                placed.push((x, y));
-                break;
-            }
-            assert!(attempt < 9_999, "failed to place image without overlap");
-        }
-    }
-    placed
-}
-
-fn load_face_images(dir: &Path) -> Vec<(String, Vec<u8>)> {
-    let mut images: Vec<(String, Vec<u8>)> = Vec::new();
-    for entry in std::fs::read_dir(dir).expect("read age_gender dir") {
-        let entry = entry.unwrap();
-        let fname = entry.file_name().to_string_lossy().to_string();
-        if !fname.ends_with(".jpg") {
-            continue;
-        }
-        let img = image::open(entry.path())
-            .unwrap_or_else(|e| panic!("failed to open {fname}: {e}"))
-            .to_rgba8();
-        assert_eq!(img.width(), FACE_SZ, "{fname}: unexpected width");
-        assert_eq!(img.height(), FACE_SZ, "{fname}: unexpected height");
-        images.push((fname, img.into_raw()));
-    }
-    images.sort_by(|a, b| a.0.cmp(&b.0));
-    images
 }
 
 /// Convert RGBA face pixels to the expected CHW float32 RGB tensor that the
@@ -211,7 +160,7 @@ fn test_roi_crop_pixel_match() {
     };
     common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
-    let images = load_face_images(&face_dir);
+    let images = load_face_images(&face_dir, FACE_SZ, FACE_SZ);
     let num_faces = images.len();
     assert!(num_faces > 0, "no face images found");
 
@@ -318,7 +267,7 @@ fn test_roi_crop_placement_independence() {
     };
     common::warmup_engine(&engine, FRAME_W, FRAME_H);
 
-    let images = load_face_images(&face_dir);
+    let images = load_face_images(&face_dir, FACE_SZ, FACE_SZ);
     let num_faces = images.len();
     assert!(num_faces > 0, "no face images found");
 
