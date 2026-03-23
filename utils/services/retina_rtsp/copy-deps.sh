@@ -26,19 +26,19 @@ if ! install -m 644 "${RUST_STD_LIB}" "${TARGET_LIB_DIR}/"; then
 fi
 
 # Copy dependency libraries
-if ! install -m 644 /tmp/build/release/deps/*.so "${TARGET_LIB_DIR}/"; then
+if ! install -m 644 /opt/build-out/release/deps/*.so "${TARGET_LIB_DIR}/"; then
     echo "Error: Failed to copy dependency libraries" >&2
     exit 1
 fi
 
 # Copy binary with executable permissions
-if ! install -m 755 /tmp/build/release/retina_rtsp "${TARGET_BIN_DIR}/"; then
+if ! install -m 755 /opt/build-out/release/retina_rtsp "${TARGET_BIN_DIR}/"; then
     echo "Error: Failed to copy retina_rtsp binary" >&2
     exit 1
 fi
 
 # Copy binary with executable permissions
-if ! install -m 755 /tmp/build/release/savant_info "${TARGET_BIN_DIR}/"; then
+if ! install -m 755 /opt/build-out/release/savant_info "${TARGET_BIN_DIR}/"; then
     echo "Error: Failed to copy savant_info binary" >&2
     exit 1
 fi
