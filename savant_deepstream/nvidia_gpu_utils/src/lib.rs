@@ -417,7 +417,7 @@ pub fn has_nvenc(gpu_id: u32) -> Result<bool, GpuUtilsError> {
     // dGPU path: query NVML encoder capacity.
     #[cfg(target_arch = "x86_64")]
     {
-        return has_nvenc_nvml(gpu_id);
+        has_nvenc_nvml(gpu_id)
     }
 
     // Fallback: if not Jetson and not x86_64, assume available.

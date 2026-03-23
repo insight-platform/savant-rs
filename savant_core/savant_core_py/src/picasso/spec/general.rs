@@ -96,7 +96,7 @@ impl PyGeneralSpec {
             idle_timeout_secs,
             inflight_queue_size,
             pts_reset_policy: pts_reset_policy
-                .unwrap_or_else(|| PyPtsResetPolicy::eos_on_decreasing_pts()),
+                .unwrap_or_else(PyPtsResetPolicy::eos_on_decreasing_pts),
         }
     }
 

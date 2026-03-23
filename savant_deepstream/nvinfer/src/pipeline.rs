@@ -8,7 +8,7 @@ use crate::nvinfer_types::DataType;
 use crate::output::{BatchInferenceOutput, ElementOutput, TensorView};
 use crate::roi::Roi;
 use deepstream::{BatchMeta, InferDims, InferTensorMeta};
-use deepstream_buffers::{bridge_savant_id_meta, SavantIdMeta, SavantIdMetaKind, SharedBuffer};
+use deepstream_buffers::{bridge_savant_id_meta, SharedBuffer};
 use glib::translate::from_glib_none;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -199,9 +199,9 @@ impl NvInfer {
 
                 let output =
                     extract_batch_output(sample, policy, host_copy_enabled).map_err(|e| {
-                    log::error!("extract_batch_output error: {:?}", e);
-                    gst::FlowError::Error
-                })?;
+                        log::error!("extract_batch_output error: {:?}", e);
+                        gst::FlowError::Error
+                    })?;
 
                 // Route to infer_sync waiter if PTS matches, otherwise to the
                 // user callback.
@@ -482,12 +482,6 @@ fn read_slot_dimensions(buffer: &gst::Buffer, num_filled: u32) -> Result<Vec<(u3
     Ok(dims)
 }
 
-fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
-    match k {
-        SavantIdMetaKind::Frame(id) | SavantIdMetaKind::Batch(id) => *id,
-    }
-}
-
 /// Extract inference outputs from a completed sample.
 ///
 /// In secondary mode (`process-mode=2`), `Gst-nvinfer` attaches tensor outputs
@@ -497,7 +491,11 @@ fn savant_id_to_i64(k: &SavantIdMetaKind) -> i64 {
 /// batch_meta → frames → frame.objects() → object.user_meta() → tensor
 /// ```
 ///
-/// `frame_id` is taken from [`SavantIdMeta`] (indexed by frame position).
+/// User frame ids are not duplicated here: read them from the output buffer
+/// ([`BatchInferenceOutput::buffer`](crate::output::BatchInferenceOutput::buffer))
+/// via [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids).
+/// [`ElementOutput::slot_number`] is
+/// [`FrameMeta::batch_id`](deepstream::FrameMeta::batch_id) (surface slot).
 /// `roi_id` is the `object_id` cast to `i64`; `None` when the object carries
 /// the full-frame sentinel (`unique_component_id == FULL_FRAME_SENTINEL`).
 fn extract_batch_output(
@@ -515,16 +513,11 @@ fn extract_batch_output(
         })?
     };
 
-    let ids: Vec<i64> = buffer
-        .meta::<SavantIdMeta>()
-        .map(|m| m.ids().iter().map(savant_id_to_i64).collect())
-        .unwrap_or_default();
-
     let frames = batch_meta.frames();
     let mut elements: Vec<ElementOutput> = Vec::new();
 
-    for (frame_idx, frame) in frames.into_iter().enumerate() {
-        let frame_id = ids.get(frame_idx).copied();
+    for frame in frames.into_iter() {
+        let slot_number = frame.batch_id();
 
         for obj in frame.objects() {
             let roi_id = if obj.unique_component_id() == FULL_FRAME_SENTINEL {
@@ -577,8 +570,8 @@ fn extract_batch_output(
             }
 
             elements.push(ElementOutput {
-                frame_id,
                 roi_id,
+                slot_number,
                 tensors,
             });
         }

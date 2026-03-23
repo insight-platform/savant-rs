@@ -53,12 +53,19 @@ Same as submit, but:
 
 Full-frame sentinel uses `unique_component_id = FULL_FRAME_SENTINEL` (-1);
 `ElementOutput::roi_id` is `None` for full-frame results.
+`ElementOutput::slot_number` is `NvDsFrameMeta.batch_id` (surface slot). User ids
+come from `SavantIdMeta` on `BatchInferenceOutput::buffer()` (`savant_ids()`), not
+from `ElementOutput`.
 
 ## SavantIdMeta Bridge
 
 `bridge_savant_id_meta(&nvinfer)` is called at construction. PTS-keyed
 propagation ensures output buffers carry per-frame IDs. `BatchInferenceOutput::buffer()`
 returns `SharedBuffer` with `savant_ids()` available.
+
+Regression: `tests/test_memory.rs` (`test_nonuniform_slot_numbers`) asserts that
+`SharedBuffer::savant_ids()` on the batch submitted to `infer_sync` matches
+`output.buffer().savant_ids()` afterward (multi-slot non-uniform batch).
 
 ## Config File
 

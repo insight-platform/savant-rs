@@ -240,6 +240,10 @@ fn test_fullframe_identity_roundtrip() {
 
     assert_eq!(output.num_elements(), 1, "expected one full-frame output");
     let elem = &output.elements()[0];
+    assert_eq!(
+        elem.slot_number, 0,
+        "single-slot batch should use surface slot 0"
+    );
     assert!(!elem.tensors.is_empty(), "no output tensors");
     let t = &elem.tensors[0];
 

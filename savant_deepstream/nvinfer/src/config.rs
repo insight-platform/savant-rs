@@ -6,6 +6,7 @@
 
 use crate::error::{NvInferError, Result};
 use crate::meta_clear_policy::MetaClearPolicy;
+use crate::model_input_scaling::ModelInputScaling;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
@@ -53,6 +54,10 @@ pub struct NvInferConfig {
     /// Host pointers in [`TensorView`] will contain stale data;
     /// only device pointers are valid. Default: `false` (copy enabled).
     pub disable_output_host_copy: bool,
+    /// How frames are scaled to the model input size. Injected as
+    /// `maintain-aspect-ratio` / `symmetric-padding` in the generated config;
+    /// those keys must not appear in `nvinfer_properties`. Default: [`ModelInputScaling::Fill`].
+    pub scaling: ModelInputScaling,
 }
 
 impl NvInferConfig {
@@ -82,6 +87,7 @@ impl NvInferConfig {
             input_height: Some(input_height),
             meta_clear_policy: MetaClearPolicy::default(),
             disable_output_host_copy: false,
+            scaling: ModelInputScaling::default(),
         }
     }
 
@@ -106,6 +112,7 @@ impl NvInferConfig {
             input_height: None,
             meta_clear_policy: MetaClearPolicy::default(),
             disable_output_host_copy: false,
+            scaling: ModelInputScaling::default(),
         }
     }
 
@@ -148,6 +155,12 @@ impl NvInferConfig {
         self
     }
 
+    /// Set how input frames are scaled to the model input dimensions.
+    pub fn scaling(mut self, scaling: ModelInputScaling) -> Self {
+        self.scaling = scaling;
+        self
+    }
+
     /// Validate mandatory keys, inject if missing, and write config to a
     /// temporary file. Caller must keep the returned file alive.
     ///
@@ -167,6 +180,8 @@ impl NvInferConfig {
     /// | `secondary-reinfer-interval` | Controls re-inference cadence across frames in a multi-frame pipeline; meaningless in single-shot mode and can silently skip frames. |
     /// | `num-detected-classes` | Only meaningful for detector `network-type` (0); misleading with `network-type=100`. |
     /// | `disable-output-host-copy` | Controlled via [`NvInferConfig::disable_output_host_copy`]; must not be set in `nvinfer_properties`. |
+    /// | `maintain-aspect-ratio` | Controlled via [`NvInferConfig::scaling`]; must not be set in `nvinfer_properties`. |
+    /// | `symmetric-padding` | Controlled via [`NvInferConfig::scaling`]; must not be set in `nvinfer_properties`. |
     ///
     /// ## Auto-injected properties
     ///
@@ -209,6 +224,16 @@ impl NvInferConfig {
             (
                 "disable-output-host-copy",
                 "controlled via NvInferConfig.disable_output_host_copy; \
+                 must not be set in nvinfer_properties",
+            ),
+            (
+                "maintain-aspect-ratio",
+                "controlled via NvInferConfig.scaling; \
+                 must not be set in nvinfer_properties",
+            ),
+            (
+                "symmetric-padding",
+                "controlled via NvInferConfig.scaling; \
                  must not be set in nvinfer_properties",
             ),
         ];
@@ -275,6 +300,20 @@ impl NvInferConfig {
             props.insert("disable-output-host-copy".into(), "1".into());
         }
 
+        match self.scaling {
+            ModelInputScaling::Fill => {
+                props.insert("maintain-aspect-ratio".into(), "0".into());
+            }
+            ModelInputScaling::KeepAspectRatio => {
+                props.insert("maintain-aspect-ratio".into(), "1".into());
+                props.insert("symmetric-padding".into(), "0".into());
+            }
+            ModelInputScaling::KeepAspectRatioSymmetric => {
+                props.insert("maintain-aspect-ratio".into(), "1".into());
+                props.insert("symmetric-padding".into(), "1".into());
+            }
+        }
+
         // Group by section: section -> BTreeMap<key, value>
         let mut by_section: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (full_key, value) in &props {
@@ -316,6 +355,7 @@ impl NvInferConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ModelInputScaling;
 
     fn minimal_props() -> HashMap<String, String> {
         let mut m = HashMap::new();
@@ -454,8 +494,8 @@ mod tests {
 
     #[test]
     fn injects_disable_output_host_copy_when_set() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
-            .disable_output_host_copy(true);
+        let cfg =
+            NvInferConfig::new(minimal_props(), "RGBA", 12, 12).disable_output_host_copy(true);
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -472,6 +512,78 @@ mod tests {
         assert!(
             !content.contains("disable-output-host-copy"),
             "must not inject disable-output-host-copy when disabled (default)"
+        );
+    }
+
+    #[test]
+    fn rejects_maintain_aspect_ratio_in_kv() {
+        let mut props = minimal_props();
+        props.insert("maintain-aspect-ratio".into(), "1".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("maintain-aspect-ratio"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_symmetric_padding_in_kv() {
+        let mut props = minimal_props();
+        props.insert("symmetric-padding".into(), "1".into());
+        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("symmetric-padding"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn injects_scaling_fill() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        assert_eq!(cfg.scaling, ModelInputScaling::Fill);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("maintain-aspect-ratio=0"),
+            "Fill must inject maintain-aspect-ratio=0: {content}"
+        );
+        assert!(
+            !content.contains("symmetric-padding"),
+            "Fill must not inject symmetric-padding: {content}"
+        );
+    }
+
+    #[test]
+    fn injects_scaling_keep_aspect_ratio() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
+            .scaling(ModelInputScaling::KeepAspectRatio);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("maintain-aspect-ratio=1"),
+            "must inject maintain-aspect-ratio=1: {content}"
+        );
+        assert!(
+            content.contains("symmetric-padding=0"),
+            "must inject symmetric-padding=0: {content}"
+        );
+    }
+
+    #[test]
+    fn injects_scaling_keep_aspect_ratio_symmetric() {
+        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
+            .scaling(ModelInputScaling::KeepAspectRatioSymmetric);
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("maintain-aspect-ratio=1"),
+            "must inject maintain-aspect-ratio=1: {content}"
+        );
+        assert!(
+            content.contains("symmetric-padding=1"),
+            "must inject symmetric-padding=1: {content}"
         );
     }
 }

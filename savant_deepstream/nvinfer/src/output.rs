@@ -57,12 +57,17 @@ impl TensorView {
 /// Per-element inference output for one ROI in one frame.
 #[derive(Debug)]
 pub struct ElementOutput {
-    /// User-provided frame ID from [`SavantIdMeta`] (if present).
-    pub frame_id: Option<i64>,
     /// ROI identifier from [`crate::roi::Roi::id`].
     ///
     /// `None` when no explicit ROIs were supplied and the full frame was used.
     pub roi_id: Option<i64>,
+    /// DeepStream surface slot index (`NvDsFrameMeta.batch_id`): index into
+    /// `NvBufSurface.surfaceList` for this frame.
+    ///
+    /// User frame ids live on the output [`BatchInferenceOutput::buffer`] via
+    /// [`SharedBuffer::savant_ids`](deepstream_buffers::SharedBuffer::savant_ids)
+    /// (same order as surface slots).
+    pub slot_number: u32,
     /// Output tensors by layer name.
     pub tensors: Vec<TensorView>,
 }

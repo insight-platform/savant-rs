@@ -120,7 +120,7 @@ let output = rx.recv_timeout(Duration::from_secs(30)).unwrap();
 
 ```rust
 for elem in output.elements() {
-    let frame_id = elem.frame_id;
+    let _slot = elem.slot_number;
     let roi_id = elem.roi_id;
     for t in &elem.tensors {
         match t.data_type {

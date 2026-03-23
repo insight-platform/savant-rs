@@ -11,7 +11,7 @@ use deepstream_buffers::{
     BufferGenerator, ComputeMode, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind,
     SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{NvInfer, NvInferConfig};
+use nvinfer::{ModelInputScaling, NvInfer, NvInferConfig};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -103,6 +103,7 @@ struct ModelSpec {
     width: u32,
     height: u32,
     group_name: String,
+    scaling: ModelInputScaling,
 }
 
 fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
@@ -148,8 +149,6 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
     m.insert("infer-dims".into(), "3;640;640".into());
-    m.insert("maintain-aspect-ratio".into(), "1".into());
-    m.insert("symmetric-padding".into(), "0".into());
     m.insert("net-scale-factor".into(), "0.003921569790691137".into());
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
     m.insert("model-color-format".into(), "0".into());
@@ -169,8 +168,6 @@ fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
     m.insert("infer-dims".into(), "3;640;640".into());
-    m.insert("maintain-aspect-ratio".into(), "1".into());
-    m.insert("symmetric-padding".into(), "1".into());
     m.insert("net-scale-factor".into(), "0.003921569790691137".into());
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
     m.insert("model-color-format".into(), "0".into());
@@ -244,7 +241,7 @@ fn make_uniform_batch(
     for i in 0..batch_size {
         let src = src_gen.acquire(Some(i as i64)).unwrap();
         let src_view = SurfaceView::from_buffer(&src, 0).unwrap();
-        batch.transform_slot(i as u32, &src_view, None).unwrap();
+        batch.transform_slot(i, &src_view, None).unwrap();
     }
 
     batch.finalize().unwrap();
@@ -320,7 +317,8 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
                 .into(),
         );
 
-        let config = NvInferConfig::new(props, "RGBA", spec.width, spec.height);
+        let config =
+            NvInferConfig::new(props, "RGBA", spec.width, spec.height).scaling(spec.scaling);
         let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
         promote_built_engine(&spec.onnx_stem, bs);
 
@@ -371,6 +369,7 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             width: 112,
             height: 112,
             group_name: "identity".into(),
+            scaling: ModelInputScaling::Fill,
         },
         ModelSpec {
             onnx_path: dir.join("age_gender_mobilenet_v2_dynBatch.onnx"),
@@ -380,6 +379,7 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             width: 112,
             height: 112,
             group_name: "age_gender".into(),
+            scaling: ModelInputScaling::Fill,
         },
         ModelSpec {
             onnx_path: dir.join("yolo11m-seg.onnx"),
@@ -389,6 +389,7 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             width: 640,
             height: 640,
             group_name: "yolo11m_seg".into(),
+            scaling: ModelInputScaling::KeepAspectRatio,
         },
         ModelSpec {
             onnx_path: dir.join("yolo11n.onnx"),
@@ -398,6 +399,7 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             width: 640,
             height: 640,
             group_name: "yolo11n".into(),
+            scaling: ModelInputScaling::KeepAspectRatioSymmetric,
         },
     ];
 

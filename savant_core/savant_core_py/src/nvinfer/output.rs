@@ -138,28 +138,31 @@ impl PyTensorView {
 }
 
 /// Per-element inference output for one ROI in one frame.
+///
+/// User frame ids are on ``BatchInferenceOutput.buffer()`` (``savant_ids()``), not here.
 #[pyclass(name = "ElementOutput", module = "savant_rs.nvinfer")]
 pub struct PyElementOutput {
     shared: SharedOutput,
     element_idx: usize,
-    frame_id: Option<i64>,
     roi_id: Option<i64>,
+    slot_number: u32,
     num_tensors: usize,
 }
 
 #[pymethods]
 impl PyElementOutput {
-    /// User-provided frame ID (if present).
-    #[getter]
-    fn frame_id(&self) -> Option<i64> {
-        self.frame_id
-    }
-
     /// ROI identifier from ``Roi.id``.  ``None`` when no explicit ROIs were
     /// supplied and the full frame was used.
     #[getter]
     fn roi_id(&self) -> Option<i64> {
         self.roi_id
+    }
+
+    /// DeepStream surface slot index (`NvDsFrameMeta.batch_id`).  User frame
+    /// ids are on ``BatchInferenceOutput.buffer()`` (``SharedBuffer.savant_ids()``).
+    #[getter]
+    fn slot_number(&self) -> u32 {
+        self.slot_number
     }
 
     /// Output tensors for this element.
@@ -193,8 +196,8 @@ impl PyElementOutput {
 
     fn __repr__(&self) -> String {
         format!(
-            "ElementOutput(frame_id={:?}, roi_id={:?}, num_tensors={})",
-            self.frame_id, self.roi_id, self.num_tensors,
+            "ElementOutput(roi_id={:?}, slot_number={}, num_tensors={})",
+            self.roi_id, self.slot_number, self.num_tensors,
         )
     }
 }
@@ -243,8 +246,8 @@ impl PyBatchInferenceOutput {
             let py_elem = PyElementOutput {
                 shared: self.shared.clone(),
                 element_idx: eidx,
-                frame_id: elem.frame_id,
                 roi_id: elem.roi_id,
+                slot_number: elem.slot_number,
                 num_tensors: elem.tensors.len(),
             };
             let obj = Py::new(py, py_elem)?;

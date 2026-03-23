@@ -314,6 +314,44 @@ fn identity_engine_flexible() -> Option<NvInfer> {
     Some(engine)
 }
 
+/// Two-slot non-uniform batch: `slot_number` matches `NvBufSurface` slots;
+/// user ids stay on the output buffer (`savant_ids()`), not on `ElementOutput`.
+///
+/// Also checks `SavantIdMeta` propagation through nvinfer (`bridge_savant_id_meta`):
+/// ids on the batch passed to `infer_sync` match `output.buffer().savant_ids()`.
+#[test]
+#[serial]
+fn test_nonuniform_slot_numbers() {
+    common::init();
+    let engine = match identity_engine_flexible() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let (shared, rois) = make_nonuniform_batch_with_rois();
+    let savant_in = shared.savant_ids();
+    let output = engine
+        .infer_sync(shared, Some(&rois))
+        .expect("infer_sync nonuniform");
+    assert_eq!(
+        output.buffer().savant_ids(),
+        savant_in,
+        "SavantIdMeta on input batch must match output buffer after nvinfer"
+    );
+    assert_eq!(output.num_elements(), 4, "two ROIs per slot × two slots");
+    let slots: Vec<u32> = output.elements().iter().map(|e| e.slot_number).collect();
+    assert_eq!(slots, vec![0, 0, 1, 1]);
+
+    assert_eq!(savant_in.len(), 2, "one Savant id per surface slot");
+    for elem in output.elements() {
+        let id = match &savant_in[elem.slot_number as usize] {
+            SavantIdMetaKind::Frame(id) | SavantIdMetaKind::Batch(id) => *id,
+        };
+        let expected = if elem.slot_number == 0 { 1i64 } else { 2 };
+        assert_eq!(id, expected, "slot {} user id", elem.slot_number);
+    }
+}
+
 /// Stress test for non-uniform batches with ROIs.
 ///
 /// Non-uniform buffers use a fundamentally different ownership model

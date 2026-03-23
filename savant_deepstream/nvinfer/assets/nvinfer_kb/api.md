@@ -13,11 +13,28 @@ pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};
 pub use error::{NvInferError, Result};
 pub use meta_clear_policy::MetaClearPolicy;
+pub use model_input_scaling::ModelInputScaling;
 pub use nvinfer_types::DataType;
 pub use output::{BatchInferenceOutput, ElementOutput, TensorView};
 pub use pipeline::NvInfer;
 pub use roi::Roi;
 ```
+
+---
+
+## ModelInputScaling
+
+```rust
+pub enum ModelInputScaling {
+    Fill,                       // stretch to model input (maintain-aspect-ratio=0)
+    KeepAspectRatio,            // AR + left/bottom padding (symmetric-padding=0)
+    KeepAspectRatioSymmetric,   // AR + symmetric padding (symmetric-padding=1)
+}
+```
+
+Set on [`NvInferConfig::scaling`]. The generated nvinfer config always includes
+the corresponding `maintain-aspect-ratio` / `symmetric-padding` entries; callers
+must not put those keys in `nvinfer_properties`.
 
 ---
 
@@ -59,6 +76,7 @@ pub struct NvInferConfig {
     pub input_height: Option<u32>,
     pub meta_clear_policy: MetaClearPolicy,
     pub disable_output_host_copy: bool,
+    pub scaling: ModelInputScaling,
 }
 ```
 
@@ -75,8 +93,11 @@ pub struct NvInferConfig {
 | `name` | `(self, name: impl Into<String>) → Self` |
 | `meta_clear_policy` | `(self, policy: MetaClearPolicy) → Self` |
 | `disable_output_host_copy` | `(self, disable: bool) → Self` — skip D2H copy; only GPU pointers valid |
+| `scaling` | `(self, scaling: ModelInputScaling) → Self` — input resize / padding mode |
 
 **Mandatory nvinfer keys** (auto-injected if missing): `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, `gie-unique-id=1`.
+
+**Always injected from `scaling`:** `maintain-aspect-ratio` (and `symmetric-padding` when aspect ratio is preserved).
 
 **Forbidden nvinfer properties** (rejected with `InvalidConfig` error):
 
@@ -87,6 +108,8 @@ pub struct NvInferConfig {
 | `secondary-reinfer-interval` | Controls re-inference cadence across frames in a multi-frame pipeline; meaningless in single-shot mode and can silently skip frames. |
 | `num-detected-classes` | Only meaningful for detector `network-type` (0); misleading with `network-type=100`. |
 | `disable-output-host-copy` | Controlled via `NvInferConfig.disable_output_host_copy`; must not be set in `nvinfer_properties`. |
+| `maintain-aspect-ratio` | Controlled via `NvInferConfig.scaling`; must not be set in `nvinfer_properties`. |
+| `symmetric-padding` | Controlled via `NvInferConfig.scaling`; must not be set in `nvinfer_properties`. |
 
 Use dotted notation `section.key` for per-class config (e.g. `class-attrs-0.nms-iou-threshold`).
 
@@ -131,13 +154,13 @@ Owns the output `GstBuffer`. Tensor views borrow from it.
 
 ```rust
 pub struct ElementOutput {
-    pub frame_id: Option<i64>,
     pub roi_id: Option<i64>,
+    pub slot_number: u32,
     pub tensors: Vec<TensorView>,
 }
 ```
 
-Per-ROI inference output. `frame_id` from SavantIdMeta; `roi_id` from `Roi::id` (or `None` for full-frame sentinel).
+Per-ROI inference output. `slot_number` is `NvDsFrameMeta.batch_id` (index into `NvBufSurface.surfaceList`). User frame ids are read from `BatchInferenceOutput::buffer()` via `SharedBuffer::savant_ids()` (aligned with slots). `roi_id` from `Roi::id` (or `None` for full-frame sentinel).
 
 ---
 

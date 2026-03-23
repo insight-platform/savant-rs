@@ -244,6 +244,10 @@ fn test_roi_crop_pixel_match() {
         let rgba = &images[i].1;
 
         assert_eq!(elem.roi_id, Some(i as i64), "{fname}: roi_id mismatch");
+        assert_eq!(
+            elem.slot_number, 0,
+            "{fname}: single-slot batch slot_number"
+        );
         assert!(!elem.tensors.is_empty(), "{fname}: no output tensors");
 
         let t = &elem.tensors[0];

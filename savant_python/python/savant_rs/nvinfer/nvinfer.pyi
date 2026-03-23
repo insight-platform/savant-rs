@@ -12,6 +12,7 @@ from savant_rs.primitives.geometry import RBBox
 
 __all__ = [
     "MetaClearPolicy",
+    "ModelInputScaling",
     "DataType",
     "Roi",
     "NvInferConfig",
@@ -43,6 +44,28 @@ class MetaClearPolicy:
     def __ne__(self, other: object) -> bool: ...
     def __int__(self) -> int: ...
     def __hash__(self) -> int: ...
+
+@final
+class ModelInputScaling:
+    """How input frames are scaled to the model's fixed input dimensions.
+
+    Maps to nvinfer ``maintain-aspect-ratio`` / ``symmetric-padding``; do not
+    set those keys in ``nvinfer_properties``.
+
+    - ``FILL`` -- stretch to model input (default).
+    - ``KEEP_ASPECT_RATIO`` -- preserve aspect ratio, padding on the right/bottom.
+    - ``KEEP_ASPECT_RATIO_SYMMETRIC`` -- preserve aspect ratio, symmetric padding.
+    """
+
+    FILL: ModelInputScaling
+    KEEP_ASPECT_RATIO: ModelInputScaling
+    KEEP_ASPECT_RATIO_SYMMETRIC: ModelInputScaling
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
 
 @final
 class DataType:
@@ -111,6 +134,7 @@ class NvInferConfig:
         gpu_id: GPU device ID.
         queue_depth: GStreamer queue max-size-buffers (0 = no queue).
         meta_clear_policy: When to clear object metadata.
+        scaling: How frames are scaled to model input size.
     """
 
     def __init__(
@@ -126,6 +150,7 @@ class NvInferConfig:
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
         disable_output_host_copy: bool = False,
+        scaling: ModelInputScaling = ModelInputScaling.FILL,
     ) -> None: ...
     @staticmethod
     def new_flexible(
@@ -138,6 +163,7 @@ class NvInferConfig:
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
         disable_output_host_copy: bool = False,
+        scaling: ModelInputScaling = ModelInputScaling.FILL,
     ) -> NvInferConfig:
         """Create a config without fixed input dimensions.
 
@@ -163,6 +189,11 @@ class NvInferConfig:
     @property
     def disable_output_host_copy(self) -> bool:
         """Whether the device-to-host copy of output tensors is disabled."""
+        ...
+
+    @property
+    def scaling(self) -> ModelInputScaling:
+        """How input frames are scaled to the model input size."""
         ...
 
     def __repr__(self) -> str: ...
@@ -245,16 +276,20 @@ class TensorView:
 
 @final
 class ElementOutput:
-    """Per-element inference output for one ROI in one frame."""
+    """Per-element inference output for one ROI in one frame.
 
-    @property
-    def frame_id(self) -> Optional[int]:
-        """User-provided frame ID (if present)."""
-        ...
+    User frame ids are on ``BatchInferenceOutput.buffer()`` (see
+    ``SharedBuffer.savant_ids()``), not on this object.
+    """
 
     @property
     def roi_id(self) -> Optional[int]:
         """ROI identifier from ``Roi.id``.  ``None`` when the full frame was used."""
+        ...
+
+    @property
+    def slot_number(self) -> int:
+        """DeepStream surface slot index (``NvDsFrameMeta.batch_id``)."""
         ...
 
     @property

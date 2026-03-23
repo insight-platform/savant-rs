@@ -2,6 +2,7 @@
 
 use nvinfer::DataType;
 use nvinfer::MetaClearPolicy;
+use nvinfer::ModelInputScaling;
 use pyo3::prelude::*;
 
 /// Controls when object metadata is erased from the batch buffer.
@@ -47,6 +48,71 @@ impl From<MetaClearPolicy> for PyMetaClearPolicy {
             MetaClearPolicy::Before => PyMetaClearPolicy::Before,
             MetaClearPolicy::After => PyMetaClearPolicy::After,
             MetaClearPolicy::Both => PyMetaClearPolicy::Both,
+        }
+    }
+}
+
+/// How input frames are scaled to the model's fixed input dimensions.
+///
+/// - ``FILL`` -- stretch to model input (default).
+/// - ``KEEP_ASPECT_RATIO`` -- preserve aspect ratio, padding on the right/bottom.
+/// - ``KEEP_ASPECT_RATIO_SYMMETRIC`` -- preserve aspect ratio, symmetric padding.
+#[pyclass(
+    from_py_object,
+    name = "ModelInputScaling",
+    module = "savant_rs.nvinfer",
+    eq,
+    eq_int
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyModelInputScaling {
+    #[pyo3(name = "FILL")]
+    Fill = 0,
+    #[pyo3(name = "KEEP_ASPECT_RATIO")]
+    KeepAspectRatio = 1,
+    #[pyo3(name = "KEEP_ASPECT_RATIO_SYMMETRIC")]
+    KeepAspectRatioSymmetric = 2,
+}
+
+impl PyModelInputScaling {
+    pub(crate) fn repr_str(&self) -> &'static str {
+        match self {
+            PyModelInputScaling::Fill => "ModelInputScaling.FILL",
+            PyModelInputScaling::KeepAspectRatio => "ModelInputScaling.KEEP_ASPECT_RATIO",
+            PyModelInputScaling::KeepAspectRatioSymmetric => {
+                "ModelInputScaling.KEEP_ASPECT_RATIO_SYMMETRIC"
+            }
+        }
+    }
+}
+
+#[pymethods]
+impl PyModelInputScaling {
+    fn __repr__(&self) -> &'static str {
+        self.repr_str()
+    }
+}
+
+impl From<PyModelInputScaling> for ModelInputScaling {
+    fn from(p: PyModelInputScaling) -> Self {
+        match p {
+            PyModelInputScaling::Fill => ModelInputScaling::Fill,
+            PyModelInputScaling::KeepAspectRatio => ModelInputScaling::KeepAspectRatio,
+            PyModelInputScaling::KeepAspectRatioSymmetric => {
+                ModelInputScaling::KeepAspectRatioSymmetric
+            }
+        }
+    }
+}
+
+impl From<ModelInputScaling> for PyModelInputScaling {
+    fn from(p: ModelInputScaling) -> Self {
+        match p {
+            ModelInputScaling::Fill => PyModelInputScaling::Fill,
+            ModelInputScaling::KeepAspectRatio => PyModelInputScaling::KeepAspectRatio,
+            ModelInputScaling::KeepAspectRatioSymmetric => {
+                PyModelInputScaling::KeepAspectRatioSymmetric
+            }
         }
     }
 }

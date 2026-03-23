@@ -23,6 +23,23 @@ Supports `==`, `!=`, `int()`, `hash()`.
 
 ---
 
+## ModelInputScaling
+
+How input frames are scaled to the model's fixed input dimensions. Backed by
+nvinfer `maintain-aspect-ratio` / `symmetric-padding` (injected by the Rust
+config builder). Do **not** set those keys in `nvinfer_properties`.
+
+```python
+class ModelInputScaling:
+    FILL: ModelInputScaling                        # stretch to model input (DEFAULT)
+    KEEP_ASPECT_RATIO: ModelInputScaling         # preserve AR, padding right/bottom
+    KEEP_ASPECT_RATIO_SYMMETRIC: ModelInputScaling  # preserve AR, symmetric padding
+```
+
+Supports `==`, `!=`, `int()`, `hash()`, `repr()`.
+
+---
+
 ## DataType
 
 Enum for tensor element types.
@@ -79,6 +96,7 @@ class NvInferConfig:
         queue_depth: int = 0,                                    # OPT
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE, # OPT
         disable_output_host_copy: bool = False,                  # OPT
+        scaling: ModelInputScaling = ModelInputScaling.FILL,      # OPT
     ) -> None: ...
 
     @staticmethod
@@ -92,6 +110,7 @@ class NvInferConfig:
         queue_depth: int = 0,
         meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
         disable_output_host_copy: bool = False,
+        scaling: ModelInputScaling = ModelInputScaling.FILL,
     ) -> NvInferConfig: ...
 
     @property
@@ -110,7 +129,12 @@ class NvInferConfig:
     def meta_clear_policy(self) -> MetaClearPolicy: ...
     @property
     def disable_output_host_copy(self) -> bool: ... # True = skip D2H copy
+    @property
+    def scaling(self) -> ModelInputScaling: ...
 ```
+
+**Forbidden in `nvinfer_properties`:** `maintain-aspect-ratio`, `symmetric-padding`
+(use `scaling` on `NvInferConfig` instead).
 
 ### nvinfer_properties dict
 
@@ -123,8 +147,10 @@ Use dotted keys for per-class sections:
 }
 ```
 
-Bare keys are written to `[property]`. `process-mode` and
-`output-tensor-meta` are auto-injected by the Rust config builder.
+Bare keys are written to `[property]`. `process-mode`,
+`output-tensor-meta`, `maintain-aspect-ratio`, and (when applicable)
+`symmetric-padding` are set by the Rust config builder from `NvInferConfig`
+fields — do not duplicate them in the dict.
 
 ---
 
@@ -181,9 +207,9 @@ FLOAT → `"float32"`, HALF → `"float16"`, INT8 → `"int8"`, INT32 → `"int3
 ```python
 class ElementOutput:
     @property
-    def frame_id(self) -> Optional[int]: ...
-    @property
     def roi_id(self) -> Optional[int]: ...
+    @property
+    def slot_number(self) -> int: ...  # NvDsFrameMeta.batch_id / surface index
     @property
     def tensors(self) -> List[TensorView]: ...
 ```
@@ -209,8 +235,9 @@ class BatchInferenceOutput:
 
 `buffer()` returns the output GStreamer buffer as a `SharedBuffer`.
 `SavantIdMeta` attached to the input buffer is preserved through the pipeline
-and readable from this output buffer. Frame/batch IDs are carried inside
-`SavantIdMeta` — there is no separate `batch_id` field.
+and readable from this output buffer (`savant_ids()`). Each `ElementOutput`
+exposes the DeepStream surface slot as `slot_number`; correlate with user ids
+by indexing `savant_ids()` with that slot.
 
 ---
 

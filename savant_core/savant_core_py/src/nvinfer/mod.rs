@@ -14,6 +14,7 @@ use pyo3::prelude::*;
 /// Register all nvinfer Python classes on the given module.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<enums::PyMetaClearPolicy>()?;
+    m.add_class::<enums::PyModelInputScaling>()?;
     m.add_class::<enums::PyDataType>()?;
     m.add_class::<roi::PyRoi>()?;
     m.add_class::<config::PyNvInferConfig>()?;

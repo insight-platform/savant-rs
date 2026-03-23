@@ -1,6 +1,6 @@
 //! PyO3 wrapper for NvInferConfig.
 
-use super::enums::PyMetaClearPolicy;
+use super::enums::{PyMetaClearPolicy, PyModelInputScaling};
 use nvinfer::NvInferConfig;
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -24,6 +24,8 @@ use std::collections::HashMap;
 ///     disable_output_host_copy (bool): When ``True``, skip device-to-host
 ///         copy of output tensors. Only device (GPU) pointers will be valid.
 ///         Default: ``False``.
+///     scaling (ModelInputScaling): How frames are scaled to model input size.
+///         Default: ``ModelInputScaling.FILL``.
 #[pyclass(
     name = "NvInferConfig",
     module = "savant_rs.nvinfer",
@@ -49,6 +51,7 @@ impl PyNvInferConfig {
         queue_depth = 0,
         meta_clear_policy = PyMetaClearPolicy::Before,
         disable_output_host_copy = false,
+        scaling = PyModelInputScaling::Fill,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -62,13 +65,15 @@ impl PyNvInferConfig {
         queue_depth: u32,
         meta_clear_policy: PyMetaClearPolicy,
         disable_output_host_copy: bool,
+        scaling: PyModelInputScaling,
     ) -> Self {
         let mut cfg =
             NvInferConfig::new(nvinfer_properties, input_format, input_width, input_height)
                 .gpu_id(gpu_id)
                 .queue_depth(queue_depth)
                 .meta_clear_policy(meta_clear_policy.into())
-                .disable_output_host_copy(disable_output_host_copy);
+                .disable_output_host_copy(disable_output_host_copy)
+                .scaling(scaling.into());
         if !name.is_empty() {
             cfg = cfg.name(name);
         }
@@ -93,6 +98,7 @@ impl PyNvInferConfig {
     ///     gpu_id (int): GPU device ID.
     ///     queue_depth (int): GStreamer queue max-size-buffers (0 = no queue).
     ///     meta_clear_policy (MetaClearPolicy): When to clear object metadata.
+    ///     scaling (ModelInputScaling): How frames are scaled to model input size.
     #[staticmethod]
     #[pyo3(signature = (
         nvinfer_properties,
@@ -104,6 +110,7 @@ impl PyNvInferConfig {
         queue_depth = 0,
         meta_clear_policy = PyMetaClearPolicy::Before,
         disable_output_host_copy = false,
+        scaling = PyModelInputScaling::Fill,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new_flexible(
@@ -115,12 +122,14 @@ impl PyNvInferConfig {
         queue_depth: u32,
         meta_clear_policy: PyMetaClearPolicy,
         disable_output_host_copy: bool,
+        scaling: PyModelInputScaling,
     ) -> Self {
         let mut cfg = NvInferConfig::new_flexible(nvinfer_properties, input_format)
             .gpu_id(gpu_id)
             .queue_depth(queue_depth)
             .meta_clear_policy(meta_clear_policy.into())
-            .disable_output_host_copy(disable_output_host_copy);
+            .disable_output_host_copy(disable_output_host_copy)
+            .scaling(scaling.into());
         if !name.is_empty() {
             cfg = cfg.name(name);
         }
@@ -171,11 +180,17 @@ impl PyNvInferConfig {
         self.inner.disable_output_host_copy
     }
 
+    /// How input frames are scaled to the model input size.
+    #[getter]
+    fn scaling(&self) -> PyModelInputScaling {
+        self.inner.scaling.into()
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "NvInferConfig(name={:?}, gpu_id={}, queue_depth={}, input_format={:?}, \
              input_width={:?}, input_height={:?}, meta_clear_policy={:?}, \
-             disable_output_host_copy={})",
+             disable_output_host_copy={}, scaling={})",
             self.inner.name,
             self.inner.gpu_id,
             self.inner.queue_depth,
@@ -184,6 +199,7 @@ impl PyNvInferConfig {
             self.inner.input_height,
             PyMetaClearPolicy::from(self.inner.meta_clear_policy),
             self.inner.disable_output_host_copy,
+            PyModelInputScaling::from(self.inner.scaling).repr_str(),
         )
     }
 }
