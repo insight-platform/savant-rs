@@ -18,7 +18,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 const MAX_PLANES: usize = 3;
 
 /// Maximum number of batch slots supported by [`EglCudaMeta`].
-pub const MAX_BATCH_SLOTS: usize = 32;
+///
+/// **Not a hardware or NvBufSurface API limit.** In NVIDIA's `nvbufsurface.h`, the
+/// `batchSize` field on [`NvBufSurface`](crate::ffi::NvBufSurface) is a `uint32_t` with no
+/// documented maximum. DeepStream uses other symbolic caps elsewhere (e.g.
+/// `NVDSINFER_MAX_BATCH_SIZE` in the inference headers). This constant only bounds the
+/// fixed-size `slots` array embedded in our `GstMeta` so `gst_meta_register` gets a
+/// stable layout without heap-allocating the per-slot registration table.
+///
+/// Raising the value increases per-buffer `GstMeta` size (each slot holds
+/// `CUgraphicsResource` plus plane pointers/pitches). The default is chosen to cover
+/// typical batched pipelines (including nvinfer-style batch sizes) while keeping meta
+/// overhead predictable.
+pub const MAX_BATCH_SLOTS: usize = 64;
 
 // ─── Test-only registration tracking ─────────────────────────────────────────
 

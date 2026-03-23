@@ -270,8 +270,11 @@ with different slot indices.
 
 The `egl_cuda_meta` module implements **multi-slot** EGL-CUDA interop:
 
-- `EglCudaMetaInner` has `slots: [SlotRegistration; MAX_BATCH_SLOTS]` (32 slots)
-  and `batch_size: u32`. Each slot is registered lazily on first access.
+- `EglCudaMetaInner` has `slots: [SlotRegistration; MAX_BATCH_SLOTS]` (64 slots)
+  and `batch_size: u32`. Each slot is registered lazily on first access. The slot
+  count cap is a Savant design choice (fixed-size `GstMeta`, no heap slot table);
+  it is not an NvBufSurface or hardware maximum (`batchSize` is an unconstrained `u32`
+  in NVIDIA headers).
 - `ensure_meta(buf, slot_index)` — per-slot lazy registration; returns cached
   pointers if the slot is already registered.
 - `read_meta(buf, slot_index)` — per-slot read; returns `None` if slot not registered.

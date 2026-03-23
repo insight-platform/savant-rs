@@ -256,14 +256,22 @@ uses `extract_slot_view` internally.
 ## EglCudaMeta (aarch64 only)
 
 Custom `GstMeta` for EGL-CUDA interop on Jetson. **Multi-slot**: stores
-`slots: [SlotRegistration; MAX_BATCH_SLOTS]` (32 slots) and `batch_size`.
+`slots: [SlotRegistration; MAX_BATCH_SLOTS]` (64 slots) and `batch_size`.
 Each slot is registered lazily on first access. Automatically deregisters
 all slots when the buffer is freed (via `meta_free`).
+
+**`MAX_BATCH_SLOTS` rationale:** This is a **Savant fixed-size cap** for the meta's
+embedded slot array, not an NVIDIA hardware limit. `NvBufSurface.batchSize` is a `u32`
+with no documented maximum in `nvbufsurface.h` (DeepStream SDK API Reference). We use a
+fixed array so `gst_meta_register` has a stable size and we avoid heap allocation for
+the per-slot EGL-CUDA registration state on every buffer. Larger values increase
+per-buffer `GstMeta` memory; the default tracks typical DeepStream batching (including
+larger nvinfer batch sizes).
 
 ```rust
 // Module: egl_cuda_meta (conditionally compiled: #[cfg(target_arch = "aarch64")])
 
-pub const MAX_BATCH_SLOTS: usize = 32;
+pub const MAX_BATCH_SLOTS: usize = 64;
 
 pub struct EglCudaMapping {
     pub cuda_ptrs: [*mut c_void; 3],

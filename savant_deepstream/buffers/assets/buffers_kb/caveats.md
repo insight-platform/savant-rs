@@ -316,9 +316,14 @@ for _ in 0..N {
 
 ## 18. MAX_BATCH_SLOTS Limit (EglCudaMeta, aarch64)
 
-`EglCudaMeta` supports up to `MAX_BATCH_SLOTS` (32) slots per buffer. If
-`batchSize` exceeds this, `ensure_meta` returns an error. Batched buffers
-with more than 32 slots are not supported on Jetson.
+`EglCudaMeta` supports up to `MAX_BATCH_SLOTS` (**64**) slots per buffer. If
+`batchSize` exceeds this, `ensure_meta` returns an error.
+
+This limit is **imposed by our meta layout**, not by Jetson hardware or the
+NvBufSurface API: `batchSize` in `nvbufsurface.h` is a `uint32_t` with no documented
+maximum. We embed `slots: [SlotRegistration; MAX_BATCH_SLOTS]` in `GstMeta` for a
+fixed `gst_meta_register` size and to avoid heap-allocating the slot table per buffer.
+Raising the constant only increases per-buffer meta overhead.
 
 ---
 

@@ -338,11 +338,10 @@ pub struct Crop {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VideoFrameTransformation {
-    #[prost(
-        oneof = "video_frame_transformation::Transformation",
-        tags = "1, 2, 3, 5"
-    )]
-    pub transformation: ::core::option::Option<video_frame_transformation::Transformation>,
+    #[prost(oneof = "video_frame_transformation::Transformation", tags = "1, 2, 3, 5")]
+    pub transformation: ::core::option::Option<
+        video_frame_transformation::Transformation,
+    >,
 }
 /// Nested message and enum types in `VideoFrameTransformation`.
 pub mod video_frame_transformation {
@@ -429,8 +428,10 @@ pub struct Message {
     #[prost(string, repeated, tag = "2")]
     pub routing_labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(map = "string, string", tag = "3")]
-    pub propagated_context:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    pub propagated_context: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::alloc::string::String,
+    >,
     #[prost(uint64, tag = "4")]
     pub seq_id: u64,
     #[prost(string, tag = "20")]
