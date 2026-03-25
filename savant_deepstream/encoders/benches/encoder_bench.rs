@@ -151,7 +151,8 @@ const THROUGHPUT_FRAMES: u64 = 200;
 const FRAME_DURATION_NS: u64 = 33_333_333; // ~30 fps
 
 /// Encode `THROUGHPUT_FRAMES` frames on a pre-created encoder, draining
-/// output after each submit to keep the single-buffer pool flowing.
+/// output after each submit so slots from [`NvEncoder::generator`] are returned
+/// promptly (pool size is platform-dependent — see `NvEncoder::new`).
 fn encode_n_frames(mut encoder: NvEncoder) {
     for i in 0..THROUGHPUT_FRAMES {
         let shared = encoder

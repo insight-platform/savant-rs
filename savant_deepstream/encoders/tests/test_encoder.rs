@@ -1066,6 +1066,29 @@ fn test_encoder_creation_hevc_jetson_props() {
 
 #[test]
 #[serial]
+fn test_encoder_creation_av1_jetson_props() {
+    init();
+    if !is_jetson() || !has_nvenc() {
+        eprintln!("Skipping — requires Jetson + NVENC");
+        return;
+    }
+    let config = EncoderConfig::new(Codec::Av1, 640, 480)
+        .format(VideoFormat::RGBA)
+        .properties(EncoderProperties::Av1Jetson(Av1JetsonProps {
+            preset_level: Some(JetsonPresetLevel::UltraFast),
+            maxperf_enable: Some(true),
+            ..Default::default()
+        }));
+    let encoder = NvEncoder::new(&config);
+    assert!(
+        encoder.is_ok(),
+        "Failed to create AV1 Jetson encoder: {:?}",
+        encoder.err()
+    );
+}
+
+#[test]
+#[serial]
 fn test_encoder_creation_h264_dgpu_props() {
     init();
     if is_jetson() || !has_nvenc() {

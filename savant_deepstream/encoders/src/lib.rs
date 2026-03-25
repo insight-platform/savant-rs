@@ -78,13 +78,11 @@ pub use properties::EncoderProperties;
 /// codec selection, resolution, framerate, GPU configuration, and
 /// encoder-specific properties.
 ///
-/// **Note on buffer pool size**: The internal buffer pools are always
-/// configured with exactly 1 buffer. This is required because the NVENC
-/// hardware encoder may continue DMA-reading from a buffer's GPU memory
-/// after the GStreamer element has released its reference. A pool size of
-/// 1 forces full serialization: each frame must be completely consumed
-/// by the hardware encoder before the next frame can be submitted,
-/// preventing stale-data artifacts.
+/// **Note on buffer pool size**: On discrete GPU, pools use exactly 1
+/// buffer so NVENC cannot DMA-read from memory that was already recycled.
+/// On Jetson, H.264 / HEVC / AV1 V4L2 encoders use 4 buffers because the
+/// driver can hold several input surfaces in flight; a single-buffer pool
+/// would block [`BufferGenerator::acquire`](deepstream_buffers::BufferGenerator).
 #[derive(Debug, Clone)]
 pub struct EncoderConfig {
     /// Video codec to use.

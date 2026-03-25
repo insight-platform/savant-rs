@@ -13,7 +13,9 @@
     },
     "runArgs": [
         "--runtime",
-        "nvidia"
+        "nvidia",
+        "--gpus",
+        "all"
     ],
     "remoteUser": "${localEnv:USER}",
     "customizations": {

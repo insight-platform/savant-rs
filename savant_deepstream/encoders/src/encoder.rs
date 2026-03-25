@@ -26,8 +26,8 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
-use log::debug;
-use std::collections::HashMap;
+use log::{debug, warn};
+use std::collections::{HashMap, VecDeque};
 
 /// Known GStreamer property names that control B-frame count on NVIDIA
 /// encoders.  Used exclusively by [`force_disable_b_frames`] to ensure
@@ -80,6 +80,13 @@ pub struct NvEncoder {
     finalized: bool,
     /// PTS -> (frame_id, duration_ns) map for reconstructing output metadata.
     pts_map: PtsMap,
+    /// Submission order of `frame_id` for intra-only codecs (JPEG, PNG, raw).
+    ///
+    /// Jetson `nvvideoconvert` / parsers may rewrite timestamps so the output
+    /// buffer no longer matches [`Self::pts_map`].  Outputs are still in
+    /// submission order, so we can fall back to popping this FIFO when the map
+    /// misses (see [`Self::sample_to_frame`]).
+    intra_submit_fifo: VecDeque<u128>,
     /// When format conversion is needed (e.g. RGBA → NV12), this holds a
     /// second generator for the encoder-native format and a dedicated
     /// non-blocking CUDA stream for the `NvBufSurfTransform` call.
@@ -188,21 +195,32 @@ impl NvEncoder {
             _ => VideoFormat::NV12,
         };
 
-        // Create the user-facing buffer generator (e.g. RGBA).
+        // Buffer pool size for the user-facing (and native-format) generators.
         //
-        // Pool size is hardcoded to 1: the NVENC hardware encoder may
-        // continue DMA-reading from a buffer's GPU memory after the
-        // GStreamer element has released its reference.  A pool of 1
-        // forces full serialization so the buffer is never overwritten
-        // while hardware is still reading from it.
-        const POOL_SIZE: u32 = 1;
+        // On dGPU, pool size 1: NVENC may continue DMA-reading from a buffer
+        // after GStreamer releases its reference; a single buffer forces
+        // serialization so memory is never overwritten while HW reads it.
+        //
+        // On Jetson, V4L2 video encoders (`nvv4l2h264enc` / `nvv4l2h265enc` /
+        // `nvv4l2av1enc`) can keep several input buffers in flight before
+        // releasing them; with a pool of 1, `acquire()` deadlocks.  A larger
+        // pool (4) matches observed in-flight depth without requiring callers
+        // to pull encoded output between submits.
+        #[cfg(target_arch = "aarch64")]
+        let pool_size: u32 = if matches!(config.codec, Codec::H264 | Codec::Hevc | Codec::Av1) {
+            4
+        } else {
+            1
+        };
+        #[cfg(not(target_arch = "aarch64"))]
+        let pool_size: u32 = 1;
 
         let generator = BufferGenerator::builder(config.format, config.width, config.height)
             .fps(config.fps_num, config.fps_den)
             .gpu_id(config.gpu_id)
             .mem_type(config.mem_type)
-            .min_buffers(POOL_SIZE)
-            .max_buffers(POOL_SIZE)
+            .min_buffers(pool_size)
+            .max_buffers(pool_size)
             .build()?;
 
         // When the user format differs from the encoder-native format, set up
@@ -219,8 +237,8 @@ impl NvEncoder {
                     .fps(config.fps_num, config.fps_den)
                     .gpu_id(config.gpu_id)
                     .mem_type(config.mem_type)
-                    .min_buffers(POOL_SIZE)
-                    .max_buffers(POOL_SIZE)
+                    .min_buffers(pool_size)
+                    .max_buffers(pool_size)
                     .build()?;
 
             let cuda_stream = CudaStream::new_non_blocking().map_err(|e| {
@@ -424,6 +442,7 @@ impl NvEncoder {
             last_output_pts_ns: None,
             finalized: false,
             pts_map: HashMap::new(),
+            intra_submit_fifo: VecDeque::new(),
             convert_ctx,
         })
     }
@@ -484,6 +503,13 @@ impl NvEncoder {
 
         // Store PTS -> (frame_id, duration) mapping.
         self.pts_map.insert(pts_ns, (frame_id, duration_ns));
+
+        if matches!(
+            self.codec,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+        ) {
+            self.intra_submit_fifo.push_back(frame_id);
+        }
 
         // When conversion is needed, transform the user buffer (e.g. RGBA)
         // into the encoder-native format (NV12/I420) using NvBufSurfTransform
@@ -610,6 +636,12 @@ impl NvEncoder {
         let buf_dts_ns = buffer.dts().map(|t| t.nseconds());
         let duration_ns = buffer.duration().map(|t| t.nseconds());
 
+        let is_intra_only = matches!(
+            self.codec,
+            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
+        );
+        let buf_size = buffer.size() as u64;
+
         // Look up frame_id from our PTS map.  On Jetson the pre-encoder
         // nvvideoconvert retimestamps buffers (changing PTS) but preserves
         // the original PTS in DTS.  Try PTS first, fall back to DTS.
@@ -624,10 +656,41 @@ impl NvEncoder {
                 (None, buf_pts_ns)
             }
         };
-        let is_user_frame = pts_lookup.is_some();
-        let (frame_id, orig_duration) = match pts_lookup {
-            Some((id, dur)) => (Some(id), dur),
-            None => (None, duration_ns),
+
+        // Intra-only codecs: keep a FIFO of submitted frame_ids.  If the map
+        // misses (timestamp rewrite), correlate by strict submission order.
+        let (frame_id, orig_duration, is_user_frame) = match pts_lookup {
+            Some((id, dur)) => {
+                if is_intra_only {
+                    match self.intra_submit_fifo.pop_front() {
+                        Some(fifo_id) if fifo_id != id => {
+                            warn!(
+                                "NvEncoder: intra FIFO head {fifo_id} != pts_map id {id} (codec={:?}) — trusting map",
+                                self.codec
+                            );
+                        }
+                        None => {
+                            warn!(
+                                "NvEncoder: intra FIFO empty on pts_map hit (codec={:?})",
+                                self.codec
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                (Some(id), dur, true)
+            }
+            None if is_intra_only && buf_size > 0 => {
+                let id = self.intra_submit_fifo.pop_front();
+                if id.is_none() {
+                    warn!(
+                        "NvEncoder: encoded buffer has payload but intra FIFO empty (codec={:?}, size={buf_size})",
+                        self.codec
+                    );
+                }
+                (id, duration_ns, id.is_some())
+            }
+            None => (None, duration_ns, false),
         };
         let pts_ns = original_pts;
 
@@ -636,10 +699,6 @@ impl NvEncoder {
         // Checks only apply to user-submitted frames.  Codec header
         // buffers emitted by some encoders (AV1 in particular) may carry
         // stale or meaningless PTS/DTS values.
-        let is_intra_only = matches!(
-            self.codec,
-            Codec::Jpeg | Codec::Png | Codec::RawRgba | Codec::RawRgb
-        );
 
         if is_user_frame {
             // 1. Output PTS must never go backwards.  Equal PTS is
@@ -736,7 +795,6 @@ impl NvEncoder {
         let timeout_ms = drain_timeout_ms.unwrap_or(2000);
         let mut frames = Vec::new();
 
-        // Drain remaining frames from the appsink.
         while let Some(frame) = self.pull_encoded_timeout(timeout_ms)? {
             frames.push(frame);
         }
@@ -753,6 +811,15 @@ impl NvEncoder {
 
         // Stop the pipeline.
         let _ = self.pipeline.set_state(gst::State::Null);
+
+        if !self.intra_submit_fifo.is_empty() {
+            warn!(
+                "NvEncoder::finish: {} frame_id(s) left in intra_submit_fifo (codec={:?}) — outputs missing",
+                self.intra_submit_fifo.len(),
+                self.codec
+            );
+            self.intra_submit_fifo.clear();
+        }
 
         debug!("NvEncoder finished, drained {} frames", frames.len());
         Ok(frames)

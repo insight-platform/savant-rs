@@ -25,7 +25,7 @@ pub use deepstream_buffers::{
 
 // Encoder properties — aggregate enum and all per-codec/platform structs
 pub use crate::properties::{
-    Av1DgpuProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps, H264Profile,
-    HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel, JpegProps, Platform, PngProps,
-    RateControl, RawProps, TuningPreset,
+    Av1DgpuProps, Av1JetsonProps, DgpuPreset, EncoderProperties, H264DgpuProps, H264JetsonProps,
+    H264Profile, HevcDgpuProps, HevcJetsonProps, HevcProfile, JetsonPresetLevel, JpegProps,
+    Platform, PngProps, RateControl, RawProps, TuningPreset,
 };

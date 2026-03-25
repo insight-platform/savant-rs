@@ -455,9 +455,15 @@ fn drain_and_finish(
                     let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
                     if let Some(frame) = frame {
                         encode::fill_encoded_frame(frame, encoded, cb);
+                    } else if !encoded.data.is_empty() {
+                        error!(
+                            "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
+                            encoded.data.len(),
+                            encoded.frame_id
+                        );
                     } else {
                         warn!(
-                            "drain: no pending frame for frame_id={:?}, source={source_id}",
+                            "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
                             encoded.frame_id
                         );
                     }

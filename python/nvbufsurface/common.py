@@ -34,6 +34,7 @@ from savant_rs.deepstream import (  # noqa: E402
     VideoFormat,
     gpu_mem_used_mib,
     init_cuda,
+    is_jetson_kernel,
 )
 from savant_rs.gstreamer import Codec, Mp4Muxer  # noqa: E402
 from savant_rs.picasso import (  # noqa: E402
@@ -45,14 +46,18 @@ from savant_rs.picasso import (  # noqa: E402
     PicassoEngine,
     SourceSpec,
     H264DgpuProps,
+    H264JetsonProps,
     HevcDgpuProps,
+    HevcJetsonProps,
     Av1DgpuProps,
+    Av1JetsonProps,
     JpegProps,
     RateControl,
     H264Profile,
     HevcProfile,
     DgpuPreset,
     TuningPreset,
+    JetsonPresetLevel,
 )
 from savant_rs.primitives import VideoFrame, VideoFrameContent  # noqa: E402
 
@@ -96,6 +101,9 @@ def check_release_build(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
+_IS_JETSON: bool = is_jetson_kernel()
+
+
 def init_gst_and_cuda(gpu_id: int = 0) -> None:
     """Idempotent GStreamer + CUDA initialisation."""
     Gst.init(None)
@@ -135,13 +143,26 @@ def build_encoder_properties(
 ) -> EncoderProperties | None:
     """Build encoder properties wrapped in :class:`EncoderProperties`.
 
-    - H264/HEVC/AV1: Main/High profile, VBR, P1 preset, low-latency tuning.
-      ``bitrate`` overrides the default (4 Mbps).
+    Automatically selects Jetson or dGPU property types based on the
+    detected platform.
+
+    - H264/HEVC/AV1: Main profile, VBR, fast preset, 4 Mbps default.
+      ``bitrate`` overrides the default.
     - JPEG: ``quality`` overrides the default (85).
     """
     default_bitrate = bitrate or 4_000_000  # 4 Mbps
 
     if codec == Codec.H264:
+        if _IS_JETSON:
+            return EncoderProperties.h264_jetson(
+                H264JetsonProps(
+                    profile=H264Profile.MAIN,
+                    control_rate=RateControl.VARIABLE_BITRATE,
+                    bitrate=default_bitrate,
+                    preset_level=JetsonPresetLevel.ULTRA_FAST,
+                    iframeinterval=30,
+                )
+            )
         return EncoderProperties.h264_dgpu(
             H264DgpuProps(
                 profile=H264Profile.MAIN,
@@ -153,6 +174,16 @@ def build_encoder_properties(
             )
         )
     elif codec == Codec.HEVC:
+        if _IS_JETSON:
+            return EncoderProperties.hevc_jetson(
+                HevcJetsonProps(
+                    profile=HevcProfile.MAIN,
+                    control_rate=RateControl.VARIABLE_BITRATE,
+                    bitrate=default_bitrate,
+                    preset_level=JetsonPresetLevel.ULTRA_FAST,
+                    iframeinterval=30,
+                )
+            )
         return EncoderProperties.hevc_dgpu(
             HevcDgpuProps(
                 profile=HevcProfile.MAIN,
@@ -164,6 +195,15 @@ def build_encoder_properties(
             )
         )
     elif codec == Codec.AV1:
+        if _IS_JETSON:
+            return EncoderProperties.av1_jetson(
+                Av1JetsonProps(
+                    control_rate=RateControl.VARIABLE_BITRATE,
+                    bitrate=default_bitrate,
+                    preset_level=JetsonPresetLevel.ULTRA_FAST,
+                    iframeinterval=30,
+                )
+            )
         return EncoderProperties.av1_dgpu(
             Av1DgpuProps(
                 control_rate=RateControl.VARIABLE_BITRATE,

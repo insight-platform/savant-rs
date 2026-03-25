@@ -622,7 +622,7 @@ pub unsafe extern "C" fn savant_object_set_int_vec_attribute_value(
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::CString;
+    use std::ffi::{c_char, CString};
 
     use savant_core::primitives::WithAttributes;
     use savant_core::test::gen_frame;
@@ -669,7 +669,7 @@ mod tests {
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = [0u8; 100];
-        let result_buf = result_buf.as_ptr() as *mut i8;
+        let result_buf = result_buf.as_ptr() as *mut c_char;
         let ns = unsafe { savant_object_get_namespace(optr, result_buf, 100) };
         let ns = unsafe { std::slice::from_raw_parts(result_buf as *const u8, ns) };
         let ns = std::str::from_utf8(ns).unwrap();
@@ -682,7 +682,7 @@ mod tests {
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = [0u8; 100];
-        let result_buf = result_buf.as_ptr() as *mut i8;
+        let result_buf = result_buf.as_ptr() as *mut c_char;
         let label = unsafe { savant_object_get_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
         let label = std::str::from_utf8(label).unwrap();
@@ -695,7 +695,7 @@ mod tests {
         let o = BorrowedVideoObject(f.get_object(1).unwrap());
         let optr = &o as *const BorrowedVideoObject;
         let result_buf = [0u8; 100];
-        let result_buf = result_buf.as_ptr() as *mut i8;
+        let result_buf = result_buf.as_ptr() as *mut c_char;
         let label = unsafe { savant_object_get_draw_label(optr, result_buf, 100) };
         let label = unsafe { std::slice::from_raw_parts(result_buf as *const u8, label) };
         let label = std::str::from_utf8(label).unwrap();

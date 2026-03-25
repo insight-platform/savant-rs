@@ -15,6 +15,7 @@
 //! | [`Jpeg`](JpegProps) | JPEG | Both | `nvjpegenc` |
 //! | [`Png`](PngProps) | PNG | Both (CPU) | `pngenc` |
 //! | [`Av1Dgpu`](Av1DgpuProps) | AV1 | dGPU | `nvv4l2av1enc` |
+//! | [`Av1Jetson`](Av1JetsonProps) | AV1 | Jetson | `nvv4l2av1enc` |
 //! | [`RawRgba`](RawProps) | Raw RGBA | — | pseudoencoder |
 //! | [`RawRgb`](RawProps) | Raw RGB | — | pseudoencoder |
 
@@ -1178,6 +1179,124 @@ impl Av1DgpuProps {
     }
 }
 
+// ─── AV1 Jetson ────────────────────────────────────────────────────────
+
+/// AV1 encoder properties for Jetson (`nvv4l2av1enc`).
+#[derive(Debug, Clone, Default)]
+pub struct Av1JetsonProps {
+    /// Bitrate in bits/sec (default: 4 000 000).
+    pub bitrate: Option<u32>,
+    /// Rate-control mode (default: constant bitrate).
+    pub control_rate: Option<RateControl>,
+    /// I-frame interval (default: 30).
+    pub iframeinterval: Option<u32>,
+    /// IDR-frame interval (default: 256).
+    pub idrinterval: Option<u32>,
+    /// HW preset level (default: UltraFast).
+    pub preset_level: Option<JetsonPresetLevel>,
+    /// Peak bitrate for VBR (bits/sec).
+    pub peak_bitrate: Option<u32>,
+    /// VBV buffer size (bits).
+    pub vbv_size: Option<u32>,
+    /// QP range, format `"minQP:maxQP"`.
+    pub qp_range: Option<String>,
+    /// Quantization parameter for I-frames (with ratecontrol off).
+    pub quant_i_frames: Option<u32>,
+    /// Quantization parameter for P-frames (with ratecontrol off).
+    pub quant_p_frames: Option<u32>,
+    /// Quantization parameter for B-frames (with ratecontrol off).
+    pub quant_b_frames: Option<u32>,
+    /// Enable rate control (default: true).
+    pub ratecontrol_enable: Option<bool>,
+    /// Enable maximum performance mode.
+    pub maxperf_enable: Option<bool>,
+    /// Enable two-pass CBR.
+    pub two_pass_cbr: Option<bool>,
+    /// Number of reference frames (0–4 on Jetson AV1).
+    pub num_ref_frames: Option<u32>,
+    /// Insert sequence header at every IDR frame.
+    pub insert_seq_hdr: Option<bool>,
+    /// Tile configuration string (e.g. `"1,0"` for Log2Rows:Log2Cols).
+    pub tiles: Option<String>,
+}
+
+impl Av1JetsonProps {
+    pub fn to_gst_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut p = Vec::new();
+        push_u32(&mut p, "bitrate", &self.bitrate);
+        if let Some(v) = &self.control_rate {
+            p.push(("control-rate", v.gst_value().to_string()));
+        }
+        push_u32(&mut p, "iframeinterval", &self.iframeinterval);
+        push_u32(&mut p, "idrinterval", &self.idrinterval);
+        if let Some(v) = &self.preset_level {
+            p.push(("preset-level", v.gst_value().to_string()));
+        }
+        push_u32(&mut p, "peak-bitrate", &self.peak_bitrate);
+        push_u32(&mut p, "vbv-size", &self.vbv_size);
+        push_str(&mut p, "qp-range", &self.qp_range);
+        push_u32(&mut p, "quant-i-frames", &self.quant_i_frames);
+        push_u32(&mut p, "quant-p-frames", &self.quant_p_frames);
+        push_u32(&mut p, "quant-b-frames", &self.quant_b_frames);
+        push_bool(&mut p, "ratecontrol-enable", &self.ratecontrol_enable);
+        push_bool(&mut p, "maxperf-enable", &self.maxperf_enable);
+        push_bool(&mut p, "EnableTwopassCBR", &self.two_pass_cbr);
+        push_u32(&mut p, "num-Ref-Frames", &self.num_ref_frames);
+        push_bool(&mut p, "insert-seq-hdr", &self.insert_seq_hdr);
+        push_str(&mut p, "tiles", &self.tiles);
+        p
+    }
+
+    pub fn from_pairs(pairs: &HashMap<String, String>) -> Result<Self, EncoderError> {
+        let mut props = Self::default();
+        for (key, value) in pairs {
+            match normalize_key(key).as_str() {
+                "bitrate" => props.bitrate = Some(parse_u32(key, value)?),
+                "control_rate" => {
+                    props.control_rate = Some(RateControl::from_name(value).ok_or_else(|| {
+                        EncoderError::InvalidProperty {
+                            name: key.clone(),
+                            reason: format!("unknown rate control '{value}'"),
+                        }
+                    })?)
+                }
+                "iframeinterval" => props.iframeinterval = Some(parse_u32(key, value)?),
+                "idrinterval" => props.idrinterval = Some(parse_u32(key, value)?),
+                "preset_level" => {
+                    props.preset_level =
+                        Some(JetsonPresetLevel::from_name(value).ok_or_else(|| {
+                            EncoderError::InvalidProperty {
+                                name: key.clone(),
+                                reason: format!("unknown Jetson preset level '{value}'"),
+                            }
+                        })?)
+                }
+                "peak_bitrate" => props.peak_bitrate = Some(parse_u32(key, value)?),
+                "vbv_size" => props.vbv_size = Some(parse_u32(key, value)?),
+                "qp_range" => props.qp_range = Some(value.clone()),
+                "quant_i_frames" => props.quant_i_frames = Some(parse_u32(key, value)?),
+                "quant_p_frames" => props.quant_p_frames = Some(parse_u32(key, value)?),
+                "quant_b_frames" => props.quant_b_frames = Some(parse_u32(key, value)?),
+                "ratecontrol_enable" => props.ratecontrol_enable = Some(parse_bool(key, value)?),
+                "maxperf_enable" => props.maxperf_enable = Some(parse_bool(key, value)?),
+                "enabletwopasscbr" | "two_pass_cbr" => {
+                    props.two_pass_cbr = Some(parse_bool(key, value)?)
+                }
+                "num_ref_frames" => props.num_ref_frames = Some(parse_u32(key, value)?),
+                "insert_seq_hdr" => props.insert_seq_hdr = Some(parse_bool(key, value)?),
+                "tiles" => props.tiles = Some(value.clone()),
+                _ => {
+                    return Err(EncoderError::InvalidProperty {
+                        name: key.clone(),
+                        reason: format!("unknown AV1 Jetson property '{key}'"),
+                    })
+                }
+            }
+        }
+        Ok(props)
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // EncoderProperties — top-level enum
 // ═══════════════════════════════════════════════════════════════════════
@@ -1215,6 +1334,8 @@ pub enum EncoderProperties {
     Jpeg(JpegProps),
     /// AV1 encoder on dGPU (`nvv4l2av1enc`).
     Av1Dgpu(Av1DgpuProps),
+    /// AV1 encoder on Jetson (`nvv4l2av1enc`).
+    Av1Jetson(Av1JetsonProps),
     /// PNG encoder (`pngenc`, CPU-based, gst-plugins-good).
     Png(PngProps),
     /// Raw RGBA pseudoencoder (GPU-to-CPU download, no encoding).
@@ -1230,7 +1351,7 @@ impl EncoderProperties {
             Self::H264Dgpu(_) | Self::H264Jetson(_) => Codec::H264,
             Self::HevcDgpu(_) | Self::HevcJetson(_) => Codec::Hevc,
             Self::Jpeg(_) => Codec::Jpeg,
-            Self::Av1Dgpu(_) => Codec::Av1,
+            Self::Av1Dgpu(_) | Self::Av1Jetson(_) => Codec::Av1,
             Self::Png(_) => Codec::Png,
             Self::RawRgba(_) => Codec::RawRgba,
             Self::RawRgb(_) => Codec::RawRgb,
@@ -1241,7 +1362,9 @@ impl EncoderProperties {
     pub fn platform(&self) -> Option<Platform> {
         match self {
             Self::H264Dgpu(_) | Self::HevcDgpu(_) | Self::Av1Dgpu(_) => Some(Platform::Dgpu),
-            Self::H264Jetson(_) | Self::HevcJetson(_) => Some(Platform::Jetson),
+            Self::H264Jetson(_) | Self::HevcJetson(_) | Self::Av1Jetson(_) => {
+                Some(Platform::Jetson)
+            }
             Self::Jpeg(_) | Self::Png(_) | Self::RawRgba(_) | Self::RawRgb(_) => None,
         }
     }
@@ -1255,6 +1378,7 @@ impl EncoderProperties {
             Self::HevcJetson(p) => p.to_gst_pairs(),
             Self::Jpeg(p) => p.to_gst_pairs(),
             Self::Av1Dgpu(p) => p.to_gst_pairs(),
+            Self::Av1Jetson(p) => p.to_gst_pairs(),
             Self::Png(p) => p.to_gst_pairs(),
             Self::RawRgba(p) | Self::RawRgb(p) => p.to_gst_pairs(),
         }
@@ -1284,9 +1408,9 @@ impl EncoderProperties {
             (Codec::Jpeg, _) => Ok(Self::Jpeg(JpegProps::from_pairs(pairs)?)),
             (Codec::Png, _) => Ok(Self::Png(PngProps::from_pairs(pairs)?)),
             (Codec::Av1, Platform::Dgpu) => Ok(Self::Av1Dgpu(Av1DgpuProps::from_pairs(pairs)?)),
-            (Codec::Av1, Platform::Jetson) => Err(EncoderError::UnsupportedCodec(
-                "AV1 encoding is not supported on Jetson".to_string(),
-            )),
+            (Codec::Av1, Platform::Jetson) => {
+                Ok(Self::Av1Jetson(Av1JetsonProps::from_pairs(pairs)?))
+            }
             (Codec::RawRgba, _) => Ok(Self::RawRgba(RawProps::from_pairs(pairs)?)),
             (Codec::RawRgb, _) => Ok(Self::RawRgb(RawProps::from_pairs(pairs)?)),
         }
@@ -1451,10 +1575,11 @@ mod tests {
     }
 
     #[test]
-    fn test_av1_jetson_unsupported() {
+    fn test_av1_jetson_supported() {
         let m = HashMap::new();
-        let result = EncoderProperties::from_pairs(Codec::Av1, Platform::Jetson, &m);
-        assert!(result.is_err());
+        let props = EncoderProperties::from_pairs(Codec::Av1, Platform::Jetson, &m).unwrap();
+        assert_eq!(props.codec(), Codec::Av1);
+        assert_eq!(props.platform(), Some(Platform::Jetson));
     }
 
     // ─── EncoderProperties codec/platform ──────────────────────────────

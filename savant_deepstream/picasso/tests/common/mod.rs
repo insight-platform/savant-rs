@@ -272,6 +272,29 @@ pub fn hevc_encoder_config(w: u32, h: u32) -> EncoderConfig {
     }
 }
 
+/// AV1 encoder config with correct platform-specific properties.
+#[allow(dead_code)]
+pub fn av1_encoder_config(w: u32, h: u32) -> EncoderConfig {
+    if is_jetson() {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Av1Jetson(Av1JetsonProps {
+                preset_level: Some(JetsonPresetLevel::UltraFast),
+                ..Default::default()
+            }))
+    } else {
+        EncoderConfig::new(Codec::Av1, w, h)
+            .format(VideoFormat::RGBA)
+            .fps(30, 1)
+            .properties(EncoderProperties::Av1Dgpu(Av1DgpuProps {
+                preset: Some(DgpuPreset::P1),
+                tuning_info: Some(TuningPreset::LowLatency),
+                ..Default::default()
+            }))
+    }
+}
+
 /// Returns best available encoder config: NVENC H264 > JPEG > PNG.
 #[allow(dead_code)]
 pub fn make_default_encoder_config(w: u32, h: u32) -> EncoderConfig {

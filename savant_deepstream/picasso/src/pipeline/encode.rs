@@ -103,8 +103,6 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(1);
 /// Process-global lock that serializes Skia EGL rendering and the
 /// EGL-to-CUDA copy (`render_to_nvbuf`).  Concurrent `SkiaRenderer` GL
 /// contexts on the same GPU corrupt each other's output.
-static SKIA_EGL_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-
 /// Render-specific options and mutable state.  When provided to
 /// [`process_encode`], Skia overlays are drawn between the GPU transform
 /// and the hardware encode step.
@@ -174,8 +172,6 @@ fn do_skia_render(
             })
         })
         .collect();
-
-    let _egl = SKIA_EGL_LOCK.lock();
 
     let skia = match render.renderer {
         Some(r) => {
@@ -365,12 +361,17 @@ pub(crate) fn process_encode(
         )
     })?;
 
-    encoder
-        .lock()
-        .submit_frame(buffer, frame_id, pts, duration)
-        .map_err(|e| PicassoError::Encoder(source_id.to_string(), e.to_string()))?;
-
+    // Register the frame *before* pushing into GStreamer so the async drain
+    // thread can never pull an encoded buffer whose frame_id is missing from
+    // the map (see drain_loop correlation in this module).
     pending_frames.lock().insert(frame_id, input.frame);
+
+    let submit_result = encoder.lock().submit_frame(buffer, frame_id, pts, duration);
+
+    if let Err(e) = submit_result {
+        pending_frames.lock().remove(&frame_id);
+        return Err(PicassoError::Encoder(source_id.to_string(), e.to_string()));
+    }
 
     if let Some(notify) = drain_notify {
         notify.1.notify_one();
@@ -479,9 +480,15 @@ fn drain_loop(
                     .and_then(|id| pending_frames.lock().remove(&id));
                 if let Some(frame) = frame {
                     fill_encoded_frame(frame, encoded, cb);
+                } else if !encoded.data.is_empty() {
+                    error!(
+                        "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
+                        encoded.data.len(),
+                        encoded.frame_id
+                    );
                 } else {
                     warn!(
-                        "drain: no pending frame for frame_id={:?}, source={source_id}",
+                        "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
                         encoded.frame_id
                     );
                 }
@@ -512,9 +519,15 @@ pub(crate) fn drain_remaining(
                     let frame = encoded.frame_id.and_then(|id| pending_frames.remove(&id));
                     if let Some(frame) = frame {
                         fill_encoded_frame(frame, encoded, cb);
+                    } else if !encoded.data.is_empty() {
+                        error!(
+                            "drain: cannot correlate encoded payload ({} bytes), frame_id={:?}, source={source_id}",
+                            encoded.data.len(),
+                            encoded.frame_id
+                        );
                     } else {
                         warn!(
-                            "drain: no pending frame for frame_id={:?}, source={source_id}",
+                            "drain: no pending frame for frame_id={:?}, source={source_id} (empty buffer)",
                             encoded.frame_id
                         );
                     }

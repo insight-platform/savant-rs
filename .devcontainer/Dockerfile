@@ -32,6 +32,8 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     # Build tools
     ninja-build \
+    # Kernel module tools (lsmod is required by NVIDIA NVMM for NVENC init)
+    kmod \
     # System monitoring
     nvtop \
     htop \
@@ -50,7 +52,7 @@ ARG REMOTE_USER
 ARG REMOTE_UID
 ARG REMOTE_GID
 
-RUN --mount=type=bind,source=.devcontainer,target=/opt/scripts chmod +x /opt/scripts/prepare-user.sh && /opt/scripts/prepare-user.sh && \
+RUN --mount=type=bind,source=.devcontainer,target=/opt/scripts /opt/scripts/prepare-user.sh && \
     pip uninstall -y savant_rs
 
 RUN chown -R ${REMOTE_USER}:${REMOTE_GID} /opt/venv && chmod -R 755 /opt/venv
