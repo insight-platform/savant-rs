@@ -15,7 +15,9 @@
         "--runtime",
         "nvidia",
         "--gpus",
-        "all"
+        "all",
+        "-e",
+        "AARCH64_IGPU=1"
     ],
     "remoteUser": "${localEnv:USER}",
     "customizations": {
