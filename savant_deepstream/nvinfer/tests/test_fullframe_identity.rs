@@ -53,7 +53,13 @@ fn identity_engine_fullhd() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_fullhd_properties();
-    let config = nvinfer::NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
+    let config = nvinfer::NvInferConfig::new(
+        props,
+        VideoFormat::RGBA,
+        1920,
+        1080,
+        nvinfer::ModelColorFormat::RGB,
+    );
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity FullHD NvInfer");
     common::promote_built_engine("identity_fullhd.onnx", 2);
     Some(engine)

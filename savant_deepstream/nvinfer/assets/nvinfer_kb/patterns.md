@@ -173,3 +173,165 @@ cargo bench -p nvinfer --bench nvinfer_bench
 ```
 
 Use `#[serial]` when tests share GStreamer/CUDA state.
+
+---
+
+# Batching Operator Patterns
+
+## NvInferBatchingOperatorConfig
+
+```rust
+use nvinfer::{NvInferBatchingOperatorConfig, NvInferConfig, ModelInputScaling};
+use std::time::Duration;
+
+let nvinfer_config = NvInferConfig::new(props, "RGBA", 112, 112)
+    .gpu_id(0)
+    .queue_depth(1)
+    .scaling(ModelInputScaling::KeepAspectRatio);
+
+let config = NvInferBatchingOperatorConfig {
+    max_batch_size: 8,
+    same_source_allowed: false,
+    max_batch_wait: Duration::from_millis(100),
+    nvinfer: nvinfer_config,
+};
+```
+
+---
+
+## Batching Operator with Callbacks
+
+```rust
+use nvinfer::*;
+use std::sync::Arc;
+
+let batch_formation: BatchFormationCallback = Arc::new(|frames| {
+    let ids = frames.iter().enumerate()
+        .map(|(i, _)| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let rois = frames.iter().map(|_| RoiKind::FullFrame).collect();
+    BatchFormationResult { ids, rois }
+});
+
+let result_callback: OperatorResultCallback = Box::new(|output| {
+    for frame_output in output.frames() {
+        let source = frame_output.frame.get_source_id();
+        for elem in &frame_output.elements {
+            // elem derefs to ElementOutput
+            let roi_id = elem.roi_id;
+            let slot = elem.slot_number;
+            // Access tensors
+            for t in &elem.tensors { /* ... */ }
+        }
+    }
+});
+
+let mut operator = NvInferBatchingOperator::new(
+    config, batch_formation, result_callback,
+)?;
+
+operator.add_frame(frame, buffer)?;
+operator.flush()?;
+operator.shutdown()?;
+```
+
+---
+
+## Coordinate Scaling in Result Callback
+
+```rust
+let result_callback: OperatorResultCallback = Box::new(|output| {
+    for frame_output in output.frames() {
+        for elem in &frame_output.elements {
+            // Scale points from model space to frame coordinates
+            let points = vec![(50.0f32, 50.0f32), (100.0, 100.0)];
+            let frame_points = elem.scale_points(&points);
+
+            // Scale LTWH boxes
+            let ltwh_boxes = vec![[10.0f32, 20.0, 30.0, 40.0]];
+            let frame_ltwh = elem.scale_ltwh(&ltwh_boxes);
+
+            // Scale LTRB boxes
+            let ltrb_boxes = vec![[10.0f32, 20.0, 40.0, 60.0]];
+            let frame_ltrb = elem.scale_ltrb(&ltrb_boxes);
+
+            // Scale rotated bounding boxes
+            let rbboxes = vec![RBBox::new(50.0, 50.0, 20.0, 30.0, Some(45.0))];
+            let frame_rbboxes = elem.scale_rbboxes(&rbboxes);
+
+            // Get the scaler directly (Copy, useful for py.detach)
+            let scaler = elem.coordinate_scaler();
+            let (x, y) = scaler.scale_point(50.0, 50.0);
+        }
+    }
+});
+```
+
+---
+
+## CoordinateScaler Standalone
+
+```rust
+use nvinfer::{CoordinateScaler, ModelInputScaling};
+
+// ROI at (100, 200), size 200x400, model input 100x200, Fill mode
+let scaler = CoordinateScaler::new(
+    100.0, 200.0,  // roi_left, roi_top
+    200.0, 400.0,  // roi_w, roi_h
+    100.0, 200.0,  // model_w, model_h
+    ModelInputScaling::Fill,
+);
+// scale_x = 200/100 = 2, scale_y = 400/200 = 2
+let (x, y) = scaler.scale_point(50.0, 100.0);
+assert_eq!(x, 200.0);  // 100 + 50*2
+assert_eq!(y, 400.0);  // 200 + 100*2
+```
+
+---
+
+## Batch Formation with ROIs
+
+```rust
+let batch_formation: BatchFormationCallback = Arc::new(|frames| {
+    let ids = frames.iter().enumerate()
+        .map(|(i, _)| SavantIdMetaKind::Frame(i as i64))
+        .collect();
+    let rois = frames.iter().map(|frame| {
+        RoiKind::Rois(vec![
+            Roi { id: 1, bbox: RBBox::new(160.0, 120.0, 100.0, 100.0, None) },
+            Roi { id: 2, bbox: RBBox::new(300.0, 200.0, 80.0, 60.0, None) },
+        ])
+    }).collect();
+    BatchFormationResult { ids, rois }
+});
+```
+
+---
+
+## OperatorElement Unit Tests (no GPU)
+
+```rust
+use nvinfer::batching_operator::scaler::CoordinateScaler;
+use nvinfer::ModelInputScaling;
+
+#[test]
+fn fill_identity() {
+    let s = CoordinateScaler::new(0.0, 0.0, 100.0, 100.0, 100.0, 100.0, ModelInputScaling::Fill);
+    let (x, y) = s.scale_point(50.0, 50.0);
+    assert!((x - 50.0).abs() < 1e-4);
+    assert!((y - 50.0).abs() < 1e-4);
+}
+
+#[test]
+fn keep_ar_sym_with_offset() {
+    let s = CoordinateScaler::new(
+        100.0, 200.0, 200.0, 100.0, 100.0, 100.0,
+        ModelInputScaling::KeepAspectRatioSymmetric,
+    );
+    // s=0.5, inv_s=2, pad_x=0, pad_y=25
+    // offset_y = 200 - 25*2 = 150
+    let (x, y) = s.scale_point(0.0, 25.0);
+    assert!((x - 100.0).abs() < 1e-4);
+    assert!((y - 200.0).abs() < 1e-4);
+}
+```

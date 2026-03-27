@@ -13,7 +13,7 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{NvInfer, NvInferConfig, Roi};
+use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use savant_core::primitives::RBBox;
@@ -57,7 +57,7 @@ fn identity_engine_1080p() -> Option<NvInfer> {
 
     let props = common::identity_112x112_properties();
 
-    let config = NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create identity NvInfer 1080p");
     common::promote_built_engine("identity_3x112x112.onnx", 32);
     Some(engine)

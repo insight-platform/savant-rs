@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use tokio::runtime::Runtime;
 
 pub mod atomic_f32;
+pub mod converters;
 pub mod deadlock_detection;
 pub mod draw;
 pub mod eval_cache;

@@ -1,6 +1,7 @@
 //! Shared test utilities for nvinfer integration tests.
 
 pub mod age_gender_test_utils;
+pub mod yolo_test_utils;
 
 use deepstream_buffers::cuda_init;
 use deepstream_buffers::{ComputeMode, TransformConfig};
@@ -70,8 +71,6 @@ pub fn identity_properties() -> HashMap<String, String> {
     );
     m.insert("batch-size".into(), "16".into());
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;12;12".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -99,8 +98,6 @@ pub fn age_gender_properties() -> HashMap<String, String> {
     );
     m.insert("batch-size".into(), "16".into());
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;112;112".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -131,8 +128,6 @@ pub fn age_gender_properties_bs1() -> HashMap<String, String> {
     );
     m.insert("batch-size".into(), "1".into());
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;112;112".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -161,8 +156,6 @@ pub fn identity_112x112_properties() -> HashMap<String, String> {
     );
     m.insert("batch-size".into(), "32".into());
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;112;112".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -192,8 +185,6 @@ pub fn identity_fullhd_properties() -> HashMap<String, String> {
     );
     m.insert("batch-size".into(), "2".into());
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;1080;1920".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }

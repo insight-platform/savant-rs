@@ -13,7 +13,7 @@ use deepstream_buffers::{
     SurfaceView, UniformBatchGenerator, VideoFormat,
 };
 use nvidia_gpu_utils::{gpu_mem_used_mib, process_rss_mib};
-use nvinfer::{NvInfer, NvInferConfig, Roi};
+use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use savant_core::primitives::RBBox;
 use serial_test::serial;
 use std::collections::HashMap;
@@ -73,7 +73,7 @@ fn identity_engine() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_properties();
-    let config = NvInferConfig::new(props, "RGBA", 12, 12);
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer");
     common::promote_built_engine("identity.onnx", 16);
     Some(engine)
@@ -308,7 +308,7 @@ fn identity_engine_flexible() -> Option<NvInfer> {
         return None;
     }
     let props = common::identity_properties();
-    let config = NvInferConfig::new_flexible(props, "RGBA");
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer (flexible)");
     common::promote_built_engine("identity.onnx", 16);
     Some(engine)

@@ -142,6 +142,27 @@ impl BatchInferenceOutput {
     pub fn buffer(&self) -> deepstream_buffers::SharedBuffer {
         self.buffer.clone()
     }
+
+    /// Consume this output, returning its constituent parts.
+    ///
+    /// Disables `clear_on_drop` so the caller takes ownership of cleanup
+    /// responsibility.  Returns `(buffer, elements, clear_on_drop_was,
+    /// host_copy_enabled)`.
+    pub(crate) fn into_parts(
+        mut self,
+    ) -> (
+        deepstream_buffers::SharedBuffer,
+        Vec<ElementOutput>,
+        bool,
+        bool,
+    ) {
+        let clear = self.clear_on_drop;
+        let host = self.host_copy_enabled;
+        self.clear_on_drop = false;
+        let elements = std::mem::take(&mut self.elements);
+        let buffer = self.buffer.clone();
+        (buffer, elements, clear, host)
+    }
 }
 
 impl Drop for BatchInferenceOutput {

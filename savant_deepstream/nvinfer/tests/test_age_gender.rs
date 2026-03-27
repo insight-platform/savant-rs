@@ -9,7 +9,7 @@ use deepstream_buffers::{
     BufferGenerator, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer, SurfaceView,
     TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{NvInfer, NvInferConfig, Roi};
+use nvinfer::{ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use savant_core::primitives::RBBox;
@@ -86,7 +86,7 @@ fn test_multi_output_layer_names() {
     }
 
     let props = common::age_gender_properties();
-    let config = NvInferConfig::new(props, "RGBA", 112, 112);
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
     let callback = Box::new(|_| {});
     let engine = NvInfer::new(config, callback).expect("create NvInfer");
 
@@ -120,7 +120,7 @@ fn age_gender_engine_1080p() -> Option<NvInfer> {
 
     let props = common::age_gender_properties();
 
-    let config = NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create age_gender NvInfer 1080p");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 16);
     Some(engine)

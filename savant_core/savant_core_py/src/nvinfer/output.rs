@@ -17,8 +17,8 @@ type SharedOutput = Arc<Mutex<Option<BatchInferenceOutput>>>;
 #[pyclass(name = "InferDims", module = "savant_rs.nvinfer", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyInferDims {
-    dims: Vec<u32>,
-    num_elements: u32,
+    pub(super) dims: Vec<u32>,
+    pub(super) num_elements: u32,
 }
 
 #[pymethods]

@@ -14,7 +14,9 @@ use std::collections::HashMap;
 /// If `batch` is a `SharedBuffer`, we consume it via `take_inner()`.
 /// If it is a raw pointer (`int`), we fall through to `extract_gst_buffer`
 /// which uses `from_glib_full` (already refcount 1).
-fn take_shared_buffer(batch: &Bound<'_, PyAny>) -> PyResult<deepstream_buffers::SharedBuffer> {
+pub(super) fn take_shared_buffer(
+    batch: &Bound<'_, PyAny>,
+) -> PyResult<deepstream_buffers::SharedBuffer> {
     if let Ok(mut sb) = batch.extract::<PyRefMut<'_, PySharedBuffer>>() {
         return sb.take_inner();
     }

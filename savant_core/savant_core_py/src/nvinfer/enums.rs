@@ -2,6 +2,7 @@
 
 use nvinfer::DataType;
 use nvinfer::MetaClearPolicy;
+use nvinfer::ModelColorFormat;
 use nvinfer::ModelInputScaling;
 use pyo3::prelude::*;
 
@@ -113,6 +114,65 @@ impl From<ModelInputScaling> for PyModelInputScaling {
             ModelInputScaling::KeepAspectRatioSymmetric => {
                 PyModelInputScaling::KeepAspectRatioSymmetric
             }
+        }
+    }
+}
+
+/// Color space the model expects for its input tensor.
+///
+/// - ``RGB``  -- 3-channel RGB input (default).
+/// - ``BGR``  -- 3-channel BGR input.
+/// - ``GRAY`` -- single-channel grayscale input.
+#[pyclass(
+    from_py_object,
+    name = "ModelColorFormat",
+    module = "savant_rs.nvinfer",
+    eq,
+    eq_int
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyModelColorFormat {
+    #[pyo3(name = "RGB")]
+    Rgb = 0,
+    #[pyo3(name = "BGR")]
+    Bgr = 1,
+    #[pyo3(name = "GRAY")]
+    Gray = 2,
+}
+
+impl PyModelColorFormat {
+    pub(crate) fn repr_str(&self) -> &'static str {
+        match self {
+            PyModelColorFormat::Rgb => "ModelColorFormat.RGB",
+            PyModelColorFormat::Bgr => "ModelColorFormat.BGR",
+            PyModelColorFormat::Gray => "ModelColorFormat.GRAY",
+        }
+    }
+}
+
+#[pymethods]
+impl PyModelColorFormat {
+    fn __repr__(&self) -> &'static str {
+        self.repr_str()
+    }
+}
+
+impl From<PyModelColorFormat> for ModelColorFormat {
+    fn from(p: PyModelColorFormat) -> Self {
+        match p {
+            PyModelColorFormat::Rgb => ModelColorFormat::RGB,
+            PyModelColorFormat::Bgr => ModelColorFormat::BGR,
+            PyModelColorFormat::Gray => ModelColorFormat::GRAY,
+        }
+    }
+}
+
+impl From<ModelColorFormat> for PyModelColorFormat {
+    fn from(p: ModelColorFormat) -> Self {
+        match p {
+            ModelColorFormat::RGB => PyModelColorFormat::Rgb,
+            ModelColorFormat::BGR => PyModelColorFormat::Bgr,
+            ModelColorFormat::GRAY => PyModelColorFormat::Gray,
         }
     }
 }

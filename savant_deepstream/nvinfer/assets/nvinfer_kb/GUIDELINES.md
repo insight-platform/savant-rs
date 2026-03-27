@@ -7,11 +7,11 @@ Self-contained reference for agents to write Rust code/tests for the
 ## Files
 | File | Content |
 |---|---|
-| `api.md` | Full Rust public API: structs, enums, methods, signatures |
-| `arch.md` | Architecture: module tree, pipeline flow, ROI handling |
-| `patterns.md` | Test patterns, helpers, model config builders |
-| `errors.md` | NvInferError variants, error conditions |
-| `caveats.md` | Critical design decisions, known pitfalls |
+| `api.md` | Full Rust public API: structs, enums, methods, signatures (NvInfer + batching operator + CoordinateScaler) |
+| `arch.md` | Architecture: module tree, pipeline flow, ROI handling, batching operator data flow |
+| `patterns.md` | Test patterns, helpers, model config builders, batching operator + scaler usage |
+| `errors.md` | NvInferError variants, error conditions (incl. batching operator errors) |
+| `caveats.md` | Critical design decisions, known pitfalls (incl. OperatorElement scaler, buffer lifetime) |
 
 ## Usage Order
 1. `caveats.md` — **read first** — buffer ownership, TensorView lifetime

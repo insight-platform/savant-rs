@@ -9,6 +9,11 @@ Prelude: `use nvinfer::*;` (or explicit imports)
 
 ```rust
 pub use batch_meta_builder::attach_batch_meta_with_rois;
+pub use batching_operator::{
+    BatchFormationCallback, BatchFormationResult, CoordinateScaler,
+    NvInferBatchingOperator, NvInferBatchingOperatorConfig, OperatorElement,
+    OperatorFrameOutput, OperatorInferenceOutput, OperatorResultCallback,
+};
 pub use config::NvInferConfig;
 pub use deepstream::{InferDims, InferTensorMeta};
 pub use error::{NvInferError, Result};
@@ -17,7 +22,7 @@ pub use model_input_scaling::ModelInputScaling;
 pub use nvinfer_types::DataType;
 pub use output::{BatchInferenceOutput, ElementOutput, TensorView};
 pub use pipeline::NvInfer;
-pub use roi::Roi;
+pub use roi::{Roi, RoiKind};
 ```
 
 ---
@@ -233,3 +238,172 @@ pub fn attach_batch_meta_with_rois(
 
 Attach `NvDsBatchMeta` for secondary-mode ROI inference. Returns number of ROIs dropped (0 = success).
 Called internally by `NvInfer::submit` / `infer_sync`; rarely used directly.
+
+---
+
+## RoiKind
+
+```rust
+pub enum RoiKind {
+    FullFrame,
+    Rois(Vec<Roi>),
+}
+```
+
+Per-frame ROI specification for the batching operator. `FullFrame` infers on
+the entire frame (no per-object ROIs). `Rois(vec)` infers on specific regions.
+
+---
+
+# Batching Operator Layer
+
+## NvInferBatchingOperatorConfig
+
+```rust
+pub struct NvInferBatchingOperatorConfig {
+    pub max_batch_size: usize,
+    pub same_source_allowed: bool,
+    pub max_batch_wait: Duration,
+    pub nvinfer: NvInferConfig,
+}
+```
+
+| Field | Description |
+|---|---|
+| `max_batch_size` | Maximum batch size; triggers immediate submission when reached |
+| `same_source_allowed` | When `false`, rejects frames whose `source_id` is already present in the pending batch |
+| `max_batch_wait` | Maximum time before submitting a partial batch |
+| `nvinfer` | Forwarded to the inner `NvInfer` pipeline |
+
+---
+
+## BatchFormationResult
+
+```rust
+pub struct BatchFormationResult {
+    pub ids: Vec<SavantIdMetaKind>,
+    pub rois: Vec<RoiKind>,
+}
+```
+
+Returned by the `BatchFormationCallback`. `ids` is per-frame Savant IDs for
+`NonUniformBatch::finalize`. `rois` is per-frame ROI specification (parallel
+to the frames slice passed to the callback).
+
+---
+
+## Callback Types
+
+```rust
+pub type BatchFormationCallback =
+    Arc<dyn Fn(&[VideoFrameProxy]) -> BatchFormationResult + Send + Sync>;
+
+pub type OperatorResultCallback = Box<dyn FnMut(OperatorInferenceOutput) + Send>;
+```
+
+---
+
+## NvInferBatchingOperator
+
+```rust
+pub struct NvInferBatchingOperator { /* private */ }
+```
+
+Higher-level batching layer over `NvInfer`. Accumulates individual frames into
+batches and delivers per-frame results via `OperatorResultCallback`.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `new` | `(config, batch_formation, result_callback) → Result<Self>` | Spawns inner `NvInfer` + timer thread |
+| `add_frame` | `(&self, frame: VideoFrameProxy, buffer: SharedBuffer) → Result<()>` | Add frame; submits when batch full. Returns `DuplicateSource` if same source and `same_source_allowed=false` |
+| `flush` | `(&self) → Result<()>` | Submit current partial batch immediately |
+| `shutdown` | `(&mut self) → Result<()>` | Flush, stop timer, shut down `NvInfer` |
+
+**Drop:** Signals shutdown flag + notifies condvar; joins timer thread.
+
+---
+
+## OperatorInferenceOutput
+
+```rust
+pub struct OperatorInferenceOutput { /* private */ }
+```
+
+Full batch inference result. Owns the output `GstBuffer`. `TensorView`
+pointers in `frames[].elements[].tensors` borrow from the internal output
+buffer — declared last in the struct so frames are dropped first.
+
+| Method | Signature |
+|---|---|
+| `frames` | `(&self) → &[OperatorFrameOutput]` |
+| `host_copy_enabled` | `(&self) → bool` |
+
+⚠ **Drop:** Unconditionally calls `clear_all_frame_objects` on the output buffer.
+
+---
+
+## OperatorFrameOutput
+
+```rust
+pub struct OperatorFrameOutput {
+    pub frame: VideoFrameProxy,
+    pub buffer: SharedBuffer,
+    pub elements: Vec<OperatorElement>,
+}
+```
+
+Per-frame inference result paired with the original frame and buffer.
+
+---
+
+## OperatorElement
+
+```rust
+pub struct OperatorElement { /* private fields */ }
+```
+
+Per-element inference output wrapped with lazy coordinate scaling.
+Implements `Deref<Target = ElementOutput>` so `roi_id`, `slot_number`,
+`tensors` are accessible directly.
+
+| Method | Signature | Notes |
+|---|---|---|
+| `coordinate_scaler` | `(&self) → CoordinateScaler` | Returns a copy of the lazily-initialized scaler |
+| `scale_points` | `(&self, &[(f32, f32)]) → Vec<(f32, f32)>` | Transform points from model space to frame coords |
+| `scale_ltwh` | `(&self, &[[f32; 4]]) → Vec<[f32; 4]>` | Transform (left, top, width, height) boxes |
+| `scale_ltrb` | `(&self, &[[f32; 4]]) → Vec<[f32; 4]>` | Transform (left, top, right, bottom) boxes |
+| `scale_rbboxes` | `(&self, &[RBBox]) → Vec<RBBox>` | Transform rotated bounding boxes |
+
+**Deref target:** `ElementOutput` (provides `roi_id`, `slot_number`, `tensors`)
+
+---
+
+## CoordinateScaler
+
+```rust
+#[derive(Debug, Clone, Copy)]
+pub struct CoordinateScaler {
+    scale_x: f32,
+    scale_y: f32,
+    offset_x: f32,
+    offset_y: f32,
+}
+```
+
+Precomputed affine coefficients for `frame_xy = offset + model_xy * scale`.
+
+| Method | Signature |
+|---|---|
+| `new` | `(roi_left, roi_top, roi_w, roi_h, model_w, model_h, scaling) → Self` |
+| `scale_point` | `(&self, x, y) → (f32, f32)` |
+| `scale_points` | `(&self, &[(f32, f32)]) → Vec<(f32, f32)>` |
+| `scale_ltwh` | `(&self, l, t, w, h) → (f32, f32, f32, f32)` |
+| `scale_ltwh_batch` | `(&self, &[[f32; 4]]) → Vec<[f32; 4]>` |
+| `scale_ltrb` | `(&self, l, t, r, b) → (f32, f32, f32, f32)` |
+| `scale_ltrb_batch` | `(&self, &[[f32; 4]]) → Vec<[f32; 4]>` |
+| `scale_rbbox` | `(&self, &RBBox) → RBBox` |
+| `scale_rbboxes` | `(&self, &[RBBox]) → Vec<RBBox>` |
+
+For rotated boxes, the trig from `RBBox::scale` is inlined to produce a
+single `RBBox::new()` call (no intermediate atomics). Under non-uniform
+scaling (Fill mode, scale_x ≠ scale_y), the angle is recomputed.

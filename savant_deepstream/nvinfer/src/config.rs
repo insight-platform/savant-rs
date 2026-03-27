@@ -6,7 +6,9 @@
 
 use crate::error::{NvInferError, Result};
 use crate::meta_clear_policy::MetaClearPolicy;
+use crate::model_color_format::ModelColorFormat;
 use crate::model_input_scaling::ModelInputScaling;
+use deepstream_buffers::VideoFormat;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io::Write;
@@ -31,6 +33,9 @@ pub struct NvInferConfig {
     /// sections (e.g. `class-attrs-0.nms-iou-threshold`). Bare keys go to
     /// `[property]`. Mandatory keys `process-mode`, `output-tensor-meta`,
     /// `network-type`, and `gie-unique-id` are auto-injected if missing.
+    ///
+    /// `infer-dims` must **not** be set here; it is auto-injected from
+    /// [`model_width`] and [`model_height`].
     pub nvinfer_properties: HashMap<String, String>,
     /// Additional GStreamer element properties (e.g. "unique-id" -> "1").
     pub element_properties: HashMap<String, String>,
@@ -39,14 +44,17 @@ pub struct NvInferConfig {
     /// GStreamer queue element max-size-buffers.
     /// 0 = no queue element (synchronous), >0 = insert queue with this depth.
     pub queue_depth: u32,
-    /// Input format for appsrc caps (e.g. "RGBA"). Must match model input.
-    pub input_format: String,
-    /// Input width for appsrc caps.  `Some(w)` constrains the caps to a
-    /// fixed width; `None` leaves the width unconstrained (required for
-    /// non-uniform / heterogeneous batches).
-    pub input_width: Option<u32>,
-    /// Input height for appsrc caps.  Same semantics as [`input_width`].
-    pub input_height: Option<u32>,
+    /// Pixel format for the appsrc caps (e.g. [`VideoFormat::RGBA`]).
+    pub input_format: VideoFormat,
+    /// Model input tensor width in pixels.  Used by [`CoordinateScaler`] and
+    /// auto-injected into the nvinfer config as part of `infer-dims`.
+    pub model_width: u32,
+    /// Model input tensor height in pixels.  Same semantics as [`model_width`].
+    pub model_height: u32,
+    /// Color space the model expects.  Auto-injected as `model-color-format`
+    /// in the nvinfer config; that key must not appear in `nvinfer_properties`.
+    /// Default: [`ModelColorFormat::RGB`].
+    pub model_color_format: ModelColorFormat,
     /// When and whether to clear `NvDsObjectMeta` entries from the batch
     /// buffer. Defaults to [`MetaClearPolicy::Before`].
     pub meta_clear_policy: MetaClearPolicy,
@@ -61,20 +69,28 @@ pub struct NvInferConfig {
 }
 
 impl NvInferConfig {
-    /// Create a new config with nvinfer properties map and fixed input
-    /// dimensions.  The width and height are embedded into the appsrc caps
-    /// and used as the full-frame ROI fallback when no explicit ROIs are
-    /// supplied.
+    /// Create a new NvInfer configuration.
     ///
-    /// `nvinfer_properties` covers the [property] section. Use absolute paths
-    /// for `onnx-file` and `model-engine-file`. Mandatory keys
+    /// The appsrc caps leave width/height unconstrained, allowing frames of
+    /// any resolution.  When no explicit ROIs are supplied, the pipeline
+    /// reads actual surface slot dimensions for full-frame inference.
+    ///
+    /// `model_width` and `model_height` specify the model's input tensor
+    /// dimensions (in pixels).  They are used for coordinate scaling and
+    /// auto-injected into the nvinfer config file as `infer-dims`.
+    ///
+    /// `nvinfer_properties` covers the `[property]` section.  Use absolute
+    /// paths for `onnx-file` and `model-engine-file`.  Mandatory keys
     /// `process-mode=2`, `output-tensor-meta=1`, `network-type=100`, and
-    /// `gie-unique-id=1` are auto-injected if missing.
+    /// `gie-unique-id=1` are auto-injected if missing.  `infer-dims` and
+    /// `model-color-format` must **not** appear in `nvinfer_properties`
+    /// (they are auto-injected).
     pub fn new(
         nvinfer_properties: HashMap<String, String>,
-        input_format: impl Into<String>,
-        input_width: u32,
-        input_height: u32,
+        input_format: VideoFormat,
+        model_width: u32,
+        model_height: u32,
+        model_color_format: ModelColorFormat,
     ) -> Self {
         Self {
             name: String::new(),
@@ -82,34 +98,10 @@ impl NvInferConfig {
             element_properties: HashMap::new(),
             gpu_id: 0,
             queue_depth: 0,
-            input_format: input_format.into(),
-            input_width: Some(input_width),
-            input_height: Some(input_height),
-            meta_clear_policy: MetaClearPolicy::default(),
-            disable_output_host_copy: false,
-            scaling: ModelInputScaling::default(),
-        }
-    }
-
-    /// Create a config without fixed input dimensions.
-    ///
-    /// The appsrc caps will not constrain width/height, which is required
-    /// for non-uniform (heterogeneous) batches where each frame may have a
-    /// different resolution.  Callers **must** provide explicit ROIs for
-    /// every slot because the full-frame fallback has no dimensions to use.
-    pub fn new_flexible(
-        nvinfer_properties: HashMap<String, String>,
-        input_format: impl Into<String>,
-    ) -> Self {
-        Self {
-            name: String::new(),
-            nvinfer_properties,
-            element_properties: HashMap::new(),
-            gpu_id: 0,
-            queue_depth: 0,
-            input_format: input_format.into(),
-            input_width: None,
-            input_height: None,
+            input_format,
+            model_width,
+            model_height,
+            model_color_format,
             meta_clear_policy: MetaClearPolicy::default(),
             disable_output_host_copy: false,
             scaling: ModelInputScaling::default(),
@@ -161,6 +153,11 @@ impl NvInferConfig {
         self
     }
 
+    /// Return the model's input tensor `(width, height)`.
+    pub fn model_input_dimensions(&self) -> (u32, u32) {
+        (self.model_width, self.model_height)
+    }
+
     /// Validate mandatory keys, inject if missing, and write config to a
     /// temporary file. Caller must keep the returned file alive.
     ///
@@ -182,6 +179,8 @@ impl NvInferConfig {
     /// | `disable-output-host-copy` | Controlled via [`NvInferConfig::disable_output_host_copy`]; must not be set in `nvinfer_properties`. |
     /// | `maintain-aspect-ratio` | Controlled via [`NvInferConfig::scaling`]; must not be set in `nvinfer_properties`. |
     /// | `symmetric-padding` | Controlled via [`NvInferConfig::scaling`]; must not be set in `nvinfer_properties`. |
+    /// | `infer-dims` | Controlled via [`NvInferConfig::model_width`] / [`NvInferConfig::model_height`]; auto-injected. |
+    /// | `model-color-format` | Controlled via [`NvInferConfig::model_color_format`]; auto-injected. |
     ///
     /// ## Auto-injected properties
     ///
@@ -235,6 +234,16 @@ impl NvInferConfig {
                 "symmetric-padding",
                 "controlled via NvInferConfig.scaling; \
                  must not be set in nvinfer_properties",
+            ),
+            (
+                "infer-dims",
+                "controlled via NvInferConfig.model_width / model_height; \
+                 auto-injected into the config file",
+            ),
+            (
+                "model-color-format",
+                "controlled via NvInferConfig.model_color_format; \
+                 auto-injected into the config file",
             ),
         ];
 
@@ -314,6 +323,16 @@ impl NvInferConfig {
             }
         }
 
+        props.insert(
+            "model-color-format".into(),
+            self.model_color_format.nvinfer_value().into(),
+        );
+        let channels = self.model_color_format.channels();
+        props.insert(
+            "infer-dims".into(),
+            format!("{channels};{};{}", self.model_height, self.model_width),
+        );
+
         // Group by section: section -> BTreeMap<key, value>
         let mut by_section: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (full_key, value) in &props {
@@ -360,7 +379,6 @@ mod tests {
     fn minimal_props() -> HashMap<String, String> {
         let mut m = HashMap::new();
         m.insert("gpu-id".into(), "0".into());
-        m.insert("infer-dims".into(), "3;12;12".into());
         m
     }
 
@@ -368,7 +386,7 @@ mod tests {
     fn rejects_operate_on_gie_id() {
         let mut props = minimal_props();
         props.insert("operate-on-gie-id".into(), "0".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("operate-on-gie-id"),
@@ -380,7 +398,7 @@ mod tests {
     fn rejects_operate_on_class_ids() {
         let mut props = minimal_props();
         props.insert("operate-on-class-ids".into(), "0".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("operate-on-class-ids"),
@@ -392,7 +410,7 @@ mod tests {
     fn rejects_secondary_reinfer_interval() {
         let mut props = minimal_props();
         props.insert("secondary-reinfer-interval".into(), "0".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("secondary-reinfer-interval"),
@@ -404,7 +422,7 @@ mod tests {
     fn rejects_num_detected_classes() {
         let mut props = minimal_props();
         props.insert("num-detected-classes".into(), "80".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("num-detected-classes"),
@@ -416,7 +434,7 @@ mod tests {
     fn rejects_forbidden_key_with_property_prefix() {
         let mut props = minimal_props();
         props.insert("property.operate-on-gie-id".into(), "0".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("operate-on-gie-id"),
@@ -428,7 +446,7 @@ mod tests {
     fn rejects_wrong_network_type() {
         let mut props = minimal_props();
         props.insert("network-type".into(), "0".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("network-type=0"),
@@ -440,7 +458,7 @@ mod tests {
     fn rejects_wrong_gie_unique_id() {
         let mut props = minimal_props();
         props.insert("gie-unique-id".into(), "2".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("gie-unique-id=2"),
@@ -450,7 +468,13 @@ mod tests {
 
     #[test]
     fn auto_injects_hardcoded_properties() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        );
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -473,7 +497,13 @@ mod tests {
 
     #[test]
     fn accepts_clean_config() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        );
         assert!(
             cfg.validate_and_materialize().is_ok(),
             "minimal config without forbidden keys must succeed"
@@ -484,7 +514,7 @@ mod tests {
     fn rejects_disable_output_host_copy_in_kv() {
         let mut props = minimal_props();
         props.insert("disable-output-host-copy".into(), "1".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("disable-output-host-copy"),
@@ -494,8 +524,14 @@ mod tests {
 
     #[test]
     fn injects_disable_output_host_copy_when_set() {
-        let cfg =
-            NvInferConfig::new(minimal_props(), "RGBA", 12, 12).disable_output_host_copy(true);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        )
+        .disable_output_host_copy(true);
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -506,7 +542,13 @@ mod tests {
 
     #[test]
     fn does_not_inject_disable_output_host_copy_by_default() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        );
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -519,7 +561,7 @@ mod tests {
     fn rejects_maintain_aspect_ratio_in_kv() {
         let mut props = minimal_props();
         props.insert("maintain-aspect-ratio".into(), "1".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("maintain-aspect-ratio"),
@@ -531,7 +573,7 @@ mod tests {
     fn rejects_symmetric_padding_in_kv() {
         let mut props = minimal_props();
         props.insert("symmetric-padding".into(), "1".into());
-        let cfg = NvInferConfig::new(props, "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
         let err = cfg.validate_and_materialize().unwrap_err();
         assert!(
             err.to_string().contains("symmetric-padding"),
@@ -540,8 +582,55 @@ mod tests {
     }
 
     #[test]
+    fn rejects_infer_dims_in_kv() {
+        let mut props = minimal_props();
+        props.insert("infer-dims".into(), "3;640;640".into());
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 640, 640, ModelColorFormat::RGB);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("infer-dims"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_model_color_format_in_kv() {
+        let mut props = minimal_props();
+        props.insert("model-color-format".into(), "0".into());
+        let cfg = NvInferConfig::new(props, VideoFormat::RGBA, 12, 12, ModelColorFormat::RGB);
+        let err = cfg.validate_and_materialize().unwrap_err();
+        assert!(
+            err.to_string().contains("model-color-format"),
+            "error must mention the key: {err}"
+        );
+    }
+
+    #[test]
+    fn auto_injects_model_color_format() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::BGR,
+        );
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("model-color-format=1"),
+            "BGR must inject model-color-format=1: {content}"
+        );
+    }
+
+    #[test]
     fn injects_scaling_fill() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        );
         assert_eq!(cfg.scaling, ModelInputScaling::Fill);
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
@@ -557,8 +646,14 @@ mod tests {
 
     #[test]
     fn injects_scaling_keep_aspect_ratio() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
-            .scaling(ModelInputScaling::KeepAspectRatio);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        )
+        .scaling(ModelInputScaling::KeepAspectRatio);
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -573,8 +668,14 @@ mod tests {
 
     #[test]
     fn injects_scaling_keep_aspect_ratio_symmetric() {
-        let cfg = NvInferConfig::new(minimal_props(), "RGBA", 12, 12)
-            .scaling(ModelInputScaling::KeepAspectRatioSymmetric);
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            12,
+            12,
+            ModelColorFormat::RGB,
+        )
+        .scaling(ModelInputScaling::KeepAspectRatioSymmetric);
         let tmp = cfg.validate_and_materialize().unwrap();
         let content = std::fs::read_to_string(tmp.path()).unwrap();
         assert!(
@@ -585,5 +686,84 @@ mod tests {
             content.contains("symmetric-padding=1"),
             "must inject symmetric-padding=1: {content}"
         );
+    }
+
+    #[test]
+    fn auto_injects_infer_dims() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            640,
+            640,
+            ModelColorFormat::RGB,
+        );
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("infer-dims=3;640;640"),
+            "must inject infer-dims=3;640;640: {content}"
+        );
+    }
+
+    #[test]
+    fn auto_injects_infer_dims_gray() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            28,
+            28,
+            ModelColorFormat::GRAY,
+        );
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("infer-dims=1;28;28"),
+            "grayscale model must inject infer-dims=1;H;W: {content}"
+        );
+        assert!(
+            content.contains("model-color-format=2"),
+            "must inject model-color-format=2: {content}"
+        );
+    }
+
+    #[test]
+    fn auto_injects_infer_dims_non_square() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            640,
+            480,
+            ModelColorFormat::RGB,
+        );
+        let tmp = cfg.validate_and_materialize().unwrap();
+        let content = std::fs::read_to_string(tmp.path()).unwrap();
+        assert!(
+            content.contains("infer-dims=3;480;640"),
+            "non-square must inject infer-dims=3;H;W: {content}"
+        );
+    }
+
+    #[test]
+    fn model_input_dimensions_returns_fields() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            640,
+            480,
+            ModelColorFormat::RGB,
+        );
+        assert_eq!(cfg.model_input_dimensions(), (640, 480));
+    }
+
+    #[test]
+    fn model_input_dimensions_square() {
+        let cfg = NvInferConfig::new(
+            minimal_props(),
+            VideoFormat::RGBA,
+            112,
+            112,
+            ModelColorFormat::RGB,
+        );
+        assert_eq!(cfg.model_input_dimensions(), (112, 112));
     }
 }

@@ -11,7 +11,7 @@ use deepstream_buffers::{
     BufferGenerator, ComputeMode, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind,
     SurfaceView, TransformConfig, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{ModelInputScaling, NvInfer, NvInferConfig};
+use nvinfer::{ModelColorFormat, ModelInputScaling, NvInfer, NvInferConfig};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -102,6 +102,8 @@ struct ModelSpec {
     format: VideoFormat,
     width: u32,
     height: u32,
+    model_width: u32,
+    model_height: u32,
     group_name: String,
     scaling: ModelInputScaling,
 }
@@ -115,8 +117,6 @@ fn identity_base_properties(dir: &Path) -> HashMap<String, String> {
         dir.join("identity_3x112x112.onnx").to_string_lossy().into(),
     );
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;112;112".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -133,8 +133,6 @@ fn age_gender_base_properties(dir: &Path) -> HashMap<String, String> {
             .into(),
     );
     m.insert("network-mode".into(), "2".into());
-    m.insert("infer-dims".into(), "3;112;112".into());
-    m.insert("model-color-format".into(), "0".into());
     inject_jetson_scaling(&mut m);
     m
 }
@@ -148,10 +146,8 @@ fn yolo_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("gpu-id".into(), "0".into());
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
-    m.insert("infer-dims".into(), "3;640;640".into());
     m.insert("net-scale-factor".into(), "0.003921569790691137".into());
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
-    m.insert("model-color-format".into(), "0".into());
     m.insert("output-blob-names".into(), "output0;output1".into());
     inject_jetson_scaling(&mut m);
     inject_jetson_workspace_cap(&mut m, 2048);
@@ -167,10 +163,8 @@ fn yolo11n_base_properties(dir: &Path) -> HashMap<String, String> {
     m.insert("gpu-id".into(), "0".into());
     m.insert("network-mode".into(), "2".into());
     m.insert("workspace-size".into(), "6144".into());
-    m.insert("infer-dims".into(), "3;640;640".into());
     m.insert("net-scale-factor".into(), "0.003921569790691137".into());
     m.insert("offsets".into(), "0.0;0.0;0.0".into());
-    m.insert("model-color-format".into(), "0".into());
     m.insert("output-blob-names".into(), "output0".into());
     inject_jetson_scaling(&mut m);
     inject_jetson_workspace_cap(&mut m, 2048);
@@ -317,8 +311,14 @@ fn bench_model(c: &mut Criterion, spec: &ModelSpec, batch_sizes: &[u32], mode: B
                 .into(),
         );
 
-        let config =
-            NvInferConfig::new(props, "RGBA", spec.width, spec.height).scaling(spec.scaling);
+        let config = NvInferConfig::new(
+            props,
+            VideoFormat::RGBA,
+            spec.model_width,
+            spec.model_height,
+            ModelColorFormat::RGB,
+        )
+        .scaling(spec.scaling);
         let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for bench");
         promote_built_engine(&spec.onnx_stem, bs);
 
@@ -368,6 +368,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             format: VideoFormat::RGBA,
             width: 112,
             height: 112,
+            model_width: 112,
+            model_height: 112,
             group_name: "identity".into(),
             scaling: ModelInputScaling::Fill,
         },
@@ -378,6 +380,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             format: VideoFormat::RGBA,
             width: 112,
             height: 112,
+            model_width: 112,
+            model_height: 112,
             group_name: "age_gender".into(),
             scaling: ModelInputScaling::Fill,
         },
@@ -388,6 +392,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             format: VideoFormat::RGBA,
             width: 640,
             height: 640,
+            model_width: 640,
+            model_height: 640,
             group_name: "yolo11m_seg".into(),
             scaling: ModelInputScaling::KeepAspectRatio,
         },
@@ -398,6 +404,8 @@ fn bench_sync_batch_sizes(c: &mut Criterion) {
             format: VideoFormat::RGBA,
             width: 640,
             height: 640,
+            model_width: 640,
+            model_height: 640,
             group_name: "yolo11n".into(),
             scaling: ModelInputScaling::KeepAspectRatioSymmetric,
         },
@@ -500,7 +508,8 @@ fn bench_random_nonuniform_age_gender(c: &mut Criterion) {
                 .into(),
         );
 
-        let config = NvInferConfig::new(props, "RGBA", 112, 112).queue_depth(q);
+        let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB)
+            .queue_depth(q);
         let engine = NvInfer::new(config, callback).expect("create NvInfer for random bench");
         promote_built_engine(
             "age_gender_mobilenet_v2_dynBatch.onnx",
@@ -581,7 +590,7 @@ fn bench_random_nonuniform_frame_size_age_gender_sync(c: &mut Criterion) {
             .into(),
     );
 
-    let config = NvInferConfig::new(props, "RGBA", 112, 112);
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
     let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer for sync bench");
     promote_built_engine(
         "age_gender_mobilenet_v2_dynBatch.onnx",

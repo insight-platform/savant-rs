@@ -13,7 +13,7 @@ use deepstream_buffers::{
     BufferGenerator, NonUniformBatch, NvBufSurfaceMemType, SavantIdMetaKind, SharedBuffer,
     SurfaceView, UniformBatchGenerator, VideoFormat,
 };
-use nvinfer::{BatchInferenceOutput, NvInfer, NvInferConfig, Roi};
+use nvinfer::{BatchInferenceOutput, ModelColorFormat, NvInfer, NvInferConfig, Roi};
 use rand::rngs::SmallRng;
 use rand::SeedableRng;
 use savant_core::primitives::RBBox;
@@ -70,8 +70,8 @@ fn build_age_gender_engine_bs1() -> Option<NvInfer> {
         return None;
     }
     let props = common::age_gender_properties_bs1();
-    let config = NvInferConfig::new(props, "RGBA", FRAME_W, FRAME_H);
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1 uniform");
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 1);
     Some(engine)
 }
@@ -83,8 +83,8 @@ fn build_age_gender_engine_bs1_flexible() -> Option<NvInfer> {
         return None;
     }
     let props = common::age_gender_properties_bs1();
-    let config = NvInferConfig::new_flexible(props, "RGBA");
-    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1 flexible");
+    let config = NvInferConfig::new(props, VideoFormat::RGBA, 112, 112, ModelColorFormat::RGB);
+    let engine = NvInfer::new(config, Box::new(|_| {})).expect("create NvInfer bs1");
     common::promote_built_engine("age_gender_mobilenet_v2_dynBatch.onnx", 1);
     Some(engine)
 }

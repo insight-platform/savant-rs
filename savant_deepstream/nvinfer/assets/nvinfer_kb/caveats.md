@@ -75,3 +75,62 @@ the config file while the pipeline is running.
 
 Blocks up to 30 seconds. If the pipeline is slow or stuck, `PipelineError`
 with "infer_sync timed out" is returned.
+
+---
+
+## 8. OperatorInferenceOutput Drop Clears Buffer
+
+`OperatorInferenceOutput::drop` **unconditionally** calls
+`clear_all_frame_objects` on the output buffer. The `output_buffer` field is
+declared last in the struct so Rust's field drop order destroys `frames`
+(and their `TensorView` raw pointers) before the buffer that backs them.
+
+Do not hold references to tensor data after `OperatorInferenceOutput` is dropped.
+
+---
+
+## 9. OperatorElement Lazy Scaler
+
+`OperatorElement` uses `std::cell::OnceCell` (not `OnceLock`) for the lazy
+`CoordinateScaler`. This means `OperatorElement` is `Send` but **not `Sync`**.
+In PyO3 bindings, extract the scaler by value via `coordinate_scaler()` before
+calling `py.detach()` — do not capture `&OperatorElement` in the GIL-released
+closure.
+
+```rust
+let scaler = elem.coordinate_scaler(); // Copy, Send+Sync
+let result = py.detach(|| scaler.scale_points(&points));
+```
+
+---
+
+## 10. CoordinateScaler and Non-Uniform Scaling of Rotated Boxes
+
+Under non-uniform scaling (Fill mode where `scale_x ≠ scale_y`), transforming
+a rotated bounding box is an approximation — the true shape is a parallelogram,
+not a rotated rectangle. This is documented and accepted because
+`KeepAspectRatio` / `KeepAspectRatioSymmetric` modes always use uniform scale.
+
+---
+
+## 11. ROI Matching in Operator Callback
+
+The operator callback matches `ElementOutput` to its ROI via `roi_id`:
+- If `roi_id` is `Some(id)` and a matching ROI exists → the ROI's clamped
+  bounding box (via `rbbox_to_rect_params`) is used for the scaler.
+- If `roi_id` is `None` or no matching ROI found → full frame
+  `(0, 0, frame_w, frame_h)` is used.
+
+The clamped ROI rect is computed using the same `rbbox_to_rect_params` function
+that DeepStream uses at ingress, ensuring consistency between the crop geometry
+and the inverse transform.
+
+---
+
+## 12. PendingBatch Stores ROIs by Value
+
+`submit.rs` clones the `Vec<RoiKind>` returned by `BatchFormationCallback`
+into the `PendingBatch` (because the original `rois` are also destructured
+into a `HashMap` for `NvInfer::submit`). The `rois` field in `submit.rs` is
+iterated by reference (`.iter()`) and cloned per-entry when building the
+`rois_map`.

@@ -3,15 +3,26 @@
 ## Module Tree
 ```
 nvinfer/src/
-├── lib.rs              # Re-exports
-├── pipeline.rs         # NvInfer: GStreamer pipeline, submit, infer_sync
-├── config.rs           # NvInferConfig: properties, validate_and_materialize
-├── error.rs            # NvInferError, Result
-├── output.rs           # BatchInferenceOutput, ElementOutput, TensorView
-├── roi.rs              # Roi
-├── meta_clear_policy.rs# MetaClearPolicy
-├── nvinfer_types.rs    # DataType
-└── batch_meta_builder.rs # attach_batch_meta_with_rois, clear_all_frame_objects (pub(crate))
+├── lib.rs                # Re-exports
+├── pipeline.rs           # NvInfer: GStreamer pipeline, submit, infer_sync
+├── config.rs             # NvInferConfig: properties, validate_and_materialize
+├── error.rs              # NvInferError, Result
+├── output.rs             # BatchInferenceOutput, ElementOutput, TensorView
+├── roi.rs                # Roi, RoiKind
+├── model_input_scaling.rs# ModelInputScaling
+├── meta_clear_policy.rs  # MetaClearPolicy
+├── nvinfer_types.rs      # DataType
+├── batch_meta_builder.rs # attach_batch_meta_with_rois, rbbox_to_rect_params (pub(crate))
+└── batching_operator/    # Higher-level batching layer
+    ├── mod.rs            # Re-exports: NvInferBatchingOperator, OperatorElement, etc.
+    ├── config.rs         # NvInferBatchingOperatorConfig
+    ├── operator.rs       # NvInferBatchingOperator: frame accumulation, timer, callback
+    ├── output.rs         # OperatorElement, OperatorFrameOutput, OperatorInferenceOutput
+    ├── scaler.rs         # CoordinateScaler: model→frame coordinate transform
+    ├── state.rs          # BatchState: pending frames, sources, deadline
+    ├── submit.rs         # SubmitContext: batch formation + NvInfer submission
+    ├── types.rs          # PendingBatch, PendingMap, callback type aliases
+    └── tests.rs          # Unit + integration tests
 ```
 
 ## Pipeline Layout
@@ -88,3 +99,84 @@ are grouped under `[section]`; bare keys go to `[property]`.
 
 On aarch64, small surfaces (< 16×16) can fail with VIC. Tests inject
 `scaling-compute-hw=1` into nvinfer properties to force GPU compute.
+
+---
+
+## Batching Operator Layer
+
+`NvInferBatchingOperator` is a higher-level wrapper over `NvInfer` that
+accepts individual `(VideoFrameProxy, SharedBuffer)` pairs, accumulates them
+into batches, forms a `NonUniformBatch`, and submits to `NvInfer`. Results are
+mapped back to original frames via `OperatorInferenceOutput`.
+
+### Batching Operator Data Flow
+
+```
+User calls add_frame(frame, buffer)
+  → BatchState accumulates (frame, buffer) pairs
+  → When batch is full OR timer expires:
+      → BatchFormationCallback(frames) → BatchFormationResult { ids, rois }
+      → NonUniformBatch formed + finalized
+      → PendingBatch stored in PendingMap (frames + rois + model config)
+      → NvInfer.submit(batch_buffer, rois_map)
+      → NvInfer callback fires with BatchInferenceOutput:
+          → Extract PendingBatch from PendingMap by batch_id
+          → Group ElementOutputs by slot_number
+          → Match each element to its ROI via roi_id → compute clamped rect
+          → Wrap each ElementOutput in OperatorElement (with lazy scaler)
+          → Build OperatorFrameOutput per frame
+          → Deliver OperatorInferenceOutput to OperatorResultCallback
+```
+
+### PendingBatch
+
+When a batch is submitted, `PendingBatch` is stored in the `PendingMap`:
+- `frames: Vec<(VideoFrameProxy, SharedBuffer)>` — original per-frame pairs
+- `rois: Vec<RoiKind>` — per-frame ROI specification (parallel to frames)
+- `model_width`, `model_height`, `scaling` — from `NvInferConfig`
+
+When results arrive, the callback retrieves the `PendingBatch` by batch ID,
+zips frames with ROIs, and builds `OperatorElement` wrappers with the ROI
+geometry needed for coordinate scaling.
+
+### Coordinate Scaler
+
+`CoordinateScaler` maps model-space coordinates back to absolute frame
+coordinates via a 2D affine transform: `frame_xy = offset + model_xy * scale`.
+
+The four coefficients (`scale_x`, `scale_y`, `offset_x`, `offset_y`) depend
+on the ROI crop rectangle, model input dimensions, and `ModelInputScaling` mode:
+
+| Mode | scale_x | scale_y | offset_x | offset_y |
+|---|---|---|---|---|
+| Fill | RW/MW | RH/MH | roi_left | roi_top |
+| KeepAspectRatio | 1/s | 1/s | roi_left | roi_top |
+| KeepAspectRatioSymmetric | 1/s | 1/s | roi_left - pad_x/s | roi_top - pad_y/s |
+
+Where `s = min(MW/RW, MH/RH)`, `pad_x = (MW - RW*s)/2`, `pad_y = (MH - RH*s)/2`.
+
+For rotated bounding boxes (`RBBox`), the center is point-transformed, and
+dimensions are scaled using the trigonometric formulas from `RBBox::scale`
+(inlined for efficiency — single `RBBox::new()` call, no intermediate atomics).
+
+### OperatorElement Lifecycle
+
+`OperatorElement` wraps `ElementOutput` and stores the ROI geometry + model
+config. It implements `Deref<Target = ElementOutput>` so `roi_id`, `tensors`,
+etc. are accessible directly. The `CoordinateScaler` is lazily initialized
+via `OnceCell` on first call to any `scale_*` method.
+
+### Timer Thread
+
+A dedicated timer thread (named `nvinfer-{name}-timer` or
+`nvinfer-batching-operator-timer`) uses `Condvar` to sleep until the batch
+deadline. The `Condvar` is notified when:
+- The first frame arrives (sets the deadline)
+- `shutdown()` is called (wakes to exit)
+
+### Batch Submission Trigger
+
+Batches are submitted when either:
+1. `frames.len() >= max_batch_size` (immediate submit from `add_frame`)
+2. Timer deadline expires (submit from timer thread)
+3. `flush()` is called explicitly

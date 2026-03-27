@@ -74,9 +74,10 @@ pub(crate) const FULL_FRAME_SENTINEL: i32 = -1;
 ///   `NvDsObjectMeta` per [`Roi`] is added.  `object_id` is set to
 ///   `roi.id as u64` so the caller can recover `roi_id` from the output
 ///   tensor meta.
-/// * Otherwise → a single full-frame sentinel object covering
-///   `(0, 0, input_width, input_height)` is added with
-///   `unique_component_id = FULL_FRAME_SENTINEL`.
+/// * Otherwise → a single full-frame sentinel object with
+///   `unique_component_id = FULL_FRAME_SENTINEL` and zero-size rect is
+///   added as a defensive fallback (the caller should always provide
+///   complete ROIs for every slot).
 ///
 /// ## Arguments
 /// * `buffer` – Writable `gst::BufferRef` that must already contain an
@@ -86,8 +87,8 @@ pub(crate) const FULL_FRAME_SENTINEL: i32 = -1;
 ///   existing meta is reused).
 /// * `policy` – When to clear existing object metas.
 /// * `rois` – Optional per-slot ROI lists (key = slot index `0..num_frames`).
-/// * `input_width` / `input_height` – Model input dimensions used for the
-///   full-frame fallback.
+///   The caller should supply ROIs for every slot; any slot without ROIs
+///   receives a zero-size sentinel as a defensive fallback.
 ///
 /// Returns `Ok(n)` where `n` is the number of ROIs dropped due to object meta
 /// pool exhaustion. `n == 0` means all ROIs were attached successfully.
@@ -97,8 +98,6 @@ pub fn attach_batch_meta_with_rois(
     max_batch_size: u32,
     policy: MetaClearPolicy,
     rois: Option<&HashMap<u32, Vec<Roi>>>,
-    input_width: u32,
-    input_height: u32,
 ) -> Result<usize> {
     if num_frames == 0 || num_frames > max_batch_size {
         return Err(NvInferError::BatchMetaFailed(format!(
@@ -142,8 +141,8 @@ pub fn attach_batch_meta_with_rois(
                 // with "Source info not found for source N".
                 (*frame_meta).pad_index = 0;
                 (*frame_meta).source_id = 0;
-                (*frame_meta).source_frame_width = input_width;
-                (*frame_meta).source_frame_height = input_height;
+                // source_frame_width/height are patched later by push_buffer()
+                // with actual surface slot dimensions.
             }
             unsafe { nvds_add_frame_meta_to_batch(batch_meta, frame_meta) };
         }
@@ -176,14 +175,7 @@ pub fn attach_batch_meta_with_rois(
     while !frame_list.is_null() && slot < num_frames {
         let frame_ptr = unsafe { (*frame_list).data as *mut NvDsFrameMeta };
         if !frame_ptr.is_null() {
-            total_dropped += add_roi_objects(
-                batch_meta_raw,
-                frame_ptr,
-                slot,
-                rois,
-                input_width,
-                input_height,
-            );
+            total_dropped += add_roi_objects(batch_meta_raw, frame_ptr, slot, rois);
             slot += 1;
         }
         frame_list = unsafe { (*frame_list).next };
@@ -241,7 +233,16 @@ fn clear_frames_objects(batch_meta: *mut NvDsBatchMeta) {
 /// fail due to `as_ltrb`'s exact `!= 0.0` check). Both paths then clamp to
 /// `[0, max_w] × [0, max_h]`, ensuring `left + width <= max_w` and
 /// `top + height <= max_h` so nvinfer never receives rects outside the buffer.
-fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32, f32) {
+/// Convert an [`RBBox`] to `(left, top, width, height)` without frame clamping.
+///
+/// Used by [`add_roi_objects`] for ROIs that are already in frame-space
+/// coordinates (synthesised by `push_buffer` from actual surface slot
+/// dimensions).
+fn rbbox_to_rect_params_unclamped(bbox: &RBBox) -> (f32, f32, f32, f32) {
+    bbox.get_wrapping_bbox().as_ltwh().unwrap()
+}
+
+pub(crate) fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32, f32) {
     // get_wrapping_bbox always returns axis-aligned (angle=None), so as_ltwh never fails
     let (left, top, w, h) = bbox.get_wrapping_bbox().as_ltwh().unwrap();
 
@@ -265,25 +266,20 @@ fn rbbox_to_rect_params(bbox: &RBBox, max_w: f32, max_h: f32) -> (f32, f32, f32,
 
 /// Add `NvDsObjectMeta` entries for the given slot to `frame_ptr`.
 ///
-/// Uses explicit ROIs when present, or a single full-frame sentinel otherwise.
+/// Uses explicit ROIs when present.  If no ROIs are supplied for a slot,
+/// a zero-size sentinel object is added as a defensive fallback (callers
+/// should always provide complete ROIs via `push_buffer`).
 /// Returns the number of ROIs that were dropped due to pool exhaustion.
 fn add_roi_objects(
     batch_meta: *mut NvDsBatchMeta,
     frame_meta: *mut NvDsFrameMeta,
     slot: u32,
     rois: Option<&HashMap<u32, Vec<Roi>>>,
-    input_width: u32,
-    input_height: u32,
 ) -> usize {
     let slot_rois = rois.and_then(|r| r.get(&slot));
-    let max_w = input_width as f32;
-    let max_h = input_height as f32;
     let mut dropped: usize = 0;
 
     if let Some(roi_list) = slot_rois.filter(|v| !v.is_empty()) {
-        // Iterate in reverse because nvds_add_obj_meta_to_frame prepends
-        // to the GList, so the first ROI in the input vec ends up first
-        // when the list is traversed head-to-tail during output extraction.
         for roi in roi_list.iter().rev() {
             let obj_meta = unsafe { nvds_acquire_obj_meta_from_pool(batch_meta) };
             if obj_meta.is_null() {
@@ -291,7 +287,7 @@ fn add_roi_objects(
                 dropped += 1;
                 continue;
             }
-            let (left, top, width, height) = rbbox_to_rect_params(&roi.bbox, max_w, max_h);
+            let (left, top, width, height) = rbbox_to_rect_params_unclamped(&roi.bbox);
             unsafe {
                 (*obj_meta).rect_params.left = left;
                 (*obj_meta).rect_params.top = top;
@@ -303,21 +299,23 @@ fn add_roi_objects(
             }
         }
     } else {
-        // No explicit ROIs – synthesise a full-frame object so that nvinfer
-        // in secondary mode still receives a region to process.
+        // Defensive fallback — should not be reached when push_buffer()
+        // synthesises ROIs for every slot.
+        log::warn!(
+            "No ROIs for slot {slot}; adding zero-size sentinel. \
+             This indicates a bug in the caller."
+        );
         let obj_meta = unsafe { nvds_acquire_obj_meta_from_pool(batch_meta) };
         if obj_meta.is_null() {
-            log::error!(
-                "nvds_acquire_obj_meta_from_pool returned null (full-frame) for slot {slot}"
-            );
+            log::error!("nvds_acquire_obj_meta_from_pool returned null (sentinel) for slot {slot}");
             dropped += 1;
             return dropped;
         }
         unsafe {
             (*obj_meta).rect_params.left = 0.0;
             (*obj_meta).rect_params.top = 0.0;
-            (*obj_meta).rect_params.width = input_width as f32;
-            (*obj_meta).rect_params.height = input_height as f32;
+            (*obj_meta).rect_params.width = 0.0;
+            (*obj_meta).rect_params.height = 0.0;
             (*obj_meta).unique_component_id = FULL_FRAME_SENTINEL;
             nvds_add_obj_meta_to_frame(frame_meta, obj_meta, ptr::null_mut());
         }
@@ -426,8 +424,7 @@ mod tests {
 
         let rois = rois_for_slot0(roi_42());
         let buf_ref = buf.get_mut().unwrap();
-        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::Before, Some(&rois), 64, 64)
-            .unwrap();
+        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::Before, Some(&rois)).unwrap();
 
         let count = unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
         assert_eq!(
@@ -446,8 +443,7 @@ mod tests {
 
         let rois = rois_for_slot0(roi_42());
         let buf_ref = buf.get_mut().unwrap();
-        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::None, Some(&rois), 64, 64)
-            .unwrap();
+        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::None, Some(&rois)).unwrap();
 
         let count = unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
         // 2 pre-existing + 1 ROI = 3
@@ -467,8 +463,7 @@ mod tests {
 
         let rois = rois_for_slot0(roi_42());
         let buf_ref = buf.get_mut().unwrap();
-        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::After, Some(&rois), 64, 64)
-            .unwrap();
+        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::After, Some(&rois)).unwrap();
 
         let count = unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
         // After policy clears on drop, not on submit → 2 + 1 = 3
@@ -485,8 +480,7 @@ mod tests {
 
         let rois = rois_for_slot0(roi_42());
         let buf_ref = buf.get_mut().unwrap();
-        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::Both, Some(&rois), 64, 64)
-            .unwrap();
+        attach_batch_meta_with_rois(buf_ref, 1, 1, MetaClearPolicy::Both, Some(&rois)).unwrap();
 
         let count = unsafe { count_objects_in_first_frame(buf_ref.as_mut_ptr() as *mut GstBuffer) };
         assert_eq!(

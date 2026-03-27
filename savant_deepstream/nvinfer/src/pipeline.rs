@@ -53,10 +53,6 @@ pub struct NvInfer {
     delivery: Arc<SampleDelivery>,
     /// Monotonic counter used as PTS for internal pipeline correlation.
     next_pts: AtomicU64,
-    /// Model input width (used for full-frame ROI fallback).
-    input_width: u32,
-    /// Model input height (used for full-frame ROI fallback).
-    input_height: u32,
     /// When and whether to clear object metas.
     policy: MetaClearPolicy,
 }
@@ -92,8 +88,6 @@ impl NvInfer {
         let config_file = config.validate_and_materialize()?;
         let config_path = config_file.path().to_string_lossy().to_string();
 
-        let input_width = config.input_width.unwrap_or(0);
-        let input_height = config.input_height.unwrap_or(0);
         let policy = config.meta_clear_policy;
         let host_copy_enabled = !config.disable_output_host_copy;
 
@@ -109,16 +103,10 @@ impl NvInfer {
             .build()
             .map_err(|_| NvInferError::ElementCreationFailed("appsink".into()))?;
 
-        let mut caps_builder = gst::Caps::builder("video/x-raw")
+        let appsrc_caps = gst::Caps::builder("video/x-raw")
             .features(["memory:NVMM"])
-            .field("format", config.input_format.as_str());
-        if let Some(w) = config.input_width {
-            caps_builder = caps_builder.field("width", w as i32);
-        }
-        if let Some(h) = config.input_height {
-            caps_builder = caps_builder.field("height", h as i32);
-        }
-        let appsrc_caps = caps_builder.build();
+            .field("format", config.input_format.gst_name())
+            .build();
         let appsrc_elem: &gst::Element = appsrc.upcast_ref();
         appsrc_elem.set_property("caps", &appsrc_caps);
         appsrc_elem.set_property_from_str("format", "time");
@@ -238,8 +226,6 @@ impl NvInfer {
             _config_file: config_file,
             delivery,
             next_pts: AtomicU64::new(0),
-            input_width,
-            input_height,
             policy,
         })
     }
@@ -323,28 +309,39 @@ impl NvInfer {
     ) -> Result<()> {
         let (num_filled, max_batch_size) = read_surface_header(&batch)?;
 
-        let synthetic_rois;
-        let effective_rois = if rois.is_none()
-            && self.input_width == 0
-            && self.input_height == 0
-            && num_filled > 0
-        {
-            let dims = read_slot_dimensions(&batch, num_filled)?;
-            let mut map = HashMap::with_capacity(dims.len());
-            for (slot, &(w, h)) in dims.iter().enumerate() {
-                map.insert(
-                    slot as u32,
-                    vec![Roi {
-                        id: 0,
-                        bbox: RBBox::ltwh(0.0, 0.0, w as f32, h as f32)
-                            .expect("non-zero surface dimensions"),
-                    }],
-                );
-            }
-            synthetic_rois = map;
-            Some(&synthetic_rois)
+        let slot_dims = if num_filled > 0 {
+            read_slot_dimensions(&batch, num_filled)?
         } else {
-            rois
+            Vec::new()
+        };
+
+        // Build effective ROIs: for any slot without explicit user ROIs,
+        // synthesise a full-frame ROI from the actual surface slot dimensions.
+        let merged_rois;
+        let effective_rois = {
+            let mut map = HashMap::with_capacity(slot_dims.len());
+            for (slot, &(w, h)) in slot_dims.iter().enumerate() {
+                let s = slot as u32;
+                let has_user_rois = rois.and_then(|r| r.get(&s)).is_some_and(|v| !v.is_empty());
+                if has_user_rois {
+                    map.insert(s, rois.unwrap()[&s].clone());
+                } else {
+                    map.insert(
+                        s,
+                        vec![Roi {
+                            id: 0,
+                            bbox: RBBox::ltwh(0.0, 0.0, w as f32, h as f32)
+                                .expect("non-zero surface dimensions"),
+                        }],
+                    );
+                }
+            }
+            merged_rois = map;
+            if merged_rois.is_empty() {
+                None
+            } else {
+                Some(&merged_rois)
+            }
         };
 
         {
@@ -357,9 +354,35 @@ impl NvInfer {
                 max_batch_size,
                 self.policy,
                 effective_rois,
-                self.input_width,
-                self.input_height,
             )?;
+        }
+
+        // Patch each frame meta's source_frame_width/height to match the
+        // actual surface slot dimensions.  DeepStream nvinfer uses these
+        // fields for its internal NvBufSurfTransform scaling; leaving them
+        // at 0 produces undefined crop/resize behaviour.
+        if !slot_dims.is_empty() {
+            let buf_ref = batch
+                .get_mut()
+                .ok_or_else(|| NvInferError::PipelineError("Buffer not writable".into()))?;
+            let buf_ptr = buf_ref.as_mut_ptr() as *mut deepstream_sys::GstBuffer;
+            let batch_meta = unsafe { deepstream_sys::gst_buffer_get_nvds_batch_meta(buf_ptr) };
+            if !batch_meta.is_null() {
+                let mut frame_list = unsafe { (*batch_meta).frame_meta_list };
+                let mut slot: usize = 0;
+                while !frame_list.is_null() && slot < slot_dims.len() {
+                    let frame_ptr =
+                        unsafe { (*frame_list).data as *mut deepstream_sys::NvDsFrameMeta };
+                    if !frame_ptr.is_null() {
+                        unsafe {
+                            (*frame_ptr).source_frame_width = slot_dims[slot].0;
+                            (*frame_ptr).source_frame_height = slot_dims[slot].1;
+                        }
+                        slot += 1;
+                    }
+                    frame_list = unsafe { (*frame_list).next };
+                }
+            }
         }
 
         {
@@ -391,16 +414,6 @@ impl NvInfer {
             .set_state(gst::State::Null)
             .map_err(|e| NvInferError::PipelineError(format!("set_state Null failed: {:?}", e)))?;
         Ok(())
-    }
-
-    /// Model input width (0 for flexible config).
-    pub fn input_width(&self) -> u32 {
-        self.input_width
-    }
-
-    /// Model input height (0 for flexible config).
-    pub fn input_height(&self) -> u32 {
-        self.input_height
     }
 
     fn set_element_property(element: &gst::Element, key: &str, value: &str) -> Result<()> {

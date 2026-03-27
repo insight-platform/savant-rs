@@ -5,9 +5,12 @@ Only available when ``savant_rs`` is built with the ``deepstream`` Cargo feature
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Union, final
+from typing import Callable, Dict, List, Optional, Tuple, Union, final
 
-from savant_rs.deepstream import SharedBuffer
+import numpy as np
+from numpy.typing import NDArray
+from savant_rs.deepstream import SharedBuffer, SavantIdMetaKind, VideoFormat
+from savant_rs.primitives import VideoFrame
 from savant_rs.primitives.geometry import RBBox
 
 __all__ = [
@@ -15,12 +18,20 @@ __all__ = [
     "ModelInputScaling",
     "DataType",
     "Roi",
+    "RoiKind",
     "NvInferConfig",
     "InferDims",
     "TensorView",
     "ElementOutput",
     "BatchInferenceOutput",
     "NvInfer",
+    "NvInferBatchingOperatorConfig",
+    "BatchFormationResult",
+    "OperatorTensorView",
+    "OperatorElementOutput",
+    "OperatorFrameOutput",
+    "OperatorInferenceOutput",
+    "NvInferBatchingOperator",
 ]
 
 # ── Enums ────────────────────────────────────────────────────────────────
@@ -60,6 +71,28 @@ class ModelInputScaling:
     FILL: ModelInputScaling
     KEEP_ASPECT_RATIO: ModelInputScaling
     KEEP_ASPECT_RATIO_SYMMETRIC: ModelInputScaling
+
+    def __eq__(self, other: object) -> bool: ...
+    def __ne__(self, other: object) -> bool: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+@final
+class ModelColorFormat:
+    """Color space the model expects for its input tensor.
+
+    Maps to nvinfer ``model-color-format``; do not set that key in
+    ``nvinfer_properties``.
+
+    - ``RGB``  -- 3-channel RGB input (default).
+    - ``BGR``  -- 3-channel BGR input.
+    - ``GRAY`` -- single-channel grayscale input.
+    """
+
+    RGB: ModelColorFormat
+    BGR: ModelColorFormat
+    GRAY: ModelColorFormat
 
     def __eq__(self, other: object) -> bool: ...
     def __ne__(self, other: object) -> bool: ...
@@ -116,6 +149,35 @@ class Roi:
 
     def __repr__(self) -> str: ...
 
+@final
+class RoiKind:
+    """Per-frame ROI specification for the batching operator.
+
+    Use ``RoiKind.full_frame()`` when the entire frame should be inferred,
+    or ``RoiKind.rois(list_of_roi)`` when specific regions are provided.
+    """
+
+    @staticmethod
+    def full_frame() -> RoiKind:
+        """Create a ``FullFrame`` variant -- infer on the whole frame."""
+        ...
+
+    @staticmethod
+    def rois(rois: List[Roi]) -> RoiKind:
+        """Create a ``Rois`` variant with a list of :class:`Roi`."""
+        ...
+
+    @property
+    def is_full_frame(self) -> bool:
+        """``True`` when this is the ``FullFrame`` variant."""
+        ...
+
+    def get_rois(self) -> List[Roi]:
+        """Return the ROI list (empty for ``FullFrame``)."""
+        ...
+
+    def __repr__(self) -> str: ...
+
 # ── Configuration ────────────────────────────────────────────────────────
 
 @final
@@ -125,25 +187,30 @@ class NvInferConfig:
     Args:
         nvinfer_properties: NvInfer config keys.  Use dotted notation
             ``section.key`` for per-class sections.  Bare keys go to
-            ``[property]``.
-        input_format: Input format for appsrc caps (e.g. ``"RGBA"``).
-        input_width: Input width for appsrc caps.
-        input_height: Input height for appsrc caps.
+            ``[property]``.  ``infer-dims``, ``model-color-format`` must
+            **not** be set here; they are auto-injected.
+        input_format: Pixel format for appsrc caps.
+        model_width: Model input tensor width in pixels.
+        model_height: Model input tensor height in pixels.
+        model_color_format: Model input color space.
         name: Optional instance name for logging.
         element_properties: Additional GStreamer element properties.
         gpu_id: GPU device ID.
         queue_depth: GStreamer queue max-size-buffers (0 = no queue).
         meta_clear_policy: When to clear object metadata.
+        disable_output_host_copy: When ``True``, skip device-to-host
+            copy of output tensors. Default: ``False``.
         scaling: How frames are scaled to model input size.
     """
 
     def __init__(
         self,
         nvinfer_properties: Dict[str, str],
-        input_format: str,
-        input_width: int,
-        input_height: int,
+        input_format: VideoFormat,
+        model_width: int,
+        model_height: int,
         *,
+        model_color_format: ModelColorFormat = ModelColorFormat.RGB,
         name: str = "",
         element_properties: Optional[Dict[str, str]] = None,
         gpu_id: int = 0,
@@ -152,25 +219,6 @@ class NvInferConfig:
         disable_output_host_copy: bool = False,
         scaling: ModelInputScaling = ModelInputScaling.FILL,
     ) -> None: ...
-    @staticmethod
-    def new_flexible(
-        nvinfer_properties: Dict[str, str],
-        input_format: str,
-        *,
-        name: str = "",
-        element_properties: Optional[Dict[str, str]] = None,
-        gpu_id: int = 0,
-        queue_depth: int = 0,
-        meta_clear_policy: MetaClearPolicy = MetaClearPolicy.BEFORE,
-        disable_output_host_copy: bool = False,
-        scaling: ModelInputScaling = ModelInputScaling.FILL,
-    ) -> NvInferConfig:
-        """Create a config without fixed input dimensions.
-
-        Required for non-uniform batches where each frame may have a
-        different resolution.
-        """
-        ...
 
     @property
     def name(self) -> str: ...
@@ -179,11 +227,13 @@ class NvInferConfig:
     @property
     def queue_depth(self) -> int: ...
     @property
-    def input_format(self) -> str: ...
+    def input_format(self) -> VideoFormat: ...
     @property
-    def input_width(self) -> Optional[int]: ...
+    def model_width(self) -> int: ...
     @property
-    def input_height(self) -> Optional[int]: ...
+    def model_height(self) -> int: ...
+    @property
+    def model_color_format(self) -> ModelColorFormat: ...
     @property
     def meta_clear_policy(self) -> MetaClearPolicy: ...
     @property
@@ -390,6 +440,311 @@ class NvInfer:
 
     def shutdown(self) -> None:
         """Graceful shutdown: send EOS, drain, stop pipeline."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+# ── Batching operator layer ──────────────────────────────────────────────
+
+@final
+class NvInferBatchingOperatorConfig:
+    """Configuration for the NvInferBatchingOperator batching layer.
+
+    Embeds a full ``NvInferConfig`` which is forwarded to the inner NvInfer
+    pipeline.  The GPU device ID for batch construction is taken from
+    ``nvinfer_config.gpu_id``.
+
+    Args:
+        max_batch_size: Maximum batch size; triggers inference when reached.
+        same_source_allowed: When ``False``, rejects frames whose source_id
+            is already present in the pending batch.
+        max_batch_wait_ms: Maximum time in milliseconds to wait before
+            submitting a partial batch.
+        nvinfer_config: Configuration forwarded to the inner NvInfer engine.
+    """
+
+    def __init__(
+        self,
+        max_batch_size: int,
+        same_source_allowed: bool,
+        max_batch_wait_ms: int,
+        nvinfer_config: NvInferConfig,
+    ) -> None: ...
+    @property
+    def max_batch_size(self) -> int: ...
+    @property
+    def same_source_allowed(self) -> bool: ...
+    @property
+    def max_batch_wait_ms(self) -> int: ...
+    @property
+    def nvinfer_config(self) -> NvInferConfig:
+        """The embedded NvInfer engine configuration."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class BatchFormationResult:
+    """Result returned by the batch formation callback.
+
+    Args:
+        ids: Per-frame Savant IDs as ``(SavantIdMetaKind, int)`` pairs.
+        rois: Per-frame ROI specification.
+    """
+
+    def __init__(
+        self,
+        ids: List[Tuple[SavantIdMetaKind, int]],
+        rois: List[RoiKind],
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+@final
+class OperatorTensorView:
+    """Zero-copy view into a single output tensor from an operator slot.
+
+    Exposes ``host_ptr`` and ``device_ptr`` as plain integer addresses so
+    that Python callers can construct framework-native tensors (NumPy via
+    ``ctypes``, CuPy, PyTorch) without any data copy on the Rust side.
+
+    Valid while the parent ``OperatorInferenceOutput`` is alive.
+    """
+
+    @property
+    def name(self) -> str:
+        """Output layer name."""
+        ...
+
+    @property
+    def dims(self) -> InferDims:
+        """Tensor dimensions."""
+        ...
+
+    @property
+    def data_type(self) -> DataType:
+        """Data type of tensor elements."""
+        ...
+
+    @property
+    def byte_length(self) -> int:
+        """Byte length of the tensor."""
+        ...
+
+    @property
+    def host_ptr(self) -> int:
+        """Host (CPU) memory address of the tensor data, or 0 if unavailable."""
+        ...
+
+    @property
+    def device_ptr(self) -> int:
+        """Device (GPU) memory address of the tensor data, or 0 if unavailable."""
+        ...
+
+    @property
+    def has_host_data(self) -> bool:
+        """Whether host (CPU) tensor data is valid.
+
+        Returns ``False`` when ``disable_output_host_copy`` was set on the
+        config, meaning only ``device_ptr`` is usable.
+        """
+        ...
+
+    @property
+    def numpy_dtype(self) -> str:
+        """NumPy-compatible dtype string (``"float32"``, ``"float16"``,
+        ``"int8"``, ``"int32"``)."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class OperatorElementOutput:
+    """Per-element inference output for one ROI in one operator frame.
+
+    Provides access to output tensors and coordinate scaling methods that
+    transform model-space predictions back to absolute frame coordinates.
+    The coordinate scaler is lazily initialized on first use.
+
+    Tensor pointers are valid while the parent ``OperatorInferenceOutput``
+    (or any sibling ``OperatorTensorView``) is alive.
+    """
+
+    @property
+    def roi_id(self) -> Optional[int]:
+        """ROI identifier from ``Roi.id``.  ``None`` when the full frame was used."""
+        ...
+
+    @property
+    def slot_number(self) -> int:
+        """DeepStream surface slot index (``NvDsFrameMeta.batch_id``)."""
+        ...
+
+    @property
+    def tensors(self) -> List[OperatorTensorView]:
+        """Output tensors for this element."""
+        ...
+
+    def scale_points(
+        self,
+        data: Union[NDArray[np.float32], List[Tuple[float, float]]],
+    ) -> NDArray[np.float32]:
+        """Transform points from model-input space to absolute frame coordinates.
+
+        Args:
+            data: ``ndarray[float32]`` of shape ``(N, 2)`` **or**
+                ``list[tuple[float, float]]`` of ``(x, y)`` points.
+
+        Returns:
+            ``ndarray[float32]`` of shape ``(N, 2)``.
+        """
+        ...
+
+    def scale_ltwh(
+        self,
+        data: Union[NDArray[np.float32], List[Tuple[float, float, float, float]]],
+    ) -> NDArray[np.float32]:
+        """Transform axis-aligned boxes ``(left, top, width, height)`` from
+        model-input space to absolute frame coordinates.
+
+        Args:
+            data: ``ndarray[float32]`` of shape ``(N, 4)`` **or**
+                ``list[tuple[float, float, float, float]]``.
+
+        Returns:
+            ``ndarray[float32]`` of shape ``(N, 4)``.
+        """
+        ...
+
+    def scale_ltrb(
+        self,
+        data: Union[NDArray[np.float32], List[Tuple[float, float, float, float]]],
+    ) -> NDArray[np.float32]:
+        """Transform axis-aligned boxes ``(left, top, right, bottom)`` from
+        model-input space to absolute frame coordinates.
+
+        Args:
+            data: ``ndarray[float32]`` of shape ``(N, 4)`` **or**
+                ``list[tuple[float, float, float, float]]``.
+
+        Returns:
+            ``ndarray[float32]`` of shape ``(N, 4)``.
+        """
+        ...
+
+    def scale_rbboxes(self, boxes: List[RBBox]) -> List[RBBox]:
+        """Transform rotated bounding boxes from model-input space to absolute
+        frame coordinates.
+
+        Args:
+            boxes: ``list[RBBox]``.
+
+        Returns:
+            ``list[RBBox]``.
+        """
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class OperatorFrameOutput:
+    """Per-frame inference result paired with the original frame and buffer.
+
+    Tensor data remains valid as long as the parent
+    ``OperatorInferenceOutput`` is alive.
+    """
+
+    @property
+    def frame(self) -> VideoFrame:
+        """The original VideoFrame submitted for this frame."""
+        ...
+
+    @property
+    def buffer(self) -> SharedBuffer:
+        """The original individual frame buffer submitted for this frame."""
+        ...
+
+    @property
+    def elements(self) -> List[OperatorElementOutput]:
+        """Inference results for this frame."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class OperatorInferenceOutput:
+    """Full batch inference result from NvInferBatchingOperator.
+
+    Takes over lifetime management of tensor data from the underlying
+    NvInfer output. Tensor pointers in ``OperatorFrameOutput.elements``
+    remain valid as long as this object is alive.
+    """
+
+    @property
+    def frames(self) -> List[OperatorFrameOutput]:
+        """Per-frame outputs with the original frame and buffer."""
+        ...
+
+    @property
+    def host_copy_enabled(self) -> bool:
+        """Whether host (CPU) tensor data is valid."""
+        ...
+
+    @property
+    def num_frames(self) -> int:
+        """Number of frames in the batch."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+@final
+class NvInferBatchingOperator:
+    """Higher-level batching layer over NvInfer.
+
+    Accepts individual ``(VideoFrame, SharedBuffer)`` pairs, accumulates them
+    into batches according to configurable policies, and delegates inference
+    to the underlying NvInfer pipeline. Results are delivered via a callback
+    with per-frame outputs mapped back to the original frame/buffer pairs.
+
+    Args:
+        config: Batching policy and NvInfer engine configuration (the
+            ``NvInferConfig`` is embedded in ``NvInferBatchingOperatorConfig``).
+        batch_formation_callback: Called when a batch is ready. Receives a
+            list of VideoFrames and must return a ``BatchFormationResult``
+            with per-frame ROIs and Savant IDs.
+        result_callback: Called when inference results are available.
+    """
+
+    def __init__(
+        self,
+        config: NvInferBatchingOperatorConfig,
+        batch_formation_callback: Callable[
+            [List[VideoFrame]], BatchFormationResult
+        ],
+        result_callback: Callable[[OperatorInferenceOutput], None],
+    ) -> None: ...
+    def add_frame(
+        self, frame: VideoFrame, buffer: Union[SharedBuffer, int]
+    ) -> None:
+        """Add a single frame for batched inference.
+
+        When ``same_source_allowed`` is ``False`` and the batch already
+        contains a frame from the same source, raises ``RuntimeError``.
+
+        If adding this frame fills the batch to ``max_batch_size``, the
+        batch is submitted immediately.
+
+        Args:
+            frame: Video frame metadata.
+            buffer: Individual frame buffer (NvBufSurface).
+        """
+        ...
+
+    def flush(self) -> None:
+        """Submit the current partial batch immediately (if non-empty)."""
+        ...
+
+    def shutdown(self) -> None:
+        """Flush pending frames, stop the timer, and shut down NvInfer."""
         ...
 
     def __repr__(self) -> str: ...
